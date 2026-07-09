@@ -118,7 +118,7 @@ AS $$
   END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_accreditation_ay_label(timestamptz) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_accreditation_ay_label(timestamptz) FROM anon, authenticated, PUBLIC;  -- deep-review r2 LOW: match the rollup fn's lockdown exactly
 GRANT  EXECUTE ON FUNCTION public.fn_accreditation_ay_label(timestamptz) TO service_role;
 
 -- ----------------------------------------------------------------------------
@@ -197,13 +197,24 @@ BEGIN
   WHERE s.domain = 'session_feedback'
     AND s.outcome_measured_at IS NOT NULL
     AND s.institution_id IS NOT NULL
-    -- deep-review 2026-07-09 MEDIUM (consensus): bound the nightly sweep to
-    -- O(recent) — without a window every run re-upserts ALL history forever
-    -- (mapped_at always changes) and cost grows unbounded toward the route's
-    -- 120s budget. 45 days covers every measured cycle that exists at ship
-    -- time (loops began 2026-06), so the first run misses nothing; evidence
-    -- rows older than the window remain in the junction untouched.
-    AND s.outcome_measured_at >= now() - interval '45 days'
+    -- deep-review rounds 1+2 disposition (window oscillation — r1: "unbounded
+    -- sweep, bound it"; r2: "fixed window silently loses cycles after a >45d
+    -- outage"). Resolution = junction presence IS the state: a row is swept if
+    -- measured recently (bounded WRITE churn — only these re-upsert nightly)
+    -- OR never emitted at all (catch-up after any outage, backfill, or late
+    -- institution_id heal — a cheap indexed anti-join READ). Neither pole
+    -- loses: no unbounded rewrite, no permanent exclusion.
+    -- Accepted residuals (r2 LOWs, by design): votes/metadata arriving >45d
+    -- after measurement stay stale on the evidence row (votes are cast inside
+    -- the 48h feedback window — a 45-day refresh horizon exceeds any
+    -- legitimate arrival by an order of magnitude); mapped_at = LAST-refreshed
+    -- semantics; returned counts = rows TOUCHED this run (dispatcher summary
+    -- is operational, not an audit ledger).
+    AND (s.outcome_measured_at >= now() - interval '45 days'
+         OR NOT EXISTS (SELECT 1 FROM public.quality_evidence_mappings qem
+                        WHERE qem.source_table = 'scf_ai_suggestions'
+                          AND qem.source_id = s.id
+                          AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.f'))
   -- deep-review 2026-07-09 dispositions: (a) the arbiter UNIQUE constraint is
   -- VERIFIED present on prod — quality_evidence_mappings_source_table_source_id_
   -- body_code__key UNIQUE (source_table, source_id, body_code, metric_code);
@@ -262,7 +273,15 @@ BEGIN
     -- institution_id is NOT NULL — one NULL source row would abort the WHOLE
     -- nightly txn (all four loops), so guard here, not just on the SCF paths.
     AND e.institution_id IS NOT NULL
-    AND e.outcome_measured_at >= now() - interval '45 days'
+    -- deep-review r2 MEDIUM: insufficient_rtm_data has outcome_measured_at set
+    -- but NO usable measurement (net_effect NULL) — a non-measurement must not
+    -- be recorded as measured quality-loop evidence.
+    AND e.measure_status IS DISTINCT FROM 'insufficient_rtm_data'
+    AND (e.outcome_measured_at >= now() - interval '45 days'   -- bounded sweep + catch-up, see teaching path
+         OR NOT EXISTS (SELECT 1 FROM public.quality_evidence_mappings qem
+                        WHERE qem.source_table = 'induction_session_effectiveness'
+                          AND qem.source_id = e.id
+                          AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.d'))
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -308,7 +327,11 @@ BEGIN
   WHERE s.domain = 'induction'
     AND s.outcome_measured_at IS NOT NULL
     AND s.institution_id IS NOT NULL
-    AND s.outcome_measured_at >= now() - interval '45 days'   -- bounded sweep, see above
+    AND (s.outcome_measured_at >= now() - interval '45 days'   -- bounded sweep + catch-up, see teaching path
+         OR NOT EXISTS (SELECT 1 FROM public.quality_evidence_mappings qem
+                        WHERE qem.source_table = 'scf_ai_suggestions'
+                          AND qem.source_id = s.id
+                          AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.d'))
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -366,7 +389,11 @@ BEGIN
   FROM public.mess_menu_recommendations m
   WHERE m.measured_at IS NOT NULL
     AND m.institution_id IS NOT NULL    -- NOT NULL on the junction; see induction note
-    AND m.measured_at >= now() - interval '45 days'
+    AND (m.measured_at >= now() - interval '45 days'   -- bounded sweep + catch-up, see teaching path
+         OR NOT EXISTS (SELECT 1 FROM public.quality_evidence_mappings qem
+                        WHERE qem.source_table = 'mess_menu_recommendations'
+                          AND qem.source_id = m.id
+                          AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.f'))
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -409,6 +436,21 @@ COMMENT ON FUNCTION public.fn_accreditation_rollup_loop_evidence() IS
 INSERT INTO public.ai_routine_schedules (routine_id, enabled, managed, days_of_week, minute_of_day)
 VALUES ('accreditation-loop-evidence', true, true, ARRAY[0,1,2,3,4,5,6]::smallint[], 263)
 ON CONFLICT (routine_id) DO NOTHING;
+
+-- deep-review r2 LOW ("comment-asserted prod state is unverifiable"): assert
+-- the ON CONFLICT arbiter at APPLY time — the migration fails loudly here
+-- rather than the nightly cron failing silently forever.
+DO $assert$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.quality_evidence_mappings'::regclass
+      AND contype = 'u'
+      AND pg_get_constraintdef(oid) LIKE '%source_table, source_id, body_code, metric_code%'
+  ) THEN
+    RAISE EXCEPTION 'quality_evidence_mappings is missing UNIQUE (source_table, source_id, body_code, metric_code) — the rollup upserts depend on it';
+  END IF;
+END $assert$;
 
 -- Reload PostgREST's schema cache so the new RPC resolves immediately after a
 -- raw Management-API apply (which does NOT auto-reload).
