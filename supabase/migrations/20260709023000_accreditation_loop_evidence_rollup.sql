@@ -56,8 +56,9 @@
 -- "MEASURED" per loop (only measured cycles become evidence):
 --   scf_teaching / induction_playbook → outcome_measured_at IS NOT NULL
 --   induction_session                 → outcome_measured_at IS NOT NULL
---                                       (includes measure_status='insufficient_rtm_data' —
---                                        an honest measurement attempt; status is in metadata)
+--                                       AND measure_status <> 'insufficient_rtm_data'
+--                                       (r2: net_effect NULL = a non-measurement —
+--                                        it must not count as measured evidence)
 --   mess_menu                         → measured_at IS NOT NULL
 --   Rows whose institution cannot be derived are SKIPPED
 --   (quality_evidence_mappings.institution_id is NOT NULL): only
@@ -141,6 +142,11 @@ DECLARE
   v_ise      integer := 0;
   v_playbook integer := 0;
   v_mess     integer := 0;
+  -- deep-review r3 MEDIUM (consensus): each loop runs in its own BEGIN/EXCEPTION
+  -- subtransaction — one poison source row (deleted-institution FK, future
+  -- constraint, type surprise) darkens ONE loop's night, not all four. Errors
+  -- surface in the returned jsonb instead of a silent all-loop rollback.
+  v_errors   jsonb := '{}'::jsonb;
 BEGIN
   -- ── (a) SCF teaching loop → 7.3.f (stakeholder satisfaction + feedback) ────
   -- Students rate → facilitator note → next class re-measured → Better/Same/
@@ -153,6 +159,7 @@ BEGIN
   -- faculty_email is deliberately NOT copied into evidence metadata (identity
   -- hygiene; the source row remains linked via source_table/source_id for
   -- auditors with access).
+  BEGIN
   INSERT INTO public.quality_evidence_mappings
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
@@ -221,6 +228,9 @@ BEGIN
   -- (b) is_auto is NOT NULL DEFAULT false on prod, so "NULL is_auto blocks
   -- refresh" cannot occur — bare WHERE is_auto is exact, and conservatively
   -- treats unknown provenance as never-clobber by design.
+  LIMIT 5000   -- deep-review r3 MEDIUM: bound per-run emission so a giant
+               -- post-outage backlog makes forward progress across nights
+               -- instead of timing out wholesale (real volume: single digits/day)
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -230,6 +240,9 @@ BEGIN
     -- never clobber a manually-curated (is_auto=false) mapping for this key
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_scf = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    v_errors := v_errors || jsonb_build_object('scf_teaching', SQLERRM);
+  END;
 
   -- ── (b) Induction session-effectiveness loop → 7.3.d (performance assessed
   --        vs baseline, fed back to the system) ──────────────────────────────
@@ -237,6 +250,7 @@ BEGIN
   -- NOT NULL by DDL). measure_status='insufficient_rtm_data' rows are honest
   -- measurement attempts — included, with the status visible in metadata and
   -- delta_summary='n/a' (net_effect NULL).
+  BEGIN
   INSERT INTO public.quality_evidence_mappings
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
@@ -282,6 +296,9 @@ BEGIN
                         WHERE qem.source_table = 'induction_session_effectiveness'
                           AND qem.source_id = e.id
                           AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.d'))
+  LIMIT 5000   -- deep-review r3 MEDIUM: bound per-run emission so a giant
+               -- post-outage backlog makes forward progress across nights
+               -- instead of timing out wholesale (real volume: single digits/day)
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -290,6 +307,9 @@ BEGIN
         mapped_at    = now()
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_ise = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    v_errors := v_errors || jsonb_build_object('induction_session', SQLERRM);
+  END;
 
   -- ── (c) Induction annual playbook loop → 7.3.d ─────────────────────────────
   -- The ONE-memory induction cohort loop (scf_ai_suggestions domain='induction',
@@ -297,6 +317,7 @@ BEGIN
   -- outcome_avg_understood holds the cohort's VALUE-BALANCED JOIN SCORE and
   -- outcome_responses the cohort size. Same source_table as (a) but disjoint row
   -- sets (domain partition) AND a different metric_code, so keys never collide.
+  BEGIN
   INSERT INTO public.quality_evidence_mappings
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
@@ -332,6 +353,9 @@ BEGIN
                         WHERE qem.source_table = 'scf_ai_suggestions'
                           AND qem.source_id = s.id
                           AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.d'))
+  LIMIT 5000   -- deep-review r3 MEDIUM: bound per-run emission so a giant
+               -- post-outage backlog makes forward progress across nights
+               -- instead of timing out wholesale (real volume: single digits/day)
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -340,6 +364,9 @@ BEGIN
         mapped_at    = now()
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_playbook = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    v_errors := v_errors || jsonb_build_object('induction_playbook', SQLERRM);
+  END;
 
   -- ── (d) Mess Choose-Your-Menu loop → 7.3.f ─────────────────────────────────
   -- Loop is currently DARK (0 measured rows) — emitting now means evidence
@@ -350,6 +377,7 @@ BEGIN
   -- VERIFIED CORRECT — 20260727000000_mess_menu_loop_spine.sql defines
   -- waste_lift = baseline_waste_pct - outcome_waste_pct ("positive =
   -- improvement"), i.e. reduction-positive, so lift>0 => 'improved' holds.
+  BEGIN
   INSERT INTO public.quality_evidence_mappings
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
@@ -394,6 +422,9 @@ BEGIN
                         WHERE qem.source_table = 'mess_menu_recommendations'
                           AND qem.source_id = m.id
                           AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.f'))
+  LIMIT 5000   -- deep-review r3 MEDIUM: bound per-run emission so a giant
+               -- post-outage backlog makes forward progress across nights
+               -- instead of timing out wholesale (real volume: single digits/day)
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -402,6 +433,9 @@ BEGIN
         mapped_at    = now()
     WHERE public.quality_evidence_mappings.is_auto;
   GET DIAGNOSTICS v_mess = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    v_errors := v_errors || jsonb_build_object('mess_menu', SQLERRM);
+  END;
 
   -- Per-loop upsert counts + 'count' total ('count' is on the dispatcher's
   -- summarize() allowlist, so the Control Tower's "last run" line shows it).
@@ -411,7 +445,8 @@ BEGIN
     'induction_playbook', v_playbook,
     'mess_menu',          v_mess,
     'count',              v_scf + v_ise + v_playbook + v_mess
-  );
+  ) || CASE WHEN v_errors = '{}'::jsonb THEN '{}'::jsonb
+            ELSE jsonb_build_object('errors', v_errors) END;
 END;
 $$;
 
