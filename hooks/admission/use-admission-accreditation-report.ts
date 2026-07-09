@@ -16,7 +16,7 @@ export const admissionAccreditationKeys = {
 };
 
 /**
- * NAAC Criterion 2.1.1 — Average Enrollment Percentage report.
+ * NAAC Metric 8.1.1 (Binary framework) — Student enrolment vs sanctioned intake.
  * Also feeds NIRF TLR_SS (overlap) when evidence is emitted.
  */
 export function useAdmissionAccreditationEnrollmentReport(institutionId?: string) {
@@ -39,7 +39,7 @@ export const useNAACEnrollmentReport = useAdmissionAccreditationEnrollmentReport
 export const naacKeys = admissionAccreditationKeys;
 
 /**
- * Emit fan-out evidence rows (NAAC 2.1.1 + NIRF TLR_SS) when the user explicitly
+ * Emit fan-out evidence rows (NAAC 8.1.1 + NIRF TLR_SS) when the user explicitly
  * files the enrollment snapshot as evidence. Idempotent via UNIQUE constraint
  * on quality_evidence_mappings.
  */

@@ -106,6 +106,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
   },
   {
+    "id": "accreditation-loop-evidence",
+    "name": "Accreditation — Loop→AQAR Evidence Rollup (NAAC 7.3 Quality Assurance System)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:23 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/accreditation-loop-evidence",
+    "callsClaude": false,
+    "whatItDoes": "Turns every measured self-improving-loop cycle into NAAC Metric 7.3 'Quality Assurance System' accreditation evidence (Binary Accreditation Framework 2024, Attribute 7: Governance; maps to Criterion 6.5 IQAC under the outgoing framework). Each night it sweeps the four quality loops — SCF teaching suggestions, induction session-effectiveness, the induction annual playbook, and the mess Choose-Your-Menu loop — and upserts one quality_evidence_mappings row per measured outcome (baseline, result, lift, Better/Same/Worse votes) so the AQAR narrative is backed by live machine-measured evidence instead of nothing.",
+    "configKnobs": "Metric mapping pinned: scf_teaching + mess_menu → 7.3.f (periodic stakeholder satisfaction with feedback), induction_session + induction_playbook → 7.3.d (audits & performance assessment fed back to the system); 7.3.e seeded RESERVED (the loop practice itself — /admin/loops Control Tower; no per-row emission). Only MEASURED cycles emit (outcome_measured_at / measured_at set); rows with no derivable institution are skipped. period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts is_auto=true rows into quality_evidence_mappings (NAAC / 7.3.d / 7.3.f), refreshing metadata + mapped_at on re-run. NEVER touches manually-curated (is_auto=false) mappings. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-loop-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same evidence rows (natural key source_table+source_id+body_code+metric_code). Loop→AQAR bridge PR 1/2; PR 2 renders these rows in the /accreditation UI by loop_key."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",
