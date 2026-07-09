@@ -188,15 +188,15 @@ COMMIT;
 -- ============================================================================
 -- SELECT metric_code, metric_name, category FROM sh_accreditation_metrics
 -- WHERE metric_type='NAAC'
---   AND metric_code IN ('1.2.1','1.3.1','1.6.1','2.3.1','6.2.1','6.5.1','7.10.1')
+--   AND metric_code IN ('1.2.1','1.3.1','2.3.1','6.2.1','6.4.1','6.5.1','7.10.1')
 -- ORDER BY metric_code;
 --   Expected: NO rows at 1.2.1 / 2.3.1 / 6.2.1;
 --     1.3.1  = 'Programs offering flexibility (electives, minors)'
---     1.6.1  = 'Integration of cross-cutting issues (gender, ethics, sustainability)'
+--     6.4.1  = 'Integration of cross-cutting issues (gender, ethics, sustainability)' (Attribute 6)
 --     6.5.1  = 'Sports participation + achievements' (Attribute 6)
 --     7.10.1 = 'Faculty retention % over last 3 years' (Attribute 7: Governance)
 --
 -- SELECT legacy_code, current_code FROM accreditation_metric_crosswalk
 -- WHERE body_code='NAAC' AND legacy_code IN ('1.2.1','1.3.1','2.3.1','6.2.1');
---   Expected 4 rows: 1.2.1→1.3.1, 1.3.1→1.6.1, 2.3.1→7.10.1, 6.2.1→6.5.1.
+--   Expected 4 rows: 1.2.1→1.3.1, 1.3.1→6.4.1, 2.3.1→7.10.1, 6.2.1→6.5.1.
 -- ============================================================================
