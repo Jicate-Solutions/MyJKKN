@@ -68,9 +68,11 @@ async function storeAuditCopy(
 }
 
 // ------------------------------------------------------------------
-// NAAC 5.2.1 export
+// NAAC 8.2 (Graduate Progression, Binary framework) export
+// — formerly Criterion 5.2.1; the RPC/policy/type identifiers below keep
+//   the legacy `naac_5_2_1` name (grants and DB objects reference them).
 // ------------------------------------------------------------------
-// The full NAAC 5.2.1 placement template (21 columns) is declared in the
+// The full NAAC placement template (21 columns) is declared in the
 // platform_policies row `cdc.naac_export_column_mapping`. The RPC below
 // currently returns the subset of columns that are derivable from
 // cdc_placements + learners_profiles (~12 columns). Columns flagged
@@ -98,7 +100,7 @@ export async function generateNaacExport(
   const rows: NaacRow[] = data ?? [];
   const cycleSafe = cycle.replace(/[^a-zA-Z0-9-]/g, '_');
   const ts = new Date().toISOString().slice(0, 10);
-  const filename = `naac_5_2_1_${cycleSafe}_${ts}.${format}`;
+  const filename = `naac_8_2_${cycleSafe}_${ts}.${format}`;
 
   if (format === 'csv') {
     const csv = toCsv(rows as unknown as Record<string, unknown>[]);
@@ -269,11 +271,11 @@ const FLEX_QUERIES: Record<
 };
 
 // ------------------------------------------------------------------
-// Proof bundle — supporting offer-letter documents for NAAC 5.2.1 / AICTE
-// (BUG-004082)
+// Proof bundle — supporting offer-letter documents for NAAC 8.2 (Graduate
+// Progression) / AICTE (BUG-004082)
 // ------------------------------------------------------------------
 // Returns the list of offer-letter documents for the SAME placement set the
-// NAAC 5.2.1 export covers (cdc_placements where status = 'accepted'). The
+// NAAC 8.2 export covers (cdc_placements where status = 'accepted'). The
 // caller (a CDC-staff-gated API route) hands this manifest to the browser,
 // which fetches each public cdc-docs URL and bundles them into a ZIP via
 // jszip. We return only { url, filename } — no PII beyond what the offer

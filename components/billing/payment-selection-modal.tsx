@@ -4,7 +4,7 @@
 // Purpose: Allow users to select multiple bills for payment
 // Used in: Student billing pages
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -19,15 +19,18 @@ import { Badge } from '@/components/ui/badge';
 import { OnlinePaymentButton, type RazorpayLaunchProps } from './online-payment-button';
 import { RazorpayHostedRedirect } from './razorpay-hosted-redirect';
 import { OnlinePaymentAmountSelector } from './online-payment-amount-selector';
+import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
 import { format } from 'date-fns';
 import type { StudentBill } from '@/types/billing-schedule';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 
 interface PaymentSelectionModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   bills: StudentBill[];
   studentId: string;
+  /** Bills to pre-tick each time the modal opens (e.g. a per-bill Pay button). */
+  initialSelectedBillIds?: string[];
 }
 
 export function PaymentSelectionModal({
@@ -35,8 +38,17 @@ export function PaymentSelectionModal({
   onOpenChange,
   bills,
   studentId,
+  initialSelectedBillIds,
 }: PaymentSelectionModalProps) {
   const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
+
+  // Re-apply the initial selection on every open (close resets it to empty).
+  useEffect(() => {
+    if (open && initialSelectedBillIds?.length) {
+      setSelectedBillIds(new Set(initialSelectedBillIds));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const [step, setStep] = useState<'select' | 'amount'>('select');
   const [billAmounts, setBillAmounts] = useState<Record<string, number>>({});
   // The Razorpay hosted-redirect component lives OUTSIDE the <Dialog> so closing
@@ -49,10 +61,52 @@ export function PaymentSelectionModal({
     return bills.filter((bill) => bill.status !== 'paid');
   }, [bills]);
 
+  // Online payment is only possible for bills whose fee head (category kind)
+  // has a connected Razorpay account at this institution. Unconnected heads
+  // (e.g. hostel without an account) are hidden here and settled manually.
+  const institutionId = bills[0]?.institution_id ?? null;
+  const {
+    data: connectivity,
+    isLoading: connectivityLoading,
+    isError: connectivityError,
+  } = useConnectedFeeHeads(open ? institutionId : null);
+
+  const payableBills = useMemo(() => {
+    if (!connectivity) return []; // unknown yet → fail closed, nothing payable
+    if (connectivity.allConnected) return unpaidBills;
+    return unpaidBills.filter((bill) => {
+      const kind = bill.item_category?.kind;
+      return !!kind && connectivity.feeHeads.includes(kind);
+    });
+  }, [unpaidBills, connectivity]);
+
+  const officeOnlyCount = unpaidBills.length - payableBills.length;
+
+  // One fee head per payment: a mixed-head order routes to the institution's
+  // DEFAULT account, which only exists when allConnected. Otherwise lock the
+  // selection to the first selected bill's head.
+  const enforceSingleHead = !!connectivity && !connectivity.allConnected;
+  const selectedKind = useMemo(() => {
+    if (!enforceSingleHead || selectedBillIds.size === 0) return null;
+    const first = payableBills.find((bill) => selectedBillIds.has(bill.id));
+    return first?.item_category?.kind ?? null;
+  }, [enforceSingleHead, payableBills, selectedBillIds]);
+
+  const isBillSelectable = (bill: StudentBill) =>
+    !selectedKind || bill.item_category?.kind === selectedKind;
+
+  // Distinct heads among payable bills — Select All only makes sense when they
+  // all share one head (or mixing is allowed).
+  const payableKinds = useMemo(
+    () => [...new Set(payableBills.map((b) => b.item_category?.kind ?? null))],
+    [payableBills],
+  );
+  const selectAllAvailable = !enforceSingleHead || payableKinds.length <= 1;
+
   // Get selected bills objects
   const selectedBills = useMemo(() => {
-    return unpaidBills.filter((bill) => selectedBillIds.has(bill.id));
-  }, [unpaidBills, selectedBillIds]);
+    return payableBills.filter((bill) => selectedBillIds.has(bill.id));
+  }, [payableBills, selectedBillIds]);
 
   // Calculate total amount for selected bills
   const totalAmount = useMemo(() => {
@@ -61,13 +115,13 @@ export function PaymentSelectionModal({
       return Object.values(billAmounts).reduce((sum, amount) => sum + (amount || 0), 0);
     }
 
-    return unpaidBills
+    return payableBills
       .filter((bill) => selectedBillIds.has(bill.id))
       .reduce((sum, bill) => {
         const balance = bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0;
         return sum + Number(balance);
       }, 0);
-  }, [unpaidBills, selectedBillIds, billAmounts]);
+  }, [payableBills, selectedBillIds, billAmounts]);
 
   const handleToggleBill = (billId: string) => {
     const newSelected = new Set(selectedBillIds);
@@ -80,10 +134,10 @@ export function PaymentSelectionModal({
   };
 
   const handleSelectAll = () => {
-    if (selectedBillIds.size === unpaidBills.length) {
+    if (selectedBillIds.size === payableBills.length) {
       setSelectedBillIds(new Set());
     } else {
-      setSelectedBillIds(new Set(unpaidBills.map((bill) => bill.id)));
+      setSelectedBillIds(new Set(payableBills.map((bill) => bill.id)));
     }
   };
 
@@ -147,46 +201,62 @@ export function PaymentSelectionModal({
         {step === 'select' ? (
           <div className="space-y-4">
             {/* Select All Checkbox */}
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="select-all"
-                  checked={selectedBillIds.size === unpaidBills.length && unpaidBills.length > 0}
-                  onCheckedChange={handleSelectAll}
-                />
-                <label
-                  htmlFor="select-all"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  Select All ({unpaidBills.length} bills)
-                </label>
-              </div>
-              {selectedBillIds.size > 0 && (
-                <div className="text-sm text-muted-foreground">
-                  {selectedBillIds.size} selected
+            {selectAllAvailable && payableBills.length > 0 && (
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="select-all"
+                    checked={selectedBillIds.size === payableBills.length && payableBills.length > 0}
+                    onCheckedChange={handleSelectAll}
+                  />
+                  <label
+                    htmlFor="select-all"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    Select All ({payableBills.length} bills)
+                  </label>
                 </div>
-              )}
-            </div>
+                {selectedBillIds.size > 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    {selectedBillIds.size} selected
+                  </div>
+                )}
+              </div>
+            )}
 
           {/* Bills List */}
-          {unpaidBills.length === 0 ? (
+          {connectivityLoading ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking online payment availability…
+            </div>
+          ) : connectivityError ? (
             <div className="text-center py-8 text-muted-foreground">
-              No unpaid bills available
+              Couldn&apos;t check online payment availability. Please close and try again.
+            </div>
+          ) : payableBills.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              {unpaidBills.length === 0
+                ? 'No unpaid bills available'
+                : 'These bills can’t be paid online yet — please pay at the accounts office.'}
             </div>
           ) : (
             <div className="space-y-2">
-              {unpaidBills.map((bill) => (
+              {payableBills.map((bill) => (
                 <div
                   key={bill.id}
                   className={`flex items-center space-x-3 p-4 border rounded-lg transition-colors ${
                     selectedBillIds.has(bill.id)
                       ? 'bg-accent border-primary'
-                      : 'hover:bg-accent/50'
+                      : isBillSelectable(bill)
+                        ? 'hover:bg-accent/50'
+                        : 'opacity-50'
                   }`}
                 >
                   <Checkbox
                     id={`bill-${bill.id}`}
                     checked={selectedBillIds.has(bill.id)}
+                    disabled={!selectedBillIds.has(bill.id) && !isBillSelectable(bill)}
                     onCheckedChange={() => handleToggleBill(bill.id)}
                   />
                   <div className="flex-1 space-y-1">
@@ -216,7 +286,9 @@ export function PaymentSelectionModal({
                       {bill.academic_year?.academic_year_name && (
                         <span>AY: {bill.academic_year.academic_year_name}</span>
                       )}
-                      <span>Due: {format(new Date(bill.due_date), 'dd MMM yyyy')}</span>
+                      {bill.due_date && (
+                        <span>Due: {format(new Date(bill.due_date), 'dd MMM yyyy')}</span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
@@ -231,6 +303,20 @@ export function PaymentSelectionModal({
               ))}
             </div>
           )}
+
+            {/* Availability / selection-rule notes */}
+            {!connectivityLoading && !connectivityError && officeOnlyCount > 0 && payableBills.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {officeOnlyCount} bill{officeOnlyCount !== 1 ? 's' : ''} can&apos;t be paid online yet
+                and {officeOnlyCount !== 1 ? 'are' : 'is'} not shown here — please pay at the accounts office.
+              </p>
+            )}
+            {enforceSingleHead && !selectAllAvailable && (
+              <p className="text-xs text-muted-foreground">
+                Bills of different fee types are paid in separate transactions — selecting a bill
+                disables bills of other fee types.
+              </p>
+            )}
 
             {/* Payment Summary */}
             {selectedBillIds.size > 0 && (

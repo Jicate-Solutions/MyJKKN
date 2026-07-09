@@ -901,6 +901,7 @@ export class StudentBillService {
           item_category:billing_categories(
             id,
             category_name,
+            kind,
             amount,
             frequency
           ),

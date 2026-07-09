@@ -49,6 +49,7 @@ import { useEscalationFollowups } from '@/hooks/use-session-feedback';
 import type { EscalationFollowupRow } from '@/types/session-feedback';
 import { FollowupCell } from '../_components/followup-cell';
 import { ScfLeadershipConcernsCard } from '../_components/scf-leadership-concerns-card';
+import { ScfVerdictIntegrityCard } from '../_components/scf-verdict-integrity-card';
 import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
@@ -196,6 +197,10 @@ export default function PrincipalEscalationPage() {
       {/* Additive leadership signal: good-average classes with exactly one help-ask.
           Self-hides when empty or unauthorized. */}
       <ScfLeadershipConcernsCard from={from} to={to} />
+
+      {/* Claims vs numbers — verdict integrity (leadership-only; dark until a
+          verdict has a measured outcome). Director interview 2026-07-09. */}
+      <ScfVerdictIntegrityCard from={from} to={to} />
     </ContentLayout>
   );
 }
