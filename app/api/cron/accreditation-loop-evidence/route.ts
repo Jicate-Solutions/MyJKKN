@@ -20,24 +20,33 @@
 // numeric 'count' key is on the dispatcher's summarize() allowlist so the
 // Control Tower's "last run" line shows the total upserted.
 //
-// Auth: CRON_SECRET via Authorization: Bearer <secret> OR ?secret= query param.
+// Auth: CRON_SECRET via Authorization: Bearer <secret> ONLY (constant-time).
 // Does not call Claude. Created 2026-07-09 (loop→AQAR bridge PR 1/2).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+
+// deep-review 2026-07-09 MEDIUM (consensus): Bearer ONLY — no ?secret= branch.
+// A query-param secret lands in access logs / Referer headers (persistent
+// disclosure); the dispatcher already invokes with `authorization: Bearer`
+// (ai-routine-dispatcher route.ts:110), so nothing legitimate uses the param.
+// Compare is constant-time.
+function bearerMatches(authHeader: string | null, secret: string): boolean {
+  const presented = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  const a = Buffer.from(presented);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get('authorization');
-  const querySecret = request.nextUrl.searchParams.get('secret');
-  if (
-    !cronSecret ||
-    (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret)
-  ) {
+  if (!cronSecret || !bearerMatches(authHeader, cronSecret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

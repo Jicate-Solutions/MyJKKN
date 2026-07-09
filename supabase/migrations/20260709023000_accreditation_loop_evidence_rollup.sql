@@ -197,6 +197,19 @@ BEGIN
   WHERE s.domain = 'session_feedback'
     AND s.outcome_measured_at IS NOT NULL
     AND s.institution_id IS NOT NULL
+    -- deep-review 2026-07-09 MEDIUM (consensus): bound the nightly sweep to
+    -- O(recent) — without a window every run re-upserts ALL history forever
+    -- (mapped_at always changes) and cost grows unbounded toward the route's
+    -- 120s budget. 45 days covers every measured cycle that exists at ship
+    -- time (loops began 2026-06), so the first run misses nothing; evidence
+    -- rows older than the window remain in the junction untouched.
+    AND s.outcome_measured_at >= now() - interval '45 days'
+  -- deep-review 2026-07-09 dispositions: (a) the arbiter UNIQUE constraint is
+  -- VERIFIED present on prod — quality_evidence_mappings_source_table_source_id_
+  -- body_code__key UNIQUE (source_table, source_id, body_code, metric_code);
+  -- (b) is_auto is NOT NULL DEFAULT false on prod, so "NULL is_auto blocks
+  -- refresh" cannot occur — bare WHERE is_auto is exact, and conservatively
+  -- treats unknown provenance as never-clobber by design.
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -245,6 +258,11 @@ BEGIN
     now()
   FROM public.induction_session_effectiveness e
   WHERE e.outcome_measured_at IS NOT NULL
+    -- deep-review 2026-07-09 MEDIUM (consensus): quality_evidence_mappings.
+    -- institution_id is NOT NULL — one NULL source row would abort the WHOLE
+    -- nightly txn (all four loops), so guard here, not just on the SCF paths.
+    AND e.institution_id IS NOT NULL
+    AND e.outcome_measured_at >= now() - interval '45 days'
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -290,6 +308,7 @@ BEGIN
   WHERE s.domain = 'induction'
     AND s.outcome_measured_at IS NOT NULL
     AND s.institution_id IS NOT NULL
+    AND s.outcome_measured_at >= now() - interval '45 days'   -- bounded sweep, see above
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
@@ -304,6 +323,10 @@ BEGIN
   -- appears automatically the day the loop produces its first measured cycle.
   -- delta prefers rating_lift; falls back to waste_lift (both are
   -- positive-is-better by construction); 'n/a' when neither is computed.
+  -- deep-review 2026-07-09 disposition (suspected inverted waste polarity):
+  -- VERIFIED CORRECT — 20260727000000_mess_menu_loop_spine.sql defines
+  -- waste_lift = baseline_waste_pct - outcome_waste_pct ("positive =
+  -- improvement"), i.e. reduction-positive, so lift>0 => 'improved' holds.
   INSERT INTO public.quality_evidence_mappings
     (source_table, source_id, institution_id, body_code, metric_code,
      period_label, mapped_by, is_auto, metadata, mapped_at)
@@ -342,6 +365,8 @@ BEGIN
     now()
   FROM public.mess_menu_recommendations m
   WHERE m.measured_at IS NOT NULL
+    AND m.institution_id IS NOT NULL    -- NOT NULL on the junction; see induction note
+    AND m.measured_at >= now() - interval '45 days'
   ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
     SET period_label = EXCLUDED.period_label,
         metadata     = EXCLUDED.metadata,
