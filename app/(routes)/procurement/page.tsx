@@ -39,7 +39,7 @@ const STAGES = [
     description: 'Receive deliveries with three-way matching and inventory posting.',
     href: '/procurement/grn',
     icon: PackageCheck,
-    live: false,
+    live: true,
   },
 ];
 

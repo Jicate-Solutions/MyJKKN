@@ -35,7 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, FileDown, Send, Check, X } from 'lucide-react';
+import { ArrowLeft, FileDown, Send, Check, X, PackageCheck } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -47,6 +47,7 @@ export default function PurchaseOrderDetailPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
   const canApprove = isSuperAdmin || canAccess('procurement', 'po_approve');
   const canCreate = isSuperAdmin || canAccess('procurement', 'po_create');
+  const canReceive = isSuperAdmin || canAccess('procurement', 'grn_create');
 
   const { data: po, isLoading } = usePurchaseOrder(id);
   const submitPO = useSubmitPO();
@@ -140,6 +141,12 @@ export default function PurchaseOrderDetailPage() {
             <Button onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}>
               <Send className="mr-2 h-4 w-4" />
               Send to vendor
+            </Button>
+          )}
+          {['sent', 'approved', 'partially_received'].includes(po.status) && canReceive && (
+            <Button onClick={() => router.push(`/procurement/grn/new?po=${po.id}`)}>
+              <PackageCheck className="mr-2 h-4 w-4" />
+              Create GRN
             </Button>
           )}
           {(po.status === 'draft' || po.status === 'pending_approval') && canCreate && (

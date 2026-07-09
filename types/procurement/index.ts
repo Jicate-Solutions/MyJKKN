@@ -3,3 +3,4 @@ export * from './purchase-request';
 export * from './rfq';
 export * from './quotation';
 export * from './purchase-order';
+export * from './grn';
