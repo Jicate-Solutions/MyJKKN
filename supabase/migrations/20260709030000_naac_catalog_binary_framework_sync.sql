@@ -170,9 +170,19 @@ USING (is_super_admin() OR is_admin())
 WITH CHECK (is_super_admin() OR is_admin());
 
 -- Crosswalk seeds ------------------------------------------------------------
+-- AMENDED 2026-07-09 (post-apply hardening): seed only legacy codes that have NO
+-- mapping row yet for the same (body_code, legacy_code, college_type). The original
+-- plain VALUES + ON CONFLICT keyed on the FULL tuple (incl. current_code) stopped
+-- being idempotent the moment a later migration RESOLVED a home-TBD row in place:
+-- a re-run of this seed then re-inserted a fresh current_code=NULL row alongside the
+-- resolved one (no tuple conflict). Observed on prod 2026-07-09: 20260709034000
+-- resolved 5.1.3→6.3.1 / 7.2.1→6.3.2 at 11:53:23 UTC; a re-run of this file at
+-- 11:53:57 resurrected both NULL rows (deleted same day). NOT EXISTS makes re-runs
+-- true no-ops regardless of later resolution.
 INSERT INTO public.accreditation_metric_crosswalk
   (body_code, legacy_code, current_code, college_type, note)
-VALUES
+SELECT v.body_code, v.legacy_code, v.current_code, v.college_type, v.note
+FROM (VALUES
   -- Legacy Criterion 6.5 (IQAC) → Binary Attribute 7 Metric 7.3 facets
   ('NAAC', '6.5.1', '7.3.d', NULL,
    'IQAC relocated to Attribute 7 Metric 7.3 under Binary framework; 6.5 now = sports clubs'),
@@ -192,6 +202,12 @@ VALUES
    'IKS shifts'),
   ('NAAC', '1.7', '5.3', 'affiliated',
    'Online/blended shifts')
+) AS v(body_code, legacy_code, current_code, college_type, note)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.accreditation_metric_crosswalk c
+  WHERE c.body_code = v.body_code
+    AND c.legacy_code = v.legacy_code
+    AND c.college_type IS NOT DISTINCT FROM v.college_type)
 ON CONFLICT (body_code, legacy_code, current_code, college_type) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
