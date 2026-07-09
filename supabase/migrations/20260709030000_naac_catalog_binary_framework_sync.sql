@@ -169,10 +169,41 @@ CREATE POLICY "accred_metric_crosswalk_manage" ON public.accreditation_metric_cr
 USING (is_super_admin() OR is_admin())
 WITH CHECK (is_super_admin() OR is_admin());
 
+-- Resolver invariant (AMENDED 2026-07-09, deep-review PR #1924): the crosswalk
+-- is a RESOLVER — one current-framework answer per (body_code, legacy_code,
+-- college_type) lookup. The seed guard below assumes that invariant; this
+-- index ENFORCES it, and makes a concurrent double-seed unable to reproduce
+-- duplicate current_code=NULL rows (NULLs not distinct).
+-- REVIEW DISPOSITIONS (r2, 2026-07-09 — settled facts, do not re-litigate):
+--   * 1:1 (not 1:many) per lookup key is the DOMAIN decision: every mapping in
+--     this file, 033000 and 034000 is sub-code→single-code (6.5.1→7.3.d,
+--     6.5.2→7.3.e, … — the "6.5 → 7.3 facets" comment is 1:1 at sub-code
+--     grain); two answers per key is exactly the resolver ambiguity flagged on
+--     PR #1907. Prod verified 0 dupes on this grain across all rows before the
+--     index was applied live (2026-07-09). An abort on a drifted 1:many row is
+--     the constraint surfacing invalid data — fail-loud by design.
+--   * 20260709034000 resolves home-TBD rows by UPDATE-in-place (verified), so
+--     index-before-resolve is replay-safe.
+--   * NULLS NOT DISTINCT needs PG 15+ — same requirement as the 4-col UNIQUE
+--     above (this project: PG 15.6).
+CREATE UNIQUE INDEX IF NOT EXISTS accreditation_metric_crosswalk_resolver_key
+  ON public.accreditation_metric_crosswalk (body_code, legacy_code, college_type)
+  NULLS NOT DISTINCT;
+
 -- Crosswalk seeds ------------------------------------------------------------
+-- AMENDED 2026-07-09 (post-apply hardening): seed only legacy codes that have NO
+-- mapping row yet for the same (body_code, legacy_code, college_type). The original
+-- plain VALUES + ON CONFLICT keyed on the FULL tuple (incl. current_code) stopped
+-- being idempotent the moment a later migration RESOLVED a home-TBD row in place:
+-- a re-run of this seed then re-inserted a fresh current_code=NULL row alongside the
+-- resolved one (no tuple conflict). Observed on prod 2026-07-09: 20260709034000
+-- resolved 5.1.3→6.3.1 / 7.2.1→6.3.2 at 11:53:23 UTC; a re-run of this file at
+-- 11:53:57 resurrected both NULL rows (deleted same day). NOT EXISTS makes re-runs
+-- true no-ops regardless of later resolution.
 INSERT INTO public.accreditation_metric_crosswalk
   (body_code, legacy_code, current_code, college_type, note)
-VALUES
+SELECT v.body_code, v.legacy_code, v.current_code, v.college_type, v.note
+FROM (VALUES
   -- Legacy Criterion 6.5 (IQAC) → Binary Attribute 7 Metric 7.3 facets
   ('NAAC', '6.5.1', '7.3.d', NULL,
    'IQAC relocated to Attribute 7 Metric 7.3 under Binary framework; 6.5 now = sports clubs'),
@@ -192,7 +223,17 @@ VALUES
    'IKS shifts'),
   ('NAAC', '1.7', '5.3', 'affiliated',
    'Online/blended shifts')
-ON CONFLICT (body_code, legacy_code, current_code, college_type) DO NOTHING;
+) AS v(body_code, legacy_code, current_code, college_type, note)
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.accreditation_metric_crosswalk c
+  WHERE c.body_code = v.body_code
+    AND c.legacy_code = v.legacy_code
+    AND c.college_type IS NOT DISTINCT FROM v.college_type)
+-- Arbiter = the 3-col resolver key (r2 fix): guard predicate, ON CONFLICT
+-- arbiter and enforcing index now agree on one column set, so a concurrent
+-- double-seed lands in DO NOTHING instead of an uncaught unique_violation.
+-- (The 4-col table UNIQUE remains — implied by 3-col uniqueness, harmless.)
+ON CONFLICT (body_code, legacy_code, college_type) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- 5. Mark the induction rows LEGACY (notes-only; codes NOT re-keyed;
