@@ -1531,7 +1531,7 @@ export const PERMISSION_CATEGORIES = [
 
       // Reports (accreditation)
       { key: 'campus_living.reports.view', label: 'View Reports' },
-      { key: 'campus_living.reports.naac_4_1_4', label: 'NAAC Criterion 4.1.4 (Hostel Infra)' },
+      { key: 'campus_living.reports.naac_4_1_4', label: 'NAAC 3.1 — Physical Infrastructure (Binary framework)' },
       { key: 'campus_living.reports.nirf_facilities', label: 'NIRF Facilities for Students' },
       { key: 'campus_living.reports.aicte_eoa', label: 'AICTE EOA Hostel Section' },
       { key: 'campus_living.reports.anti_ragging_quarterly', label: 'Anti-Ragging Quarterly Report' },
