@@ -33,3 +33,19 @@ export function getAdapter(domain: ProcurementDomain): ProcurementDomainAdapter 
 export function registeredDomains(): ProcurementDomain[] {
   return Object.keys(ADAPTERS) as ProcurementDomain[];
 }
+
+/**
+ * Human labels for the module chooser. Add a domain here when you register its
+ * adapter above — the New Purchase Request form and any future domain selector read
+ * from registeredDomainOptions(), so a newly-registered module (e.g. Resource
+ * Management) appears in the UI automatically with no page edits.
+ */
+export const DOMAIN_LABELS: Record<ProcurementDomain, string> = {
+  ims: 'Inventory (IMS)',
+  resource_mgmt: 'Resource Management',
+};
+
+/** {value,label} pairs for only the domains that have a registered adapter. */
+export function registeredDomainOptions(): { value: ProcurementDomain; label: string }[] {
+  return registeredDomains().map((d) => ({ value: d, label: DOMAIN_LABELS[d] ?? d }));
+}

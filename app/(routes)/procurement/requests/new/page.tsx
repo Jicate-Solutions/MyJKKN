@@ -6,7 +6,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
 import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
-import type { DomainCtx } from '@/lib/services/procurement/domain-adapters/types';
+import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
+import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type {
   PurchaseRequestType,
   CreatePurchaseRequestItemDto,
@@ -46,6 +47,12 @@ export default function NewPurchaseRequestPage() {
   const { profile } = useAuth();
   const createPR = useCreatePurchaseRequest();
 
+  // Module (domain) chooser — populated from the registered adapters. Only IMS today;
+  // Resource Management appears automatically once its adapter is registered.
+  const domainOptions = useMemo(() => registeredDomainOptions(), []);
+  const [domain, setDomain] = useState<ProcurementDomain>(
+    () => domainOptions[0]?.value ?? 'ims'
+  );
   const [requestType, setRequestType] = useState<PurchaseRequestType>('restock');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
@@ -91,6 +98,7 @@ export default function NewPurchaseRequestPage() {
       const created = await createPR.mutateAsync({
         data: {
           institution_id: profile.institution_id,
+          domain,
           request_type: requestType,
           notes: notes || null,
           items: cleaned.map((i) => ({
@@ -127,6 +135,31 @@ export default function NewPurchaseRequestPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Module (inventory)</Label>
+                <Select
+                  value={domain}
+                  onValueChange={(v) => {
+                    setDomain(v as ProcurementDomain);
+                    // Different module = different catalog; clear picked items.
+                    setItems([emptyRow()]);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {domainOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Which module’s inventory this request draws from.
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label>Request type</Label>
                 <Select
@@ -189,7 +222,7 @@ export default function NewPurchaseRequestPage() {
                   ) : (
                     <>
                       <CatalogItemPicker
-                        domain="ims"
+                        domain={domain}
                         ctx={ctx}
                         value={item.item_name || null}
                         placeholder="Pick an inventory item…"
