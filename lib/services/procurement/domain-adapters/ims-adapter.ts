@@ -68,16 +68,21 @@ export const imsAdapter: ProcurementDomainAdapter = {
     const supabase = db();
     const totalValue = line.totalValue ?? line.costPrice * line.acceptedQuantity;
     const storeCols = ctx.storeId ? { store_id: ctx.storeId } : {};
+    const entryDate = new Date().toISOString().slice(0, 10); // ims_stock_batches.entry_date is NOT NULL
 
-    // 1) Create stock batch (batch-wise inventory)
+    // 1) Create stock batch (batch-wise inventory). quantity_available is NOT NULL
+    //    with no DB default — a fresh batch has its full quantity available (nothing
+    //    consumed yet), so it must mirror acceptedQuantity or the insert throws.
     await supabase.from('ims_stock_batches').insert({
       item_id: line.domainItemId,
       batch_number: line.batchNumber ?? null,
       expiry_date: line.expiryDate ?? null,
       quantity: line.acceptedQuantity,
+      quantity_available: line.acceptedQuantity,
       cost_price: line.costPrice,
       total_value: totalValue,
       grn_id: line.grnId,
+      entry_date: entryDate,
       location_type: 'central_store',
       department_id: null,
       institution_id: ctx.institutionId,
