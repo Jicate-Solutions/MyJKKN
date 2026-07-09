@@ -173,8 +173,8 @@ INSERT INTO public.accreditation_metric_crosswalk
 VALUES
   ('NAAC', '1.2.1', '1.3.1', NULL,
    'catalog mis-key corrected 2026-07-09 (Binary framework audit): flexibility content moved from 1.2 (Binary = stakeholder feedback) to 1.3 (curriculum flexibility)'),
-  ('NAAC', '1.3.1', '1.6.1', NULL,
-   'catalog mis-key corrected 2026-07-09 (Binary framework audit): cross-cutting-issues content moved from 1.3 (Binary = flexibility) to 1.6 (IKS/cross-cutting family). NOTE: legacy_code refers to the April-seed meaning of 1.3.1; Binary 1.3.1 now holds the flexibility row.'),
+  ('NAAC', '1.3.1', '6.4.1', NULL,
+   'catalog mis-key corrected 2026-07-09 (Binary framework audit): cross-cutting-issues content moved from 1.3 (Binary = flexibility) to 6.4 Value Education (Director decision 2026-07-09 — not 1.6/IKS). NOTE: legacy_code refers to the April-seed meaning of 1.3.1; Binary 1.3.1 now holds the flexibility row.'),
   ('NAAC', '2.3.1', '7.10.1', NULL,
    'catalog mis-key corrected 2026-07-09 (Binary framework audit): faculty retention moved from Attribute 2 to Binary 7.10 (Attribute 7 Governance)'),
   ('NAAC', '6.2.1', '6.5.1', NULL,
