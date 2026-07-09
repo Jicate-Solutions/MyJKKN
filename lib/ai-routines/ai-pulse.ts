@@ -104,5 +104,20 @@ export const AI_PULSE_ROUTINES: AIRoutine[] = [
     "sideEffects": "POST upserts one event_submissions row (service-role write, only after proving the caller is an accepted member of the team). GET is read-only. No human messaging.",
     "safeToManualTrigger": false,
     "notes": "Auth is a signed-in user session (Supabase cookie) + the aiPulse:submit.domain_sync permission + valid accepted-team membership — NOT CRON_SECRET, so an operator can't fire it like a job. The POST writes a real team submission record on that user's behalf; the upsert is idempotent by (event_id, registration_id) but it is a user submission path, not an operator-run task. GET-context is read-only and harmless. Does not call Claude."
+  },
+  {
+    "id": "ai-pulse-measure-verdict",
+    "name": "AI Pulse Measure + Verdict (closes the loop)",
+    "category": "ai-pulse",
+    "type": "cron",
+    "schedule": "Daily 10:15 IST",
+    "cronExpr": "",
+    "triggerPath": "/api/cron/ai-pulse-measure-verdict",
+    "callsClaude": false,
+    "whatItDoes": "Grades every matured weekly cycle across the whole four-stage funnel (learn → apply in your domain → AI Lab/Gold → publish on department Instagram), per department plus one lossless program-level row. Emits goal_met/goal_missed against the target dials, records stage_reached (WHERE the funnel died), and computes an engagement lift corrected for regression-to-the-mean using the untreated departments as a naturally-occurring control. This is gate 3 of the four-gate loop test, which AI Pulse never had.",
+    "configKnobs": "engaged_attendance_target_pct=70, agency_yield_target_pct=10, measure_min_age_days=3, measure_min_attendance=5, measure_baseline_window=3, measure_min_rtm_pairs=5, loop_noise_band_pct=5, ig_reach_threshold=500 (all ai_pulse_policies)",
+    "sideEffects": "DB writes: upserts ai_pulse_cycle_outcomes rows via a service-role SECURITY DEFINER RPC. No human messaging. Never sets the HUMAN verdict — a cron must not invent a human judgement.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: CRON_SECRET as ?secret= or Authorization: Bearer. Not in vercel.json — fired by ai-routine-dispatcher from ai_routine_schedules. Idempotent: rows that reach measure_status='measured' are never re-measured (gated in both the candidate filter and the UPDATE's WHERE); insufficient_* rows re-evaluate as more data matures. Never fabricates a baseline — a cycle with no prior comparable cycle is written insufficient_baseline with NULL lift. Returns TOP-LEVEL measured/skipped/recorded so the dispatcher's summarize() shows real numbers instead of a bare HTTP 200. Optional ?min_age_days= overrides the maturation dial for a backfill. Does not call Claude."
   }
 ];
