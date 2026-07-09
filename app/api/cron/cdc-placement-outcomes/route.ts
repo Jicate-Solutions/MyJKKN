@@ -13,9 +13,12 @@ export const maxDuration = 120;
  * decision pending.
  *
  * All work happens in fn_cdc_placement_outcome_measure() (service-role-only,
- * SECURITY DEFINER): cohort enumeration from alumni_outcomes, min-cohort-size
- * noise floor, baseline delta (±2.0pp deadband), change-only cycle history,
- * evidence upsert. Idempotent per (cohort, IST calendar-month window).
+ * SECURITY DEFINER): cohort enumeration from alumni_outcomes, small-cohort
+ * labeling (ALL cohorts computed; n < min_cohort_size gets small_cohort=true —
+ * 'Compute, but label small group', Director 2026-07-09), baseline delta
+ * (±2.0pp deadband), change-only cycle history, evidence upsert. Cohort
+ * AGGREGATES only, never per-student rows. Idempotent per (cohort, IST
+ * calendar-month window).
  *
  * Gated on platform policy cdc_placement_loop.master_enabled (DARK by default
  * → returns skipped). Gate is checked both here and inside the fn.

@@ -43,8 +43,17 @@
 --   ('batch_roster' | 'outcome_reported') so downstream consumers know which
 --   floor the rate stands on.
 --
+-- SMALL COHORTS ('Compute, but label small group' — Director decision 2026-07-09):
+--   ALL cohorts are computed regardless of size. Cohorts with n <
+--   cdc_placement_loop.min_cohort_size get "small_cohort": true in the metrics
+--   jsonb (and in emitted evidence metadata) so every UI/report can render a
+--   'small group — interpret with care' label. Nothing is skipped.
+--
+-- PRIVACY: this table and the emitted evidence hold cohort AGGREGATES only
+--   (counts, rates, a median) — never per-student rows or learner ids.
+--
 -- WHAT THIS ADDS:
---   1. Config rows (dark gate + noise floor)     — platform_policies
+--   1. Config rows (dark gate + labeling floor)  — platform_policies
 --   2. cdc_placement_outcome_cycles              — one row per cohort per
 --      measure run (change-only: identical re-measures don't duplicate)
 --   3. fn_cdc_placement_cohort_metrics(...)      — per-cohort metrics jsonb
@@ -67,8 +76,9 @@ VALUES
    || 'flipping this ON starts cohort placement/higher-ed measurement + NAAC 8.2.1 evidence emission. '
    || 'Gates ①③ only — the loop becomes self-improving only when a named CDC owner consumes the deltas (gates ②④, Director decision pending).'),
   ('cdc_placement_loop.min_cohort_size', 'global', '10'::jsonb, 'number', 'major', 'published', true,
-   'Minimum cohort denominator before a placement-outcome rate is computed. Below this the cohort is '
-   || 'skipped (small-cohort noise: 1 placement in a 4-learner cohort swings the rate 25pp). Director-reviewable.')
+   'Labeling threshold (cohorts below this are computed but flagged small_cohort), Director decision '
+   || '2026-07-09: "Compute, but label small group". UIs/reports must render "small group — interpret '
+   || 'with care" (noise context: 1 placement in a 4-learner cohort swings the rate 25pp).')
 ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
 
 -- ── 2. Outcome-cycle table — one row per cohort per measure run ──────────────
@@ -83,7 +93,10 @@ CREATE TABLE IF NOT EXISTS public.cdc_placement_outcome_cycles (
   -- metrics: { n, denominator_basis, n_roster_batch, n_outcome_reported,
   --            placed_n, higher_ed_n, progression_n,
   --            placement_rate_pct, higher_ed_rate_pct, progression_rate_pct,
-  --            median_package_lpa, outcome_breakdown: {<outcome_type>: n} }
+  --            median_package_lpa, outcome_breakdown: {<outcome_type>: n},
+  --            small_cohort: bool — n < min_cohort_size; computed anyway,
+  --              render 'small group — interpret with care' }
+  -- Cohort AGGREGATES only — never per-student rows.
   metrics         jsonb NOT NULL,
   -- baseline: prior cohort's (cohort_ay_end - 1, same institution+program)
   -- metrics in the SAME shape, or NULL when no usable baseline exists.
@@ -99,8 +112,11 @@ COMMENT ON TABLE public.cdc_placement_outcome_cycles IS
   'CDC placement-outcome loop (measure phase, gates ①③ only): one row per (institution, program, '
   'passing-out AY) cohort per measure run. metrics = this cohort''s placement/higher-ed conversion; '
   'baseline = prior cohort''s same metrics; delta_summary = improved/no_change/worse/n-a on '
-  'progression_rate_pct (±2.0pp deadband). Written ONLY by fn_cdc_placement_outcome_measure() '
-  '(service-role). NOT a self-improving loop yet — act/feed-forward (gates ②④) pending a named CDC owner.';
+  'progression_rate_pct (±2.0pp deadband). ALL cohorts are computed; those under '
+  'cdc_placement_loop.min_cohort_size carry metrics.small_cohort=true ("Compute, but label small group" — '
+  'Director 2026-07-09). Cohort AGGREGATES only — never per-student rows. Written ONLY by '
+  'fn_cdc_placement_outcome_measure() (service-role). NOT a self-improving loop yet — act/feed-forward '
+  '(gates ②④) pending a named CDC owner.';
 
 ALTER TABLE public.cdc_placement_outcome_cycles ENABLE ROW LEVEL SECURITY;
 
@@ -267,7 +283,7 @@ DECLARE
   v_min_cohort  integer;
   v_window      text := to_char(now() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM');
   v_measured    integer := 0;
-  v_skipped     integer := 0;
+  v_small       integer := 0;
   v_unchanged   integer := 0;
   v_evidence    integer := 0;
   v_details     jsonb := '[]'::jsonb;
@@ -317,23 +333,27 @@ BEGIN
   LOOP
     v_metrics := public.fn_cdc_placement_cohort_metrics(r.institution_id, r.program_id, r.ay_end);
 
-    -- Small-cohort noise floor.
-    IF COALESCE((v_metrics ->> 'n')::integer, 0) < v_min_cohort THEN
-      v_skipped := v_skipped + 1;
-      v_details := v_details || jsonb_build_object(
-        'institution_id', r.institution_id, 'program_id', r.program_id,
-        'cohort_ay_end', r.ay_end, 'result', 'skipped_below_min_cohort',
-        'n', v_metrics ->> 'n');
-      CONTINUE;
+    -- Small-cohort LABELING ('Compute, but label small group' — Director
+    -- 2026-07-09): every cohort is computed; below the threshold the metrics
+    -- carry small_cohort=true so UIs/reports render 'small group — interpret
+    -- with care'. Nothing is skipped.
+    v_metrics := v_metrics || jsonb_build_object(
+      'small_cohort', COALESCE((v_metrics ->> 'n')::integer, 0) < v_min_cohort);
+    IF (v_metrics ->> 'small_cohort')::boolean THEN
+      v_small := v_small + 1;
     END IF;
 
     -- Baseline = prior cohort (same institution+program, ay_end - 1), same
-    -- estimator. Unusable (empty or itself below the noise floor) → NULL + 'n/a'.
+    -- estimator, same labeling. Unusable ONLY when truly empty (n = 0 — there
+    -- is nothing to compare against) → NULL + 'n/a'. A small baseline is
+    -- compared anyway and carries its own small_cohort flag.
     v_baseline := public.fn_cdc_placement_cohort_metrics(r.institution_id, r.program_id, r.ay_end - 1);
-    IF COALESCE((v_baseline ->> 'n')::integer, 0) < v_min_cohort THEN
+    IF COALESCE((v_baseline ->> 'n')::integer, 0) = 0 THEN
       v_baseline := NULL;
       v_delta := 'n/a';
     ELSE
+      v_baseline := v_baseline || jsonb_build_object(
+        'small_cohort', COALESCE((v_baseline ->> 'n')::integer, 0) < v_min_cohort);
       v_diff := COALESCE((v_metrics ->> 'progression_rate_pct')::numeric, 0)
               - COALESCE((v_baseline ->> 'progression_rate_pct')::numeric, 0);
       -- ±2.0pp deadband on progression rate (placement + higher studies).
@@ -393,6 +413,7 @@ BEGIN
          'outcome',       v_metrics,
          'delta_summary', v_delta,
          'measured_at',   now(),
+         'small_cohort',  (v_metrics ->> 'small_cohort')::boolean,
          'gates',         '①③ — act/feed-forward pending owner'),
        now())
     ON CONFLICT (source_table, source_id, body_code, metric_code)
@@ -408,6 +429,7 @@ BEGIN
       'institution_id', r.institution_id, 'program_id', r.program_id,
       'cohort_ay_end', r.ay_end, 'result', 'measured',
       'n', v_metrics ->> 'n',
+      'small_cohort', (v_metrics ->> 'small_cohort')::boolean,
       'progression_rate_pct', v_metrics ->> 'progression_rate_pct',
       'delta_summary', v_delta);
   END LOOP;
@@ -417,7 +439,7 @@ BEGIN
     'measure_window', v_window,
     'min_cohort_size', v_min_cohort,
     'cohorts_measured', v_measured,
-    'cohorts_skipped_small', v_skipped,
+    'cohorts_small_labeled', v_small,
     'cohorts_unchanged', v_unchanged,
     'evidence_upserts', v_evidence,
     'details', v_details);
@@ -431,8 +453,10 @@ COMMENT ON FUNCTION public.fn_cdc_placement_outcome_measure() IS
   'accepted package from cdc_placements), compares against the prior cohort baseline (same estimator, '
   '±2.0pp deadband on progression_rate_pct), writes cdc_placement_outcome_cycles, and upserts NAAC '
   '8.2.1 evidence into quality_evidence_mappings. DARK unless platform policy '
-  'cdc_placement_loop.master_enabled = true. Skips cohorts below cdc_placement_loop.min_cohort_size. '
-  'Idempotent per (cohort, IST calendar-month window); change-only history. Service-role only.';
+  'cdc_placement_loop.master_enabled = true. Computes ALL cohorts regardless of size; those below '
+  'cdc_placement_loop.min_cohort_size carry small_cohort=true in metrics + evidence metadata '
+  '("Compute, but label small group" — Director 2026-07-09). Cohort AGGREGATES only, never per-student '
+  'rows. Idempotent per (cohort, IST calendar-month window); change-only history. Service-role only.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_cdc_placement_outcome_measure() FROM anon, authenticated, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_cdc_placement_outcome_measure() TO service_role;
