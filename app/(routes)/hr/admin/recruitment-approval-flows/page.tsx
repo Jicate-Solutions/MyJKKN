@@ -1,8 +1,10 @@
 // ============================================================================
-// HR RECRUITMENT — DYNAMIC APPROVAL FLOW BUILDER
+// HR RECRUITMENT — APPROVAL WORKFLOWS MANAGER
 // ============================================================================
-// Replaces the "static seeded flows with no UI" era. Role-category templates
-// (confirmed 2026-07-06): one flow per role category per HR organization.
+// List-first (2026-07-09): a table of every configured workflow (one row per
+// organization × role category) with create / edit / activate / delete.
+// Runtime still honors ONE active band-less flow per (org, category) — the
+// editor warns before a save replaces an overlapping flow.
 // Each step routes to a ROLE (custom_roles.role_key) or a PINNED USER, is
 // typed review|final (last step must be final), and can require an interview
 // before the step can be marked reviewed.
