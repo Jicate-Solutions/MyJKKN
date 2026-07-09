@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
 import { courseDisplayFor } from '@/lib/utils/bos/coe-course-display';
+import { generateV35SyllabusHtml } from '@/lib/utils/bos/course-syllabus-html';
 import { BosCourseSyllabus } from '@/types/bos';
 
 /**
@@ -36,7 +37,7 @@ export async function GET(
 
     // Step 3: Parse query parameters
     const { searchParams } = new URL(request.url);
-    const format = (searchParams.get('format') || 'official') as 'official' | 'meeting_summary' | 'obe';
+    const format = (searchParams.get('format') || 'official') as 'official' | 'meeting_summary' | 'obe' | 'v35';
     const includeMappings = searchParams.get('include_mappings') !== 'false';
     const includeReferences = searchParams.get('include_references') !== 'false';
     const includePedagogy = searchParams.get('include_pedagogy') !== 'false';
@@ -85,6 +86,25 @@ export async function GET(
     };
 
     // Step 5: Generate HTML based on format
+    // v3.5: the branded JKKN document (green template, capstone cards, LLC
+    // panel) — print-ready, renders the five Fink's/Capstone JSONB columns.
+    if (format === 'v35') {
+      const { data: inst } = await supabase
+        .from('institutions')
+        .select('name')
+        .eq('id', syllabusForPdf.institutions_id)
+        .maybeSingle();
+      const v35Html = generateV35SyllabusHtml(syllabusForPdf, {
+        institutionName: (inst?.name as string | undefined) ?? undefined,
+      });
+      return new NextResponse(v35Html, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${syllabusForPdf.course_code}-syllabus-v35.html"`,
+        },
+      });
+    }
+
     const html = generatePdfHtml(
       syllabusForPdf,
       format,

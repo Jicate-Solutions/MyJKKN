@@ -9,7 +9,8 @@
 // department's Gold Standard teams (capped at the gold_standard_count
 // policy). Selections persist ZERO-DDL into
 // startup_events.config.ai_pulse.gold_selections and feed the NAAC
-// Criterion 3.3.1 evidence export as "Faculty-selected" rows.
+// Attribute 9 (Research & Innovation Outcomes) evidence export as
+// "Faculty-selected" rows.
 //
 // Permission gates:
 //   - Page:        super_admin OR aiPulse:lab.score (explicit 403, rule #27)

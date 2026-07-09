@@ -89,8 +89,11 @@ export async function GET(req: NextRequest) {
   );
 
   if (!autoGenerate) {
+    // `skipped` here is a REASON STRING, not a count — summarize() ignores
+    // non-numeric values, so `processed: 0` is what makes the no-op visible.
     return NextResponse.json({
       ok: true,
+      processed: 0,
       skipped: 'auto_generate_disabled',
       detail: 'rotation_auto_generate policy is off — no teams drawn.',
     });
@@ -103,6 +106,7 @@ export async function GET(req: NextRequest) {
   if (todayName !== generationDow && !force) {
     return NextResponse.json({
       ok: true,
+      processed: 0,
       skipped: 'not_generation_day',
       today: todayName,
       generation_day: generationDow,
@@ -126,7 +130,7 @@ export async function GET(req: NextRequest) {
   }
   const cycle = (cycles ?? [])[0];
   if (!cycle) {
-    return NextResponse.json({ ok: true, skipped: 'no_upcoming_cycle' });
+    return NextResponse.json({ ok: true, processed: 0, skipped: 'no_upcoming_cycle' });
   }
 
   // -- 4. Run the engine -----------------------------------------------------
@@ -135,9 +139,15 @@ export async function GET(req: NextRequest) {
       supabase,
       cycle.id
     );
+    // Top-level numeric keys for ai-routine-dispatcher's summarize() — it reads
+    // only top-level allowlisted numerics, so nesting them under `summary` left
+    // the Control Tower showing a bare "HTTP 200". `summary` kept for consumers.
     return NextResponse.json({
       ok: true,
       elapsed_ms: Date.now() - startedAt,
+      processed: summary.sections_processed,
+      created: summary.created,
+      skipped: summary.skipped,
       summary,
     });
   } catch (e) {

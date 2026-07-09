@@ -9,8 +9,11 @@
 //   • The before/after numbers (my_prior_understood -> my_next_understood) are THIS learner's
 //     own 1..5 ratings, pulled from their own later same-course session. We NEVER show a
 //     cohort/class mean as the learner's value.
-//   • cohort_lift is rendered ONLY as an explicitly-labelled "across the whole class" footnote,
-//     and only when it is positive — never as the headline, never as the individual's number.
+//   • cohort_lift gates an explicitly-labelled "across the whole class" footnote,
+//     only when positive — and the footnote speaks in WORDS ONLY (no delta, no
+//     'average'): the Director's no-mechanics rule (#1909, 2026-07-09) bars
+//     counts/averages on every learner surface, and the page header right above
+//     this card promises "never a class average".
 //   • A row exists only when a REAL facilitator action is on record (fn_scf_loop_closure_for_learner
 //     returns nothing otherwise), so the card never invents a change.
 //   • Rows where the learner has no later session yet are shown as "awaiting" — no premature win.
@@ -253,11 +256,12 @@ export function LoopClosureCard() {
                   </div>
                 </div>
 
-                {/* Class-wide corroboration ONLY — explicitly labelled, never the learner's number. */}
+                {/* Class-wide corroboration ONLY — explicitly labelled, words-only
+                    (no delta, no 'average'): learner surfaces never print class
+                    numbers, and the header above promises "never a class average". */}
                 {rose && row.cohort_lift != null && row.cohort_lift > 0 ? (
                   <p className="text-[11px] text-muted-foreground border-t pt-2">
-                    Across the whole class, average understanding also rose by{' '}
-                    {row.cohort_lift.toFixed(1)} after this change.
+                    Across the whole class, understanding also rose after this change.
                   </p>
                 ) : null}
 
