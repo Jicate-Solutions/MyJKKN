@@ -237,7 +237,11 @@ export function LoopWiring({
   const darkEdges = edges.filter((e) => {
     if (e.what_flows !== 'measured_outcomes') return false;
     const from = byKey.get(e.from_key);
-    return !from || from.gates?.m !== 'on';
+    // Both endpoints must be rendered nodes — an edge referencing a
+    // deactivated loop is skipped by the render path below, so it must not
+    // raise a phantom seam naming a raw key either (review 2026-07-10, #4).
+    if (!from || !byKey.get(e.to_key)) return false;
+    return from.gates?.m !== 'on';
   });
   const darkEdgeKeys = new Set(darkEdges.map((e) => `${e.from_key}->${e.to_key}`));
 
@@ -246,12 +250,18 @@ export function LoopWiring({
     if (!adjacency.has(e.from_key)) adjacency.set(e.from_key, []);
     adjacency.get(e.from_key)!.push(e.to_key);
   }
+  // Dimmed = strictly-downstream consumers of the missing measurement. Seam
+  // SOURCES are excluded — a reciprocal edge (director→metaloop, decisions)
+  // must not pull the seam's own origin into the "runs blind" set, which
+  // both inflated the banner count and greyed the very node to fix
+  // (review 2026-07-10, #1, two-lens).
+  const darkSources = new Set(darkEdges.map((e) => e.from_key));
   const dimmed = new Set<string>();
   const stack = darkEdges.map((e) => e.to_key);
   const seen = new Set<string>();
   while (stack.length) {
     const key = stack.pop()!;
-    if (seen.has(key)) continue;
+    if (seen.has(key) || darkSources.has(key)) continue;
     seen.add(key);
     dimmed.add(key);
     for (const next of adjacency.get(key) ?? []) stack.push(next);

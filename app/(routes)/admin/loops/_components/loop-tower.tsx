@@ -62,8 +62,13 @@ const CLASS_TINT: Record<string, string> = {
 };
 
 function fmtAuditDate(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getUTCDate()} ${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}`;
+  // IST calendar day — the page anchors the campus day at IST; a UTC render
+  // shifts any evening audit to the previous date (review 2026-07-10, #6).
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Kolkata',
+  });
 }
 
 function GateMiniDot({ g }: { g: GateState }) {

@@ -104,8 +104,11 @@ REVOKE ALL ON public.loop_registry, public.loop_edges, public.loop_audits FROM a
 GRANT  SELECT ON public.loop_registry, public.loop_edges, public.loop_audits TO authenticated;
 
 -- ── 3. Seed: 14 loops (page.tsx card ids verbatim) + 2 stack anchors ─────────
--- gates mirror the page's hand-typed literals as of 2026-07-10 — this MOVES
--- the truth here; the page starts reading these rows instead.
+-- gates mirror the page's hand-typed literals as of 2026-07-10. The NEW
+-- surfaces (tower chips + wiring view) read these rows; the hand-curated
+-- Control Tower cards still hold their own literals for now — deriving the
+-- cards from the registry is the follow-up that retires the duplication
+-- (review 2026-07-10, #3: don't claim the move is complete before it is).
 
 INSERT INTO public.loop_registry
   (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id) VALUES

@@ -759,7 +759,11 @@ export default async function LoopControlTowerPage({
       .from('loop_audits')
       .select('loop_key,audited_at,layer,verdict')
       .order('audited_at', { ascending: false })
-      .limit(100)
+      // Shared newest-first window across ALL loops: one chatty loop could
+      // push a quiet loop's latest audit past the cap and its "tested" badge
+      // would silently vanish (review 2026-07-10, #5). 500 ≈ years of headroom
+      // at current audit volume; revisit with DISTINCT ON if audits get chatty.
+      .limit(500)
       .then(
         (r) => (r.data ?? []) as LoopAuditRow[],
         () => [] as LoopAuditRow[]
