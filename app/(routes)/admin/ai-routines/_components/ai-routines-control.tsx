@@ -177,7 +177,7 @@ function RoutineRow({
                   {editing ? 'Close' : 'Edit schedule'}
                 </button>
               ) : null}
-              {maxSchedule ? (
+              {r.maxLane && maxSchedule ? (
                 <span className="flex items-center gap-1">
                   <CalendarClock className="h-3.5 w-3.5" />
                   Max lane:{' '}
@@ -247,7 +247,7 @@ function RoutineRow({
           />
         ) : null}
 
-        {editingMax && maxSchedule ? (
+        {editingMax && r.maxLane && maxSchedule ? (
           <ScheduleEditor
             schedule={maxSchedule}
             onCancel={() => setEditingMax(false)}
@@ -322,7 +322,10 @@ export function AiRoutinesControl() {
           <Sparkles className="h-4 w-4" /> {aiCount} call Claude
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <CalendarClock className="h-4 w-4" /> {map.size} on an editable schedule
+          {/* count ROUTINES on a schedule, not rows — maxlane: rows are a second
+              lane for the same routine and would inflate this (SDK review #1925) */}
+          <CalendarClock className="h-4 w-4" />{' '}
+          {[...map.keys()].filter((k) => !k.startsWith('maxlane:')).length} on an editable schedule
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Play className="h-4 w-4" /> {runnable} safe to run on demand
@@ -330,7 +333,7 @@ export function AiRoutinesControl() {
         <p className="w-full text-xs text-muted-foreground">
           Change any scheduled routine&apos;s <strong>day and time</strong> with <strong>Edit schedule</strong> —
           takes effect on the next dispatcher tick, no redeploy. Green <strong>Run now</strong> fires immediately.
-          Routines that message students or staff show{' '}
+          Routines that message learners or staff show{' '}
           <span className="text-amber-600 dark:text-amber-400">messages people</span> and must be run from their own
           screen. All times are IST. To see whether each loop is actually{' '}
           <em>working</em> — measured outcomes, not just that it fired —{' '}
