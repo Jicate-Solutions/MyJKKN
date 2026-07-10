@@ -94,7 +94,13 @@ export function useConfirmationSplit(
   institutionId?: string,
   canViewAllInstitutions: boolean = false,
   selectedDate: Date = new Date(),
-  refreshTrigger: number = 0
+  refreshTrigger: number = 0,
+  // Callers may widen the rolling window. The Feedback Confirmation tab passes 30
+  // so its cards cover the SAME span as the college tables beneath them — before
+  // this, the cards said "last 14 days" while "Responses" underneath was a 30-day
+  // number, and the two looked contradictory. The Statistics tab keeps the 14-day
+  // default, so this is a prop rather than a change to SPLIT_WINDOW_DAYS.
+  windowDays: number = SPLIT_WINDOW_DAYS
 ) {
   const { profile } = useAuth();
 
@@ -121,7 +127,7 @@ export function useConfirmationSplit(
     }).format(d);
   const toDate = istDate(selectedDate);
   const fromDate = istDate(
-    new Date(selectedDate.getTime() - (SPLIT_WINDOW_DAYS - 1) * 86_400_000)
+    new Date(selectedDate.getTime() - (windowDays - 1) * 86_400_000)
   );
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -146,7 +152,7 @@ export function useConfirmationSplit(
   return {
     gateMode: data?.gateMode ?? 'off',
     windowHours: data?.windowHours ?? 48,
-    windowDays: SPLIT_WINDOW_DAYS,
+    windowDays,
     split: data?.split ?? null,
     isLoading,
     // Surface both a thrown query error and an RPC-level error the service

@@ -184,10 +184,16 @@ export function useAdminFacultySummary(from: string, to: string) {
 }
 
 /** All-college per-day understanding trend. */
-export function useAdminTrend(from: string, to: string) {
+export function useAdminTrend(
+  from: string,
+  to: string,
+  institutionId?: string | null,
+) {
   return useQuery({
-    queryKey: scfQueryKeys.adminTrend(from, to),
-    queryFn: () => SessionFeedbackService.getAdminTrend(from, to),
+    // institutionId belongs in the key — otherwise selecting a college would
+    // re-display the cached all-colleges series.
+    queryKey: [...scfQueryKeys.adminTrend(from, to), institutionId ?? 'all'],
+    queryFn: () => SessionFeedbackService.getAdminTrend(from, to, institutionId),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });
