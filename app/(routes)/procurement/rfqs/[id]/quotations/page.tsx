@@ -88,6 +88,10 @@ export default function RfqQuotationsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  // Which quotation PDFs are expanded inline (keyed by quotation id). Iframes are
+  // only mounted for open entries so we don't load every vendor's PDF at once.
+  const [openPdfs, setOpenPdfs] = useState<Record<string, boolean>>({});
+  const togglePdf = (id: string) => setOpenPdfs((p) => ({ ...p, [id]: !p[id] }));
 
   // Institution suppliers that haven't already quoted on this RFQ.
   const quotedSupplierIds = new Set(quotations.map((q) => q.supplier_id));
@@ -303,35 +307,61 @@ export default function RfqQuotationsPage() {
             ) : (
               <div className="space-y-2">
                 {quotations.map((q) => (
-                  <div key={q.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                    <div>
-                      <p className="text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {q.vendor_quote_number ? `Ref ${q.vendor_quote_number} · ` : ''}
-                        Total ₹{Number(q.total_amount ?? 0).toLocaleString()}
-                        {q.delivery_time_days ? ` · ${q.delivery_time_days}d delivery` : ''}
-                        {q.payment_terms ? ` · ${q.payment_terms}` : ''}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {q.document_url && (
-                        <a href={q.document_url} target="_blank" rel="noopener noreferrer">
-                          <Button variant="ghost" size="sm">
-                            <FileText className="h-4 w-4" />
-                            <ExternalLink className="h-3 w-3 ml-1" />
+                  <div key={q.id} className="rounded-md border">
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {q.vendor_quote_number ? `Ref ${q.vendor_quote_number} · ` : ''}
+                          Total ₹{Number(q.total_amount ?? 0).toLocaleString()}
+                          {q.delivery_time_days ? ` · ${q.delivery_time_days}d delivery` : ''}
+                          {q.payment_terms ? ` · ${q.payment_terms}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {q.document_file_id ? (
+                          <Button variant="ghost" size="sm" onClick={() => togglePdf(q.id)}>
+                            <FileText className="h-4 w-4 mr-1" />
+                            {openPdfs[q.id] ? 'Hide PDF' : 'View PDF'}
                           </Button>
-                        </a>
-                      )}
-                      {canManage && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => run(() => deleteQuotation.mutateAsync(q.id), 'Quotation removed')}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
+                        ) : q.document_url ? (
+                          <a href={q.document_url} target="_blank" rel="noopener noreferrer">
+                            <Button variant="ghost" size="sm">
+                              <FileText className="h-4 w-4" />
+                              <ExternalLink className="h-3 w-3 ml-1" />
+                            </Button>
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No PDF</span>
+                        )}
+                        {q.document_file_id && q.document_url && (
+                          <a href={q.document_url} target="_blank" rel="noopener noreferrer">
+                            <Button variant="ghost" size="sm">
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </a>
+                        )}
+                        {canManage && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => run(() => deleteQuotation.mutateAsync(q.id), 'Quotation removed')}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
+                    {q.document_file_id && openPdfs[q.id] && (
+                      <div className="px-3 pb-3">
+                        <iframe
+                          src={`https://drive.google.com/file/d/${q.document_file_id}/preview`}
+                          title={`Quotation PDF — ${q.supplier?.name ?? q.supplier_id}`}
+                          className="w-full rounded-md border"
+                          style={{ height: 500 }}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
