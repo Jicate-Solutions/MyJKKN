@@ -7,6 +7,7 @@
 // build a strike counter, 2+ strikes = "Escalate to Director" (Decide) →
 // close the meeting with a prefilled Action-Taken-Report minutes summary,
 // and whatever stayed open reappears at the NEXT meeting (Feed-forward).
+// CI re-trigger 2026-07-10: merge-ref refresh after #1950 unblocked the coverage gate.
 // ============================================================================
 
 'use client';
