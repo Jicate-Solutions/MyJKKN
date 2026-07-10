@@ -111,8 +111,11 @@ CREATE TABLE IF NOT EXISTS public.accreditation_committee_resolutions (
   -- (user or label); a resolution cannot be "reviewed" by the meeting that
   -- passed it (Measure happens at the NEXT meeting); the strike counter can
   -- never go negative and silently defeat the >=2 Director-escalation flag.
-  CONSTRAINT acr_owner_required CHECK (owner_user_id IS NOT NULL OR owner_label IS NOT NULL),
-  CONSTRAINT acr_review_at_later_meeting CHECK (reviewed_in_meeting_id IS NULL OR reviewed_in_meeting_id <> meeting_id),
+  CONSTRAINT acr_owner_required CHECK (owner_user_id IS NOT NULL OR length(btrim(owner_label)) > 0),
+  -- Named honestly (r2): guarantees a DISTINCT meeting, not a LATER one — CHECKs
+  -- can't subquery meeting_no ordering, and the review queue only ever offers
+  -- items passed in EARLIER meetings; the gate here stops same-meeting gaming.
+  CONSTRAINT acr_review_in_distinct_meeting CHECK (reviewed_in_meeting_id IS NULL OR reviewed_in_meeting_id <> meeting_id),
   CONSTRAINT acr_carried_count_nonneg CHECK (carried_count >= 0)
 );
 COMMENT ON TABLE public.accreditation_committee_resolutions IS
