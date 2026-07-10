@@ -467,6 +467,27 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.session_feedback.learner_detail.view',
         label: 'View Learner-Level Feedback Panels (trajectory, struggling notes)'
       },
+      // 2026-07-10: the last hardcoded leader-role arrays in the SCF lane moved
+      // onto Role Management switches (Director interview R2). The verdict-report
+      // panels get their OWN read key (narrower than leadership.view — no HoD by
+      // default); the three write keys gate the leadership OVERRIDE branches only:
+      // assigned-faculty / teaching-evidence paths stay role-independent.
+      {
+        key: 'academic.session_feedback.verdict_report.view',
+        label: 'View Verdict Report Panels (contradictions, track record)'
+      },
+      {
+        key: 'academic.session_feedback.verdict.write',
+        label: 'Set Loop-Note Verdicts (leadership override)'
+      },
+      {
+        key: 'academic.curriculum.lesson.manage',
+        label: 'Manage Curriculum Lessons (leadership override: edit, approve/reject AI drafts)'
+      },
+      {
+        key: 'academic.live_poll.manage',
+        label: 'Manage Live Polls & Pulses (leadership override)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'
