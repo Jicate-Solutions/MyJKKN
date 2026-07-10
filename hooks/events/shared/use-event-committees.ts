@@ -56,6 +56,34 @@ export function useDeleteEventCommittee(eventId: string) {
   });
 }
 
+export function useAddInternalMembers(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({
+      committee,
+      people,
+    }: {
+      committee: MarathonCommittee;
+      people: { member_id: string; name: string }[];
+    }) => EventCommitteeService.addInternalMembers(committee, people),
+    onSuccess: (_data, { people }) => {
+      invalidate();
+      toast.success(`${people.length} member${people.length === 1 ? '' : 's'} added`);
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add members'),
+  });
+}
+
+export function useRemoveInternalMember(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({ committee, index }: { committee: MarathonCommittee; index: number }) =>
+      EventCommitteeService.removeInternalMember(committee, index),
+    onSuccess: () => invalidate(),
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove member'),
+  });
+}
+
 export function useAddExternalMember(eventId: string) {
   const invalidate = useInvalidate(eventId);
   return useMutation({

@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { canManageTournament } from '@/lib/services/events/tournament/organizer-access';
 import type { ScheduleMatchDto } from '@/types/tournament';
 
 export async function PATCH(
@@ -22,9 +23,8 @@ export async function PATCH(
     const auth = await createClient();
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    const { data: canManage } = await auth.rpc('user_has_permission', {
-      permission_name: 'sports.tournaments.manage',
-    });
+    // manage permission OR per-event in-charge (Tournament In-charge, 2026-07)
+    const canManage = await canManageTournament(auth, eventId);
     if (canManage !== true) {
       return NextResponse.json({ error: 'Forbidden — sports.tournaments.manage required' }, { status: 403 });
     }

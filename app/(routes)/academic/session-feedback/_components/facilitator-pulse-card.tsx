@@ -18,7 +18,7 @@
 // Leadership-gated server-side: fn_scf_facilitator_pulse raises for
 // non-leadership callers — this card is only mounted on the admin page.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -46,7 +46,17 @@ import type {
 type PulseState = { key: string; rows?: FacilitatorPulseRow[]; error?: string };
 type CoverageState = { key: string; data: MarksCoverageResponse | null };
 
-export function FacilitatorPulseCard({ from, to }: { from: string; to: string }) {
+export function FacilitatorPulseCard({
+  from,
+  to,
+  institutionId,
+}: {
+  from: string;
+  to: string;
+  /** Narrow to one college. The RPC already scopes rows to what the caller may
+   *  see, so this is a filter, never a widening. */
+  institutionId?: string | null;
+}) {
   // Stale-key pattern: state is only ever set asynchronously (no sync setState
   // in the effect body); a range change makes the previous result stale, which
   // reads as "loading" until the new fetch resolves.
@@ -78,7 +88,14 @@ export function FacilitatorPulseCard({ from, to }: { from: string; to: string })
   }, [from, to]);
 
   const current = state?.key === rangeKey ? state : null;
-  const rows = current?.rows ?? null;
+  const allRows = current?.rows ?? null;
+  // null = still loading (keep the spinner); only filter once rows exist.
+  const rows = useMemo(() => {
+    if (!allRows) return allRows;
+    return institutionId
+      ? allRows.filter((r) => r.institution_id === institutionId)
+      : allRows;
+  }, [allRows, institutionId]);
   const error = current?.error ?? null;
 
   const rawCov = coverage?.key === rangeKey ? coverage.data : null;

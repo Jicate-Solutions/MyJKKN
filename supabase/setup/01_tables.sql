@@ -6055,3 +6055,28 @@ ALTER TABLE public.learners_profiles
 CREATE INDEX IF NOT EXISTS learners_profiles_post_office_id_idx
   ON public.learners_profiles (post_office_id)
   WHERE post_office_id IS NOT NULL;
+
+-- ── event_volunteer_checkins: MyJKKN volunteer link (2026-07-10) ─────────────
+-- member_id = staff.profile_id (auth uid) or learners_profiles.id; NULL for guests.
+ALTER TABLE public.event_volunteer_checkins
+  ADD COLUMN IF NOT EXISTS member_id    uuid,
+  ADD COLUMN IF NOT EXISTS member_role  text,
+  ADD COLUMN IF NOT EXISTS member_email text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'event_volunteer_checkins_member_role_check') THEN
+    ALTER TABLE public.event_volunteer_checkins
+      ADD CONSTRAINT event_volunteer_checkins_member_role_check
+      CHECK (member_role IS NULL OR member_role IN ('staff', 'student'));
+  END IF;
+END $$;
+
+-- One active (not checked-out) check-in per JKKN person per event.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_volunteers_member_active
+  ON public.event_volunteer_checkins (event_id, member_id)
+  WHERE member_id IS NOT NULL AND checked_out_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_event_volunteers_member
+  ON public.event_volunteer_checkins (member_id)
+  WHERE member_id IS NOT NULL;

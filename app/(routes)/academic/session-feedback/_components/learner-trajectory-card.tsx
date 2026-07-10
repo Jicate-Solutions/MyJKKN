@@ -39,7 +39,17 @@ import type { LearnerTrajectoryRow } from '@/types/learner-trajectory';
 
 const BRAND_GREEN = '#0b6d41';
 
-export function LearnerTrajectoryCard({ from, to }: { from?: string; to?: string }) {
+export function LearnerTrajectoryCard({
+  from,
+  to,
+  institutionId,
+}: {
+  from?: string;
+  to?: string;
+  /** Narrow to one college. The RPC already scopes rows to what the caller may
+   *  see, so this is a filter, never a widening. */
+  institutionId?: string | null;
+}) {
   const range = useMemo(() => {
     if (from && to) return { from, to };
     const today = new Date();
@@ -47,7 +57,12 @@ export function LearnerTrajectoryCard({ from, to }: { from?: string; to?: string
   }, [from, to]);
 
   const { data, isLoading, isError, error } = useLearnerTrajectory(range.from, range.to);
-  const rows = (data ?? []) as LearnerTrajectoryRow[];
+  const rows = useMemo(() => {
+    const all = (data ?? []) as LearnerTrajectoryRow[];
+    return institutionId
+      ? all.filter((r) => r.institution_id === institutionId)
+      : all;
+  }, [data, institutionId]);
   const atRiskCount = rows.filter((r) => r.at_risk).length;
 
   return (

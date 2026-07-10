@@ -197,7 +197,11 @@ export function FeedbackConfirmationTab({
   // Trend + loop activity return no institution column, so they cannot be
   // narrowed client-side — the RPCs take the college as an argument instead.
   const trend = useAdminTrend(from, to, selectedInstitutionId);
-  const coverage = useFacilitatorFeedbackCoverage(from, to);
+  // Coverage is narrowed SERVER-side too (Director bug 2026-07-10: Pharmacy
+  // facilitators rendered under a Dental filter, plus a 267% coverage row from
+  // the RPC's covered-count fan-out). The client-side filter below stays as
+  // belt-and-braces.
+  const coverage = useFacilitatorFeedbackCoverage(from, to, selectedInstitutionId);
 
   // The remaining panels DO carry institution_id per row, so narrowing them here
   // is a filter, never a widening — the server already decided what you may see.
@@ -537,14 +541,26 @@ export function FeedbackConfirmationTab({
         to={to}
         institutionId={selectedInstitutionId}
       />
-      <FacilitatorStrengthsCard from={from} to={to} />
+      <FacilitatorStrengthsCard
+        from={from}
+        to={to}
+        institutionId={selectedInstitutionId}
+      />
       {/* Learner-level panels: a narrower permission than the college-level ones
           (HoDs are deliberately excluded). Hidden rather than rendered as an
           error, so a HoD sees a complete page, not two permission warnings. */}
       {canSeeLearnerDetail ? (
         <>
-          <LearnerTrajectoryCard from={from} to={to} />
-          <StrugglingNotesSentCard from={from} to={to} />
+          <LearnerTrajectoryCard
+            from={from}
+            to={to}
+            institutionId={selectedInstitutionId}
+          />
+          <StrugglingNotesSentCard
+            from={from}
+            to={to}
+            institutionId={selectedInstitutionId}
+          />
         </>
       ) : null}
 

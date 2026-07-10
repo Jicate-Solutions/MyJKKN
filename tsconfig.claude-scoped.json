@@ -8,7 +8,6 @@
   "include": [
     "next-env.d.ts",
     "types/**/*.ts",
-    "app/(routes)/bos/meetings/[meetingId]/_components/minutes-tab.tsx",
-    "app/(routes)/bos/meetings/[meetingId]/minutes/edit/page.tsx"
+    "app/(routes)/bos/ta-da/_components/rate-settings-dialog.tsx"
   ]
 }

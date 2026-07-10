@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { IndianRupee, Plus, Settings2, Trash2 } from 'lucide-react';
+import { IndianRupee, Info, Plus, Settings2, Trash2 } from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -284,18 +285,51 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
           Rate Settings
         </Button>
       </DialogTrigger>
-      <DialogContent className='max-w-2xl max-h-[85vh] overflow-y-auto'>
+      <DialogContent className='max-w-3xl max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
-          <DialogTitle>TA / Honorarium Rate Settings</DialogTitle>
+          <DialogTitle className='flex items-center gap-2'>
+            <Settings2 className='h-5 w-5 text-primary' />
+            TA / Honorarium Rate Settings
+          </DialogTitle>
           <DialogDescription>
-            Add a row per member type that needs a custom rate for the selected council.
-            Member types without a row use the institution-wide SOP (₹
-            {TA_DA_RATES.honorariumExternal} external / ₹{TA_DA_RATES.honorariumInternal} internal,
-            ₹{TA_DA_RATES.travelPerKm}/km TA for external experts).
+            Set custom rates per member type for a council. Types without a
+            custom row follow the institution-wide SOP defaults below.
           </DialogDescription>
         </DialogHeader>
 
         <div className='space-y-4'>
+          {/* SOP defaults reference — the fallback every un-configured member
+              type rides on. Read-only; edits happen via the rows below. */}
+          <div className='grid grid-cols-1 gap-2 sm:grid-cols-3'>
+            <div className='rounded-lg border bg-muted/40 px-3 py-2'>
+              <p className='text-[11px] font-medium uppercase tracking-wide text-muted-foreground'>
+                SOP · External honorarium
+              </p>
+              <p className='mt-0.5 text-base font-semibold tabular-nums'>
+                ₹{TA_DA_RATES.honorariumExternal.toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className='rounded-lg border bg-muted/40 px-3 py-2'>
+              <p className='text-[11px] font-medium uppercase tracking-wide text-muted-foreground'>
+                SOP · Internal honorarium
+              </p>
+              <p className='mt-0.5 text-base font-semibold tabular-nums'>
+                ₹{TA_DA_RATES.honorariumInternal.toLocaleString('en-IN')}
+              </p>
+            </div>
+            <div className='rounded-lg border bg-muted/40 px-3 py-2'>
+              <p className='text-[11px] font-medium uppercase tracking-wide text-muted-foreground'>
+                SOP · TA (external)
+              </p>
+              <p className='mt-0.5 text-base font-semibold tabular-nums'>
+                ₹{TA_DA_RATES.travelPerKm.toLocaleString('en-IN')}
+                <span className='ml-1 text-xs font-normal text-muted-foreground'>
+                  /km, round trip
+                </span>
+              </p>
+            </div>
+          </div>
+
           <div className='space-y-1.5'>
             <Label>Council / Committee</Label>
             <Select value={committeeName} onValueChange={setCommitteeName}>
@@ -320,6 +354,12 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
             </Select>
           </div>
 
+          {!committeeName && (
+            <div className='rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground'>
+              Select a council above to view or configure its custom rates.
+            </div>
+          )}
+
           {committeeName && (loadingRates || loadingTypes) && (
             <div className='space-y-2'>
               {[1, 2, 3].map((i) => <Skeleton key={i} className='h-10 w-full' />)}
@@ -328,27 +368,68 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
 
           {committeeName && !loadingRates && !loadingTypes && (
             <>
+              {/* Section header: what's configured for this council + Add. */}
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <div className='flex items-center gap-2'>
+                  <h4 className='text-sm font-semibold'>
+                    Custom rates — {committeeName}
+                  </h4>
+                  {rows.length > 0 && (
+                    <Badge variant='secondary' className='h-5 px-1.5 text-xs'>
+                      {rows.length} {rows.length === 1 ? 'type' : 'types'}
+                    </Badge>
+                  )}
+                </div>
+                {rows.length > 0 && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={addRow}
+                    disabled={allTypesUsed || catalog.length === 0}
+                  >
+                    <Plus className='mr-2 h-4 w-4' />
+                    Add Member Type
+                  </Button>
+                )}
+              </div>
+
               {rows.length === 0 ? (
-                <div className='rounded-lg border border-dashed p-6 text-center'>
-                  <p className='text-sm font-medium'>No custom rates for this council</p>
-                  <p className='mt-1 text-xs text-muted-foreground'>
-                    All member types currently use the institution-wide SOP defaults.
+                <div className='rounded-lg border border-dashed p-8 text-center'>
+                  <IndianRupee className='mx-auto h-8 w-8 text-muted-foreground/40' />
+                  <p className='mt-2 text-sm font-medium'>
+                    No custom rates for this council
                   </p>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    All member types currently use the institution-wide SOP
+                    defaults shown above.
+                  </p>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='mt-4'
+                    onClick={addRow}
+                    disabled={catalog.length === 0}
+                  >
+                    <Plus className='mr-2 h-4 w-4' />
+                    Add Member Type
+                  </Button>
                 </div>
               ) : (
-                <div className='rounded-md border'>
+                <div className='overflow-hidden rounded-lg border'>
                   <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Member Type</TableHead>
-                        <TableHead className='w-36'>Honorarium</TableHead>
-                        <TableHead className='w-36'>TA per km</TableHead>
+                    <TableHeader className='bg-muted/50'>
+                      <TableRow className='hover:bg-muted/50'>
+                        <TableHead className='text-xs'>Member Type</TableHead>
+                        <TableHead className='w-36 text-xs'>Honorarium</TableHead>
+                        <TableHead className='w-36 text-xs'>TA per km</TableHead>
                         <TableHead className='w-12' />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {rows.map((row) => (
-                        <TableRow key={row.key}>
+                        <TableRow key={row.key} className='hover:bg-muted/30'>
                           <TableCell>
                             <Select
                               value={row.memberType}
@@ -417,28 +498,22 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
                 </div>
               )}
 
-              <Button
-                type='button'
-                variant='outline'
-                size='sm'
-                onClick={addRow}
-                disabled={allTypesUsed || catalog.length === 0}
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                Add Member Type
-              </Button>
               {catalog.length === 0 && (
                 <p className='text-xs text-amber-700 dark:text-amber-400'>
                   No member types found — manage the catalog at /bos/member-types first.
                 </p>
               )}
 
-              <p className='text-xs text-muted-foreground'>
-                TA = round-trip distance (one-way km × 2) × rate; distance comes from the
-                external expert&apos;s profile, so member types without a distance receive
-                honorarium only. Removing a row restores the SOP default for that type.
-                Changes apply to claims generated after saving.
-              </p>
+              <div className='flex gap-2 rounded-lg border bg-muted/40 px-3 py-2.5'>
+                <Info className='mt-0.5 h-4 w-4 shrink-0 text-muted-foreground' />
+                <p className='text-xs leading-relaxed text-muted-foreground'>
+                  TA = round-trip distance (one-way km × 2) × rate; distance
+                  comes from the external expert&apos;s profile, so member
+                  types without a distance receive honorarium only. Removing a
+                  row restores the SOP default for that type. Changes apply to
+                  claims generated after saving.
+                </p>
+              </div>
             </>
           )}
         </div>

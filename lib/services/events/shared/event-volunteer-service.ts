@@ -40,7 +40,13 @@ export class EventVolunteerService {
     }
   }
 
-  /** Check in a volunteer at a station. Supports external (guest) volunteers — decision #8. */
+  /**
+   * Check in a volunteer at a station. Two paths:
+   *   - MyJKKN volunteer  → member_id/member_role/member_email link them to their profile.
+   *   - External guest    → external_name/external_phone, no member link (decision #8).
+   * A partial unique index blocks checking the same JKKN person into an event twice
+   * while they are still on duty; that surfaces as 23505.
+   */
   static async checkinVolunteer(dto: CreateEventVolunteerDto): Promise<MarathonVolunteerCheckin> {
     try {
       const isExternal = dto.is_external === true;
@@ -54,6 +60,10 @@ export class EventVolunteerService {
         // Guest markers: default external_name to the display name so reports can filter on it.
         external_name: isExternal ? (dto.external_name ?? dto.volunteer_name) : null,
         external_phone: isExternal ? (dto.external_phone ?? dto.volunteer_phone ?? null) : null,
+        // MyJKKN link — guests never carry one.
+        member_id: isExternal ? null : (dto.member_id ?? null),
+        member_role: isExternal ? null : (dto.member_role ?? null),
+        member_email: isExternal ? null : (dto.member_email ?? null),
         checked_in_at: new Date().toISOString(),
       };
       const { data, error } = await (this.supabase as any)
@@ -62,6 +72,9 @@ export class EventVolunteerService {
         .select('*');
       if (error) {
         logger.error(MOD, 'Failed to check in volunteer', error);
+        if (error.code === '23505') {
+          throw new Error(`${dto.volunteer_name} is already checked in for this event.`);
+        }
         throw error;
       }
       const created = Array.isArray(data) ? data[0] : data;
