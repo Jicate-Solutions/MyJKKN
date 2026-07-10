@@ -37,6 +37,7 @@ import {
   AlignmentType,
   BorderStyle,
   HeadingLevel,
+  LineRuleType,
   PageOrientation,
   convertMillimetersToTwip,
 } from 'docx';
@@ -67,9 +68,10 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   principal: 10,
 };
 
-function memberTypeRank(t: BosMemberType | null | undefined): number {
+function memberTypeRank(t: string | null | undefined): number {
   if (!t) return 99;
-  return MEMBER_TYPE_ORDER[t] ?? 99;
+  // Catalog-name values (20260710150000) aren't in the enum map — rank 99.
+  return (MEMBER_TYPE_ORDER as Record<string, number>)[t] ?? 99;
 }
 
 function sortAttendeesForDocx(attendees: BosMeetingAttendee[]): BosMeetingAttendee[] {
@@ -100,6 +102,11 @@ const SIZE_SECTION = 24;  // 12pt — section headers like "AGENDA", "MINUTES" (
 const PAGE_WIDTH_MM = 210;
 const PAGE_MARGIN_MM = 12; // Reduced from 15mm to match PDF
 const CONTENT_WIDTH_DXA = convertMillimetersToTwip(PAGE_WIDTH_MM - PAGE_MARGIN_MM * 2);
+// 1.5 line spacing for body/narrative paragraphs (240 twips = single line, so
+// 360 = 1.5×). Applied to running text only — table cells stay single-spaced,
+// otherwise the attendance/signature tables grow ~50% taller and the
+// signature grid no longer fits its page.
+const LINE_150 = { line: 360, lineRule: LineRuleType.AUTO } as const;
 
 // Same normalization used by minutes-tab.tsx and bos-pdf-generator.ts —
 // duplicated here to keep this module self-contained without dragging
@@ -185,6 +192,7 @@ function para(
     spacing: {
       after: opts?.spacingAfter ?? 80,
       before: opts?.spacingBefore ?? 0,
+      ...LINE_150,
     },
     children: [
       new TextRun({
@@ -200,7 +208,7 @@ function para(
 function sectionHeading(text: string): Paragraph {
   return new Paragraph({
     alignment: AlignmentType.LEFT,
-    spacing: { before: 80, after: 60 },
+    spacing: { before: 80, after: 60, ...LINE_150 },
     children: [
       new TextRun({
         text: text.toUpperCase(),
@@ -366,7 +374,7 @@ function buildDetailsLine(meeting: BosMeeting, chairmanName: string): Paragraph 
 
   return new Paragraph({
     alignment: AlignmentType.LEFT,
-    spacing: { before: 80, after: 80 },
+    spacing: { before: 80, after: 80, ...LINE_150 },
     children: [
       new TextRun({
         text: parts.join('   |   '),
@@ -440,7 +448,7 @@ function buildBoardLine(
 
   return new Paragraph({
     alignment: AlignmentType.LEFT,
-    spacing: { before: 80, after: 80 },
+    spacing: { before: 80, after: 80, ...LINE_150 },
     children: [
       new TextRun({
         text: `Board: ${boardLabel}`,
@@ -541,7 +549,7 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
   for (const item of sorted) {
     out.push(
       new Paragraph({
-        spacing: { before: 80, after: 40 },
+        spacing: { before: 80, after: 40, ...LINE_150 },
         children: [
           new TextRun({
             text: `${item.item_number}. ${item.item_title}`,
@@ -555,8 +563,9 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
     if (item.discussion_notes) {
       out.push(
         new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
           indent: { left: convertMillimetersToTwip(8) },
-          spacing: { after: 40 },
+          spacing: { after: 40, ...LINE_150 },
           children: [
             new TextRun({
               text: 'Discussion: ',
@@ -576,8 +585,9 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
     if (item.resolution_text) {
       out.push(
         new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
           indent: { left: convertMillimetersToTwip(8) },
-          spacing: { after: 40 },
+          spacing: { after: 40, ...LINE_150 },
           children: [
             new TextRun({
               text: 'Resolution: ',
@@ -608,7 +618,8 @@ function buildNarrativeParagraphs(narrativeHtml?: string): Paragraph[] {
   return blocks.map(
     (block) =>
       new Paragraph({
-        spacing: { after: 100 },
+        alignment: AlignmentType.JUSTIFIED,
+        spacing: { after: 100, ...LINE_150 },
         children: block.split('\n').flatMap((line, idx, arr) => {
           const runs: TextRun[] = [
             new TextRun({ text: line, font: FONT, size: SIZE_BODY }),
@@ -804,7 +815,7 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
   // pointer for someone reading the minutes section in isolation.
   children.push(
     new Paragraph({
-      spacing: { before: 60, after: 120 },
+      spacing: { before: 60, after: 120, ...LINE_150 },
       children: [
         new TextRun({
           text: `Attendance: ${presentTotal} Present / ${attendees.length} Total (see attendance sheet on page 1).`,

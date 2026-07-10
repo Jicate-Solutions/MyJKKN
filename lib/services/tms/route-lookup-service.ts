@@ -53,4 +53,21 @@ export class RouteLookupService {
     if (error) throw error;
     return (data ?? []) as TmsStopOption[];
   }
+
+  /**
+   * A single route by id, with NO status filter — unlike getActiveRoutes()
+   * (used to populate the dropdown), this resolves a route already stored on
+   * a learner even if it was later deactivated, so profile/enquiry views show
+   * its name instead of silently going blank.
+   */
+  static async getRouteById(routeId: string): Promise<TmsRouteOption | null> {
+    if (!routeId) return null;
+    const { data, error } = await (this.supabase as any)
+      .from('tms_route')
+      .select('id, route_number, route_name, fare')
+      .eq('id', routeId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data ?? null) as TmsRouteOption | null;
+  }
 }

@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
       .select(
         `*,
         bos_compositions ( composition_title, academic_year ),
+        committee:bos_committees ( id, name ),
         agenda_count:bos_agenda_items(count),
         attendee_count:bos_meeting_attendees(count)`,
         { count: 'exact' }
@@ -297,6 +298,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Convening council/committee. BoS meetings get it from the form's
+    // Council/Committee picker; AC meetings have no picker — they are convened
+    // by the AC body's default 'Academic Council' committee (seeded by the
+    // AC-prepare route + 20260710123000 backfill), resolved server-side here.
+    // Service-role lookup: bos_committees RLS is board-keyed and would deny
+    // the principal convening an AC meeting.
+    let committeeId: string | null = body.committee_id || null;
+    if (isAcMeeting) {
+      const { data: acCommittee } = await createServiceRoleClient()
+        .from('bos_committees')
+        .select('id')
+        .eq('composition_id', body.composition_id)
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      committeeId = (acCommittee as { id: string } | null)?.id ?? null;
+    }
+
     // board_type was resolved from the parent composition above (denormalized at
     // composition-create time, see 20260521 migration) — reused here to avoid a
     // second query. For AC bodies it is 'academic_council'.
@@ -307,6 +327,7 @@ export async function POST(request: NextRequest) {
     const insertData = {
       ...body,
       board_id: isAcMeeting ? null : body.board_id,
+      committee_id: committeeId,
       meeting_type: isAcMeeting ? ('academic_council' as BosMeetingType) : body.meeting_type,
       meeting_number: meetingNumber,
       status: 'draft' as BosMeetingStatus,

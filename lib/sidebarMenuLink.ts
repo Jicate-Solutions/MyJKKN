@@ -35,6 +35,7 @@ import {
   Lightbulb,
   Building,
   Boxes,
+  ShoppingCart,
   CalendarClock,
   UserSearch,
   Flame,
@@ -1075,6 +1076,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // cashier (ims.sales.*) can't accidentally reach stock adjustments
   // (ims.stock.adjust). Permission catalog: lib/constants/permissions.ts.
   '/ims': 'ims.view',
+
+  // Procurement (centralized purchasing) — Added 2026-07-08. Gateway
+  // procurement.view protects /procurement/*; request_create gates raising a
+  // new request (list/detail stay on view). See PLAN-procurement-v1.md.
+  '/procurement': 'procurement.view',
+  '/procurement/requests': 'procurement.view',
+  '/procurement/requests/new': 'procurement.request_create',
+  '/procurement/requests/[id]': 'procurement.view',
+  '/procurement/rfqs': 'procurement.view',
+  '/procurement/rfqs/[id]': 'procurement.view',
+  '/procurement/rfqs/[id]/quotations': 'procurement.view',
+  '/procurement/purchase-orders': 'procurement.view',
+  '/procurement/purchase-orders/[id]': 'procurement.view',
+  '/procurement/grn': 'procurement.view',
+  '/procurement/grn/[id]': 'procurement.view',
+  '/procurement/grn/new': 'procurement.grn_create',
   '/meetings': 'meetings.view',
   // Universal Booking sub-surfaces (reconcile 2026-06-19) — gate each by its
   // module permission so the sidebar submenus render per-role.
@@ -2150,6 +2167,28 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
             { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
             { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
+          ]
+        }
+      ]
+    },
+    {
+      // 2026-07-08: visual sidebar entry for Procurement (centralized purchasing).
+      // Mirrors the IMS group pattern (single top-level entry, sections collapse
+      // into submenus[]). Submenu hrefs are the reachability seeds. Later phases
+      // (RFQ / PO / GRN) add submenu rows here. See PLAN-procurement-v1.md.
+      groupLabel: 'Procurement',
+      menus: [
+        {
+          href: '/procurement',
+          label: 'Procurement',
+          active: pathname === '/procurement' || pathname.startsWith('/procurement/'),
+          icon: ShoppingCart,
+          submenus: [
+            { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
+            { href: '/procurement/requests', label: 'Purchase Requests', active: pathname.startsWith('/procurement/requests') },
+            { href: '/procurement/rfqs', label: 'RFQs', active: pathname.startsWith('/procurement/rfqs') },
+            { href: '/procurement/purchase-orders', label: 'Purchase Orders', active: pathname.startsWith('/procurement/purchase-orders') },
+            { href: '/procurement/grn', label: 'Goods Receipt', active: pathname.startsWith('/procurement/grn') },
           ]
         }
       ]

@@ -1280,6 +1280,7 @@ export default function TimetableDetailPage() {
           timetable={timetable}
           onBack={() => handleNavigationWithWarning('/academic/timetables')}
           canEdit={canEditTimetable}
+          canDelete={canDeleteTimetable}
           isSuperAdmin={isSuperAdmin}
           hasAttendance={hasAttendance}
           todaysCycle={todaysCycle}

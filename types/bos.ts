@@ -89,6 +89,32 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   member_secretary: 'Member Secretary',
 };
 
+/**
+ * Display label for a member_type value. Catalog-driven rows store the
+ * bos_member_types.name verbatim — shown as-is; legacy enum values map
+ * through BOS_MEMBER_TYPE_LABELS.
+ */
+export function bosMemberTypeLabel(memberType: string | null | undefined): string {
+  if (!memberType) return '';
+  return (BOS_MEMBER_TYPE_LABELS as Record<string, string>)[memberType] ?? memberType;
+}
+
+/**
+ * Is this bos_members row a chairman seat? Mirrors the DB predicate in the
+ * 20260710150000 helper functions: legacy literal 'chairman' (case-insensitive,
+ * covering catalog rows named "Chairman" whose FK was later nulled) OR a
+ * linked catalog type whose base_type is 'chairman'.
+ */
+export function isBosChairmanRow(m: {
+  member_type?: string | null;
+  member_type_rec?: { base_type?: BosMemberType | string | null } | null;
+}): boolean {
+  return (
+    (m.member_type ?? '').toLowerCase() === 'chairman' ||
+    m.member_type_rec?.base_type === 'chairman'
+  );
+}
+
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
   draft: 'Draft',
   principal_approved: 'Principal Approval',
@@ -887,11 +913,18 @@ export interface BosMember {
    * rows created before committees existed — rendered as the "General" group.
    */
   committee_id?: string | null;
-  member_type: BosMemberType;
   /**
-   * FK to bos_member_types (institution-wise, table-driven). member_type
-   * stays as the behaviour key — it equals the type's base_type at insert
-   * time. NULL on rows created before the table existed and not backfilled.
+   * The SELECTED member type. For catalog-driven rows this is the
+   * bos_member_types.name verbatim (e.g. 'Nominated by the Governing Body');
+   * legacy rows (member_type_id NULL) carry the old BosMemberType enum value.
+   * Behaviour (chairman auth, staff-vs-expert, TA/DA) derives from the
+   * catalog row's base_type via member_type_id — NOT from this string.
+   * The static DB CHECK was dropped by 20260710150000.
+   */
+  member_type: string;
+  /**
+   * FK to bos_member_types (institution-wise, table-driven). NULL on rows
+   * created before the table existed and not backfilled.
    */
   member_type_id?: string | null;
   staff_id?: string;
@@ -919,9 +952,19 @@ export interface BosMember {
   updated_at: string;
   // Joined
   expert?: BosExternalExpert;
+  /**
+   * Joined from bos_member_types via member_type_id. Display consumers show
+   * this name (the type the user actually selected in Add Member) and fall
+   * back to BOS_MEMBER_TYPE_LABELS[member_type] for legacy rows. NULL when
+   * member_type_id is null or the reader's RLS can't see bos_member_types.
+   */
+  member_type_rec?: { id: string; name: string; base_type: BosMemberType } | null;
 }
 
-export type CreateBosMemberDto = Omit<BosMember, 'id' | 'created_at' | 'updated_at' | 'expert'>;
+export type CreateBosMemberDto = Omit<
+  BosMember,
+  'id' | 'created_at' | 'updated_at' | 'expert' | 'member_type_rec'
+>;
 export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
 
 // ── Meeting Minutes (rich content) ────────────────────────────────────────────
@@ -937,6 +980,14 @@ export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
  */
 export interface BosMinutesChangeLogEntry {
   id: string; // client-generated UUID for stable React keys
+  /**
+   * Academic Council meetings only: the board the picked course belongs to.
+   * Drives the cascading Board → Course pickers in the Minutes tab; regular
+   * BoS meetings never set it (their courses are already board-scoped).
+   * board_name is a display snapshot for exports.
+   */
+  board_id?: string | null;
+  board_name?: string | null;
   syllabus_id?: string | null;
   syllabus_code?: string | null;
   unit?: string | null;
@@ -998,6 +1049,16 @@ export interface BosMeeting {
   academic_year: string;
   meeting_title?: string;
   meeting_type: BosMeetingType;
+  /**
+   * Convening council/committee of the composition (bos_committees). Each
+   * council/committee carries its own TA/DA remuneration rates, and the
+   * meeting's member list is drawn from this committee's members
+   * (bos_members.committee_id). BoS meetings pick it in the scheduling form;
+   * AC meetings auto-attach to the AC body's default 'Academic Council'
+   * committee. NULL only for pre-committee legacy rows the 20260710 backfills
+   * couldn't attribute unambiguously.
+   */
+  committee_id?: string | null;
   status: BosMeetingStatus;
   scheduled_date?: string;
   scheduled_time?: string;
@@ -1030,6 +1091,8 @@ export interface BosMeeting {
   // Joined
   board?: { board_code: string; board_name: string };
   composition?: { composition_title: string };
+  /** Embedded convening committee (via committee_id FK) — list/detail GETs. */
+  committee?: { id: string; name: string } | null;
   attendee_count?: number;
   agenda_item_count?: number;
   // Embedded via the FK constraint bos_meetings_principal_approved_by_fkey;
@@ -1053,6 +1116,7 @@ export type CreateBosMeetingDto = Omit<
   | 'updated_at'
   | 'board'
   | 'composition'
+  | 'committee'
   | 'attendee_count'
   | 'agenda_item_count'
 > & {
@@ -1154,6 +1218,30 @@ export interface BosCourseReview {
   created_at: string;
 }
 
+// ── TA/DA Rate Settings ───────────────────────────────────────────────────────
+
+/**
+ * Configurable per-council / per-member-type claim rates (bos_ta_da_rates,
+ * 20260710130000). Keyed by committee NAME (a council kind — every
+ * composition's 'Curriculum Development Cell' shares one rate set) and the
+ * member-type NAME from the institution's bos_member_types catalog (e.g.
+ * 'Subject Expert', 'Controller of the Examinations'). Claim generation
+ * resolves a member's catalog name via bos_members.member_type_id, falling
+ * back to the coarse enum label for unlinked members; a type with no active
+ * row uses the flat SOP constants in lib/utils/bos/ta-da-rates.ts.
+ */
+export interface BosTaDaRate {
+  id: string;
+  institutions_id: string;
+  committee_name: string;
+  member_type: string;
+  honorarium_amount: number;
+  ta_per_km: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── TA/DA Claim ───────────────────────────────────────────────────────────────
 
 export interface BosTaDaClaim {
@@ -1195,6 +1283,17 @@ export interface BosTaDaClaim {
   // Joined
   member?: BosMember;
   expert?: BosExternalExpert;
+  /**
+   * Embedded parent meeting (aliased, claims GET) — carries the convening
+   * council so the printed claim form can say "Claim Form for <council> of"
+   * / "Position in <council>". committee is null for pre-committee legacy
+   * meetings; meeting_type distinguishes Academic Council ones.
+   */
+  meeting?: {
+    id: string;
+    meeting_type?: string | null;
+    committee?: { name: string } | null;
+  } | null;
 }
 
 // ── Document ──────────────────────────────────────────────────────────────────

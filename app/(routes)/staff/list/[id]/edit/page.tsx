@@ -39,6 +39,7 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   const {
     canAccess,
     isSuperAdmin,
+    userProfile,
     isLoading: permissionsLoading
   } = usePermissions([], { waitForLoad: true });
 
@@ -46,23 +47,17 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   useEffect(() => {
     if (!permissionsLoading) {
       setPermissionsLoaded(true);
-      console.log('Edit Staff permissions debug:', {
-        isSuperAdmin,
-        canEditStaff: canAccess('staff', 'edit')
-      });
     }
-  }, [permissionsLoading, isSuperAdmin, canAccess]);
+  }, [permissionsLoading]);
 
-  // Fetch staff data after permissions are loaded
+  // Fetch staff data after permissions are loaded. The edit-permission gate
+  // (below, once `staff` is available) also allows self-edit — mirroring the
+  // API's isSelfEdit branch in app/api/staff/[id]/route.ts — which needs the
+  // fetched record's institution_email/profile_id, so the fetch can no longer
+  // be blocked on the blanket `staff.edit` permission check alone
+  // (BUG-002565: own-record users without staff.edit could never reach here).
   useEffect(() => {
     if (!permissionsLoaded) return;
-
-    const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
-    if (!canEditStaff) {
-      console.log('User does not have permission to edit staff');
-      router.push('/unauthorized');
-      return;
-    }
 
     async function fetchStaff() {
       try {
@@ -79,7 +74,23 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
     }
 
     fetchStaff();
-  }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
+  }, [id, permissionsLoaded]);
+
+  // Gate access once both permissions and the staff record are available.
+  const canEditStaff =
+    !!staff &&
+    (isSuperAdmin ||
+      canAccess('staff', 'edit') ||
+      (!!staff.institution_email && staff.institution_email === userProfile?.email) ||
+      (!!(staff as any).profile_id && (staff as any).profile_id === userProfile?.id));
+
+  useEffect(() => {
+    if (!permissionsLoaded || loading || !staff) return;
+    if (!canEditStaff) {
+      console.log('User does not have permission to edit staff');
+      router.push('/unauthorized');
+    }
+  }, [permissionsLoaded, loading, staff, canEditStaff, router]);
 
   // Show loading state while permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
