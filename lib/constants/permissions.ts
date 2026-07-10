@@ -1885,6 +1885,41 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Added 2026-07-07 — Centralized Procurement module (Phase 0).
+    // Module-agnostic purchasing spine (PR → RFQ → Quotation → PO → GRN →
+    // three-way-match), IMS as the first registered domain. Gateway key
+    // `procurement.view` protects the /procurement tree; step-specific keys
+    // separate raising a request (request_create) from approving it
+    // (request_approve) and creating a PO (po_create) from approving it
+    // (po_approve), so a store clerk can't self-approve their own spend.
+    // Plan: docs/centralized-store/PLAN-procurement-v1.md §7.
+    name: 'Procurement',
+    key: 'procurement',
+    permissions: [
+      // Gateway — required for any access to /procurement/*
+      { key: 'procurement.view', label: 'Access Procurement Module' },
+
+      // Purchase Requests / Requisitions (raise vs approve are separate)
+      { key: 'procurement.request_create', label: 'Create Purchase Requests' },
+      { key: 'procurement.request_approve', label: 'Approve / Reject Purchase Requisitions' },
+
+      // RFQ + Vendor Quotations
+      { key: 'procurement.rfq_manage', label: 'Manage RFQs & Requirement Lists' },
+      { key: 'procurement.quotation_manage', label: 'Upload & Compare Vendor Quotations' },
+
+      // Purchase Orders (create vs approve are separate)
+      { key: 'procurement.po_create', label: 'Create Purchase Orders' },
+      { key: 'procurement.po_approve', label: 'Approve / Reject Purchase Orders' },
+
+      // Goods Receipt & three-way verification
+      { key: 'procurement.grn_create', label: 'Create Goods Receipt Notes (against PO)' },
+      { key: 'procurement.grn_verify', label: 'Verify GRNs (three-way match, post to inventory)' },
+
+      // Vendor master
+      { key: 'procurement.vendor_manage', label: 'Manage Vendors (procurement master data)' }
+    ]
+  },
+  {
     // Added 2026-05-04 — AI Pulse module v3 (events-extension)
     // Spec: specs/myjkkn-ai-pulse-spec.md (PR #641, merged)
     // Substrate: PR #644 (wave-a1/ai-pulse-events-extension)
