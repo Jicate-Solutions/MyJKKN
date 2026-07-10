@@ -172,7 +172,7 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
               <p className="text-xs text-muted-foreground mt-1">out of 100</p>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Detailed breakdown available at semester end.
+              This grows as you attend more sessions.
             </p>
           </CardContent>
         </Card>
