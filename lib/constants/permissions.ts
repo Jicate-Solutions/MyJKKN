@@ -453,6 +453,20 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.attendance.dashboard.view_all_institutions',
         label: 'View Dashboard for All Institutions'
       },
+      // 2026-07-10: the SCF leadership panels used to gate on a hardcoded list of
+      // legacy profiles.role names, so Role Management could not grant them at all
+      // (a CEO holding every relevant toggle was still refused). The DB functions
+      // now call user_has_permission() with these two keys. Split in two because
+      // the learner-level panels are deliberately narrower than the college-level
+      // ones — HoDs see the college roll-ups but not individual learner trajectories.
+      {
+        key: 'academic.session_feedback.leadership.view',
+        label: 'View Leadership Feedback Panels (college-level)'
+      },
+      {
+        key: 'academic.session_feedback.learner_detail.view',
+        label: 'View Learner-Level Feedback Panels (trajectory, struggling notes)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'
