@@ -682,7 +682,7 @@ export default async function LoopControlTowerPage() {
           gates: ['on', 'on', 'on', 'half'],
           metrics: [
             { v: n(auditCyclesTotal), k: 'audit cycles', tone: 'mute' },
-            { v: n(auditCyclesClosed), k: 'closed (evidence-bearing)', tone: (auditCyclesClosed ?? 0) > 0 ? 'good' : 'warn' },
+            { v: n(auditCyclesClosed), k: 'closed cycles', tone: (auditCyclesClosed ?? 0) > 0 ? 'good' : 'warn' },
             { v: 'vs prior', k: 'findings delta at close', tone: 'mute' },
           ],
           verifyHref: '/audit',

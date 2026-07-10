@@ -356,7 +356,7 @@ BEGIN
              (SELECT count(*) FROM public.accreditation_committee_resolutions r
                WHERE r.committee_id = m.committee_id AND r.status = 'open'
                  AND r.due_date IS NOT NULL
-                 AND r.due_date < COALESCE(m.held_at, now())::date) AS overdue_open
+                 AND r.due_date < (COALESCE(m.held_at, now()) AT TIME ZONE 'Asia/Kolkata')::date) AS overdue_open
       FROM public.accreditation_committee_meetings m
       JOIN public.accreditation_committees c ON c.id = m.committee_id
       WHERE m.status = 'minuted'
@@ -367,6 +367,8 @@ BEGIN
                              WHERE qem.source_table = 'accreditation_committee_meetings'
                                AND qem.source_id = m.id
                                AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.e'))
+      ORDER BY m.updated_at
+      LIMIT 5000
     ),
     ins AS (
       INSERT INTO public.quality_evidence_mappings
@@ -421,13 +423,20 @@ BEGIN
   -- vocabulary, verified 2026-07-10). Delta = vs the institution's PRIOR
   -- closed cycle.
   BEGIN
+    -- Refuse to emit evidence that falsely attests ZERO findings when the
+    -- finding service type is absent (unseeded env / deploy ordering): the
+    -- RAISE lands in v_errors and the loop is skipped for the run (r1 MEDIUM).
+    IF NOT EXISTS (SELECT 1 FROM public.service_types WHERE slug = 'audit_finding') THEN
+      RAISE EXCEPTION 'service_types slug audit_finding missing - refusing to emit zero-finding 7.3.d evidence';
+    END IF;
     WITH ft AS (
       SELECT id FROM public.service_types WHERE slug = 'audit_finding'
     ),
     closed_cycles AS (
       SELECT ac.id, ac.name, ac.closed_at,
              ac.institution_ids[1] AS institution_id,
-             COALESCE(jsonb_array_length(ac.parameter_catalog_snapshot->'parameters'), 0) AS params_in_scope
+             CASE WHEN jsonb_typeof(ac.parameter_catalog_snapshot->'parameters') = 'array'
+                  THEN jsonb_array_length(ac.parameter_catalog_snapshot->'parameters') ELSE 0 END AS params_in_scope
       FROM public.audit_cycles ac
       WHERE ac.closed_at IS NOT NULL
         AND cardinality(ac.institution_ids) = 1
@@ -437,6 +446,8 @@ BEGIN
                              WHERE qem.source_table = 'audit_cycles'
                                AND qem.source_id = ac.id
                                AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.d'))
+      ORDER BY ac.updated_at
+      LIMIT 5000
     ),
     enriched AS (
       SELECT cc.*,
