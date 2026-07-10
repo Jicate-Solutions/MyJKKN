@@ -338,7 +338,14 @@ export function AddMemberDialog({
         institutions_id: institutionsId,
         composition_id: compositionId,
         committee_id: selectedCommitteeId,
-        member_type: memberType,
+        // Catalog-driven: persist the SELECTED type's name verbatim (what the
+        // user picked, e.g. 'Nominated by the Governing Body'); behaviour
+        // derives from member_type_id → base_type. Legacy enum dropdown keeps
+        // writing the enum value.
+        member_type:
+          activeMemberTypes.length > 0
+            ? (selectedTypeRow?.name ?? memberType)
+            : legacyMemberType,
         member_type_id: activeMemberTypes.length > 0 ? effectiveMemberTypeId : null,
         // Persist the source link so future edits can re-resolve canonical info.
         staff_id: selectedFacilitator?.id,

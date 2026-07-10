@@ -14,6 +14,7 @@ import {
   // ~14 sections, leaving the bottom-nav More drawer visually generic).
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
+  ShoppingCart,
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
@@ -644,6 +645,7 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   // Section-icon coverage (used by getSectionIcon in BottomNav)
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
+  ShoppingCart,
 };
 
 function getIconName(icon: LucideIcon): string {

@@ -7,7 +7,7 @@ import { toast } from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosMeeting, BOS_MEETING_STATUS_ORDER } from '@/types/bos';
+import { BosMeeting, BOS_MEETING_STATUS_ORDER, isBosChairmanRow } from '@/types/bos';
 import { useBosAgendaItems } from '@/hooks/bos/use-bos-agenda';
 import { useBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
@@ -114,7 +114,7 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
     ?.replace(/^\s*Board of Studies\s*-\s*/i, '')
     .trim();
 
-  const chairmanMember = members.find((m) => m.member_type === 'chairman');
+  const chairmanMember = members.find((m) => isBosChairmanRow(m));
   const chairmanName = chairmanMember?.display_name ?? 'Chairman';
 
   const isLoading = loadingAgenda || loadingAttendance || loadingMembers;

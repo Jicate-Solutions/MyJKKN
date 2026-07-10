@@ -21,9 +21,10 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   principal: 10,
 };
 
-function memberTypeRank(t: BosMemberType | null | undefined): number {
+function memberTypeRank(t: string | null | undefined): number {
   if (!t) return 99;
-  return MEMBER_TYPE_ORDER[t] ?? 99;
+  // Catalog-name values (20260710150000) aren't in the enum map — rank 99.
+  return (MEMBER_TYPE_ORDER as Record<string, number>)[t] ?? 99;
 }
 
 // Sort attendees by member-type rank first, then by the existing per-member
@@ -870,20 +871,15 @@ export function generateMinutesPdf({
     display_designation?: string;
     display_institution?: string;
     address?: string;
-    member_type?: BosMemberType | null;
+    member_type?: string | null;
+    expert_id?: string | null;
   };
-  // Internal member types — staff who live at the JKKN campus and won't
-  // have a bos_members.address filled in. For these, fall back to the
+  // Internal (staff-sourced) members live at the JKKN campus and won't have
+  // a bos_members.address filled in. For these, fall back to the
   // letterhead's institution address so the signatures cell still shows a
-  // postal address. External experts (university nominee, subject/industry
-  // expert, alumni, startup) carry their own address and need no fallback.
-  const INTERNAL_TYPES: ReadonlySet<BosMemberType> = new Set([
-    'chairman',
-    'internal_member',
-    'hod',
-    'facilitator',
-    'principal',
-  ]);
+  // postal address. External (expert-sourced) members carry their own
+  // address and need no fallback. Internal-ness derives from expert_id —
+  // member_type stores the free-form catalog name since 20260710150000.
   const presentMemberCells = sortAttendeesForPdf(attendees)
     .filter((a) => a.attendance_status === 'present')
     .map((a, idx) => {
@@ -897,7 +893,7 @@ export function generateMinutesPdf({
       const memberAddress = (m.address ?? '').trim();
       const addressFallback =
         memberAddress ||
-        (m.member_type && INTERNAL_TYPES.has(m.member_type)
+        (m.expert_id == null
           ? (header.institution_address ?? '').trim()
           : '');
       const lines = [

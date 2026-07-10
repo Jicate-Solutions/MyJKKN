@@ -56,6 +56,14 @@ export function StaffImageUpload({
 
   return (
     <div className='flex items-center gap-4'>
+      <Input
+        type='file'
+        accept='image/*'
+        onChange={handleUpload}
+        disabled={isUploading}
+        className='hidden'
+        id='staff-image-upload'
+      />
       {value ? (
         <div className='relative w-[200px] h-[200px]'>
           <Image
@@ -64,6 +72,12 @@ export function StaffImageUpload({
             fill
             className='object-cover rounded-md'
           />
+          <label
+            htmlFor='staff-image-upload'
+            className='absolute inset-0 flex items-center justify-center rounded-md bg-black/0 text-white text-sm opacity-0 transition-opacity hover:bg-black/40 hover:opacity-100 cursor-pointer'
+          >
+            {isUploading ? 'Uploading...' : 'Change Photo'}
+          </label>
           <Button
             type='button'
             variant='destructive'
@@ -76,14 +90,6 @@ export function StaffImageUpload({
         </div>
       ) : (
         <div className='flex flex-col items-center'>
-          <Input
-            type='file'
-            accept='image/*'
-            onChange={handleUpload}
-            disabled={isUploading}
-            className='hidden'
-            id='staff-image-upload'
-          />
           <label
             htmlFor='staff-image-upload'
             className='flex flex-col items-center gap-2 cursor-pointer'

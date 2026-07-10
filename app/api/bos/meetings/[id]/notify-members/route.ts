@@ -18,7 +18,7 @@ import {
 } from '@/lib/services/bos-email-sender';
 import { openBosCallLetterRenderer } from '@/lib/pdf/bos-meeting-notice';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
-import { BOS_MEMBER_TYPE_LABELS } from '@/types/bos';
+import { bosMemberTypeLabel, isBosChairmanRow } from '@/types/bos';
 
 // Vercel runtime config. Puppeteer + @sparticuz/chromium needs the Node
 // runtime (Edge can't launch a subprocess) and well over the default 10s
@@ -107,7 +107,7 @@ export async function POST(
     // different composition.
     const { data: members, error: membersErr } = await supabase
       .from('bos_members')
-      .select('id, display_name, email, member_type, expert_id, staff_id, display_designation, display_department, display_institution, address, contact_no')
+      .select('id, display_name, email, member_type, expert_id, staff_id, display_designation, display_department, display_institution, address, contact_no, member_type_rec:bos_member_types ( name )')
       .eq('composition_id', meeting.composition_id)
       .in('id', parsed.data.memberIds)
       .eq('is_active', true);
@@ -144,17 +144,17 @@ export async function POST(
     // Also pull the meeting's agenda items so we can include them in both
     // the email template AND the attached PDF.
     const [
-      { data: chairmanRow },
+      { data: memberCandidates },
       { data: instRow },
       { data: agendaItemsRaw },
     ] = await Promise.all([
+      // member_type stores the catalog type NAME since 20260710150000 —
+      // chairman is derived from the catalog base_type in JS below.
       supabase
         .from('bos_members')
-        .select('display_name')
+        .select('display_name, member_type, member_type_rec:bos_member_types(base_type)')
         .eq('composition_id', meeting.composition_id)
-        .eq('member_type', 'chairman')
-        .eq('is_active', true)
-        .maybeSingle(),
+        .eq('is_active', true),
       supabase
         .from('institutions')
         .select('name')
@@ -168,6 +168,8 @@ export async function POST(
     ]);
 
     const agendaItems = agendaItemsRaw ?? [];
+    const chairmanRow =
+      (memberCandidates ?? []).find((m) => isBosChairmanRow(m as never)) ?? null;
 
     // Resolve the institution header config once — used by every PDF render
     // below. Pure mapping function (no I/O), safe to call hoisted.
@@ -286,7 +288,11 @@ export async function POST(
       const values: Record<string, string> = {
         member_name: m.display_name,
         member_designation: m.display_designation ?? '',
-        member_role: BOS_MEMBER_TYPE_LABELS[m.member_type] ?? m.member_type,
+        // Selected catalog type (bos_member_types) first; category label only
+        // for legacy rows with no member_type_id link.
+        member_role:
+          (m.member_type_rec as { name?: string } | null)?.name ??
+          bosMemberTypeLabel(m.member_type),
         meeting_title: meetingTitle,
         meeting_date: meetingDate,
         meeting_time: meeting.scheduled_time ?? '',

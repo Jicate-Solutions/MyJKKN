@@ -40,6 +40,7 @@ import {
 } from '@/types/hr-recruitment';
 
 import { getFlowColumns } from './flows-columns';
+import { FlowDetailsDialog } from './flow-details-dialog';
 
 const BASE_PATH = '/hr/admin/recruitment-approval-flows';
 
@@ -51,6 +52,7 @@ export function FlowBuilderClient() {
   const setActive = useSetApprovalFlowActive();
   const deleteFlow = useDeleteApprovalFlow();
 
+  const [viewingFlow, setViewingFlow] = useState<HRApprovalFlow | null>(null);
   const [deletingRows, setDeletingRows] = useState<HRApprovalFlow[]>([]);
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -161,6 +163,7 @@ export function FlowBuilderClient() {
       getFlowColumns({
         orgNameById,
         roleNameByKey,
+        onView: (f) => setViewingFlow(f),
         onEdit: (f) => router.push(`${BASE_PATH}/${f.id}`),
         onToggle: handleToggle,
         onDelete: (f) => {
@@ -250,6 +253,17 @@ export function FlowBuilderClient() {
           columnResizingTableId: 'hr-recruitment-approval-flows',
         }}
         renderToolbarContent={renderToolbar}
+      />
+
+      <FlowDetailsDialog
+        flow={viewingFlow}
+        orgNameById={orgNameById}
+        roleNameByKey={roleNameByKey}
+        onClose={() => setViewingFlow(null)}
+        onEdit={(f) => {
+          setViewingFlow(null);
+          router.push(`${BASE_PATH}/${f.id}`);
+        }}
       />
 
       <AlertDialog

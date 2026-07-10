@@ -81,6 +81,7 @@ export async function GET(
             expert_id
           )
         ),
+        committee:bos_committees ( id, name ),
         principal_approved_by_staff:staff!bos_meetings_principal_approved_by_fkey (
           id,
           profile_id,
@@ -250,6 +251,11 @@ export async function PUT(
       actual_end_time: isDraft ? (body.actual_end_time || null) : undefined,
       ratified_date: isDraft ? (body.ratified_date || null) : undefined,
       venue: isDraft ? (body.venue || null) : undefined,
+      // Convening council/committee — '' (cleared form field) → null; left
+      // undefined (and stripped below) when the client didn't send the field,
+      // so partial updates never wipe an existing attribution.
+      committee_id:
+        body.committee_id === undefined ? undefined : body.committee_id || null,
       notes: body.notes ? body.notes : null,
       updated_at: new Date().toISOString(),
     };

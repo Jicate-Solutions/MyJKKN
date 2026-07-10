@@ -755,6 +755,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 institutionsId={meeting.institutions_id}
                 canEdit={canEdit}
                 meetingStatus={meeting.status}
+                committeeId={meeting.committee_id}
               />
             </TabsContent>
 
@@ -764,6 +765,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 compositionId={meeting.composition_id}
                 meetingStatus={meeting.status}
                 meetingType={meeting.meeting_type}
+                committeeId={meeting.committee_id}
               />
             </TabsContent>
 

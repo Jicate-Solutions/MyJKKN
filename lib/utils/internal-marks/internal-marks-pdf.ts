@@ -518,6 +518,12 @@ export interface BosClaimPDFData {
 	rightLogoImage?: string
 
 	bos_subject: string   // "Board of Studies of ___" subject line
+	/**
+	 * Convening council/committee of the meeting (e.g. 'Academic Council',
+	 * 'Curriculum Development Cell'). Drives the "Claim Form for <council> of"
+	 * title and the "Position in <council>" row. Falls back to 'BOS'.
+	 */
+	council_name?: string
 	claim_date: string    // formatted e.g. "11/05/2026"
 
 	member_name: string
@@ -552,7 +558,8 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 	currentY += 2
 	doc.setFont('times', 'normal')
 	doc.setFontSize(10)
-	const subjectLabel = 'Claim Form for BOS of '
+	const councilName = data.council_name?.trim() || 'BOS'
+	const subjectLabel = `Claim Form for ${councilName} of `
 	const datePart = `Date: ${data.claim_date}`
 	doc.text(subjectLabel + data.bos_subject, MARGIN, currentY)
 	doc.text(datePart, pageWidth - MARGIN, currentY, { align: 'right' })
@@ -567,7 +574,7 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 		['Name of the BOS Member', data.member_name],
 		['Designation', data.designation ?? ''],
 		['Institution / Company', data.college_address ?? ''],
-		['Position in BOS', data.position_in_bos ?? ''],
+		[`Position in ${councilName}`, data.position_in_bos ?? ''],
 		['Mobile No', data.mobile ?? ''],
 		['Mail id', data.email ?? ''],
 		['Amount: Honorarium', `Rs.${data.honorarium.toFixed(2)}`],
@@ -634,38 +641,9 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 		},
 	})
 
-	// Extra breathing room above the signature block (2026-05-21): the prior
-	// +14mm felt cramped after the NEFT table, especially when the table is
-	// near the bottom of the page. +30mm pushes the signature labels into
-	// their own visual zone without forcing a new page (the overflow guard
-	// below paginates if it would).
-	let sigY = ((doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? currentY + 60) + 30
-
-	// â”€â”€ Signature section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-	if (sigY + 20 > A4_HEIGHT - 15) {
-		doc.addPage()
-		sigY = MARGIN + 10
-	}
-
-	const sigLabels = [
-		['Signature of the BOS', 'Member with Date'],
-		['Signature of the Board', 'Chairman'],
-		['Signature of the', 'Principal'],
-	]
-	const sigW = tableWidth / 3
-
-	// Signature row (2026-05-21): removed the horizontal line above each label
-	// — the empty space itself is the affordance for a physical signature, the
-	// line above the printed label was redundant. Labels are bold so the row
-	// visually anchors the bottom of the page.
-	doc.setFont('times', 'bold')
-	doc.setFontSize(9)
-	sigLabels.forEach((lines, i) => {
-		const cx = MARGIN + i * sigW + sigW / 2
-		lines.forEach((ln, li) => {
-			doc.text(ln, cx, sigY + 5 + li * 4.5, { align: 'center' })
-		})
-	})
+	// Signature block (BOS Member / Board Chairman / Principal) removed
+	// 2026-07-10 per request — the form ends at the NEFT table; physical
+	// signatures are collected on the office copy, not this printout.
 
 	// â”€â”€ Footer timestamp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	const footerY = A4_HEIGHT - 6

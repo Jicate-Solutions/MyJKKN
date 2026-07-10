@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { isBosChairmanRow } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardAcademicCouncilWrite,
@@ -125,6 +126,54 @@ export async function POST(request: NextRequest) {
       composition = created;
     }
 
+    // ── 1b. Find-or-create the default 'Academic Council' committee ───────────
+    // Mirrors the per-composition default committee pattern (BoS compositions
+    // get a 'Curriculum Development Cell', see 20260706). The AC body's
+    // meetings and members hang off this committee — bos_meetings.committee_id
+    // drives the committee-scoped roster and council-specific TA/DA rates.
+    let acCommitteeId: string | null = null;
+    {
+      const { data: existingCommittee } = await db
+        .from('bos_committees')
+        .select('id')
+        .eq('composition_id', composition.id)
+        .eq('name', 'Academic Council')
+        .maybeSingle();
+      if (existingCommittee) {
+        acCommitteeId = (existingCommittee as { id: string }).id;
+      } else {
+        const { data: createdCommittee, error: committeeErr } = await db
+          .from('bos_committees')
+          .insert({
+            institutions_id: composition.institutions_id,
+            composition_id: composition.id,
+            name: 'Academic Council',
+            short_code: 'AC',
+            sort_order: 0,
+            is_active: true,
+            created_by: user.id,
+          })
+          .select('id')
+          .single();
+        if (committeeErr) {
+          // Non-fatal: the council still works, members/meetings just stay
+          // unscoped (the UI falls back to the full composition roster).
+          console.warn('[bos/academic-council] default committee create failed:', committeeErr);
+        } else {
+          acCommitteeId = (createdCommittee as { id: string }).id;
+        }
+      }
+      // Idempotent healing: attach any earlier AC members that predate the
+      // default committee (committee_id IS NULL) so the roster is consistent.
+      if (acCommitteeId) {
+        await db
+          .from('bos_members')
+          .update({ committee_id: acCommitteeId })
+          .eq('composition_id', composition.id)
+          .is('committee_id', null);
+      }
+    }
+
     // ── 2. Snapshot BoS chairmen into the AC body ─────────────────────────────
     // Source: active chairmen of active, non-AC compositions in this institution.
     const { data: bosComps } = await db
@@ -156,14 +205,17 @@ export async function POST(request: NextRequest) {
       // BoS board chairmen — on the COUNCIL they sit as ordinary MEMBERS
       // (member_type 'internal_member'); the council's presiding officer is the
       // Principal (added as 'chairman' below).
-      const { data: chairmen } = await db
+      // member_type stores the catalog type NAME since 20260710150000 —
+      // chairman rows are identified via the catalog base_type (legacy literal
+      // fallback inside isBosChairmanRow), so fetch active members and filter.
+      const { data: activeMembers } = await db
         .from('bos_members')
         .select(
-          'staff_id, staff_name, staff_designation, expert_id, display_name, display_designation, display_institution, address, contact_no, email'
+          'staff_id, staff_name, staff_designation, expert_id, display_name, display_designation, display_institution, address, contact_no, email, member_type, member_type_rec:bos_member_types(base_type)'
         )
-        .eq('member_type', 'chairman')
         .eq('is_active', true)
         .in('composition_id', bosCompIds);
+      const chairmen = (activeMembers ?? []).filter((m) => isBosChairmanRow(m as never));
 
       const chairmanStaffIds = new Set<string>();
       const chairmanExpertIds = new Set<string>();
@@ -178,6 +230,7 @@ export async function POST(request: NextRequest) {
         toInsert.push({
           institutions_id: institutionsId,
           composition_id: composition.id,
+          committee_id: acCommitteeId,
           member_type: 'internal_member',
           staff_id: c.staff_id ?? null,
           staff_name: c.staff_name ?? null,
@@ -274,6 +327,7 @@ export async function POST(request: NextRequest) {
         principalInserts.push({
           institutions_id: institutionsId,
           composition_id: composition.id,
+          committee_id: acCommitteeId,
           member_type: 'chairman',
           staff_id: p.id,
           display_name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Principal',

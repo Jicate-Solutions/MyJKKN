@@ -1,5 +1,5 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosAccess,
   resolveBosBoardScope,
@@ -183,8 +183,16 @@ export async function PUT(
     // Step 5: Parse request body
     const body = (await request.json()) as UpdateBosSyllabusDto;
 
-    // Step 6: Update syllabus (only content fields allowed)
-    const { data: updated, error: updateError } = await supabase
+    // Step 6: Update syllabus (only content fields allowed).
+    // Service-role for the write: the bos_course_syllabi_update RLS policy
+    // additionally requires the 'academic.bos-syllabus.edit' role-permission
+    // grant, which drifts out of sync with composition membership — a board
+    // member editing their own syllabus would silently update 0 rows and
+    // .single() would surface it as a 500. Authorization is fully enforced
+    // above via guardInstitutionWrite + guardSyllabusEdit (creator/chairman/
+    // super-admin), matching the meetings-status and TA/DA precedent.
+    const writeDb = createServiceRoleClient();
+    const { data: updated, error: updateError } = await writeDb
       .from('bos_course_syllabi')
       .update({
         course_name: body.course_name,
