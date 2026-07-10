@@ -34,6 +34,7 @@ import { ReferralSection } from './_components/referral-section';
 import { AdvocacyCard } from './_components/advocacy-card';
 import { DayFeedbackCard } from './_components/day-feedback-card';
 import { ProgramFeedbackCard } from './_components/program-feedback-card';
+import { MentorMonthFeedbackCard } from './_components/mentor-month-feedback-card';
 
 const BRAND = '#0b6d41';
 
@@ -191,6 +192,9 @@ export default function MyInductionPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Monthly "did your mentor help you?" rating — self-scoping, only shows once a check-in has come due */}
+            <MentorMonthFeedbackCard eventId={enrollment.event_id} />
 
             {/* Profile nudge — the Day-10 onboarding driver */}
             <ProfileNudge
