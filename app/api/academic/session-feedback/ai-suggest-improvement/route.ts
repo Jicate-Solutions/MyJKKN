@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
           liftLine = `An outcome was recorded for that advice${outcomeN !== null ? ` but only ${outcomeN} learner${outcomeN === 1 ? '' : 's'} answered the next session` : ''}, so it is LOW-CONFIDENCE — do not treat it as evidence the advice worked or failed.`;
         }
         const verdictLine = prior.human_verdict
-          ? ` The teacher marked it: ${String(prior.human_verdict)}.`
+          ? ` The facilitator marked it: ${String(prior.human_verdict)}.`
           : '';
         trackRecordBlock = `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
       }
@@ -286,7 +286,7 @@ export async function POST(req: NextRequest) {
             ? String((other.suggestion as Record<string, unknown>).summary ?? '').slice(0, 300)
             : String(other.suggestion ?? '').slice(0, 300);
         if (otherSummary) {
-          trackRecordBlock += `\nFYI — the ${pFacultyEmail ? 'leadership' : 'teacher'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${otherSummary}\nDo not contradict that advice; complement it or build on it.`;
+          trackRecordBlock += `\nFYI — the ${pFacultyEmail ? 'leadership' : 'facilitator'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${otherSummary}\nDo not contradict that advice; complement it or build on it.`;
         }
       }
     } catch (peekErr) {

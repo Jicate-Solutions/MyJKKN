@@ -239,7 +239,7 @@ async function buildCrossPeekLine(
         ? String((other.suggestion as Record<string, unknown>).summary ?? '').slice(0, 300)
         : String(other.suggestion ?? '').slice(0, 300);
     if (!summary) return '';
-    return `\nFYI — the ${facultyEmail ? 'leadership' : 'teacher'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${summary}\nDo not contradict that advice; complement it or build on it.`;
+    return `\nFYI — the ${facultyEmail ? 'leadership' : 'facilitator'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${summary}\nDo not contradict that advice; complement it or build on it.`;
   } catch (err) {
     console.error(`${logTag} cross-peek fetch failed:`, err);
     return '';
@@ -300,7 +300,7 @@ async function buildTrackRecordBlock(
         }
       }
       const verdictLine = prior.human_verdict
-        ? ` The teacher marked it: ${String(prior.human_verdict)}.`
+        ? ` The facilitator marked it: ${String(prior.human_verdict)}.`
         : '';
       ownLane = `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
     }
