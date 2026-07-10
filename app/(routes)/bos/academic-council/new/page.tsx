@@ -26,7 +26,8 @@ import {
   bosMemberKeys,
 } from '@/hooks/bos/use-bos-members';
 import {
-  BOS_MEMBER_TYPE_LABELS,
+  bosMemberTypeLabel,
+  isBosChairmanRow,
   type BosComposition,
   type BosMember,
   type BosMemberType,
@@ -331,10 +332,9 @@ function NewAcademicCouncilMeeting() {
                     </div>
                     <div className='flex shrink-0 items-center gap-2'>
                       <Badge
-                        variant={m.member_type === 'chairman' ? 'default' : 'secondary'}
+                        variant={isBosChairmanRow(m) ? 'default' : 'secondary'}
                       >
-                        {BOS_MEMBER_TYPE_LABELS[m.member_type as BosMemberType] ??
-                          m.member_type.replace('_', ' ')}
+                        {m.member_type_rec?.name ?? bosMemberTypeLabel(m.member_type)}
                       </Badge>
                       <Button
                         size='icon'

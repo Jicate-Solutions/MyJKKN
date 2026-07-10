@@ -29,10 +29,11 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember } from '@/types/bos';
+import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember, isBosChairmanRow } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
+import { useBosCommitteesByComposition } from '@/hooks/bos/use-bos-committees';
 import { BosMeetingService } from '@/lib/services/bos/bos-meeting-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -59,6 +60,9 @@ const meetingFormSchemaCreate = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
+  // Convening council/committee of the composition — drives which members are
+  // invited and which TA/DA rate table applies to the meeting's claims.
+  committee_id: z.string().min(1, 'Council / Committee is required'),
   meeting_number: z
     .number({ invalid_type_error: 'Meeting number is required' })
     .int('Must be a whole number')
@@ -71,11 +75,14 @@ const meetingFormSchemaCreate = z.object({
   agenda_text: z.string().optional(),
 });
 
-// Schema for editing meetings (allows blank scheduled_date for NULL → populated updates)
+// Schema for editing meetings (allows blank scheduled_date for NULL → populated
+// updates; committee_id relaxed so schedule-only edits of legacy rows with no
+// committee still validate — the field's card is hidden in that mode).
 const meetingFormSchemaEdit = z.object({
   institutions_id: z.string().min(1),
   board_id: z.string().min(1, 'Board is required'),
   composition_id: z.string().min(1, 'Composition is required'),
+  committee_id: z.string().optional(),
   meeting_number: z
     .number({ invalid_type_error: 'Meeting number is required' })
     .int('Must be a whole number')
@@ -131,8 +138,11 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
           institutions_id: meeting.institutions_id,
           board_id: meeting.board_id,
           composition_id: meeting.composition_id,
+          committee_id: meeting.committee_id ?? '',
           meeting_number: meeting.meeting_number,
-          meeting_type: meeting.meeting_type,
+          // AC meetings never open this form (they have their own edit page),
+          // so the stored type is always within the schema's BoS-only union.
+          meeting_type: meeting.meeting_type as MeetingFormValues['meeting_type'],
           academic_year: meeting.academic_year,
           scheduled_date: meeting.scheduled_date ?? '',
           scheduled_time: meeting.scheduled_time ?? '',
@@ -143,6 +153,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
           institutions_id: '',
           board_id: '',
           composition_id: '',
+          committee_id: '',
           meeting_number: undefined as unknown as number, // populated once composition is chosen
           meeting_type: 'regular',
           academic_year: '',
@@ -155,6 +166,32 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
 
   const compositionId = form.watch('composition_id');
   const institutionsId = form.watch('institutions_id');
+
+  // Councils/committees are composition-owned (bos_committees) — the meeting
+  // is convened by one of them, and its member list + TA/DA rates follow it.
+  const { data: committees = [], isLoading: loadingCommittees } =
+    useBosCommitteesByComposition(compositionId || null, { isActive: true });
+
+  // Keep the committee selection consistent with the chosen composition:
+  // clear a selection that belongs to a different composition, and auto-pick
+  // when the composition has exactly one active committee (the common case).
+  useEffect(() => {
+    if (!compositionId) {
+      if (form.getValues('committee_id')) form.setValue('committee_id', '');
+      return;
+    }
+    if (loadingCommittees) return;
+    const current = form.getValues('committee_id');
+    // Clear only against a non-empty loaded list — a failed/empty fetch must
+    // not wipe a legitimate saved selection on the edit page.
+    if (current && committees.length > 0 && !committees.some((c) => c.id === current)) {
+      form.setValue('committee_id', '');
+    }
+    if (!form.getValues('committee_id') && committees.length === 1) {
+      form.setValue('committee_id', committees[0].id, { shouldValidate: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compositionId, committees, loadingCommittees]);
 
   const { data: academicYearsData } = useAcademicYears(institutionsId || undefined);
   const academicYears = academicYearsData?.data ?? [];
@@ -271,7 +308,7 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
   // Pull the chairman row from the members list.
   const chairman = useMemo<BosMember | null>(() => {
     if (!compositionDetail?.members?.length) return null;
-    return compositionDetail.members.find((m) => m.member_type === 'chairman' && m.is_active) ?? null;
+    return compositionDetail.members.find((m) => isBosChairmanRow(m) && m.is_active) ?? null;
   }, [compositionDetail]);
 
   const handleDateChange = (value: string) => {
@@ -398,6 +435,41 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
                       )}
                     </div>
                   </div>
+
+                  {/* Convening council/committee — sourced from the selected
+                      composition's committees; members and TA/DA rates follow it. */}
+                  <FormField
+                    control={form.control}
+                    name='committee_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Council / Committee <span className='text-destructive'>*</span></FormLabel>
+                        <SearchableSelect
+                          value={field.value ?? ''}
+                          onValueChange={field.onChange}
+                          options={committees.map((c) => ({ value: c.id, label: c.name }))}
+                          placeholder={
+                            !compositionId
+                              ? 'Select composition first'
+                              : loadingCommittees
+                                ? 'Loading…'
+                                : committees.length === 0
+                                  ? 'No committees in this composition'
+                                  : 'Select council / committee'
+                          }
+                          searchPlaceholder='Search committee…'
+                          loading={loadingCommittees}
+                          disabled={!compositionId || loadingCommittees || committees.length === 0}
+                          className='w-full'
+                        />
+                        <FormDescription>
+                          Which council/committee convenes this meeting. Members are invited
+                          from it, and its TA/DA rates apply to the meeting&apos;s claims.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
               </CardContent>
             </Card>

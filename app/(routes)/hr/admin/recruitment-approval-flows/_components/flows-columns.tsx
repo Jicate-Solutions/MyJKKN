@@ -1,7 +1,7 @@
 'use client';
 
 import type { ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal, Pencil, Power, Trash2 } from 'lucide-react';
+import { Eye, MoreHorizontal, Pencil, Power, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import {
 interface FlowColumnHelpers {
   orgNameById: ReadonlyMap<string, string>;
   roleNameByKey: ReadonlyMap<string, string>;
+  onView: (row: HRApprovalFlow) => void;
   onEdit: (row: HRApprovalFlow) => void;
   onToggle: (row: HRApprovalFlow) => void;
   onDelete: (row: HRApprovalFlow) => void;
@@ -36,6 +37,7 @@ const conditionsOf = (f: HRApprovalFlow) =>
 export function getFlowColumns({
   orgNameById,
   roleNameByKey,
+  onView,
   onEdit,
   onToggle,
   onDelete,
@@ -79,7 +81,13 @@ export function getFlowColumns({
         <DataTableColumnHeader column={column} title='Workflow' />
       ),
       cell: ({ row }) => (
-        <span className='font-medium'>{row.original.flow_name}</span>
+        <button
+          type='button'
+          className='cursor-pointer text-left font-medium hover:underline'
+          onClick={() => onView(row.original)}
+        >
+          {row.original.flow_name}
+        </button>
       ),
       size: 240,
       minSize: 160,
@@ -190,6 +198,10 @@ export function getFlowColumns({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end' className='w-[180px]'>
+                <DropdownMenuItem onClick={() => onView(row.original)}>
+                  <Eye className='mr-2 h-4 w-4' />
+                  View details
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!editable}
                   onClick={() => onEdit(row.original)}

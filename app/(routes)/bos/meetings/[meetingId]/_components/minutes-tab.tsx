@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { Editor } from '@tiptap/react';
 import { Save, Plus, Trash2, X, SquarePen } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -11,6 +11,11 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+
+import { SopEditor } from '@/app/(routes)/bos/sop/_components/sop-editor';
+import { SopRibbon } from '@/app/(routes)/bos/sop/_components/sop-ribbon';
+import { SopTamilKeyboard } from '@/app/(routes)/bos/sop/_components/sop-tamil-keyboard';
+import type { TamilInputMode } from '@/lib/sop/tamil-input';
 
 import { useUpdateBosMeeting } from '@/hooks/bos/use-bos-meetings';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
@@ -64,7 +69,24 @@ function cleanLabel(text: string): string {
  * editing pattern they prefer).
  */
 export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
-  const router = useRouter();
+  // In-page narrative editor — "Open Editor" expands the Minutes Narrative
+  // card into the SOP-style Word editor (ribbon + A4 surface + Tamil
+  // keyboard) right on this page. Deliberately NOT a Radix Dialog: the
+  // dialog focus trap fights the ProseMirror contenteditable and typing
+  // never reaches the editor. Inline rendering has no such conflict, and the
+  // ribbon's own popovers behave exactly as they do on the SOP page.
+  const [editorOpen, setEditorOpen] = useState(false);
+  // Content the editor is seeded with, captured at open time. Kept separate
+  // from `narrative` so saves while the editor is open don't re-seed the
+  // editor and jump the cursor.
+  const [editorSeed, setEditorSeed] = useState('');
+  const [tamilMode, setTamilMode] = useState<TamilInputMode>('english');
+  const [tamilOpen, setTamilOpen] = useState(false);
+  // Live editor instance (state → Tamil keyboard re-renders when it mounts)
+  // plus a synchronous ref + HTML snapshot for the save/close closures.
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
+  const sopEditorRef = useRef<Editor | null>(null);
+  const editorHtmlRef = useRef<string | null>(null);
   // ── Local edit state (form-style) ──────────────────────────────────────────
   // We mirror the server-side minutes_content into local state so users can
   // make a series of edits without firing an API call per keystroke. isDirty
@@ -96,6 +118,12 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
   // Members for the "Suggested by" dropdown.
   const { data: members = [] } = useBosMembersByComposition(meeting.composition_id);
 
+  // Academic Council meetings span every board of the institution, so the
+  // syllabus picker below switches to board-wise mode: no composition filter
+  // (AC's own composition never matches board-level syllabi) and each option
+  // is prefixed with its board name.
+  const isAcademicCouncil = meeting.meeting_type === 'academic_council';
+
   // Syllabi for the "Syllabus / Course" picker — narrowed to this meeting's
   // composition + regulation, matching the SyllabusTab filter so the picker
   // shows the same courses the user already saw in that tab.
@@ -126,15 +154,50 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
 
   const syllabi = useMemo(() => {
     const all = syllabiData?.data ?? [];
+    // AC: keep every board's syllabi. The AC composition_id would match
+    // nothing — syllabi are linked to their per-board BoS compositions.
+    if (isAcademicCouncil) return all;
     return meeting.composition_id
       ? all.filter((s) => s.composition_id === meeting.composition_id)
       : all;
-  }, [syllabiData, meeting.composition_id]);
+  }, [syllabiData, meeting.composition_id, isAcademicCouncil]);
+
+  // Boards lookup (AC only) — resolves syllabus.board_id → board name for the
+  // board-wise option labels. Same query key/shape as the courses page, so
+  // it's usually already cached.
+  const { data: boardsData } = useQuery({
+    queryKey: ['bos', 'boards', meeting.institutions_id],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/bos/boards?institutionsId=${meeting.institutions_id}`,
+      );
+      if (!res.ok) throw new Error('Failed to fetch boards');
+      return res.json() as Promise<{
+        data: { id: string; board_code: string; board_name: string }[];
+      }>;
+    },
+    enabled: isAcademicCouncil && !!meeting.institutions_id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Board dropdown options (AC only). The course picker cascades from the
+  // picked board: its list is filtered to that board's syllabi.
+  const boardOptions = useMemo(
+    () =>
+      (boardsData?.data ?? [])
+        .map((b) => ({ value: b.id, label: b.board_name }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [boardsData],
+  );
 
   // ── Save mutation ─────────────────────────────────────────────────────────
   const updateMeeting = useUpdateBosMeeting();
 
-  const handleSave = async () => {
+  const handleSave = async (narrativeOverride?: string) => {
+    // The popup editor passes its freshest HTML directly — `narrative` state
+    // may lag one snapshot behind while the dialog is open.
+    const narrativeHtml =
+      typeof narrativeOverride === 'string' ? narrativeOverride : narrative;
     // Strip blank changes-log rows on save to keep the DB clean. A row with
     // no suggestion_text and no syllabus pick is effectively empty noise.
     const cleaned = changesLog.filter(
@@ -149,7 +212,7 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
         id: meeting.id,
         data: {
           minutes_content: {
-            narrative_html: narrative,
+            narrative_html: narrativeHtml,
             changes_log: cleaned,
           },
         } as UpdateBosMeetingDto,
@@ -161,6 +224,47 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
       logger.error('academic/bos', 'Failed to save minutes', err);
       toast.error((err as Error).message || 'Failed to save minutes');
     }
+  };
+
+  // ── Popup narrative editor handlers ───────────────────────────────────────
+  const handleEditorReady = useCallback((ed: Editor | null) => {
+    sopEditorRef.current = ed;
+    setEditorInstance(ed);
+    // Seed the snapshot from the editor's own serialization so '' vs
+    // Tiptap's '<p></p>' can't register as a phantom edit on close.
+    if (ed) editorHtmlRef.current = ed.getHTML();
+  }, []);
+
+  const handleEditorChange = useCallback(() => {
+    const ed = sopEditorRef.current;
+    if (ed) editorHtmlRef.current = ed.getHTML();
+  }, []);
+
+  const openEditor = () => {
+    setEditorSeed(narrative);
+    editorHtmlRef.current = null;
+    setEditorOpen(true);
+  };
+
+  // Closing never discards typing: the latest editor HTML is folded into the
+  // tab's local narrative state and flagged dirty for the bulk Save button.
+  const closeEditor = () => {
+    const html = editorHtmlRef.current;
+    if (html != null && html !== narrative) {
+      setNarrative(html);
+      setIsDirty(true);
+    }
+    setEditorOpen(false);
+    setEditorInstance(null);
+    sopEditorRef.current = null;
+    setTamilOpen(false);
+  };
+
+  const handleEditorSave = async () => {
+    const html =
+      sopEditorRef.current?.getHTML() ?? editorHtmlRef.current ?? narrative;
+    setNarrative(html);
+    await handleSave(html);
   };
 
   // ── Changes-log row mutators ──────────────────────────────────────────────
@@ -210,7 +314,7 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
         </div>
         {canEdit && (
           <Button
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={!isDirty || updateMeeting.isPending}
             size='sm'
           >
@@ -221,25 +325,89 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
       </div>
 
       {/* ── Rich-text narrative ───────────────────────────────────────────
-          The narrative has a dedicated full-page Word-style editor (ribbon,
-          autosave, Tamil typing) at /minutes/edit — the same surface as the
-          SOP editor. Here we only preview it and link out to that editor. */}
+          Collapsed: read-only preview. "Open Editor" expands this card into
+          the SOP-style Word editor (ribbon, Tamil typing) inline on this
+          page — same surface as /bos/sop. The dedicated /minutes/edit route
+          still exists for deep links. */}
       <Card>
         <CardHeader className='flex flex-row items-center justify-between space-y-0'>
-          <CardTitle className='text-base'>Minutes Narrative</CardTitle>
-          <Button
-            variant={canEdit ? 'default' : 'outline'}
-            size='sm'
-            onClick={() =>
-              router.push(`/bos/meetings/${meeting.id}/minutes/edit`)
-            }
-          >
-            <SquarePen className='mr-2 h-4 w-4' />
-            {canEdit ? 'Open Editor' : 'View Full'}
-          </Button>
+          <CardTitle className='text-base'>
+            Minutes Narrative
+            {editorOpen && !canEdit && (
+              <span className='ml-2 text-xs font-normal text-muted-foreground'>
+                (read-only)
+              </span>
+            )}
+          </CardTitle>
+          {editorOpen ? (
+            <div className='flex items-center gap-2'>
+              {canEdit && (
+                <Button
+                  size='sm'
+                  onClick={() => void handleEditorSave()}
+                  disabled={updateMeeting.isPending}
+                >
+                  <Save className='mr-2 h-4 w-4' />
+                  {updateMeeting.isPending ? 'Saving…' : 'Save'}
+                </Button>
+              )}
+              <Button size='sm' variant='outline' onClick={closeEditor}>
+                Close
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant={canEdit ? 'default' : 'outline'}
+              size='sm'
+              onClick={openEditor}
+            >
+              <SquarePen className='mr-2 h-4 w-4' />
+              {canEdit ? 'Open Editor' : 'View Full'}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
-          {narrative ? (
+          {editorOpen ? (
+            <SopEditor
+              initialContent={editorSeed}
+              readOnly={!canEdit}
+              tamilMode={tamilMode}
+              placeholder='Write the detailed minutes — proceedings, discussions, decisions…'
+              onChange={canEdit ? handleEditorChange : undefined}
+              onEditorReady={handleEditorReady}
+              toolbarSlot={
+                canEdit
+                  ? (editor) => (
+                      <SopRibbon
+                        editor={editor}
+                        tamilMode={tamilMode}
+                        onTamilModeChange={setTamilMode}
+                        onOpenTamilKeyboard={() => setTamilOpen(true)}
+                      />
+                    )
+                  : undefined
+              }
+              footerSlot={(editor) =>
+                editor ? (
+                  <div className='flex items-center justify-between px-2 text-xs text-muted-foreground'>
+                    <span>
+                      {editor.storage.characterCount?.characters?.() ?? 0}{' '}
+                      characters ·{' '}
+                      {editor.storage.characterCount?.words?.() ?? 0} words
+                    </span>
+                    <span>
+                      Mode:{' '}
+                      {tamilMode === 'english'
+                        ? 'English'
+                        : tamilMode === 'phonetic'
+                          ? 'Tamil (Phonetic)'
+                          : 'Tamil99'}
+                    </span>
+                  </div>
+                ) : null
+              }
+            />
+          ) : narrative ? (
             <RichTextDisplay content={narrative} />
           ) : (
             <div className='rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground'>
@@ -307,7 +475,64 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                       changes would let users persist e.g. a "Unit III" from
                       Syllabus A onto a record that points to Syllabus B,
                       where Unit III may not exist or means something else. */}
-                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+                  {(() => {
+                    // AC: cascading Board → Course. The row's board comes from
+                    // its stored board_id, falling back to the picked course's
+                    // board for rows saved before the Board dropdown existed.
+                    const rowBoardId = isAcademicCouncil
+                      ? (row.board_id ??
+                        (row.syllabus_id
+                          ? syllabi.find((s) => s.id === row.syllabus_id)
+                              ?.board_id
+                          : undefined) ??
+                        '')
+                      : '';
+                    const rowSyllabi = isAcademicCouncil
+                      ? rowBoardId
+                        ? syllabi.filter((s) => s.board_id === rowBoardId)
+                        : []
+                      : syllabi;
+                    const rowSyllabusOptions = rowSyllabi.map((s) => ({
+                      value: s.id,
+                      label: `${s.course_code} — ${s.course_name}`,
+                    }));
+                    return (
+                  <div
+                    className={
+                      isAcademicCouncil
+                        ? 'grid grid-cols-1 sm:grid-cols-3 gap-3'
+                        : 'grid grid-cols-1 sm:grid-cols-2 gap-3'
+                    }
+                  >
+                    {isAcademicCouncil && (
+                      <div>
+                        <Label className='text-xs'>Board</Label>
+                        <SearchableSelect
+                          value={rowBoardId}
+                          onValueChange={(val) => {
+                            const b = (boardsData?.data ?? []).find(
+                              (bb) => bb.id === val,
+                            );
+                            // Changing the board resets the whole cascade —
+                            // course/unit/topic picks belong to the old board.
+                            updateChangeRow(row.id, {
+                              board_id: b?.id ?? null,
+                              board_name: b?.board_name ?? null,
+                              syllabus_id: null,
+                              syllabus_code: null,
+                              unit: null,
+                              topic: [],
+                              sub_topic: [],
+                            });
+                          }}
+                          options={boardOptions}
+                          placeholder='Pick board'
+                          searchPlaceholder='Search board…'
+                          disabled={!canEdit}
+                          className='w-full'
+                        />
+                      </div>
+                    )}
                     <div>
                       <Label className='text-xs'>Syllabus / Course</Label>
                       <SearchableSelect
@@ -322,13 +547,14 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                             sub_topic: [],
                           });
                         }}
-                        options={syllabi.map((s) => ({
-                          value: s.id,
-                          label: `${s.course_code} — ${s.course_name}`,
-                        }))}
-                        placeholder='Pick course (optional)'
+                        options={rowSyllabusOptions}
+                        placeholder={
+                          isAcademicCouncil && !rowBoardId
+                            ? 'Pick a board first'
+                            : 'Pick course (optional)'
+                        }
                         searchPlaceholder='Search code or name…'
-                        disabled={!canEdit}
+                        disabled={!canEdit || (isAcademicCouncil && !rowBoardId)}
                         className='w-full'
                       />
                     </div>
@@ -434,6 +660,8 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
                       );
                     })()}
                   </div>
+                    );
+                  })()}
 
                   {/* Unit / Topic / Sub-topic.
                       - Unit is single-select (one change row typically lives
@@ -709,6 +937,13 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Tamil virtual keyboard — portal-rendered; needs the live editor. */}
+      <SopTamilKeyboard
+        editor={editorInstance}
+        open={tamilOpen}
+        onOpenChange={setTamilOpen}
+      />
     </div>
   );
 }

@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { Pencil, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Pencil, RefreshCw, AlertTriangle, Zap } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,13 @@ import { AI_ROUTINES } from '@/lib/ai-routines/registry';
 import type { AIRoutine } from '@/lib/ai-routines/types';
 
 import { AiModelEditDialog } from './ai-model-edit-dialog';
+// Shared Max-lane plumbing (button + status hook) — source of truth lives with
+// the AI Routines page; reused here so both pages queue via the same
+// max_lane_requests flow (POST /api/admin/ai-routines/max-run).
+import {
+  MaxLaneRunButton,
+  useMaxLaneRequests,
+} from '@/app/(routes)/admin/ai-routines/_components/max-lane';
 
 // Reverse cross-link: which /admin/ai-routines entries run on each feature row.
 // Static registry data, computed once at module scope (no hooks involved).
@@ -92,6 +99,9 @@ export function AiModelsDataTable() {
   const [features, setFeatures] = useState<FeatureRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingFeature, setEditingFeature] = useState<FeatureRow | null>(null);
+  // Latest Max-lane request per routine_id (drives queued/running/done state
+  // on the Run-on-Max buttons). Same hook the AI Routines page uses.
+  const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
 
   const loadFeatures = useCallback(async () => {
     setLoading(true);
@@ -146,6 +156,11 @@ export function AiModelsDataTable() {
           <p className="text-sm text-muted-foreground">
             One row per AI-powered MyJKKN feature. Pick which provider and model run it,
             set a monthly spend cap, and watch the cost. Every change is audited.
+          </p>
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Zap className="h-3.5 w-3.5" />
+            Max-eligible features can run on the subscription lane; all other
+            features run on the API by design.
           </p>
           <p className="text-xs text-muted-foreground">
             Month-to-date across all features:{' '}
@@ -239,22 +254,38 @@ export function AiModelsDataTable() {
                                 return <span className="text-xs text-muted-foreground">—</span>;
                               }
                               return (
-                                <div className="space-y-1">
+                                <div className="space-y-1.5">
                                   {usedBy.map((r) => (
-                                    <div key={r.id} className="flex items-center gap-1.5">
-                                      <Link
-                                        href="/admin/ai-routines"
-                                        className="text-xs hover:underline"
-                                        title="See this routine on the AI Routines page"
-                                      >
-                                        {r.name}
-                                      </Link>
-                                      <Badge
-                                        variant="outline"
-                                        className="px-1 py-0 text-[10px] font-normal text-muted-foreground"
-                                      >
-                                        {ROUTINE_TYPE_LABELS[r.type]}
-                                      </Badge>
+                                    <div key={r.id} className="space-y-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <Link
+                                          href="/admin/ai-routines"
+                                          className="text-xs hover:underline"
+                                          title="See this routine on the AI Routines page"
+                                        >
+                                          {r.name}
+                                        </Link>
+                                        <Badge
+                                          variant="outline"
+                                          className="px-1 py-0 text-[10px] font-normal text-muted-foreground"
+                                        >
+                                          {ROUTINE_TYPE_LABELS[r.type]}
+                                        </Badge>
+                                      </div>
+                                      {/* Run-on-Max ONLY where the routine has a Max-lane
+                                          twin (registry maxLane flag). Non-eligible
+                                          routines/features get nothing — the subscription
+                                          seat cannot run interactive/product features. */}
+                                      {r.maxLane ? (
+                                        <div className="flex justify-start [&>div]:items-start">
+                                          <MaxLaneRunButton
+                                            routineId={r.id}
+                                            routineName={r.name}
+                                            request={maxMap.get(r.id)}
+                                            onQueued={refetchMax}
+                                          />
+                                        </div>
+                                      ) : null}
                                     </div>
                                   ))}
                                 </div>

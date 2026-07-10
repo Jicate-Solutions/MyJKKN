@@ -1218,6 +1218,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.committees.edit', label: 'Edit IQAC Committees' },
       { key: 'accreditation.naac.committees.delete', label: 'Deactivate IQAC Committees' },
       { key: 'accreditation.naac.committees.members.manage', label: 'Manage IQAC Committee Members' },
+      { key: 'accreditation.naac.committees.meetings.manage', label: 'Record IQAC Meetings & Resolutions' },
 
       // NAAC DCF 2025 / AQAR export (super-admin path)
       { key: 'accreditation.naac.dcf_export', label: 'Export NAAC DCF / AQAR Workbook' },
@@ -1253,7 +1254,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.iiqa.submit', label: 'Submit IIQA Pack to NAAC (Director only — locks snapshots)' },
       { key: 'accreditation.iiqa.read_only_external', label: 'Read IIQA Pack (NAAC Peer Team — time-boxed)' },
       { key: 'accreditation.certificates.view', label: 'View Accreditation Certificates' },
-      { key: 'accreditation.certificates.manage', label: 'Upload + Manage Accreditation Certificates' }
+      { key: 'accreditation.certificates.manage', label: 'Upload + Manage Accreditation Certificates' },
+
+      // Twin-college re-stamp control 2026-07-10 (Director: "Build the
+      // re-assignment control now") — releases HELD CO/PO rollups into the
+      // evidence ledger by assigning the right college. Gates
+      // fn_copo_restamp_rollup_institution (super admins bypass).
+      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' }
     ]
   },
   {
@@ -1875,6 +1882,41 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
       { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' }
+    ]
+  },
+  {
+    // Added 2026-07-07 — Centralized Procurement module (Phase 0).
+    // Module-agnostic purchasing spine (PR → RFQ → Quotation → PO → GRN →
+    // three-way-match), IMS as the first registered domain. Gateway key
+    // `procurement.view` protects the /procurement tree; step-specific keys
+    // separate raising a request (request_create) from approving it
+    // (request_approve) and creating a PO (po_create) from approving it
+    // (po_approve), so a store clerk can't self-approve their own spend.
+    // Plan: docs/centralized-store/PLAN-procurement-v1.md §7.
+    name: 'Procurement',
+    key: 'procurement',
+    permissions: [
+      // Gateway — required for any access to /procurement/*
+      { key: 'procurement.view', label: 'Access Procurement Module' },
+
+      // Purchase Requests / Requisitions (raise vs approve are separate)
+      { key: 'procurement.request_create', label: 'Create Purchase Requests' },
+      { key: 'procurement.request_approve', label: 'Approve / Reject Purchase Requisitions' },
+
+      // RFQ + Vendor Quotations
+      { key: 'procurement.rfq_manage', label: 'Manage RFQs & Requirement Lists' },
+      { key: 'procurement.quotation_manage', label: 'Upload & Compare Vendor Quotations' },
+
+      // Purchase Orders (create vs approve are separate)
+      { key: 'procurement.po_create', label: 'Create Purchase Orders' },
+      { key: 'procurement.po_approve', label: 'Approve / Reject Purchase Orders' },
+
+      // Goods Receipt & three-way verification
+      { key: 'procurement.grn_create', label: 'Create Goods Receipt Notes (against PO)' },
+      { key: 'procurement.grn_verify', label: 'Verify GRNs (three-way match, post to inventory)' },
+
+      // Vendor master
+      { key: 'procurement.vendor_manage', label: 'Manage Vendors (procurement master data)' }
     ]
   },
   {
