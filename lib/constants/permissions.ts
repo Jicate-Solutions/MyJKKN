@@ -1253,7 +1253,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.iiqa.submit', label: 'Submit IIQA Pack to NAAC (Director only — locks snapshots)' },
       { key: 'accreditation.iiqa.read_only_external', label: 'Read IIQA Pack (NAAC Peer Team — time-boxed)' },
       { key: 'accreditation.certificates.view', label: 'View Accreditation Certificates' },
-      { key: 'accreditation.certificates.manage', label: 'Upload + Manage Accreditation Certificates' }
+      { key: 'accreditation.certificates.manage', label: 'Upload + Manage Accreditation Certificates' },
+
+      // Twin-college re-stamp control 2026-07-10 (Director: "Build the
+      // re-assignment control now") — releases HELD CO/PO rollups into the
+      // evidence ledger by assigning the right college. Gates
+      // fn_copo_restamp_rollup_institution (super admins bypass).
+      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' }
     ]
   },
   {
