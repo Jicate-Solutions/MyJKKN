@@ -70,6 +70,12 @@ import type { DashboardFilterState } from './dashboard-filters';
 
 const BRAND_GREEN = '#0b6d41';
 
+/** Every figure on this tab — the confirmation cards, the Totals tiles and the
+ *  college tables — covers exactly this many days, inclusive of both ends. It is
+ *  passed to ConfirmationSplitCards AND used to compute from/to, so the cards and
+ *  the tables can never again describe different spans. */
+const WINDOW_DAYS = 30;
+
 
 /** Color a coverage %: red 0–24, amber 25–59, green 60+. */
 function coverageColor(pct: number): string {
@@ -159,7 +165,12 @@ export function FeedbackConfirmationTab({
   const { from, to } = useMemo(() => {
     const end = anchorMs != null ? new Date(anchorMs) : new Date();
     return {
-      from: format(subDays(end, 30), 'yyyy-MM-dd'),
+      // subDays(end, WINDOW_DAYS - 1): a span of WINDOW_DAYS days INCLUSIVE of
+      // both ends, matching useConfirmationSplit's own arithmetic. Using
+      // subDays(end, 30) here would cover 31 days, so the tables would count one
+      // extra day of responses that the cards above them never saw — a miniature
+      // of the very "39,456 vs 55,774" discrepancy this change exists to kill.
+      from: format(subDays(end, WINDOW_DAYS - 1), 'yyyy-MM-dd'),
       to: format(end, 'yyyy-MM-dd'),
     };
   }, [anchorMs]);
@@ -288,10 +299,11 @@ export function FeedbackConfirmationTab({
         selectedDate={selectedDate}
         filters={filters}
         refreshTrigger={refreshTrigger}
-        // 30, not the 14-day default, so these cards cover the SAME window as the
+        // Not the 14-day default: these cards must cover the SAME window as the
         // tables below. Previously the cards said "last 14 days" and the Responses
         // tile beneath was a 30-day figure, which read as a data discrepancy.
-        windowDays={30}
+        // Driven by the same constant that computes from/to — never a literal.
+        windowDays={WINDOW_DAYS}
       />
 
       {/* Headline strip. LABEL THE WINDOW: these are 30-day figures sitting
@@ -301,7 +313,7 @@ export function FeedbackConfirmationTab({
       <div className="flex flex-wrap items-baseline gap-x-2">
         <h3 className="text-lg font-semibold">Totals</h3>
         <span className="text-xs text-muted-foreground">
-          last 30 days ·{' '}
+          last {WINDOW_DAYS} days ·{' '}
           {selectedInstitutionId
             ? 'selected college'
             : 'all colleges in scope'}
