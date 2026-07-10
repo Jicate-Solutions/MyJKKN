@@ -423,6 +423,18 @@ function AttendanceDashboardContent() {
           </TabsContent>
 
           <TabsContent value='feedback' className='space-y-4'>
+            {/* Same filter bar, same `filters` state as the Statistics tab — so
+                the chosen date/college survives a tab switch instead of silently
+                resetting. It was previously rendered only under 'statistics',
+                which is why this tab had no way to narrow to one college. */}
+            <DashboardFilters
+              canViewAllInstitutions={canViewAllInstitutions}
+              institutions={institutions}
+              userInstitutionId={profile?.institution_id || undefined}
+              onFiltersChange={handleFiltersChange}
+              onRefresh={handleRefresh}
+              isLoading={loading}
+            />
             <FeedbackConfirmationTab
               userInstitutionId={
                 filters.institutionId || profile?.institution_id || undefined

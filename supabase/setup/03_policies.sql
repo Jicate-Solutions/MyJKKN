@@ -7813,3 +7813,21 @@ CREATE POLICY postal_codes_update ON public.postal_codes
 CREATE POLICY postal_codes_delete ON public.postal_codes
   FOR DELETE TO authenticated
   USING (public.user_has_permission('learners.postal_codes.delete'));
+
+-- ── Tournament In-charge access (2026-07-10, tournament_incharge_access) ──────
+-- Additive: in-charges (events.config->'incharges') get full event-row update +
+-- division CRUD; committee members get division read.
+
+CREATE POLICY "events_incharge_update" ON public.events
+  FOR UPDATE TO authenticated
+  USING (public.fn_is_event_incharge(id))
+  WITH CHECK (public.fn_is_event_incharge(id));
+
+CREATE POLICY "tournament_divisions_incharge_all" ON public.tournament_divisions
+  FOR ALL TO authenticated
+  USING (public.fn_is_event_incharge(event_id))
+  WITH CHECK (public.fn_is_event_incharge(event_id));
+
+CREATE POLICY "tournament_divisions_committee_read" ON public.tournament_divisions
+  FOR SELECT TO authenticated
+  USING (public.fn_is_event_committee_member(event_id));

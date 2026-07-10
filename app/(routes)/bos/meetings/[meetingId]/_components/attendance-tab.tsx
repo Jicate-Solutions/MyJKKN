@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosAttendanceStatus, BosMemberType, BosMeetingStatus, BOS_MEETING_STATUS_ORDER, BosMember } from '@/types/bos';
+import { BosAttendanceStatus, BosMeetingStatus, BOS_MEETING_STATUS_ORDER, BosMember } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosAttendance, useSaveBosAttendance } from '@/hooks/bos/use-bos-attendance';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -18,7 +18,12 @@ import { logger } from '@/lib/utils/enhanced-logger';
 interface AttendanceEntry {
   memberId: string;
   memberName: string;
-  memberType: BosMemberType;
+  /**
+   * External = expert-only member (expert_id set AND no staff_id).
+   * A member with staff_id is internal staff regardless of any linked
+   * expert record, so no travel distance is required.
+   */
+  isExternal: boolean;
   designation?: string;
   status: BosAttendanceStatus;
   distanceKm?: number | null;
@@ -34,14 +39,14 @@ interface AttendanceOverride {
 }
 
 // SOP cutover (2026-05-21): the TA/DA "eligible" toggle was removed because
-// the per-role claim shape is fully determined by member type. Internal
-// members (chairman + internal_member) get honorarium only; everyone else
-// is external and also receives the round-trip TA component. The flag is
-// kept in the database but is now derived, not user-controlled.
-const INTERNAL_MEMBER_TYPES = new Set<BosMemberType>(['internal_member', 'chairman']);
-function isExternalMember(memberType: BosMemberType): boolean {
-  return !INTERNAL_MEMBER_TYPES.has(memberType);
-}
+// the per-role claim shape is fully determined by the member's source.
+// Internal (staff-sourced) members get honorarium only; external
+// (expert-sourced) members also receive the round-trip TA component. Derived
+// from staff_id/expert_id — the same discriminator the server's auto-claim
+// generation uses — since member_type now stores the free-form catalog type
+// name (20260710150000) and can no longer be matched against an enum.
+// staff_id WINS: a member with a staff record is internal even when an
+// expert record is also linked (used only as a display snapshot source).
 
 // ── Status toggle button labels ────────────────────────────────────────────────
 
@@ -73,7 +78,7 @@ function AttendanceRow({
     leave_of_absence: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200',
   };
 
-  const isExternal = isExternalMember(entry.memberType);
+  const isExternal = entry.isExternal;
   const hasNoDistance = isExternal && entry.distanceKm == null;
   const isToggleDisabled = hasNoDistance;
 
@@ -139,6 +144,12 @@ interface AttendanceTabProps {
   institutionsId: string;
   canEdit: boolean;
   meetingStatus: BosMeetingStatus;
+  /**
+   * Convening council/committee of the meeting (bos_meetings.committee_id).
+   * When set, attendance (and therefore quorum + auto-generated TA/DA claims)
+   * is scoped to that committee's members instead of the whole composition.
+   */
+  committeeId?: string | null;
 }
 
 export function AttendanceTab({
@@ -147,6 +158,7 @@ export function AttendanceTab({
   institutionsId,
   canEdit,
   meetingStatus,
+  committeeId,
 }: AttendanceTabProps) {
   const completedIndex = BOS_MEETING_STATUS_ORDER.indexOf('completed');
   const currentStatusIndex = BOS_MEETING_STATUS_ORDER.indexOf(meetingStatus);
@@ -163,7 +175,14 @@ export function AttendanceTab({
   const [overrides, setOverrides] = useState<Record<string, AttendanceOverride>>({});
 
   const entries = useMemo<AttendanceEntry[]>(() => {
-    const activeMembers = (members ?? []).filter((m) => m.is_active);
+    let activeMembers = (members ?? []).filter((m) => m.is_active);
+    // Scope to the meeting's convening committee. Legacy compositions may have
+    // members with no committee assignment — fall back to the full composition
+    // rather than rendering an empty (and quorum-breaking) attendance sheet.
+    if (committeeId) {
+      const scoped = activeMembers.filter((m) => m.committee_id === committeeId);
+      if (scoped.length > 0) activeMembers = scoped;
+    }
     const attendanceMap = new Map(
       (savedAttendance ?? []).map((a) => [a.member_id, a]),
     );
@@ -176,14 +195,14 @@ export function AttendanceTab({
       return {
         memberId: member.id,
         memberName: member.display_name,
-        memberType: member.member_type,
+        isExternal: member.staff_id == null && member.expert_id != null,
         designation: member.display_designation,
         distanceKm,
         status:
           override?.status ?? existing?.attendance_status ?? 'absent',
       };
     });
-  }, [members, savedAttendance, overrides]);
+  }, [members, savedAttendance, overrides, committeeId]);
 
   const isDirty = Object.keys(overrides).length > 0;
 
@@ -208,9 +227,7 @@ export function AttendanceTab({
   // Check for external members without distance
   const externalMembersWithoutDistance = useMemo(
     () =>
-      entries.filter(
-        (e) => isExternalMember(e.memberType) && e.distanceKm == null
-      ),
+      entries.filter((e) => e.isExternal && e.distanceKm == null),
     [entries]
   );
 
@@ -218,10 +235,7 @@ export function AttendanceTab({
     try {
       // Validate external members marked as present have distance assigned
       const membersWithoutDistance = entries.filter(
-        (e) =>
-          isExternalMember(e.memberType) &&
-          e.status === 'present' &&
-          e.distanceKm == null
+        (e) => e.isExternal && e.status === 'present' && e.distanceKm == null
       );
 
       if (membersWithoutDistance.length > 0) {
@@ -240,7 +254,7 @@ export function AttendanceTab({
       const records = entries.map((e) => ({
         member_id: e.memberId,
         attendance_status: e.status,
-        ta_da_eligible: isExternalMember(e.memberType),
+        ta_da_eligible: e.isExternal,
         institutions_id: institutionsId,
       }));
       await saveAttendance.mutateAsync(records);

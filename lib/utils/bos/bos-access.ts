@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { isBosChairmanRow } from '@/types/bos';
 
 export interface BosAccessScope {
   isSuperAdmin: boolean;
@@ -380,7 +381,7 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   // the rest.
   const { data: memberRows } = await supabase
     .from('bos_members')
-    .select('composition_id, member_type, bos_compositions!inner(id, board_id, institutions_id, is_active)')
+    .select('composition_id, member_type, member_type_rec:bos_member_types(base_type), bos_compositions!inner(id, board_id, institutions_id, is_active)')
     .eq('staff_id', staffId)
     .eq('is_active', true)
     .eq('bos_compositions.is_active', true);
@@ -393,6 +394,7 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
   type EmbeddedRow = {
     composition_id: string;
     member_type: string | null;
+    member_type_rec: { base_type: string | null } | null;
     // Supabase returns the embed as a single object for many-to-one FKs.
     bos_compositions: { id: string; board_id: string | null; institutions_id: string | null; is_active: boolean } | null;
   };
@@ -403,7 +405,10 @@ export async function resolveBosBoardScope(userId: string): Promise<BosBoardScop
     const compInstitutionId = row.bos_compositions?.institutions_id ?? null;
     if (boardId) boardsOf.add(boardId);
     if (compInstitutionId) institutionsOf.add(compInstitutionId);
-    if (row.member_type === 'chairman') {
+    // member_type stores the catalog type NAME since 20260710150000 — chairman
+    // is recognised via the catalog base_type, with a case-insensitive literal
+    // fallback for legacy/unlinked rows. Mirrors the DB helper predicate.
+    if (isBosChairmanRow(row)) {
       isChairmanIn.add(row.composition_id);
       if (boardId) chairmanForBoards.add(boardId);
     }

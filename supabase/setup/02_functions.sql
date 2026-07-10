@@ -21481,3 +21481,128 @@ $$;
 
 REVOKE ALL ON FUNCTION public.fn_school_master_districts(text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_school_master_districts(text) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Updated: 2026-07-10 — SCF leadership permission gates
+--
+-- The 13 SCF leadership read-functions (15 signatures) are MIGRATION-AUTHORITATIVE.
+-- Their live bodies are recorded verbatim in:
+--   supabase/migrations/20260731110000_scf_leadership_permission_gates.sql
+--
+--   fn_scf_admin_college_summary          fn_scf_facilitator_strengths
+--   fn_scf_admin_faculty_summary          fn_scf_leadership_concerns
+--   fn_scf_admin_trend        (2 sigs)    fn_scf_learner_trajectory
+--   fn_scf_escalation_followups           fn_scf_loop_activity      (2 sigs)
+--   fn_scf_facilitator_feedback_coverage  fn_scf_principal_escalations
+--   fn_scf_facilitator_pulse              fn_scf_pulse_totals
+--   fn_scf_struggling_notes_sent
+--
+-- They were re-gated off a hardcoded `profiles.role = ANY (ARRAY[...])` list — which
+-- Role Management could not influence — onto user_has_permission() with two new keys
+-- (academic.session_feedback.leadership.view / .learner_detail.view) plus
+-- role_has_institution_access() for tenant scope. Do NOT re-inline
+-- role_has_institution_access() into a WHERE clause: it is SECURITY DEFINER and is
+-- then called once PER ROW (54ms -> 55,847ms on 56k rows). The allowed institutions
+-- are hoisted once into v_insts uuid[]. See the migration header for the full receipt.
+-- ---------------------------------------------------------------------------
+
+-- ── Tournament In-charge access helpers (2026-07-10, tournament_incharge_access) ──
+-- In-charges live in events.config->'incharges' [{member_id, name}]. Both helpers
+-- are SECURITY DEFINER booleans about the CALLER only (safe for authenticated).
+
+CREATE OR REPLACE FUNCTION public.fn_is_event_incharge(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.events e,
+         jsonb_array_elements(COALESCE(e.config->'incharges', '[]'::jsonb)) AS inc
+    WHERE e.id = p_event_id
+      AND inc->>'member_id' = auth.uid()::text
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_is_event_committee_member(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_committees mc
+    WHERE mc.event_id = p_event_id
+      AND (
+        mc.lead_id = auth.uid()
+        OR auth.uid() = ANY(mc.member_ids)
+        OR EXISTS (
+          SELECT 1 FROM public.profiles p
+          WHERE p.id = auth.uid()
+            AND p.full_name IS NOT NULL
+            AND (p.full_name = mc.lead_name OR p.full_name = ANY(mc.member_names))
+        )
+      )
+  );
+$$;
+
+-- ── events privileged-field guard (2026-07-10) ──
+CREATE OR REPLACE FUNCTION public.fn_guard_event_privileged_fields()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_super       boolean;
+  v_tmanage     boolean;
+  v_admin_role  boolean;
+BEGIN
+  -- Trusted backend paths (service_role / migrations / cron) have no auth.uid().
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- ── tier 1: the in-charge roster ──
+  IF COALESCE(NEW.config->'incharges', '[]'::jsonb)
+       IS DISTINCT FROM COALESCE(OLD.config->'incharges', '[]'::jsonb)
+  THEN
+    v_super   := COALESCE(public.is_super_admin(), false);
+    v_tmanage := COALESCE(public.user_has_permission('sports.tournaments.manage'), false);
+    IF NOT (v_super OR v_tmanage) THEN
+      RAISE EXCEPTION
+        'Only sports.tournaments.manage holders may appoint or remove tournament in-charges (event %)', OLD.id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- ── tier 2: tenancy / ownership columns ──
+  IF NEW.institution_id IS DISTINCT FROM OLD.institution_id
+     OR NEW.event_type  IS DISTINCT FROM OLD.event_type
+     OR NEW.created_by  IS DISTINCT FROM OLD.created_by
+  THEN
+    v_super      := COALESCE(v_super, public.is_super_admin(), false);
+    v_admin_role := public.get_current_user_role() = ANY (
+                      ARRAY['super_admin','admin','administrator','event_coordinator']
+                    );
+    v_tmanage    := COALESCE(v_tmanage,
+                             public.user_has_permission('sports.tournaments.manage'), false);
+    IF NOT (COALESCE(v_super, false) OR COALESCE(v_admin_role, false) OR COALESCE(v_tmanage, false)) THEN
+      RAISE EXCEPTION
+        'You may not change the institution, event type or owner of event %', OLD.id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_event_privileged_fields() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_guard_event_privileged_fields() IS
+  'BEFORE UPDATE guard on events. Tier 1: only super admin / sports.tournaments.manage may change config->incharges (blocks per-event in-charges — and any same-institution user reachable via events_auth_update — from escalating privileges). Tier 2: only super admin / admin-coordinator roles / tournament managers may change institution_id, event_type or created_by. service_role (auth.uid() IS NULL) bypasses.';

@@ -517,11 +517,19 @@ export class SessionFeedbackService {
   }
 
   /** Per-day understanding trend within scope. */
-  static async getAdminTrend(from: string, to: string): Promise<AdminTrendRow[]> {
+  static async getAdminTrend(
+    from: string,
+    to: string,
+    institutionId?: string | null,
+  ): Promise<AdminTrendRow[]> {
     const supabase = getSupabase();
+    // p_institution_id NARROWS within the caller's institution scope; it can
+    // never widen it. Always sent (null = all colleges in scope) so PostgREST
+    // resolves the 3-arg overload rather than the legacy 2-arg one.
     const { data, error } = await supabase.rpc('fn_scf_admin_trend', {
       p_from: from,
       p_to: to,
+      p_institution_id: institutionId ?? null,
     });
     if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
     return (data || []) as AdminTrendRow[];
@@ -534,11 +542,15 @@ export class SessionFeedbackService {
   static async getFacilitatorFeedbackCoverage(
     from: string,
     to: string,
+    institutionId?: string,
   ): Promise<FacilitatorCoverageRow[]> {
     const supabase = getSupabase();
+    // College narrowing happens server-side (NULL = all colleges in caller
+    // scope) so this card's correctness never depends on client filter state.
     const { data, error } = await supabase.rpc('fn_scf_facilitator_feedback_coverage', {
       p_from: from,
       p_to: to,
+      p_institution_id: institutionId ?? null,
     });
     if (error) throw new Error(`Failed to load facilitator coverage: ${error.message}`);
     return (data || []) as FacilitatorCoverageRow[];

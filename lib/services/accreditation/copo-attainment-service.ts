@@ -189,3 +189,104 @@ export async function getCourseAttainmentTrend(
   if (error) throw error;
   return (data ?? []) as unknown as CourseAttainmentRow[];
 }
+
+// ----------------------------------------------------------------------------
+// Twin-college re-stamp control (Director 2026-07-10: "Build the re-assignment
+// control now"). Rollups whose institution stamp is uncertain are HELD out of
+// the accreditation evidence ledger until a human assigns the right college.
+// 'manual_assignment' is the EXACT value fn_copo_emit_attainment_evidence
+// accepts — the write goes through fn_copo_restamp_rollup_institution
+// (SECURITY DEFINER, permission-gated inside the fn body); the table itself
+// has no UPDATE policy for browser clients.
+// ----------------------------------------------------------------------------
+
+/** The two held stamps the re-assignment control releases. */
+export const HELD_INSTITUTION_MATCHES = [
+  'ambiguous_first_mapped',
+  'unmatched_first_mapped',
+] as const;
+
+export interface HeldCourseAttainmentRow {
+  id: string;
+  institution_id: string;
+  course_code: string;
+  course_name: string | null;
+  program_code: string | null;
+  session_code: string;
+  session_end_date: string | null;
+  attainment_pct: number | null;
+  computed_at: string;
+  metadata: {
+    institution_match?: string;
+    /** Candidate MyJKKN colleges the COE code maps to (the twins). */
+    myjkkn_institution_ids?: string[];
+    coe_institution_code?: string;
+  } & Record<string, unknown>;
+}
+
+/** Rollups currently held out of accreditation evidence because their college
+ *  stamp is uncertain — the re-assignment control's work queue. Reads go
+ *  through RLS (accreditation.view + institution scope; admins see all). */
+export async function listHeldCourseAttainment(): Promise<HeldCourseAttainmentRow[]> {
+  const supabase = createClientSupabaseClient();
+  // 'as any': see listCourseAttainment — table not yet in generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from('obe_course_attainment_rollup')
+    .select(
+      'id, institution_id, course_code, course_name, program_code, ' +
+        'session_code, session_end_date, attainment_pct, computed_at, metadata',
+    )
+    .in('metadata->>institution_match', [...HELD_INSTITUTION_MATCHES])
+    .order('computed_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as HeldCourseAttainmentRow[];
+}
+
+export interface RestampResult {
+  success: boolean;
+  rollup_id: string;
+  course_code: string;
+  session_code: string;
+  institution_id: string;
+  institution_name: string;
+  institution_match: 'manual_assignment';
+  previous_institution_id: string;
+  previous_match: string;
+}
+
+/** Assign a held rollup to the right college. Server-side the RPC re-checks
+ *  the permission + target-college authority and validates the pick against
+ *  the rollup's candidate twins. */
+export async function restampRollupInstitution(
+  rollupId: string,
+  institutionId: string,
+): Promise<RestampResult> {
+  const supabase = createClientSupabaseClient();
+  // 'as any': RPC ships in this PR's migration — not yet in generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc(
+    'fn_copo_restamp_rollup_institution',
+    { p_rollup_id: rollupId, p_institution_id: institutionId },
+  );
+  if (error) throw error;
+  return data as RestampResult;
+}
+
+export interface InstitutionLite {
+  id: string;
+  name: string;
+}
+
+/** Active colleges (id + name) — used to render candidate names and, for
+ *  rollups without a candidate list, as the assignable options. */
+export async function listActiveInstitutionsLite(): Promise<InstitutionLite[]> {
+  const supabase = createClientSupabaseClient();
+  const { data, error } = await supabase
+    .from('institutions')
+    .select('id, name')
+    .eq('is_active', true)
+    .order('name');
+  if (error) throw error;
+  return (data ?? []) as InstitutionLite[];
+}

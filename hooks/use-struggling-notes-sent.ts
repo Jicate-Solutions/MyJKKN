@@ -27,19 +27,32 @@ export interface NoteSentRow {
 
 export const strugglingNotesSentKeys = {
   all: ['scf-struggling-notes-sent'] as const,
-  range: (from: string, to: string) =>
-    [...strugglingNotesSentKeys.all, from, to] as const,
+  // institutionId is part of the key: without it, picking a college would show
+  // the previously cached all-colleges rows.
+  range: (from: string, to: string, institutionId?: string | null) =>
+    [...strugglingNotesSentKeys.all, from, to, institutionId ?? 'all'] as const,
 };
 
-export function useStrugglingNotesSent(from: string, to: string) {
+/** `institutionId` narrows to one college server-side via the 3-arg overload
+ *  (this RPC returns no institution column, so it cannot be filtered client-side
+ *  like the sibling cards). Omit for every college in scope. */
+export function useStrugglingNotesSent(
+  from: string,
+  to: string,
+  institutionId?: string | null,
+) {
   return useQuery({
-    queryKey: strugglingNotesSentKeys.range(from, to),
+    queryKey: strugglingNotesSentKeys.range(from, to, institutionId),
     queryFn: async (): Promise<NoteSentRow[]> => {
       const supabase = getSupabase();
-      const { data, error } = await supabase.rpc('fn_scf_struggling_notes_sent', {
-        p_from: from,
-        p_to: to,
-      });
+      // The 3-arg overload has NO default on p_institution_id (a default would
+      // make 2-arg calls ambiguous), so pick the overload by argument shape.
+      const { data, error } = await supabase.rpc(
+        'fn_scf_struggling_notes_sent',
+        institutionId
+          ? { p_from: from, p_to: to, p_institution_id: institutionId }
+          : { p_from: from, p_to: to },
+      );
       if (error) throw new Error(error.message);
       return (data || []) as NoteSentRow[];
     },

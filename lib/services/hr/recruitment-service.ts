@@ -1142,8 +1142,14 @@ export class RecruitmentService {
       .eq('flow_for', 'recruitment_approval')
       .select('id');
     if (error) throw error;
+    // Idempotent: 0 rows = already deleted (duplicate click / stale table /
+    // second session). The table's single ALL-command RLS policy makes SELECT
+    // and DELETE visibility identical, so any row the user saw is deletable —
+    // a miss can only mean the row is already gone, not an access denial.
     if (!data || data.length === 0) {
-      throw new Error('Flow not found, or you lack access to its organization.');
+      console.warn(
+        `[RecruitmentService] deleteRecruitmentFlow: flow ${flowId} already absent — treating as success`
+      );
     }
   }
 

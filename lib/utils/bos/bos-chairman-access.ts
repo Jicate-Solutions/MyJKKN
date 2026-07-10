@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { isBosChairmanRow } from '@/types/bos';
 
 /**
  * Server-side check: is userId the chairman of any active BoS composition
@@ -52,16 +53,17 @@ export async function isChairmanForProgramme(
   const compositionIds = (compositions ?? []).map((c: { id: string }) => c.id);
   if (compositionIds.length === 0) return false;
 
-  // Step 4: Chairman check
-  const { data: chairmanship } = await supabase
+  // Step 4: Chairman check. member_type stores the catalog type NAME since
+  // 20260710150000, so chairman-ness is derived from the linked catalog row's
+  // base_type (with a literal fallback for legacy rows) rather than filtered
+  // in SQL.
+  const { data: memberships } = await supabase
     .from('bos_members')
-    .select('id')
+    .select('id, member_type, member_type_rec:bos_member_types(base_type)')
     .in('composition_id', compositionIds)
-    .eq('staff_id', staffRecord.id)
-    .eq('member_type', 'chairman')
-    .limit(1);
+    .eq('staff_id', staffRecord.id);
 
-  return (chairmanship ?? []).length > 0;
+  return (memberships ?? []).some((m) => isBosChairmanRow(m as never));
 }
 
 /**
@@ -224,16 +226,18 @@ export async function getChairmanProgrammes(
   const compositionIds = (compositions ?? []).map((c: { id: string }) => c.id);
   if (compositionIds.length === 0) return new Set();
 
-  // Step 4: Which compositions is userId chairman of?
+  // Step 4: Which compositions is userId chairman of? Chairman-ness derives
+  // from the catalog base_type (see isChairmanForProgramme above).
   const { data: chairmanships } = await supabase
     .from('bos_members')
-    .select('composition_id')
+    .select('composition_id, member_type, member_type_rec:bos_member_types(base_type)')
     .in('composition_id', compositionIds)
-    .eq('staff_id', staffRecord.id)
-    .eq('member_type', 'chairman');
+    .eq('staff_id', staffRecord.id);
 
   const chairCompositionIds = new Set(
-    (chairmanships ?? []).map((m: { composition_id: string }) => m.composition_id)
+    (chairmanships ?? [])
+      .filter((m) => isBosChairmanRow(m as never))
+      .map((m: { composition_id: string }) => m.composition_id)
   );
 
   // Step 5: Map back composition → board → programme_code

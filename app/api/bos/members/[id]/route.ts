@@ -90,7 +90,7 @@ export async function PUT(
       .from('bos_members')
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select(`*, expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no, category )`)
+      .select(`*, expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no, category ), member_type_rec:bos_member_types ( id, name, base_type )`)
       .single();
 
     if (error) throw error;

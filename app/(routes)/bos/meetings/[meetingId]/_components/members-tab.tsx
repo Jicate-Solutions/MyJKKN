@@ -32,7 +32,8 @@ import {
 import {
   BosMeetingStatus,
   BOS_MEETING_STATUS_LABELS,
-  BOS_MEMBER_TYPE_LABELS,
+  bosMemberTypeLabel,
+  isBosChairmanRow,
 } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -58,12 +59,26 @@ interface MembersTabProps {
   meetingStatus: BosMeetingStatus;
   /** Meeting type — 'academic_council' flips the send gate to principal @ noticed. */
   meetingType?: string;
+  /**
+   * Convening council/committee of the meeting (bos_meetings.committee_id).
+   * When set, only that committee's members are listed/invited.
+   */
+  committeeId?: string | null;
 }
 
-export function MembersTab({ meetingId, compositionId, meetingStatus, meetingType }: MembersTabProps) {
+export function MembersTab({ meetingId, compositionId, meetingStatus, meetingType, committeeId }: MembersTabProps) {
   const queryClient = useQueryClient();
-  const { data: members = [], isLoading } = useBosMembersByComposition(compositionId);
+  const { data: allMembers = [], isLoading } = useBosMembersByComposition(compositionId);
   const scope = useBosBoardScope();
+
+  // Scope the list to the meeting's convening committee. Legacy compositions
+  // may have members with no committee assignment — fall back to the full
+  // composition rather than showing an empty member list.
+  const members = useMemo(() => {
+    if (!committeeId) return allMembers;
+    const scoped = allMembers.filter((m) => m.committee_id === committeeId);
+    return scoped.length > 0 ? scoped : allMembers;
+  }, [allMembers, committeeId]);
 
   // Per-member latest email status for THIS meeting, sourced from
   // bos_email_send_log. Members with no log row appear as "Not Sent".
@@ -300,7 +315,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
                   </TableCell>
                   <TableCell className='text-sm font-medium'>
                     {m.display_name}
-                    {m.member_type === 'chairman' && (
+                    {isBosChairmanRow(m) && (
                       <Badge variant='secondary' className='ml-2 text-xs'>
                         Chairman
                       </Badge>
@@ -308,7 +323,10 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
                   </TableCell>
                   <TableCell>
                     <Badge variant='outline' className='text-xs'>
-                      {BOS_MEMBER_TYPE_LABELS[m.member_type] ?? m.member_type}
+                      {/* Selected catalog type (bos_member_types) first; the
+                          coarse category label only for legacy rows with no
+                          member_type_id. */}
+                      {m.member_type_rec?.name ?? bosMemberTypeLabel(m.member_type)}
                     </Badge>
                   </TableCell>
                   <TableCell className='text-sm text-muted-foreground'>
