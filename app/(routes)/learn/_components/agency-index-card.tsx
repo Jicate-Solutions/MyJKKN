@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -73,47 +73,69 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
   const [hasLiveData, setHasLiveData] = useState(false);
   const [liveResolved, setLiveResolved] = useState(false);
 
+  // Single source for the live recompute — called once on mount and again on
+  // every poll tick, so the "Live" badge is honest: the displayed number really
+  // refreshes rather than being fetched once and left stale.
+  const fetchLive = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!learnerId) return;
+      const params = new URLSearchParams({ learnerId });
+      if (courseId) params.set('courseId', courseId);
+      const r = await fetch(`/api/pde/agency?${params.toString()}`, {
+        cache: 'no-store',
+        signal,
+      });
+      if (!r.ok) return;
+      const payload = await r.json();
+      if (!payload) return;
+      setLiveMode(
+        payload.mode === 'live' || payload.mode === 'live_coarse' ? payload.mode : null,
+      );
+      const overall = payload.data?.overall;
+      setLiveOverall(typeof overall === 'number' ? Math.round(overall) : null);
+      setLiveLevel((payload.data?.level as AgencyLevel) ?? null);
+      setHasLiveData(payload.has_data === true);
+    },
+    [learnerId, courseId],
+  );
+
+  // Mount fetch, with a hard 8s timeout. The card render is gated on
+  // `liveResolved`, so a hung request with no timeout would spin the card
+  // forever; abort/error/settle all mark it resolved and let the render fall
+  // through to the snapshot / empty-state path.
   useEffect(() => {
     if (!learnerId) return;
-    let cancelled = false;
-    const params = new URLSearchParams({ learnerId });
-    if (courseId) params.set('courseId', courseId);
-    fetch(`/api/pde/agency?${params.toString()}`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((payload) => {
-        if (cancelled) return;
-        if (payload) {
-          if (payload.mode === 'live' || payload.mode === 'live_coarse') {
-            setLiveMode(payload.mode);
-          } else {
-            setLiveMode(null);
-          }
-          const overall = payload.data?.overall;
-          setLiveOverall(typeof overall === 'number' ? Math.round(overall) : null);
-          setLiveLevel((payload.data?.level as AgencyLevel) ?? null);
-          setHasLiveData(payload.has_data === true);
-        }
-        setLiveResolved(true);
-      })
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 8_000);
+    fetchLive(controller.signal)
       .catch(() => {
-        // fail-soft: if the API is unreachable, keep static behaviour and let
-        // the render fall through to the snapshot / empty-state path.
-        if (!cancelled) setLiveResolved(true);
+        /* fail-soft: unreachable/aborted → fall through to snapshot/empty */
+      })
+      .finally(() => {
+        window.clearTimeout(timer);
+        setLiveResolved(true);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
     };
-  }, [learnerId, courseId]);
+  }, [learnerId, fetchLive]);
 
+  // While live, actually re-run the recompute every 30s (and refresh any
+  // snapshot consumer). Previously this only invalidated the snapshot query,
+  // which stays empty — so the number never moved despite the "Live" badge.
   useEffect(() => {
     if (!liveMode || !learnerId) return;
     const intervalId = window.setInterval(() => {
+      fetchLive().catch(() => {
+        /* keep the last good value on a transient failure */
+      });
       queryClient.invalidateQueries({
         queryKey: pdeQueryKeys.agencyIndex(learnerId, courseId),
       });
     }, 30_000);
     return () => window.clearInterval(intervalId);
-  }, [liveMode, learnerId, courseId, queryClient]);
+  }, [liveMode, learnerId, courseId, queryClient, fetchLive]);
 
   // Wait for BOTH the snapshot query and the live fetch before deciding what to
   // render. Without this, a learner with a real live score would see "No agency
