@@ -200,6 +200,17 @@ export default function NewGrnPage() {
       return;
     }
 
+    // Supplier invoice is mandatory — the GRN records goods received against a billed
+    // invoice, and the three-way match needs it to compare against.
+    if (!invoiceNumber.trim()) {
+      toast.error('Invoice number is required.');
+      return;
+    }
+    if (!invoiceDate) {
+      toast.error('Invoice date is required.');
+      return;
+    }
+
     try {
       // Persist the invoice document to Drive (best-effort record on the GRN).
       let invoice_document_url: string | null = null;
@@ -283,12 +294,23 @@ export default function NewGrnPage() {
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1">
-                <Label>Invoice number</Label>
-                <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+                <Label>Invoice number <span className="text-destructive">*</span></Label>
+                <Input
+                  required
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  aria-invalid={!invoiceNumber.trim()}
+                />
               </div>
               <div className="space-y-1">
-                <Label>Invoice date</Label>
-                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+                <Label>Invoice date <span className="text-destructive">*</span></Label>
+                <Input
+                  type="date"
+                  required
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  aria-invalid={!invoiceDate}
+                />
               </div>
               <div className="space-y-1">
                 <Label>Invoice amount (₹)</Label>

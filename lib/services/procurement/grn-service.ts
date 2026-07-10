@@ -121,6 +121,14 @@ export class ProcurementGrnService {
   static async createGrnAgainstPO(input: CreateGrnInput, userId: string): Promise<ProcurementGrn> {
     try {
       if (!input.lines?.length) throw new Error('A GRN needs at least one line.');
+      // Supplier invoice is mandatory — a GRN records goods received against a billed
+      // invoice, and the three-way match has nothing to compare against without it.
+      if (!input.invoice_number?.trim()) {
+        throw new Error('Invoice number is required to create a GRN.');
+      }
+      if (!input.invoice_date) {
+        throw new Error('Invoice date is required to create a GRN.');
+      }
 
       // 1) Load PO header + lines (ordered qty and remaining-to-receive per line).
       const { data: po, error: poErr } = await this.supabase

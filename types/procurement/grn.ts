@@ -10,7 +10,13 @@ export type GrnStatus =
   | 'completed'
   | 'cancelled';
 
-export type GrnMatchStatus = 'matched' | 'qty_mismatch' | 'price_mismatch' | 'short' | 'over';
+export type GrnMatchStatus =
+  | 'awaiting_invoice'
+  | 'matched'
+  | 'qty_mismatch'
+  | 'price_mismatch'
+  | 'short'
+  | 'over';
 
 export interface ProcurementGrn {
   id: string;
@@ -144,6 +150,7 @@ export const GRN_STATUS_CONFIG: Record<GrnStatus, { label: string; color: string
 };
 
 export const GRN_MATCH_CONFIG: Record<GrnMatchStatus, { label: string; color: string }> = {
+  awaiting_invoice: { label: 'Awaiting Invoice', color: 'amber' }, // no supplier invoice yet — not a match
   matched: { label: 'Matched', color: 'green' },
   qty_mismatch: { label: 'Qty Mismatch', color: 'amber' },
   price_mismatch: { label: 'Price Mismatch', color: 'amber' },
