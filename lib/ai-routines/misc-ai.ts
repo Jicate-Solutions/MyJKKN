@@ -106,6 +106,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
   },
   {
+    "id": "accreditation-loop-evidence",
+    "name": "Accreditation — Loop→AQAR Evidence Rollup (NAAC 7.3 Quality Assurance System)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:23 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/accreditation-loop-evidence",
+    "callsClaude": false,
+    "whatItDoes": "Turns every measured self-improving-loop cycle into NAAC Metric 7.3 'Quality Assurance System' accreditation evidence (Binary Accreditation Framework 2024, Attribute 7: Governance; maps to Criterion 6.5 IQAC under the outgoing framework). Each night it sweeps the four quality loops — SCF teaching suggestions, induction session-effectiveness, the induction annual playbook, and the mess Choose-Your-Menu loop — and upserts one quality_evidence_mappings row per measured outcome (baseline, result, lift, Better/Same/Worse votes) so the AQAR narrative is backed by live machine-measured evidence instead of nothing.",
+    "configKnobs": "Metric mapping pinned: scf_teaching + mess_menu → 7.3.f (periodic stakeholder satisfaction with feedback), induction_session + induction_playbook → 7.3.d (audits & performance assessment fed back to the system); 7.3.e seeded RESERVED (the loop practice itself — /admin/loops Control Tower; no per-row emission). Only MEASURED cycles emit (outcome_measured_at / measured_at set); rows with no derivable institution are skipped. period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts is_auto=true rows into quality_evidence_mappings (NAAC / 7.3.d / 7.3.f), refreshing metadata + mapped_at on re-run. NEVER touches manually-curated (is_auto=false) mappings. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-loop-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same evidence rows (natural key source_table+source_id+body_code+metric_code). Loop→AQAR bridge PR 1/2; PR 2 renders these rows in the /accreditation UI by loop_key."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",
@@ -134,5 +148,33 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "GitHub only: closes duplicate DRAFT PRs (reversible, with explanatory comment), adds visual-proof-skip labels, flips drafts to Ready, comments on overlaps. Never merges. Telegram digest + artifact update.",
     "safeToManualTrigger": true,
     "notes": "Fully mechanical (bash + gh + python, no LLM) — it keeps working even when the Claude subscription is rate-limited. Runs on the Mac via launchd; the ⚡ button queues an on-demand pass through the same Mac poller. Built 2026-07-08 as loopcraft level-4 (spawn/review/respawn) over the nightly fixer."
+  },
+  {
+    "id": "cdc-placement-outcomes",
+    "name": "CDC Placement-Outcome Measure (gates ①③ — DARK)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Weekly · Sun 03:15 IST via dispatcher (effectively monthly — idempotent per calendar-month window)",
+    "triggerPath": "/api/cron/cdc-placement-outcomes",
+    "callsClaude": false,
+    "whatItDoes": "Measures each graduating cohort's (program × passing-out year) placement + higher-studies conversion from alumni_outcomes, compares it against the prior cohort's baseline, and files the result as NAAC 8.2.1 evidence ('Placement + higher studies progression' — the NIRF GO parameter, ~20-25% of the NIRF score). Measurement + evidence only: nobody acts on the deltas yet — that needs a named CDC owner (Director decision pending), so this is honestly NOT a self-improving loop today.",
+    "configKnobs": "cdc_placement_loop.master_enabled=false (DARK — config row), cdc_placement_loop.min_cohort_size=10 (config row; labeling threshold — smaller cohorts are computed but flagged small_cohort per Director decision 2026-07-09 'Compute, but label small group'), delta deadband=±2.0pp on progression rate (fixed in fn), June AY cutoff",
+    "sideEffects": "WRITES cdc_placement_outcome_cycles (one row per cohort per month, change-only; cohort AGGREGATES only, never per-student rows) and upserts quality_evidence_mappings (NAAC 8.2.1, is_auto=true, small_cohort flag in metadata). No notifications, no human messages. Full no-op while dark.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cdc-placement-outcomes'), NOT a raw vercel.json cron. Auth: CRON_SECRET. Idempotent: re-runs within the same IST month update the same cycle rows; identical re-measures write nothing. Both data sources (cdc_placements, alumni_outcomes) had 0 rows at build time (2026-07-09) — the machinery is dark and honest about it."
+  },
+  {
+    "id": "copo-attainment",
+    "name": "CO/PO Attainment Loop — COE→OBE Direct Rollup (NBA)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Weekly · Sun 03:41 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/copo-attainment",
+    "callsClaude": false,
+    "whatItDoes": "The measurement leg of the NBA outcome-attainment loop. Weekly it syncs course outcomes from BoS syllabi into obe_course_outcomes, reads per-student marks READ-ONLY from the COE database for each institution's current exam term, computes per-course direct attainment (% of learners at/above the configured threshold, CIA + declared results), stores the trend vs the prior term, and emits accreditation evidence (NAAC 7.3.d + NBA T1_CO). HONEST GRAIN: COE has no assessment→CO tagging, so every number is a course-level proxy (grain=course_proxy, co_tagged=false, machine-readable) — never presented as CO-tagged attainment.",
+    "configKnobs": "All methodology numbers are platform_policies rows (copo_attainment.*): master_enabled=false (DARK); threshold_pct is PER-COLLEGE — global row = FALLBACK 60, each college's Academic Council ratifies its own institution-scoped override row which wins (fn_get_policy precedence); direct_weight=0.8 + indirect_weight=0.2 RATIFIED by Director 2026-07-09 (indirect side remains OFF until poll data matures); target_level=2 and level bands 70/60/50 are DEFAULTS awaiting ratification.",
+    "sideEffects": "DB writes only, all in MyJKKN (COE is read-only, never written): upserts obe_course_outcomes (never overwrites existing COs), obe_course_attainment_rollup, and is_auto=true quality_evidence_mappings rows (NAAC 7.3.d + NBA T1_CO, loop_key copo_attainment). Never clobbers manually-curated (is_auto=false) mappings. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'copo-attainment' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Fully idempotent — re-running refreshes the same rollup + evidence rows. NO-OPS entirely while copo_attainment.master_enabled=false (ships DARK). Blocker for true CO-tagged attainment: Academic Office must author assessment→CO maps (obe_assessment_co_marks is the target substrate)."
   }
 ];

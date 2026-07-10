@@ -955,6 +955,46 @@ export function useUpsertApprovalFlow() {
   });
 }
 
+/** Activate/deactivate a flow template (removes it from promote-time matching). */
+export function useSetApprovalFlowActive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      const res = await fetch(`${BASE}/approval-flows/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Flow update failed');
+      }
+      return ((await res.json()).data) as { id: string; is_active: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approval-flows'] });
+    },
+  });
+}
+
+/** Delete a flow template. In-flight candidates keep their frozen chains. */
+export function useDeleteApprovalFlow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`${BASE}/approval-flows/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Flow delete failed');
+      }
+      return ((await res.json()).data) as { id: string; deleted: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approval-flows'] });
+    },
+  });
+}
+
 /** Schedule (or reschedule) the interview attached to the candidate's current step. */
 export function useScheduleStepInterview() {
   const qc = useQueryClient();

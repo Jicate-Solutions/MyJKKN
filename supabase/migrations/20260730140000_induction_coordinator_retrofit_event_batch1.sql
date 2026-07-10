@@ -361,6 +361,13 @@ BEGIN
   ORDER BY 2;
 END $function$;
 
+-- AMENDED 2026-07-09 (deep-review PR #1911 CRITICAL — replay ordering): the emitter
+-- below now carries the Binary Metric 6.3 codes 6.3.1/6.3.2 (Director decision
+-- 2026-07-09) instead of the retired Criterion codes 5.1.3/7.2.1. This file sorts
+-- AFTER 20260709034000_induction_naac_rekey_63.sql (which re-keyed catalog +
+-- junction + this fn to 6.3.x on live prod), so on a clean replay the old array here
+-- would have clobbered the emitter back to codes the catalog no longer holds —
+-- evidence emitted at orphan codes. Behaviorally identical to prod's live definition.
 CREATE OR REPLACE FUNCTION public.fn_induction_emit_naac_evidence(p_event_id uuid)
 RETURNS integer
 LANGUAGE plpgsql
@@ -455,7 +462,7 @@ BEGIN
 
   -- Upsert one evidence row per NAAC criterion (source row = the induction_programs
   -- satellite). Refresh metadata + mapped_at on conflict so re-running re-snapshots.
-  FOREACH v_metric IN ARRAY ARRAY['5.1.3','7.2.1'] LOOP
+  FOREACH v_metric IN ARRAY ARRAY['6.3.1','6.3.2'] LOOP
     INSERT INTO public.quality_evidence_mappings
       (source_table, source_id, institution_id, body_code, metric_code,
        period_label, mapped_by, is_auto, metadata, mapped_at)
@@ -584,3 +591,32 @@ BEGIN
 END $function$;
 
 NOTIFY pgrst, 'reload schema';
+
+-- ----------------------------------------------------------------------------
+-- ACL re-assertion (ADDED 2026-07-09, secdef-anon gate): this file re-creates
+-- ten SECURITY DEFINER functions but originally asserted no ACLs — on a clean
+-- replay it runs AFTER the earlier revokes, and Supabase's default privileges
+-- hand anon EXECUTE straight back to every re-created function. Locks below
+-- mirror prod's live grants exactly (verified 2026-07-09: EXECUTE =
+-- authenticated + service_role on all ten; anon/PUBLIC excluded). Idempotent.
+-- ----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_induction_appoint_feedback_volunteer(uuid, uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_appoint_feedback_volunteer(uuid, uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_auto_enroll(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_auto_split_batches(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_auto_split_batches(uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_autobalance_feedback_volunteers(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_autobalance_feedback_volunteers(uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_feedback_summary(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_day_roster(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_day_roster(uuid, integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_emit_naac_evidence(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_emit_naac_evidence(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_feedback_method_mix(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_feedback_method_mix(uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_list_feedback_volunteers(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_list_feedback_volunteers(uuid) TO authenticated, service_role;

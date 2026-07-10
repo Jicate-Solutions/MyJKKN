@@ -54,6 +54,8 @@ import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AccreditationService } from '@/lib/services/accreditation/accreditation-service';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
+import { QualityLoopsSection } from './_components/quality-loops-section';
+import { CopoHeldRollupsSection } from './_components/copo-held-rollups-section';
 
 // ----------------------------------------------------------------------------
 // NAAC's 10 attributes (Binary + MBGL framework). Each shows its seeded
@@ -355,6 +357,13 @@ export default function NAACDashboardPage() {
             );
           })}
         </div>
+
+        {/* Quality Loops — Metric 7.3 QAS (Loop → accreditation bridge, PR-2 of 2) */}
+        <QualityLoopsSection selectedInstitution={selectedInstitution} />
+
+        {/* Twin-college re-stamp control (Director 2026-07-10) — renders only
+            for super admins + accreditation.evidence.restamp holders */}
+        <CopoHeldRollupsSection />
 
         {/* Footer */}
         <Card className="bg-muted/30">

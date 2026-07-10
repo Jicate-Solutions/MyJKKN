@@ -3797,7 +3797,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/admin/recruitment-approval-flows",
             "label": "Recruitment Approval Flows",
             "iconName": "GitBranch",
-            "children": []
+            "children": [
+              {
+                "path": "/hr/admin/recruitment-approval-flows/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/hr/admin/recruitment-maintenance",
@@ -5591,6 +5598,51 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      }
+    ]
+  },
+  {
+    "path": "/procurement",
+    "label": "Procurement",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/procurement/grn",
+        "label": "Grn",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/procurement/grn/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/procurement/purchase-orders",
+        "label": "Purchase Orders",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/procurement/requests",
+        "label": "Requests",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/procurement/requests/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/procurement/rfqs",
+        "label": "Rfqs",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },

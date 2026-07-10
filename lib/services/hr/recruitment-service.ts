@@ -1109,6 +1109,50 @@ export class RecruitmentService {
     return { updated, created };
   }
 
+  /**
+   * Activate/deactivate a recruitment flow. Deactivating removes it from
+   * promote-time matching; in-flight candidates keep their frozen chains.
+   */
+  static async setRecruitmentFlowActive(
+    supabase: SupabaseClient,
+    flowId: string,
+    isActive: boolean
+  ): Promise<void> {
+    const { data, error } = await supabase
+      .from('hr_approval_flows')
+      .update({ is_active: isActive })
+      .eq('id', flowId)
+      .eq('flow_for', 'recruitment_approval')
+      .select('id');
+    if (error) throw error;
+    // RLS hides out-of-scope rows as a silent 0-row update — surface that.
+    if (!data || data.length === 0) {
+      throw new Error('Flow not found, or you lack access to its organization.');
+    }
+  }
+
+  static async deleteRecruitmentFlow(
+    supabase: SupabaseClient,
+    flowId: string
+  ): Promise<void> {
+    const { data, error } = await supabase
+      .from('hr_approval_flows')
+      .delete()
+      .eq('id', flowId)
+      .eq('flow_for', 'recruitment_approval')
+      .select('id');
+    if (error) throw error;
+    // Idempotent: 0 rows = already deleted (duplicate click / stale table /
+    // second session). The table's single ALL-command RLS policy makes SELECT
+    // and DELETE visibility identical, so any row the user saw is deletable —
+    // a miss can only mean the row is already gone, not an access denial.
+    if (!data || data.length === 0) {
+      console.warn(
+        `[RecruitmentService] deleteRecruitmentFlow: flow ${flowId} already absent — treating as success`
+      );
+    }
+  }
+
   // ----- Step-linked interview scheduling (dynamic flows, 2026-07-06) ----------------
 
   /**

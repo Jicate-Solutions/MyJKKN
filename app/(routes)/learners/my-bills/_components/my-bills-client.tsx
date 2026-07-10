@@ -119,49 +119,58 @@ export function MyBillsClient({
     totalBilled > 0 ? Math.min(100, Math.round(((totalBilled - totalDue) / totalBilled) * 100)) : 0;
 
   return (
-    <div className='space-y-6'>
-      {/* ── Summary hero ───────────────────────────────────────────────── */}
-      <Card className='overflow-hidden'>
-        <CardContent className='flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between'>
+    <div className='space-y-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:space-y-6'>
+      {/* ── Balance card (banking-app hero) ───────────────────────────── */}
+      <Card className='overflow-hidden border-0 bg-gradient-to-br from-primary via-primary to-primary/80 text-primary-foreground shadow-lg'>
+        <CardContent className='space-y-5 p-5 sm:p-6'>
           <div className='flex min-w-0 items-center gap-3'>
-            <div className='flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary'>
-              <GraduationCap className='h-5 w-5' />
+            <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-foreground/15'>
+              <GraduationCap className='h-5 w-5' aria-hidden='true' />
             </div>
-            <div className='min-w-0 space-y-0.5'>
-              {learnerName && <div className='truncate text-lg font-semibold'>{learnerName}</div>}
-              <div className='truncate text-sm text-muted-foreground'>
+            <div className='min-w-0'>
+              {learnerName && (
+                <div className='truncate text-sm font-semibold'>{learnerName}</div>
+              )}
+              <div className='truncate text-xs text-primary-foreground/75'>
                 {[rollNumber, institutionName].filter(Boolean).join(' · ') || 'Fee summary'}
               </div>
             </div>
           </div>
 
-          <div className='grid grid-cols-2 gap-4 sm:grid-cols-3 lg:gap-8'>
+          <div className='flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between'>
             <div>
-              <div className='text-xs uppercase tracking-wide text-muted-foreground'>Total due</div>
-              <div
-                className={`text-2xl font-bold tabular-nums ${
-                  totalDue > 0 ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {inr(totalDue)}
+              <div className='text-xs uppercase tracking-wider text-primary-foreground/75'>
+                Total due
               </div>
-              <div className='text-xs text-muted-foreground'>
-                {outstanding.length} outstanding {outstanding.length === 1 ? 'bill' : 'bills'}
+              <div className='mt-1 text-4xl font-bold tabular-nums'>{inr(totalDue)}</div>
+              <div className='mt-1 text-xs text-primary-foreground/75'>
+                {totalDue > 0
+                  ? `${outstanding.length} outstanding ${outstanding.length === 1 ? 'bill' : 'bills'}`
+                  : 'All caught up — nothing due'}
               </div>
             </div>
-            <div>
-              <div className='text-xs uppercase tracking-wide text-muted-foreground'>Total paid</div>
-              <div className='text-2xl font-bold tabular-nums'>{inr(totalPaid)}</div>
-              <div className='text-xs text-muted-foreground'>
-                {receipts.length} {receipts.length === 1 ? 'receipt' : 'receipts'}
+
+            <div className='grid grid-cols-2 gap-2.5 sm:w-72'>
+              <div className='rounded-xl bg-primary-foreground/10 p-3'>
+                <div className='text-xs uppercase tracking-wide text-primary-foreground/75'>
+                  Total paid
+                </div>
+                <div className='mt-0.5 text-base font-semibold tabular-nums'>{inr(totalPaid)}</div>
+                <div className='text-xs text-primary-foreground/70'>
+                  {receipts.length} {receipts.length === 1 ? 'receipt' : 'receipts'}
+                </div>
               </div>
-            </div>
-            <div className='col-span-2 sm:col-span-1'>
-              <div className='text-xs uppercase tracking-wide text-muted-foreground'>
-                Fees cleared
+              <div className='rounded-xl bg-primary-foreground/10 p-3'>
+                <div className='text-xs uppercase tracking-wide text-primary-foreground/75'>
+                  Cleared
+                </div>
+                <div className='mt-0.5 text-base font-semibold tabular-nums'>{clearedPct}%</div>
+                <Progress
+                  value={clearedPct}
+                  aria-label={`${clearedPct}% of billed fees cleared`}
+                  className='mt-2 h-1 bg-primary-foreground/20 [&>div]:bg-primary-foreground'
+                />
               </div>
-              <div className='text-2xl font-bold tabular-nums'>{clearedPct}%</div>
-              <Progress value={clearedPct} aria-label={`${clearedPct}% of billed fees cleared`} className='mt-1.5 h-1.5' />
             </div>
           </div>
         </CardContent>
@@ -169,21 +178,28 @@ export function MyBillsClient({
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
       <Tabs defaultValue='outstanding' className='w-full'>
-        <TabsList className='w-full justify-start overflow-x-auto sm:w-auto'>
-          <TabsTrigger value='outstanding' className='gap-1.5'>
-            <Wallet className='h-4 w-4' /> Outstanding
+        <TabsList className='grid h-11 w-full grid-cols-3 sm:inline-flex sm:h-10 sm:w-auto'>
+          <TabsTrigger value='outstanding' className='gap-1.5 text-xs sm:text-sm'>
+            <Wallet className='h-4 w-4 shrink-0' aria-hidden='true' />
+            <span className='truncate'>Outstanding</span>
             {outstanding.length > 0 && (
-              <Badge variant='secondary' className='ml-1'>{outstanding.length}</Badge>
+              <Badge variant='secondary' className='ml-0.5 hidden min-[400px]:inline-flex'>
+                {outstanding.length}
+              </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value='paid' className='gap-1.5'>
-            <Receipt className='h-4 w-4' /> Paid
+          <TabsTrigger value='paid' className='gap-1.5 text-xs sm:text-sm'>
+            <Receipt className='h-4 w-4 shrink-0' aria-hidden='true' />
+            <span className='truncate'>Paid</span>
             {receipts.length > 0 && (
-              <Badge variant='secondary' className='ml-1'>{receipts.length}</Badge>
+              <Badge variant='secondary' className='ml-0.5 hidden min-[400px]:inline-flex'>
+                {receipts.length}
+              </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value='analytics' className='gap-1.5'>
-            <BarChart3 className='h-4 w-4' /> Analytics
+          <TabsTrigger value='analytics' className='gap-1.5 text-xs sm:text-sm'>
+            <BarChart3 className='h-4 w-4 shrink-0' aria-hidden='true' />
+            <span className='truncate'>Analytics</span>
           </TabsTrigger>
         </TabsList>
 
@@ -340,7 +356,7 @@ function YearSection({
   return (
     <Collapsible defaultOpen={defaultOpen}>
       <Card className='overflow-hidden'>
-        <CollapsibleTrigger className='group flex min-h-[44px] w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 sm:px-5'>
+        <CollapsibleTrigger className='group flex min-h-[44px] w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left transition-colors duration-200 hover:bg-muted/50 active:bg-muted/70 sm:px-5'>
           <div className='flex min-w-0 items-center gap-2.5'>
             <ChevronDown className='h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=closed]:-rotate-90' />
             {icon}
@@ -428,8 +444,12 @@ function BillRow({
           )}
         </div>
         {onPayOnline && (
-          <Button size='sm' onClick={onPayOnline} className='gap-1.5' aria-label='Pay this bill online'>
-            <CreditCard className='h-3.5 w-3.5' />
+          <Button
+            onClick={onPayOnline}
+            className='h-11 gap-1.5 rounded-full px-5 transition-transform duration-150 active:scale-[0.97] motion-reduce:transform-none sm:h-9 sm:rounded-md sm:px-4'
+            aria-label='Pay this bill online'
+          >
+            <CreditCard className='h-4 w-4' aria-hidden='true' />
             <span>Pay</span>
           </Button>
         )}
@@ -485,13 +505,23 @@ function ReceiptRow({
             </div>
           )}
         </div>
-        <div className='flex items-center gap-1.5'>
-          <Button variant='outline' size='sm' onClick={onView} aria-label='View receipt details'>
-            <Eye className='h-4 w-4 sm:mr-1.5' />
+        <div className='flex items-center gap-2'>
+          <Button
+            variant='outline'
+            onClick={onView}
+            aria-label='View receipt details'
+            className='h-11 w-11 rounded-full p-0 transition-transform duration-150 active:scale-[0.95] motion-reduce:transform-none sm:h-9 sm:w-auto sm:rounded-md sm:px-3'
+          >
+            <Eye className='h-4 w-4 sm:mr-1.5' aria-hidden='true' />
             <span className='hidden sm:inline'>View</span>
           </Button>
-          <Button variant='outline' size='sm' onClick={onDownload} aria-label='Download receipt PDF'>
-            <Download className='h-4 w-4 sm:mr-1.5' />
+          <Button
+            variant='outline'
+            onClick={onDownload}
+            aria-label='Download receipt PDF'
+            className='h-11 w-11 rounded-full p-0 transition-transform duration-150 active:scale-[0.95] motion-reduce:transform-none sm:h-9 sm:w-auto sm:rounded-md sm:px-3'
+          >
+            <Download className='h-4 w-4 sm:mr-1.5' aria-hidden='true' />
             <span className='hidden sm:inline'>PDF</span>
           </Button>
         </div>

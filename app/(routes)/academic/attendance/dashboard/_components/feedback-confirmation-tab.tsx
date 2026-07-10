@@ -53,6 +53,7 @@ import {
   useAdminTrend,
   useFacilitatorFeedbackCoverage,
 } from '@/hooks/use-session-feedback';
+import { usePermissions } from '@/hooks/use-permissions';
 import { LoopActivityCard } from '@/app/(routes)/academic/session-feedback/_components/loop-activity-card';
 import { FacilitatorStrengthsCard } from '@/app/(routes)/academic/session-feedback/_components/facilitator-strengths-card';
 import { LearnerTrajectoryCard } from '@/app/(routes)/academic/session-feedback/_components/learner-trajectory-card';
@@ -68,6 +69,12 @@ import { ConfirmationSplitCards } from './confirmation-split-cards';
 import type { DashboardFilterState } from './dashboard-filters';
 
 const BRAND_GREEN = '#0b6d41';
+
+/** Every figure on this tab — the confirmation cards, the Totals tiles and the
+ *  college tables — covers exactly this many days, inclusive of both ends. It is
+ *  passed to ConfirmationSplitCards AND used to compute from/to, so the cards and
+ *  the tables can never again describe different spans. */
+const WINDOW_DAYS = 30;
 
 
 /** Color a coverage %: red 0–24, amber 25–59, green 60+. */
@@ -103,15 +110,25 @@ function TableShell({
     );
   }
   if (isError) {
+    // A permission denial and a query failure are NOT the same thing. The RPCs
+    // raise '<fn>: not authorized' when the caller lacks the permission; anything
+    // else (statement timeout, network, SQL error) is a FAILURE. Labelling every
+    // error "you don't have access" hid a 10.5s timeout as a permissions problem
+    // for months — the panel looked forbidden when it was merely slow.
+    const message = error instanceof Error ? error.message : '';
+    const denied = /not authorized/i.test(message);
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-        <AlertTriangle className="h-10 w-10 text-amber-500" />
+        <AlertTriangle
+          className={`h-10 w-10 ${denied ? 'text-amber-500' : 'text-red-500'}`}
+        />
         <p className="max-w-md text-sm font-medium text-foreground">
-          You don&apos;t have access to the all-college feedback breakdown —
-          contact your administrator.
+          {denied
+            ? 'You don’t have permission to view this panel — contact your administrator.'
+            : 'Couldn’t load this panel. This does not affect the attendance figures above.'}
         </p>
-        {error instanceof Error && error.message ? (
-          <p className="max-w-md text-xs text-muted-foreground">{error.message}</p>
+        {message ? (
+          <p className="max-w-md text-xs text-muted-foreground">{message}</p>
         ) : null}
       </div>
     );
@@ -148,20 +165,67 @@ export function FeedbackConfirmationTab({
   const { from, to } = useMemo(() => {
     const end = anchorMs != null ? new Date(anchorMs) : new Date();
     return {
-      from: format(subDays(end, 30), 'yyyy-MM-dd'),
+      // subDays(end, WINDOW_DAYS - 1): a span of WINDOW_DAYS days INCLUSIVE of
+      // both ends, matching useConfirmationSplit's own arithmetic. Using
+      // subDays(end, 30) here would cover 31 days, so the tables would count one
+      // extra day of responses that the cards above them never saw — a miniature
+      // of the very "39,456 vs 55,774" discrepancy this change exists to kill.
+      from: format(subDays(end, WINDOW_DAYS - 1), 'yyyy-MM-dd'),
       to: format(end, 'yyyy-MM-dd'),
     };
   }, [anchorMs]);
 
+  // The college chosen in the shared dashboard filter bar. `undefined` = every
+  // college the caller is allowed to see (the RPCs already enforce that scope).
+  const selectedInstitutionId = filters?.institutionId;
+
+  // The learner-level panels are gated on a narrower permission than the
+  // college-level ones, so a HoD is legitimately refused. Rather than show them
+  // two red boxes forever, we don't render those cards at all for callers who
+  // cannot read them.
+  // canAccess(module, action) joins them as `${module}.${action}`, giving the key
+  // the DB functions check. It returns false while permissions load — the safe
+  // direction: the restricted cards stay hidden rather than flashing in and out.
+  const { canAccess } = usePermissions();
+  const canSeeLearnerDetail = canAccess(
+    'academic.session_feedback',
+    'learner_detail.view',
+  );
+
   const college = useAdminCollegeSummary(from, to);
   const faculty = useAdminFacultySummary(from, to);
-  const trend = useAdminTrend(from, to);
+  // Trend + loop activity return no institution column, so they cannot be
+  // narrowed client-side — the RPCs take the college as an argument instead.
+  const trend = useAdminTrend(from, to, selectedInstitutionId);
   const coverage = useFacilitatorFeedbackCoverage(from, to);
 
-  const collegeRows = (college.data ?? []) as AdminCollegeSummaryRow[];
-  const facultyRows = (faculty.data ?? []) as AdminFacultySummaryRow[];
+  // The remaining panels DO carry institution_id per row, so narrowing them here
+  // is a filter, never a widening — the server already decided what you may see.
+  // Memoized: these arrays feed the useMemo roll-ups below, and a fresh array
+  // identity on every render would defeat them.
+  const collegeRows = useMemo(() => {
+    const rows = (college.data ?? []) as AdminCollegeSummaryRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [college.data, selectedInstitutionId]);
+
+  const facultyRows = useMemo(() => {
+    const rows = (faculty.data ?? []) as AdminFacultySummaryRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [faculty.data, selectedInstitutionId]);
+
+  const coverageRows = useMemo(() => {
+    const rows = (coverage.data ?? []) as FacilitatorCoverageRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [coverage.data, selectedInstitutionId]);
+
+  // Trend is narrowed server-side (it returns no institution column).
   const trendRows = (trend.data ?? []) as AdminTrendRow[];
-  const coverageRows = (coverage.data ?? []) as FacilitatorCoverageRow[];
 
   // Coverage headline: how many facilitators have collected ANY feedback, and
   // what fraction of all taught sessions are covered (the adoption gap).
@@ -235,9 +299,26 @@ export function FeedbackConfirmationTab({
         selectedDate={selectedDate}
         filters={filters}
         refreshTrigger={refreshTrigger}
+        // Not the 14-day default: these cards must cover the SAME window as the
+        // tables below. Previously the cards said "last 14 days" and the Responses
+        // tile beneath was a 30-day figure, which read as a data discrepancy.
+        // Driven by the same constant that computes from/to — never a literal.
+        windowDays={WINDOW_DAYS}
       />
 
-      {/* Headline strip */}
+      {/* Headline strip. LABEL THE WINDOW: these are 30-day figures sitting
+          directly beneath the confirmation cards. An unlabelled "Responses"
+          tile is exactly what made 39,456 look like it contradicted 55,774 —
+          the same rows, counted over two different spans. */}
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h3 className="text-lg font-semibold">Totals</h3>
+        <span className="text-xs text-muted-foreground">
+          last {WINDOW_DAYS} days ·{' '}
+          {selectedInstitutionId
+            ? 'selected college'
+            : 'all colleges in scope'}
+        </span>
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card>
           <CardContent className="flex flex-col gap-1 p-4">
@@ -451,10 +532,21 @@ export function FeedbackConfirmationTab({
       {/* SCF self-improving-loop intelligence cards — imported from the
           session-feedback module (bodies not copied). Share the dashboard
           window. */}
-      <LoopActivityCard from={from} to={to} />
+      <LoopActivityCard
+        from={from}
+        to={to}
+        institutionId={selectedInstitutionId}
+      />
       <FacilitatorStrengthsCard from={from} to={to} />
-      <LearnerTrajectoryCard from={from} to={to} />
-      <StrugglingNotesSentCard from={from} to={to} />
+      {/* Learner-level panels: a narrower permission than the college-level ones
+          (HoDs are deliberately excluded). Hidden rather than rendered as an
+          error, so a HoD sees a complete page, not two permission warnings. */}
+      {canSeeLearnerDetail ? (
+        <>
+          <LearnerTrajectoryCard from={from} to={to} />
+          <StrugglingNotesSentCard from={from} to={to} />
+        </>
+      ) : null}
 
       {/* Faculty Summary */}
       <Card>

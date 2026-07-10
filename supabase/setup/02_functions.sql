@@ -21481,3 +21481,27 @@ $$;
 
 REVOKE ALL ON FUNCTION public.fn_school_master_districts(text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_school_master_districts(text) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Updated: 2026-07-10 — SCF leadership permission gates
+--
+-- The 13 SCF leadership read-functions (15 signatures) are MIGRATION-AUTHORITATIVE.
+-- Their live bodies are recorded verbatim in:
+--   supabase/migrations/20260731110000_scf_leadership_permission_gates.sql
+--
+--   fn_scf_admin_college_summary          fn_scf_facilitator_strengths
+--   fn_scf_admin_faculty_summary          fn_scf_leadership_concerns
+--   fn_scf_admin_trend        (2 sigs)    fn_scf_learner_trajectory
+--   fn_scf_escalation_followups           fn_scf_loop_activity      (2 sigs)
+--   fn_scf_facilitator_feedback_coverage  fn_scf_principal_escalations
+--   fn_scf_facilitator_pulse              fn_scf_pulse_totals
+--   fn_scf_struggling_notes_sent
+--
+-- They were re-gated off a hardcoded `profiles.role = ANY (ARRAY[...])` list — which
+-- Role Management could not influence — onto user_has_permission() with two new keys
+-- (academic.session_feedback.leadership.view / .learner_detail.view) plus
+-- role_has_institution_access() for tenant scope. Do NOT re-inline
+-- role_has_institution_access() into a WHERE clause: it is SECURITY DEFINER and is
+-- then called once PER ROW (54ms -> 55,847ms on 56k rows). The allowed institutions
+-- are hoisted once into v_insts uuid[]. See the migration header for the full receipt.
+-- ---------------------------------------------------------------------------

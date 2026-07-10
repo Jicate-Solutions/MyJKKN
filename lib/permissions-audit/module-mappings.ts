@@ -97,6 +97,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
   // table-module-map, so it's category-only like Calendar/Feedback above.
   ['Foundation Programme', 'foundation'],
+  // Centralized Procurement (2026-07): has the 'procurement' PERMISSION_CATEGORIES
+  // entry + sidebar routes; procurement_* tables aren't in table-module-map, so
+  // it's category-only like the entries above.
+  ['Procurement', 'procurement'],
 ];
 
 /**
@@ -174,6 +178,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/service-requests', 'Service Requests'],
   ['/startup-studio', 'Startup Studio'],
   ['/campus-living', 'Campus Living'],
+  ['/procurement', 'Procurement'], // Centralized Procurement (procurement.* perms)
   ['/accreditation', 'System'],
   ['/audit-trail', 'System'],
   // Clinical internships module (super_admin-gated "Internship Module" sidebar

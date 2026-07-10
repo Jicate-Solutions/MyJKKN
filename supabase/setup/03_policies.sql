@@ -1607,11 +1607,13 @@ CREATE POLICY "Students can view their own refunds" ON billing_refunds
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into flat billing_categories.
 ALTER TABLE billing_categories ENABLE ROW LEVEL SECURITY;
 
+-- SELECT is authenticated-read (2026-07-09): categories are a lookup table
+-- (name/kind/default amount) that student self-service pages (My Bills fee
+-- heads, Pay Online gating) must resolve; gating reads behind
+-- billing.categories.view silently nulled every student-visible category.
 CREATE POLICY "billing_categories_select" ON billing_categories
     FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (user_has_permission('billing.categories.view')
-            AND role_has_institution_access(institution_id))
+        (SELECT auth.uid()) IS NOT NULL
     );
 
 CREATE POLICY "billing_categories_insert" ON billing_categories

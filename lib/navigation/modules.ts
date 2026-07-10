@@ -98,6 +98,12 @@ export const MODULES: Module[] = [
   // Sister to Resources — distinct top-level /ims/* tree.
   { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'Inventory (IMS)', hasNavConfig: false },
 
+  // ── Procurement ───────────────────────────────────────────────────────
+  // Centralized purchasing spine (PR → RFQ → PO → GRN). Module-agnostic;
+  // IMS is the first registered inventory domain. See
+  // docs/centralized-store/PLAN-procurement-v1.md.
+  { slug: 'procurement', label: 'Procurement', icon: 'ShoppingCart', section: 'Procurement', hasNavConfig: false },
+
   // ── Service Requests ──────────────────────────────────────────────────
   { slug: 'service-requests', label: 'Service Requests', icon: 'Wrench', section: 'Service Requests', hasNavConfig: false },
 
