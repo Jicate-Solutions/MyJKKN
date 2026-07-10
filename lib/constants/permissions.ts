@@ -1926,6 +1926,7 @@ export const PERMISSION_CATEGORIES = [
 
       // RFQ + Vendor Quotations
       { key: 'procurement.rfq_manage', label: 'Manage RFQs & Requirement Lists' },
+      { key: 'procurement.rfq_approve', label: 'Review & Approve RFQs (before sending to vendors)' },
       { key: 'procurement.quotation_manage', label: 'Upload & Compare Vendor Quotations' },
 
       // Purchase Orders (create vs approve are separate)
