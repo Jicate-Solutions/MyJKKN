@@ -39,14 +39,24 @@ function fmtDate(iso: string): string {
   return format(d, 'd MMM yyyy');
 }
 
-export function StrugglingNotesSentCard({ from, to }: { from?: string; to?: string }) {
+export function StrugglingNotesSentCard({
+  from,
+  to,
+  institutionId,
+}: {
+  from?: string;
+  to?: string;
+  /** Narrow to one college — passed through to the RPC's 3-arg overload (this
+   *  card's rows carry no institution column, so the server filters instead). */
+  institutionId?: string | null;
+}) {
   const range = useMemo(() => {
     if (from && to) return { from, to };
     const today = new Date();
     return { from: format(subDays(today, 30), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
   }, [from, to]);
 
-  const { data, isError } = useStrugglingNotesSent(range.from, range.to);
+  const { data, isError } = useStrugglingNotesSent(range.from, range.to, institutionId);
   const rows = data ?? [];
 
   // Additive signal only — self-hide when unauthorized (sibling trajectory card shows the
