@@ -28,6 +28,12 @@ export interface EventLogisticsContext {
   eventId: string;
   eventType: string;
   canManage: boolean;
+  /**
+   * Committee prep-tasks may be editable for people who cannot manage the event
+   * (tournament committee members: view everything, tick their tasks). Defaults
+   * to canManage when the host page doesn't distinguish the two.
+   */
+  canEditTasks: boolean;
 }
 
 export interface EventLogisticsTab {
@@ -61,7 +67,9 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     label: 'Committees',
     icon: Users,
     eventTypes: 'all',
-    render: ({ eventId, canManage }) => <CommitteesBoard eventId={eventId} canManage={canManage} />,
+    render: ({ eventId, canManage, canEditTasks }) => (
+      <CommitteesBoard eventId={eventId} canManage={canManage} canEditTasks={canEditTasks} />
+    ),
   },
   {
     key: 'checkin',
@@ -131,13 +139,17 @@ export function EventLogistics({
   eventId,
   eventType,
   canManage = true,
+  canEditTasks,
 }: {
   eventId: string;
   eventType: string;
   canManage?: boolean;
+  /** Defaults to canManage — pass true to let non-managers tick committee tasks. */
+  canEditTasks?: boolean;
 }) {
   const tabs = EVENT_LOGISTICS_TABS.filter((t) => tabVisible(t, eventType));
   if (tabs.length === 0) return null;
+  const tasksEditable = canEditTasks ?? canManage;
 
   return (
     <Card className="mt-4">
@@ -159,7 +171,7 @@ export function EventLogistics({
           </TabsList>
           {tabs.map((t) => (
             <TabsContent key={t.key} value={t.key} className="mt-0">
-              {t.render({ eventId, eventType, canManage })}
+              {t.render({ eventId, eventType, canManage, canEditTasks: tasksEditable })}
             </TabsContent>
           ))}
         </Tabs>

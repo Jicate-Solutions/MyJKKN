@@ -1501,3 +1501,15 @@ DROP TRIGGER IF EXISTS postal_codes_touch_updated_at ON public.postal_codes;
 CREATE TRIGGER postal_codes_touch_updated_at
   BEFORE UPDATE ON public.postal_codes
   FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+-- ── events privileged-field guard (2026-07-10, tournament_incharge_privilege_guard) ──
+-- Tier 1: only super admin / sports.tournaments.manage may change config->incharges.
+-- Tier 2: only super admin / admin-coordinator roles / tournament managers may change
+-- institution_id, event_type, created_by. service_role (auth.uid() IS NULL) bypasses.
+-- Function body lives in 02_functions.sql (fn_guard_event_privileged_fields).
+
+DROP TRIGGER IF EXISTS trg_events_guard_privileged_fields ON public.events;
+CREATE TRIGGER trg_events_guard_privileged_fields
+  BEFORE UPDATE ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_event_privileged_fields();

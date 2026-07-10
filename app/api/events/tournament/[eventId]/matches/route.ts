@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { canViewTournament } from '@/lib/services/events/tournament/organizer-access';
 
 export async function GET(
   _request: NextRequest,
@@ -18,9 +19,8 @@ export async function GET(
     const auth = await createClient();
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    const { data: canView } = await auth.rpc('user_has_permission', {
-      permission_name: 'sports.tournaments.view',
-    });
+    // view permission OR in-charge OR committee member (Tournament In-charge, 2026-07)
+    const canView = await canViewTournament(auth, eventId);
     if (canView !== true) {
       return NextResponse.json({ error: 'Forbidden — sports tournament access only' }, { status: 403 });
     }
