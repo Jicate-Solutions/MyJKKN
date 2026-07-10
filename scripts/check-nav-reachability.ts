@@ -227,6 +227,13 @@ const NAV_EXCLUDE = new Set<string>([
   // IMS /new forms (invoked from list-page "+ New" buttons)
   '/ims/stock/grn/new',
 
+  // Procurement /new forms (invoked from list-page "+ New" buttons)
+  '/procurement/requests/new',
+  // Quotations & comparison — button-invoked from the RFQ detail page
+  '/procurement/rfqs/[id]/quotations',
+  // GRN receiving form — button-invoked ("Create GRN") from the PO detail page
+  '/procurement/grn/new',
+
   // OKR /new + /create wizard forms
   '/okr/elective/new',
   '/okr/objectives/new',

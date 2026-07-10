@@ -76,21 +76,24 @@ export async function GET(req: NextRequest) {
   const nextWeek = mondayOf(now, 1);
   const thisWeek = mondayOf(now, 0);
 
-  // 1. GENERATE — one proposal per active (institution, tier, meal) slot,
-  //    restricted to the voting-enabled tiers (the pilot scope).
+  // 1. GENERATE — one proposal per active (caterer, tier, meal) slot,
+  //    restricted to the voting-enabled tiers (the pilot scope). Caterer-scoped,
+  //    NOT institution: one institution can run two hostels (boys/girls caterer),
+  //    so each caterer gets its OWN menu from its OWN students' votes.
   const { data: slots, error: slotErr } = await db
     .from('mess_menus')
-    .select('institution_id, tier_key, meal_type')
-    .not('tier_key', 'is', null);
+    .select('caterer_id, tier_key, meal_type')
+    .not('tier_key', 'is', null)
+    .not('caterer_id', 'is', null);
   if (slotErr) {
     return NextResponse.json({ success: false, error: slotErr.message }, { status: 500 });
   }
-  const uniq = new Map<string, { i: string; t: string; m: string }>();
+  const uniq = new Map<string, { c: string; t: string; m: string }>();
   for (const s of slots ?? []) {
-    if (!s.institution_id || !s.tier_key || !s.meal_type) continue;
+    if (!s.caterer_id || !s.tier_key || !s.meal_type) continue;
     if (!enabledTiers.has(String(s.tier_key))) continue; // ← tier scope (pilot)
-    uniq.set(`${s.institution_id}|${s.tier_key}|${s.meal_type}`, {
-      i: s.institution_id,
+    uniq.set(`${s.caterer_id}|${s.tier_key}|${s.meal_type}`, {
+      c: s.caterer_id,
       t: s.tier_key,
       m: String(s.meal_type),
     });
@@ -98,9 +101,9 @@ export async function GET(req: NextRequest) {
 
   let generated = 0;
   let genErrors = 0;
-  for (const { i, t, m } of uniq.values()) {
+  for (const { c, t, m } of uniq.values()) {
     const { error } = await db.rpc('fn_mess_recommend_next_menu', {
-      p_institution_id: i,
+      p_caterer_id: c,
       p_tier_key: t,
       p_meal_type: m,
       p_week_start: nextWeek,

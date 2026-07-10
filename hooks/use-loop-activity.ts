@@ -9,15 +9,22 @@ import { ScfLoopService } from '@/lib/services/scf-loop-service';
 
 export const loopActivityQueryKeys = {
   all: ['scf-loop-activity'] as const,
-  window: (from: string, to: string) =>
-    [...loopActivityQueryKeys.all, from, to] as const,
+  // institutionId is part of the key: without it, picking a college would show
+  // the previously cached all-colleges figures.
+  window: (from: string, to: string, institutionId?: string | null) =>
+    [...loopActivityQueryKeys.all, from, to, institutionId ?? 'all'] as const,
 };
 
-/** The loop's vital signs for a window (super-admin / institution leadership). */
-export function useLoopActivity(from: string, to: string) {
+/** The loop's vital signs for a window (super-admin / institution leadership).
+ *  `institutionId` narrows to one college; omit for every college in scope. */
+export function useLoopActivity(
+  from: string,
+  to: string,
+  institutionId?: string | null,
+) {
   return useQuery({
-    queryKey: loopActivityQueryKeys.window(from, to),
-    queryFn: () => ScfLoopService.getLoopActivity(from, to),
+    queryKey: loopActivityQueryKeys.window(from, to, institutionId),
+    queryFn: () => ScfLoopService.getLoopActivity(from, to, institutionId),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });

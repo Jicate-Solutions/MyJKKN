@@ -15,11 +15,20 @@ const getSupabase = (): any => createClientSupabaseClient();
 export class ScfLoopService {
   /** The loop's vital signs for a window (single snapshot object). The RPC raises for
    *  non-authorized callers; returns aggregates + AI coaching summaries only. */
-  static async getLoopActivity(from: string, to: string): Promise<LoopActivity | null> {
+  static async getLoopActivity(
+    from: string,
+    to: string,
+    institutionId?: string | null,
+  ): Promise<LoopActivity | null> {
     const supabase = getSupabase();
+    // p_institution_id is a NARROWING filter applied on top of the caller's own
+    // institution scope inside the RPC — it can never widen what you may see.
+    // Always sent (null = all colleges in scope) so PostgREST resolves the 3-arg
+    // overload rather than the legacy 2-arg one.
     const { data, error } = await supabase.rpc('fn_scf_loop_activity', {
       p_from: from,
       p_to: to,
+      p_institution_id: institutionId ?? null,
     });
     if (error) throw new Error(`Failed to load loop activity: ${error.message}`);
     return (data ?? null) as LoopActivity | null;

@@ -17,6 +17,10 @@ interface ConfirmationSplitCardsProps {
   selectedDate?: Date;
   filters?: DashboardFilterState;
   refreshTrigger?: number;
+  /** Rolling window for the split. Defaults to the hook's 14 days (Statistics
+   *  tab). The Feedback Confirmation tab passes 30 so these cards cover the same
+   *  span as the college tables below them. The caption renders this value. */
+  windowDays?: number;
 }
 
 /**
@@ -32,7 +36,8 @@ export function ConfirmationSplitCards({
   canViewAllInstitutions,
   selectedDate = new Date(),
   filters,
-  refreshTrigger = 0
+  refreshTrigger = 0,
+  windowDays: windowDaysProp
 }: ConfirmationSplitCardsProps) {
   const queryInstitutionId =
     filters?.institutionId ||
@@ -43,7 +48,8 @@ export function ConfirmationSplitCards({
       queryInstitutionId,
       canViewAllInstitutions,
       selectedDate,
-      refreshTrigger
+      refreshTrigger,
+      windowDaysProp
     );
 
   // Resolve state before rendering, in order — this avoids two failure modes:
