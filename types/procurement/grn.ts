@@ -66,6 +66,8 @@ export interface ProcurementGrnItem {
   cost_price: number;
   /** Supplier's invoiced unit price for this line (for the price axis of the match). */
   invoice_unit_price: number | null;
+  /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only — not part of the match. */
+  missing_quantity: number;
   is_chemical: boolean;
   created_at: string;
 }
@@ -88,6 +90,8 @@ export interface GrnLineInput {
   manufacturing_date?: string | null;
   /** Actual invoice unit price → the batch's cost_price (overrides the PO estimate). */
   cost?: number | null;
+  /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only. */
+  missing_quantity?: number | null;
 }
 
 export interface CreateGrnInput {

@@ -201,6 +201,7 @@ export class ProcurementGrnService {
           received_quantity: received,
           accepted_quantity: accepted,
           rejected_quantity: rejected,
+          missing_quantity: line.missing_quantity ?? 0,
           mismatch_flag: match.mismatch_flag,
           mismatch_remarks: match.reason,
           match_status: match.match_status,

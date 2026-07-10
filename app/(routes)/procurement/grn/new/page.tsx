@@ -71,6 +71,7 @@ export default function NewGrnPage() {
         received_quantity: remaining,
         accepted_quantity: remaining,
         rejected_quantity: 0,
+        missing_quantity: 0,
         rejection_reason: null,
         replacement_required: false,
         batch_number: null,
@@ -187,6 +188,7 @@ export default function NewGrnPage() {
         received_quantity: Number(l.received_quantity),
         accepted_quantity: Number(l.accepted_quantity),
         rejected_quantity: Number(l.rejected_quantity),
+        missing_quantity: Number(l.missing_quantity ?? 0),
         rejection_reason: l.rejection_reason,
         replacement_required: l.replacement_required,
         batch_number: l.batch_number,
@@ -354,7 +356,7 @@ export default function NewGrnPage() {
                     <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>{cfg.label}</Badge>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-5">
                     <div className="space-y-1">
                       <Label className="text-xs">Invoice qty</Label>
                       <Input
@@ -385,6 +387,14 @@ export default function NewGrnPage() {
                         type="number"
                         value={l.rejected_quantity}
                         onChange={(e) => update(idx, { rejected_quantity: num(e.target.value) })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Missing</Label>
+                      <Input
+                        type="number"
+                        value={l.missing_quantity ?? ''}
+                        onChange={(e) => update(idx, { missing_quantity: num(e.target.value) })}
                       />
                     </div>
                   </div>
