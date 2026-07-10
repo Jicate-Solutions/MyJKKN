@@ -10,6 +10,7 @@ import {
   useApprovedRequestsForSelect,
   useCreateRfqFromPR,
 } from '@/hooks/procurement/use-rfqs';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { RFQ_STATUS_CONFIG, type RfqStatus, type RfqFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,6 +51,7 @@ export default function RfqsPage() {
   const canManage = isSuperAdmin || canAccess('procurement', 'rfq_manage');
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounceValue(search, 300);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
@@ -57,7 +59,7 @@ export default function RfqsPage() {
   const [selectedPR, setSelectedPR] = useState<string>('');
 
   const filters: RfqFilters = {
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as RfqStatus) : undefined,
     institution_id: effectiveInstitution,
   };

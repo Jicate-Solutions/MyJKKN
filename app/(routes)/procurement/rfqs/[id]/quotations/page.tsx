@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { buildComparisonRows } from '@/lib/services/procurement/quotation-service';
 import { useRouter, useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
@@ -8,7 +9,6 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useRfq, useVendorsForSelect } from '@/hooks/procurement/use-rfqs';
 import {
   useQuotationsForRfq,
-  useComparison,
   useCreateQuotation,
   useCreateVendor,
   useDeleteQuotation,
@@ -50,8 +50,14 @@ export default function RfqQuotationsPage() {
   const canManage = isSuperAdmin || canAccess('procurement', 'quotation_manage');
 
   const { data: rfq, isLoading: rfqLoading } = useRfq(rfqId);
-  const { data: quotations = [] } = useQuotationsForRfq(rfqId);
-  const { data: comparison = [], isLoading: compLoading } = useComparison(rfqId);
+  const { data: quotations = [], isLoading: quotesLoading } = useQuotationsForRfq(rfqId);
+  // Derive the comparison client-side from the RFQ items + quotations already loaded,
+  // instead of a second server round-trip (useComparison re-fetched the same quotations).
+  const comparison = useMemo(
+    () => buildComparisonRows(rfq?.items ?? [], quotations),
+    [rfq?.items, quotations]
+  );
+  const compLoading = rfqLoading || quotesLoading;
   // All active suppliers in the RFQ's OWN institution (not the viewer's profile
   // institution) — this is the pool a quotation's vendor is chosen/created from.
   const { data: allVendors = [] } = useVendorsForSelect(rfq?.institution_id || undefined);
