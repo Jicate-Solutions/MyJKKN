@@ -104,7 +104,13 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
   // forever; abort/error/settle all mark it resolved and let the render fall
   // through to the snapshot / empty-state path.
   useEffect(() => {
-    if (!learnerId) return;
+    // No learner → nothing to fetch, but the render gate waits on liveResolved,
+    // so mark it resolved or the card (a shared export) spins forever for any
+    // caller that passes a falsy learnerId.
+    if (!learnerId) {
+      setLiveResolved(true);
+      return;
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 8_000);
     fetchLive(controller.signal)
