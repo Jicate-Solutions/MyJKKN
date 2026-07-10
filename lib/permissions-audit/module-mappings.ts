@@ -89,6 +89,9 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // PERMISSION_CATEGORIES entry + sidebar routes but no tables in
   // table-module-map, so it's category-only like Documents/AI Pulse above.
   ['Calendar', 'calendar'],
+  // Centralized procurement (PR #1949): has the 'procurement' permission
+  // catalog but no table-module-map entry yet — category-only like Calendar.
+  ['Procurement', 'procurement'],
   // Feedback dashboard (/feedback, 2026-06-26): reads the universal feedback
   // spine (feedback_events). Has the 'feedback' PERMISSION_CATEGORIES entry +
   // sidebar route but no tables in table-module-map, so it's category-only.
@@ -208,6 +211,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
+  // Centralized procurement (PR #1949): requests → RFQs → POs → GRN. Has the
+  // 'procurement' permission catalog (auto snake_case match).
+  ['/procurement', 'Procurement'],
   ['/audit', 'System'],
   ['/staff', 'Staff'],
   ['/users', 'Users'],
