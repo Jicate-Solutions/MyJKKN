@@ -63,6 +63,16 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
   const queryClient = useQueryClient();
   const [liveMode, setLiveMode] = useState<'live' | 'live_coarse' | null>(null);
 
+  // Live recompute captured from the same /api/pde/agency call that reads the
+  // mode. When pde_agency_index has no snapshot row for this learner (the usual
+  // case today — the table is empty), this is the only real number the card
+  // can show, and `has_data` is what distinguishes "produced nothing
+  // measurable" (→ empty state) from "genuinely scored 0" (→ show the 0).
+  const [liveOverall, setLiveOverall] = useState<number | null>(null);
+  const [liveLevel, setLiveLevel] = useState<AgencyLevel | null>(null);
+  const [hasLiveData, setHasLiveData] = useState(false);
+  const [liveResolved, setLiveResolved] = useState(false);
+
   useEffect(() => {
     if (!learnerId) return;
     let cancelled = false;
@@ -71,15 +81,24 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
     fetch(`/api/pde/agency?${params.toString()}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((payload) => {
-        if (cancelled || !payload) return;
-        if (payload.mode === 'live' || payload.mode === 'live_coarse') {
-          setLiveMode(payload.mode);
-        } else {
-          setLiveMode(null);
+        if (cancelled) return;
+        if (payload) {
+          if (payload.mode === 'live' || payload.mode === 'live_coarse') {
+            setLiveMode(payload.mode);
+          } else {
+            setLiveMode(null);
+          }
+          const overall = payload.data?.overall;
+          setLiveOverall(typeof overall === 'number' ? Math.round(overall) : null);
+          setLiveLevel((payload.data?.level as AgencyLevel) ?? null);
+          setHasLiveData(payload.has_data === true);
         }
+        setLiveResolved(true);
       })
       .catch(() => {
-        /* fail-soft: if the API is unreachable, keep static behaviour. */
+        // fail-soft: if the API is unreachable, keep static behaviour and let
+        // the render fall through to the snapshot / empty-state path.
+        if (!cancelled) setLiveResolved(true);
       });
     return () => {
       cancelled = true;
@@ -96,7 +115,11 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
     return () => window.clearInterval(intervalId);
   }, [liveMode, learnerId, courseId, queryClient]);
 
-  if (isLoading) {
+  // Wait for BOTH the snapshot query and the live fetch before deciding what to
+  // render. Without this, a learner with a real live score would see "No agency
+  // data yet" flash into a number as the async fetch resolves — which reads as
+  // a bug, not a load.
+  if (isLoading || !liveResolved) {
     return (
       <Card className={className}>
         <CardContent className="flex items-center justify-center py-12">
@@ -106,7 +129,57 @@ export function AgencyIndexCard({ learnerId, courseId, className, showTrend = tr
     );
   }
 
+  // No snapshot row (the usual case: pde_agency_index is empty). Two sub-cases.
   if (!agencyIndex) {
+    // Live score exists → show it, without inventing the five dimensions. There
+    // is no per-dimension data behind a live recompute, so rendering the bars /
+    // radar / trend would mean five `NaN`s — the exact failure this card must
+    // not ship. Overall + level + a "detailed breakdown at semester end" line.
+    if (hasLiveData && liveOverall !== null) {
+      const liveLevelConfig = LEVEL_CONFIG[liveLevel as AgencyLevel] || LEVEL_CONFIG.dependent;
+      return (
+        <Card className={className}>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5" />
+                Agency Index
+              </CardTitle>
+              <div className="flex items-center gap-1.5">
+                {liveMode && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground"
+                    title={`Live mode (${liveMode}) — auto-refreshing every 30s`}
+                  >
+                    <RefreshCw className="h-3 w-3 animate-pulse" />
+                    {liveMode === 'live_coarse' ? 'Live~' : 'Live'}
+                  </span>
+                )}
+                <Badge
+                  variant="outline"
+                  className={cn('text-xs font-medium', liveLevelConfig.bgColor, liveLevelConfig.color)}
+                >
+                  {liveLevelConfig.label}
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-center">
+              <div className={cn('text-4xl font-bold', getScoreTextColor(liveOverall))}>
+                {liveOverall}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">out of 100</p>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              Detailed breakdown available at semester end.
+            </p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Genuinely nothing measurable yet.
     return (
       <Card className={className}>
         <CardHeader>

@@ -42,6 +42,7 @@ import {
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, format } from 'date-fns';
 import type { ReputationLevel, BadgeCategory, PDEBadge, PDELearnerBadge } from '@/types/pde';
+import { AgencyIndexCard } from '../_components/agency-index-card';
 
 // ============================================
 // Constants
@@ -438,6 +439,11 @@ export default function ProfilePage() {
 
         {/* My Capabilities Summary */}
         <MyCapabilitiesSection learnerId={learnerId} />
+
+        {/* Agency Index — own index only. RLS own_agency_select
+            (learner_id = auth.uid()) and the route's own-index guard both bind
+            this to the authed learner; no learnerId is user-controllable here. */}
+        {learnerId && <AgencyIndexCard learnerId={learnerId} showTrend={false} />}
 
         {/* Leaderboard Preview */}
         <Card>
