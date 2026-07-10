@@ -1839,7 +1839,11 @@ export const PERMISSION_CATEGORIES = [
     name: 'Sports Tournaments',
     key: 'sports',
     permissions: [
-      { key: 'sports.tournaments.view', label: 'View Sports Tournaments' },
+      // browse = student-facing read-only page (/events/tournaments): open tournaments
+      // + divisions + Register link. Never exposes entries, payments, budget or sponsors.
+      // Granted to the student role; `view` gates the ADMIN subtree instead.
+      { key: 'sports.tournaments.browse', label: 'Browse Open Tournaments (Students)' },
+      { key: 'sports.tournaments.view', label: 'View Sports Tournaments (Admin)' },
       { key: 'sports.tournaments.create', label: 'Create Sports Tournaments' },
       { key: 'sports.tournaments.edit', label: 'Edit Sports Tournaments' },
       { key: 'sports.tournaments.manage', label: 'Manage Sports Tournaments (Divisions, Lifecycle)' }

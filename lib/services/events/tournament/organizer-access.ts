@@ -28,15 +28,23 @@ export async function canManageTournament(auth: SessionClient, eventId: string):
   return isEventIncharge(auth, eventId);
 }
 
-/** view permission OR manager/in-charge OR committee member — gates reads. */
+/**
+ * view permission OR manager/in-charge OR committee member OR checked-in volunteer.
+ * Gates every tournament read. Committee members and volunteers see the tournament
+ * but hold no write rights — those go through canManageTournament().
+ */
 export async function canViewTournament(auth: SessionClient, eventId: string): Promise<boolean> {
   const { data: perm } = await auth.rpc('user_has_permission', {
     permission_name: 'sports.tournaments.view',
   });
   if (perm === true) return true;
   if (await canManageTournament(auth, eventId)) return true;
+
   const { data: member } = await auth.rpc('fn_is_event_committee_member', {
     p_event_id: eventId,
   });
-  return member === true;
+  if (member === true) return true;
+
+  const { data: volunteer } = await auth.rpc('fn_is_event_volunteer', { p_event_id: eventId });
+  return volunteer === true;
 }
