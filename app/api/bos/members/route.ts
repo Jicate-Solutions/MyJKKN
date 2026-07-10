@@ -72,6 +72,9 @@ export async function GET(request: NextRequest) {
         *,
         expert:bos_external_experts (
           id, name, title, designation, institution_name, email, contact_no, category, distance_km
+        ),
+        member_type_rec:bos_member_types (
+          id, name, base_type
         )
       `)
       .eq('composition_id', compositionId)
@@ -174,6 +177,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Academic Council bodies carry a single default 'Academic Council'
+    // committee (seeded by 20260710123000 + the AC-prepare route). Members
+    // added without an explicit committee are attached to it, so the
+    // committee-scoped meeting roster / attendance / TA-DA generation sees
+    // them. BoS members keep whatever the Add Member dialog sent.
+    let committeeId: string | null = body.committee_id ?? null;
+    if (!committeeId) {
+      const lookupDb = createServiceRoleClient();
+      const { data: compRow } = await lookupDb
+        .from('bos_compositions')
+        .select('is_academic_council')
+        .eq('id', body.composition_id)
+        .maybeSingle();
+      if ((compRow as { is_academic_council?: boolean } | null)?.is_academic_council === true) {
+        const { data: defaultCommittee } = await lookupDb
+          .from('bos_committees')
+          .select('id')
+          .eq('composition_id', body.composition_id)
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        committeeId = (defaultCommittee as { id: string } | null)?.id ?? null;
+      }
+    }
+
     // Reject duplicates: the same staff or expert cannot be on the same
     // committee of a composition twice (the same person MAY sit on two
     // different committees). The DB enforces this via partial unique indexes
@@ -185,8 +214,8 @@ export async function POST(request: NextRequest) {
         .select('id, display_name')
         .eq('composition_id', body.composition_id)
         .limit(1);
-      dupQuery = body.committee_id
-        ? dupQuery.eq('committee_id', body.committee_id)
+      dupQuery = committeeId
+        ? dupQuery.eq('committee_id', committeeId)
         : dupQuery.is('committee_id', null);
       if (body.staff_id) {
         dupQuery.eq('staff_id', body.staff_id);
@@ -211,6 +240,7 @@ export async function POST(request: NextRequest) {
 
     const insertData = {
       ...body,
+      committee_id: committeeId,
       sort_order: body.sort_order ?? (count ?? 0) + 1,
       is_active: body.is_active ?? true,
     };
@@ -222,6 +252,9 @@ export async function POST(request: NextRequest) {
         *,
         expert:bos_external_experts (
           id, name, title, designation, institution_name, email, contact_no, category, distance_km
+        ),
+        member_type_rec:bos_member_types (
+          id, name, base_type
         )
       `)
       .single();

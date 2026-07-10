@@ -75,10 +75,17 @@ export async function GET(request: NextRequest) {
     // response shape minimal.
     const needsCompositionJoin =
       scopeFilter.kind === 'byComposition' || !!boardId;
+    // `meeting:` is a second, ALIASED embed of the same bos_meetings
+    // relationship (PostgREST allows this) carrying the convening council for
+    // the printed claim form; the unaliased !inner embed stays dedicated to
+    // filtering so the .eq('bos_meetings...') paths below keep working.
+    const meetingEmbed =
+      'meeting:bos_meetings ( id, meeting_type, committee:bos_committees ( name ) )';
     const selectClause = needsCompositionJoin
       ? `
         *,
         bos_meetings!inner ( composition_id, bos_compositions!inner ( board_id ) ),
+        ${meetingEmbed},
         member:bos_members (
           id, display_name, display_designation, display_institution, member_type,
           contact_no, email, staff_id,
@@ -88,6 +95,7 @@ export async function GET(request: NextRequest) {
       `
       : `
         *,
+        ${meetingEmbed},
         member:bos_members (
           id, display_name, display_designation, display_institution, member_type,
           contact_no, email, staff_id,

@@ -39,6 +39,7 @@ import { useBosMeetings } from '@/hooks/bos/use-bos-meetings';
 import { useBosBoards } from '@/hooks/bos/use-bos-boards';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
+import { RateSettingsDialog } from './_components/rate-settings-dialog';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { usePermissions } from '@/hooks/use-permissions';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
@@ -285,6 +286,7 @@ function ClaimRow({
   canEdit,
   boardLabel,
   meetingDate,
+  councilName,
 }: {
   claim: BosTaDaClaim;
   canEdit: boolean;
@@ -297,6 +299,12 @@ function ClaimRow({
    * attendance is taken).
    */
   meetingDate?: string;
+  /**
+   * Convening council/committee of the claim's meeting (e.g. 'Academic
+   * Council'). Drives the claim form's "Claim Form for <council> of" title
+   * and "Position in <council>" row; the PDF falls back to 'BOS'.
+   */
+  councilName?: string;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -340,6 +348,7 @@ function ClaimRow({
         logoImage,
         rightLogoImage,
         bos_subject: boardLabel ?? '',
+        council_name: councilName,
         // Prefer the meeting's own date over the claim row's created_at.
         // claim.created_at is when the auto-generation ran (typically the day
         // attendance was taken — useful for audit, but not what the printed
@@ -481,12 +490,12 @@ export default function TaDaPage() {
     setMeetingId('');
   }, [institutionId]);
 
-  // Reset meeting when board changes — meetings are board-scoped via their
-  // parent composition, so a meetingId from a different board would silently
-  // produce an empty claim list.
-  useEffect(() => {
-    setMeetingId('');
-  }, [boardId]);
+  // Filter order is Institution → Meeting → Board: the meeting picker works
+  // straight off the institution, and Board is an optional narrower. When a
+  // board is chosen it must stay consistent with an already-picked meeting —
+  // that reconciliation happens in the board Select's onValueChange (clearing
+  // the meeting only when it belongs to a different board), not here, so
+  // picking a board never wipes a matching meeting selection.
 
   const { data: boards = [], isLoading: boardsLoading } = useBosBoards(
     isSuperAdmin ? institutionId : undefined,
@@ -548,15 +557,23 @@ export default function TaDaPage() {
 
   return (
     <div className='space-y-6'>
-      <PageHeader
-        title='TA/DA Claims'
-        description='Auto-generated when an attendee is marked present. Honorarium and TA are computed from the institution-wide BoS SOP — edit only payment details and status.'
-      />
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        <PageHeader
+          title='TA/DA Claims'
+          description='Auto-generated when an attendee is marked present. Honorarium and TA come from the convening council&apos;s rate settings (per member type), falling back to the institution-wide BoS SOP — edit only payment details and status.'
+        />
+        {isSuperAdmin && (
+          <RateSettingsDialog
+            institutionsIdsCsv={institutionsIds ? institutionsIds.join(',') : null}
+            institutionId={institutionId}
+          />
+        )}
+      </div>
 
-      {/* Filter row — institution → board → meeting → search.
-          Meeting cascades from board: dropdown is disabled until a board is
-          chosen, and resets when the board changes. Grid widens by one
-          column for the extra control. */}
+      {/* Filter row — institution → meeting → board → search.
+          Meeting works straight off the institution (labels carry the board
+          code); Board is an optional narrower that also prunes the meeting
+          dropdown, clearing a picked meeting only on a board mismatch. */}
       <div
         className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${
           isSuperAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
@@ -572,8 +589,38 @@ export default function TaDaPage() {
           />
         )}
         <SearchableSelect
+          value={meetingId}
+          onValueChange={setMeetingId}
+          options={[
+            { value: '', label: 'All meetings' },
+            ...boardMeetings.map((m) => {
+              const dateStr = m.actual_date ?? m.scheduled_date;
+              const formatted = dateStr ? format(new Date(dateStr), 'dd MMM yyyy') : null;
+              const title = m.meeting_title ?? `Meeting ${m.meeting_number}`;
+              // Board code prefixes the label so meetings are tellable apart
+              // even before a board filter is applied.
+              const label = [m.board?.board_code, title, m.academic_year, formatted]
+                .filter(Boolean)
+                .join(' · ');
+              return { value: m.id, label };
+            }),
+          ]}
+          disabled={isSuperAdmin && !institutionId}
+          placeholder={
+            isSuperAdmin && !institutionId ? 'Select an institution first' : 'All meetings'
+          }
+          searchPlaceholder='Search meeting…'
+          className='w-full'
+        />
+        <SearchableSelect
           value={boardId}
-          onValueChange={setBoardId}
+          onValueChange={(v) => {
+            setBoardId(v);
+            // Keep the picked meeting only if it belongs to the picked board.
+            if (v && meetingId && meetingsMap[meetingId]?.board_id !== v) {
+              setMeetingId('');
+            }
+          }}
           options={[
             { value: '', label: 'All boards' },
             ...boards.map((b) => ({
@@ -587,24 +634,6 @@ export default function TaDaPage() {
           disabled={isSuperAdmin && !institutionId}
           placeholder='All boards'
           searchPlaceholder='Search board…'
-          className='w-full'
-        />
-        <SearchableSelect
-          value={meetingId}
-          onValueChange={setMeetingId}
-          options={[
-            { value: '', label: 'All meetings' },
-            ...boardMeetings.map((m) => {
-              const dateStr = m.actual_date ?? m.scheduled_date;
-              const formatted = dateStr ? format(new Date(dateStr), 'dd MMM yyyy') : null;
-              const title = m.meeting_title ?? `Meeting ${m.meeting_number}`;
-              const label = [title, m.academic_year, formatted].filter(Boolean).join(' · ');
-              return { value: m.id, label };
-            }),
-          ]}
-          disabled={!boardId}
-          placeholder={boardId ? 'All meetings' : 'Select a board first'}
-          searchPlaceholder='Search meeting…'
           className='w-full'
         />
         <Input
@@ -679,6 +708,17 @@ export default function TaDaPage() {
                 // Prefer actual_date (when meeting was completed) over
                 // scheduled_date (when it was planned). Both are ISO yyyy-mm-dd.
                 const meetingDate = m?.actual_date ?? m?.scheduled_date;
+                // Convening council for the claim form. The claim's own
+                // embedded meeting is authoritative (covers AC meetings,
+                // which the meetings-list hook excludes); meetingsMap is the
+                // fallback for stale caches predating the embed.
+                const claimMeeting = claim.meeting;
+                const councilName =
+                  claimMeeting?.committee?.name ??
+                  m?.committee?.name ??
+                  ((claimMeeting?.meeting_type ?? m?.meeting_type) === 'academic_council'
+                    ? 'Academic Council'
+                    : undefined);
                 return (
                   <ClaimRow
                     key={claim.id}
@@ -686,6 +726,7 @@ export default function TaDaPage() {
                     canEdit={canEdit}
                     boardLabel={boardLabel}
                     meetingDate={meetingDate}
+                    councilName={councilName}
                   />
                 );
               })}

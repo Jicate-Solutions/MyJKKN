@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -34,7 +35,7 @@ import {
   BOS_EXPERT_CATEGORY_LABELS,
 } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionContext, useAllInstitutionContexts } from '@/hooks/use-institution-context';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
 import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
 import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
 
@@ -93,6 +94,15 @@ interface ExpertFormProps {
   onCancel: () => void;
 }
 
+// Shape returned by /api/bos/institutions (COE-sourced canonical names,
+// CAS Aided+Self deduped into one row — same source as the compositions form).
+interface BosInstitutionOption {
+  id: string;
+  name: string;
+  institution_code: string;
+  myjkkn_institution_ids: string[];
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertFormProps) {
@@ -100,8 +110,19 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
   // Non-admins: own institution resolved automatically.
   // Super-admins: disabled (returns undefined); they pick from the dropdown.
   const { data: institutionCtx } = useInstitutionContext();
-  // Super-admin institution list for the picker dropdown.
-  const { data: allContexts = [] } = useAllInstitutionContexts();
+  // Super-admin institution list for the picker dropdown — /api/bos/institutions
+  // gives the COE canonical name (e.g. "… (Autonomous)") with CAS Aided+Self
+  // already merged into a single row, matching the other BoS pickers.
+  const { data: allInstitutions = [] } = useQuery<BosInstitutionOption[]>({
+    queryKey: ['bos', 'institutions'],
+    queryFn: async () => {
+      const r = await fetch('/api/bos/institutions');
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!isSuperAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const form = useForm<ExpertFormValues>({
     resolver: zodResolver(expertFormSchema),
@@ -146,7 +167,6 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
   // Scope member types to the selected institution (CAS-expanded). The query
   // stays disabled until an institution is resolved (scope.csv === null).
   const selectedInstitutionId = form.watch('institutions_id');
-  const currentCategory = form.watch('category');
   const scope = useBosInstitutionScope(selectedInstitutionId || undefined);
   const { data: memberTypes = [] } = useBosMemberTypes(scope.csv, { isActive: true });
 
@@ -162,25 +182,18 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
       fromTypes.push({ value: t.base_type as BosExpertCategory, label: t.name });
     }
 
-    // Fallback to the hardcoded enum when the institution has no expert-type rows
-    // (or while member types are still loading).
-    const options =
-      fromTypes.length > 0
-        ? fromTypes
-        : (Object.entries(BOS_EXPERT_CATEGORY_LABELS) as [BosExpertCategory, string][]).map(
-            ([value, label]) => ({ value, label }),
-          );
-
-    // Edit-mode safety: keep the currently-saved category selectable even if the
-    // institution's member types don't include it.
-    if (currentCategory && !options.some((o) => o.value === currentCategory)) {
-      options.push({
-        value: currentCategory,
-        label: BOS_EXPERT_CATEGORY_LABELS[currentCategory] ?? currentCategory,
-      });
+    // Every expert category stays selectable even when the institution has no
+    // member-type row for it (e.g. no university_nominee row) — member-type
+    // rows only override the label and ordering.
+    const options = [...fromTypes];
+    for (const [value, label] of Object.entries(BOS_EXPERT_CATEGORY_LABELS) as [
+      BosExpertCategory,
+      string,
+    ][]) {
+      if (!seen.has(value)) options.push({ value, label });
     }
     return options;
-  }, [memberTypes, currentCategory]);
+  }, [memberTypes]);
 
   // Auto-set institution for non-admins once context resolves.
   useEffect(() => {
@@ -215,16 +228,26 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={field.onChange}
+                      // Edit-mode CAS gap: the saved row may carry the sibling
+                      // UUID that isn't the option's primary id — map it to the
+                      // option that contains it so the picker doesn't go blank.
+                      value={
+                        allInstitutions.find((o) =>
+                          o.myjkkn_institution_ids.includes(field.value)
+                        )?.id ?? field.value
+                      }
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select institution' />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {allContexts.map((ctx) => (
-                          <SelectItem key={ctx.myjkkn_id} value={ctx.myjkkn_id}>
-                            {ctx.name}
+                        {allInstitutions.map((opt) => (
+                          <SelectItem key={opt.id} value={opt.id}>
+                            {opt.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
