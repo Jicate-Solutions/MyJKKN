@@ -268,6 +268,44 @@ export default async function LoopControlTowerPage() {
     return `${when} ${fmtTime(s.minute_of_day)}${s.enabled ? '' : ' · paused'}`;
   };
 
+  // ── IQAC meeting loop + institutional audit loop (accountability tier) ─────
+  // Meetings/resolutions tables arrive with migration 20260710060000 — until it
+  // applies, cnt() swallows the missing-relation error and the card shows '—'.
+  const iqacCommittees = await cnt(
+    admin
+      .from('accreditation_committees')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', true),
+  );
+  const iqacMeetingsMinuted = await cnt(
+    admin
+      .from('accreditation_committee_meetings')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'minuted'),
+  );
+  const iqacResolutionsOpen = await cnt(
+    admin
+      .from('accreditation_committee_resolutions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open'),
+  );
+  const iqacResolutionsEscalate = await cnt(
+    admin
+      .from('accreditation_committee_resolutions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open')
+      .gte('carried_count', 2),
+  );
+  const auditCyclesTotal = await cnt(
+    admin.from('audit_cycles').select('id', { count: 'exact', head: true }),
+  );
+  const auditCyclesClosed = await cnt(
+    admin
+      .from('audit_cycles')
+      .select('id', { count: 'exact', head: true })
+      .not('closed_at', 'is', null),
+  );
+
   // Compose a card's config line + last-run + configure-link from live tables,
   // falling back to the static string when the loop has no dispatcher routine
   // (direct-cron or on-demand loops: induction-session, feeder, decisions, arps).
@@ -599,6 +637,58 @@ export default async function LoopControlTowerPage() {
           ],
           noteTag: 'Why half a loop',
           note: 'Measures pace against targets and flags the gap — but a person owns the correction (the accountability meeting), so the feed-forward is human, not automatic.',
+        },
+        {
+          id: 'iqac-meeting',
+          name: 'IQAC Meeting Loop (Loop Review)',
+          subid: 'accreditation · committees',
+          plain:
+            'The committee passes resolutions with an owner and a deadline → the NEXT meeting opens by reviewing every open item: done, carried, or dropped → the minutes are the Action-Taken Report. Twice-carried items escalate to the Director.',
+          cfg: 'human cadence · convened on /accreditation/naac/committees · 7.3.e evidence via accreditation-loop-evidence 04:23 IST',
+          status:
+            (iqacCommittees ?? 0) === 0
+              ? 'Built · awaiting first committee'
+              : (iqacMeetingsMinuted ?? 0) > 0
+                ? 'Live · reviewing resolutions'
+                : 'Live · awaiting first minuted meeting',
+          tone: (iqacMeetingsMinuted ?? 0) > 0 ? 'live' : 'sched',
+          gates: ['on', 'on', 'on', 'half'],
+          metrics: [
+            { v: n(iqacCommittees), k: 'committees constituted', tone: (iqacCommittees ?? 0) > 0 ? 'good' : 'warn' },
+            { v: n(iqacMeetingsMinuted), k: 'meetings minuted', tone: 'mute' },
+            {
+              v: n(iqacResolutionsOpen),
+              k: (iqacResolutionsEscalate ?? 0) > 0
+                ? `open resolutions (${iqacResolutionsEscalate} escalate)`
+                : 'open resolutions',
+              tone: (iqacResolutionsEscalate ?? 0) > 0 ? 'warn' : 'mute',
+            },
+          ],
+          verifyHref: '/accreditation/naac/committees',
+          verifyLabel: 'Verify on the committees page →',
+          noteTag: 'Why half a loop',
+          note: 'Measure is closed — every resolution is checked against its own deadline at the next meeting — but the review and the correction are the committee itself. IQAC-as-loops Move 1 (Director decision 2026-07-10): the Cell runs the same discipline it monitors.',
+        },
+        {
+          id: 'institutional-audit',
+          name: 'Institutional Audit Loop (AAA)',
+          subid: 'audit · cycles',
+          plain:
+            'An audit cycle attests parameters and logs findings with SLA owners → the cycle closes → the next cycle re-measures: findings that recur were never really fixed. Closed cycles emit 7.3.d evidence with the prior cycle as baseline.',
+          cfg: 'cycle cadence · run on /audit · 7.3.d evidence via accreditation-loop-evidence 04:23 IST',
+          status:
+            (auditCyclesClosed ?? 0) > 0 ? 'Live · cycles closing' : 'Live · first cycle in progress',
+          tone: (auditCyclesClosed ?? 0) > 0 ? 'live' : 'sched',
+          gates: ['on', 'on', 'on', 'half'],
+          metrics: [
+            { v: n(auditCyclesTotal), k: 'audit cycles', tone: 'mute' },
+            { v: n(auditCyclesClosed), k: 'closed (evidence-bearing)', tone: (auditCyclesClosed ?? 0) > 0 ? 'good' : 'warn' },
+            { v: 'vs prior', k: 'findings delta at close', tone: 'mute' },
+          ],
+          verifyHref: '/audit',
+          verifyLabel: 'Verify on the audit dashboard →',
+          noteTag: 'Why half a loop',
+          note: 'The audit engine (cycles, attestations, findings-with-SLA) predates this wiring; what was missing was the loop: each close now measures against the prior cycle and lands in the evidence junction. Feed-forward is the auditor and the finding owners. IQAC-as-loops Move 2.',
         },
       ],
     },
