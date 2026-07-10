@@ -18,6 +18,7 @@
 -- both up with NO new cron.
 -- HARD DEPENDENCY: 20260710060000 (meetings/resolutions tables). Timestamp
 -- sorts after it; do NOT apply out of order.
+-- CI-trigger note 2026-07-10: r1 fixes validated in rolled-back prod txn.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_accreditation_rollup_loop_evidence()
