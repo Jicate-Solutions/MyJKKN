@@ -1218,6 +1218,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.committees.edit', label: 'Edit IQAC Committees' },
       { key: 'accreditation.naac.committees.delete', label: 'Deactivate IQAC Committees' },
       { key: 'accreditation.naac.committees.members.manage', label: 'Manage IQAC Committee Members' },
+      { key: 'accreditation.naac.committees.meetings.manage', label: 'Record IQAC Meetings & Resolutions' },
 
       // NAAC DCF 2025 / AQAR export (super-admin path)
       { key: 'accreditation.naac.dcf_export', label: 'Export NAAC DCF / AQAR Workbook' },
