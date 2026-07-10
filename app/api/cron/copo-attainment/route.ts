@@ -20,6 +20,11 @@
 //      course-grain rollup rows via fn_copo_record_course_attainment().
 //   3. fn_copo_emit_attainment_evidence() — rollups → quality_evidence_mappings
 //      (NAAC 7.3.d + NBA T1_CO, loop_key 'copo_attainment').
+//   4. fn_copo_track_below_target() — consecutive below-target streaks
+//      (copo_below_target_state) + in-app alerts to each institution's
+//      Principal(s) ONLY when the list changes (Director 2026-07-10:
+//      "Principal only"; "Steady alerts" = 2 consecutive weekly runs below
+//      target to enter; message only on enter/recover).
 //
 // PER-COLLEGE THRESHOLD (Director 2026-07-09: 'Let each college choose'):
 // the attainment threshold resolves per institution — an institution-scoped
@@ -47,6 +52,7 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
   isCoeDbConfigured,
   getAllCoeInstitutions,
@@ -73,6 +79,50 @@ interface CourseAgg {
 }
 
 const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+// One change entry from fn_copo_track_below_target's per-institution arrays.
+interface BelowTargetChange {
+  change: 'entered' | 'recovered';
+  course_code: string;
+  course_name: string | null;
+  program_code: string | null;
+  session_code: string;
+  attainment_pct: number | null;
+  attainment_level: number | null;
+  attainment_basis: string | null;
+  threshold_pct_used: number | null;
+  target_level: number;
+  consecutive_below_runs?: number;
+}
+
+interface TrackerResult {
+  skipped?: boolean;
+  reason?: string;
+  target_level?: number;
+  runs_required?: number;
+  evaluated?: number;
+  entered?: number;
+  recovered?: number;
+  changes?: Record<string, { entered?: BelowTargetChange[]; recovered?: BelowTargetChange[] }>;
+}
+
+const basisLabel = (basis: string | null): string =>
+  basis === 'internal_cia'
+    ? 'internal CIA (evolves as marks land)'
+    : basis === 'final_total'
+      ? 'declared results'
+      : 'n/a';
+
+const courseLine = (c: BelowTargetChange): string => {
+  const name = c.course_name ? ` — ${c.course_name}` : '';
+  const pct = c.attainment_pct != null ? `${c.attainment_pct}%` : 'n/a';
+  return `• ${c.course_code}${name}: ${pct} attainment (Level ${c.attainment_level ?? '?'} of target ${c.target_level}); learner-pass threshold ${c.threshold_pct_used ?? '?'}%, basis: ${basisLabel(c.attainment_basis)}`;
+};
+
+const capped = (lines: string[], cap = 15): string[] =>
+  lines.length <= cap
+    ? lines
+    : [...lines.slice(0, cap), `…and ${lines.length - cap} more`];
 
 /** Read one global platform_policies value (jsonb) via the service client. */
 async function readPolicy(
@@ -325,6 +375,153 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // 4. Below-target alert tracking + Principal notification (Director
+  //    2026-07-10: "Principal only"; "Steady alerts" — a course enters the
+  //    list after 2 consecutive weekly runs below target, and leadership is
+  //    messaged ONLY when the list CHANGES: entered or recovered. The fn is
+  //    idempotent within a run (keyed on session_code@computed_at) and only
+  //    considers rollups with a CONFIDENT institution stamp.
+  const { data: tracked, error: trackError } = await supabase.rpc(
+    'fn_copo_track_below_target',
+  );
+  if (trackError) {
+    return NextResponse.json(
+      { ok: false, step: 'track_below_target', error: trackError.message },
+      { status: 500 },
+    );
+  }
+  const tracker = (tracked ?? {}) as TrackerResult;
+  const changes = tracker.changes ?? {};
+  const changedInstitutionIds = Object.keys(changes).filter(
+    (id) =>
+      (changes[id].entered?.length ?? 0) > 0 ||
+      (changes[id].recovered?.length ?? 0) > 0,
+  );
+
+  let alertsSent = 0;
+  const institutionsNotified: string[] = [];
+  const alertSkips: Array<Record<string, unknown>> = [];
+
+  if (changedInstitutionIds.length > 0) {
+    // Recipient substrate, fetched once: Role-Management principals
+    // (user_roles JOIN custom_roles role_key='principal') — multi-role users
+    // exist — plus the legacy profiles.role='principal' fallback per
+    // institution below. This is a recipient LOOKUP by role, not an
+    // authorization gate.
+    const { data: principalRole } = await supabase
+      .from('custom_roles')
+      .select('id')
+      .eq('role_key', 'principal')
+      .eq('is_active', true)
+      .maybeSingle();
+    let roleUserIds: string[] = [];
+    if (principalRole?.id) {
+      const { data: ur } = await supabase
+        .from('user_roles')
+        .select('user_id')
+        .eq('role_id', principalRole.id);
+      roleUserIds = (ur ?? [])
+        .map((x) => x.user_id as string)
+        .filter(Boolean);
+    }
+
+    // notifications.created_by is NOT NULL — cron alerts use the first
+    // super-admin (same convention as lib/instagram/sync-accounts.ts).
+    const { data: superAdmins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('is_super_admin', true)
+      .limit(1);
+    const createdBy = superAdmins?.[0]?.id as string | undefined;
+
+    for (const institutionId of changedInstitutionIds) {
+      const entered = changes[institutionId].entered ?? [];
+      const recovered = changes[institutionId].recovered ?? [];
+
+      // Active Principals of THIS institution (deduped across both sources).
+      const recipients = new Set<string>();
+      if (roleUserIds.length > 0) {
+        const { data: viaRoles } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('institution_id', institutionId)
+          .eq('is_active', true)
+          .in('id', roleUserIds);
+        for (const p of viaRoles ?? []) recipients.add(p.id as string);
+      }
+      const { data: viaLegacy } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .eq('role', 'principal');
+      for (const p of viaLegacy ?? []) recipients.add(p.id as string);
+
+      if (recipients.size === 0) {
+        alertSkips.push({
+          institution_id: institutionId,
+          skipped: 'no_principal_found',
+          entered: entered.length,
+          recovered: recovered.length,
+        });
+        continue;
+      }
+
+      const bodyParts: string[] = [
+        'The below-target course list for your institution changed in this week’s CO/PO attainment check.',
+      ];
+      if (entered.length > 0) {
+        const runsRequired = tracker.runs_required ?? 2;
+        bodyParts.push(
+          `ENTERED — below target for ${runsRequired} consecutive weekly checks (${entered.length}):`,
+          ...capped(entered.map(courseLine)),
+        );
+      }
+      if (recovered.length > 0) {
+        bodyParts.push(
+          `RECOVERED — back at/above target (${recovered.length}):`,
+          ...capped(recovered.map(courseLine)),
+        );
+      }
+      bodyParts.push(
+        'Note: all figures are course-level proxies (no assessment→CO tagging yet), and internal CIA numbers evolve as marks land during the term — treat this as an early signal, not a verdict.',
+      );
+
+      try {
+        const result = await fanoutNotification(supabase, {
+          title: `CO/PO attainment: ${entered.length} course${entered.length === 1 ? '' : 's'} entered the below-target list, ${recovered.length} recovered`,
+          body: bodyParts.join('\n'),
+          userIds: [...recipients],
+          createdBy,
+          category: 'accreditation',
+          kind: 'work_item',
+          priority: entered.length > 0 ? 'high' : 'normal',
+          idempotencyKey: `copo_below_target:${institutionId}:${today}`,
+          source: 'copo-attainment-cron',
+          metadata: {
+            institution_id: institutionId,
+            entered: entered.map((c) => c.course_code),
+            recovered: recovered.map((c) => c.course_code),
+            target_level: tracker.target_level ?? null,
+          },
+        });
+        if (result.skipped) {
+          alertSkips.push({ institution_id: institutionId, skipped: result.skipped });
+        } else {
+          alertsSent += 1;
+          institutionsNotified.push(institutionId);
+        }
+      } catch (notifyErr) {
+        console.error('[copo-attainment] principal notify failed:', notifyErr);
+        alertSkips.push({
+          institution_id: institutionId,
+          skipped: 'notify_error',
+          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+        });
+      }
+    }
+  }
+
   // 'count' is on the dispatcher's summarize() allowlist — surface the total
   // evidence upserts as the run's headline number.
   const evidenceSummary = (evidence ?? {}) as Record<string, unknown>;
@@ -334,6 +531,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     sessions,
     rollups_upserted: rollupsUpserted,
     evidence: evidenceSummary,
+    below_target: {
+      tracker_skipped: tracker.skipped ?? false,
+      entered: tracker.entered ?? 0,
+      recovered: tracker.recovered ?? 0,
+      alerts_sent: alertsSent,
+      institutions_notified: institutionsNotified,
+      alert_skips: alertSkips,
+    },
+    alerts_sent: alertsSent,
+    institutions_notified: institutionsNotified.length,
+    entered: tracker.entered ?? 0,
+    recovered: tracker.recovered ?? 0,
     count: (evidenceSummary.count as number | undefined) ?? 0,
   });
 }
