@@ -233,10 +233,18 @@ export async function POST(req: NextRequest) {
           liftLine = `The outcome of that advice is not measured yet.`;
         } else if (outcomeN !== null && outcomeN >= 5) {
           // Strong-enough evidence: assert the direction (qualitative — no score).
-          liftLine = `After that advice, in the next class ${lift >= 0.5 ? 'understanding improved — it helped somewhat, build on it.' : 'understanding did NOT meaningfully improve — change the approach; do not repeat the same advice.'}`;
+          // Three-zone rule (Director 2026-07-10, decision 1): < 0 dropped ·
+          // 0–0.5 about the same · >= 0.5 helped. LOCKSTEP with the cron
+          // route's buildTrackRecordBlock and the verdict-integrity fns.
+          liftLine =
+            lift >= 0.5
+              ? `After that advice, in the next class understanding improved — it helped, build on it.`
+              : lift < 0
+                ? `After that advice, in the next class understanding DROPPED — change the approach; do not repeat the same advice.`
+                : `After that advice, understanding stayed about the same — no clear gain; propose a sharper, DIFFERENT adjustment.`;
         } else if (outcomeN !== null && outcomeN >= 3) {
           // Weak evidence: give direction but caveat it; do not let the model treat it as proof.
-          liftLine = `After that advice, understanding in the next class ${lift >= 0.5 ? 'appeared to improve' : 'did not clearly improve'} — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
+          liftLine = `After that advice, understanding in the next class ${lift >= 0.5 ? 'appeared to improve' : lift < 0 ? 'appeared to drop' : 'stayed about the same'} — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
         } else {
           // Below the floor (or unknown N): explicitly low-confidence.
           liftLine = `An outcome was recorded for that advice${outcomeN !== null ? ` but only ${outcomeN} learner${outcomeN === 1 ? '' : 's'} answered the next session` : ''}, so it is LOW-CONFIDENCE — do not treat it as evidence the advice worked or failed.`;
@@ -248,6 +256,41 @@ export async function POST(req: NextRequest) {
       }
     } catch (priorErr) {
       console.error('[academic/ai-suggest-improvement] prior fetch failed:', priorErr);
+    }
+
+    // 5c) Cross-peek (Director 2026-07-10, decision 8): the same class keeps
+    //     two loop notebooks — teacher lane (faculty_email set) and leadership
+    //     lane (faculty_email NULL). They stay separate (privacy design), but
+    //     new advice glances at the OTHER lane's latest note so the two never
+    //     contradict each other unknowingly. Read-only; best-effort.
+    try {
+      let peek = admin
+        .from('scf_ai_suggestions')
+        .select('suggestion, generated_at')
+        .eq('domain', 'session_feedback')
+        .eq('course_code', courseCode)
+        .order('generated_at', { ascending: false })
+        .limit(1);
+      peek = pFacultyEmail
+        ? peek.is('faculty_email', null)
+        : peek.not('faculty_email', 'is', null);
+      // Leadership-lane rows may carry a NULL institution (super-admin path),
+      // so match the resolved institution OR NULL rather than a hard eq().
+      if (loopInstitutionId)
+        peek = peek.or(`institution_id.eq.${loopInstitutionId},institution_id.is.null`);
+      const { data: peekData, error: peekErr } = await peek;
+      if (!peekErr && peekData?.length) {
+        const other = peekData[0] as { suggestion: unknown; generated_at: string };
+        const otherSummary =
+          other.suggestion && typeof other.suggestion === 'object'
+            ? String((other.suggestion as Record<string, unknown>).summary ?? '').slice(0, 300)
+            : String(other.suggestion ?? '').slice(0, 300);
+        if (otherSummary) {
+          trackRecordBlock += `\nFYI — the ${pFacultyEmail ? 'leadership' : 'teacher'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${otherSummary}\nDo not contradict that advice; complement it or build on it.`;
+        }
+      }
+    } catch (peekErr) {
+      console.error('[academic/ai-suggest-improvement] cross-peek fetch failed:', peekErr);
     }
 
     // 6) Build the prompt + call Claude.

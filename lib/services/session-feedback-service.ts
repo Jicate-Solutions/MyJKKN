@@ -434,7 +434,7 @@ export class SessionFeedbackService {
       const { data, error } = await supabase
         .from('scf_ai_suggestions')
         .select(
-          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_measured_at, human_verdict, human_verdict_at',
+          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_lift, outcome_measured_at, outcome_unmeasurable_at, human_verdict, human_verdict_at',
         )
         .eq('domain', 'session_feedback')
         .eq('faculty_email', email)

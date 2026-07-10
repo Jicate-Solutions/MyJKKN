@@ -378,7 +378,14 @@ export interface MyLoopNote {
   generated_at: string;
   input_avg_understood: number | null;
   outcome_avg_understood: number | null;
+  /** Measured change vs the RECOMPUTED window baseline (not input_avg_understood
+   *  — the two use different estimators). The card derives the displayed
+   *  "before" as outcome_avg_understood − outcome_lift so the story adds up. */
+  outcome_lift: number | null;
   outcome_measured_at: string | null;
+  /** Stamped when the note waited 30+ days with no qualifying next session
+   *  (course likely ended) — reads as "could not be measured", not "waiting". */
+  outcome_unmeasurable_at: string | null;
   human_verdict: 'tried_helped' | 'tried_no_change' | 'not_tried' | null;
   human_verdict_at: string | null;
 }
