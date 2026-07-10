@@ -469,8 +469,15 @@ export function FeedbackConfirmationTab({
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* Row key MUST be institution+staff: the coverage RPC returns one
+                    row per (teacher x college taught), so cross-college teachers
+                    repeat the same staff_id. Duplicate React keys corrupt list
+                    reconciliation — picking a college left ZOMBIE rows from the
+                    unfiltered render in the DOM (a Pharmacy facilitator visibly
+                    listed under the Dental filter) while the headline counted the
+                    correctly filtered array. */}
                 {coverageRows.map((r) => (
-                  <TableRow key={r.staff_id}>
+                  <TableRow key={`${r.institution_id}-${r.staff_id}`}>
                     <TableCell className="font-medium">
                       {r.facilitator_name ?? (
                         <span className="italic text-muted-foreground">
