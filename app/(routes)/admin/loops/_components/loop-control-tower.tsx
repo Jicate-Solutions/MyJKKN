@@ -180,7 +180,8 @@ export function LoopControlTower({
           {tier.loops.map((loop) => (
             <article
               key={loop.id}
-              className="relative overflow-hidden rounded-xl border border-border bg-card"
+              id={`loop-${loop.id}`}
+              className="relative scroll-mt-24 overflow-hidden rounded-xl border border-border bg-card"
             >
               <span
                 className={`absolute inset-y-0 left-0 w-1 ${STRIPE[loop.tone]}`}

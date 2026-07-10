@@ -57,3 +57,36 @@ export interface LoopTier {
   blurb: string;
   loops: LoopCard[];
 }
+
+// ── loop_registry / loop_edges / loop_audits (2026-07-10) ───────────────────
+// The data-driven backbone behind the Tower's per-loop chips and the Wiring
+// view. Distinct from `Gate`/`LoopCard` above (which describe the hand-curated
+// four-gate cards on this page) — these mirror the new prod tables 1:1.
+export type GateState = 'on' | 'off' | 'half';
+
+export interface LoopRegistryRow {
+  loop_key: string;
+  name: string;
+  stack_tier: number;
+  loop_class: 'self_improving' | 'cadence' | 'accountability' | 'intake' | 'infrastructure';
+  domain?: string | null;
+  description?: string | null;
+  gates: Record<'g' | 'a' | 'm' | 'f', GateState>;
+  routine_id?: string | null;
+  is_active?: boolean;
+}
+
+export interface LoopEdgeRow {
+  from_key: string;
+  to_key: string;
+  what_flows: 'measured_outcomes' | 'decisions' | 'fuel' | 'escalations';
+  note: string | null;
+  is_draft: boolean;
+}
+
+export interface LoopAuditRow {
+  loop_key: string;
+  audited_at: string;
+  layer: 'sim' | 'walk' | 'full';
+  verdict: string | null;
+}

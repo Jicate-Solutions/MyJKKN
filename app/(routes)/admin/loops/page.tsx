@@ -18,6 +18,7 @@
 export const dynamic = 'force-dynamic';
 export const navMeta = { label: 'Loop Control Tower', icon: 'Repeat' } as const;
 
+import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   createServiceRoleClient,
@@ -25,7 +26,15 @@ import {
 } from '@/lib/supabase/server';
 import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
-import type { LoopTier, LoopTone, LoopExample } from './_components/types';
+import { LoopWiring } from './_components/loop-wiring';
+import type {
+  LoopTier,
+  LoopTone,
+  LoopExample,
+  LoopRegistryRow,
+  LoopEdgeRow,
+  LoopAuditRow,
+} from './_components/types';
 
 async function cnt(query: unknown): Promise<number | null> {
   try {
@@ -137,7 +146,14 @@ async function loadScfEffectiveness(
   }
 }
 
-export default async function LoopControlTowerPage() {
+export default async function LoopControlTowerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view: viewParam } = await searchParams;
+  const view = viewParam === 'wiring' ? 'wiring' : 'tower';
+
   const { profile } = await getEnhancedUserProfile();
   // Canonical super-admin definition (matches hooks/use-permissions.ts and the
   // SuperAdminOnly guard): the boolean flag OR the role. MENU_PERMISSIONS maps
@@ -217,8 +233,11 @@ export default async function LoopControlTowerPage() {
       .eq('policy_key', 'mess.choose.loop.master_enabled')
       .eq('scope_type', 'global')
       .maybeSingle()
-      .then((r) => r.data?.value ?? null)
-      .catch(() => null),
+      // PromiseLike has no .catch — the rejection handler is .then's 2nd arg.
+      .then(
+        (r) => r.data?.value ?? null,
+        () => null
+      ),
   ]);
 
   const messOn = messPolicy === true;
@@ -715,6 +734,49 @@ export default async function LoopControlTowerPage() {
     },
   ];
 
+  // ── loop_registry / loop_edges / loop_audits (2026-07-10) ─────────────────
+  // Feeds the Tower's per-loop chips + the Wiring view. New prod tables — a
+  // missing/lagging migration must never break this page, so every leg falls
+  // back to an empty array (same swallow-to-empty philosophy as cnt() above).
+  const [registry, edges, audits] = await Promise.all([
+    admin
+      .from('loop_registry')
+      .select('loop_key,name,stack_tier,loop_class,gates,description')
+      .eq('is_active', true)
+      // PromiseLike has no .catch — rejection handler is .then's 2nd arg.
+      .then(
+        (r) => (r.data ?? []) as LoopRegistryRow[],
+        () => [] as LoopRegistryRow[]
+      ),
+    admin
+      .from('loop_edges')
+      .select('from_key,to_key,what_flows,note,is_draft')
+      .then(
+        (r) => (r.data ?? []) as LoopEdgeRow[],
+        () => [] as LoopEdgeRow[]
+      ),
+    admin
+      .from('loop_audits')
+      .select('loop_key,audited_at,layer,verdict')
+      .order('audited_at', { ascending: false })
+      // Shared newest-first window across ALL loops: one chatty loop could
+      // push a quiet loop's latest audit past the cap and its "tested" badge
+      // would silently vanish (review 2026-07-10, #5). 500 ≈ years of headroom
+      // at current audit volume; revisit with DISTINCT ON if audits get chatty.
+      .limit(500)
+      .then(
+        (r) => (r.data ?? []) as LoopAuditRow[],
+        () => [] as LoopAuditRow[]
+      ),
+  ]);
+
+  // Latest audit per loop — audits arrive newest-first, so the first row seen
+  // per loop_key wins.
+  const latestAuditByKey = new Map<string, LoopAuditRow>();
+  for (const a of audits) {
+    if (!latestAuditByKey.has(a.loop_key)) latestAuditByKey.set(a.loop_key, a);
+  }
+
   const asOf = new Date().toISOString().slice(0, 10);
 
   // ── Loop Tower stats (the loopcraft stack, live) ───────────────────────────
@@ -773,10 +835,34 @@ export default async function LoopControlTowerPage() {
     escalations7d,
   };
 
+  const pillCls = (active: boolean) =>
+    `rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+      active
+        ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+        : 'border-border text-muted-foreground hover:bg-muted/40'
+    }`;
+
   return (
     <ContentLayout title="Loop Control Tower — every loop in MyJKKN, and whether it’s working">
-      <div className="mb-6"><LoopTower stats={towerStats} /></div>
-      <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+      <div className="mb-4 flex gap-1.5">
+        <Link href="/admin/loops" className={pillCls(view === 'tower')}>
+          Tower
+        </Link>
+        <Link href="/admin/loops?view=wiring" className={pillCls(view === 'wiring')}>
+          Wiring
+        </Link>
+      </div>
+
+      {view === 'wiring' ? (
+        <LoopWiring registry={registry} edges={edges} audits={audits} />
+      ) : (
+        <>
+          <div className="mb-6">
+            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} />
+          </div>
+          <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+        </>
+      )}
     </ContentLayout>
   );
 }

@@ -70,6 +70,12 @@ import {
 // judge + suggestion generator).
 const FEATURE_KEY = 'scf.generate_suggestions';
 const BATCH_CAP = 25; // max courses to scan+submit per run; excess is logged
+// Director 2026-07-10 (decision 2): of the BATCH_CAP, up to this many slots are
+// reserved for courses whose prior improvement note is already MEASURED and is
+// awaiting its retry. Rotation orders never-suggested candidates first, so
+// without a reserve a course with a graded note sorts behind hundreds of
+// fresh candidates and the loop never closes on its own — the retry IS the loop.
+const RETRY_SLOTS = 5;
 const WINDOW_DAYS = 7; // look back 7 days for fresh windows (low OR standout)
 const MIN_RESPONSES = 3; // floor below which we skip AI (same as interactive route)
 const LOW_UNDERSTOOD_THRESHOLD = 3; // avg_understood < this → 'improvement' suggestion
@@ -201,14 +207,64 @@ function understandingBandWord(avg: number | null | undefined): string {
   return 'strong';
 }
 
+// Cross-peek (Director 2026-07-10, decision 8): the SAME class keeps two loop
+// notebooks — the teacher lane (faculty_email set) and the leadership lane
+// (faculty_email NULL). They stay separate (privacy design), but new advice
+// glances at the OTHER lane's latest note so the two notebooks never
+// contradict each other unknowingly. Read-only; best-effort.
+async function buildCrossPeekLine(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  courseCode: string,
+  facultyEmail: string | null,
+  institutionId: string | null,
+  logTag: string
+): Promise<string> {
+  try {
+    let peek = admin
+      .from('scf_ai_suggestions')
+      .select('suggestion, generated_at')
+      .eq('domain', 'session_feedback')
+      .eq('course_code', courseCode)
+      .order('generated_at', { ascending: false })
+      .limit(1);
+    peek = facultyEmail ? peek.is('faculty_email', null) : peek.not('faculty_email', 'is', null);
+    // STRICT same-tenant scope (skeptic review 2026-07-10): course_code is not
+    // globally unique, and NULL-institution (super course-level) rows are not
+    // tenant-attributable — this query runs on the service-role client, so an
+    // `is.null` disjunct would bypass the RLS that hides those rows and could
+    // inject ANOTHER institution's advice into this prompt (and shadow the
+    // own-tenant note, being newest). NULL-institution callers peek only NULL
+    // rows: conservative, no cross-tenant flow.
+    peek = institutionId
+      ? peek.eq('institution_id', institutionId)
+      : peek.is('institution_id', null);
+    const { data, error } = await peek;
+    if (error || !data?.length) return '';
+    const other = data[0] as { suggestion: unknown; generated_at: string };
+    const summary =
+      other.suggestion && typeof other.suggestion === 'object'
+        ? String((other.suggestion as Record<string, unknown>).summary ?? '').slice(0, 300)
+        : String(other.suggestion ?? '').slice(0, 300);
+    if (!summary) return '';
+    return `\nFYI — the ${facultyEmail ? 'leadership' : 'facilitator'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${summary}\nDo not contradict that advice; complement it or build on it.`;
+  } catch (err) {
+    console.error(`${logTag} cross-peek fetch failed:`, err);
+    return '';
+  }
+}
+
 // Replicates the self-improving track-record block from ai-suggest-improvement
 // so the autonomous suggestions also improve over time (same loop feed).
+// LOCKSTEP: the three-zone bands + sample-size tiers below must match the
+// interactive route (ai-suggest-improvement) and the verdict-integrity fns —
+// one definition of "helped" everywhere (Director 2026-07-10, decision 1).
 async function buildTrackRecordBlock(
   admin: ReturnType<typeof createServiceRoleClient>,
   courseCode: string,
   facultyEmail: string | null,
   institutionId: string | null
 ): Promise<string> {
+  let ownLane = '';
   try {
     const { data: priorData } = await admin.rpc('fn_scf_prior_suggestion', {
       p_course_code: courseCode,
@@ -216,27 +272,56 @@ async function buildTrackRecordBlock(
       p_institution_id: institutionId,
     });
     const prior = Array.isArray(priorData) ? priorData[0] : priorData;
-    if (!prior?.suggestion) return '';
-
-    const priorSummary =
-      prior.suggestion && typeof prior.suggestion === 'object'
-        ? String(prior.suggestion.summary ?? JSON.stringify(prior.suggestion)).slice(0, 600)
-        : String(prior.suggestion).slice(0, 600);
-    const lift =
-      prior.outcome_lift !== null && prior.outcome_lift !== undefined
-        ? Number(prior.outcome_lift)
-        : null;
-    const liftLine = prior.has_outcome
-      ? `After that advice, in the next class ${lift !== null && lift >= 0.5 ? 'understanding improved — it helped somewhat, build on it.' : 'understanding did NOT meaningfully improve — change the approach; do not repeat the same advice.'}`
-      : `The outcome of that advice is not measured yet.`;
-    const verdictLine = prior.human_verdict
-      ? ` The teacher marked it: ${String(prior.human_verdict)}.`
-      : '';
-    return `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
+    if (prior?.suggestion) {
+      const priorSummary =
+        prior.suggestion && typeof prior.suggestion === 'object'
+          ? String(prior.suggestion.summary ?? JSON.stringify(prior.suggestion)).slice(0, 600)
+          : String(prior.suggestion).slice(0, 600);
+      const lift =
+        prior.outcome_lift !== null && prior.outcome_lift !== undefined
+          ? Number(prior.outcome_lift)
+          : null;
+      const outcomeN =
+        prior.outcome_responses !== null && prior.outcome_responses !== undefined
+          ? Number(prior.outcome_responses)
+          : null;
+      // Three-zone rule (decision 1): lift < 0 dropped · 0–0.5 about the same
+      // · >= 0.5 helped. Sample-size tiers (decision 4): >=5 assert, 3-4 weak
+      // evidence, below-floor low-confidence.
+      let liftLine: string;
+      if (!prior.has_outcome || lift === null) {
+        liftLine = `The outcome of that advice is not measured yet.`;
+      } else {
+        const zone = lift < 0 ? 'dropped' : lift >= 0.5 ? 'improved' : 'flat';
+        if (outcomeN !== null && outcomeN >= 5) {
+          liftLine =
+            zone === 'improved'
+              ? `After that advice, in the next class understanding improved — it helped, build on it.`
+              : zone === 'dropped'
+                ? `After that advice, in the next class understanding DROPPED — change the approach; do not repeat the same advice.`
+                : `After that advice, understanding stayed about the same — no clear gain; propose a sharper, DIFFERENT adjustment.`;
+        } else if (outcomeN !== null && outcomeN >= 3) {
+          liftLine = `After that advice, understanding in the next class ${zone === 'improved' ? 'appeared to improve' : zone === 'dropped' ? 'appeared to drop' : 'stayed about the same'} — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
+        } else {
+          liftLine = `An outcome was recorded for that advice${outcomeN !== null ? ` but only ${outcomeN} learner${outcomeN === 1 ? '' : 's'} answered the next session` : ''}, so it is LOW-CONFIDENCE — do not treat it as evidence the advice worked or failed.`;
+        }
+      }
+      const verdictLine = prior.human_verdict
+        ? ` The facilitator marked it: ${String(prior.human_verdict)}.`
+        : '';
+      ownLane = `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
+    }
   } catch (err) {
     console.error('[cron/scf-generate-suggestions] prior fetch failed:', err);
-    return '';
   }
+  const crossPeek = await buildCrossPeekLine(
+    admin,
+    courseCode,
+    facultyEmail,
+    institutionId,
+    '[cron/scf-generate-suggestions]'
+  );
+  return `${ownLane}${crossPeek}`;
 }
 
 // WIDENED gate — build the judge request for ONE course. Count-only output.
@@ -412,6 +497,12 @@ async function regenGuardHit(
     .eq('kind', kind)
     .eq('domain', 'session_feedback')
     .gte('generated_at', recentSince)
+    // Director 2026-07-10 (decision 5): only an UNMEASURED recent note blocks —
+    // "wait for the result or 7 days, whichever comes first". Once the prior
+    // note has its outcome_lift, the retry may fire before the window lapses.
+    // Success notes are never lift-graded, so their flat 7-day cooldown is
+    // unchanged. (30-day unmeasurable stamps can't overlap this 7-day window.)
+    .is('outcome_lift', null)
     .limit(1);
   recentQuery = target.institution_id
     ? recentQuery.eq('institution_id', target.institution_id)
@@ -785,10 +876,36 @@ export async function GET(request: NextRequest) {
 
     let targets = uniqueTargets;
     if (uniqueTargets.length > BATCH_CAP) {
-      cappedCount = uniqueTargets.length - BATCH_CAP;
-      targets = uniqueTargets.slice(0, BATCH_CAP);
+      // Retry reserve (Director 2026-07-10, decision 2): pull courses whose
+      // prior improvement note is already MEASURED to the front (up to
+      // RETRY_SLOTS), then fill the rest of the cap with the fair rotation.
+      // The measured set is small (a handful of graded notes), so one query
+      // covers it; keys mirror the seen-set format above. Best-effort — on a
+      // query error the reserve is empty and the original rotation applies.
+      let retryKeys = new Set<string>();
+      try {
+        const { data: measuredPriors } = await admin
+          .from('scf_ai_suggestions')
+          .select('course_code, institution_id, faculty_email')
+          .eq('domain', 'session_feedback')
+          .eq('kind', 'improvement')
+          .not('outcome_lift', 'is', null);
+        retryKeys = new Set(
+          (measuredPriors ?? []).map(
+            (r) => `${r.institution_id}|${r.course_code}|${r.faculty_email}`
+          )
+        );
+      } catch (e) {
+        console.error('[cron/scf-generate-suggestions] retry-reserve query failed:', e);
+      }
+      const targetKey = (t: CourseTarget) =>
+        `${t.institution_id}|${t.course_code}|${t.faculty_email}`;
+      const retry = uniqueTargets.filter((t) => retryKeys.has(targetKey(t)));
+      const fresh = uniqueTargets.filter((t) => !retryKeys.has(targetKey(t)));
+      targets = [...retry.slice(0, RETRY_SLOTS), ...fresh].slice(0, BATCH_CAP);
+      cappedCount = uniqueTargets.length - targets.length;
       console.warn(
-        `[cron/scf-generate-suggestions] batch cap hit: ${uniqueTargets.length} candidates, processing ${BATCH_CAP}, skipping ${cappedCount}`
+        `[cron/scf-generate-suggestions] batch cap hit: ${uniqueTargets.length} candidates, processing ${targets.length} (${Math.min(retry.length, RETRY_SLOTS)} retry-reserved), skipping ${cappedCount}`
       );
     }
 
