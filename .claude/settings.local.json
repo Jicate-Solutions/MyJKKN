@@ -272,8 +272,12 @@
       "WebFetch(domain:docs.claude.com)",
       "mcp__ide__executeCode",
       "Bash(gh pr *)",
+<<<<<<< Updated upstream
       "WebFetch(domain:hdfcbank-collectnow-docs.razorpay.com)",
       "mcp__codegraph__codegraph_search"
+=======
+      "WebFetch(domain:hdfcbank-collectnow-docs.razorpay.com)"
+>>>>>>> Stashed changes
     ],
     "deny": [],
     "ask": []
