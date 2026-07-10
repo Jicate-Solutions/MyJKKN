@@ -10,19 +10,19 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { canManageTournament } from '@/lib/services/events/tournament/organizer-access';
 import { getPaymentProvider } from '@/lib/services/payments/factory';
 import type { Paise } from '@/lib/services/payments/amount';
 import type { UpdateEntryDto } from '@/types/tournament';
 
-async function requireManage(): Promise<{ ok: true; userId: string } | { ok: false; res: NextResponse }> {
+async function requireManage(eventId: string): Promise<{ ok: true; userId: string } | { ok: false; res: NextResponse }> {
   const auth = await createClient();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return { ok: false, res: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) };
-  const { data: canManage } = await auth.rpc('user_has_permission', {
-    permission_name: 'sports.tournaments.manage',
-  });
-  if (canManage !== true) {
-    return { ok: false, res: NextResponse.json({ error: 'Forbidden — sports.tournaments.manage required' }, { status: 403 }) };
+  // manage permission OR per-event in-charge (Tournament In-charge, 2026-07)
+  const canManage = await canManageTournament(auth, eventId);
+  if (!canManage) {
+    return { ok: false, res: NextResponse.json({ error: 'Forbidden — sports.tournaments.manage or tournament in-charge required' }, { status: 403 }) };
   }
   return { ok: true, userId: user.id };
 }
@@ -36,7 +36,7 @@ export async function PATCH(
 ) {
   try {
     const { eventId, entryId } = await params;
-    const gate = await requireManage();
+    const gate = await requireManage(eventId);
     if (!gate.ok) return gate.res;
 
     const body = (await request.json().catch(() => ({}))) as
@@ -109,7 +109,7 @@ export async function DELETE(
 ) {
   try {
     const { eventId, entryId } = await params;
-    const gate = await requireManage();
+    const gate = await requireManage(eventId);
     if (!gate.ok) return gate.res;
 
     const svc = createServiceRoleClient();

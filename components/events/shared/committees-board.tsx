@@ -24,12 +24,15 @@ import {
   useEventCommittees,
   useCreateEventCommittee,
   useDeleteEventCommittee,
+  useAddInternalMembers,
+  useRemoveInternalMember,
   useAddExternalMember,
   useRemoveExternalMember,
   useCreateEventTask,
   useUpdateEventTask,
   useDeleteEventTask,
 } from '@/hooks/events/shared/use-event-committees';
+import { MemberPickerDialog } from './member-picker-dialog';
 import type { MarathonCommittee, MarathonTask } from '@/types/events-marathon';
 
 function AddCommitteeDialog({
@@ -151,10 +154,13 @@ function TaskRow({
   task,
   eventId,
   canManage,
+  canEditTasks,
 }: {
   task: MarathonTask;
   eventId: string;
   canManage: boolean;
+  /** Committee members may tick tasks without managing the event. */
+  canEditTasks: boolean;
 }) {
   const update = useUpdateEventTask(eventId);
   const del = useDeleteEventTask(eventId);
@@ -163,7 +169,7 @@ function TaskRow({
     <div className="flex items-center gap-2 py-1 text-sm">
       <Checkbox
         checked={done}
-        disabled={!canManage || update.isPending}
+        disabled={!canEditTasks || update.isPending}
         onCheckedChange={(v) => update.mutate({ id: task.id, dto: { status: v ? 'completed' : 'pending' } })}
       />
       <span className={`min-w-0 flex-1 truncate ${done ? 'text-muted-foreground line-through' : ''}`}>
@@ -191,14 +197,19 @@ function CommitteeCard({
   committee,
   eventId,
   canManage,
+  canEditTasks,
+  onAddMember,
   onAddGuest,
 }: {
   committee: MarathonCommittee;
   eventId: string;
   canManage: boolean;
+  canEditTasks: boolean;
+  onAddMember: (c: MarathonCommittee) => void;
   onAddGuest: (c: MarathonCommittee) => void;
 }) {
   const del = useDeleteEventCommittee(eventId);
+  const removeMember = useRemoveInternalMember(eventId);
   const removeGuest = useRemoveExternalMember(eventId);
   const createTask = useCreateEventTask(eventId);
   const [taskTitle, setTaskTitle] = useState('');
@@ -244,8 +255,17 @@ function CommitteeCard({
         {/* Members */}
         <div className="flex flex-wrap gap-1">
           {(committee.member_names ?? []).map((m, i) => (
-            <Badge key={`m-${i}`} variant="secondary" className="text-[10px]">
+            <Badge key={`m-${i}`} variant="secondary" className="gap-1 text-[10px]">
               {m}
+              {canManage && (
+                <button
+                  className="ml-0.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => removeMember.mutate({ committee, index: i })}
+                  title="Remove member"
+                >
+                  ×
+                </button>
+              )}
             </Badge>
           ))}
           {externals.map((g, i) => (
@@ -264,14 +284,24 @@ function CommitteeCard({
             </Badge>
           ))}
           {canManage && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-5 gap-1 px-1.5 text-[10px]"
-              onClick={() => onAddGuest(committee)}
-            >
-              <UserPlus className="h-3 w-3" /> Guest
-            </Button>
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 gap-1 px-1.5 text-[10px]"
+                onClick={() => onAddMember(committee)}
+              >
+                <UserPlus className="h-3 w-3" /> Member
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 gap-1 px-1.5 text-[10px]"
+                onClick={() => onAddGuest(committee)}
+              >
+                <UserPlus className="h-3 w-3" /> Guest
+              </Button>
+            </>
           )}
         </div>
 
@@ -280,9 +310,17 @@ function CommitteeCard({
           {tasks.length === 0 ? (
             <p className="py-1 text-xs text-muted-foreground">No tasks yet.</p>
           ) : (
-            tasks.map((t) => <TaskRow key={t.id} task={t} eventId={eventId} canManage={canManage} />)
+            tasks.map((t) => (
+              <TaskRow
+                key={t.id}
+                task={t}
+                eventId={eventId}
+                canManage={canManage}
+                canEditTasks={canEditTasks}
+              />
+            ))
           )}
-          {canManage && (
+          {canEditTasks && (
             <div className="mt-2 flex gap-2">
               <Input
                 className="h-8 text-xs"
@@ -302,9 +340,21 @@ function CommitteeCard({
   );
 }
 
-export function CommitteesBoard({ eventId, canManage = true }: { eventId: string; canManage?: boolean }) {
+export function CommitteesBoard({
+  eventId,
+  canManage = true,
+  canEditTasks,
+}: {
+  eventId: string;
+  canManage?: boolean;
+  /** Defaults to canManage. Tournament committee members get true while canManage is false. */
+  canEditTasks?: boolean;
+}) {
+  const tasksEditable = canEditTasks ?? canManage;
   const { data: committees, isLoading } = useEventCommittees(eventId);
+  const addMembers = useAddInternalMembers(eventId);
   const [addOpen, setAddOpen] = useState(false);
+  const [memberFor, setMemberFor] = useState<MarathonCommittee | null>(null);
   const [guestFor, setGuestFor] = useState<MarathonCommittee | null>(null);
 
   return (
@@ -338,6 +388,8 @@ export function CommitteesBoard({ eventId, canManage = true }: { eventId: string
               committee={c}
               eventId={eventId}
               canManage={canManage}
+              canEditTasks={tasksEditable}
+              onAddMember={(cm) => setMemberFor(cm)}
               onAddGuest={(cm) => setGuestFor(cm)}
             />
           ))}
@@ -345,6 +397,20 @@ export function CommitteesBoard({ eventId, canManage = true }: { eventId: string
       )}
 
       <AddCommitteeDialog open={addOpen} onClose={() => setAddOpen(false)} eventId={eventId} />
+      <MemberPickerDialog
+        open={!!memberFor}
+        onClose={() => setMemberFor(null)}
+        committeeName={memberFor?.name}
+        existingNames={memberFor?.member_names ?? []}
+        isAdding={addMembers.isPending}
+        onAdd={(people) => {
+          if (!memberFor || people.length === 0) return;
+          addMembers.mutate(
+            { committee: memberFor, people },
+            { onSuccess: () => setMemberFor(null) }
+          );
+        }}
+      />
       <AddGuestDialog
         open={!!guestFor}
         onClose={() => setGuestFor(null)}
