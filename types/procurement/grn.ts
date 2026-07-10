@@ -10,7 +10,7 @@ export type GrnStatus =
   | 'completed'
   | 'cancelled';
 
-export type GrnMatchStatus = 'matched' | 'qty_mismatch' | 'short' | 'over';
+export type GrnMatchStatus = 'matched' | 'qty_mismatch' | 'price_mismatch' | 'short' | 'over';
 
 export interface ProcurementGrn {
   id: string;
@@ -58,6 +58,8 @@ export interface ProcurementGrnItem {
   expiry_date: string | null;
   manufacturing_date: string | null;
   cost_price: number;
+  /** Supplier's invoiced unit price for this line (for the price axis of the match). */
+  invoice_unit_price: number | null;
   is_chemical: boolean;
   created_at: string;
 }
@@ -144,6 +146,7 @@ export const GRN_STATUS_CONFIG: Record<GrnStatus, { label: string; color: string
 export const GRN_MATCH_CONFIG: Record<GrnMatchStatus, { label: string; color: string }> = {
   matched: { label: 'Matched', color: 'green' },
   qty_mismatch: { label: 'Qty Mismatch', color: 'amber' },
-  short: { label: 'Short Supply', color: 'red' },
+  price_mismatch: { label: 'Price Mismatch', color: 'amber' },
+  short: { label: 'Partial Delivery', color: 'blue' }, // expected, not an error
   over: { label: 'Over Supply', color: 'orange' },
 };

@@ -22,6 +22,10 @@ export interface MatchInput {
   invoiceQty?: number | null;
   /** Physically received qty at the dock. */
   receivedQty: number;
+  /** Awarded PO unit price (for the price axis). */
+  poUnitPrice?: number | null;
+  /** Supplier invoice unit price (for the price axis). */
+  invoiceUnitPrice?: number | null;
 }
 
 export interface MatchResult {
@@ -36,37 +40,63 @@ const EPS = 0.001;
 const eq = (a: number, b: number) => Math.abs(a - b) <= EPS;
 
 /**
- * Classify one GRN line. Precedence matters:
- *   short/over (goods vs PO) is reported FIRST because it drives replacement and PO
- *   closure; only when goods match the PO do we surface an invoice-vs-goods mismatch.
+ * Classify one GRN line against the three PRD axes (verify.md §9), which are INDEPENDENT:
+ *
+ *   1. Quantity mismatch  = supplier invoice qty ≠ physically received qty  (the PRIMARY,
+ *      always-evaluated mismatch — invoice says 20, you got 18).
+ *   2. Price mismatch     = supplier invoice unit price ≠ awarded PO unit price.
+ *   3. Fulfilment         = received vs PO outstanding → 'short' (partial delivery) / 'over'.
+ *
+ * A **partial delivery** (received < ordered but invoice == received) is NORMAL per the PRD —
+ * the PO simply stays "partially received" — so it is classified 'short' but is NOT a mismatch.
+ * Only over-supply, an invoice-vs-received disagreement, or a price disagreement raise the flag.
  */
-export function matchLine({ orderedRemaining, invoiceQty, receivedQty }: MatchInput): MatchResult {
+export function matchLine({
+  orderedRemaining,
+  invoiceQty,
+  receivedQty,
+  poUnitPrice,
+  invoiceUnitPrice,
+}: MatchInput): MatchResult {
   const received = Number(receivedQty) || 0;
   const remaining = Number(orderedRemaining) || 0;
   const invoice = invoiceQty == null ? null : Number(invoiceQty);
+  const poPrice = poUnitPrice == null ? null : Number(poUnitPrice);
+  const invPrice = invoiceUnitPrice == null ? null : Number(invoiceUnitPrice);
 
-  if (received < remaining - EPS) {
-    return {
-      match_status: 'short',
-      mismatch_flag: true,
-      reason: `Short supply: received ${received} of ${remaining} outstanding.`,
-    };
-  }
+  const qtyMismatch = invoice != null && !eq(invoice, received);
+  const over = received > remaining + EPS;
+  const partial = received < remaining - EPS;
+  const priceMismatch = poPrice != null && invPrice != null && invPrice > 0 && !eq(poPrice, invPrice);
 
-  if (received > remaining + EPS) {
+  // Precedence for the single badge (mismatch axes first, then fulfilment):
+  if (over) {
     return {
       match_status: 'over',
       mismatch_flag: true,
       reason: `Over supply: received ${received}, only ${remaining} outstanding.`,
     };
   }
-
-  // Goods match the PO. Now check the invoice against the physical count.
-  if (invoice != null && !eq(invoice, received)) {
+  if (qtyMismatch) {
     return {
       match_status: 'qty_mismatch',
       mismatch_flag: true,
       reason: `Invoice billed ${invoice} but ${received} physically received.`,
+    };
+  }
+  if (priceMismatch) {
+    return {
+      match_status: 'price_mismatch',
+      mismatch_flag: true,
+      reason: `Invoice unit price ${invPrice} differs from PO price ${poPrice}.`,
+    };
+  }
+  if (partial) {
+    // Expected partial delivery — NOT a mismatch; the PO stays partially received.
+    return {
+      match_status: 'short',
+      mismatch_flag: false,
+      reason: `Partial delivery: received ${received} of ${remaining} outstanding.`,
     };
   }
 

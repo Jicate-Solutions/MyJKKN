@@ -310,6 +310,7 @@ export default function RfqQuotationsPage() {
                         {q.vendor_quote_number ? `Ref ${q.vendor_quote_number} · ` : ''}
                         Total ₹{Number(q.total_amount ?? 0).toLocaleString()}
                         {q.delivery_time_days ? ` · ${q.delivery_time_days}d delivery` : ''}
+                        {q.payment_terms ? ` · ${q.payment_terms}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -386,6 +387,11 @@ export default function RfqQuotationsPage() {
                             >
                               <span className="font-medium">{qt.supplier_name}</span>
                               <span>₹{Number(qt.unit_price).toLocaleString()}</span>
+                              {qt.delivery_time_days != null && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  {qt.delivery_time_days}d
+                                </span>
+                              )}
                               {isLowest && !qt.awarded && (
                                 <Badge variant="secondary" className="text-[10px]">
                                   Lowest

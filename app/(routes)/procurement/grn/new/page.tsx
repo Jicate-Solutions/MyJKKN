@@ -25,7 +25,17 @@ interface LineDraft extends GrnLineInput {
   item_name: string;
   ordered_remaining: number;
   unit_label: string | null;
+  po_unit_price: number | null;
 }
+
+// Match-badge accent by GRN_MATCH_CONFIG.color.
+const MATCH_COLOR: Record<string, string> = {
+  green: 'border-green-500 text-green-700',
+  amber: 'border-amber-500 text-amber-700',
+  blue: 'border-blue-400 text-blue-700',
+  orange: 'border-orange-500 text-orange-700',
+  red: 'border-red-500 text-red-700',
+};
 
 export default function NewGrnPage() {
   const router = useRouter();
@@ -56,6 +66,7 @@ export default function NewGrnPage() {
         item_name: it.item_name,
         ordered_remaining: remaining,
         unit_label: it.unit_label,
+        po_unit_price: Number(it.unit_price) || null,
         invoice_quantity: remaining,
         received_quantity: remaining,
         accepted_quantity: remaining,
@@ -65,6 +76,7 @@ export default function NewGrnPage() {
         batch_number: null,
         expiry_date: null,
         manufacturing_date: null,
+        cost: null,
       };
     });
   }, [po, lines]);
@@ -301,6 +313,8 @@ export default function NewGrnPage() {
                 orderedRemaining: l.ordered_remaining,
                 invoiceQty: l.invoice_quantity,
                 receivedQty: Number(l.received_quantity),
+                poUnitPrice: l.po_unit_price,
+                invoiceUnitPrice: l.cost != null && Number(l.cost) > 0 ? Number(l.cost) : null,
               });
               const cfg = GRN_MATCH_CONFIG[match.match_status];
               const overSplit =
@@ -315,7 +329,7 @@ export default function NewGrnPage() {
                         Outstanding on PO: {l.ordered_remaining} {l.unit_label || ''}
                       </p>
                     </div>
-                    <Badge variant="outline">{cfg.label}</Badge>
+                    <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>{cfg.label}</Badge>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-4">

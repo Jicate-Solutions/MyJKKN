@@ -12,23 +12,59 @@ describe('matchLine', () => {
     expect(r.reason).toBeNull();
   });
 
-  it('treats received < ordered as short supply (goods-vs-PO wins over invoice)', () => {
-    // Even though invoice == received, the goods fall short of the PO.
-    const r = matchLine({ orderedRemaining: 10, invoiceQty: 7, receivedQty: 7 });
+  it('treats a partial delivery (invoice == received < ordered) as NON-mismatch "short"', () => {
+    // PRD §9: PO 15, invoice 10, received 10 → GRN verifies, PO stays partially received.
+    const r = matchLine({ orderedRemaining: 15, invoiceQty: 10, receivedQty: 10 });
     expect(r.match_status).toBe('short');
+    expect(r.mismatch_flag).toBe(false); // partial delivery is expected, not an error
+  });
+
+  it('detects a qty mismatch EVEN on a partial delivery (was masked before)', () => {
+    // PO 15, invoice 12, received 10 — the invoice disagrees with the physical count.
+    const r = matchLine({ orderedRemaining: 15, invoiceQty: 12, receivedQty: 10 });
+    expect(r.match_status).toBe('qty_mismatch');
     expect(r.mismatch_flag).toBe(true);
   });
 
-  it('treats received > ordered as over supply', () => {
+  it('treats received > ordered as over supply (flagged)', () => {
     const r = matchLine({ orderedRemaining: 10, invoiceQty: 12, receivedQty: 12 });
     expect(r.match_status).toBe('over');
     expect(r.mismatch_flag).toBe(true);
   });
 
-  it('reports qty_mismatch only when goods match the PO but the invoice disagrees', () => {
+  it('reports qty_mismatch when the invoice disagrees with received on a full delivery', () => {
     const r = matchLine({ orderedRemaining: 10, invoiceQty: 8, receivedQty: 10 });
     expect(r.match_status).toBe('qty_mismatch');
     expect(r.mismatch_flag).toBe(true);
+  });
+
+  it('reports price_mismatch when qty agrees but invoice price ≠ PO price', () => {
+    const r = matchLine({
+      orderedRemaining: 10,
+      invoiceQty: 10,
+      receivedQty: 10,
+      poUnitPrice: 100,
+      invoiceUnitPrice: 120,
+    });
+    expect(r.match_status).toBe('price_mismatch');
+    expect(r.mismatch_flag).toBe(true);
+  });
+
+  it('matches when qty AND price agree', () => {
+    const r = matchLine({
+      orderedRemaining: 10,
+      invoiceQty: 10,
+      receivedQty: 10,
+      poUnitPrice: 100,
+      invoiceUnitPrice: 100,
+    });
+    expect(r.match_status).toBe('matched');
+    expect(r.mismatch_flag).toBe(false);
+  });
+
+  it('ignores the price axis when either price is missing', () => {
+    const r = matchLine({ orderedRemaining: 10, invoiceQty: 10, receivedQty: 10, poUnitPrice: 100 });
+    expect(r.match_status).toBe('matched');
   });
 
   it('matches when no invoice is captured and goods equal the PO', () => {
@@ -43,7 +79,6 @@ describe('matchLine', () => {
   });
 
   it('coerces string/undefined inputs to numbers safely', () => {
-    // Service passes NUMERIC columns that PostgREST returns as strings.
     const r = matchLine({ orderedRemaining: 5, invoiceQty: undefined, receivedQty: 5 });
     expect(r.match_status).toBe('matched');
   });

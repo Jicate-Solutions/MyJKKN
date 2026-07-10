@@ -37,6 +37,25 @@ function mapItem(row: any): CatalogItem {
   };
 }
 
+/**
+ * Attach on-hand stock (summed across stores) to catalog items so the PR picker can show
+ * "in stock: X" and the request captures a current_stock snapshot — drives the PRD's
+ * "when stock reaches minimum level, raise a PR" restock decision.
+ */
+async function attachCurrentStock(items: CatalogItem[]): Promise<void> {
+  if (!items.length) return;
+  const ids = items.map((i) => i.domainItemId);
+  const { data } = await db()
+    .from('ims_stock_summary')
+    .select('item_id, current_quantity')
+    .in('item_id', ids);
+  const byId = new Map<string, number>();
+  for (const r of (data ?? []) as any[]) {
+    byId.set(r.item_id, (byId.get(r.item_id) ?? 0) + Number(r.current_quantity ?? 0));
+  }
+  for (const it of items) it.currentStock = byId.get(it.domainItemId) ?? 0;
+}
+
 export const imsAdapter: ProcurementDomainAdapter = {
   domain: 'ims',
 
@@ -51,7 +70,9 @@ export const imsAdapter: ProcurementDomainAdapter = {
     }
     const { data, error } = await q;
     if (error) throw error;
-    return (data ?? []).map(mapItem);
+    const items = (data ?? []).map(mapItem);
+    await attachCurrentStock(items);
+    return items;
   },
 
   async getItem(domainItemId: string): Promise<CatalogItem | null> {
@@ -61,7 +82,10 @@ export const imsAdapter: ProcurementDomainAdapter = {
       .eq('id', domainItemId)
       .maybeSingle();
     if (error) throw error;
-    return data ? mapItem(data) : null;
+    if (!data) return null;
+    const item = mapItem(data);
+    await attachCurrentStock([item]);
+    return item;
   },
 
   async postReceipt(line: AcceptedReceiptLine, ctx: DomainCtx): Promise<void> {

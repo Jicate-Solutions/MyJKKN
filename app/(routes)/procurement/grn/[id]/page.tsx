@@ -11,8 +11,19 @@ import {
   useCancelGrn,
   useReplacements,
   useReceiveReplacement,
+  useUpdateGrnItem,
 } from '@/hooks/procurement/use-grns';
+import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
+
+// Match-badge accent by GRN_MATCH_CONFIG.color.
+const MATCH_COLOR: Record<string, string> = {
+  green: 'border-green-500 text-green-700',
+  amber: 'border-amber-500 text-amber-700',
+  blue: 'border-blue-400 text-blue-700',
+  orange: 'border-orange-500 text-orange-700',
+  red: 'border-red-500 text-red-700',
+};
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,6 +61,20 @@ export default function GrnDetailPage() {
   const verifyGrn = useVerifyGrn();
   const cancelGrn = useCancelGrn();
   const receiveReplacement = useReceiveReplacement(id);
+  const updateItem = useUpdateGrnItem(id);
+
+  // Inline batch/expiry edits (pending GRNs only) — lets the admin satisfy the chemical
+  // gate at verify time. Keyed by grn_item id; falls back to the stored value.
+  const [edits, setEdits] = useState<Record<string, { batch_number?: string; expiry_date?: string }>>({});
+  const effBatch = (it: { id: string; batch_number: string | null }) =>
+    edits[it.id]?.batch_number ?? it.batch_number ?? '';
+  const effExpiry = (it: { id: string; expiry_date: string | null }) =>
+    edits[it.id]?.expiry_date ?? it.expiry_date ?? '';
+  const saveField = (grnItemId: string, field: 'batch_number' | 'expiry_date', raw: string, current: string | null) => {
+    const value = raw.trim() ? raw.trim() : null;
+    if ((current ?? null) === value) return;
+    updateItem.mutate({ grnItemId, patch: { [field]: value } });
+  };
 
   // Receive-replacement dialog state.
   const [repTarget, setRepTarget] = useState<ProcurementGrnReplacement | null>(null);
@@ -94,6 +119,18 @@ export default function GrnDetailPage() {
 
   const pending = grn.status === 'pending_verification';
   const hasMismatch = grn.items.some((i) => i.mismatch_flag);
+
+  // Chemical lines still missing batch/expiry (using the effective, possibly-edited values)
+  // block verification — mirrors the server gate so the button is disabled, not just erroring.
+  const chemicalBlocks = grn.items.flatMap((it) =>
+    validateLineForVerify({
+      item_name: it.item_name,
+      is_chemical: it.is_chemical,
+      accepted_quantity: Number(it.accepted_quantity),
+      batch_number: effBatch(it) || null,
+      expiry_date: effExpiry(it) || null,
+    })
+  );
 
   return (
     <ContentLayout title={grn.grn_number}>
@@ -143,32 +180,43 @@ export default function GrnDetailPage() {
 
         {/* Actions */}
         {pending && (
-          <div className="flex flex-wrap items-center gap-3">
-            {canVerify && (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              {canVerify && (
+                <Button
+                  onClick={() =>
+                    run(
+                      () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
+                      'GRN verified — accepted stock posted to inventory.'
+                    )
+                  }
+                  disabled={verifyGrn.isPending || chemicalBlocks.length > 0}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Verify & post to inventory
+                </Button>
+              )}
               <Button
-                onClick={() =>
-                  run(
-                    () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
-                    'GRN verified — accepted stock posted to inventory.'
-                  )
-                }
-                disabled={verifyGrn.isPending}
+                variant="ghost"
+                onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled')}
               >
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Verify & post to inventory
+                Cancel GRN
               </Button>
-            )}
-            <Button
-              variant="ghost"
-              onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled')}
-            >
-              Cancel GRN
-            </Button>
-            {hasMismatch && (
-              <span className="flex items-center gap-1.5 text-sm text-amber-600">
-                <AlertTriangle className="h-4 w-4" />
-                One or more lines have a quantity mismatch — review before verifying.
-              </span>
+              {hasMismatch && (
+                <span className="flex items-center gap-1.5 text-sm text-amber-600">
+                  <AlertTriangle className="h-4 w-4" />
+                  A line has a quantity or price mismatch — review before verifying.
+                </span>
+              )}
+            </div>
+            {chemicalBlocks.length > 0 && (
+              <div className="flex items-start gap-1.5 text-sm text-red-600">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Verify is blocked until chemical items have a batch number and expiry date.
+                  Enter them in the Batch column below.
+                </span>
+              </div>
             )}
           </div>
         )}
@@ -188,7 +236,8 @@ export default function GrnDetailPage() {
                   <TableHead className="text-right">Received</TableHead>
                   <TableHead className="text-right">Accepted</TableHead>
                   <TableHead className="text-right">Rejected</TableHead>
-                  <TableHead>Batch</TableHead>
+                  <TableHead className="text-right">Invoice ₹</TableHead>
+                  <TableHead>Batch / Expiry</TableHead>
                   <TableHead>Match</TableHead>
                 </TableRow>
               </TableHeader>
@@ -215,16 +264,46 @@ export default function GrnDetailPage() {
                       <TableCell className="text-right">{Number(it.received_quantity)}</TableCell>
                       <TableCell className="text-right">{Number(it.accepted_quantity)}</TableCell>
                       <TableCell className="text-right">{Number(it.rejected_quantity)}</TableCell>
+                      <TableCell className="text-right text-xs">
+                        {it.invoice_unit_price != null ? `₹${Number(it.invoice_unit_price).toLocaleString()}` : '—'}
+                      </TableCell>
                       <TableCell className="text-xs">
-                        {it.batch_number || '—'}
-                        {it.expiry_date && (
-                          <span className="block text-muted-foreground">
-                            exp {new Date(it.expiry_date).toLocaleDateString()}
-                          </span>
+                        {pending ? (
+                          <div className="space-y-1 min-w-[150px]">
+                            <Input
+                              className="h-7 text-xs"
+                              placeholder="Batch no."
+                              value={effBatch(it)}
+                              onChange={(e) =>
+                                setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], batch_number: e.target.value } }))
+                              }
+                              onBlur={(e) => saveField(it.id, 'batch_number', e.target.value, it.batch_number)}
+                            />
+                            <Input
+                              type="date"
+                              className="h-7 text-xs"
+                              value={effExpiry(it)}
+                              onChange={(e) => {
+                                setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], expiry_date: e.target.value } }));
+                                saveField(it.id, 'expiry_date', e.target.value, it.expiry_date);
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            {it.batch_number || '—'}
+                            {it.expiry_date && (
+                              <span className="block text-muted-foreground">
+                                exp {new Date(it.expiry_date).toLocaleDateString()}
+                              </span>
+                            )}
+                          </>
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{cfg.label}</Badge>
+                        <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>
+                          {cfg.label}
+                        </Badge>
                         {it.mismatch_remarks && (
                           <span className="block text-[11px] text-muted-foreground max-w-[180px]">
                             {it.mismatch_remarks}

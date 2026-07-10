@@ -84,3 +84,19 @@ export function useCancelGrn() {
     },
   });
 }
+
+export function useUpdateGrnItem(grnId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      grnItemId,
+      patch,
+    }: {
+      grnItemId: string;
+      patch: { batch_number?: string | null; expiry_date?: string | null; manufacturing_date?: string | null };
+    }) => ProcurementGrnService.updateGrnItem(grnItemId, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-grn', grnId] });
+    },
+  });
+}

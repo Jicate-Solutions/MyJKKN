@@ -175,10 +175,13 @@ export class ProcurementGrnService {
           );
         }
 
+        const invoiceUnitPrice = line.cost != null && Number(line.cost) > 0 ? Number(line.cost) : null;
         const match = matchLine({
           orderedRemaining,
           invoiceQty: line.invoice_quantity,
           receivedQty: received,
+          poUnitPrice: Number(poItem.unit_price ?? 0) || null,
+          invoiceUnitPrice,
         });
 
         grnItemRows.push({
@@ -199,6 +202,7 @@ export class ProcurementGrnService {
           expiry_date: line.expiry_date ?? null,
           manufacturing_date: line.manufacturing_date ?? null,
           cost_price: costPrice,
+          invoice_unit_price: invoiceUnitPrice,
           is_chemical: isChemical,
         });
       }
@@ -352,6 +356,26 @@ export class ProcurementGrnService {
       console.error('[ProcurementGrnService] verifyGrn:', error);
       throw error;
     }
+  }
+
+  /**
+   * Edit a GRN line's batch/expiry/mfg before verification — lets a store admin supply the
+   * chemical-mandatory batch + expiry at verify time (PRD verify.md §9) without recreating the GRN.
+   */
+  static async updateGrnItem(
+    grnItemId: string,
+    patch: { batch_number?: string | null; expiry_date?: string | null; manufacturing_date?: string | null }
+  ): Promise<void> {
+    const upd: Record<string, unknown> = {};
+    if (patch.batch_number !== undefined) upd.batch_number = patch.batch_number;
+    if (patch.expiry_date !== undefined) upd.expiry_date = patch.expiry_date;
+    if (patch.manufacturing_date !== undefined) upd.manufacturing_date = patch.manufacturing_date;
+    if (Object.keys(upd).length === 0) return;
+    const { error } = await this.supabase
+      .from('procurement_grn_items')
+      .update(upd)
+      .eq('id', grnItemId);
+    if (error) throw error;
   }
 
   /** Pending + fulfilled replacements raised from a GRN's rejected lines. */
@@ -563,7 +587,12 @@ export class ProcurementGrnService {
     return data as ProcurementGrn;
   }
 
-  /** Set PO to 'completed' when all lines received >= ordered, else 'partially_received'. */
+  /**
+   * Set PO status from its receipt state (PRD verify.md §10). A PO 'completed' ONLY when
+   * every line is fully received AND every GRN for it is verified AND no replacement is
+   * still pending. Otherwise 'partially_received'. This keeps the PO open while goods are
+   * still owed via a replacement or an unverified delivery.
+   */
   private static async refreshPoReceiptStatus(poId: string): Promise<void> {
     const { data: items } = await this.supabase
       .from('procurement_purchase_order_items')
@@ -575,7 +604,42 @@ export class ProcurementGrnService {
       (i: any) => Number(i.received_quantity ?? 0) >= Number(i.ordered_quantity) - 0.001
     );
     const anyReceived = items.some((i: any) => Number(i.received_quantity ?? 0) > 0);
-    const status = fullyReceived ? 'completed' : anyReceived ? 'partially_received' : undefined;
+
+    // A PO can only close when there's nothing left owed: no unverified GRN, no pending replacement.
+    let canComplete = fullyReceived;
+    if (canComplete) {
+      const { count: pendingGrns } = await this.supabase
+        .from('procurement_grn')
+        .select('id', { count: 'exact', head: true })
+        .eq('purchase_order_id', poId)
+        .eq('status', 'pending_verification');
+      if ((pendingGrns ?? 0) > 0) canComplete = false;
+    }
+    if (canComplete) {
+      // Pending replacements are reached via grn_items -> grn for this PO.
+      const { data: grnIds } = await this.supabase
+        .from('procurement_grn')
+        .select('id')
+        .eq('purchase_order_id', poId);
+      const ids = (grnIds || []).map((g: any) => g.id);
+      if (ids.length) {
+        const { data: itemIds } = await this.supabase
+          .from('procurement_grn_items')
+          .select('id')
+          .in('grn_id', ids);
+        const gItemIds = (itemIds || []).map((r: any) => r.id);
+        if (gItemIds.length) {
+          const { count: pendingRepl } = await this.supabase
+            .from('procurement_grn_replacements')
+            .select('id', { count: 'exact', head: true })
+            .in('grn_item_id', gItemIds)
+            .eq('status', 'pending');
+          if ((pendingRepl ?? 0) > 0) canComplete = false;
+        }
+      }
+    }
+
+    const status = canComplete ? 'completed' : anyReceived ? 'partially_received' : undefined;
     if (!status) return;
 
     await this.supabase
