@@ -541,14 +541,26 @@ export function FeedbackConfirmationTab({
         to={to}
         institutionId={selectedInstitutionId}
       />
-      <FacilitatorStrengthsCard from={from} to={to} />
+      <FacilitatorStrengthsCard
+        from={from}
+        to={to}
+        institutionId={selectedInstitutionId}
+      />
       {/* Learner-level panels: a narrower permission than the college-level ones
           (HoDs are deliberately excluded). Hidden rather than rendered as an
           error, so a HoD sees a complete page, not two permission warnings. */}
       {canSeeLearnerDetail ? (
         <>
-          <LearnerTrajectoryCard from={from} to={to} />
-          <StrugglingNotesSentCard from={from} to={to} />
+          <LearnerTrajectoryCard
+            from={from}
+            to={to}
+            institutionId={selectedInstitutionId}
+          />
+          <StrugglingNotesSentCard
+            from={from}
+            to={to}
+            institutionId={selectedInstitutionId}
+          />
         </>
       ) : null}
 

@@ -74,6 +74,7 @@ import {
 } from '@/hooks/accreditation/use-naac-committees';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CommitteeMemberRole } from '@/lib/services/accreditation/accreditation-committee-service';
+import { MeetingsSection } from './_components/meetings-section';
 import { toast } from 'sonner';
 
 const ROLE_LABELS: Record<CommitteeMemberRole, string> = {
@@ -162,6 +163,8 @@ export default function NAACCommitteeDetailPage({
   const canView = isSuperAdmin || can('accreditation.naac.committees.view');
   const canManageMembers =
     isSuperAdmin || can('accreditation.naac.committees.members.manage');
+  const canManageMeetings =
+    isSuperAdmin || can('accreditation.naac.committees.meetings.manage');
   const canEdit = isSuperAdmin || can('accreditation.naac.committees.edit');
   const canDelete = isSuperAdmin || can('accreditation.naac.committees.delete');
 
@@ -377,6 +380,9 @@ export default function NAACCommitteeDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {/* Meetings — Loop Review (IQAC Meeting Loop, PR 2/3) */}
+        <MeetingsSection committee={committee} canManage={canManageMeetings} />
       </div>
     </ContentLayout>
   );

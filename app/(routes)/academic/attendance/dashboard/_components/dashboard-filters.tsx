@@ -45,6 +45,12 @@ interface DashboardFiltersProps {
   onFiltersChange: (filters: DashboardFilterState) => void;
   onRefresh: () => void;
   isLoading?: boolean;
+  /** Bar heading — override when the bar is reused outside the attendance
+   *  dashboard (e.g. "Feedback Filters" on the all-college feedback page). */
+  title?: string;
+  /** Hide the academic-year select for consumers whose data isn't keyed by
+   *  academic year (the SCF feedback RPCs take only a date window + college). */
+  showAcademicYear?: boolean;
 }
 
 export interface DashboardFilterState {
@@ -60,7 +66,9 @@ export function DashboardFilters({
   userInstitutionId,
   onFiltersChange,
   onRefresh,
-  isLoading = false
+  isLoading = false,
+  title = 'Attendance Filters',
+  showAcademicYear = true
 }: DashboardFiltersProps) {
   // Filter state
   const [filters, setFilters] = useState<DashboardFilterState>({
@@ -79,6 +87,10 @@ export function DashboardFilters({
   // Fetch academic years when institutions change
   useEffect(() => {
     const fetchAcademicYears = async () => {
+      if (!showAcademicYear) {
+        setAcademicYears([]);
+        return;
+      }
       setLoadingAcademicYears(true);
       try {
         let query = supabase
@@ -122,7 +134,8 @@ export function DashboardFilters({
     canViewAllInstitutions,
     userInstitutionId,
     institutions,
-    supabase
+    supabase,
+    showAcademicYear
   ]);
 
   // Update parent when filters change
@@ -186,7 +199,7 @@ export function DashboardFilters({
         <div className='flex items-center justify-between'>
           <CardTitle className='flex items-center gap-2 text-lg'>
             <Filter className='h-5 w-5 text-blue-600 dark:text-blue-400' />
-            Attendance Filters
+            {title}
           </CardTitle>
           <div className='flex items-center gap-2'>
             <Button
@@ -323,7 +336,8 @@ export function DashboardFilters({
           )}
 
           {/* Academic Year Filter - Only show when institution is selected */}
-          {(filters.institutionId ||
+          {showAcademicYear &&
+            (filters.institutionId ||
             (!canViewAllInstitutions && userInstitutionId)) && (
             <div className='space-y-2'>
               <Label className='flex items-center gap-1'>
