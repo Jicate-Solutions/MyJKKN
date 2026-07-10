@@ -12,6 +12,8 @@ export const routeLookupKeys = {
   routes: ['tms', 'route-lookup', 'active-routes'] as const,
   stops: (routeId: string | null | undefined) =>
     ['tms', 'route-lookup', 'route-stops', routeId ?? null] as const,
+  routeById: (routeId: string | null | undefined) =>
+    ['tms', 'route-lookup', 'route-by-id', routeId ?? null] as const,
 };
 
 /** Active routes for the route dropdown. */
@@ -34,4 +36,21 @@ export function useRouteStops(routeId: string | null | undefined) {
     staleTime: 5 * 60 * 1000,
   });
   return { stops: query.data ?? [], loading: query.isLoading };
+}
+
+/**
+ * Resolve a single stored route id to its display name regardless of active
+ * status. Use this for read-only display of a value already saved on a
+ * learner (profile/enquiry views) — useActiveRoutes() is for populating the
+ * selectable dropdown and will silently omit a route that was deactivated
+ * after the learner picked it.
+ */
+export function useRouteById(routeId: string | null | undefined) {
+  const query = useQuery({
+    queryKey: routeLookupKeys.routeById(routeId),
+    queryFn: () => RouteLookupService.getRouteById(routeId as string),
+    enabled: !!routeId,
+    staleTime: 5 * 60 * 1000,
+  });
+  return { route: query.data ?? null, loading: query.isLoading };
 }
