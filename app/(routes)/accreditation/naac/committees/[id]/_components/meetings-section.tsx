@@ -821,13 +821,20 @@ function PassResolutionForm({
       toast.error('Resolution text is required');
       return;
     }
+    // The Act gate requires an accountable owner — mirrors the substrate's
+    // acr_owner_required CHECK (#1947), so the constraint error never
+    // surfaces raw.
+    if (!ownerLabel.trim()) {
+      toast.error('Every resolution needs an owner — add a name or designation');
+      return;
+    }
     try {
       await pass.mutateAsync({
         committee_id: committee.id,
         meeting_id: meeting.id,
         institution_id: committee.institution_id,
         resolution_text: text.trim(),
-        owner_label: ownerLabel.trim() || null,
+        owner_label: ownerLabel.trim(),
         due_date: dueDate || null,
       });
       toast.success('Resolution passed');
@@ -851,7 +858,7 @@ function PassResolutionForm({
         <Input
           value={ownerLabel}
           onChange={(e) => setOwnerLabel(e.target.value)}
-          placeholder="Owner (name / designation)"
+          placeholder="Owner (name / designation) — required"
           className="sm:flex-1"
         />
         <Input
