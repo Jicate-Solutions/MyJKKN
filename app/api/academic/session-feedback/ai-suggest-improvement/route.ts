@@ -274,10 +274,16 @@ export async function POST(req: NextRequest) {
       peek = pFacultyEmail
         ? peek.is('faculty_email', null)
         : peek.not('faculty_email', 'is', null);
-      // Leadership-lane rows may carry a NULL institution (super-admin path),
-      // so match the resolved institution OR NULL rather than a hard eq().
-      if (loopInstitutionId)
-        peek = peek.or(`institution_id.eq.${loopInstitutionId},institution_id.is.null`);
+      // STRICT same-tenant scope (skeptic review 2026-07-10): course_code is
+      // not globally unique, and NULL-institution (super course-level) rows are
+      // not tenant-attributable — this query runs on the service-role client,
+      // so an `is.null` disjunct would bypass the RLS that hides those rows and
+      // could inject ANOTHER institution's advice into this prompt (and shadow
+      // the own-tenant note, being newest). NULL-institution callers (super
+      // course-level) peek only NULL rows: conservative, no cross-tenant flow.
+      peek = loopInstitutionId
+        ? peek.eq('institution_id', loopInstitutionId)
+        : peek.is('institution_id', null);
       const { data: peekData, error: peekErr } = await peek;
       if (!peekErr && peekData?.length) {
         const other = peekData[0] as { suggestion: unknown; generated_at: string };

@@ -228,9 +228,16 @@ async function buildCrossPeekLine(
       .order('generated_at', { ascending: false })
       .limit(1);
     peek = facultyEmail ? peek.is('faculty_email', null) : peek.not('faculty_email', 'is', null);
-    // Leadership-lane rows may carry a NULL institution (super-admin path), so
-    // match the course's institution OR NULL rather than a hard eq().
-    if (institutionId) peek = peek.or(`institution_id.eq.${institutionId},institution_id.is.null`);
+    // STRICT same-tenant scope (skeptic review 2026-07-10): course_code is not
+    // globally unique, and NULL-institution (super course-level) rows are not
+    // tenant-attributable — this query runs on the service-role client, so an
+    // `is.null` disjunct would bypass the RLS that hides those rows and could
+    // inject ANOTHER institution's advice into this prompt (and shadow the
+    // own-tenant note, being newest). NULL-institution callers peek only NULL
+    // rows: conservative, no cross-tenant flow.
+    peek = institutionId
+      ? peek.eq('institution_id', institutionId)
+      : peek.is('institution_id', null);
     const { data, error } = await peek;
     if (error || !data?.length) return '';
     const other = data[0] as { suggestion: unknown; generated_at: string };
