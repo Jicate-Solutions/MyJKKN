@@ -51,6 +51,33 @@ CREATE INDEX IF NOT EXISTS idx_acm_committee ON public.accreditation_committee_m
 CREATE INDEX IF NOT EXISTS idx_acm_institution ON public.accreditation_committee_meetings (institution_id, status);
 
 -- ----------------------------------------------------------------------------
+-- 1b. Tenant/lineage integrity (deep-review PR #1940, consensus MEDIUMs 1+2):
+--     institution_id and committee/meeting references are ENGINE-enforced via
+--     composite FKs, not trusted from the client. A meeting's institution_id
+--     must equal its committee's; a resolution's meeting references must
+--     belong to its own committee. Composite FKs beat triggers here: nothing
+--     to bypass, and MATCH SIMPLE skips rows where the nullable column
+--     (reviewed_in_meeting_id) is NULL.
+-- ----------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accreditation_committees_id_institution_key') THEN
+    ALTER TABLE public.accreditation_committees
+      ADD CONSTRAINT accreditation_committees_id_institution_key UNIQUE (id, institution_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'acm_committee_institution_fk') THEN
+    ALTER TABLE public.accreditation_committee_meetings
+      ADD CONSTRAINT acm_committee_institution_fk
+      FOREIGN KEY (committee_id, institution_id)
+      REFERENCES public.accreditation_committees (id, institution_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'acm_id_committee_key') THEN
+    ALTER TABLE public.accreditation_committee_meetings
+      ADD CONSTRAINT acm_id_committee_key UNIQUE (id, committee_id);
+  END IF;
+END $$;
+
+-- ----------------------------------------------------------------------------
 -- 2. Resolutions — passed in one meeting, reviewed (measured) in a later one.
 --    A resolution IS the loop's unit of work: text + owner + deadline + outcome.
 -- ----------------------------------------------------------------------------
@@ -63,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.accreditation_committee_resolutions (
   -- Owner: a platform user when one exists; owner_label as free-text fallback
   -- (real owners — e.g. newly named placement officers — may not have accounts
   -- yet; the loop must not stall on account provisioning).
-  owner_user_id          uuid REFERENCES public.profiles(id),
+  owner_user_id          uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
   owner_label            text,
   due_date               date,
   status                 text NOT NULL DEFAULT 'open'
@@ -74,7 +101,7 @@ CREATE TABLE IF NOT EXISTS public.accreditation_committee_resolutions (
   reviewed_in_meeting_id uuid REFERENCES public.accreditation_committee_meetings(id),
   outcome_note           text,
   closed_at              timestamptz,
-  created_by             uuid REFERENCES public.profiles(id),
+  created_by             uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now()
 );
@@ -84,6 +111,34 @@ COMMENT ON TABLE public.accreditation_committee_resolutions IS
 CREATE INDEX IF NOT EXISTS idx_acr_committee_open ON public.accreditation_committee_resolutions (committee_id) WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_acr_meeting ON public.accreditation_committee_resolutions (meeting_id);
 CREATE INDEX IF NOT EXISTS idx_acr_institution ON public.accreditation_committee_resolutions (institution_id, status);
+
+-- 2b. Same engine-enforced lineage for resolutions (deep-review MEDIUMs 1+2):
+--     institution pinned to the committee's; BOTH meeting references pinned to
+--     the resolution's own committee. reviewed_in_meeting_id's composite FK is
+--     MATCH SIMPLE, so NULL (not yet reviewed) is skipped; its delete action
+--     stays NO ACTION deliberately — a meeting that closed resolutions is a
+--     governance record and must not be deletable out from under them.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'acr_committee_institution_fk') THEN
+    ALTER TABLE public.accreditation_committee_resolutions
+      ADD CONSTRAINT acr_committee_institution_fk
+      FOREIGN KEY (committee_id, institution_id)
+      REFERENCES public.accreditation_committees (id, institution_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'acr_meeting_committee_fk') THEN
+    ALTER TABLE public.accreditation_committee_resolutions
+      ADD CONSTRAINT acr_meeting_committee_fk
+      FOREIGN KEY (meeting_id, committee_id)
+      REFERENCES public.accreditation_committee_meetings (id, committee_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'acr_reviewed_meeting_committee_fk') THEN
+    ALTER TABLE public.accreditation_committee_resolutions
+      ADD CONSTRAINT acr_reviewed_meeting_committee_fk
+      FOREIGN KEY (reviewed_in_meeting_id, committee_id)
+      REFERENCES public.accreditation_committee_meetings (id, committee_id);
+  END IF;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- 3. updated_at triggers (standard repo pattern).
