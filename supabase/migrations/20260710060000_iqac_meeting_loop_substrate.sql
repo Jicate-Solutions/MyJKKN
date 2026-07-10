@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS public.accreditation_committee_meetings (
   status          text NOT NULL DEFAULT 'scheduled'
                   CHECK (status IN ('scheduled','held','minuted','cancelled')),
   minutes_summary text,
-  created_by      uuid REFERENCES public.profiles(id),
+  created_by      uuid DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (committee_id, meeting_no)
@@ -84,7 +84,10 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.accreditation_committee_resolutions (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   committee_id           uuid NOT NULL REFERENCES public.accreditation_committees(id) ON DELETE CASCADE,
-  meeting_id             uuid NOT NULL REFERENCES public.accreditation_committee_meetings(id) ON DELETE CASCADE,
+  -- NOT deletable out from under its resolutions (governance record; deep-review
+  -- #1940 L7) — committee-level hard deletes still work: resolutions vanish via
+  -- their own committee_id CASCADE, so this NO ACTION is satisfied at statement end.
+  meeting_id             uuid NOT NULL REFERENCES public.accreditation_committee_meetings(id),
   institution_id         uuid NOT NULL REFERENCES public.institutions(id),
   resolution_text        text NOT NULL,
   -- Owner: a platform user when one exists; owner_label as free-text fallback
@@ -101,9 +104,16 @@ CREATE TABLE IF NOT EXISTS public.accreditation_committee_resolutions (
   reviewed_in_meeting_id uuid REFERENCES public.accreditation_committee_meetings(id),
   outcome_note           text,
   closed_at              timestamptz,
-  created_by             uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_by             uuid DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at             timestamptz NOT NULL DEFAULT now(),
-  updated_at             timestamptz NOT NULL DEFAULT now()
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  -- Deep-review #1940 hardening: the Act gate REQUIRES an accountable owner
+  -- (user or label); a resolution cannot be "reviewed" by the meeting that
+  -- passed it (Measure happens at the NEXT meeting); the strike counter can
+  -- never go negative and silently defeat the >=2 Director-escalation flag.
+  CONSTRAINT acr_owner_required CHECK (owner_user_id IS NOT NULL OR owner_label IS NOT NULL),
+  CONSTRAINT acr_review_at_later_meeting CHECK (reviewed_in_meeting_id IS NULL OR reviewed_in_meeting_id <> meeting_id),
+  CONSTRAINT acr_carried_count_nonneg CHECK (carried_count >= 0)
 );
 COMMENT ON TABLE public.accreditation_committee_resolutions IS
   'Committee resolutions / action items. Passed in meeting_id with owner + due_date (Act). At each later meeting the open set is reviewed: done (closed_at + reviewed_in_meeting_id set), carried (carried_count++), or dropped (Measure/Decide). Open+overdue items feed the next meeting''s review panel (Feed-forward). carried_count >= 2 = escalate to Director.';
