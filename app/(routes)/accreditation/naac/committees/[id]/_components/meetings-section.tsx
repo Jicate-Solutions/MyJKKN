@@ -113,15 +113,13 @@ function isOverdue(r: CommitteeResolution): boolean {
 
 interface ProfileLite {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
+  full_name: string | null;
   email: string | null;
 }
 
 function profileName(p: ProfileLite | undefined): string | null {
   if (!p) return null;
-  const parts = [p.first_name, p.last_name].filter(Boolean);
-  return parts.length ? parts.join(' ') : p.email ?? null;
+  return p.full_name?.trim() || (p.email ?? null);
 }
 
 /** Same lookup pattern as the detail page: batch-resolve profile names. */
@@ -133,7 +131,7 @@ function useProfileLookup(userIds: string[]) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email')
+        .select('id, full_name, email')
         .in('id', userIds);
       if (error) throw error;
       return ((data ?? []) as ProfileLite[]).reduce<

@@ -25,6 +25,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -57,6 +64,7 @@ export default function NewPurchaseRequestPage() {
   const [requestType, setRequestType] = useState<PurchaseRequestType>('restock');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // Institution scope — defaults to the user's own; a multi-institution user can
   // switch, which re-scopes the catalog search and the institution the PR is raised for.
@@ -100,6 +108,21 @@ export default function NewPurchaseRequestPage() {
       return;
     }
 
+    // Validation passed — gate creation behind a read-only review step.
+    setPreviewOpen(true);
+  };
+
+  // Cleaned line items as they will be submitted (also drives the preview table).
+  const cleanedItems = useMemo(
+    () => items.filter((i) => i.item_name.trim()),
+    [items]
+  );
+
+  const handleConfirmCreate = async () => {
+    if (!profile?.id || !effectiveInstitution) {
+      toast.error('No institution selected — pick one or contact an administrator.');
+      return;
+    }
     try {
       const created = await createPR.mutateAsync({
         data: {
@@ -107,7 +130,7 @@ export default function NewPurchaseRequestPage() {
           domain,
           request_type: requestType,
           notes: notes || null,
-          items: cleaned.map((i) => ({
+          items: cleanedItems.map((i) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
             estimated_cost: i.estimated_cost != null ? Number(i.estimated_cost) : null,
@@ -115,6 +138,7 @@ export default function NewPurchaseRequestPage() {
         },
         userId: profile.id,
       });
+      setPreviewOpen(false);
       toast.success(`Purchase request ${created.request_number} created`);
       router.push(`/procurement/requests/${created.id}`);
     } catch (e) {
@@ -321,10 +345,75 @@ export default function NewPurchaseRequestPage() {
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={createPR.isPending}>
-            {createPR.isPending ? 'Creating...' : 'Create request'}
+            Review &amp; create
           </Button>
         </div>
       </div>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Review purchase request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <span className="text-muted-foreground">Request type: </span>
+                {requestType === 'new_item' ? 'New item' : 'Restock (existing item)'}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Items: </span>
+                {cleanedItems.length}
+              </div>
+              {notes.trim() && (
+                <div className="sm:col-span-2">
+                  <span className="text-muted-foreground">Notes: </span>
+                  {notes}
+                </div>
+              )}
+            </div>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-2 font-medium">Item</th>
+                    <th className="px-3 py-2 font-medium">Qty</th>
+                    <th className="px-3 py-2 font-medium">Unit</th>
+                    <th className="px-3 py-2 font-medium">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cleanedItems.map((item, idx) => (
+                    <tr key={idx} className="border-b last:border-0">
+                      <td className="px-3 py-2">
+                        {item.item_name}
+                        {item.item_spec?.trim() && (
+                          <span className="block text-xs text-muted-foreground">
+                            {item.item_spec}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">{item.required_quantity}</td>
+                      <td className="px-3 py-2">{item.unit_label?.trim() || '—'}</td>
+                      <td className="px-3 py-2">
+                        {requestType === 'new_item' ? 'new_item' : 'restock'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+              Back to edit
+            </Button>
+            <Button onClick={handleConfirmCreate} disabled={createPR.isPending}>
+              {createPR.isPending ? 'Creating...' : 'Confirm & create request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

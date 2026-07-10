@@ -12,6 +12,8 @@
 // JS, no fetches here.
 // ============================================================================
 
+import type { LoopRegistryRow, LoopAuditRow, GateState } from './types';
+
 export interface LoopTowerStats {
   // tier 1 — model calls (today, IST)
   maxCallsToday: number | null;
@@ -42,6 +44,65 @@ function Chip({ label, value }: { label: string; value: string }) {
       {label}
       <b className='font-mono text-sm font-semibold tabular-nums text-foreground'>{value}</b>
     </span>
+  );
+}
+
+// ── Tier-3 registry chips ────────────────────────────────────────────────────
+// One chip per active loop_registry row at stack_tier 3, so the tower reflects
+// the SAME registry the Wiring view draws from (rather than the hand-curated
+// tiers[] below, which predate loop_registry). Jumps to the loop's Control
+// Tower card via the shared `#loop-<key>` anchor. Mirrors GateDot's visual
+// language in loop-control-tower.tsx at a smaller scale.
+const CLASS_TINT: Record<string, string> = {
+  self_improving: 'border-emerald-300/60 bg-emerald-50/70 dark:border-emerald-800/50 dark:bg-emerald-950/20',
+  cadence: 'border-cyan-300/60 bg-cyan-50/70 dark:border-cyan-800/50 dark:bg-cyan-950/20',
+  accountability: 'border-amber-300/60 bg-amber-50/70 dark:border-amber-800/50 dark:bg-amber-950/20',
+  intake: 'border-slate-300/60 bg-slate-50/70 dark:border-slate-700/50 dark:bg-slate-900/20',
+  infrastructure: 'border-border bg-muted/40',
+};
+
+function fmtAuditDate(iso: string): string {
+  // IST calendar day — the page anchors the campus day at IST; a UTC render
+  // shifts any evening audit to the previous date (review 2026-07-10, #6).
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Kolkata',
+  });
+}
+
+function GateMiniDot({ g }: { g: GateState }) {
+  const cls =
+    g === 'on'
+      ? 'border-emerald-500 bg-emerald-500'
+      : g === 'half'
+        ? 'border-amber-500 border-dashed bg-transparent'
+        : 'border-muted-foreground/30 bg-transparent';
+  return <span className={`h-1.5 w-1.5 flex-none rounded-full border ${cls}`} aria-hidden='true' />;
+}
+
+function RegistryChip({ row, audit }: { row: LoopRegistryRow; audit?: LoopAuditRow }) {
+  const tint = CLASS_TINT[row.loop_class] ?? CLASS_TINT.infrastructure;
+  const name = row.name.length > 28 ? `${row.name.slice(0, 27)}…` : row.name;
+  return (
+    <a
+      href={`#loop-${row.loop_key}`}
+      title={row.description ?? row.name}
+      className={`flex min-w-[152px] flex-col gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] leading-tight shadow-sm transition-colors hover:brightness-95 dark:hover:brightness-125 ${tint}`}
+    >
+      <span className='font-semibold text-foreground'>{name}</span>
+      <span className='flex items-center gap-1'>
+        <GateMiniDot g={row.gates.g} />
+        <GateMiniDot g={row.gates.a} />
+        <GateMiniDot g={row.gates.m} />
+        <GateMiniDot g={row.gates.f} />
+      </span>
+      {audit && (
+        <span className='truncate font-mono text-[9.5px] text-muted-foreground'>
+          tested {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
+        </span>
+      )}
+    </a>
   );
 }
 
@@ -94,8 +155,20 @@ function Tier({ num, name, exit, tone, blurb, chips, children }: TierProps) {
   );
 }
 
-export function LoopTower({ stats }: { stats: LoopTowerStats }) {
+export function LoopTower({
+  stats,
+  registry,
+  latestAuditByKey,
+}: {
+  stats: LoopTowerStats;
+  /** Active loop_registry rows (any stack_tier) — optional so this component
+   *  still renders unchanged when the registry hasn't loaded/exists yet. Only
+   *  stack_tier===3 rows are chipped here. */
+  registry?: LoopRegistryRow[];
+  latestAuditByKey?: Map<string, LoopAuditRow>;
+}) {
   const s = stats;
+  const tier3Registry = registry?.filter((r) => r.stack_tier === 3) ?? [];
   return (
     <section aria-label='Loop tower — the stack of loops, live'>
       <div className='mb-2'>
@@ -145,6 +218,13 @@ export function LoopTower({ stats }: { stats: LoopTowerStats }) {
               </>
             }
           >
+            {tier3Registry.length > 0 && (
+              <div className='mb-3 flex flex-wrap gap-1.5'>
+                {tier3Registry.map((r) => (
+                  <RegistryChip key={r.loop_key} row={r} audit={latestAuditByKey?.get(r.loop_key)} />
+                ))}
+              </div>
+            )}
             <Tier
               num='2 · Runs'
               name='One scheduled execution'

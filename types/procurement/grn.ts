@@ -10,7 +10,13 @@ export type GrnStatus =
   | 'completed'
   | 'cancelled';
 
-export type GrnMatchStatus = 'matched' | 'qty_mismatch' | 'price_mismatch' | 'short' | 'over';
+export type GrnMatchStatus =
+  | 'awaiting_invoice'
+  | 'matched'
+  | 'qty_mismatch'
+  | 'price_mismatch'
+  | 'short'
+  | 'over';
 
 export interface ProcurementGrn {
   id: string;
@@ -60,6 +66,8 @@ export interface ProcurementGrnItem {
   cost_price: number;
   /** Supplier's invoiced unit price for this line (for the price axis of the match). */
   invoice_unit_price: number | null;
+  /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only — not part of the match. */
+  missing_quantity: number;
   is_chemical: boolean;
   created_at: string;
 }
@@ -82,6 +90,8 @@ export interface GrnLineInput {
   manufacturing_date?: string | null;
   /** Actual invoice unit price → the batch's cost_price (overrides the PO estimate). */
   cost?: number | null;
+  /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only. */
+  missing_quantity?: number | null;
 }
 
 export interface CreateGrnInput {
@@ -144,6 +154,7 @@ export const GRN_STATUS_CONFIG: Record<GrnStatus, { label: string; color: string
 };
 
 export const GRN_MATCH_CONFIG: Record<GrnMatchStatus, { label: string; color: string }> = {
+  awaiting_invoice: { label: 'Awaiting Invoice', color: 'amber' }, // no supplier invoice yet — not a match
   matched: { label: 'Matched', color: 'green' },
   qty_mismatch: { label: 'Qty Mismatch', color: 'amber' },
   price_mismatch: { label: 'Price Mismatch', color: 'amber' },

@@ -64,7 +64,21 @@ export function matchLine({
   const poPrice = poUnitPrice == null ? null : Number(poUnitPrice);
   const invPrice = invoiceUnitPrice == null ? null : Number(invoiceUnitPrice);
 
-  const qtyMismatch = invoice != null && !eq(invoice, received);
+  // A match requires a supplier invoice to compare against (verify.md §9). With no
+  // invoice captured the line is NOT matchable — do not read it as 'matched'. Surface
+  // an explicit 'awaiting_invoice' state so the receiver knows the invoice is still
+  // owed, rather than a misleading green pass. (Invoice fields are mandatory at GRN
+  // creation — this also covers legacy GRNs and the replacement path always supplies
+  // a qty, so it never lands here.)
+  if (invoice == null) {
+    return {
+      match_status: 'awaiting_invoice',
+      mismatch_flag: true,
+      reason: 'No supplier invoice captured — match cannot be confirmed until an invoice is provided.',
+    };
+  }
+
+  const qtyMismatch = !eq(invoice, received);
   const over = received > remaining + EPS;
   const partial = received < remaining - EPS;
   const priceMismatch = poPrice != null && invPrice != null && invPrice > 0 && !eq(poPrice, invPrice);
