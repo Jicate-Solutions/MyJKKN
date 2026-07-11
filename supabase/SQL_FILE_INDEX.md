@@ -1902,3 +1902,7 @@ npx tsx scripts/repair-learner-profile-sync.ts
 ### 2026-07-11: SCF learner-notes per-run cap → platform policy (Director: unlimited + UI-editable)
 - `scf_notes.batch_cap` (NEW platform_policies row, global scope, value 10000 = effectively unlimited, ui_widget number, ui_category scf) — seeded idempotently (NOT EXISTS on identity, never on value, so Director edits are never resurrected). The Max-lane twin honors the value fully; the cloud cron clamps to its 50/run serverless ceiling (90s dispatcher window). Editable via the /admin/ai-routines cap chip — writes gated by existing platform_policies_update RLS (super_admin/admin).
 - Location: `supabase/migrations/20260711013000_seed_scf_notes_batch_cap_policy.sql`. APPLIED to prod 2026-07-11 ~06:58 IST via Mgmt API (data-only seed, code-independent — row live before merge so tonight's Max-lane run can read it).
+### 2026-07-11: AI ledger registration for procurement PDF extraction
+- `ai_model_config` +2 rows (`procurement.quotation_extract`, `procurement.invoice_extract`) — seeded to the code's current hardcode `claude-opus-4-8` (cutover invariant: zero behavior change). Model now governed from /admin/ai-models; usage recorded to `ai_model_usage` by the companion code change (lib/procurement/*-pdf-extract.ts adopt resolveChatModel/recordChatCall primitives from ai-clients/chat).
+- No DDL, no RPCs. Idempotent (ON CONFLICT (feature_key) DO NOTHING) — a Director model change from the UI is never clobbered.
+- Location: `supabase/migrations/20260711060000_ai_model_config_procurement_extraction.sql`.
