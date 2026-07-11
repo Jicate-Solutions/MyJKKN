@@ -1026,7 +1026,7 @@ async function tryMaxLane(
   supabase: Awaited<ReturnType<typeof createClient>>,
   message: string,
   conversationId: string | undefined,
-): Promise<{ answer: string | null; miss?: MaxLaneMiss }> {
+): Promise<{ answer: string | null; miss?: MaxLaneMiss; requestId?: string }> {
   // Entirely try/caught: a THROWN client/network error (vs a returned one)
   // must also read as "miss → API path", never as an error the user sees.
   try {
