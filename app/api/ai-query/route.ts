@@ -1119,7 +1119,10 @@ export async function PATCH(request: NextRequest) {
   }
   const { error } = await supabase.rpc('fn_max_chat_ack', { p_ids: ids });
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    // Log detail server-side; the client gets a generic string (it ignores
+    // ack failures anyway — a lost ack just re-shows the answer next load).
+    console.error('[ai-query] ack failed:', error.message);
+    return NextResponse.json({ ok: false, error: 'ack failed' }, { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }
