@@ -134,11 +134,24 @@ export async function GET(request: NextRequest) {
   // Wire 2 — alert supers on any non-verified verdict. Idempotent per IST day.
   let notified = 0;
   if (failures.length > 0) {
-    const { data: supers } = await admin
+    // Audience lookup failure must FAIL the run, not fan out to nobody
+    // (review r4); a 500 lands in last_status, which the daily watchdog
+    // alarms on.
+    const { data: supers, error: supersErr } = await admin
       .from('profiles')
       .select('id')
       .eq('is_super_admin', true);
-    const userIds = (supers ?? []).map((s: { id: string }) => s.id);
+    if (supersErr || !supers?.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `super-admin lookup failed: ${supersErr?.message ?? 'no recipients'}`,
+          failures: failures.map((f) => ({ loop: f.loop_key, verdict: f.verdict })),
+        },
+        { status: 500 }
+      );
+    }
+    const userIds = supers.map((s: { id: string }) => s.id);
     const istDay = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
     const outcome = await fanoutNotification(admin, {
       title: `⛔ Loop regress FAILED: ${failures.map((f) => f.loop_key).join(', ')}`,

@@ -35,10 +35,11 @@ export function staleThresholdMs(daysOfWeek: number[] | null | undefined): numbe
 // only writer (fn_ai_routine_record_fire via ai-routine-dispatcher), and its
 // paths emit exactly: "HTTP <code>[ · summary]", "HTTP <code> · error: <msg>"
 // (routine answered but reported ok:false), "error: <msg>" (fetch threw —
-// includes timeouts/aborts), or "skipped: <reason>". Matching those structured
-// tokens instead of bare substrings like `failed`/`exception` avoids both
-// failure directions of review r3's consensus finding: a free-text summary
-// mentioning a word like "failed" can't false-alarm, and a genuine
+// including timeouts/aborts, which arrive already 'error:'-prefixed), or
+// "skipped: <reason>". Matching those structured tokens instead of bare
+// substrings like `failed`/`exception`/`timeout` avoids both failure
+// directions of review r3/r4's consensus findings: a free-text summary
+// containing such a word can't false-alarm, and a genuine
 // "error: connection refused" (which the old token list MISSED entirely)
 // now alarms.
 //
@@ -51,7 +52,7 @@ export function staleThresholdMs(daysOfWeek: number[] | null | undefined): numbe
 // OTHER "skipped:" reason (e.g. "skipped: no app origin") is a config break —
 // alarm. Callers pass `knownToRegistry` themselves (this module can't import
 // the registry: registry.ts imports LOOP_GOVERNANCE_ROUTINES from here).
-export const ERROR_RX = /HTTP [45]\d\d|\berror:|timeout|timed out/i;
+export const ERROR_RX = /HTTP [45]\d\d|\berror:/i;
 export function isAlarmStatus(
   lastStatus: string | null | undefined,
   knownToRegistry: boolean
@@ -71,9 +72,16 @@ export function isAlarmStatus(
 // directions). NULL can't occur today (loop_audits.verdict is NOT NULL) but is
 // treated as an alarm defensively (review #5).
 export const BAD_VERDICT_PREFIXES = ['sim-failed', 'sim-error', 'walk-failed'] as const;
+// The honest non-failure states, enumerated (closed /loops vocabulary). A
+// verdict that is neither verified, nor honest, nor a known failure prefix is
+// OUT OF CONTRACT and alarms — fail-closed, per the wire's thesis (review r4:
+// an unknown failure spelling must not idle in the amber bucket).
+const HONEST_VERDICTS = new Set(['self-reinforcing', 'no-loop', 'unmeasurable-no-fuel']);
 export function isBadVerdict(verdict: string | null | undefined): boolean {
   if (verdict == null) return true;
-  return BAD_VERDICT_PREFIXES.some((p) => verdict.startsWith(p));
+  if (BAD_VERDICT_PREFIXES.some((p) => verdict.startsWith(p))) return true;
+  if (isVerifiedVerdict(verdict)) return false;
+  return !HONEST_VERDICTS.has(verdict);
 }
 // Exact closed set — a loose /verified/ substring test let a failure string
 // that merely MENTIONS "verified" render as healthy (review r2). Callers must

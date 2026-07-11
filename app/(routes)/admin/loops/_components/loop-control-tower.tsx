@@ -219,15 +219,18 @@ export function LoopControlTower({
                       )}
                     </p>
                   )}
-                  {loop.lastRun && (
+                  {(loop.lastRun || loop.lastRunBad) && (
                     <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
                       last run:{' '}
                       {/* RED when the run errored or the routine went silent past
                           its cadence (watchdog wire, 2026-07-11) — grey text made
-                          failures visible only to whoever happened to read it. */}
+                          failures visible only to whoever happened to read it.
+                          Renders even when last_status is null: a routine that
+                          claimed its slot and died before writing status is the
+                          silent-death case this wire exists for (review r4). */}
                       {loop.lastRunBad ? (
                         <span className="font-semibold text-red-600 dark:text-red-400">
-                          🔴 {loop.lastRun}
+                          🔴 {loop.lastRun ?? 'silent — no status recorded'}
                         </span>
                       ) : (
                         <span className="text-foreground/80">{loop.lastRun}</span>

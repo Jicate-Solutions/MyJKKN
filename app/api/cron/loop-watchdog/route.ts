@@ -7,14 +7,14 @@
 //
 //   1. SILENT routines — dispatcher-managed, enabled, but last fired further
 //      back than their OWN cadence allows (derived from days_of_week: a daily
-//      row alarms after ~26h, a Sundays-only row after ~7d — a flat 26h would
+//      row alarms after ~25h, a Sundays-only row after ~7d — a flat cutoff would
 //      false-alarm every weekly routine 6 days out of 7, review 2026-07-11 #1).
 //      A dead dispatcher, a disabled schedule, or a deploy that broke a route
 //      all look like this. Receipt for the failure class: pde-bridge fired
 //      HTTP 200 daily into a dead pipe for days; nothing anywhere went red
 //      (reference_ai_pulse_loop_weld).
-//   2. ERRORED routines — last_status carrying an HTTP 4xx/5xx, timeout, or
-//      "not in registry". These were previously visible only to someone who
+//   2. ERRORED routines — last_status carrying an HTTP 4xx/5xx, an "error:"
+//      token, or a skip. These were previously visible only to someone who
 //      happened to open /admin/ai-routines and read the grey text. A stale
 //      pre-deploy "skipped: not in registry" whose id the RUNNING registry
 //      now knows is suppressed — it self-heals at the next fire (review r2).
@@ -138,11 +138,20 @@ export async function GET(request: NextRequest) {
 
   let notified = 0;
   if (findings.length > 0) {
-    const { data: supers } = await admin
+    // The audience lookup failing must FAIL the run, not silently fan out to
+    // nobody (review r4): a 500 here lands in last_status via the dispatcher,
+    // which this same watchdog alarms on tomorrow — the wire watches itself.
+    const { data: supers, error: supersErr } = await admin
       .from('profiles')
       .select('id')
       .eq('is_super_admin', true);
-    const userIds = (supers ?? []).map((s: { id: string }) => s.id);
+    if (supersErr || !supers?.length) {
+      return NextResponse.json(
+        { ok: false, error: `super-admin lookup failed: ${supersErr?.message ?? 'no recipients'}`, findings },
+        { status: 500 }
+      );
+    }
+    const userIds = supers.map((s: { id: string }) => s.id);
     const istDay = new Date(nowMs + 19_800_000).toISOString().slice(0, 10);
     const outcome = await fanoutNotification(admin, {
       title: `🔴 Loop watchdog: ${findings.length} issue${findings.length === 1 ? '' : 's'} (${silent.length} silent, ${errored.length} errored, ${disabled.length} disabled, ${badAudits.length} bad verdicts)`,
