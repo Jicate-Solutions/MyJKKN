@@ -3,7 +3,7 @@
  * React hook for the AI Query System
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   AIQueryMessage,
   AIQueryResponse,
@@ -44,6 +44,63 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
     { text: 'List pending admission applications', category: 'admissions', icon: 'FileText' },
   ]);
   const conversationIdRef = useRef<string | null>(null);
+
+  // Max-lane "while you were away" inbox: if a subscription-lane answer
+  // finished AFTER the tab/phone died mid-wait, it's waiting on the server.
+  // Read it once on mount, render, and only THEN acknowledge (PATCH) — a
+  // lost fetch/render means the answers simply resurface on the next load
+  // (at-least-once; deep-review consensus: duplicate beats loss). Any
+  // failure is silent — an empty inbox, never an error state.
+  const inboxDrainedRef = useRef(false);
+  useEffect(() => {
+    if (inboxDrainedRef.current) return;
+    inboxDrainedRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/ai-query', {
+          method: 'GET',
+          cache: 'no-store',
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        const rows: Array<{ id: string; message: string; answer: string; completed_at: string }> = (
+          Array.isArray(json?.inbox) ? json.inbox : []
+        ).sort(
+          (a: { completed_at: string }, b: { completed_at: string }) =>
+            new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime(),
+        );
+        if (rows.length === 0) return;
+        const restored: AIQueryMessage[] = rows.flatMap((r) => [
+          {
+            id: `${r.id}-q`,
+            role: 'user' as const,
+            content: r.message,
+            timestamp: new Date(r.completed_at),
+          },
+          {
+            id: r.id,
+            role: 'assistant' as const,
+            content: `${r.answer}\n\nⓘ _Answered on Max while you were away._`,
+            timestamp: new Date(r.completed_at),
+            toolCalls: [
+              { id: `${r.id}-max`, name: 'max_lane', arguments: {}, status: 'completed' as const },
+            ],
+          },
+        ]);
+        setMessages((prev) => [...restored, ...prev]);
+        // Rendered — acknowledge so these don't re-show. Best-effort: a lost
+        // ack means one harmless duplicate next load, never a lost answer.
+        void fetch('/api/ai-query', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ack_ids: rows.map((r) => r.id) }),
+        }).catch(() => {});
+      } catch {
+        // silent — inbox is a bonus, never a blocker
+      }
+    })();
+  }, []);
 
   const sendMessage = useCallback(async (message: string) => {
     if (!message.trim()) return;
@@ -139,6 +196,17 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
         const filtered = prev.filter(m => m.id !== loadingMessage.id);
         return [...filtered, assistantMessage];
       });
+
+      // Live Max-lane delivery: acknowledge AFTER the answer is in state so a
+      // response lost before this point would have resurfaced via the inbox.
+      const maxRequestId = (data as { max_request_id?: unknown }).max_request_id;
+      if (typeof maxRequestId === 'string' && maxRequestId.length > 0) {
+        void fetch('/api/ai-query', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ack_ids: [maxRequestId] }),
+        }).catch(() => {});
+      }
 
       options.onMessage?.(assistantMessage);
 

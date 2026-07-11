@@ -1026,7 +1026,7 @@ async function tryMaxLane(
   supabase: Awaited<ReturnType<typeof createClient>>,
   message: string,
   conversationId: string | undefined,
-): Promise<{ answer: string | null; miss?: MaxLaneMiss }> {
+): Promise<{ answer: string | null; miss?: MaxLaneMiss; requestId?: string }> {
   // Entirely try/caught: a THROWN client/network error (vs a returned one)
   // must also read as "miss → API path", never as an error the user sees.
   try {
@@ -1055,7 +1055,11 @@ async function tryMaxLane(
         // a runner defect — fall back NOW instead of polling a finished row
         // to the deadline (deep-review finding).
         if (typeof st.answer === 'string' && st.answer.trim().length > 0) {
-          return { answer: st.answer };
+          // NO server-side delivery stamp here (deep-review consensus): if
+          // this response is lost in transit, the row must resurface in the
+          // inbox. The client ACKs via PATCH after rendering, using the
+          // request id we hand back.
+          return { answer: st.answer, requestId: req.request_id };
         }
         return { answer: null, miss: 'error' };
       }
@@ -1077,6 +1081,71 @@ async function tryMaxLane(
     console.error('[ai-query] max-lane attempt threw — falling back to API:', err);
     return { answer: null, miss: 'error' };
   }
+}
+
+/**
+ * PATCH /api/ai-query — acknowledge delivery of rendered Max answers.
+ * Body: { ack_ids: uuid[] }. Called by the client only AFTER the answers are
+ * on screen (inbox restores and live deliveries alike); the RPC is
+ * requester-scoped so users can only ack their own rows. Idempotent.
+ */
+export async function PATCH(request: NextRequest) {
+  await connection();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Please log in to continue.' } },
+      { status: 401 },
+    );
+  }
+  let body: { ack_ids?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
+  }
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ids = Array.isArray(body.ack_ids)
+    ? body.ack_ids.filter((v): v is string => typeof v === 'string' && uuidRe.test(v)).slice(0, 50)
+    : [];
+  if (ids.length === 0) {
+    return NextResponse.json({ ok: false, error: 'ack_ids required' }, { status: 400 });
+  }
+  const { error } = await supabase.rpc('fn_max_chat_ack', { p_ids: ids });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * GET /api/ai-query — the Max-lane "while you were away" inbox.
+ * PURE READ (idempotent — safe under prefetch/retries): returns finished,
+ * still-unacknowledged Max answers for the CALLER (the RPC is requester-
+ * scoped; users who never ride the Max lane simply get []). Delivery is
+ * stamped only by the PATCH ack after the client has rendered the answers.
+ */
+export async function GET() {
+  await connection();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Please log in to continue.' } },
+      { status: 401 },
+    );
+  }
+  const { data, error } = await supabase.rpc('fn_max_chat_inbox');
+  if (error) {
+    // RPC absent (migration not applied) or transient — an empty inbox, not an error.
+    return NextResponse.json({ inbox: [] });
+  }
+  return NextResponse.json({ inbox: Array.isArray(data) ? data : [] });
 }
 
 export async function POST(request: NextRequest) {
@@ -1174,7 +1243,8 @@ export async function POST(request: NextRequest) {
     // failure falls through to the cached API path so an answer always comes.
     let maxLaneMiss: MaxLaneMiss | undefined;
     if (parseMaxLaneUserIds(modelConfig.config_json).includes(user.id)) {
-      const { answer: maxAnswer, miss } = await tryMaxLane(supabase, message, conversation_id);
+      const { answer: maxAnswer, miss, requestId: maxRequestId } =
+        await tryMaxLane(supabase, message, conversation_id);
       maxLaneMiss = miss;
       if (maxAnswer !== null) {
         toolsCalled.push('max_lane');
@@ -1192,8 +1262,11 @@ export async function POST(request: NextRequest) {
         // No ai_model_usage row from the route on this path — the runner
         // records the seat call (provider=claude_code, model=max-subscription,
         // cost_inr=0) so /admin/ai-models still sees every invocation.
+        // max_request_id: the client ACKs delivery (PATCH) after rendering —
+        // until then the row stays inbox-visible so a lost response re-shows.
         return NextResponse.json({
           conversation_id: conversation_id || crypto.randomUUID(),
+          max_request_id: maxRequestId,
           message: {
             id: crypto.randomUUID(),
             role: 'assistant',
