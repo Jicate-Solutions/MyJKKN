@@ -347,7 +347,7 @@ export function CourseMappingForm({
         });
         toast.success(`${adapt('Course')} mapping updated successfully`);
       } else {
-        await CourseMappingService.bulkCreateCourseMappings(
+        const result = await CourseMappingService.bulkCreateCourseMappings(
           values.course_ids.map((course_id) => ({
             institution_id: values.institution_id,
             degree_id: values.degree_id,
@@ -358,9 +358,22 @@ export function CourseMappingForm({
             is_active: values.is_active
           }))
         );
-        toast.success(
-          `${values.course_ids.length} ${adapt('course')} mappings created successfully`
-        );
+
+        if (result.successCount > 0) {
+          toast.success(
+            `${result.successCount} ${adapt('course')} mapping${result.successCount > 1 ? 's' : ''} created successfully`
+          );
+        }
+        if (result.errorCount > 0) {
+          toast.error(
+            result.errors[0] ||
+              `Failed to create ${result.errorCount} ${adapt('course').toLowerCase()} mapping${result.errorCount > 1 ? 's' : ''}`
+          );
+        }
+        if (result.successCount === 0) {
+          // Nothing was created — stay on the form so the user can fix the selection.
+          return;
+        }
       }
       await queryClient.invalidateQueries({
         queryKey: ['course-mappings']
