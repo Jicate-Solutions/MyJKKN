@@ -1023,40 +1023,50 @@ async function tryMaxLane(
   message: string,
   conversationId: string | undefined,
 ): Promise<{ answer: string | null; miss?: MaxLaneMiss }> {
-  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const { data: req, error: reqError } = await supabase.rpc('fn_max_chat_request', {
-    p_message: message,
-    p_conversation_id:
-      conversationId && uuidRe.test(conversationId) ? conversationId : null,
-  });
-  if (reqError || !req?.ok || typeof req?.request_id !== 'string') {
-    const errText = typeof req?.error === 'string' ? req.error : '';
-    if (errText === 'runner offline') return { answer: null, miss: 'offline' };
-    if (errText === 'queue full') return { answer: null, miss: 'busy' };
-    return { answer: null }; // not allowed / invalid — plain API path, no note
-  }
-
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < MAX_LANE_TOTAL_DEADLINE_MS) {
-    await sleep(MAX_LANE_POLL_MS);
-    const { data: st, error: stError } = await supabase.rpc('fn_max_chat_status', {
-      p_id: req.request_id,
+  // Entirely try/caught: a THROWN client/network error (vs a returned one)
+  // must also read as "miss → API path", never as an error the user sees.
+  try {
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const { data: req, error: reqError } = await supabase.rpc('fn_max_chat_request', {
+      p_message: message,
+      p_conversation_id:
+        conversationId && uuidRe.test(conversationId) ? conversationId : null,
     });
-    if (stError || !st || typeof st.status !== 'string') continue; // transient — keep polling
-    if (st.status === 'done' && typeof st.answer === 'string' && st.answer.trim().length > 0) {
-      return { answer: st.answer };
+    if (reqError || !req?.ok || typeof req?.request_id !== 'string') {
+      const errText = typeof req?.error === 'string' ? req.error : '';
+      if (errText === 'runner offline') return { answer: null, miss: 'offline' };
+      if (errText === 'queue full') return { answer: null, miss: 'busy' };
+      return { answer: null }; // not allowed / invalid — plain API path, no note
     }
-    if (st.status === 'error') return { answer: null, miss: 'error' };
-    if (st.status === 'pending' && Date.now() - startedAt > MAX_LANE_UNCLAIMED_DEADLINE_MS) {
-      break; // runner never claimed it — don't burn the full window waiting
-    }
-  }
 
-  // Abandoning the wait: cancel so a late-claiming runner doesn't burn the
-  // seat on a question the API fallback is about to answer anyway. (A late
-  // completion is discarded — complete only updates status='claimed' rows.)
-  await supabase.rpc('fn_max_chat_cancel', { p_id: req.request_id });
-  return { answer: null, miss: 'slow' };
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < MAX_LANE_TOTAL_DEADLINE_MS) {
+      await sleep(MAX_LANE_POLL_MS);
+      const { data: st, error: stError } = await supabase.rpc('fn_max_chat_status', {
+        p_id: req.request_id,
+      });
+      if (stError || !st || typeof st.status !== 'string') continue; // transient — keep polling
+      if (st.status === 'done' && typeof st.answer === 'string' && st.answer.trim().length > 0) {
+        return { answer: st.answer };
+      }
+      if (st.status === 'error') return { answer: null, miss: 'error' };
+      // Row vanished (expired/swept by the claim RPC's hygiene pass) — stop
+      // polling a ghost; fall back immediately.
+      if (st.status === 'not_found') return { answer: null, miss: 'error' };
+      if (st.status === 'pending' && Date.now() - startedAt > MAX_LANE_UNCLAIMED_DEADLINE_MS) {
+        break; // runner never claimed it — don't burn the full window waiting
+      }
+    }
+
+    // Abandoning the wait: cancel so a late-claiming runner doesn't burn the
+    // seat on a question the API fallback is about to answer anyway. (A late
+    // completion is discarded — complete only updates status='claimed' rows.)
+    await supabase.rpc('fn_max_chat_cancel', { p_id: req.request_id });
+    return { answer: null, miss: 'slow' };
+  } catch (err) {
+    console.error('[ai-query] max-lane attempt threw — falling back to API:', err);
+    return { answer: null, miss: 'error' };
+  }
 }
 
 export async function POST(request: NextRequest) {
