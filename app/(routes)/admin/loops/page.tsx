@@ -27,6 +27,7 @@ import {
 import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
+import { staleThresholdMs } from '@/lib/ai-routines/loop-governance';
 import type {
   LoopTier,
   LoopTone,
@@ -344,15 +345,16 @@ export default async function LoopControlTowerPage({
     const parts = [fmtSchedule(routineId!), model].filter(Boolean) as string[];
     const sched = schedById.get(routineId!);
     // Red-state computation (watchdog wire, 2026-07-11): errored last run OR
-    // silent past the daily cadence (26h = cadence + slack; matches
-    // /api/cron/loop-watchdog exactly — the page shows red live, the cron
-    // reaches you when nobody is looking). Never-fired rows aren't flagged
-    // here: without a seed date the page can't distinguish "new" from "dead";
-    // the watchdog cron handles those via updated_at.
-    const staleCutoff = Date.now() - 26 * 3600_000;
+    // silent past the routine's OWN cadence — derived from days_of_week via
+    // the same staleThresholdMs the watchdog cron uses, so a healthy weekly
+    // routine never shows red on its six quiet days (review 2026-07-11 #2).
+    // Never-fired rows aren't flagged here: without a seed date the page
+    // can't distinguish "new" from "dead"; the watchdog cron handles those
+    // via updated_at.
     const lastRunBad = Boolean(
       (sched?.last_status && /HTTP [45]\d\d|timeout|timed out|failed|exception|not in registry/i.test(sched.last_status)) ||
-        (sched?.last_fired_at && new Date(sched.last_fired_at).getTime() < staleCutoff)
+        (sched?.last_fired_at &&
+          Date.now() - new Date(sched.last_fired_at).getTime() > staleThresholdMs(sched.days_of_week))
     );
     return {
       cfg: `${parts.join(' · ')} · editable on AI Routines`,

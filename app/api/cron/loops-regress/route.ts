@@ -18,8 +18,9 @@
 // HIGH-priority notification to every super admin (two-write pattern).
 // Silence stays meaningful: a healthy week produces no notification at all.
 //
-// Auth: CRON_SECRET Bearer (dispatcher) OR ?secret= (manual). Mould of
-// /api/cron/scf-measure-outcomes.
+// Auth: CRON_SECRET Bearer only — dispatcher and the AI Routines manual
+// trigger both send the header; secrets never sit in URLs (review 2026-07-11
+// #3; diverges from the older scf-measure-outcomes mould deliberately).
 // Created: 2026-07-11 (Director: "yes want them").
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 
 // One RPC per manifested loop with an in-DB sim. Extend alongside the
 // manifests — never remove entries without retiring the manifest too.
@@ -48,9 +50,7 @@ export async function GET(request: NextRequest) {
   if (!cronSecret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  const authHeader = request.headers.get('authorization');
-  const querySecret = request.nextUrl.searchParams.get('secret');
-  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
@@ -82,6 +82,12 @@ export async function GET(request: NextRequest) {
       }
       const row = (Array.isArray(data) ? data[0] : data) as RegressRow;
       results.push(row);
+      // Exact match on purpose: a regress fn's vocabulary is closed
+      // (measure-verified | sim-failed | sim-error) — anything unexpected
+      // SHOULD alarm here, unlike the watchdog's broader isBadVerdict sweep
+      // (review 2026-07-11 #4 disposition). Empty-seed → sim-failed is also
+      // deliberate: on this tenant an empty session_feedback would itself be
+      // an incident, not a skip (review #6 disposition).
       if (row.verdict !== 'measure-verified') failures.push(row);
     } catch (e) {
       const row: RegressRow = {
@@ -115,7 +121,11 @@ export async function GET(request: NextRequest) {
       priority: 'urgent',
       category: 'loops',
       url: '/admin/loops',
-      idempotencyKey: `loops-regress-fail:${istDay}`,
+      // Day + failure-set fingerprint: a manual re-run over the same failures
+      // stays deduplicated; a distinct same-day failure still pages.
+      idempotencyKey: `loops-regress-fail:${istDay}:${findingsFingerprint(
+        failures.map((f) => `${f.loop_key}:${f.verdict}`)
+      )}`,
       source: 'loops-regress-cron',
     });
     notified = outcome.notified;
