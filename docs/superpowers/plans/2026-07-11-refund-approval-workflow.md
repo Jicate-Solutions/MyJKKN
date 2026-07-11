@@ -437,11 +437,23 @@ BEGIN
   PERFORM refresh_student_billing_summary(v_req.student_id);
 END; $$;
 
-REVOKE EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) FROM anon;
-REVOKE EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) FROM anon;
-REVOKE EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) FROM anon;
-REVOKE EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) FROM anon;
+-- Default PUBLIC EXECUTE must be revoked (REVOKE from anon alone is a no-op —
+-- anon inherits EXECUTE via PUBLIC; repo gotcha). Self-auth remains the primary gate.
+REVOKE EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
 ```
+
+Additionally (setup fresh-rebuild fidelity): add `'withdrawal_pending'` to the `CREATE TYPE lifecycle_status AS ENUM (...)` list in `supabase/setup/01_tables.sql` (after `'reserved'`), matching migration 20260711105000.
 
 - [ ] **Step 2: Verify** — `SELECT proname FROM pg_proc WHERE proname LIKE 'fn_%refund%' ORDER BY 1;` expects the 5 new functions + `fn_refund_assignee_match`. Then negative smoke test (safe on prod): `SELECT fn_act_on_refund_request('00000000-0000-0000-0000-000000000000','approve');` → expect `request_not_found` error (proves function compiles & runs).
 
