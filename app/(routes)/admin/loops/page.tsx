@@ -259,6 +259,8 @@ export default async function LoopControlTowerPage({
   try {
     const { data } = await admin
       .from('ai_routine_schedules')
+      // days_of_week + last_fired_at feed the cadence-aware red-state
+      // computation in wire() below — do not drop them from this select.
       .select('routine_id, enabled, days_of_week, minute_of_day, last_status, last_fired_at');
     for (const r of data ?? []) schedById.set(r.routine_id, r);
   } catch {
