@@ -38,6 +38,7 @@ import {
 } from './schedule-editor';
 import { ModelChip, useModelConfigMap, type ModelConfigEntry } from './model-chip';
 import { useMaxLaneRequests, MaxLaneRunButton, MaxLaneNote, type MaxLaneRequest } from './max-lane';
+import { CapChip, useCapPolicyMap } from './cap-chip';
 
 const BRAND = '#0b6d41';
 
@@ -162,9 +163,11 @@ function RoutineRow({
   schedule,
   maxSchedule,
   configMap,
+  capMap,
   maxRequest,
   onMaxQueued,
   onScheduleSaved,
+  onCapSaved,
 }: {
   r: AIRoutine;
   schedule?: ScheduleRow;
@@ -173,9 +176,12 @@ function RoutineRow({
    *  to its Task Scheduler within 15 min, same window as the dispatcher. */
   maxSchedule?: ScheduleRow;
   configMap: Map<string, ModelConfigEntry>;
+  /** Live per-run cap values (platform_policies) for routines with a capPolicyKey. */
+  capMap: Map<string, number>;
   maxRequest?: MaxLaneRequest;
   onMaxQueued: () => void;
   onScheduleSaved: (next: ScheduleRow) => void;
+  onCapSaved: (key: string, value: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -227,6 +233,7 @@ function RoutineRow({
                 <Badge variant="outline" className="font-normal text-muted-foreground">rules-based</Badge>
               )}
               <ModelChip featureKey={r.featureKey} configMap={configMap} />
+              <CapChip capPolicyKey={r.capPolicyKey} capMap={capMap} onSaved={onCapSaved} />
               {schedule && !schedule.enabled ? (
                 <Badge variant="outline" className="gap-1 border-amber-300 text-amber-600 dark:text-amber-400">
                   <PauseCircle className="h-3 w-3" /> paused
@@ -388,6 +395,9 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 export function AiRoutinesControl() {
   const { map, loading, error, setMap } = useSchedules();
   const configMap = useModelConfigMap();
+  const { map: capMap, setValue: onCapSaved } = useCapPolicyMap(
+    AI_ROUTINES.flatMap((r) => (r.capPolicyKey ? [r.capPolicyKey] : [])),
+  );
   const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
   const total = AI_ROUTINES.length;
   const runnable = triggerableCount();
@@ -462,9 +472,11 @@ export function AiRoutinesControl() {
                   schedule={map.get(r.id)}
                   maxSchedule={map.get(`maxlane:${r.id}`)}
                   configMap={configMap}
+                  capMap={capMap}
                   maxRequest={maxMap.get(r.id)}
                   onMaxQueued={refetchMax}
                   onScheduleSaved={onScheduleSaved}
+                  onCapSaved={onCapSaved}
                 />
               ))}
             </div>

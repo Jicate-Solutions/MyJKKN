@@ -45,6 +45,13 @@ export interface AIRoutine {
    * config row (rules-based routines, or no matching seeded key).
    */
   featureKey?: string;
+  /**
+   * platform_policies key holding this routine's editable per-run batch cap
+   * (global scope). Drives the cap chip on /admin/ai-routines: shows the live
+   * value and lets super_admin/admin edit it inline (RLS-gated). Values >= 10000
+   * render as "effectively unlimited" (the curriculum_ai.batch_cap convention).
+   */
+  capPolicyKey?: string;
   /** 1-2 plain sentences a non-coder understands */
   whatItDoes: string;
   /** hardcoded constants/thresholds it uses (name=value pairs) or "none" */
