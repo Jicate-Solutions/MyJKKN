@@ -1149,8 +1149,10 @@ export async function POST(request: NextRequest) {
     // personal subscription seat must not serve other users' product traffic.
     // The RPC re-verifies the allowlist and runner heartbeat server-side; any
     // failure falls through to the cached API path so an answer always comes.
+    let maxLaneMiss: MaxLaneMiss | undefined;
     if (parseMaxLaneUserIds(modelConfig.config_json).includes(user.id)) {
-      const maxAnswer = await tryMaxLane(supabase, message, conversation_id);
+      const { answer: maxAnswer, miss } = await tryMaxLane(supabase, message, conversation_id);
+      maxLaneMiss = miss;
       if (maxAnswer !== null) {
         toolsCalled.push('max_lane');
         await AIQueryService.logQuery({
