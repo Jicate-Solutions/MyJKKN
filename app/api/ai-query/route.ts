@@ -1058,7 +1058,10 @@ async function tryMaxLane(
           // NO server-side delivery stamp here (deep-review consensus): if
           // this response is lost in transit, the row must resurface in the
           // inbox. The client ACKs via PATCH after rendering, using the
-          // request id we hand back.
+          // request id we hand back. KEY MATCH (verified, deep-review round-2
+          // re-raise): request_id IS the row PK — fn_max_chat_request does
+          // `INSERT ... RETURNING id INTO v_id` and returns it, the same q.id
+          // fn_max_chat_inbox selects and fn_max_chat_ack matches on.
           return { answer: st.answer, requestId: req.request_id };
         }
         return { answer: null, miss: 'error' };
