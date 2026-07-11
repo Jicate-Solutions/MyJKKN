@@ -1,8 +1,23 @@
 export const dynamic = 'force-dynamic';
+// Max-lane waits long-poll the chat queue (runner box claims every ~2 min);
+// the API fallback then still needs room for its own tool-use loop.
+export const maxDuration = 300;
 
 /**
  * AI Query API Route
- * Handles natural language queries using Claude with MCP tools
+ * Handles natural language queries using Claude with MCP tools.
+ *
+ * Engine selection (config-governed via ai_model_config, feature
+ * 'ai_query.natural_language'):
+ *  - Users listed in config_json.max_lane_user_ids (the Max-seat OWNER only —
+ *    never a role-wide grant; a personal Claude subscription must not serve
+ *    other users' product traffic) get their question queued to the Max lane
+ *    (max_lane_chat_requests → Windows runner → answer), with automatic
+ *    fallback to the API path on runner-offline/timeout/error.
+ *  - Everyone else goes straight to the API path, which prompt-caches the
+ *    static prefix (tools + static system block, measured ~8.4K tokens) —
+ *    roughly halves the cost of tool-using questions and cuts simple
+ *    no-tool answers ~90% while the cache is warm (5-min TTL).
  */
 
 import { NextRequest, NextResponse, connection } from 'next/server';
@@ -494,9 +509,15 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-// Build system prompt with user context (JKKN Terminology enforced)
-function buildSystemPrompt(context: AIUserContext): string {
-  return `You are an AI assistant for MyJKKN, an educational institution management system following JKKN terminology standards. You help users query and analyze data about learners, learning facilitators, learning participation, billing, and more.
+// System prompt split for prompt caching: this block is byte-identical for
+// every user and request, so it carries the cache_control breakpoint — the
+// whole prefix (tools + this block, measured ~8.4K tokens) is written to the
+// prompt cache once and re-read at 10% input price for 5 minutes, on EVERY
+// call of the tool-use loop. The per-user context lives in a separate small
+// block AFTER it (see buildSystemBlocks) so it can vary without breaking the
+// cached prefix. (Tool RESULTS are per-request data and are deliberately not
+// cache-managed — they never repeat across requests.)
+const STATIC_SYSTEM_PROMPT = `You are an AI assistant for MyJKKN, an educational institution management system following JKKN terminology standards. You help users query and analyze data about learners, learning facilitators, learning participation, billing, and more.
 
 ## JKKN Terminology Standards (MANDATORY)
 You MUST use these terms in ALL responses:
@@ -514,14 +535,6 @@ You MUST use these terms in ALL responses:
 - **Did Not Meet Learning Outcomes** (NOT failed)
 - **Independent Learning Activities** (NOT homework)
 - **Learning Tasks** (NOT assignments)
-
-## Current User Context
-- Name: ${context.full_name}
-- Role: ${context.role}
-- Email: ${context.email}
-${context.is_super_admin ? '- Access Level: Super Admin (full access)' : ''}
-${context.academic_context?.institution_name ? `- Institution: ${context.academic_context.institution_name}` : ''}
-${context.academic_context?.current_academic_year_name ? `- Learning Year: ${context.academic_context.current_academic_year_name}` : ''}
 
 ## Guidelines
 1. Always use the available tools to fetch real data - never make up information
@@ -561,6 +574,24 @@ ${context.academic_context?.current_academic_year_name ? `- Learning Year: ${con
 - Include relevant statistics and summaries
 - Suggest related queries or actions when appropriate
 - Always use JKKN terminology in headings, labels, and explanations`;
+
+// Per-user context — small and per-request, deliberately OUTSIDE the cached
+// block so it never invalidates the static prefix cache.
+function buildUserContextBlock(context: AIUserContext): string {
+  return `## Current User Context
+- Name: ${context.full_name}
+- Role: ${context.role}
+- Email: ${context.email}
+${context.is_super_admin ? '- Access Level: Super Admin (full access)' : ''}
+${context.academic_context?.institution_name ? `- Institution: ${context.academic_context.institution_name}` : ''}
+${context.academic_context?.current_academic_year_name ? `- Learning Year: ${context.academic_context.current_academic_year_name}` : ''}`;
+}
+
+function buildSystemBlocks(context: AIUserContext): Anthropic.TextBlockParam[] {
+  return [
+    { type: 'text', text: STATIC_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: buildUserContextBlock(context) },
+  ];
 }
 
 // Execute a tool call
@@ -946,6 +977,108 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
   ];
 }
 
+// ============================================================================
+// Max-lane chat (seat-owner only)
+// ============================================================================
+// The runner box drains the chat queue every ~1 min, so an unclaimed request
+// after 120s means the box is not picking up. TOTAL wait is capped at 180s —
+// deliberately well under maxDuration=300 so the API fallback (tool-use loop)
+// always has ≥100s of function budget left; a 240s wait raced the 300s kill
+// and could leave the user with NO answer (deep-review consensus finding).
+// The 180/120 split is a REVIEWED trade-off (deep-review round-2 #4): the
+// fallback engine is Haiku (measured ~15s for a 2-call tool question), so
+// ~100s headroom is ~6x the measured worst case; shrinking the lane window
+// further would abandon legitimate Max runs (pickup ≤60s + run ≤110s = 170s).
+const MAX_LANE_POLL_MS = 2_500;
+const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
+const MAX_LANE_TOTAL_DEADLINE_MS = 180_000;
+
+function parseMaxLaneUserIds(configJson: unknown): string[] {
+  if (!configJson || typeof configJson !== 'object') return [];
+  const ids = (configJson as Record<string, unknown>).max_lane_user_ids;
+  return Array.isArray(ids)
+    ? ids.filter((v): v is string => typeof v === 'string')
+    : [];
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Why the Max lane didn't answer — drives the small note appended to the
+ *  API fallback answer (Director edge-case decision 2026-07-11: fallbacks
+ *  should say so, not pretend to be Max). */
+type MaxLaneMiss = 'offline' | 'busy' | 'slow' | 'error';
+
+const MAX_LANE_MISS_NOTE: Record<MaxLaneMiss, string> = {
+  offline: 'ⓘ _Answered by the paid engine — the Max lane machine is asleep._',
+  busy: 'ⓘ _Answered by the paid engine — the Max lane queue was full._',
+  slow: 'ⓘ _Answered by the paid engine — the Max lane didn’t finish in time._',
+  error: 'ⓘ _Answered by the paid engine — the Max lane hit an error._',
+};
+
+/**
+ * Queue one question on the Max lane and wait for the runner's answer.
+ * Returns { answer } on success, or { answer: null, miss } for ANY failure
+ * (runner offline, queue full, unclaimed too long, runner error, timeout) —
+ * a miss always means "use the API path", never an error the user sees.
+ * ('not allowed' returns no miss: the user isn't on the Max lane at all.)
+ */
+async function tryMaxLane(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  message: string,
+  conversationId: string | undefined,
+): Promise<{ answer: string | null; miss?: MaxLaneMiss }> {
+  // Entirely try/caught: a THROWN client/network error (vs a returned one)
+  // must also read as "miss → API path", never as an error the user sees.
+  try {
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const { data: req, error: reqError } = await supabase.rpc('fn_max_chat_request', {
+      p_message: message,
+      p_conversation_id:
+        conversationId && uuidRe.test(conversationId) ? conversationId : null,
+    });
+    if (reqError || !req?.ok || typeof req?.request_id !== 'string') {
+      const errText = typeof req?.error === 'string' ? req.error : '';
+      if (errText === 'runner offline') return { answer: null, miss: 'offline' };
+      if (errText === 'queue full') return { answer: null, miss: 'busy' };
+      return { answer: null }; // not allowed / invalid — plain API path, no note
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < MAX_LANE_TOTAL_DEADLINE_MS) {
+      await sleep(MAX_LANE_POLL_MS);
+      const { data: st, error: stError } = await supabase.rpc('fn_max_chat_status', {
+        p_id: req.request_id,
+      });
+      if (stError || !st || typeof st.status !== 'string') continue; // transient — keep polling
+      if (st.status === 'done') {
+        // Terminal either way: a done row with an empty/whitespace answer is
+        // a runner defect — fall back NOW instead of polling a finished row
+        // to the deadline (deep-review finding).
+        if (typeof st.answer === 'string' && st.answer.trim().length > 0) {
+          return { answer: st.answer };
+        }
+        return { answer: null, miss: 'error' };
+      }
+      if (st.status === 'error') return { answer: null, miss: 'error' };
+      // Row vanished (expired/swept by the claim RPC's hygiene pass) — stop
+      // polling a ghost; fall back immediately.
+      if (st.status === 'not_found') return { answer: null, miss: 'error' };
+      if (st.status === 'pending' && Date.now() - startedAt > MAX_LANE_UNCLAIMED_DEADLINE_MS) {
+        break; // runner never claimed it — don't burn the full window waiting
+      }
+    }
+
+    // Abandoning the wait: cancel so a late-claiming runner doesn't burn the
+    // seat on a question the API fallback is about to answer anyway. (A late
+    // completion is discarded — complete only updates status='claimed' rows.)
+    await supabase.rpc('fn_max_chat_cancel', { p_id: req.request_id });
+    return { answer: null, miss: 'slow' };
+  } catch (err) {
+    console.error('[ai-query] max-lane attempt threw — falling back to API:', err);
+    return { answer: null, miss: 'error' };
+  }
+}
+
 export async function POST(request: NextRequest) {
   await connection();
   const startTime = Date.now();
@@ -963,6 +1096,8 @@ export async function POST(request: NextRequest) {
   let aiAttempted = false;
   let aiInputTokens = 0;
   let aiOutputTokens = 0;
+  let aiCacheCreationTokens = 0;
+  let aiCacheReadTokens = 0;
   let aiDurationMs = 0;
   // Set once the success row is written, so a later throw (e.g. logQuery
   // failing AFTER the AI call succeeded) can't add a second failure row.
@@ -1026,8 +1161,51 @@ export async function POST(request: NextRequest) {
     // Resolve the model ONCE per request and reuse it for the initial call AND
     // every tool-use continuation — resolving per-iteration risks a mid-loop
     // model flip when the config service's 60s cache expires. Never throws.
-    const { model_id: modelForRequest } = await resolveChatModel(FEATURE_KEY);
+    const { model_id: modelForRequest, resolved: modelConfig } =
+      await resolveChatModel(FEATURE_KEY);
     aiModelId = modelForRequest;
+
+    // ── Max-lane branch (seat-owner only, config-governed) ──────────────────
+    // ai_model_config.config_json.max_lane_user_ids lists the auth.users ids
+    // whose questions run on the Claude Max seat via the runner box. This must
+    // stay a per-user allowlist (the seat owner), NEVER a role-wide grant — a
+    // personal subscription seat must not serve other users' product traffic.
+    // The RPC re-verifies the allowlist and runner heartbeat server-side; any
+    // failure falls through to the cached API path so an answer always comes.
+    let maxLaneMiss: MaxLaneMiss | undefined;
+    if (parseMaxLaneUserIds(modelConfig.config_json).includes(user.id)) {
+      const { answer: maxAnswer, miss } = await tryMaxLane(supabase, message, conversation_id);
+      maxLaneMiss = miss;
+      if (maxAnswer !== null) {
+        toolsCalled.push('max_lane');
+        await AIQueryService.logQuery({
+          userId: user.id,
+          institutionId: userContext.institution_ids?.[0],
+          queryText: message,
+          queryType: 'data_query',
+          toolsCalled,
+          responseTimeMs: Date.now() - startTime,
+          success: true,
+          ipAddress,
+          userAgent,
+        });
+        // No ai_model_usage row from the route on this path — the runner
+        // records the seat call (provider=claude_code, model=max-subscription,
+        // cost_inr=0) so /admin/ai-models still sees every invocation.
+        return NextResponse.json({
+          conversation_id: conversation_id || crypto.randomUUID(),
+          message: {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: maxAnswer,
+            timestamp: new Date().toISOString(),
+            toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
+          },
+          suggestions: getContextAwareSuggestions(toolsCalled),
+          rate_limit: rateLimit,
+        });
+      }
+    }
 
     // Build messages for Claude
     const messages: Anthropic.MessageParam[] = [
@@ -1040,13 +1218,15 @@ export async function POST(request: NextRequest) {
     let response = await anthropic.messages.create({
       model: modelForRequest,
       max_tokens: 4096,
-      system: buildSystemPrompt(userContext),
+      system: buildSystemBlocks(userContext),
       tools: AI_TOOLS,
       messages,
     });
     aiDurationMs += Date.now() - aiCallStart;
     aiInputTokens += response.usage?.input_tokens ?? 0;
     aiOutputTokens += response.usage?.output_tokens ?? 0;
+    aiCacheCreationTokens += response.usage?.cache_creation_input_tokens ?? 0;
+    aiCacheReadTokens += response.usage?.cache_read_input_tokens ?? 0;
 
     // Process tool calls
     while (response.stop_reason === 'tool_use') {
@@ -1083,23 +1263,32 @@ export async function POST(request: NextRequest) {
       response = await anthropic.messages.create({
         model: modelForRequest,
         max_tokens: 4096,
-        system: buildSystemPrompt(userContext),
+        system: buildSystemBlocks(userContext),
         tools: AI_TOOLS,
         messages,
       });
       aiDurationMs += Date.now() - aiCallStart;
       aiInputTokens += response.usage?.input_tokens ?? 0;
       aiOutputTokens += response.usage?.output_tokens ?? 0;
+      aiCacheCreationTokens += response.usage?.cache_creation_input_tokens ?? 0;
+      aiCacheReadTokens += response.usage?.cache_read_input_tokens ?? 0;
     }
 
     // Record aggregated usage for the whole request (internally non-throwing).
     // Separate ledger from AIQueryService.logQuery (ai query log has no token
     // fields) — this writes ai_model_usage so /admin/ai-models sees the spend.
+    // Cache-aware cost: cache WRITES bill at 1.25x the input price and cache
+    // READS at 0.1x, so fold both into a weighted input count for the linear
+    // pricer. The ledger's input_tokens stays the RAW total processed
+    // (uncached + writes + reads) so token volume is honest.
+    const billableInputTokens = Math.round(
+      aiInputTokens + 1.25 * aiCacheCreationTokens + 0.1 * aiCacheReadTokens,
+    );
     await recordChatUsage(FEATURE_KEY, 'anthropic', modelForRequest, {
-      input_tokens: aiInputTokens,
+      input_tokens: aiInputTokens + aiCacheCreationTokens + aiCacheReadTokens,
       output_tokens: aiOutputTokens,
       cost_inr:
-        computeChatCostInr(modelForRequest, aiInputTokens, aiOutputTokens) ??
+        computeChatCostInr(modelForRequest, billableInputTokens, aiOutputTokens) ??
         undefined,
       duration_ms: aiDurationMs,
       success: true,
@@ -1110,7 +1299,12 @@ export async function POST(request: NextRequest) {
     const textBlocks = response.content.filter(
       (block): block is Anthropic.TextBlock => block.type === 'text'
     );
-    const responseText = textBlocks.map(b => b.text).join('\n');
+    let responseText = textBlocks.map(b => b.text).join('\n');
+    // Max-lane user whose question fell back here: say so (small footer note)
+    // instead of silently pretending the seat answered.
+    if (maxLaneMiss) {
+      responseText = `${responseText}\n\n${MAX_LANE_MISS_NOTE[maxLaneMiss]}`;
+    }
 
     // Log the query
     const responseTime = Date.now() - startTime;
@@ -1149,7 +1343,8 @@ export async function POST(request: NextRequest) {
     // is internally non-throwing.
     if (aiAttempted && aiModelId && !aiUsageRecorded) {
       await recordChatUsage(FEATURE_KEY, 'anthropic', aiModelId, {
-        input_tokens: aiInputTokens || undefined,
+        input_tokens:
+          (aiInputTokens + aiCacheCreationTokens + aiCacheReadTokens) || undefined,
         output_tokens: aiOutputTokens || undefined,
         duration_ms: Date.now() - startTime,
         success: false,
