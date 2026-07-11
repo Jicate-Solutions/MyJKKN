@@ -1050,8 +1050,14 @@ async function tryMaxLane(
         p_id: req.request_id,
       });
       if (stError || !st || typeof st.status !== 'string') continue; // transient — keep polling
-      if (st.status === 'done' && typeof st.answer === 'string' && st.answer.trim().length > 0) {
-        return { answer: st.answer };
+      if (st.status === 'done') {
+        // Terminal either way: a done row with an empty/whitespace answer is
+        // a runner defect — fall back NOW instead of polling a finished row
+        // to the deadline (deep-review finding).
+        if (typeof st.answer === 'string' && st.answer.trim().length > 0) {
+          return { answer: st.answer };
+        }
+        return { answer: null, miss: 'error' };
       }
       if (st.status === 'error') return { answer: null, miss: 'error' };
       // Row vanished (expired/swept by the claim RPC's hygiene pass) — stop
