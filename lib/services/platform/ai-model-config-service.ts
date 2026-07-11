@@ -141,6 +141,36 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
       monthly_spend_cap_inr: data.monthly_spend_cap_inr,
     };
 
+    // Spend-cap ENFORCEMENT (Director decision 2026-07-11: the cap box is
+    // real, not decorative). When month-to-date spend has crossed the row's
+    // cap, an anthropic feature degrades to the cheapest chat model instead
+    // of going dark — answers keep flowing, cost stops climbing. Non-anthropic
+    // features keep their model (a chat-model swap would break their modality:
+    // whisper/gemini/gpt rows), so the cap stays advisory there. Runs only on
+    // cache miss → ≤60s enforcement lag per instance; any check failure is
+    // fail-open (never block AI because the ledger was unreachable).
+    if (
+      resolved.monthly_spend_cap_inr !== null &&
+      resolved.monthly_spend_cap_inr > 0 &&
+      resolved.provider === 'anthropic' &&
+      resolved.model_id !== CAP_DEGRADE_MODEL_ID
+    ) {
+      const { data: spend, error: spendError } = await supabase.rpc(
+        'fn_ai_feature_mtd_spend',
+        { p_feature_key: featureKey },
+      );
+      const mtd = typeof spend === 'number' ? spend : Number(spend);
+      if (!spendError && Number.isFinite(mtd) && mtd >= resolved.monthly_spend_cap_inr) {
+        console.warn(
+          `[ai-model-config] ${featureKey}: MTD spend ₹${mtd.toFixed(0)} >= cap ` +
+            `₹${resolved.monthly_spend_cap_inr} — degrading ${resolved.model_id} → ${CAP_DEGRADE_MODEL_ID}`,
+        );
+        resolved.over_cap = true;
+        resolved.capped_from_model_id = resolved.model_id;
+        resolved.model_id = CAP_DEGRADE_MODEL_ID;
+      }
+    }
+
     setCached(featureKey, resolved);
     return resolved;
   } catch (err) {
