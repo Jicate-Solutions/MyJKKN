@@ -109,11 +109,19 @@ export async function GET(_request: NextRequest) {
       stats.set(key, s);
     }
 
-    // 3. Stitch together
+    // 3. Stitch together. config_json is SANITIZED to derived lane flags —
+    // the raw blob can hold the Max seat owner's auth.users id
+    // (max_lane_user_ids), which no browser needs (deep-review finding #8).
     const enriched: FeatureWithUsage[] = features.map((f) => {
       const s = stats.get(f.feature_key);
+      const cj = (f.config_json ?? {}) as Record<string, unknown>;
+      const seatUsers = Array.isArray(cj.max_lane_user_ids) ? cj.max_lane_user_ids.length : 0;
       return {
         ...f,
+        config_json: {
+          ...(typeof cj.lane === 'string' ? { lane: cj.lane } : {}),
+          ...(seatUsers > 0 ? { seat_lane_user_count: seatUsers } : {}),
+        },
         month_to_date_cost_inr: s?.mtd_cost ?? 0,
         month_to_date_invocations: s?.mtd_count ?? 0,
         month_to_date_success_rate: s && s.mtd_count > 0 ? s.mtd_success / s.mtd_count : 1,
