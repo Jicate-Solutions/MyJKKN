@@ -36,6 +36,7 @@ import { getModelLabel } from '@/lib/services/platform/ai-providers';
 import { AI_ROUTINES } from '@/lib/ai-routines/registry';
 import type { AIRoutine } from '@/lib/ai-routines/types';
 
+import { Switch } from '@/components/ui/switch';
 import { AiModelEditDialog } from './ai-model-edit-dialog';
 // Shared Max-lane plumbing (button + status hook) — source of truth lives with
 // the AI Routines page; reused here so both pages queue via the same
@@ -44,6 +45,7 @@ import {
   MaxLaneRunButton,
   useMaxLaneRequests,
 } from '@/app/(routes)/admin/ai-routines/_components/max-lane';
+import type { ScheduleRow } from '@/app/(routes)/admin/ai-routines/_components/schedule-editor';
 
 // Reverse cross-link: which /admin/ai-routines entries run on each feature row.
 // Static registry data, computed once at module scope (no hooks involved).
