@@ -59,12 +59,17 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
       .from('resources')
       .select('id,name,resource_code,description,status,current_stock_quantity')
       .eq('institution_id', ctx.institutionId)
-      .not('status', 'in', `(${HIDDEN_STATUSES.join(',')})`)
+      // NULL status must stay visible: `status not in (...)` is NULL for unset
+      // rows and would silently drop them from the picker.
+      .or(`status.is.null,status.not.in.(${HIDDEN_STATUSES.join(',')})`)
       .order('name')
       .limit(20);
-    const needle = query.trim();
+    // Double-quote the ilike patterns so commas/parens/dots in user input stay
+    // literal instead of re-parsing as PostgREST filter syntax (injection);
+    // strip the two chars that would break out of the quotes.
+    const needle = query.trim().replace(/["\\]/g, '');
     if (needle) {
-      q = q.or(`name.ilike.%${needle}%,resource_code.ilike.%${needle}%`);
+      q = q.or(`name.ilike."%${needle}%",resource_code.ilike."%${needle}%"`);
     }
     const { data, error } = await q;
     if (error) throw error;
@@ -85,7 +90,11 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
 
   async postReceipt(line: AcceptedReceiptLine, _ctx: DomainCtx): Promise<void> {
     const totalValue = line.totalValue ?? line.costPrice * line.acceptedQuantity;
+    // The RPC binds the write to this exact GRN line (must be linked to the
+    // resource, in a verified resource_mgmt GRN of the same institution) and
+    // claims it exactly-once via domain_posted_at — a re-post is a no-op.
     const { error } = await db().rpc('fn_procurement_rm_post_receipt', {
+      p_grn_item_id: line.grnItemId,
       p_resource_id: line.domainItemId,
       p_quantity: line.acceptedQuantity,
       p_total_value: totalValue,
@@ -93,11 +102,18 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
     if (error) throw error;
   },
 
-  async reconcileNewItem(snapshot: ItemSnapshot, ctx: DomainCtx): Promise<string> {
+  async reconcileNewItem(
+    snapshot: ItemSnapshot,
+    ctx: DomainCtx,
+    poItemId?: string | null
+  ): Promise<string> {
+    // Passing the PO line lets the RPC lock it and reuse an already-materialized
+    // draft (split delivery: GRN2 tops up GRN1's record instead of duplicating).
     const { data, error } = await db().rpc('fn_procurement_rm_reconcile_new_item', {
       p_institution_id: ctx.institutionId,
       p_name: snapshot.name,
       p_description: snapshot.spec ?? null,
+      p_po_item_id: poItemId ?? null,
     });
     if (error) throw error;
     return data as string;

@@ -69,6 +69,12 @@ export interface AcceptedReceiptLine {
   grnId: string;
   grnNumber: string;
   purchaseOrderId?: string | null;
+  /**
+   * The procurement_grn_items row driving this post. Domains that post via a
+   * SECURITY DEFINER RPC (RM) hand it to the DB so the write is bound to a real
+   * verified line and claimed exactly-once (domain_posted_at).
+   */
+  grnItemId: string;
 }
 
 /**
@@ -94,6 +100,8 @@ export interface ProcurementDomainAdapter {
    * Optional: materialize a "new item" Purchase Request (domain_item_id === null)
    * into the domain catalog after approval, returning the new domain_item_id.
    * Domains that don't support catalog creation may omit this.
+   * `poItemId` lets the domain dedupe split deliveries against the PO line —
+   * a second GRN for the same line reuses the already-materialized item.
    */
-  reconcileNewItem?(snapshot: ItemSnapshot, ctx: DomainCtx): Promise<string>;
+  reconcileNewItem?(snapshot: ItemSnapshot, ctx: DomainCtx, poItemId?: string | null): Promise<string>;
 }

@@ -297,78 +297,145 @@ export class ProcurementGrnService {
       const adapter = getAdapter(domain);
 
       // 3) Post each accepted line into the domain's inventory.
+      //    Retry-safe (review 2026-07-11): lines that already posted carry
+      //    domain_posted_at and are skipped; a mid-loop failure reopens the GRN
+      //    (catch below) so verify can be re-run instead of stranding a partial
+      //    post on the money path.
       let anyRejected = false;
       let anyReplacement = false;
-      for (const line of grn.items) {
-        const accepted = Number(line.accepted_quantity);
-        if (Number(line.rejected_quantity) > 0) anyRejected = true;
-        if (line.replacement_required && Number(line.rejected_quantity) > 0) {
-          anyReplacement = true;
-          await this.supabase.from('procurement_grn_replacements').insert({
-            grn_item_id: line.id,
-            rejected_quantity: Number(line.rejected_quantity),
-            reason: line.rejection_reason ?? line.mismatch_remarks ?? null,
-            status: 'pending',
-          });
-        }
-        if (accepted <= 0) continue;
+      try {
+        for (const line of grn.items) {
+          const accepted = Number(line.accepted_quantity);
+          if (Number(line.rejected_quantity) > 0) anyRejected = true;
+          if (line.replacement_required && Number(line.rejected_quantity) > 0) {
+            anyReplacement = true;
+            // One replacement request per line — a retry must not duplicate it.
+            const { data: existingRep, error: repSelErr } = await this.supabase
+              .from('procurement_grn_replacements')
+              .select('id')
+              .eq('grn_item_id', line.id)
+              .limit(1)
+              .maybeSingle();
+            if (repSelErr) throw repSelErr;
+            if (!existingRep) {
+              const { error: repErr } = await this.supabase
+                .from('procurement_grn_replacements')
+                .insert({
+                  grn_item_id: line.id,
+                  rejected_quantity: Number(line.rejected_quantity),
+                  reason: line.rejection_reason ?? line.mismatch_remarks ?? null,
+                  status: 'pending',
+                });
+              if (repErr) throw repErr;
+            }
+          }
+          if (accepted <= 0) continue;
 
-        // "New item" lines carry no catalog id. Materialize one via the domain's
-        // reconcileNewItem hook (draft/needs-setup record) so the receipt can post;
-        // persist the id back so replacements and re-reads see a linked line.
-        // Domains without the hook: skip posting (never crash the verify).
-        let domainItemId: string | null = line.domain_item_id ?? null;
-        if (!domainItemId && adapter.reconcileNewItem) {
-          domainItemId = await adapter.reconcileNewItem(
-            { name: line.item_name, isChemical: line.is_chemical ?? undefined },
-            ctx
-          );
-          await this.supabase
-            .from('procurement_grn_items')
-            .update({ domain_item_id: domainItemId })
-            .eq('id', line.id);
+          let domainItemId: string | null = line.domain_item_id ?? null;
+          if (!line.domain_posted_at) {
+            // "New item" lines carry no catalog id. Materialize one via the domain's
+            // reconcileNewItem hook (draft/needs-setup record) so the receipt can post;
+            // persist the id back so replacements and re-reads see a linked line.
+            // Domains without the hook: skip posting (never crash the verify).
+            if (!domainItemId && adapter.reconcileNewItem) {
+              domainItemId = await adapter.reconcileNewItem(
+                { name: line.item_name, isChemical: line.is_chemical ?? undefined },
+                ctx,
+                line.po_item_id ?? null
+              );
+              const { error: linkErr } = await this.supabase
+                .from('procurement_grn_items')
+                .update({ domain_item_id: domainItemId })
+                .eq('id', line.id);
+              if (linkErr) throw linkErr;
+              if (line.po_item_id) {
+                const { error: poLinkErr } = await this.supabase
+                  .from('procurement_purchase_order_items')
+                  .update({ domain_item_id: domainItemId })
+                  .eq('id', line.po_item_id);
+                if (poLinkErr) throw poLinkErr;
+              }
+            }
+            if (!domainItemId) continue;
+
+            await adapter.postReceipt(
+              {
+                domainItemId,
+                acceptedQuantity: accepted,
+                costPrice: Number(line.cost_price),
+                totalValue: Number(line.cost_price) * accepted,
+                batchNumber: line.batch_number,
+                expiryDate: line.expiry_date,
+                manufacturingDate: line.manufacturing_date,
+                grnId: grn.id,
+                grnNumber: grn.grn_number,
+                purchaseOrderId: grn.purchase_order_id,
+                grnItemId: line.id,
+              },
+              ctx
+            );
+
+            // Mark the line posted. The RM RPC already claimed it inside its own
+            // transaction (this update then matches 0 rows); the write is for
+            // domains that post client-side (IMS).
+            const { error: postedErr } = await this.supabase
+              .from('procurement_grn_items')
+              .update({ domain_posted_at: new Date().toISOString() })
+              .eq('id', line.id)
+              .is('domain_posted_at', null);
+            if (postedErr) throw postedErr;
+          } else if (!domainItemId) {
+            continue; // posted implies linked; defensive
+          }
+
+          // 4) Recompute the PO line's received_quantity from verified GRN lines
+          //    (idempotent set, not a read-then-increment — safe on retry and
+          //    under concurrent GRNs; rejected qty still owes delivery, keeping
+          //    the PO open for a replacement).
           if (line.po_item_id) {
-            await this.supabase
+            const { data: siblingLines, error: sumErr } = await this.supabase
+              .from('procurement_grn_items')
+              .select('accepted_quantity, grn:procurement_grn!inner(status)')
+              .eq('po_item_id', line.po_item_id)
+              .in('grn.status', ['accepted', 'partially_accepted', 'completed', 'replacement_requested']);
+            if (sumErr) throw sumErr;
+            const received = (siblingLines ?? []).reduce(
+              (sum: number, r: { accepted_quantity: number | null }) =>
+                sum + Number(r.accepted_quantity ?? 0),
+              0
+            );
+            const { error: advErr } = await this.supabase
               .from('procurement_purchase_order_items')
-              .update({ domain_item_id: domainItemId })
+              .update({ received_quantity: received })
               .eq('id', line.po_item_id);
+            if (advErr) throw advErr;
           }
         }
-        if (!domainItemId) continue;
 
-        await adapter.postReceipt(
-          {
-            domainItemId,
-            acceptedQuantity: accepted,
-            costPrice: Number(line.cost_price),
-            totalValue: Number(line.cost_price) * accepted,
-            batchNumber: line.batch_number,
-            expiryDate: line.expiry_date,
-            manufacturingDate: line.manufacturing_date,
-            grnId: grn.id,
-            grnNumber: grn.grn_number,
-            purchaseOrderId: grn.purchase_order_id,
-          },
-          ctx
-        );
-
-        // 4) Advance the PO line's received_quantity by accepted qty (rejected qty
-        //    still owes delivery, keeping the PO open for a replacement).
-        const { data: poItem } = await this.supabase
-          .from('procurement_purchase_order_items')
-          .select('id, received_quantity')
-          .eq('id', line.po_item_id)
-          .single();
-        if (poItem) {
-          await this.supabase
-            .from('procurement_purchase_order_items')
-            .update({ received_quantity: Number(poItem.received_quantity ?? 0) + accepted })
-            .eq('id', line.po_item_id);
+        // 5) Recompute PO status: completed when every line is fully received.
+        await this.refreshPoReceiptStatus(grn.purchase_order_id);
+      } catch (postError) {
+        // Compensate: reopen the GRN so verify can be retried. Already-posted
+        // lines no-op on the retry (domain_posted_at skip + RPC-side claim), so
+        // re-running converges instead of double-posting.
+        const { error: revertErr } = await this.supabase
+          .from('procurement_grn')
+          .update({
+            status: 'pending_verification',
+            verified_by: null,
+            verified_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id)
+          .eq('status', 'accepted');
+        if (revertErr) {
+          console.error(
+            '[ProcurementGrnService] verifyGrn: post failed AND the GRN could not be reopened — needs manual status reset',
+            revertErr
+          );
         }
+        throw postError;
       }
-
-      // 5) Recompute PO status: completed when every line is fully received.
-      await this.refreshPoReceiptStatus(grn.purchase_order_id);
 
       // 6) Refine the GRN's terminal status now that posting is done.
       const finalStatus = anyReplacement
@@ -569,24 +636,30 @@ export class ProcurementGrnService {
             grnId: grn.id,
             grnNumber,
             purchaseOrderId: parentGrn.purchase_order_id,
+            grnItemId: newItem.id,
           },
           ctx
         );
       }
 
-      // 7) Advance the PO line + recompute PO status.
-      const { data: poItem } = await this.supabase
+      // 7) Recompute the PO line's received_quantity from verified GRN lines
+      //    (idempotent set — same mechanism as verifyGrn) + recompute PO status.
+      const { data: siblingLines, error: sumErr } = await this.supabase
+        .from('procurement_grn_items')
+        .select('accepted_quantity, grn:procurement_grn!inner(status)')
+        .eq('po_item_id', originItem.po_item_id)
+        .in('grn.status', ['accepted', 'partially_accepted', 'completed', 'replacement_requested']);
+      if (sumErr) throw sumErr;
+      const received = (siblingLines ?? []).reduce(
+        (sum: number, r: { accepted_quantity: number | null }) =>
+          sum + Number(r.accepted_quantity ?? 0),
+        0
+      );
+      await this.supabase
         .from('procurement_purchase_order_items')
-        .select('id, received_quantity')
-        .eq('id', originItem.po_item_id)
-        .single();
-      if (poItem) {
-        await this.supabase
-          .from('procurement_purchase_order_items')
-          .update({ received_quantity: Number(poItem.received_quantity ?? 0) + accepted })
-          .eq('id', originItem.po_item_id);
-        await this.refreshPoReceiptStatus(parentGrn.purchase_order_id);
-      }
+        .update({ received_quantity: received })
+        .eq('id', originItem.po_item_id);
+      await this.refreshPoReceiptStatus(parentGrn.purchase_order_id);
 
       // 8) Link the fulfilment back to the pending row.
       await this.supabase

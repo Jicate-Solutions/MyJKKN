@@ -802,13 +802,21 @@ export class ResourceService {
   /**
    * Get resources for select/dropdown
    */
-  /** Count of procurement-intake drafts awaiting setup (tags contains 'needs-setup'). */
-  static async getNeedsSetupCount(): Promise<number> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { count, error } = await (this.supabase as any)
+  /**
+   * Count of procurement-intake drafts awaiting setup (tags contains 'needs-setup').
+   * Scope with the same institution filter as the list so the badge count always
+   * matches what the click-through shows (RLS already prevents cross-tenant reads
+   * for own-scope roles; the filter aligns the count for scope-'all' users too).
+   */
+  static async getNeedsSetupCount(institutionId?: string): Promise<number> {
+    let query = (this.supabase as any)
       .from('resources')
       .select('id', { count: 'exact', head: true })
       .contains('tags', ['needs-setup']);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { count, error } = await query;
     if (error) throw error;
     return count ?? 0;
   }

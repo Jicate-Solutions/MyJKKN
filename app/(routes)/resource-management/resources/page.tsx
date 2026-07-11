@@ -2,7 +2,7 @@
 // app/(routes)/resource-management/resources/page.tsx
 
 
-import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Eye, Package, ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -60,12 +60,20 @@ export default function ResourcesPage() {
 
   // Procurement-intake drafts awaiting room/caretaker ("needs-setup" tag) —
   // Director decision 2026-07-11: visible counter + one-click filter.
+  // Scoped to the list's institution filter so count and click-through agree;
+  // the sequence ref drops out-of-order responses when refetches overlap.
   const [needsSetupCount, setNeedsSetupCount] = useState<number | null>(null);
+  const needsSetupReqSeq = useRef(0);
   useEffect(() => {
-    ResourceService.getNeedsSetupCount()
-      .then(setNeedsSetupCount)
-      .catch(() => setNeedsSetupCount(null));
-  }, [resources]);
+    const seq = ++needsSetupReqSeq.current;
+    ResourceService.getNeedsSetupCount(filters.institution_id)
+      .then((count) => {
+        if (seq === needsSetupReqSeq.current) setNeedsSetupCount(count);
+      })
+      .catch(() => {
+        if (seq === needsSetupReqSeq.current) setNeedsSetupCount(null);
+      });
+  }, [resources, filters.institution_id]);
 
   const canViewResources =
     isSuperAdmin || canAccess('resources.resources', 'view');
@@ -385,7 +393,9 @@ export default function ResourcesPage() {
                       : 'bg-amber-100 text-amber-900 hover:bg-amber-200'
                   }
                 >
-                  Needs setup: {needsSetupCount ?? 0}
+                  {/* null = count unavailable (fetch failed) — show a neutral
+                      dash rather than a misleading 0 while the filter is on */}
+                  Needs setup: {needsSetupCount ?? '—'}
                 </Badge>
               </button>
             )}
