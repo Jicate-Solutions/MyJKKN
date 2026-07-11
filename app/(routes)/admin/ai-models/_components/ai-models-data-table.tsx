@@ -67,6 +67,93 @@ const ROUTINE_TYPE_LABELS: Record<AIRoutine['type'], string> = {
   service: 'Service',
 };
 
+// ---------------------------------------------------------------------------
+// Max-lane schedule rows (`maxlane:<routine-id>` in ai_routine_schedules) —
+// the REAL on/off switch for a routine's subscription-lane schedule. Edits go
+// through the same POST the AI Routines page uses; the runner box's
+// schedule-sync re-reads them within ~15 minutes.
+// ---------------------------------------------------------------------------
+function useMaxLaneSchedules() {
+  const [map, setMap] = useState<Map<string, ScheduleRow>>(new Map());
+
+  const load = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/admin/ai-routines/schedule', { cache: 'no-store' });
+      if (!resp.ok) return; // 403/500 → switches simply don't render
+      const json = await resp.json();
+      const rows: ScheduleRow[] = Array.isArray(json?.schedules) ? json.schedules : [];
+      const m = new Map<string, ScheduleRow>();
+      for (const r of rows) {
+        if (typeof r?.routine_id === 'string' && r.routine_id.startsWith('maxlane:')) {
+          m.set(r.routine_id, r);
+        }
+      }
+      setMap(m);
+    } catch {
+      // silent — switches don't render
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { map, refetch: load };
+}
+
+function fmtIstTime(minuteOfDay: number): string {
+  const h = Math.floor(minuteOfDay / 60);
+  const m = minuteOfDay % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} IST`;
+}
+
+/** Plain-English lane badge for one feature row. Absence of a badge = plain
+ *  API feature with nothing special to say. */
+function LaneBadge({ f, routines, scheduleMap }: {
+  f: FeatureRow;
+  routines: AIRoutine[];
+  scheduleMap: Map<string, ScheduleRow>;
+}) {
+  const seatOwnerIds = Array.isArray(f.config_json?.max_lane_user_ids)
+    ? (f.config_json.max_lane_user_ids as unknown[])
+    : [];
+  if (seatOwnerIds.length > 0) {
+    return (
+      <Badge variant="outline" className="mt-1 gap-1 border-[#0b6d41]/40 text-[11px] font-normal text-[#0b6d41]">
+        <Zap className="h-3 w-3" /> Max for Director · API for others
+      </Badge>
+    );
+  }
+  const maxRoutine = routines.find((r) => r.maxLane);
+  if (maxRoutine) {
+    const sched = scheduleMap.get(`maxlane:${maxRoutine.id}`);
+    if (sched?.enabled) {
+      return (
+        <Badge variant="outline" className="mt-1 gap-1 border-[#0b6d41]/40 text-[11px] font-normal text-[#0b6d41]">
+          <Zap className="h-3 w-3" /> Max first · API backup
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className="mt-1 gap-1 text-[11px] font-normal text-muted-foreground">
+        <Zap className="h-3 w-3" /> Max on demand
+      </Badge>
+    );
+  }
+  if (f.config_json?.lane === 'api_policy') {
+    return (
+      <Badge
+        variant="outline"
+        className="mt-1 text-[11px] font-normal text-muted-foreground"
+        title="Serves students or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
+      >
+        API only · policy
+      </Badge>
+    );
+  }
+  return null;
+}
+
 interface FeatureRow {
   feature_key: string;
   display_name: string;
