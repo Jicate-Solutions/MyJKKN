@@ -47,6 +47,10 @@ export interface ResolvedModel {
   fallback_provider: string | null;
   fallback_model_id: string | null;
   monthly_spend_cap_inr: number | null;
+  /** True when spend-cap enforcement swapped model_id to the degrade model. */
+  over_cap?: boolean;
+  /** The configured model that was swapped away from (over_cap only). */
+  capped_from_model_id?: string;
 }
 
 export interface RecordUsageInput {
