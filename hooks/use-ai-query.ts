@@ -197,6 +197,17 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
         return [...filtered, assistantMessage];
       });
 
+      // Live Max-lane delivery: acknowledge AFTER the answer is in state so a
+      // response lost before this point would have resurfaced via the inbox.
+      const maxRequestId = (data as { max_request_id?: unknown }).max_request_id;
+      if (typeof maxRequestId === 'string' && maxRequestId.length > 0) {
+        void fetch('/api/ai-query', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ack_ids: [maxRequestId] }),
+        }).catch(() => {});
+      }
+
       options.onMessage?.(assistantMessage);
 
     } catch (err) {
