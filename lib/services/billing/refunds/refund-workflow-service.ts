@@ -131,7 +131,9 @@ export class RefundWorkflowService {
     if (filters.student_id) q = q.eq('student_id', filters.student_id);
     if (filters.search) q = q.ilike('request_number', `%${filters.search}%`);
     if (filters.date_from) q = q.gte('initiated_at', filters.date_from);
-    if (filters.date_to) q = q.lte('initiated_at', filters.date_to);
+    // date_to is a bare YYYY-MM-DD; initiated_at is timestamptz. Extend to the
+    // end of that day so the selected end date stays inclusive (repo convention).
+    if (filters.date_to) q = q.lte('initiated_at', `${filters.date_to}T23:59:59Z`);
     const page = filters.page ?? 1, limit = filters.limit ?? 10;
     q = q.order('initiated_at', { ascending: false }).range((page - 1) * limit, page * limit - 1);
     const { data, count, error } = await q;
