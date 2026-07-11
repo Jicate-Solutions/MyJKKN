@@ -3,7 +3,7 @@
  * React hook for the AI Query System
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   AIQueryMessage,
   AIQueryResponse,
