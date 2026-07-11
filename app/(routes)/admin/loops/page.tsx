@@ -333,7 +333,7 @@ export default async function LoopControlTowerPage({
     routineId: string | null,
     featureKey: string | null,
     staticCfg: string,
-  ): { cfg: string; lastRun?: string; configHref?: string } => {
+  ): { cfg: string; lastRun?: string; lastRunBad?: boolean; configHref?: string } => {
     // "Live" ONLY when the loop has a dispatcher SCHEDULE row — that's what makes
     // it editable on AI Routines and gives it a real last_status. A model row
     // alone (direct-cron loops like induction-session) is NOT enough: keep the
@@ -342,9 +342,22 @@ export default async function LoopControlTowerPage({
     if (!live) return { cfg: staticCfg };
     const model = featureKey ? modelByKey.get(featureKey) ?? null : null;
     const parts = [fmtSchedule(routineId!), model].filter(Boolean) as string[];
+    const sched = schedById.get(routineId!);
+    // Red-state computation (watchdog wire, 2026-07-11): errored last run OR
+    // silent past the daily cadence (26h = cadence + slack; matches
+    // /api/cron/loop-watchdog exactly — the page shows red live, the cron
+    // reaches you when nobody is looking). Never-fired rows aren't flagged
+    // here: without a seed date the page can't distinguish "new" from "dead";
+    // the watchdog cron handles those via updated_at.
+    const staleCutoff = Date.now() - 26 * 3600_000;
+    const lastRunBad = Boolean(
+      (sched?.last_status && /HTTP [45]\d\d|timeout|timed out|failed|exception|not in registry/i.test(sched.last_status)) ||
+        (sched?.last_fired_at && new Date(sched.last_fired_at).getTime() < staleCutoff)
+    );
     return {
       cfg: `${parts.join(' · ')} · editable on AI Routines`,
-      lastRun: schedById.get(routineId!)?.last_status ?? undefined,
+      lastRun: sched?.last_status ?? undefined,
+      lastRunBad,
       configHref: AI_ROUTINES,
     };
   };

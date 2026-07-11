@@ -97,11 +97,19 @@ function RegistryChip({ row, audit }: { row: LoopRegistryRow; audit?: LoopAuditR
         <GateMiniDot g={row.gates.m} />
         <GateMiniDot g={row.gates.f} />
       </span>
-      {audit && (
-        <span className='truncate font-mono text-[9.5px] text-muted-foreground'>
-          tested {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
-        </span>
-      )}
+      {audit &&
+        (/verified/.test(audit.verdict ?? '') ? (
+          <span className='truncate font-mono text-[9.5px] text-muted-foreground'>
+            tested {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
+          </span>
+        ) : (
+          // A non-verified verdict (sim-failed / sim-error / walk-failed) is a
+          // release blocker for whatever last touched this loop — render it as
+          // an alarm, not a footnote (governance wires, 2026-07-11).
+          <span className='truncate font-mono text-[9.5px] font-semibold text-red-600 dark:text-red-400'>
+            🔴 {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
+          </span>
+        ))}
     </a>
   );
 }

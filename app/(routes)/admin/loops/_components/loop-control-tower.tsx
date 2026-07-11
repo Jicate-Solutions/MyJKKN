@@ -222,7 +222,16 @@ export function LoopControlTower({
                   {loop.lastRun && (
                     <p className="mt-1 font-mono text-[11px] text-muted-foreground/70">
                       last run:{' '}
-                      <span className="text-foreground/80">{loop.lastRun}</span>
+                      {/* RED when the run errored or the routine went silent past
+                          its cadence (watchdog wire, 2026-07-11) — grey text made
+                          failures visible only to whoever happened to read it. */}
+                      {loop.lastRunBad ? (
+                        <span className="font-semibold text-red-600 dark:text-red-400">
+                          🔴 {loop.lastRun}
+                        </span>
+                      ) : (
+                        <span className="text-foreground/80">{loop.lastRun}</span>
+                      )}
                     </p>
                   )}
                 </div>

@@ -14,6 +14,7 @@ import { ADMISSION_AI_ROUTINES } from './admission-ai';
 import { INDUCTION_AI_ROUTINES } from './induction-ai';
 import { CURRICULUM_AI_ROUTINES } from './curriculum-ai';
 import { MISC_AI_ROUTINES } from './misc-ai';
+import { LOOP_GOVERNANCE_ROUTINES } from './loop-governance';
 
 export const AI_ROUTINES: AIRoutine[] = [
   ...SCF_ROUTINES,
@@ -23,6 +24,7 @@ export const AI_ROUTINES: AIRoutine[] = [
   ...INDUCTION_AI_ROUTINES,
   ...CURRICULUM_AI_ROUTINES,
   ...MISC_AI_ROUTINES,
+  ...LOOP_GOVERNANCE_ROUTINES,
 ];
 
 export function getRoutineById(id: string): AIRoutine | undefined {
