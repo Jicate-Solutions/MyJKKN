@@ -524,7 +524,10 @@ function RolePicker({
   return (
     <div>
       <Label className='text-xs'>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      {/* modal: this Popover lives inside a modal Dialog, which disables pointer
+          events outside its content; without modal the portaled popover content
+          renders but its checkboxes can't be clicked. */}
+      <Popover open={open} onOpenChange={setOpen} modal>
         <PopoverTrigger asChild>
           <Button variant='outline' role='combobox' aria-expanded={open} className='h-9 w-full justify-between font-normal'>
             <span className='truncate text-left'>
@@ -588,7 +591,10 @@ function UserPicker({
   return (
     <div>
       <Label className='text-xs'>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      {/* modal: this Popover lives inside a modal Dialog, which disables pointer
+          events outside its content; without modal the portaled popover content
+          renders but its checkboxes can't be clicked. */}
+      <Popover open={open} onOpenChange={setOpen} modal>
         <PopoverTrigger asChild>
           <Button variant='outline' role='combobox' aria-expanded={open} className='h-9 w-full justify-between font-normal'>
             <span className='truncate text-left'>
