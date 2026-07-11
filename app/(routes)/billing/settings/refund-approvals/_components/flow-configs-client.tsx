@@ -662,7 +662,9 @@ function UserPicker({
         </PopoverTrigger>
         <PopoverContent className='flex max-h-[60vh] w-[320px] flex-col p-2' align='start'>
           <div className='relative mb-2 shrink-0'>
-            <Search className='absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground' />
+            {/* pointer-events-none: a decorative icon absolutely positioned over
+                the input must not intercept clicks meant to focus the field. */}
+            <Search className='pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground' />
             <Input
               autoFocus
               value={query}
