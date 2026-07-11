@@ -405,13 +405,36 @@ export function AiModelsDataTable() {
                                           routines/features get nothing — the subscription
                                           seat cannot run interactive/product features. */}
                                       {r.maxLane ? (
-                                        <div className="flex justify-start [&>div]:items-start">
-                                          <MaxLaneRunButton
-                                            routineId={r.id}
-                                            routineName={r.name}
-                                            request={maxMap.get(r.id)}
-                                            onQueued={refetchMax}
-                                          />
+                                        <div className="space-y-1">
+                                          <div className="flex justify-start [&>div]:items-start">
+                                            <MaxLaneRunButton
+                                              routineId={r.id}
+                                              routineName={r.name}
+                                              request={maxMap.get(r.id)}
+                                              onQueued={refetchMax}
+                                            />
+                                          </div>
+                                          {(() => {
+                                            // The REAL switch: on/off of this routine's
+                                            // maxlane:* schedule row. Rows without one are
+                                            // button-only twins (no schedule to toggle).
+                                            const sched = schedMap.get(`maxlane:${r.id}`);
+                                            if (!sched) return null;
+                                            return (
+                                              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                                <Switch
+                                                  checked={sched.enabled}
+                                                  disabled={togglingSched === r.id}
+                                                  onCheckedChange={(next) => void toggleMaxSchedule(r.id, sched, next)}
+                                                  aria-label={`Scheduled Max runs for ${r.name}`}
+                                                  className="scale-75"
+                                                />
+                                                {sched.enabled
+                                                  ? `On Max daily ${fmtIstTime(sched.minute_of_day)}`
+                                                  : 'Max schedule off'}
+                                              </label>
+                                            );
+                                          })()}
                                         </div>
                                       ) : null}
                                     </div>
