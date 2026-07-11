@@ -114,10 +114,13 @@ function LaneBadge({ f, routines, scheduleMap }: {
   routines: AIRoutine[];
   scheduleMap: Map<string, ScheduleRow>;
 }) {
-  const seatOwnerIds = Array.isArray(f.config_json?.max_lane_user_ids)
-    ? (f.config_json.max_lane_user_ids as unknown[])
-    : [];
-  if (seatOwnerIds.length > 0) {
+  // The API sends only derived flags here (never raw max_lane_user_ids — the
+  // seat owner's user id stays server-side).
+  const seatUserCount =
+    typeof f.config_json?.seat_lane_user_count === 'number'
+      ? f.config_json.seat_lane_user_count
+      : 0;
+  if (seatUserCount > 0) {
     return (
       <Badge variant="outline" className="mt-1 gap-1 border-[#0b6d41]/40 text-[11px] font-normal text-[#0b6d41]">
         <Zap className="h-3 w-3" /> Max for Director · API for others
