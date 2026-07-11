@@ -599,6 +599,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.refunds.delete', label: 'Delete Refunds' },
       { key: 'billing.refunds.approve', label: 'Approve Refunds' },
       { key: 'billing.refunds.process', label: 'Process Refunds' },
+      { key: 'billing.refunds.configure', label: 'Configure Refund Approval Flows' },
       { key: 'billing.apportionment.view', label: 'View Revenue Apportionment' },
       { key: 'billing.apportionment.create', label: 'Create Revenue Apportionment' },
       { key: 'billing.apportionment.edit', label: 'Edit Revenue Apportionment' },
