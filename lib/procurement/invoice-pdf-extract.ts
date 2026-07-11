@@ -120,6 +120,15 @@ export async function extractInvoiceFromPdf(
   const itemList = items.map((i) => `${i.id} — ${i.item_name}`).join('\n');
 
   // An explicitly passed model (tests) bypasses config resolution.
+  //
+  // Contracts relied on here (lib/services/platform/ai-clients/chat.ts — same
+  // unguarded shape as claudeChatForFeature itself): resolveChatModel ALWAYS
+  // returns an object with an ANTHROPIC provider/model (non-anthropic config
+  // rows degrade to an anthropic fallback with a warn — hence the literal
+  // 'anthropic' passed to recordChatCall), and recordChatCall/recordUsage are
+  // internally non-throwing — a ledger write failure can never fail a
+  // completed (already paid) extraction, nor mask the original API error in
+  // the catch path. (Deep-review round-1 findings 1-4 dispositioned on PR #1967.)
   const modelId = model ?? (await resolveChatModel(FEATURE_KEY)).model_id;
 
   const startedAt = Date.now();
