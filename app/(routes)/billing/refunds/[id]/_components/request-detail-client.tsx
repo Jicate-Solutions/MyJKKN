@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRefundRequest } from '@/hooks/billing/use-refund-workflow';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
+import { generateRefundRequestPdf } from '@/lib/utils/billing/refund-request-pdf';
 import { RequestTimeline } from './request-timeline';
 import { StageActionPanel } from './stage-action-panel';
 import { DisburseForm } from './disburse-form';
@@ -109,8 +110,7 @@ export function RequestDetailClient({ id }: Props) {
             Total refund: ₹{request.total_refund_amount.toLocaleString('en-IN')}
           </p>
         </div>
-        {/* TODO(Task 11): wire the real PDF export handler for this request */}
-        <Button variant='outline' disabled>
+        <Button variant='outline' onClick={() => generateRefundRequestPdf(request)}>
           <Download className='h-4 w-4 mr-2' />
           Export PDF
         </Button>
