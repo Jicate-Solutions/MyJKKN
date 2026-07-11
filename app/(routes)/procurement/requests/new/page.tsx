@@ -228,6 +228,14 @@ export default function NewPurchaseRequestPage() {
                 </Select>
               </div>
             </div>
+            {domain === 'resource_mgmt' && requestType === 'new_item' && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                Buying consumables or chemicals — things that get used up or expire (reagents,
+                cotton, gloves)? Purchase those through the <b>Inventory (IMS)</b> module instead,
+                which tracks batches and expiry dates. Resource Management is for equipment,
+                furniture and instruments.
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
               <Textarea
