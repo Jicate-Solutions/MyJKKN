@@ -148,7 +148,7 @@ function LaneBadge({ f, routines, scheduleMap }: {
       <Badge
         variant="outline"
         className="mt-1 text-[11px] font-normal text-muted-foreground"
-        title="Serves students or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
+        title="Serves learners or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
       >
         API only · policy
       </Badge>
