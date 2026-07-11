@@ -210,6 +210,15 @@ git commit -m "feat(billing): refund workflow schema — configs, requests, bill
 ### Task 2: RPC migration — resolve/capabilities/initiate/act/disburse
 
 **Files:**
+- Create: `supabase/migrations/20260711105000_withdrawal_pending_enum.sql` — `learners_profiles.lifecycle_status` is a Postgres ENUM (verified live); the new status must be added to the TYPE, standalone because ALTER TYPE ADD VALUE cannot share a transaction with statements that use the value:
+
+```sql
+-- 20260711105000_withdrawal_pending_enum.sql
+-- lifecycle_status is an ENUM type; withdrawal_pending must exist in the type,
+-- not just in admission_statuses (which is display/behavior metadata).
+ALTER TYPE lifecycle_status ADD VALUE IF NOT EXISTS 'withdrawal_pending';
+```
+
 - Create: `supabase/migrations/20260711110000_refund_workflow_rpcs.sql`
 - Modify: `supabase/setup/02_functions.sql` (append)
 
@@ -293,7 +302,7 @@ BEGIN
     (request_number, institution_id, student_id, refund_type, status, current_stage_index,
      flow_snapshot, total_refund_amount, previous_lifecycle_status, initiated_by)
   VALUES (v_number, v_student.institution_id, p_student_id, p_refund_type, 'pending_review', 0,
-     v_snapshot, 0, CASE WHEN p_refund_type='withdrawal' THEN v_student.lifecycle_status END, v_user)
+     v_snapshot, 0, CASE WHEN p_refund_type='withdrawal' THEN v_student.lifecycle_status::text END, v_user)
   RETURNING id INTO v_request_id;
 
   FOR v_line IN SELECT * FROM jsonb_array_elements(p_bills) LOOP
@@ -373,7 +382,7 @@ BEGIN
           decline_reason=p_reason, declined_stage_name=v_stage->>'name'
       WHERE id = p_request_id;
     IF v_req.refund_type = 'withdrawal' AND v_req.previous_lifecycle_status IS NOT NULL THEN
-      UPDATE learners_profiles SET lifecycle_status = v_req.previous_lifecycle_status, updated_at = now()
+      UPDATE learners_profiles SET lifecycle_status = v_req.previous_lifecycle_status::lifecycle_status, updated_at = now()
       WHERE id = v_req.student_id AND lifecycle_status = 'withdrawal_pending';  -- guard: don't clobber external changes
     END IF;
   END IF;
