@@ -241,6 +241,10 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
     'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
+    // Procurement PDF extraction (2026-07-11) — mirrors the pre-adoption hardcode
+    // in lib/procurement/*-pdf-extract.ts (cutover invariant: degraded == old behavior).
+    'procurement.quotation_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
+    'procurement.invoice_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
   };
 
   return FALLBACKS[featureKey] ?? fallback(featureKey, 'openai', 'gpt-4o-mini');
