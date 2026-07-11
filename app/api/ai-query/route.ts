@@ -1204,7 +1204,8 @@ export async function POST(request: NextRequest) {
     // failure falls through to the cached API path so an answer always comes.
     let maxLaneMiss: MaxLaneMiss | undefined;
     if (parseMaxLaneUserIds(modelConfig.config_json).includes(user.id)) {
-      const { answer: maxAnswer, miss } = await tryMaxLane(supabase, message, conversation_id);
+      const { answer: maxAnswer, miss, requestId: maxRequestId } =
+        await tryMaxLane(supabase, message, conversation_id);
       maxLaneMiss = miss;
       if (maxAnswer !== null) {
         toolsCalled.push('max_lane');
