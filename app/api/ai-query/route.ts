@@ -1055,6 +1055,14 @@ async function tryMaxLane(
         // a runner defect — fall back NOW instead of polling a finished row
         // to the deadline (deep-review finding).
         if (typeof st.answer === 'string' && st.answer.trim().length > 0) {
+          // Stamp live delivery so the "while you were away" inbox never
+          // re-shows this answer. Best-effort: a failed stamp only risks one
+          // harmless duplicate on the next page load.
+          await supabase
+            .rpc('fn_max_chat_mark_delivered', { p_id: req.request_id })
+            .then(({ error: e }) => {
+              if (e) console.warn('[ai-query] mark_delivered failed (non-fatal):', e.message);
+            });
           return { answer: st.answer };
         }
         return { answer: null, miss: 'error' };
