@@ -75,7 +75,9 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
             role: 'assistant' as const,
             content: `${r.answer}\n\nⓘ _Answered on Max while you were away._`,
             timestamp: new Date(r.completed_at),
-            toolCalls: [{ name: 'max_lane', status: 'completed' as const }],
+            toolCalls: [
+              { id: `${r.id}-max`, name: 'max_lane', arguments: {}, status: 'completed' as const },
+            ],
           },
         ]);
         setMessages((prev) => [...restored, ...prev]);
