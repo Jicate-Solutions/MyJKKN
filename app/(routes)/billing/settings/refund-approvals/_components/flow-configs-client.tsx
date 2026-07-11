@@ -577,8 +577,17 @@ function RolePicker({
             {options.map((o) => {
               const zeroHolders = o.holders === 0;
               return (
-                <label key={o.id} className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'>
-                  <Checkbox checked={selected.includes(o.id)} onCheckedChange={() => toggle(o.id)} />
+                <div
+                  key={o.id}
+                  role='button'
+                  tabIndex={0}
+                  onClick={() => toggle(o.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(o.id); } }}
+                  className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'
+                >
+                  {/* Presentational only: the row div owns the single toggle so a
+                      Radix Checkbox inside a label can't double-fire and net zero. */}
+                  <Checkbox checked={selected.includes(o.id)} tabIndex={-1} className='pointer-events-none' />
                   <span className='flex-1 truncate'>{o.role_name}</span>
                   {o.holders !== undefined && (
                     <span className={`flex items-center gap-1 text-[10px] tabular-nums ${zeroHolders ? 'font-semibold text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
@@ -586,7 +595,7 @@ function RolePicker({
                       {o.holders}
                     </span>
                   )}
-                </label>
+                </div>
               );
             })}
           </div>
@@ -674,13 +683,22 @@ function UserPicker({
               </p>
             )}
             {filtered.map((p) => (
-              <label key={p.id} className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'>
-                <Checkbox checked={selected.includes(p.id)} onCheckedChange={() => toggle(p.id)} />
+              <div
+                key={p.id}
+                role='button'
+                tabIndex={0}
+                onClick={() => toggle(p.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(p.id); } }}
+                className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'
+              >
+                {/* Presentational only: the row div owns the single toggle so a
+                    Radix Checkbox inside a label can't double-fire and net zero. */}
+                <Checkbox checked={selected.includes(p.id)} tabIndex={-1} className='pointer-events-none' />
                 <span className='min-w-0 flex-1'>
                   <span className='block truncate'>{p.full_name ?? '(no name)'}</span>
                   <span className='block truncate text-xs text-muted-foreground'>{p.email}</span>
                 </span>
-              </label>
+              </div>
             ))}
             {totalMatches > filtered.length && (
               <p className='px-2 py-1.5 text-[11px] text-muted-foreground'>
