@@ -255,15 +255,14 @@ export const GUIDES: GuideBook = {
             {
               action: 'Open **Refunds** to manage refund requests and their approval workflow.',
               detail:
-                'A refund returns money for an overpayment or a withdrawal. The page shows pending, approved, and processed refunds with their amounts.',
+                'A refund returns money for an overpayment or a withdrawal. The page shows requests moving through review and disbursement, with their amounts.',
               link: { label: 'Take me there', href: '/billing/refunds' },
             },
             {
-              action: 'Click **Process Refund** to start one against a paid receipt.',
+              action: 'From a student\'s bill page, click **Initiate Refund** to start one.',
               detail:
-                'Choose the refund method and amount. A refund moves through Pending → Approved → Processed; only a processed refund actually reduces the net amount paid.',
-              tip: 'A refund is tied to a receipt, not just a bill — pick the receipt the original payment came in on.',
-              link: { label: 'Take me there', href: '/billing/refunds/new' },
+                'Pick the eligible bills and amounts to refund. A request moves through Pending Review → Pending Disbursement → Disbursed; only a disbursed request actually reduces the net amount paid.',
+              tip: 'A refund request can span multiple bills for the same student.',
             },
           ],
         },

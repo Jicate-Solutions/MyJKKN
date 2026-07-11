@@ -8,7 +8,6 @@ import {
   Trash2,
   Receipt,
   Percent,
-  RefreshCw,
   Calendar,
   IndianRupee,
   FileText,
@@ -19,8 +18,7 @@ import {
   CreditCard,
   Filter,
   EllipsisVertical,
-  MoreHorizontal,
-  Undo
+  MoreHorizontal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -88,8 +86,6 @@ export function StudentBillsTable({
     !isStudentView && (isSuperAdmin || canAccess('billing.receipts', 'create'));
   const canApplyDiscounts =
     !isStudentView && (isSuperAdmin || canAccess('billing.discounts', 'create'));
-  const canProcessRefunds =
-    !isStudentView && (isSuperAdmin || canAccess('billing.refunds', 'create'));
 
   // Filter bills based on status
   const filteredBills = useMemo(() => {
@@ -299,15 +295,6 @@ export function StudentBillsTable({
     window.location.href = `/billing/discounts/new?bill_ids=${billIds}&student_id=${studentId}`;
   };
 
-  const handleProcessRefund = () => {
-    if (selectedSelectableBills.length === 0) return;
-
-    const billIds = selectedSelectableBills.map((bill) => bill.id).join(',');
-    const studentId = selectedSelectableBills[0]?.student_id;
-
-    window.location.href = `/billing/refunds/new?bill_ids=${billIds}&student_id=${studentId}`;
-  };
-
   const renderBillCard = (bill: StudentBill) => (
     <Card key={bill.id} className='p-4 hover:shadow-md transition-shadow'>
       <div className='space-y-3'>
@@ -379,16 +366,6 @@ export function StudentBillsTable({
                     </Link>
                   </DropdownMenuItem>
                 )}
-                {canSelectBill(bill) &&
-                  bill.status === 'partially_paid' &&
-                  canProcessRefunds && (
-                    <DropdownMenuItem asChild>
-                      <Link href={`/billing/refunds/new?bill_id=${bill.id}`}>
-                        <Undo className='mr-2 h-4 w-4' />
-                        Process Refund
-                      </Link>
-                    </DropdownMenuItem>
-                  )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -588,16 +565,6 @@ export function StudentBillsTable({
                 </Link>
               </DropdownMenuItem>
             )}
-            {canSelectBill(bill) &&
-              bill.status === 'partially_paid' &&
-              canProcessRefunds && (
-                <DropdownMenuItem asChild>
-                  <Link href={`/billing/refunds/new?bill_id=${bill.id}`}>
-                    <Undo className='mr-2 h-4 w-4' />
-                    Process Refund
-                  </Link>
-                </DropdownMenuItem>
-              )}
             {canDeleteBills && (
               <>
                 <DropdownMenuSeparator />
@@ -699,30 +666,6 @@ export function StudentBillsTable({
               </Button>
             )}
 
-            {canProcessRefunds &&
-              selectedSelectableBills.some(
-                (bill) => bill.status === 'partially_paid'
-              ) && (
-                <Button
-                  size='sm'
-                  variant='secondary'
-                  onClick={handleProcessRefund}
-                  className='bg-orange-600 hover:bg-orange-700 text-white dark:bg-orange-700 dark:hover:bg-orange-600 flex-1 sm:flex-initial'
-                >
-                  <RefreshCw className='mr-2 h-4 w-4' />
-                  <span className='hidden sm:inline'>Process Refund</span>
-                  <span className='sm:hidden'>Refund</span>
-                  <span className='ml-1'>
-                    (
-                    {
-                      selectedSelectableBills.filter(
-                        (bill) => bill.status === 'partially_paid'
-                      ).length
-                    }
-                    )
-                  </span>
-                </Button>
-              )}
           </div>
         </div>
       )}
