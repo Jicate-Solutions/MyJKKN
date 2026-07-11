@@ -206,6 +206,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ack_ids: [maxRequestId] }),
+          signal: AbortSignal.timeout(10_000),
         }).catch(() => {});
       }
 
