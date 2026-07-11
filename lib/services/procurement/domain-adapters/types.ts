@@ -83,6 +83,14 @@ export interface AcceptedReceiptLine {
 export interface ProcurementDomainAdapter {
   readonly domain: ProcurementDomain;
 
+  /**
+   * True when postReceipt is exactly-once at the DB (e.g. RM's SECURITY DEFINER
+   * RPC claims the GRN line inside its own transaction). Only such domains get
+   * the reopen-GRN-and-retry recovery on a mid-verify failure — replaying a
+   * client-side, non-idempotent post (IMS) would double-count stock (review r2).
+   */
+  readonly idempotentPosts?: boolean;
+
   /** Search this domain's catalog to build a PR/PO line from an existing item. */
   searchItems(query: string, ctx: DomainCtx): Promise<CatalogItem[]>;
 

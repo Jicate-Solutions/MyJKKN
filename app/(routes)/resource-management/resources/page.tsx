@@ -73,7 +73,9 @@ export default function ResourcesPage() {
       .catch(() => {
         if (seq === needsSetupReqSeq.current) setNeedsSetupCount(null);
       });
-  }, [resources, filters.institution_id]);
+    // length (not the array ref) so list refetches that change nothing don't
+    // refire; the seq ref still drops out-of-order settles when they overlap.
+  }, [resources.length, filters.institution_id]);
 
   const canViewResources =
     isSuperAdmin || canAccess('resources.resources', 'view');
@@ -379,10 +381,28 @@ export default function ResourcesPage() {
                 type='button'
                 className='mt-2'
                 onClick={() =>
-                  handleFilterChange({
-                    needs_setup: filters.needs_setup ? undefined : true,
-                    page: 1
-                  })
+                  // Turning the badge ON clears the secondary filters (search /
+                  // status / category / department / assignment) so the list
+                  // shows exactly what the count counted — the badge total is
+                  // institution-scoped only (review r2: count vs click-through).
+                  handleFilterChange(
+                    filters.needs_setup
+                      ? { needs_setup: undefined, page: 1 }
+                      : {
+                          needs_setup: true,
+                          search: undefined,
+                          status: undefined,
+                          parent_category_id: undefined,
+                          subcategory_id: undefined,
+                          department_id: undefined,
+                          booking_type: undefined,
+                          caretaker_user_ids: undefined,
+                          available_on: undefined,
+                          assignee_type: undefined,
+                          assignee_id: undefined,
+                          page: 1
+                        }
+                  )
                 }
                 title='Resources received via procurement that still need a room and caretaker. Click to filter.'
               >

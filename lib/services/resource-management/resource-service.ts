@@ -804,9 +804,10 @@ export class ResourceService {
    */
   /**
    * Count of procurement-intake drafts awaiting setup (tags contains 'needs-setup').
-   * Scope with the same institution filter as the list so the badge count always
-   * matches what the click-through shows (RLS already prevents cross-tenant reads
-   * for own-scope roles; the filter aligns the count for scope-'all' users too).
+   * Institution-scoped TOTAL — deliberately ignores the list's secondary filters
+   * (search/status/category); the badge click clears those so the click-through
+   * shows exactly this set. RLS prevents cross-tenant reads for own-scope roles;
+   * the institution filter aligns the number for scope-'all' users too.
    */
   static async getNeedsSetupCount(institutionId?: string): Promise<number> {
     let query = (this.supabase as any)

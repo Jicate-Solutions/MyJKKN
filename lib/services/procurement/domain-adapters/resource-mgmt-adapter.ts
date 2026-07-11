@@ -53,6 +53,9 @@ function mapResource(row: any): CatalogItem {
 
 export const resourceMgmtAdapter: ProcurementDomainAdapter = {
   domain: 'resource_mgmt',
+  // fn_procurement_rm_post_receipt claims the GRN line atomically in its own
+  // transaction — replaying a post is a no-op, so verify retries are safe.
+  idempotentPosts: true,
 
   async searchItems(query: string, ctx: DomainCtx): Promise<CatalogItem[]> {
     let q = db()

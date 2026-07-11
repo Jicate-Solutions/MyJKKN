@@ -333,10 +333,35 @@ export class ProcurementGrnService {
 
           let domainItemId: string | null = line.domain_item_id ?? null;
           if (!line.domain_posted_at) {
+            // Before materializing a "new item", re-read the PO line's
+            // domain_item_id from the DB: a sibling GRN's verify (split
+            // delivery) may have materialized it after this GRN snapshotted
+            // NULL. Domain-agnostic dedup — covers IMS, whose reconcile hook
+            // has no PO-line lock of its own (review r2).
+            if (!domainItemId && line.po_item_id) {
+              const { data: freshPoi, error: freshErr } = await this.supabase
+                .from('procurement_purchase_order_items')
+                .select('domain_item_id')
+                .eq('id', line.po_item_id)
+                .single();
+              if (freshErr) throw freshErr;
+              domainItemId = freshPoi?.domain_item_id ?? null;
+              if (domainItemId) {
+                const { error: relinkErr } = await this.supabase
+                  .from('procurement_grn_items')
+                  .update({ domain_item_id: domainItemId })
+                  .eq('id', line.id);
+                if (relinkErr) throw relinkErr;
+              }
+            }
+
             // "New item" lines carry no catalog id. Materialize one via the domain's
             // reconcileNewItem hook (draft/needs-setup record) so the receipt can post;
             // persist the id back so replacements and re-reads see a linked line.
             // Domains without the hook: skip posting (never crash the verify).
+            // Retry cannot duplicate the draft: po_item_id is NOT NULL by schema,
+            // and RM's reconcile backfills the PO line inside its own transaction,
+            // so a re-invocation returns the existing id.
             if (!domainItemId && adapter.reconcileNewItem) {
               domainItemId = await adapter.reconcileNewItem(
                 { name: line.item_name, isChemical: line.is_chemical ?? undefined },
@@ -356,101 +381,106 @@ export class ProcurementGrnService {
                 if (poLinkErr) throw poLinkErr;
               }
             }
-            if (!domainItemId) continue;
 
-            await adapter.postReceipt(
-              {
-                domainItemId,
-                acceptedQuantity: accepted,
-                costPrice: Number(line.cost_price),
-                totalValue: Number(line.cost_price) * accepted,
-                batchNumber: line.batch_number,
-                expiryDate: line.expiry_date,
-                manufacturingDate: line.manufacturing_date,
-                grnId: grn.id,
-                grnNumber: grn.grn_number,
-                purchaseOrderId: grn.purchase_order_id,
-                grnItemId: line.id,
-              },
-              ctx
-            );
+            if (domainItemId) {
+              await adapter.postReceipt(
+                {
+                  domainItemId,
+                  acceptedQuantity: accepted,
+                  costPrice: Number(line.cost_price),
+                  totalValue: Number(line.cost_price) * accepted,
+                  batchNumber: line.batch_number,
+                  expiryDate: line.expiry_date,
+                  manufacturingDate: line.manufacturing_date,
+                  grnId: grn.id,
+                  grnNumber: grn.grn_number,
+                  purchaseOrderId: grn.purchase_order_id,
+                  grnItemId: line.id,
+                },
+                ctx
+              );
 
-            // Mark the line posted. The RM RPC already claimed it inside its own
-            // transaction (this update then matches 0 rows); the write is for
-            // domains that post client-side (IMS).
-            const { error: postedErr } = await this.supabase
-              .from('procurement_grn_items')
-              .update({ domain_posted_at: new Date().toISOString() })
-              .eq('id', line.id)
-              .is('domain_posted_at', null);
-            if (postedErr) throw postedErr;
-          } else if (!domainItemId) {
-            continue; // posted implies linked; defensive
+              // Mark the line posted. The RM RPC already claimed it inside its
+              // own transaction (this update then matches 0 rows); for
+              // client-side domains (IMS) the marker makes a MANUAL reset +
+              // re-verify skip lines that did post — it is an audit/recovery
+              // aid, not an exactly-once guarantee for those domains (which is
+              // why the catch below only auto-retries idempotentPosts domains).
+              const { error: postedErr } = await this.supabase
+                .from('procurement_grn_items')
+                .update({ domain_posted_at: new Date().toISOString() })
+                .eq('id', line.id)
+                .is('domain_posted_at', null);
+              if (postedErr) throw postedErr;
+            }
           }
 
-          // 4) Recompute the PO line's received_quantity from verified GRN lines
-          //    (idempotent set, not a read-then-increment — safe on retry and
-          //    under concurrent GRNs; rejected qty still owes delivery, keeping
-          //    the PO open for a replacement).
+          // 4) Recompute the PO line's received_quantity from verified GRN
+          //    lines — atomic single-statement RPC (row lock + subselect), so
+          //    concurrent verifies can't clobber each other, and convergent on
+          //    retry. Runs for EVERY accepted line, including hookless domains
+          //    that never post, so their POs still close (review r2).
           if (line.po_item_id) {
-            const { data: siblingLines, error: sumErr } = await this.supabase
-              .from('procurement_grn_items')
-              .select('accepted_quantity, grn:procurement_grn!inner(status)')
-              .eq('po_item_id', line.po_item_id)
-              .in('grn.status', ['accepted', 'partially_accepted', 'completed', 'replacement_requested']);
-            if (sumErr) throw sumErr;
-            const received = (siblingLines ?? []).reduce(
-              (sum: number, r: { accepted_quantity: number | null }) =>
-                sum + Number(r.accepted_quantity ?? 0),
-              0
+            const { error: advErr } = await this.supabase.rpc(
+              'fn_procurement_recompute_po_line_received',
+              { p_po_item_id: line.po_item_id }
             );
-            const { error: advErr } = await this.supabase
-              .from('procurement_purchase_order_items')
-              .update({ received_quantity: received })
-              .eq('id', line.po_item_id);
             if (advErr) throw advErr;
           }
         }
 
         // 5) Recompute PO status: completed when every line is fully received.
         await this.refreshPoReceiptStatus(grn.purchase_order_id);
-      } catch (postError) {
-        // Compensate: reopen the GRN so verify can be retried. Already-posted
-        // lines no-op on the retry (domain_posted_at skip + RPC-side claim), so
-        // re-running converges instead of double-posting.
-        const { error: revertErr } = await this.supabase
+
+        // 6) Refine the GRN's terminal status now that posting is done. Inside
+        //    the compensation envelope so a failed write here reopens the GRN
+        //    instead of stranding it in provisional 'accepted' (review r2).
+        const finalStatus = anyReplacement
+          ? 'replacement_requested'
+          : anyRejected
+            ? 'partially_accepted'
+            : 'completed';
+        const { data: finalGrn, error: finalErr } = await this.supabase
           .from('procurement_grn')
-          .update({
-            status: 'pending_verification',
-            verified_by: null,
-            verified_at: null,
-            updated_at: new Date().toISOString(),
-          })
+          .update({ status: finalStatus, updated_at: new Date().toISOString() })
           .eq('id', id)
-          .eq('status', 'accepted');
-        if (revertErr) {
+          .select()
+          .single();
+        if (finalErr) throw finalErr;
+
+        return (finalGrn ?? locked) as ProcurementGrn;
+      } catch (postError) {
+        // Compensate ONLY for domains whose posts are exactly-once at the DB
+        // (RM): reopening lets verify re-run and converge — posted lines no-op
+        // via the RPC claim. For client-side-post domains (IMS) a retry would
+        // REPLAY unguarded stock/ledger writes and double-count, so keep the
+        // pre-existing strand-in-'accepted' semantics; the domain_posted_at
+        // markers make the manual reset path skip lines that already posted.
+        if (adapter.idempotentPosts) {
+          const { error: revertErr } = await this.supabase
+            .from('procurement_grn')
+            .update({
+              status: 'pending_verification',
+              verified_by: null,
+              verified_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+            .eq('status', 'accepted');
+          if (revertErr) {
+            console.error(
+              '[ProcurementGrnService] verifyGrn: post failed AND the GRN could not be reopened — needs manual status reset',
+              revertErr
+            );
+          }
+        } else {
           console.error(
-            '[ProcurementGrnService] verifyGrn: post failed AND the GRN could not be reopened — needs manual status reset',
-            revertErr
+            `[ProcurementGrnService] verifyGrn: posting failed mid-loop for domain "${domain}" — GRN left in provisional 'accepted'; lines with domain_posted_at already posted, remaining lines need a manual status reset to pending_verification before re-verify`,
+            postError
           );
         }
         throw postError;
       }
-
-      // 6) Refine the GRN's terminal status now that posting is done.
-      const finalStatus = anyReplacement
-        ? 'replacement_requested'
-        : anyRejected
-          ? 'partially_accepted'
-          : 'completed';
-      const { data: finalGrn } = await this.supabase
-        .from('procurement_grn')
-        .update({ status: finalStatus, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
-
-      return (finalGrn ?? locked) as ProcurementGrn;
     } catch (error) {
       console.error('[ProcurementGrnService] verifyGrn:', error);
       throw error;
@@ -560,6 +590,13 @@ export class ProcurementGrnService {
     if (claimErr) throw claimErr;
     if (!claimed) throw new Error('Replacement was already received by someone else; refresh.');
 
+    // Track what got created/posted so the catch can compensate precisely:
+    // void the paper trail only when inventory was NOT touched (review r2 —
+    // a retry after a successful post must not create a second line whose
+    // accepted qty the recompute would sum into the PO).
+    let createdGrnId: string | null = null;
+    let createdItemId: string | null = null;
+    let posted = false;
     try {
       const domain = (parentGrn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = {
@@ -590,6 +627,7 @@ export class ProcurementGrnService {
         .select()
         .single();
       if (grnErr) throw grnErr;
+      createdGrnId = grn.id;
 
       // 5) Its single line.
       const match = matchLine({
@@ -621,6 +659,7 @@ export class ProcurementGrnService {
         .select()
         .single();
       if (niErr) throw niErr;
+      createdItemId = newItem.id;
 
       // 6) Post to inventory.
       if (originItem.domain_item_id) {
@@ -640,40 +679,49 @@ export class ProcurementGrnService {
           },
           ctx
         );
+        posted = true;
       }
 
-      // 7) Recompute the PO line's received_quantity from verified GRN lines
-      //    (idempotent set — same mechanism as verifyGrn) + recompute PO status.
-      const { data: siblingLines, error: sumErr } = await this.supabase
-        .from('procurement_grn_items')
-        .select('accepted_quantity, grn:procurement_grn!inner(status)')
-        .eq('po_item_id', originItem.po_item_id)
-        .in('grn.status', ['accepted', 'partially_accepted', 'completed', 'replacement_requested']);
-      if (sumErr) throw sumErr;
-      const received = (siblingLines ?? []).reduce(
-        (sum: number, r: { accepted_quantity: number | null }) =>
-          sum + Number(r.accepted_quantity ?? 0),
-        0
+      // 7) Recompute the PO line's received_quantity — atomic single-statement
+      //    RPC (same mechanism as verifyGrn) + recompute PO status.
+      const { error: advErr } = await this.supabase.rpc(
+        'fn_procurement_recompute_po_line_received',
+        { p_po_item_id: originItem.po_item_id }
       );
-      await this.supabase
-        .from('procurement_purchase_order_items')
-        .update({ received_quantity: received })
-        .eq('id', originItem.po_item_id);
+      if (advErr) throw advErr;
       await this.refreshPoReceiptStatus(parentGrn.purchase_order_id);
 
       // 8) Link the fulfilment back to the pending row.
-      await this.supabase
+      const { error: linkRepErr } = await this.supabase
         .from('procurement_grn_replacements')
         .update({ replacement_grn_item_id: newItem.id })
         .eq('id', input.replacement_id);
+      if (linkRepErr) throw linkRepErr;
 
       return grn as ProcurementGrn;
     } catch (error) {
-      // Roll the claim back so the replacement can be retried.
-      await this.supabase
-        .from('procurement_grn_replacements')
-        .update({ status: 'pending', replacement_grn_item_id: null })
-        .eq('id', input.replacement_id);
+      if (!posted) {
+        // Inventory untouched — void the just-created paper trail (line before
+        // header for the FK) so the PO recompute never sums an orphan, then
+        // roll the claim back so the replacement can be retried cleanly.
+        if (createdItemId) {
+          await this.supabase.from('procurement_grn_items').delete().eq('id', createdItemId);
+        }
+        if (createdGrnId) {
+          await this.supabase.from('procurement_grn').delete().eq('id', createdGrnId);
+        }
+        await this.supabase
+          .from('procurement_grn_replacements')
+          .update({ status: 'pending', replacement_grn_item_id: null })
+          .eq('id', input.replacement_id);
+      } else {
+        // Goods ARE in inventory — reopening the claim would let a retry create
+        // a second line and post again. Keep it 'received' and surface the
+        // incomplete follow-through (PO totals / fulfilment link) for repair.
+        console.error(
+          `[ProcurementGrnService] receiveReplacement: inventory posted but a later step failed — replacement ${input.replacement_id} stays received; check PO received_quantity and replacement_grn_item_id linkage`
+        );
+      }
       console.error('[ProcurementGrnService] receiveReplacement:', error);
       throw error;
     }
