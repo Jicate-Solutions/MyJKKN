@@ -3243,6 +3243,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/events/tournaments",
+        "label": "Tournaments",
+        "iconName": "CalendarHeart",
+        "children": []
       }
     ]
   },

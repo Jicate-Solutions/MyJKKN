@@ -21606,3 +21606,105 @@ REVOKE EXECUTE ON FUNCTION public.fn_guard_event_privileged_fields() FROM anon, 
 
 COMMENT ON FUNCTION public.fn_guard_event_privileged_fields() IS
   'BEFORE UPDATE guard on events. Tier 1: only super admin / sports.tournaments.manage may change config->incharges (blocks per-event in-charges — and any same-institution user reachable via events_auth_update — from escalating privileges). Tier 2: only super admin / admin-coordinator roles / tournament managers may change institution_id, event_type or created_by. service_role (auth.uid() IS NULL) bypasses.';
+
+-- ── Tournament role-access helpers + student browse feed (2026-07-10) ──
+CREATE OR REPLACE FUNCTION public.fn_is_event_volunteer(p_event_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.event_volunteer_checkins v
+    WHERE v.event_id = p_event_id AND v.member_id = auth.uid()
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_is_event_volunteer(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_is_event_volunteer(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_is_event_volunteer(uuid) IS
+  'True when auth.uid() is a volunteer (event_volunteer_checkins.member_id) of the given event. Self-authorizing: only reveals the caller''s own membership.';
+
+-- Backs RoutePermissionGuard.fallbackCheck for /events/tournament. Entering the
+-- module leaks nothing: every page/API still authorizes per event.
+CREATE OR REPLACE FUNCTION public.fn_has_any_tournament_role()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.events e
+    WHERE e.event_type = 'sports_tournament'
+      AND (
+        EXISTS (
+          SELECT 1 FROM jsonb_array_elements(COALESCE(e.config->'incharges', '[]'::jsonb)) AS inc
+          WHERE inc->>'member_id' = auth.uid()::text
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.event_committees mc
+          WHERE mc.event_id = e.id
+            AND (
+              mc.lead_id = auth.uid()
+              OR auth.uid() = ANY(mc.member_ids)
+              OR EXISTS (
+                SELECT 1 FROM public.profiles p
+                WHERE p.id = auth.uid() AND p.full_name IS NOT NULL
+                  AND (p.full_name = mc.lead_name OR p.full_name = ANY(mc.member_names))
+              )
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.event_volunteer_checkins v
+          WHERE v.event_id = e.id AND v.member_id = auth.uid()
+        )
+      )
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_has_any_tournament_role() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_has_any_tournament_role() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_has_any_tournament_role() IS
+  'True when auth.uid() is an in-charge, committee lead/member, or checked-in volunteer of ANY sports_tournament event. Backs RoutePermissionGuard.fallbackCheck so those users can enter the module UI without a sports.tournaments.* key; per-event authorization still applies on every page and API.';
+
+CREATE OR REPLACE FUNCTION public.fn_open_tournaments()
+RETURNS TABLE (
+  id uuid, name text, description text, venue text,
+  start_date date, end_date date,
+  registration_open_date date, registration_close_date date,
+  status text, scope text, is_registration_open boolean, divisions jsonb
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT
+    e.id, e.name, e.description,
+    COALESCE(NULLIF(e.venue, ''), e.venue_text) AS venue,
+    e.start_date, e.end_date,
+    e.registration_open_date, e.registration_close_date,
+    e.status, e.scope,
+    (
+      (e.registration_open_date  IS NULL OR CURRENT_DATE >= e.registration_open_date)
+      AND (e.registration_close_date IS NULL OR CURRENT_DATE <= e.registration_close_date)
+    ) AS is_registration_open,
+    COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'id', d.id, 'sport', d.sport, 'gender', d.gender,
+               'age_band', d.age_band, 'format', d.format, 'level', d.level,
+               'max_teams', d.max_teams,
+               'entry_fee', COALESCE((d.config->>'entry_fee')::numeric, 0)
+             ) ORDER BY d.sort_order)
+        FROM public.tournament_divisions d
+       WHERE d.event_id = e.id AND d.is_active
+    ), '[]'::jsonb) AS divisions
+  FROM public.events e
+  WHERE auth.uid() IS NOT NULL
+    AND e.event_type = 'sports_tournament'
+    AND e.status NOT IN ('draft', 'cancelled', 'archived')
+    AND (
+      e.scope = 'all_jkkn'
+      OR e.institution_id IN (
+        SELECT p.institution_id FROM public.profiles p
+        WHERE p.id = auth.uid() AND p.institution_id IS NOT NULL
+      )
+    )
+  ORDER BY e.start_date NULLS LAST, e.name;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_open_tournaments() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_open_tournaments() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_open_tournaments() IS
+  'PII-free feed of non-draft/cancelled/archived sports tournaments visible to the caller (own institution or all-JKKN), with active divisions and an is_registration_open flag. Backs the student-facing /events/tournaments page. Returns no entries, payments, budget or sponsor data.';
