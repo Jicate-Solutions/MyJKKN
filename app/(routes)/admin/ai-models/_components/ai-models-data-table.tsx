@@ -191,6 +191,40 @@ export function AiModelsDataTable() {
   // Latest Max-lane request per routine_id (drives queued/running/done state
   // on the Run-on-Max buttons). Same hook the AI Routines page uses.
   const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
+  // maxlane:* schedule rows — power the "Scheduled on Max" switches.
+  const { map: schedMap, refetch: refetchSched } = useMaxLaneSchedules();
+  const [togglingSched, setTogglingSched] = useState<string | null>(null);
+
+  const toggleMaxSchedule = useCallback(
+    async (routineId: string, row: ScheduleRow, next: boolean) => {
+      setTogglingSched(routineId);
+      try {
+        const resp = await fetch('/api/admin/ai-routines/schedule', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            routineId: row.routine_id,
+            enabled: next,
+            daysOfWeek: row.days_of_week,
+            minuteOfDay: row.minute_of_day,
+          }),
+        });
+        const json = await resp.json();
+        if (!resp.ok || json?.ok === false) throw new Error(json?.error ?? `HTTP ${resp.status}`);
+        toast.success(
+          next
+            ? 'Max schedule ON — the runner box picks this up within ~15 minutes'
+            : 'Max schedule OFF — the API cron keeps covering this routine',
+        );
+        await refetchSched();
+      } catch (e) {
+        toast.error(`Could not update the Max schedule: ${e instanceof Error ? e.message : 'request failed'}`);
+      } finally {
+        setTogglingSched(null);
+      }
+    },
+    [refetchSched],
+  );
 
   const loadFeatures = useCallback(async () => {
     setLoading(true);
