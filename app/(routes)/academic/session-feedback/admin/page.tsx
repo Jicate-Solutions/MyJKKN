@@ -242,11 +242,15 @@ export default function AdminFeedbackDashboardPage() {
     let responses = 0;
     let students = 0;
     let lowSessions = 0;
+    let lowFlagResponses = 0;
+    let lowFlagSessions = 0;
     let weighted = 0;
     for (const r of collegeRows) {
       responses += r.responses;
       students += r.students;
       lowSessions += r.low_sessions;
+      lowFlagResponses += r.low_flag_responses ?? 0;
+      lowFlagSessions += r.low_flag_sessions ?? 0;
       if (r.avg_understood != null) weighted += r.avg_understood * r.responses;
     }
     const avg = responses > 0 ? weighted / responses : null;
@@ -255,6 +259,8 @@ export default function AdminFeedbackDashboardPage() {
       responses,
       students,
       lowSessions,
+      lowFlagResponses,
+      lowFlagSessions,
       avg,
     };
   }, [collegeRows]);
@@ -324,6 +330,16 @@ export default function AdminFeedbackDashboardPage() {
             <span className="text-2xl font-semibold tabular-nums text-red-600">
               {totals.lowSessions}
             </span>
+            {/* Second lens (Director, 2026-07-11): individual struggling voices.
+                A learner tapping 1-2/5 in an otherwise-fine class never moves the
+                whole-class counter above — without this line the two truths look
+                contradictory ("so many low flags, but only 4 low sessions"). */}
+            {totals.lowFlagResponses > 0 ? (
+              <span className="text-[11px] leading-snug text-muted-foreground">
+                {totals.lowFlagResponses.toLocaleString('en-IN')} individual low ratings across{' '}
+                {totals.lowFlagSessions.toLocaleString('en-IN')} sessions — routed to learner support notes
+              </span>
+            ) : null}
           </CardContent>
         </Card>
       </div>
