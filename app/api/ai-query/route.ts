@@ -985,6 +985,10 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
 // deliberately well under maxDuration=300 so the API fallback (tool-use loop)
 // always has ≥100s of function budget left; a 240s wait raced the 300s kill
 // and could leave the user with NO answer (deep-review consensus finding).
+// The 180/120 split is a REVIEWED trade-off (deep-review round-2 #4): the
+// fallback engine is Haiku (measured ~15s for a 2-call tool question), so
+// ~100s headroom is ~6x the measured worst case; shrinking the lane window
+// further would abandon legitimate Max runs (pickup ≤60s + run ≤110s = 170s).
 const MAX_LANE_POLL_MS = 2_500;
 const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
 const MAX_LANE_TOTAL_DEADLINE_MS = 180_000;
