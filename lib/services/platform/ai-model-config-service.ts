@@ -69,6 +69,10 @@ export interface RecordUsageInput {
 
 const CACHE_TTL_MS = 60_000;
 
+// Cheapest anthropic chat model — what an over-cap anthropic feature degrades
+// to. Must exist in the ai-providers pricing registry.
+const CAP_DEGRADE_MODEL_ID = 'claude-haiku-4-5';
+
 interface CacheEntry {
   value: ResolvedModel;
   expiresAt: number;
