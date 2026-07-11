@@ -313,9 +313,32 @@ export class ProcurementGrnService {
         }
         if (accepted <= 0) continue;
 
+        // "New item" lines carry no catalog id. Materialize one via the domain's
+        // reconcileNewItem hook (draft/needs-setup record) so the receipt can post;
+        // persist the id back so replacements and re-reads see a linked line.
+        // Domains without the hook: skip posting (never crash the verify).
+        let domainItemId: string | null = line.domain_item_id ?? null;
+        if (!domainItemId && adapter.reconcileNewItem) {
+          domainItemId = await adapter.reconcileNewItem(
+            { name: line.item_name, isChemical: line.is_chemical ?? undefined },
+            ctx
+          );
+          await this.supabase
+            .from('procurement_grn_items')
+            .update({ domain_item_id: domainItemId })
+            .eq('id', line.id);
+          if (line.po_item_id) {
+            await this.supabase
+              .from('procurement_purchase_order_items')
+              .update({ domain_item_id: domainItemId })
+              .eq('id', line.po_item_id);
+          }
+        }
+        if (!domainItemId) continue;
+
         await adapter.postReceipt(
           {
-            domainItemId: line.domain_item_id!,
+            domainItemId,
             acceptedQuantity: accepted,
             costPrice: Number(line.cost_price),
             totalValue: Number(line.cost_price) * accepted,

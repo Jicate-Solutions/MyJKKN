@@ -2,7 +2,7 @@
 // app/(routes)/resource-management/resources/page.tsx
 
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Plus, Edit, Eye, Package, ImageIcon } from 'lucide-react';
 import { format } from 'date-fns';
@@ -23,6 +23,7 @@ import {
   useResources,
   useResourceOperations
 } from '@/hooks/resource-management/use-resources';
+import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { ResourceEmptyState } from './_components/resource-empty-state';
 import { ResourceFiltersComponent } from './_components/resource-filters';
 import DownloadResourceTemplate from './_components/download-resource-template';
@@ -56,6 +57,15 @@ export default function ResourcesPage() {
   } = useResources(initialFilters);
 
   const { bulkDeleteResources } = useResourceOperations();
+
+  // Procurement-intake drafts awaiting room/caretaker ("needs-setup" tag) —
+  // Director decision 2026-07-11: visible counter + one-click filter.
+  const [needsSetupCount, setNeedsSetupCount] = useState<number | null>(null);
+  useEffect(() => {
+    ResourceService.getNeedsSetupCount()
+      .then(setNeedsSetupCount)
+      .catch(() => setNeedsSetupCount(null));
+  }, [resources]);
 
   const canViewResources =
     isSuperAdmin || canAccess('resources.resources', 'view');
@@ -356,6 +366,29 @@ export default function ResourcesPage() {
             <p className='text-sm sm:text-base text-muted-foreground'>
               Manage and track all your institutional resources
             </p>
+            {((needsSetupCount ?? 0) > 0 || filters.needs_setup) && (
+              <button
+                type='button'
+                className='mt-2'
+                onClick={() =>
+                  handleFilterChange({
+                    needs_setup: filters.needs_setup ? undefined : true,
+                    page: 1
+                  })
+                }
+                title='Resources received via procurement that still need a room and caretaker. Click to filter.'
+              >
+                <Badge
+                  className={
+                    filters.needs_setup
+                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                      : 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                  }
+                >
+                  Needs setup: {needsSetupCount ?? 0}
+                </Badge>
+              </button>
+            )}
           </div>
         </div>
 
