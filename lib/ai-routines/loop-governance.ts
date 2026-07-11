@@ -86,6 +86,6 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
       'On findings: one high-priority notification fanned out to super admins (idempotent per IST day). Read-only otherwise; no model calls.',
     safeToManualTrigger: true,
     notes:
-      'Auth: CRON_SECRET Bearer or ?secret=. Complements the live red states on /admin/loops (page computes stale/errored at render); this cron is the half that reaches you when nobody is looking at the page.',
+      'Auth: CRON_SECRET Bearer only (dispatcher and the AI Routines manual trigger both send the header; secrets never sit in URLs). Complements the live red states on /admin/loops (page computes stale/errored at render); this cron is the half that reaches you when nobody is looking at the page.',
   },
 ];
