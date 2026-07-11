@@ -33,7 +33,8 @@ DO $$ BEGIN
         'inactive',     -- Temporarily inactive (leave, suspension, etc.)
         'exited',       -- Left institution (dropout, transfer)
         'graduated',    -- Successfully completed program
-        'alumni'        -- Post-graduation status
+        'alumni',       -- Post-graduation status
+        'withdrawal_pending' -- Refund initiated for withdrawal; seat released, awaiting refund completion
     );
 EXCEPTION
     WHEN duplicate_object THEN null;
