@@ -15,7 +15,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ChevronsUpDown, Loader2, Pencil, Plus,
+  AlertTriangle, ArrowDown, ArrowUp, Loader2, Pencil, Plus,
   Power, Search, Trash2,
 } from 'lucide-react';
 
@@ -35,7 +35,6 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -537,7 +536,8 @@ function StageRow({
   );
 }
 
-// ---- Role multi-select: checklist with holder-count + zero-holder warning ---------
+// ---- Role multi-select: INLINE checklist (no popover — avoids nested-overlay
+//      click/focus/scroll bugs inside the editor Dialog) --------------------------
 
 function RolePicker({
   label, options, selected, onChange,
@@ -547,8 +547,12 @@ function RolePicker({
   selected: string[];
   onChange: (ids: string[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const selectedNames = options.filter((o) => selected.includes(o.id)).map((o) => o.role_name);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? options.filter((o) => o.role_name.toLowerCase().includes(q)) : options;
+  }, [options, query]);
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
@@ -556,56 +560,53 @@ function RolePicker({
 
   return (
     <div>
-      <Label className='text-xs'>{label}</Label>
-      {/* modal: this Popover lives inside a modal Dialog, which disables pointer
-          events outside its content; without modal the portaled popover content
-          renders but its checkboxes can't be clicked. */}
-      <Popover open={open} onOpenChange={setOpen} modal>
-        <PopoverTrigger asChild>
-          <Button variant='outline' role='combobox' aria-expanded={open} className='h-9 w-full justify-between font-normal'>
-            <span className='truncate text-left'>
-              {selectedNames.length > 0 ? selectedNames.join(', ') : 'Select roles…'}
-            </span>
-            <ChevronsUpDown className='ml-2 h-3.5 w-3.5 shrink-0 opacity-50' />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className='w-[300px] p-2' align='start'>
-          <div className='max-h-64 space-y-1 overflow-y-auto'>
-            {options.length === 0 && (
-              <p className='px-2 py-1.5 text-xs text-muted-foreground'>No active roles found.</p>
-            )}
-            {options.map((o) => {
-              const zeroHolders = o.holders === 0;
-              return (
-                <div
-                  key={o.id}
-                  role='button'
-                  tabIndex={0}
-                  onClick={() => toggle(o.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(o.id); } }}
-                  className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'
-                >
-                  {/* Presentational only: the row div owns the single toggle so a
-                      Radix Checkbox inside a label can't double-fire and net zero. */}
-                  <Checkbox checked={selected.includes(o.id)} tabIndex={-1} className='pointer-events-none' />
-                  <span className='flex-1 truncate'>{o.role_name}</span>
-                  {o.holders !== undefined && (
-                    <span className={`flex items-center gap-1 text-[10px] tabular-nums ${zeroHolders ? 'font-semibold text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
-                      {zeroHolders && <AlertTriangle className='h-3 w-3' />}
-                      {o.holders}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </PopoverContent>
-      </Popover>
+      <div className='mb-1 flex items-center justify-between'>
+        <Label className='text-xs'>{label}</Label>
+        {selected.length > 0 && <span className='text-[11px] text-muted-foreground'>{selected.length} selected</span>}
+      </div>
+      <div className='rounded-md border border-input'>
+        <div className='relative border-b border-input'>
+          <Search className='pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground' />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder='Search roles…'
+            className='h-8 border-0 pl-7 text-sm shadow-none focus-visible:ring-0'
+          />
+        </div>
+        <div className='max-h-48 space-y-0.5 overflow-y-auto p-1'>
+          {filtered.length === 0 && (
+            <p className='px-2 py-1.5 text-xs text-muted-foreground'>No roles match.</p>
+          )}
+          {filtered.map((o) => {
+            const zeroHolders = o.holders === 0;
+            return (
+              <div
+                key={o.id}
+                role='button'
+                tabIndex={0}
+                onClick={() => toggle(o.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(o.id); } }}
+                className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'
+              >
+                <Checkbox checked={selected.includes(o.id)} tabIndex={-1} className='pointer-events-none' />
+                <span className='flex-1 truncate'>{o.role_name}</span>
+                {o.holders !== undefined && (
+                  <span className={`flex items-center gap-1 text-[10px] tabular-nums ${zeroHolders ? 'font-semibold text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+                    {zeroHolders && <AlertTriangle className='h-3 w-3' />}
+                    {o.holders}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-// ---- User multi-select: searchable checklist ---------------------------------------
+// ---- User multi-select: INLINE searchable checklist (no popover) ------------------
 
 function UserPicker({
   label, profiles, selected, onChange, restrictToRoleIds = [], rolesByUser,
@@ -617,7 +618,6 @@ function UserPicker({
   restrictToRoleIds?: string[];
   rolesByUser?: Map<string, Set<string>>;
 }) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const CAP = 100;
@@ -647,73 +647,54 @@ function UserPicker({
 
   return (
     <div>
-      <Label className='text-xs'>{label}</Label>
-      {/* modal: this Popover lives inside a modal Dialog, which disables pointer
-          events outside its content; without modal the portaled popover content
-          renders but its checkboxes can't be clicked. */}
-      <Popover open={open} onOpenChange={setOpen} modal>
-        <PopoverTrigger asChild>
-          <Button variant='outline' role='combobox' aria-expanded={open} className='h-9 w-full justify-between font-normal'>
-            <span className='truncate text-left'>
-              {selected.length > 0 ? `${selected.length} selected` : 'Select users…'}
-            </span>
-            <ChevronsUpDown className='ml-2 h-3.5 w-3.5 shrink-0 opacity-50' />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className='flex max-h-[60vh] w-[320px] flex-col p-2' align='start'>
-          <div className='relative mb-2 shrink-0'>
-            {/* pointer-events-none: a decorative icon absolutely positioned over
-                the input must not intercept clicks meant to focus the field. */}
-            <Search className='pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground' />
-            <Input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              // Keep keystrokes local: the enclosing modal Popover/Dialog attaches
-              // its own keydown handlers that can otherwise swallow characters so
-              // the field's onChange never fires (search appears dead).
-              onKeyDown={(e) => e.stopPropagation()}
-              placeholder='Search name or email…'
-              className='h-8 pl-7 text-sm'
-            />
-          </div>
-          {restrictToRoleIds.length > 0 && (
-            <p className='mb-1 shrink-0 px-1 text-[11px] text-muted-foreground'>
-              Showing holders of the selected role{restrictToRoleIds.length > 1 ? 's' : ''}.
+      <div className='mb-1 flex items-center justify-between'>
+        <Label className='text-xs'>{label}</Label>
+        {selected.length > 0 && <span className='text-[11px] text-muted-foreground'>{selected.length} selected</span>}
+      </div>
+      <div className='rounded-md border border-input'>
+        <div className='relative border-b border-input'>
+          <Search className='pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground' />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder='Search name or email…'
+            className='h-8 border-0 pl-7 text-sm shadow-none focus-visible:ring-0'
+          />
+        </div>
+        {restrictToRoleIds.length > 0 && (
+          <p className='border-b border-input px-2 py-1 text-[11px] text-muted-foreground'>
+            Showing holders of the selected role{restrictToRoleIds.length > 1 ? 's' : ''}.
+          </p>
+        )}
+        <div className='max-h-48 space-y-0.5 overflow-y-auto p-1'>
+          {filtered.length === 0 && (
+            <p className='px-2 py-1.5 text-xs text-muted-foreground'>
+              {restrictToRoleIds.length > 0 ? 'No users hold the selected role(s).' : 'No people match.'}
             </p>
           )}
-          <div className='min-h-0 flex-1 space-y-1 overflow-y-auto'>
-            {filtered.length === 0 && (
-              <p className='px-2 py-1.5 text-xs text-muted-foreground'>
-                {restrictToRoleIds.length > 0 ? 'No users hold the selected role(s).' : 'No people match.'}
-              </p>
-            )}
-            {filtered.map((p) => (
-              <div
-                key={p.id}
-                role='button'
-                tabIndex={0}
-                onClick={() => toggle(p.id)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(p.id); } }}
-                className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'
-              >
-                {/* Presentational only: the row div owns the single toggle so a
-                    Radix Checkbox inside a label can't double-fire and net zero. */}
-                <Checkbox checked={selected.includes(p.id)} tabIndex={-1} className='pointer-events-none' />
-                <span className='min-w-0 flex-1'>
-                  <span className='block truncate'>{p.full_name ?? '(no name)'}</span>
-                  <span className='block truncate text-xs text-muted-foreground'>{p.email}</span>
-                </span>
-              </div>
-            ))}
-            {totalMatches > filtered.length && (
-              <p className='px-2 py-1.5 text-[11px] text-muted-foreground'>
-                Showing {filtered.length} of {totalMatches}. Type to narrow the list.
-              </p>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
+          {filtered.map((p) => (
+            <div
+              key={p.id}
+              role='button'
+              tabIndex={0}
+              onClick={() => toggle(p.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(p.id); } }}
+              className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'
+            >
+              <Checkbox checked={selected.includes(p.id)} tabIndex={-1} className='pointer-events-none' />
+              <span className='min-w-0 flex-1'>
+                <span className='block truncate'>{p.full_name ?? '(no name)'}</span>
+                <span className='block truncate text-xs text-muted-foreground'>{p.email}</span>
+              </span>
+            </div>
+          ))}
+          {totalMatches > filtered.length && (
+            <p className='px-2 py-1.5 text-[11px] text-muted-foreground'>
+              Showing {filtered.length} of {totalMatches}. Type to narrow the list.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
