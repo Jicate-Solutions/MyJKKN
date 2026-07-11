@@ -95,6 +95,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ack_ids: rows.map((r) => r.id) }),
+          signal: AbortSignal.timeout(10_000),
         }).catch(() => {});
       } catch {
         // silent — inbox is a bonus, never a blocker
