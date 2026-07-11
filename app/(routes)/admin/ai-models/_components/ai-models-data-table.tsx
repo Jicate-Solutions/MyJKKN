@@ -79,7 +79,12 @@ function useMaxLaneSchedules() {
   const load = useCallback(async () => {
     try {
       const resp = await fetch('/api/admin/ai-routines/schedule', { cache: 'no-store' });
-      if (!resp.ok) return; // 403/500 → switches simply don't render
+      // 403/500 → switches simply don't render. Deliberate house style
+      // (matches model-chip + max-lane hooks: "the page must never get
+      // noisier because the config API is unreachable"); the WRITE path
+      // (toggleMaxSchedule) does surface its errors via toast.
+      // Deep-review 2026-07-11 finding #9 reviewed and declined on this basis.
+      if (!resp.ok) return;
       const json = await resp.json();
       const rows: ScheduleRow[] = Array.isArray(json?.schedules) ? json.schedules : [];
       const m = new Map<string, ScheduleRow>();
