@@ -115,6 +115,22 @@ function useRefundProfiles() {
   });
 }
 
+// Role→member pairs (active roles only) via a self-authorizing DEFINER RPC, so
+// the Users picker can be scoped to holders of the selected role(s) regardless
+// of user_roles RLS. Cast because the RPC isn't in the generated Supabase types.
+function useRefundRoleMembers() {
+  return useQuery({
+    queryKey: ['refund-flow-role-members'],
+    queryFn: async (): Promise<Array<{ role_id: string; user_id: string }>> => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc('fn_refund_role_members');
+      if (error) throw new Error(getErrorMessage(error));
+      return data ?? [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 function newStage(): RefundFlowStage {
   return { key: crypto.randomUUID(), name: '', assignee_roles: [], assignee_users: [] };
 }
@@ -125,6 +141,19 @@ export function FlowConfigsClient() {
   const { data: roles } = useRefundRoles();
   const { data: roleCounts } = useRoleHolderCounts();
   const { data: profiles } = useRefundProfiles();
+  const { data: roleMembers } = useRefundRoleMembers();
+
+  // user_id -> set of role_ids they hold (active roles), for the Users picker's
+  // "only holders of the selected role(s)" filter.
+  const rolesByUser = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const rm of roleMembers ?? []) {
+      let set = m.get(rm.user_id);
+      if (!set) { set = new Set(); m.set(rm.user_id, set); }
+      set.add(rm.role_id);
+    }
+    return m;
+  }, [roleMembers]);
 
   const saveConfig = useSaveRefundFlowConfig();
   const deleteConfig = useDeleteRefundFlowConfig();
@@ -253,6 +282,7 @@ export function FlowConfigsClient() {
           institutions={institutions}
           roleOptions={roleOptions}
           profiles={profiles ?? []}
+          rolesByUser={rolesByUser}
           isSaving={saveConfig.isPending}
           onClose={() => setEditorTarget(null)}
           onSave={(cfg) => saveConfig.mutate(cfg, { onSuccess: () => setEditorTarget(null) })}
@@ -288,12 +318,13 @@ export function FlowConfigsClient() {
 // ---- Editor dialog -----------------------------------------------------------------
 
 function FlowEditorDialog({
-  target, institutions, roleOptions, profiles, isSaving, onClose, onSave,
+  target, institutions, roleOptions, profiles, rolesByUser, isSaving, onClose, onSave,
 }: {
   target: RefundFlowConfig | 'new';
   institutions: Array<{ id: string; name: string }>;
   roleOptions: RoleOption[];
   profiles: ProfileOption[];
+  rolesByUser: Map<string, Set<string>>;
   isSaving: boolean;
   onClose: () => void;
   onSave: (config: Partial<RefundFlowConfig>) => void;
@@ -402,7 +433,7 @@ function FlowEditorDialog({
             </CardHeader>
             <CardContent className='grid gap-3 sm:grid-cols-2'>
               <RolePicker label='Roles' options={roleOptions} selected={initiatorRoles} onChange={setInitiatorRoles} />
-              <UserPicker label='Users' profiles={profiles} selected={initiatorUsers} onChange={setInitiatorUsers} />
+              <UserPicker label='Users' profiles={profiles} selected={initiatorUsers} onChange={setInitiatorUsers} restrictToRoleIds={initiatorRoles} rolesByUser={rolesByUser} />
             </CardContent>
           </Card>
 
@@ -421,6 +452,7 @@ function FlowEditorDialog({
                   total={stages.length}
                   roleOptions={roleOptions}
                   profiles={profiles}
+                  rolesByUser={rolesByUser}
                   onChange={(patch) => updateStage(stage.key, patch)}
                   onMove={(dir) => moveStage(stage.key, dir)}
                   onRemove={() => removeStage(stage.key)}
@@ -438,7 +470,7 @@ function FlowEditorDialog({
             </CardHeader>
             <CardContent className='grid gap-3 sm:grid-cols-2'>
               <RolePicker label='Roles' options={roleOptions} selected={disburserRoles} onChange={setDisburserRoles} />
-              <UserPicker label='Users' profiles={profiles} selected={disburserUsers} onChange={setDisburserUsers} />
+              <UserPicker label='Users' profiles={profiles} selected={disburserUsers} onChange={setDisburserUsers} restrictToRoleIds={disburserRoles} rolesByUser={rolesByUser} />
             </CardContent>
           </Card>
         </div>
@@ -458,13 +490,14 @@ function FlowEditorDialog({
 // ---- Single stage row ---------------------------------------------------------------
 
 function StageRow({
-  stage, index, total, roleOptions, profiles, onChange, onMove, onRemove,
+  stage, index, total, roleOptions, profiles, rolesByUser, onChange, onMove, onRemove,
 }: {
   stage: RefundFlowStage;
   index: number;
   total: number;
   roleOptions: RoleOption[];
   profiles: ProfileOption[];
+  rolesByUser: Map<string, Set<string>>;
   onChange: (patch: Partial<RefundFlowStage>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -498,7 +531,7 @@ function StageRow({
       </div>
       <div className='grid gap-3 sm:grid-cols-2'>
         <RolePicker label='Roles' options={roleOptions} selected={stage.assignee_roles} onChange={(v) => onChange({ assignee_roles: v })} />
-        <UserPicker label='Users' profiles={profiles} selected={stage.assignee_users} onChange={(v) => onChange({ assignee_users: v })} />
+        <UserPicker label='Users' profiles={profiles} selected={stage.assignee_users} onChange={(v) => onChange({ assignee_users: v })} restrictToRoleIds={stage.assignee_roles} rolesByUser={rolesByUser} />
       </div>
     </div>
   );
@@ -566,23 +599,38 @@ function RolePicker({
 // ---- User multi-select: searchable checklist ---------------------------------------
 
 function UserPicker({
-  label, profiles, selected, onChange,
+  label, profiles, selected, onChange, restrictToRoleIds = [], rolesByUser,
 }: {
   label: string;
   profiles: ProfileOption[];
   selected: string[];
   onChange: (ids: string[]) => void;
+  restrictToRoleIds?: string[];
+  rolesByUser?: Map<string, Set<string>>;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
-  const filtered = useMemo(() => {
+  const CAP = 100;
+  // When roles are selected for this section, scope the pool to their holders
+  // (so you pick people who actually hold the chosen role). With no role
+  // selected, show everyone so you can still pin an arbitrary user.
+  const { filtered, totalMatches } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const pool = q
-      ? profiles.filter((p) => (p.full_name ?? '').toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q))
-      : profiles;
-    return pool.slice(0, 50);
-  }, [profiles, query]);
+    let pool = profiles;
+    if (restrictToRoleIds.length > 0 && rolesByUser) {
+      pool = pool.filter((p) => {
+        const held = rolesByUser.get(p.id);
+        return held ? restrictToRoleIds.some((rid) => held.has(rid)) : false;
+      });
+    }
+    if (q) {
+      pool = pool.filter(
+        (p) => (p.full_name ?? '').toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q),
+      );
+    }
+    return { filtered: pool.slice(0, CAP), totalMatches: pool.length };
+  }, [profiles, query, restrictToRoleIds, rolesByUser]);
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
@@ -603,8 +651,8 @@ function UserPicker({
             <ChevronsUpDown className='ml-2 h-3.5 w-3.5 shrink-0 opacity-50' />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className='w-[320px] p-2' align='start'>
-          <div className='relative mb-2'>
+        <PopoverContent className='flex max-h-[60vh] w-[320px] flex-col p-2' align='start'>
+          <div className='relative mb-2 shrink-0'>
             <Search className='absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground' />
             <Input
               autoFocus
@@ -614,9 +662,16 @@ function UserPicker({
               className='h-8 pl-7 text-sm'
             />
           </div>
-          <div className='max-h-56 space-y-1 overflow-y-auto'>
+          {restrictToRoleIds.length > 0 && (
+            <p className='mb-1 shrink-0 px-1 text-[11px] text-muted-foreground'>
+              Showing holders of the selected role{restrictToRoleIds.length > 1 ? 's' : ''}.
+            </p>
+          )}
+          <div className='min-h-0 flex-1 space-y-1 overflow-y-auto'>
             {filtered.length === 0 && (
-              <p className='px-2 py-1.5 text-xs text-muted-foreground'>No people match.</p>
+              <p className='px-2 py-1.5 text-xs text-muted-foreground'>
+                {restrictToRoleIds.length > 0 ? 'No users hold the selected role(s).' : 'No people match.'}
+              </p>
             )}
             {filtered.map((p) => (
               <label key={p.id} className='flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted'>
@@ -627,6 +682,11 @@ function UserPicker({
                 </span>
               </label>
             ))}
+            {totalMatches > filtered.length && (
+              <p className='px-2 py-1.5 text-[11px] text-muted-foreground'>
+                Showing {filtered.length} of {totalMatches}. Type to narrow the list.
+              </p>
+            )}
           </div>
         </PopoverContent>
       </Popover>

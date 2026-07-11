@@ -21926,3 +21926,22 @@ GRANT EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
+
+-- Role→member pairs for active roles (settings user-picker role filter). See
+-- migration 20260711130000. Self-authorizing DEFINER (config authors only).
+CREATE OR REPLACE FUNCTION public.fn_refund_role_members()
+RETURNS TABLE(role_id uuid, user_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT ur.role_id, ur.user_id
+  FROM user_roles ur
+  JOIN custom_roles cr ON cr.id = ur.role_id
+  WHERE cr.is_active
+    AND (is_super_admin() OR is_admin() OR user_has_permission('billing.refunds.configure'));
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_refund_role_members() TO authenticated;
