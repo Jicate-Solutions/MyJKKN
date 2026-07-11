@@ -11,6 +11,10 @@
 // The sim itself runs INSIDE fn_loops_regress_scf's subtransaction: seeds are
 // rolled back in the same call; the only persistent write is the loop_audits
 // verdict row, which /admin/loops renders as the chip's "tested" badge.
+// Concurrent double-fire can't duplicate audit rows: the dispatcher's
+// fn_ai_routine_claim_due marks the slot atomically before firing (review r3
+// disposition); manual re-runs appending extra rows is fine — audits are an
+// append-only log and the notification fanout is idempotent.
 // Coverage today: scf (the proven recipe). Additional loops join by adding
 // fn_loops_regress_<loop> + extending LOOP_FNS — see .claude/loop-manifests/.
 //
@@ -80,7 +84,16 @@ export async function GET(request: NextRequest) {
         });
         continue;
       }
-      const row = (Array.isArray(data) ? data[0] : data) as RegressRow;
+      const raw = (Array.isArray(data) ? data[0] : data) as RegressRow | undefined;
+      // An empty result set from the RPC is itself a sim failure — without
+      // this guard `undefined` reached the verdict filter and 500'd the run
+      // after side effects (review r3).
+      const row: RegressRow = raw ?? {
+        loop_key: loopKey,
+        verdict: 'sim-error: rpc returned no row',
+        no_change_lift: null,
+        known_delta_lift: null,
+      };
       results.push(row);
       // Exact match on purpose: a regress fn's vocabulary is closed
       // (measure-verified | sim-failed | sim-error) — anything unexpected

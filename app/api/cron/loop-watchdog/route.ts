@@ -97,6 +97,11 @@ export async function GET(request: NextRequest) {
     // vs toISOString()'s `Z` makes lexicographic comparison boundary-unreliable
     // (review #7). Anchor on last fire, falling back to the row's updated_at
     // for never-fired rows; a row with neither signal is an alarm by itself.
+    // Accepted trade-off (review r3): editing a never-fired row refreshes
+    // updated_at and delays its silence alarm by one cadence period — the
+    // alternative (flag every never-fired row) would false-page each freshly
+    // seeded routine before its first scheduled fire (e.g. a Sunday row
+    // seeded on a Thursday).
     const anchor = r.last_fired_at ?? r.updated_at;
     if (!anchor) return true;
     return nowMs - new Date(anchor).getTime() > staleThresholdMs(r.days_of_week);

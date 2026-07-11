@@ -28,24 +28,38 @@ export function staleThresholdMs(daysOfWeek: number[] | null | undefined): numbe
   return maxGapDays * 24 * 3600_000 + 3600_000;
 }
 
-// Errored-status detection — ONE regex for the watchdog cron and the
-// /admin/loops red line (they duplicated it and could drift, review r2).
-// "skipped: not in registry" needs the registry consulted: when the RUNNING
-// deployment's registry knows the id, the status is a pre-deploy leftover
-// that self-heals at the routine's next fire — not an alarm. When the running
-// code still doesn't know the id, the dispatcher will keep skipping it
-// forever while last_fired_at stays fresh (claim happens before the registry
-// check), so it would otherwise be a permanently invisible dead pipe — alarm.
-// Callers pass `knownToRegistry` themselves (this module can't import the
-// registry: registry.ts imports LOOP_GOVERNANCE_ROUTINES from here).
-export const ERROR_RX = /HTTP [45]\d\d|timeout|timed out|failed|exception|not in registry/i;
+// Errored-status detection — ONE helper for the watchdog cron and the
+// /admin/loops red line (they duplicated a regex and could drift, review r2).
+//
+// The status vocabulary is CLOSED for managed rows: the dispatcher is their
+// only writer (fn_ai_routine_record_fire via ai-routine-dispatcher), and its
+// paths emit exactly: "HTTP <code>[ · summary]", "HTTP <code> · error: <msg>"
+// (routine answered but reported ok:false), "error: <msg>" (fetch threw —
+// includes timeouts/aborts), or "skipped: <reason>". Matching those structured
+// tokens instead of bare substrings like `failed`/`exception` avoids both
+// failure directions of review r3's consensus finding: a free-text summary
+// mentioning a word like "failed" can't false-alarm, and a genuine
+// "error: connection refused" (which the old token list MISSED entirely)
+// now alarms.
+//
+// "skipped:" handling: "skipped: not in registry" needs the registry
+// consulted — when the RUNNING deployment's registry knows the id, the status
+// is a pre-deploy leftover that self-heals at the routine's next fire, not an
+// alarm; when the running code still doesn't know the id, the dispatcher will
+// keep skipping it forever while last_fired_at stays fresh (the claim happens
+// before the registry check), a permanently invisible dead pipe — alarm. Any
+// OTHER "skipped:" reason (e.g. "skipped: no app origin") is a config break —
+// alarm. Callers pass `knownToRegistry` themselves (this module can't import
+// the registry: registry.ts imports LOOP_GOVERNANCE_ROUTINES from here).
+export const ERROR_RX = /HTTP [45]\d\d|\berror:|timeout|timed out/i;
 export function isAlarmStatus(
   lastStatus: string | null | undefined,
   knownToRegistry: boolean
 ): boolean {
-  if (!lastStatus || !ERROR_RX.test(lastStatus)) return false;
-  if (lastStatus.startsWith('skipped: not in registry') && knownToRegistry) return false;
-  return true;
+  if (!lastStatus) return false;
+  if (lastStatus.startsWith('skipped: not in registry')) return !knownToRegistry;
+  if (lastStatus.startsWith('skipped:')) return true;
+  return ERROR_RX.test(lastStatus);
 }
 
 // Verdict vocabulary (binding, from the /loops skill): verified states are
@@ -75,7 +89,10 @@ export function isVerifiedVerdict(verdict: string | null | undefined): boolean {
 // the first alert consume the day). Parts are SORTED before hashing: they
 // arrive in PostgREST result order, which is not stable across runs, and an
 // order-sensitive hash would re-page admins for the identical finding set
-// (review r2, 3-lens consensus).
+// (review r2, 3-lens consensus). Accepted trade-off (review r3): a
+// break→fix→identical-re-break within one day dedups to the first page — the
+// watchdog fires once daily, so only manual re-runs can even hit it, and the
+// operator running those is already looking.
 export function findingsFingerprint(parts: string[]): string {
   const s = [...parts].sort().join('|');
   let h = 5381;
