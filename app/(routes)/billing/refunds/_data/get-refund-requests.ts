@@ -65,7 +65,9 @@ export async function getRefundRequests(
   }
 
   if (filters.date_to) {
-    query = query.lte('initiated_at', filters.date_to);
+    // date_to is a bare YYYY-MM-DD; initiated_at is timestamptz. Extend to the
+    // end of that day so the selected end date is inclusive (repo convention).
+    query = query.lte('initiated_at', `${filters.date_to}T23:59:59Z`);
   }
 
   // Apply sorting
