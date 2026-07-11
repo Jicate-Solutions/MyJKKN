@@ -185,6 +185,12 @@ export interface AdminCollegeSummaryRow {
   students: number;
   avg_understood: number | null;
   low_sessions: number;
+  /** Responses rating understanding <= 2 in window — the individual-learner
+   *  lens (a struggling voice in an otherwise-fine class never moves
+   *  low_sessions). Optional: absent from cached pre-2026-07-11 responses. */
+  low_flag_responses?: number;
+  /** Sessions containing >= 1 such response. */
+  low_flag_sessions?: number;
 }
 
 /** Per-faculty admin summary (worst understanding first). fn_scf_admin_faculty_summary.
