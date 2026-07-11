@@ -20,10 +20,13 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+  -- Month boundary anchored to IST (the Director's calendar), not the DB's
+  -- UTC session TZ — otherwise caps stay spuriously tripped for ~5.5h into
+  -- each new IST month (deep-review finding #3).
   SELECT COALESCE(sum(cost_inr), 0)
     FROM public.ai_model_usage
    WHERE feature_key = p_feature_key
-     AND invoked_at >= date_trunc('month', now());
+     AND invoked_at >= date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata';
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_ai_feature_mtd_spend(text) FROM anon, authenticated, PUBLIC;
