@@ -27,6 +27,8 @@ import {
 import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
+import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
+import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
   LoopTier,
   LoopTone,
@@ -333,7 +335,7 @@ export default async function LoopControlTowerPage({
     routineId: string | null,
     featureKey: string | null,
     staticCfg: string,
-  ): { cfg: string; lastRun?: string; configHref?: string } => {
+  ): { cfg: string; lastRun?: string; lastRunBad?: boolean; configHref?: string } => {
     // "Live" ONLY when the loop has a dispatcher SCHEDULE row — that's what makes
     // it editable on AI Routines and gives it a real last_status. A model row
     // alone (direct-cron loops like induction-session) is NOT enough: keep the
@@ -342,9 +344,24 @@ export default async function LoopControlTowerPage({
     if (!live) return { cfg: staticCfg };
     const model = featureKey ? modelByKey.get(featureKey) ?? null : null;
     const parts = [fmtSchedule(routineId!), model].filter(Boolean) as string[];
+    const sched = schedById.get(routineId!);
+    // Red-state computation (watchdog wire, 2026-07-11): errored last run OR
+    // silent past the routine's OWN cadence — derived from days_of_week via
+    // the same staleThresholdMs the watchdog cron uses, so a healthy weekly
+    // routine never shows red on its six quiet days (review 2026-07-11 #2).
+    // Never-fired rows aren't flagged here: without a seed date the page
+    // can't distinguish "new" from "dead"; the watchdog cron handles those
+    // via updated_at.
+    const lastRunBad = Boolean(
+      (sched &&
+        isAlarmStatus(sched.last_status, Boolean(getRoutineById(routineId!)))) ||
+        (sched?.last_fired_at &&
+          Date.now() - new Date(sched.last_fired_at).getTime() > staleThresholdMs(sched.days_of_week))
+    );
     return {
       cfg: `${parts.join(' · ')} · editable on AI Routines`,
-      lastRun: schedById.get(routineId!)?.last_status ?? undefined,
+      lastRun: sched?.last_status ?? undefined,
+      lastRunBad,
       configHref: AI_ROUTINES,
     };
   };
