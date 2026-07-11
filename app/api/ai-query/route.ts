@@ -996,17 +996,30 @@ function parseMaxLaneUserIds(configJson: unknown): string[] {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** Why the Max lane didn't answer — drives the small note appended to the
+ *  API fallback answer (Director edge-case decision 2026-07-11: fallbacks
+ *  should say so, not pretend to be Max). */
+type MaxLaneMiss = 'offline' | 'busy' | 'slow' | 'error';
+
+const MAX_LANE_MISS_NOTE: Record<MaxLaneMiss, string> = {
+  offline: 'ⓘ _Answered by the paid engine — the Max lane machine is asleep._',
+  busy: 'ⓘ _Answered by the paid engine — the Max lane queue was full._',
+  slow: 'ⓘ _Answered by the paid engine — the Max lane didn’t finish in time._',
+  error: 'ⓘ _Answered by the paid engine — the Max lane hit an error._',
+};
+
 /**
  * Queue one question on the Max lane and wait for the runner's answer.
- * Returns the answer text, or null for ANY failure (not allowed, runner
- * offline, unclaimed too long, runner error, timeout) — null always means
- * "use the API path", never an error the user sees.
+ * Returns { answer } on success, or { answer: null, miss } for ANY failure
+ * (runner offline, queue full, unclaimed too long, runner error, timeout) —
+ * a miss always means "use the API path", never an error the user sees.
+ * ('not allowed' returns no miss: the user isn't on the Max lane at all.)
  */
 async function tryMaxLane(
   supabase: Awaited<ReturnType<typeof createClient>>,
   message: string,
   conversationId: string | undefined,
-): Promise<string | null> {
+): Promise<{ answer: string | null; miss?: MaxLaneMiss }> {
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const { data: req, error: reqError } = await supabase.rpc('fn_max_chat_request', {
     p_message: message,
@@ -1014,7 +1027,10 @@ async function tryMaxLane(
       conversationId && uuidRe.test(conversationId) ? conversationId : null,
   });
   if (reqError || !req?.ok || typeof req?.request_id !== 'string') {
-    return null; // not allowed / runner offline / already queued → API path
+    const errText = typeof req?.error === 'string' ? req.error : '';
+    if (errText === 'runner offline') return { answer: null, miss: 'offline' };
+    if (errText === 'queue full') return { answer: null, miss: 'busy' };
+    return { answer: null }; // not allowed / invalid — plain API path, no note
   }
 
   const startedAt = Date.now();
@@ -1025,18 +1041,19 @@ async function tryMaxLane(
     });
     if (stError || !st || typeof st.status !== 'string') continue; // transient — keep polling
     if (st.status === 'done' && typeof st.answer === 'string' && st.answer.trim().length > 0) {
-      return st.answer;
+      return { answer: st.answer };
     }
-    if (st.status === 'error') return null;
+    if (st.status === 'error') return { answer: null, miss: 'error' };
     if (st.status === 'pending' && Date.now() - startedAt > MAX_LANE_UNCLAIMED_DEADLINE_MS) {
       break; // runner never claimed it — don't burn the full window waiting
     }
   }
 
   // Abandoning the wait: cancel so a late-claiming runner doesn't burn the
-  // seat on a question the API fallback is about to answer anyway.
+  // seat on a question the API fallback is about to answer anyway. (A late
+  // completion is discarded — complete only updates status='claimed' rows.)
   await supabase.rpc('fn_max_chat_cancel', { p_id: req.request_id });
-  return null;
+  return { answer: null, miss: 'slow' };
 }
 
 export async function POST(request: NextRequest) {
