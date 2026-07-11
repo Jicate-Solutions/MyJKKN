@@ -112,6 +112,12 @@ export async function GET(_request: NextRequest) {
     // 3. Stitch together. config_json is SANITIZED to derived lane flags —
     // the raw blob can hold the Max seat owner's auth.users id
     // (max_lane_user_ids), which no browser needs (deep-review finding #8).
+    // Round-trip safety (deep-review re-raise, VERIFIED 2026-07-11): the only
+    // writer, AiModelEditDialog, PATCHes discrete fields (provider, model_id,
+    // fallback_*, monthly_spend_cap_inr, change_reason — dialog lines ~131-138)
+    // and never sends config_json, so this sanitized echo cannot be written
+    // back. If a future editor ever persists config_json, it must re-read the
+    // raw row server-side, NOT this response shape.
     const enriched: FeatureWithUsage[] = features.map((f) => {
       const s = stats.get(f.feature_key);
       const cj = (f.config_json ?? {}) as Record<string, unknown>;
