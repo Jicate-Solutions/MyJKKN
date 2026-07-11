@@ -3,10 +3,12 @@
 -- Migration: 2026-07-11
 -- =====================================================================
 -- Sibling of max_lane_requests (routine runs): the seat owner's AI Query
--- questions queue here, the runner box (Windows poller, ~2 min cadence)
--- claims them, answers via headless `claude -p` on the Claude Max
--- subscription, and reports back; /api/ai-query long-polls the row and
--- falls back to the cached API path on offline/timeout/error.
+-- questions queue here, the runner box's DEDICATED chat drain (1-minute
+-- Task Scheduler task — NOT the 2-min routine poller, whose single-flight
+-- lock can be held ~30 min) claims them, answers via headless `claude -p`
+-- on the Claude Max subscription, and reports back; /api/ai-query
+-- long-polls the row (120s unclaimed / 180s total = 2x the drain cadence
+-- + inference budget) and falls back to the cached API on offline/timeout/error.
 --
 -- HARD BOUNDARY (Director-accepted, 2026-07-04 + 2026-07-11): the allowlist
 -- is ai_model_config.config_json->'max_lane_user_ids' on the

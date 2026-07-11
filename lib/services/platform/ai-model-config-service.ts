@@ -184,6 +184,12 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
         resolved.over_cap = true;
         resolved.capped_from_model_id = resolved.model_id;
         resolved.model_id = CAP_DEGRADE_MODEL_ID;
+        // Also neutralize the row's fallback pair: a consumer honoring
+        // fallback_model_id could otherwise re-escalate an over-cap feature
+        // straight back to an expensive model (deep-review finding).
+        if (resolved.fallback_provider === 'anthropic') {
+          resolved.fallback_model_id = CAP_DEGRADE_MODEL_ID;
+        }
       }
     }
 
