@@ -95,17 +95,24 @@ BEGIN
   -- Up to 3 live questions per requester (Director edge-case decision
   -- 2026-07-11: a second question queues behind the first on Max rather than
   -- being bounced; the cap stops a runaway tab from flooding the seat).
-  IF (
-    SELECT count(*) FROM public.max_lane_chat_requests
-     WHERE requested_by = v_uid
-       AND status IN ('pending', 'claimed')
-  ) >= 3 THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'queue full');
-  END IF;
+  -- ATOMIC: the count gate lives inside the INSERT statement itself — a
+  -- count-then-insert pair could let two concurrent submits both pass
+  -- (deep-review finding #4). Serialized against same-user racers by a
+  -- transaction-scoped advisory lock on the requester id.
+  PERFORM pg_advisory_xact_lock(hashtext('max_lane_chat:' || v_uid::text));
 
   INSERT INTO public.max_lane_chat_requests (requested_by, conversation_id, message)
-  VALUES (v_uid, p_conversation_id, v_message)
+  SELECT v_uid, p_conversation_id, v_message
+   WHERE (
+     SELECT count(*) FROM public.max_lane_chat_requests
+      WHERE requested_by = v_uid
+        AND status IN ('pending', 'claimed')
+   ) < 3
   RETURNING id INTO v_id;
+
+  IF v_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'queue full');
+  END IF;
 
   RETURN jsonb_build_object('ok', true, 'request_id', v_id);
 END;
