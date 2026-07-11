@@ -4,6 +4,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { uploadRefundAttachment } from '@/lib/google/drive-upload';
 
+// These values become Google Drive folder-path segments, so restrict them to a
+// safe allowlist to prevent path traversal / folder injection from the client.
+function sanitizeSegment(value: string, fallback: string): string {
+  const cleaned = (value || '').replace(/[^A-Za-z0-9 _.-]/g, '').trim().slice(0, 80);
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -11,8 +18,8 @@ export async function POST(request: NextRequest) {
 
   const form = await request.formData();
   const file = form.get('file') as File | null;
-  const institutionName = (form.get('institutionName') as string) || 'Unknown Institution';
-  const requestRef = (form.get('requestRef') as string) || 'general';
+  const institutionName = sanitizeSegment(form.get('institutionName') as string, 'Unknown Institution');
+  const requestRef = sanitizeSegment(form.get('requestRef') as string, 'general');
   if (!file) return NextResponse.json({ error: 'file_required' }, { status: 400 });
   if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: 'file_too_large_10mb' }, { status: 400 });
 
