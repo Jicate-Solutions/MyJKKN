@@ -96,6 +96,10 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
     // The RPC binds the write to this exact GRN line (must be linked to the
     // resource, in a verified resource_mgmt GRN of the same institution) and
     // claims it exactly-once via domain_posted_at — a re-post is a no-op.
+    // RM quantities are INTEGER units by design (Director 2026-07-11: each
+    // resources row is one record with discrete usable units — assets/lots,
+    // never fractional). The RPC's integer p_quantity == numeric accepted_
+    // quantity equality is therefore exact; fractional lines belong to IMS.
     const { error } = await db().rpc('fn_procurement_rm_post_receipt', {
       p_grn_item_id: line.grnItemId,
       p_resource_id: line.domainItemId,
@@ -112,6 +116,12 @@ export const resourceMgmtAdapter: ProcurementDomainAdapter = {
   ): Promise<string> {
     // Passing the PO line lets the RPC lock it and reuse an already-materialized
     // draft (split delivery: GRN2 tops up GRN1's record instead of duplicating).
+    // Scope note (review r3): the RPC is intentionally NOT bound to a GRN line —
+    // the hook's contract includes PR-approval-time materialization, where no
+    // GRN exists yet. A direct caller gains nothing beyond the legitimate flow:
+    // only 0-qty needs-setup drafts in their own institution (RM reviews these
+    // during setup), and stock can only ever land on a draft via post_receipt,
+    // which IS line-bound. No existing resource is reachable from here.
     const { data, error } = await db().rpc('fn_procurement_rm_reconcile_new_item', {
       p_institution_id: ctx.institutionId,
       p_name: snapshot.name,

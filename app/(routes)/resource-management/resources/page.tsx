@@ -73,9 +73,12 @@ export default function ResourcesPage() {
       .catch(() => {
         if (seq === needsSetupReqSeq.current) setNeedsSetupCount(null);
       });
-    // length (not the array ref) so list refetches that change nothing don't
-    // refire; the seq ref still drops out-of-order settles when they overlap.
-  }, [resources.length, filters.institution_id]);
+    // Deliberately keyed on the array IDENTITY: every list refetch (including
+    // after completing a draft's setup, which changes tags but not length)
+    // refreshes the badge. Reviewed both ways — identity refetches a cheap
+    // head-only count more often; length went stale on same-length mutations
+    // (review r3, MEDIUM). Freshness wins; the seq ref handles overlap.
+  }, [resources, filters.institution_id]);
 
   const canViewResources =
     isSuperAdmin || canAccess('resources.resources', 'view');

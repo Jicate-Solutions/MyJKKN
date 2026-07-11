@@ -406,6 +406,14 @@ export class ProcurementGrnService {
               // re-verify skip lines that did post — it is an audit/recovery
               // aid, not an exactly-once guarantee for those domains (which is
               // why the catch below only auto-retries idempotentPosts domains).
+              // Ordering is deliberate (reviewed both ways, r3): marking BEFORE
+              // the post would turn a crash-between into SILENT inventory loss
+              // that the marker itself hides; post-first leaves a narrow,
+              // DETECTABLE double-post window on manual re-verify (IMS batch
+              // rows carry the GRN reference, so an auditor can see the line
+              // posted) — and is strictly narrower than the pre-marker recovery,
+              // which replayed every line. True exactly-once for IMS = moving
+              // its post into a single RPC like RM's (follow-up scope).
               const { error: postedErr } = await this.supabase
                 .from('procurement_grn_items')
                 .update({ domain_posted_at: new Date().toISOString() })
@@ -661,11 +669,48 @@ export class ProcurementGrnService {
       if (niErr) throw niErr;
       createdItemId = newItem.id;
 
-      // 6) Post to inventory.
-      if (originItem.domain_item_id) {
+      // 6) Post to inventory. A fully-rejected new-item line was never
+      //    materialized at verify (accepted=0 skipped it), so its replacement
+      //    must materialize here or the goods never reach inventory (review
+      //    r3) — same fresh-PO-read dedup + reconcile as verifyGrn.
+      let domainItemId: string | null = originItem.domain_item_id ?? null;
+      if (!domainItemId && originItem.po_item_id) {
+        const { data: freshPoi, error: freshErr } = await this.supabase
+          .from('procurement_purchase_order_items')
+          .select('domain_item_id')
+          .eq('id', originItem.po_item_id)
+          .single();
+        if (freshErr) throw freshErr;
+        domainItemId = freshPoi?.domain_item_id ?? null;
+      }
+      if (!domainItemId && adapter.reconcileNewItem) {
+        domainItemId = await adapter.reconcileNewItem(
+          { name: originItem.item_name, isChemical: originItem.is_chemical ?? undefined },
+          ctx,
+          originItem.po_item_id ?? null
+        );
+      }
+      if (domainItemId && domainItemId !== (originItem.domain_item_id ?? null)) {
+        // Back-link the origin line, the fresh replacement line, and the PO line
+        // so later reads/replacements see a linked item (RM's reconcile already
+        // backfilled the PO line in its own transaction; this is a no-op there).
+        const { error: relinkErr } = await this.supabase
+          .from('procurement_grn_items')
+          .update({ domain_item_id: domainItemId })
+          .in('id', [originItem.id, newItem.id]);
+        if (relinkErr) throw relinkErr;
+        if (originItem.po_item_id) {
+          const { error: poLinkErr } = await this.supabase
+            .from('procurement_purchase_order_items')
+            .update({ domain_item_id: domainItemId })
+            .eq('id', originItem.po_item_id);
+          if (poLinkErr) throw poLinkErr;
+        }
+      }
+      if (domainItemId) {
         await adapter.postReceipt(
           {
-            domainItemId: originItem.domain_item_id,
+            domainItemId,
             acceptedQuantity: accepted,
             costPrice,
             totalValue: costPrice * accepted,
