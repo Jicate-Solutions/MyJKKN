@@ -49,6 +49,7 @@ import {
 import { StudentBillsTable } from './_components/student-bills-table';
 import { StudentTransactionHistory } from './_components/student-transaction-history';
 import { StudentReceiptsTable } from './_components/student-receipts-table';
+import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { toast } from 'react-hot-toast';
 
@@ -347,14 +348,24 @@ export default function StudentBillingDetailPage() {
             </div>
           </div>
 
-          {/* Schedule Bill Button - Full width on mobile - Hidden for students */}
-          {!isStudent && canCreateBills && (
-            <Button asChild className='w-full sm:w-auto sm:self-start'>
-              <Link href={`/billing/schedule/new?student_id=${studentId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}>
-                <Plus className='mr-2 h-4 w-4' />
-                Schedule Bill
-              </Link>
-            </Button>
+          {/* Header Actions - Full width on mobile - Hidden for students */}
+          {!isStudent && (
+            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:self-start'>
+              {canCreateBills && (
+                <Button asChild className='w-full sm:w-auto'>
+                  <Link href={`/billing/schedule/new?student_id=${studentId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}>
+                    <Plus className='mr-2 h-4 w-4' />
+                    Schedule Bill
+                  </Link>
+                </Button>
+              )}
+              <RefundInitiateDialog
+                studentId={studentId}
+                institutionId={student.institution_id}
+                institutionName={student.institution?.name || 'Unknown Institution'}
+                studentName={[student.first_name, student.last_name].filter(Boolean).join(' ')}
+              />
+            </div>
           )}
         </div>
 
