@@ -20,8 +20,10 @@ export function RefundAttachmentsField({ value, onChange, institutionName, reque
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     setUploading(true);
+    // Accumulate successes as we go and commit them even if a later file fails,
+    // so an already-uploaded Drive object is never orphaned/lost from the form.
+    const uploaded: RefundAttachment[] = [];
     try {
-      const uploaded: RefundAttachment[] = [];
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append('file', file);
@@ -32,10 +34,10 @@ export function RefundAttachmentsField({ value, onChange, institutionName, reque
         if (!res.ok) throw new Error(json.error || `Upload failed: ${file.name}`);
         uploaded.push(json);
       }
-      onChange([...value, ...uploaded]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Upload failed');
     } finally {
+      if (uploaded.length > 0) onChange([...value, ...uploaded]);
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';
     }
