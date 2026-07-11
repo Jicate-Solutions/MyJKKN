@@ -24,6 +24,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+  # Merge queue (2026-07-11): the delta audit re-runs on the queue's merged
+  # tree (group parent vs merged head = exactly this PR's slice) so a
+  # combination of individually-green PRs can't land a broken main.
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -69,7 +75,8 @@ jobs:
       - name: Audit PR BASE for missing hub pages (baseline)
         id: audit_base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # pull_request → PR base; merge_group → the queue group's parent SHA.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           set -e
           # Stash any working-tree changes (shouldn't be any in CI, but defensive)
