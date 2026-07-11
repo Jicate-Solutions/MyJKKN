@@ -980,11 +980,14 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
 // ============================================================================
 // Max-lane chat (seat-owner only)
 // ============================================================================
-// The runner box polls the queue every ~2 min, so an unclaimed request after
-// 150s means the box is not picking up; once claimed it gets the full window.
+// The runner box drains the chat queue every ~1 min, so an unclaimed request
+// after 120s means the box is not picking up. TOTAL wait is capped at 180s —
+// deliberately well under maxDuration=300 so the API fallback (tool-use loop)
+// always has ≥100s of function budget left; a 240s wait raced the 300s kill
+// and could leave the user with NO answer (deep-review consensus finding).
 const MAX_LANE_POLL_MS = 2_500;
-const MAX_LANE_UNCLAIMED_DEADLINE_MS = 150_000;
-const MAX_LANE_TOTAL_DEADLINE_MS = 240_000;
+const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
+const MAX_LANE_TOTAL_DEADLINE_MS = 180_000;
 
 function parseMaxLaneUserIds(configJson: unknown): string[] {
   if (!configJson || typeof configJson !== 'object') return [];
