@@ -484,7 +484,10 @@ export function AiModelsDataTable() {
                                       <AlertTriangle className="h-3 w-3" />
                                       Over cap
                                     </div>
-                                    {f.provider === 'anthropic' && (
+                                    {/* Enforcement swaps anthropic rows to Haiku;
+                                        a row ALREADY on Haiku has nothing to swap,
+                                        so don't imply protection that isn't applied. */}
+                                    {f.provider === 'anthropic' && f.model_id !== 'claude-haiku-4-5' && (
                                       <div className="text-[11px] text-muted-foreground">
                                         auto-running on Haiku until next month
                                       </div>
