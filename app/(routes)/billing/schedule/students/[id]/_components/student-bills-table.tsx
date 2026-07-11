@@ -215,6 +215,32 @@ export function StudentBillsTable({
     );
   };
 
+  // Task 12: refund-workflow disbursement badge, shown next to the status
+  // badge once billing_student_bills.refund_status is set by
+  // fn_disburse_refund_request.
+  const getRefundBadge = (bill: StudentBill) => {
+    if (!bill.refund_status) return null;
+    const refundedAmount = formatCurrency(Number(bill.refunded_amount ?? 0));
+    if (bill.refund_status === 'refunded') {
+      return (
+        <Badge
+          variant='destructive'
+          className='bg-red-100 text-red-800 border-red-200'
+        >
+          Refunded {refundedAmount}
+        </Badge>
+      );
+    }
+    return (
+      <Badge
+        variant='outline'
+        className='bg-orange-100 text-orange-800 border-orange-200'
+      >
+        Partially Refunded {refundedAmount}
+      </Badge>
+    );
+  };
+
   const isOverdue = (dueDate: string, status: string) => {
     if (status === 'paid' || status === 'cancelled') return false;
     return new Date(dueDate) < new Date();
@@ -313,6 +339,7 @@ export function StudentBillsTable({
           </div>
           <div className='flex items-center gap-2 shrink-0'>
             {getStatusBadge(bill.status)}
+            {getRefundBadge(bill)}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant='ghost' size='sm' className='h-8 w-8 p-0'>
@@ -514,7 +541,12 @@ export function StudentBillsTable({
           )}
         </div>
       </TableCell>
-      <TableCell className='text-center'>{getStatusBadge(bill.status)}</TableCell>
+      <TableCell className='text-center'>
+        <div className='flex flex-col items-center gap-1'>
+          {getStatusBadge(bill.status)}
+          {getRefundBadge(bill)}
+        </div>
+      </TableCell>
       <TableCell className='text-center'>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

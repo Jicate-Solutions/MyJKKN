@@ -108,6 +108,7 @@ export interface RefundRequestFilters {
   status?: RefundRequestStatus;
   refund_type?: RefundType;
   institution_id?: string;
+  student_id?: string;
   search?: string;            // matches request_number
   date_from?: string;
   date_to?: string;

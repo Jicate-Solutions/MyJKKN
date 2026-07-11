@@ -50,6 +50,7 @@ import { StudentBillsTable } from './_components/student-bills-table';
 import { StudentTransactionHistory } from './_components/student-transaction-history';
 import { StudentReceiptsTable } from './_components/student-receipts-table';
 import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
+import { StudentRefundHistory } from './_components/student-refund-history';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { toast } from 'react-hot-toast';
 
@@ -275,6 +276,14 @@ export default function StudentBillingDetailPage() {
       </ContentLayout>
     );
   }
+
+  // Task 12: sum of billing_student_bills.refunded_amount disbursed via the
+  // refund-request workflow (fn_disburse_refund_request) — separate from the
+  // legacy billing_refunds table already netted into summary.paid_amount.
+  const totalRefundedAmount = billingSummary.bills.reduce(
+    (sum, bill) => sum + Number(bill.refunded_amount ?? 0),
+    0
+  );
 
   return (
     <ContentLayout title='Student Billing Details'>
@@ -569,7 +578,8 @@ export default function StudentBillingDetailPage() {
                         ?.filter((r) => r.approval_status === 'processed')
                         .reduce((sum, r) => sum + r.refund_amount, 0) || 0;
 
-                    const netPaidAmount = billingSummary.summary.paid_amount;
+                    const netPaidAmount =
+                      billingSummary.summary.paid_amount - totalRefundedAmount;
                     const isFullyRefunded =
                       totalProcessedRefunds > 0 && netPaidAmount <= 0;
                     const hasRefunds = totalProcessedRefunds > 0;
@@ -669,6 +679,25 @@ export default function StudentBillingDetailPage() {
               <p className='text-xs text-muted-foreground'>Past due date</p>
             </CardContent>
           </Card>
+
+          {/* Task 12: only shown once a refund-workflow disbursement has
+           *  actually posted refunded_amount onto a bill. */}
+          {totalRefundedAmount > 0 && (
+            <Card className='hover:shadow-md transition-shadow'>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  Refunded
+                </CardTitle>
+                <IndianRupee className='h-4 w-4 text-red-600' />
+              </CardHeader>
+              <CardContent>
+                <div className='text-xl sm:text-2xl font-bold text-red-600'>
+                  {formatCurrency(totalRefundedAmount)}
+                </div>
+                <p className='text-xs text-muted-foreground'>Disbursed refunds</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Billing Details Tabs - Enhanced for Mobile */}
@@ -786,6 +815,9 @@ export default function StudentBillingDetailPage() {
             </Tabs>
           </CardContent>
         </Card>
+
+        {/* Refund Requests — only renders once this student has ≥1 request */}
+        <StudentRefundHistory studentId={studentId} />
 
         {/* Payment Selection Modal */}
         <PaymentSelectionModal

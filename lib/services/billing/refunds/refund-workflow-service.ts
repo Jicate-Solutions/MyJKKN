@@ -128,6 +128,7 @@ export class RefundWorkflowService {
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.refund_type) q = q.eq('refund_type', filters.refund_type);
     if (filters.institution_id) q = q.eq('institution_id', filters.institution_id);
+    if (filters.student_id) q = q.eq('student_id', filters.student_id);
     if (filters.search) q = q.ilike('request_number', `%${filters.search}%`);
     if (filters.date_from) q = q.gte('initiated_at', filters.date_from);
     if (filters.date_to) q = q.lte('initiated_at', filters.date_to);
