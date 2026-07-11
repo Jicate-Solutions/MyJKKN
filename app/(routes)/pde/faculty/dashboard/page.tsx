@@ -283,68 +283,48 @@ function useCapabilityHeatmapData() {
 // Section 4: Agency Index Hook
 // ============================================
 
+const EMPTY_AGENCY_DISTRIBUTION: Record<string, number> = {
+  dependent: 0,
+  guided: 0,
+  collaborative: 0,
+  self_directed: 0,
+  principal: 0,
+};
+
 function useAgencyIndexData() {
   return useQuery({
     queryKey: ['pde', 'faculty-agency'],
     queryFn: async () => {
       const supabase = getSupabase();
 
-      // Get all agency index records
-      const { data: agencyRows } = await supabase
-        .from('pde_agency_index')
-        .select('learner_id, score, measured_at')
-        .order('measured_at', { ascending: true });
+      // Scoped to the caller's OWN taught students (Director decision — not
+      // same-institution). Computed live from pde_demonstrations by
+      // fn_pde_agency_distribution_for_facilitator, which resolves the
+      // facilitator → taught sections (attendance-blob assigned_faculty) →
+      // learners chain server-side and buckets into the five modes.
+      //
+      // The previous query read pde_agency_index.{score,measured_at} — columns
+      // that don't exist (real: overall, level, assessment_date, created_at) —
+      // with NO faculty scoping, and destructured only `{ data }`, swallowing
+      // the error into a silent all-zero chart. A faculty-role caller also
+      // can't read pde_agency_index at all (RLS is admin/hod-only), and it's
+      // empty. Hence the RPC.
+      const { data, error } = await supabase.rpc(
+        'fn_pde_agency_distribution_for_facilitator'
+      );
+      if (error) throw error; // surface, don't swallow
 
-      // Distribution: bucket into 5 levels
-      // dependent: 0-20, guided: 21-40, collaborative: 41-60,
-      // self_directed: 61-80, principal: 81-100
-      const latestScores: Record<string, number> = {};
-      for (const row of agencyRows || []) {
-        latestScores[row.learner_id] = row.score; // last wins (sorted asc)
-      }
+      const distribution = (data?.distribution ??
+        EMPTY_AGENCY_DISTRIBUTION) as Record<string, number>;
 
-      const distribution: Record<string, number> = {
-        dependent: 0,
-        guided: 0,
-        collaborative: 0,
-        self_directed: 0,
-        principal: 0,
+      return {
+        distribution,
+        // Rolling-90-day live agency has no clean weekly time-series; the trend
+        // chart shows its "not enough data" state rather than a fabricated line.
+        trend: [] as { date: string; average: number }[],
+        dependentCount: distribution.dependent ?? 0,
+        totalScored: (data?.total_scored ?? 0) as number,
       };
-
-      for (const score of Object.values(latestScores)) {
-        if (score <= 20) distribution.dependent++;
-        else if (score <= 40) distribution.guided++;
-        else if (score <= 60) distribution.collaborative++;
-        else if (score <= 80) distribution.self_directed++;
-        else distribution.principal++;
-      }
-
-      // Trend: average score per week
-      const weeklyAverages: Record<string, { sum: number; count: number }> = {};
-      for (const row of agencyRows || []) {
-        const date = new Date(row.measured_at);
-        // Group by ISO week start (Monday)
-        const day = date.getDay();
-        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
-        const weekStart = new Date(date);
-        weekStart.setDate(diff);
-        const key = weekStart.toISOString().split('T')[0];
-        if (!weeklyAverages[key]) weeklyAverages[key] = { sum: 0, count: 0 };
-        weeklyAverages[key].sum += row.score;
-        weeklyAverages[key].count++;
-      }
-
-      const trend = Object.entries(weeklyAverages)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, { sum, count }]) => ({
-          date,
-          average: Math.round(sum / count),
-        }));
-
-      // Count dependents for alert
-      const dependentCount = distribution.dependent;
-
-      return { distribution, trend, dependentCount };
     },
     staleTime: 2 * 60 * 1000,
   });
@@ -646,7 +626,7 @@ export default function FacultyImpactDashboardPage() {
   const { data: overview, isLoading: overviewLoading } = useFacultyOverviewStats();
   const { data: questProgress, isLoading: questLoading } = useQuestProgress();
   const { data: heatmapData, isLoading: heatmapLoading } = useCapabilityHeatmapData();
-  const { data: agencyData, isLoading: agencyLoading } = useAgencyIndexData();
+  const { data: agencyData, isLoading: agencyLoading, error: agencyError } = useAgencyIndexData();
   const { data: assessmentData, isLoading: assessmentLoading } = useAssessmentPerformance();
   const { data: atRiskLearners, isLoading: atRiskLoading } = useAtRiskLearners();
   const { data: impact, isLoading: impactLoading } = useImpactBoard();
@@ -877,14 +857,26 @@ export default function FacultyImpactDashboardPage() {
                     Agency Level Distribution
                   </CardTitle>
                   <CardDescription>
-                    How independently Learners direct their AI tools
+                    How independently the students you teach direct their AI tools
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <AgencyDistributionBar
-                    distribution={agencyData?.distribution || {}}
-                    isLoading={agencyLoading}
-                  />
+                  {agencyError ? (
+                    <div className="flex items-center justify-center h-[280px] text-sm text-red-700 dark:text-red-300">
+                      Couldn&rsquo;t load the agency distribution. Try again shortly.
+                    </div>
+                  ) : (
+                    <AgencyDistributionBar
+                      distribution={agencyData?.distribution || {}}
+                      isLoading={agencyLoading}
+                    />
+                  )}
+                  {agencyData && agencyData.totalScored > 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Based on {agencyData.totalScored} of your students who have
+                      Agency Index activity so far.
+                    </p>
+                  )}
                   {agencyData && agencyData.dependentCount > 0 && (
                     <div className="mt-3 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-md">
                       <div className="flex items-center gap-2">
