@@ -1223,8 +1223,11 @@ export async function POST(request: NextRequest) {
         // No ai_model_usage row from the route on this path — the runner
         // records the seat call (provider=claude_code, model=max-subscription,
         // cost_inr=0) so /admin/ai-models still sees every invocation.
+        // max_request_id: the client ACKs delivery (PATCH) after rendering —
+        // until then the row stays inbox-visible so a lost response re-shows.
         return NextResponse.json({
           conversation_id: conversation_id || crypto.randomUUID(),
+          max_request_id: maxRequestId,
           message: {
             id: crypto.randomUUID(),
             role: 'assistant',
