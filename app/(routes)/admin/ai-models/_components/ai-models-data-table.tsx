@@ -353,6 +353,11 @@ export function AiModelsDataTable() {
                               {!f.is_active && (
                                 <Badge variant="outline" className="mt-1">Inactive</Badge>
                               )}
+                              <LaneBadge
+                                f={f}
+                                routines={ROUTINES_BY_FEATURE.get(f.feature_key) ?? []}
+                                scheduleMap={schedMap}
+                              />
                             </div>
                           </TableCell>
                           <TableCell>
