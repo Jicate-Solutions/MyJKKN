@@ -1,9 +1,13 @@
 'use client';
 
 // Generic add/edit dialog for a reference catalog row. Fields render from the
-// registry's columns_config (text / textarea / number / boolean); the server
-// side re-validates every field against its own allowlist, so this form is a
-// convenience layer, not the security boundary.
+// registry's columns_config (text / textarea / number / boolean / select / fk);
+// the server side re-validates every field against its own allowlist, so this
+// form is a convenience layer, not the security boundary.
+//
+// select → fixed options stored in the registry config
+// fk     → options fetched from fn_reference_catalog_fk_options (target table
+//          resolved server-side from the registry, never client-supplied)
 
 import { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
@@ -19,6 +23,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -26,7 +37,11 @@ import {
   type ReferenceCatalogMeta,
   type ReferenceCatalogRow,
   type ReferenceFieldConfig,
+  type ReferenceFieldOption,
 } from '@/lib/services/reference/reference-catalog-service';
+
+// Radix SelectItem must never have an empty value — sentinel for "cleared".
+const NONE = '__none__';
 
 interface ReferenceRowFormDialogProps {
   meta: ReferenceCatalogMeta;
@@ -52,6 +67,7 @@ export function ReferenceRowFormDialog({
   const isEdit = row !== null;
 
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [fkOptions, setFkOptions] = useState<Record<string, ReferenceFieldOption[]>>({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -62,6 +78,21 @@ export function ReferenceRowFormDialog({
     }
     if (isEdit) initial.is_active = row?.is_active ?? true;
     setValues(initial);
+
+    // fetch dropdown options for every fk field once per open
+    const fkFields = fields.filter((f) => f.type === 'fk');
+    if (fkFields.length > 0) {
+      Promise.all(
+        fkFields.map((f) =>
+          ReferenceCatalogService.getFkOptions(meta.catalog_key, f.key)
+            .then((opts) => [f.key, opts] as const)
+            .catch((err: Error) => {
+              toast.error(err.message);
+              return [f.key, [] as ReferenceFieldOption[]] as const;
+            })
+        )
+      ).then((entries) => setFkOptions(Object.fromEntries(entries)));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.id, meta.catalog_key]);
 
@@ -70,14 +101,15 @@ export function ReferenceRowFormDialog({
 
   const handleSave = async () => {
     for (const f of fields) {
-      if (f.required && String(values[f.key] ?? '').trim() === '') {
+      const v = String(values[f.key] ?? '');
+      if (f.required && (v.trim() === '' || v === NONE)) {
         toast.error(`${f.label} is required`);
         return;
       }
     }
     setSaving(true);
     try {
-      // send only non-empty values so column defaults apply on create
+      // send only meaningful values so column defaults apply on create
       const payload: Record<string, unknown> = {};
       for (const f of fields) {
         const v = values[f.key];
@@ -85,6 +117,12 @@ export function ReferenceRowFormDialog({
           payload[f.key] = Boolean(v);
         } else if (f.type === 'number') {
           if (String(v ?? '').trim() !== '') payload[f.key] = Number(v);
+        } else if (f.type === 'select' || f.type === 'fk') {
+          if (v === NONE || v === '') {
+            if (isEdit) payload[f.key] = null;
+          } else if (v !== undefined) {
+            payload[f.key] = v;
+          }
         } else if (String(v ?? '').trim() !== '' || isEdit) {
           payload[f.key] = v;
         }
@@ -102,9 +140,31 @@ export function ReferenceRowFormDialog({
     }
   };
 
+  const renderChoice = (f: ReferenceFieldConfig, options: ReferenceFieldOption[]) => {
+    const raw = String(values[f.key] ?? '');
+    return (
+      <Select
+        value={raw === '' ? undefined : raw}
+        onValueChange={(v) => setValue(f.key, v)}
+      >
+        <SelectTrigger id={`ref-field-${f.key}`}>
+          <SelectValue placeholder="— Select —" />
+        </SelectTrigger>
+        <SelectContent>
+          {!f.required && <SelectItem value={NONE}>— None —</SelectItem>}
+          {options.map((o) => (
+            <SelectItem key={o.value} value={o.value}>
+              {o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? `Edit ${meta.display_name}` : `New ${meta.display_name}`}
@@ -134,7 +194,11 @@ export function ReferenceRowFormDialog({
                     {f.label}
                     {f.required && <span className="ml-0.5 text-destructive">*</span>}
                   </Label>
-                  {f.type === 'textarea' ? (
+                  {f.type === 'select' ? (
+                    renderChoice(f, f.options ?? [])
+                  ) : f.type === 'fk' ? (
+                    renderChoice(f, fkOptions[f.key] ?? [])
+                  ) : f.type === 'textarea' ? (
                     <Textarea
                       id={`ref-field-${f.key}`}
                       value={String(values[f.key] ?? '')}

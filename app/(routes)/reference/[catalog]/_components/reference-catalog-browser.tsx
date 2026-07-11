@@ -51,6 +51,23 @@ function cellText(value: unknown): string {
   return String(value);
 }
 
+/** Map a select/fk raw value to its human label for table display. */
+function displayValue(
+  field: ReferenceFieldConfig,
+  value: unknown,
+  fkLabels: Record<string, Record<string, string>>
+): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (field.type === 'select') {
+    const opt = (field.options ?? []).find((o) => o.value === String(value));
+    return opt?.label ?? String(value);
+  }
+  if (field.type === 'fk') {
+    return fkLabels[field.key]?.[String(value)] ?? '…';
+  }
+  return cellText(value);
+}
+
 export function ReferenceCatalogBrowser({
   catalogKey,
   initialOpenNew,
@@ -68,6 +85,7 @@ export function ReferenceCatalogBrowser({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<ReferenceCatalogRow | null>(null);
+  const [fkLabels, setFkLabels] = useState<Record<string, Record<string, string>>>({});
 
   // metadata (redirects linked catalogs to their own module editor)
   useEffect(() => {
@@ -83,6 +101,20 @@ export function ReferenceCatalogBrowser({
         if (initialOpenNew && m.editor_mode === 'generic') {
           setEditingRow(null);
           setDialogOpen(true);
+        }
+        // resolve fk value→label maps for table display
+        const fkListFields = m.columns_config.filter(
+          (f) => f.type === 'fk' && f.show_in_list
+        );
+        for (const f of fkListFields) {
+          ReferenceCatalogService.getFkOptions(m.catalog_key, f.key)
+            .then((opts) =>
+              setFkLabels((prev) => ({
+                ...prev,
+                [f.key]: Object.fromEntries(opts.map((o) => [o.value, o.label])),
+              }))
+            )
+            .catch(() => undefined); // cells fall back to '…'
         }
       })
       .catch((err: Error) => {
@@ -209,7 +241,7 @@ export function ReferenceCatalogBrowser({
                             key={c.key}
                             className={c.key === meta.label_column ? 'font-medium' : undefined}
                           >
-                            {cellText(row[c.key])}
+                            {displayValue(c, row[c.key], fkLabels)}
                           </TableCell>
                         ))}
                         <TableCell>

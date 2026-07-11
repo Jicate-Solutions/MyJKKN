@@ -28,13 +28,23 @@ export interface ReferenceCatalogCard {
   active_count: number | null;
 }
 
+export interface ReferenceFieldOption {
+  value: string;
+  label: string;
+}
+
 export interface ReferenceFieldConfig {
   key: string;
   label: string;
-  type: 'text' | 'textarea' | 'number' | 'boolean';
+  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'fk';
   required?: boolean;
   editable?: boolean;
   show_in_list?: boolean;
+  /** select: fixed choices stored in the registry config */
+  options?: ReferenceFieldOption[];
+  /** fk: dropdown options come from this table (resolved server-side) */
+  fk_table?: string;
+  fk_label_column?: string;
 }
 
 export interface ReferenceCatalogMeta {
@@ -112,6 +122,25 @@ export class ReferenceCatalogService {
       total: number;
     };
     return { rows: payload.rows ?? [], total: payload.total ?? 0 };
+  }
+
+  /**
+   * Dropdown options for an fk field. The target table and label column are
+   * resolved server-side from the registry row's field config — the client
+   * only names the catalog and field.
+   */
+  static async getFkOptions(
+    catalogKey: string,
+    fieldKey: string
+  ): Promise<ReferenceFieldOption[]> {
+    const { data, error } = await this.supabase.rpc('fn_reference_catalog_fk_options', {
+      p_catalog_key: catalogKey,
+      p_field_key: fieldKey,
+    });
+    if (error) {
+      throw new Error(`Failed to load options for "${fieldKey}": ${error.message}`);
+    }
+    return (data ?? []) as ReferenceFieldOption[];
   }
 
   /**
