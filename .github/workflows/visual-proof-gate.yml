@@ -23,6 +23,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     branches: [main]
+  # Merge queue (2026-07-11): the gate re-verifies in the queue. The queue
+  # event carries no PR object — the PR number is parsed from the queue branch
+  # name (gh-readonly-queue/main/pr-N-…) and labels/body fetched via gh, so the
+  # skip-label authority check and all 4 evidence paths keep working. A real
+  # re-check, NOT a pass-through — a vacuously-passing gate is worse than a
+  # missing one (see feedback_authz_grep_false_negative_and_vacuous_gate_pass).
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -46,16 +55,47 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Merge-queue runs have no pull_request context. Parse the PR number from
+      # the queue branch name and fetch labels + body via gh so the evidence
+      # checks below evaluate identically to a PR-event run.
+      - name: Resolve PR context (merge queue)
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MG_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          set -euo pipefail
+          PR_NUM=$(sed -E 's#.*/pr-([0-9]+)-.*#\1#' <<< "$MG_HEAD_REF")
+          [[ "$PR_NUM" =~ ^[0-9]+$ ]] || { echo "::error::Cannot parse PR number from '$MG_HEAD_REF'"; exit 1; }
+          echo "MG_PR_NUMBER=$PR_NUM" >> "$GITHUB_ENV"
+          # Body to a file (bodies can contain anything — env delimiters are
+          # not collision-safe for arbitrary text). Labels as a JSON name array
+          # matching the PR path's toJson() shape so the same grep works.
+          gh pr view "$PR_NUM" --repo "$GITHUB_REPOSITORY" --json body --jq '.body // ""' > /tmp/mg-pr-body.txt
+          {
+            echo "MG_LABELS<<MG_CTX_EOF"
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/labels" --jq '[.[].name]'
+            echo "MG_CTX_EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Classify PR scope by changed files
         id: scope
         env:
           BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --quiet
+          # merge_group has no base_ref; the group's parent SHA is already in
+          # history (checkout of the merge head with fetch-depth 0).
+          if [[ -n "$MG_BASE_SHA" ]]; then
+            DIFF_BASE="$MG_BASE_SHA"
+          else
+            git fetch origin "$BASE_REF" --quiet
+            DIFF_BASE="origin/$BASE_REF"
+          fi
 
           # Get full list of changed files
-          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          CHANGED=$(git diff --name-only "$DIFF_BASE...HEAD")
           echo "Changed files:"
           echo "$CHANGED" | sed 's/^/  /'
           echo ""
@@ -173,12 +213,22 @@ jobs:
         if: steps.scope.outputs.requires_proof == 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BODY: ${{ github.event.pull_request.body }}
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
+
+          # Merge-queue context: the event has no PR object, so the step env
+          # above resolves empty — swap in the metadata fetched via gh by the
+          # "Resolve PR context" step (MG_* via GITHUB_ENV; body via file).
+          if [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" ]]; then
+            PR_NUMBER="${MG_PR_NUMBER:?merge-group PR number unresolved}"
+            LABELS="${MG_LABELS:-[]}"
+            PR_BODY="$(cat /tmp/mg-pr-body.txt 2>/dev/null || true)"
+          fi
 
           # ---- Path 1: explicit skip label (justified bypass — Director-only) ----
           if echo "$LABELS" | grep -q '"visual-proof-skip"'; then
@@ -236,8 +286,11 @@ jobs:
           # auditable, structurally-enforced way is to commit them to the PR
           # branch under .screenshots/ — diff includes them, GitHub renders
           # them inline in the PR description via relative paths.
+          # Same dual base as the scope step: queue-group parent SHA when in a
+          # merge-queue run, origin/<base_ref> (fetched by the scope step) on PR runs.
+          if [[ -n "${MG_BASE_SHA:-}" ]]; then DIFF_BASE="$MG_BASE_SHA"; else DIFF_BASE="origin/$BASE_REF"; fi
           SCREENSHOT_FILES=$(
-            git diff --name-only --diff-filter=A "origin/$BASE_REF...HEAD" \
+            git diff --name-only --diff-filter=A "$DIFF_BASE...HEAD" \
               -- '.screenshots/*.png' '.screenshots/*.jpg' '.screenshots/*.jpeg' \
                  '.screenshots/*.gif' '.screenshots/*.webp' || true
           )

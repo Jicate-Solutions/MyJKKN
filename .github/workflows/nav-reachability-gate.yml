@@ -27,6 +27,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+  # Merge queue (2026-07-11): full-tree checks re-run on the queue's merged
+  # tree so a combination of individually-green PRs can't land a broken main.
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -49,10 +54,18 @@ jobs:
         id: scope
         env:
           BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE_REF" --quiet
-          CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD")
+          # merge_group has no base_ref; the group's parent SHA is already in
+          # history (checkout of the merge head with fetch-depth 0).
+          if [[ -n "$MG_BASE_SHA" ]]; then
+            DIFF_BASE="$MG_BASE_SHA"
+          else
+            git fetch origin "$BASE_REF" --quiet
+            DIFF_BASE="origin/$BASE_REF"
+          fi
+          CHANGED=$(git diff --name-only "$DIFF_BASE...HEAD")
           NON_DOCS=$(echo "$CHANGED" | grep -vE '\.(md|mdx|txt|png|jpe?g|gif|svg|webp|pdf)$|^\.screenshots/|^docs/|^specs/|^\.github/|^LICENSE$|^\.gitignore$' || true)
           if [[ -z "$NON_DOCS" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
