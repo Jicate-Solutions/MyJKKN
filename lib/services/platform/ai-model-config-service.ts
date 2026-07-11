@@ -159,10 +159,22 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
       resolved.provider === 'anthropic' &&
       resolved.model_id !== CAP_DEGRADE_MODEL_ID
     ) {
+      // `supabase` here IS the service-role client from above — the RPC is
+      // service_role-only by grant, so this must never be swapped for a
+      // user-session client.
       const { data: spend, error: spendError } = await supabase.rpc(
         'fn_ai_feature_mtd_spend',
         { p_feature_key: featureKey },
       );
+      if (spendError) {
+        // Fail-open by design (never block AI on a ledger hiccup) but NEVER
+        // silently: an always-erroring check would mean caps are quietly
+        // unenforced (deep-review finding #2).
+        console.error(
+          `[ai-model-config] ${featureKey}: spend-cap check errored (cap NOT enforced this cycle):`,
+          spendError.message,
+        );
+      }
       const mtd = typeof spend === 'number' ? spend : Number(spend);
       if (!spendError && Number.isFinite(mtd) && mtd >= resolved.monthly_spend_cap_inr) {
         console.warn(
