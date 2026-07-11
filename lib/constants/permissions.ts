@@ -144,6 +144,14 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Reference Data',
+    key: 'reference',
+    permissions: [
+      { key: 'reference.catalogs.view', label: 'View Reference Catalogs' },
+      { key: 'reference.catalogs.manage', label: 'Add/Edit Reference Catalog Entries' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [

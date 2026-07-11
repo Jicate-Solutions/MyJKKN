@@ -5778,6 +5778,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/reference",
+    "label": "Reference",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/resource-management",
     "label": "Resource Management",
     "iconName": "FileText",

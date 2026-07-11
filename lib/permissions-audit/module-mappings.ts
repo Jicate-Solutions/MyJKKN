@@ -134,6 +134,8 @@ export function getAllAuditModuleNames(): string[] {
  * `/admin/bug-reports`) MUST come before broader ones (e.g. `/admin`).
  */
 export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = [
+  // Reference / Masters hub (registry-driven catalogs, 2026-07-11)
+  ['/reference', 'Reference'],
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
   // /admin/notifications relocated to /notifications/admin (2026-06-11

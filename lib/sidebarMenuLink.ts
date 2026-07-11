@@ -31,6 +31,7 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
+  LibraryBig,
   FolderKanban,
   Lightbulb,
   Building,
@@ -226,6 +227,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
   // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
   '/learners/counseling': 'learners.counseling.view',
+
+  // Reference / Masters hub — registry-driven master-data catalogs
+  '/reference': 'reference.catalogs.view',
 
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
@@ -1382,6 +1386,15 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/courses', label: 'Courses', active: pathname.startsWith('/organizations/courses') },
             { href: '/organizations/courses/mappings', label: 'Course Mappings', active: pathname === '/organizations/courses/mappings' },
           ]
+        },
+        {
+          // Reference / Masters hub — every master-data catalog with live
+          // counts; generic catalogs editable inline, complex ones link out.
+          href: '/reference',
+          label: 'Reference / Masters',
+          active: pathname === '/reference' || pathname.startsWith('/reference/'),
+          icon: LibraryBig,
+          submenus: []
         }
       ]
     },
