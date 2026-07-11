@@ -1087,6 +1087,32 @@ async function tryMaxLane(
   }
 }
 
+/**
+ * GET /api/ai-query — the Max-lane "while you were away" inbox.
+ * Returns finished, still-undelivered Max answers for the CALLER (the RPC is
+ * requester-scoped; users who never ride the Max lane simply get []). The
+ * fetch itself marks the rows delivered, so each answer surfaces exactly once.
+ */
+export async function GET() {
+  await connection();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Please log in to continue.' } },
+      { status: 401 },
+    );
+  }
+  const { data, error } = await supabase.rpc('fn_max_chat_inbox');
+  if (error) {
+    // RPC absent (migration not applied) or transient — an empty inbox, not an error.
+    return NextResponse.json({ inbox: [] });
+  }
+  return NextResponse.json({ inbox: Array.isArray(data) ? data : [] });
+}
+
 export async function POST(request: NextRequest) {
   await connection();
   const startTime = Date.now();
