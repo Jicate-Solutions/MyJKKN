@@ -175,18 +175,23 @@ BEGIN
     RAISE EXCEPTION 'fn_max_chat_claim_pending: service role only';
   END IF;
 
-  -- Chat is time-sensitive: the route stops waiting after ~4 min, so anything
-  -- older than 10 min (claimed OR still pending) is dead — expire it rather
-  -- than answering into the void.
+  -- Chat is time-sensitive: the route stops waiting after ~3 min, so stale
+  -- rows are dead — expire them rather than answering into the void. Pending
+  -- rows age from requested_at; claimed rows age from claimed_at (a row
+  -- claimed late must still get its full runner window — deep-review #5).
   UPDATE public.max_lane_chat_requests
      SET status       = 'error',
          completed_at = now(),
-         result_note  = CASE WHEN status = 'claimed'
-                             THEN 'claim expired (runner never completed)'
-                             ELSE 'expired unclaimed (runner did not pick up in time)'
-                        END
-   WHERE status IN ('pending', 'claimed')
+         result_note  = 'expired unclaimed (runner did not pick up in time)'
+   WHERE status = 'pending'
      AND requested_at < now() - interval '10 minutes';
+
+  UPDATE public.max_lane_chat_requests
+     SET status       = 'error',
+         completed_at = now(),
+         result_note  = 'claim expired (runner never completed)'
+   WHERE status = 'claimed'
+     AND claimed_at < now() - interval '10 minutes';
 
   RETURN QUERY
   UPDATE public.max_lane_chat_requests
