@@ -667,6 +667,10 @@ function UserPicker({
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              // Keep keystrokes local: the enclosing modal Popover/Dialog attaches
+              // its own keydown handlers that can otherwise swallow characters so
+              // the field's onChange never fires (search appears dead).
+              onKeyDown={(e) => e.stopPropagation()}
               placeholder='Search name or email…'
               className='h-8 pl-7 text-sm'
             />
