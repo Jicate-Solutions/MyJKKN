@@ -71,12 +71,29 @@ export async function GET() {
     );
   }
 
+  // Enrich with the college name so the queue can filter by college
+  // (same best-effort pattern: a failed lookup never blocks the queue).
+  const institutionIds = Array.from(
+    new Set(notes.map((n) => n.institution_id).filter((id): id is string => Boolean(id))),
+  );
+  let institutionById = new Map<string, string>();
+  if (institutionIds.length > 0) {
+    const { data: institutions } = await supabase
+      .from('institutions')
+      .select('id, name')
+      .in('id', institutionIds);
+    institutionById = new Map(
+      (institutions ?? []).map((i) => [i.id as string, (i.name as string | null) ?? '']),
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     notes: notes.map((n) => ({
       ...n,
       learner_name: learnerById.get(n.learner_id)?.name ?? null,
       register_number: learnerById.get(n.learner_id)?.register_number ?? null,
+      institution_name: (n.institution_id && institutionById.get(n.institution_id)) || null,
     })),
   });
 }
