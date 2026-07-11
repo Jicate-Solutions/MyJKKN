@@ -207,14 +207,32 @@ export function AiModelsDataTable() {
     async (routineId: string, row: ScheduleRow, next: boolean) => {
       setTogglingSched(routineId);
       try {
+        // Re-read the row FIRST: the upsert requires days/minute, and the
+        // mount-time snapshot could be stale if the time was edited on the
+        // routines page meanwhile — writing the old values back would be a
+        // silent lost update (deep-review finding). Fresh-read failure falls
+        // back to the snapshot rather than blocking the toggle.
+        let current = row;
+        try {
+          const fresh = await fetch('/api/admin/ai-routines/schedule', { cache: 'no-store' });
+          if (fresh.ok) {
+            const fj = await fresh.json();
+            const match = (Array.isArray(fj?.schedules) ? fj.schedules : []).find(
+              (s: ScheduleRow) => s?.routine_id === row.routine_id,
+            );
+            if (match) current = match;
+          }
+        } catch {
+          // keep snapshot
+        }
         const resp = await fetch('/api/admin/ai-routines/schedule', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            routineId: row.routine_id,
+            routineId: current.routine_id,
             enabled: next,
-            daysOfWeek: row.days_of_week,
-            minuteOfDay: row.minute_of_day,
+            daysOfWeek: current.days_of_week,
+            minuteOfDay: current.minute_of_day,
           }),
         });
         const json = await resp.json();
