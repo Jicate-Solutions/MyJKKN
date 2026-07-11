@@ -11,14 +11,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import { Plus, Calendar, MapPin, Trophy, Globe, Building2, TrashIcon } from 'lucide-react';
-import { format } from 'date-fns';
+import { Plus, TrashIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog,
@@ -37,62 +34,7 @@ import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh'
 import { TournamentEventService } from '@/lib/services/events/tournament/tournament-event-service';
 import type { Event, EventStatus } from '@/types/events';
 import { getColumns } from './columns';
-import { STATUS_CONFIG } from './status-config';
 import { EditTournamentDialog } from './edit-tournament-dialog';
-
-/** Compact card used below the md breakpoint (renderMobileRow). */
-function MobileTournamentRow({ event, onOpen }: { event: Event; onOpen: () => void }) {
-  const status = STATUS_CONFIG[event.status] ?? STATUS_CONFIG.draft;
-  const isAllJkkn = event.scope === 'all_jkkn';
-
-  return (
-    <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={onOpen}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="mt-0.5 rounded-lg bg-emerald-50 p-2">
-              <Trophy className="h-5 w-5 text-emerald-600" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="truncate font-semibold leading-tight">{event.name}</h3>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                {event.start_date && (
-                  <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {format(new Date(event.start_date), 'd MMM yyyy')}
-                  </span>
-                )}
-                {(event.venue || event.venue_text) && (
-                  <span className="flex items-center gap-1 truncate">
-                    <MapPin className="h-3 w-3" />
-                    {event.venue || event.venue_text}
-                  </span>
-                )}
-                <span className="flex items-center gap-1">
-                  {isAllJkkn ? (
-                    <>
-                      <Globe className="h-3 w-3" /> All JKKN
-                    </>
-                  ) : (
-                    <>
-                      <Building2 className="h-3 w-3" /> Institution
-                    </>
-                  )}
-                </span>
-              </div>
-            </div>
-          </div>
-          <Badge
-            variant="outline"
-            className={`${status.bg} ${status.color} border-0 text-[10px] font-semibold`}
-          >
-            {status.label}
-          </Badge>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 export function TournamentsDataTable() {
   const router = useRouter();
@@ -265,9 +207,6 @@ export function TournamentsDataTable() {
       <DataTable
         fetchDataFn={fetchData}
         getColumns={() => columns as never}
-        renderMobileRow={(item) => (
-          <MobileTournamentRow event={item as Event} onOpen={() => handleView(item as Event)} />
-        )}
         exportConfig={{
           entityName: 'sports-tournaments',
           columnMapping: {

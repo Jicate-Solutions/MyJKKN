@@ -48,7 +48,12 @@ import {
 // resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
 // config failure).
 const FEATURE_KEY = 'scf.learner_notes';
-const BATCH_CAP = 50; // max notes to generate per run; excess deferred to next run
+// Per-run cap is a platform policy ('scf_notes.batch_cap', editable on
+// /admin/ai-routines — Director 2026-07-11: cap is config, default unlimited).
+// The Max-lane twin honors the policy fully; THIS serverless route additionally
+// clamps to BATCH_CAP_CEILING — 90s of bounded-concurrency waves fits ~50 notes,
+// anything larger is the free Max lane's job overnight.
+const BATCH_CAP_CEILING = 50; // serverless ceiling; excess deferred to next run / Max lane
 const REGEN_DAYS = 7; // skip a learner+course noted within this many days (weekly regen)
 const RECENT_WITHIN_DAYS = 30; // only note learners whose latest sliding class is this recent
 // Return CLEANLY before the dispatcher's 120s AbortSignal (ai-routine-dispatcher
@@ -184,6 +189,19 @@ export async function GET(request: NextRequest) {
   const started = Date.now();
   const admin = createServiceRoleClient();
 
+  // Per-run cap policy (0/negative or read failure -> ceiling default).
+  let batchCap = BATCH_CAP_CEILING;
+  try {
+    const { data: capData } = await admin.rpc('fn_get_policy_int', {
+      p_key: 'scf_notes.batch_cap',
+      p_default: BATCH_CAP_CEILING,
+      p_scope_id: null,
+    });
+    if (typeof capData === 'number' && capData > 0) batchCap = Math.min(capData, BATCH_CAP_CEILING);
+  } catch {
+    // policy read failure -> keep the ceiling default; never abort the run for a knob
+  }
+
   const recentParam = request.nextUrl.searchParams.get('recent_days');
   const recentWithin =
     recentParam && /^\d+$/.test(recentParam) ? parseInt(recentParam, 10) : RECENT_WITHIN_DAYS;
@@ -225,11 +243,11 @@ export async function GET(request: NextRequest) {
   // 4) Cap the batch; log truncation so ops can see pressure.
   let cappedCount = 0;
   let batch = targets;
-  if (targets.length > BATCH_CAP) {
-    cappedCount = targets.length - BATCH_CAP;
-    batch = targets.slice(0, BATCH_CAP);
+  if (targets.length > batchCap) {
+    cappedCount = targets.length - batchCap;
+    batch = targets.slice(0, batchCap);
     console.warn(
-      `[cron/scf-learner-notes] batch cap hit: ${targets.length} eligible, processing ${BATCH_CAP}, deferring ${cappedCount}`,
+      `[cron/scf-learner-notes] batch cap hit: ${targets.length} eligible, processing ${batchCap}, deferring ${cappedCount}`,
     );
   }
 

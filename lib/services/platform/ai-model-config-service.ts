@@ -47,6 +47,10 @@ export interface ResolvedModel {
   fallback_provider: string | null;
   fallback_model_id: string | null;
   monthly_spend_cap_inr: number | null;
+  /** True when spend-cap enforcement swapped model_id to the degrade model. */
+  over_cap?: boolean;
+  /** The configured model that was swapped away from (over_cap only). */
+  capped_from_model_id?: string;
 }
 
 export interface RecordUsageInput {
@@ -64,6 +68,10 @@ export interface RecordUsageInput {
 // ---------------------------------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
+
+// Cheapest anthropic chat model — what an over-cap anthropic feature degrades
+// to. Must exist in the ai-providers pricing registry.
+const CAP_DEGRADE_MODEL_ID = 'claude-haiku-4-5';
 
 interface CacheEntry {
   value: ResolvedModel;
@@ -136,6 +144,54 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
       fallback_model_id: data.fallback_model_id,
       monthly_spend_cap_inr: data.monthly_spend_cap_inr,
     };
+
+    // Spend-cap ENFORCEMENT (Director decision 2026-07-11: the cap box is
+    // real, not decorative). When month-to-date spend has crossed the row's
+    // cap, an anthropic feature degrades to the cheapest chat model instead
+    // of going dark — answers keep flowing, cost stops climbing. Non-anthropic
+    // features keep their model (a chat-model swap would break their modality:
+    // whisper/gemini/gpt rows), so the cap stays advisory there. Runs only on
+    // cache miss → ≤60s enforcement lag per instance; any check failure is
+    // fail-open (never block AI because the ledger was unreachable).
+    if (
+      resolved.monthly_spend_cap_inr !== null &&
+      resolved.monthly_spend_cap_inr > 0 &&
+      resolved.provider === 'anthropic' &&
+      resolved.model_id !== CAP_DEGRADE_MODEL_ID
+    ) {
+      // `supabase` here IS the service-role client from above — the RPC is
+      // service_role-only by grant, so this must never be swapped for a
+      // user-session client.
+      const { data: spend, error: spendError } = await supabase.rpc(
+        'fn_ai_feature_mtd_spend',
+        { p_feature_key: featureKey },
+      );
+      if (spendError) {
+        // Fail-open by design (never block AI on a ledger hiccup) but NEVER
+        // silently: an always-erroring check would mean caps are quietly
+        // unenforced (deep-review finding #2).
+        console.error(
+          `[ai-model-config] ${featureKey}: spend-cap check errored (cap NOT enforced this cycle):`,
+          spendError.message,
+        );
+      }
+      const mtd = typeof spend === 'number' ? spend : Number(spend);
+      if (!spendError && Number.isFinite(mtd) && mtd >= resolved.monthly_spend_cap_inr) {
+        console.warn(
+          `[ai-model-config] ${featureKey}: MTD spend ₹${mtd.toFixed(0)} >= cap ` +
+            `₹${resolved.monthly_spend_cap_inr} — degrading ${resolved.model_id} → ${CAP_DEGRADE_MODEL_ID}`,
+        );
+        resolved.over_cap = true;
+        resolved.capped_from_model_id = resolved.model_id;
+        resolved.model_id = CAP_DEGRADE_MODEL_ID;
+        // Also neutralize the row's fallback pair: a consumer honoring
+        // fallback_model_id could otherwise re-escalate an over-cap feature
+        // straight back to an expensive model (deep-review finding).
+        if (resolved.fallback_provider === 'anthropic') {
+          resolved.fallback_model_id = CAP_DEGRADE_MODEL_ID;
+        }
+      }
+    }
 
     setCached(featureKey, resolved);
     return resolved;
@@ -241,6 +297,10 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
     'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
+    // Procurement PDF extraction (2026-07-11) — mirrors the pre-adoption hardcode
+    // in lib/procurement/*-pdf-extract.ts (cutover invariant: degraded == old behavior).
+    'procurement.quotation_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
+    'procurement.invoice_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
   };
 
   return FALLBACKS[featureKey] ?? fallback(featureKey, 'openai', 'gpt-4o-mini');

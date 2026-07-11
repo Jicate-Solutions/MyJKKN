@@ -1041,6 +1041,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon/new': 'events.marathon.create',
 
   // Events — Sports Tournament submenu (Sports Tournament PR1, 2026-06-22)
+  // '/events/tournaments' (plural) is the STUDENT read-only browse page — a separate
+  // subtree so it never inherits the admin detail page's logistics boards.
+  '/events/tournaments': 'sports.tournaments.browse',
   '/events/tournament': 'sports.tournaments.view',
   '/events/tournament/new': 'sports.tournaments.create',
 
@@ -2453,6 +2456,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             // (each link's visibility is gated by its own MENU_PERMISSIONS entry).
             { href: '/events/marathon', label: 'Sports Marathon', active: pathname === '/events/marathon' || pathname.startsWith('/events/marathon/') },
             { href: '/events/tournament', label: 'Sports Tournaments', active: pathname === '/events/tournament' || pathname.startsWith('/events/tournament/') },
+            // Student-facing browse page (sports.tournaments.browse) — the only
+            // tournament surface a learner can open; admin pages need .view.
+            { href: '/events/tournaments', label: 'Tournaments · Register', active: pathname === '/events/tournaments' },
           ]
         }
       ]

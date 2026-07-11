@@ -18,11 +18,16 @@
 
 import type { LoopRegistryRow, LoopEdgeRow, LoopAuditRow } from './types';
 
-const VB_W = 1200;
+const MIN_VB_W = 1200;
 const VB_H = 760;
 const NODE_W = 150;
 const NODE_H = 54;
 const MARGIN_X = 60;
+// Horizontal room per tier-3 node beyond the card itself, and breathing space
+// between class groups. Every node gets a FULL card width + gap — the canvas
+// grows with the fleet instead of squeezing cards into overlap.
+const NODE_GAP = 18;
+const GROUP_PAD = 28;
 
 const DIRECTOR_CY = 66;
 const METALOOP_CY = 258;
@@ -212,22 +217,32 @@ export function LoopWiring({
     rows: tier3Rows.filter((r) => r.loop_class === cls),
   }));
 
-  // Lay out tier-3 nodes: an even slice of the usable width per group, rows
-  // spread evenly within their own slice.
-  const usableW = VB_W - MARGIN_X * 2;
-  const sliceW = usableW / Math.max(groups.length, 1);
+  // Lay out tier-3 nodes. Width is DATA-DRIVEN: each class group's span is
+  // proportional to how many loops it holds, and every node gets a full card
+  // width + gap. Equal slices overlapped cards as soon as one class outgrew
+  // the others (Director report 2026-07-11); now the canvas widens with the
+  // fleet and scrolls horizontally inside its container — cards never shrink
+  // or overlap.
+  const slotW = NODE_W + NODE_GAP;
+  const groupWidths = groups.map((g) => Math.max(g.rows.length, 1) * slotW + GROUP_PAD);
+  const bandW = groupWidths.reduce((a, b) => a + b, 0);
+  const vbW = Math.max(MIN_VB_W, bandW + MARGIN_X * 2);
+  // Center the band when the minimum canvas is wider than the band itself.
+  let cursorX = MARGIN_X + Math.max(0, (vbW - MARGIN_X * 2 - bandW) / 2);
   const positions = new Map<string, Center>();
   const groupLabelX = new Map<string, number>();
   groups.forEach((g, gi) => {
-    const sliceX0 = MARGIN_X + gi * sliceW;
-    groupLabelX.set(g.cls, sliceX0 + sliceW / 2);
+    const gw = groupWidths[gi];
+    groupLabelX.set(g.cls, cursorX + gw / 2);
     const rowCount = g.rows.length || 1;
+    const innerX0 = cursorX + (gw - rowCount * slotW) / 2;
     g.rows.forEach((r, ri) => {
-      positions.set(r.loop_key, { cx: sliceX0 + ((ri + 0.5) / rowCount) * sliceW, cy: TIER3_CY });
+      positions.set(r.loop_key, { cx: innerX0 + (ri + 0.5) * slotW, cy: TIER3_CY });
     });
+    cursorX += gw;
   });
-  if (metaloopRow) positions.set(metaloopRow.loop_key, { cx: VB_W / 2, cy: METALOOP_CY });
-  if (directorRow) positions.set(directorRow.loop_key, { cx: VB_W / 2, cy: DIRECTOR_CY });
+  if (metaloopRow) positions.set(metaloopRow.loop_key, { cx: vbW / 2, cy: METALOOP_CY });
+  if (directorRow) positions.set(directorRow.loop_key, { cx: vbW / 2, cy: DIRECTOR_CY });
 
   // ── Seam detection ──────────────────────────────────────────────────────
   // A measured_outcomes edge is dark when its source loop hasn't closed gate
@@ -287,7 +302,10 @@ export function LoopWiring({
       )}
 
       <div className="overflow-x-auto rounded-xl border border-border bg-card p-3">
-        <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="h-auto w-full min-w-[900px]">
+        {/* Natural pixel width (not w-full): a viewBox-scaled svg re-squeezes
+            everything the layout just spaced out. The parent is overflow-x-auto,
+            so a wide fleet scrolls instead of shrinking. */}
+        <svg viewBox={`0 0 ${vbW} ${VB_H}`} className="h-auto" style={{ width: vbW, minWidth: '100%' }}>
           <defs>
             <marker id="loop-wiring-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L8,4 L0,8 z" className="fill-foreground/50" />

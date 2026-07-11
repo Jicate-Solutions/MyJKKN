@@ -21,6 +21,7 @@ export const CURRICULUM_AI_ROUTINES: AIRoutine[] = [
     triggerPath: '/api/cron/curriculum-lesson-spine-generate',
     callsClaude: true,
     featureKey: 'curriculum.lesson_spine_generate',
+    capPolicyKey: 'curriculum_ai.batch_cap',
     whatItDoes:
       "For each course whose Board-of-Studies (BoS) syllabus is on file but has no lesson spine yet, it asks Claude for an ordered set of teachable lessons (grounded in the syllabus's units + Course Learning Outcomes, tagged with Fink dimension + Bloom level K1-K6 + the CLO each maps to), plus — when the syllabus's assessment structure has capstone/Concept-Application data — a short in-class Concept-Application brief per unit and one team-capstone brief for the course. Everything is recorded as an UNPUBLISHED DRAFT; nothing reaches students until a faculty member reviews and approves it at /academic/curriculum-review.",
     configKnobs:

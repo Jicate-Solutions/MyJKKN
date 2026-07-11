@@ -11,6 +11,10 @@
 // review before saving — a misread never silently becomes a purchase order.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { recordChatCall, resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
+
+// ai_model_config feature key — model governed from /admin/ai-models, spend in ai_model_usage.
+const FEATURE_KEY = 'procurement.quotation_extract';
 
 export interface ExtractItem {
   id: string;
@@ -87,12 +91,25 @@ export async function extractQuotationFromPdf(
   pdfBase64: string,
   items: ExtractItem[],
   client: Anthropic = getClient(),
-  model = 'claude-opus-4-8'
+  model?: string
 ): Promise<PdfExtractResult> {
   const itemList = items.map((i) => `${i.id} — ${i.item_name}`).join('\n');
 
+  // An explicitly passed model (tests) bypasses config resolution.
+  //
+  // Contracts relied on here (lib/services/platform/ai-clients/chat.ts — same
+  // unguarded shape as claudeChatForFeature itself): resolveChatModel ALWAYS
+  // returns an object with an ANTHROPIC provider/model (non-anthropic config
+  // rows degrade to an anthropic fallback with a warn — hence the literal
+  // 'anthropic' passed to recordChatCall), and recordChatCall/recordUsage are
+  // internally non-throwing — a ledger write failure can never fail a
+  // completed (already paid) extraction, nor mask the original API error in
+  // the catch path. (Deep-review round-1 findings 1-4 dispositioned on PR #1967.)
+  const modelId = model ?? (await resolveChatModel(FEATURE_KEY)).model_id;
+
+  const startedAt = Date.now();
   const message = await client.messages.create({
-    model,
+    model: modelId,
     max_tokens: 2048,
     tools: [RECORD_TOOL],
     tool_choice: { type: 'tool', name: 'record_quotation' },
@@ -116,7 +133,12 @@ export async function extractQuotationFromPdf(
         ],
       },
     ],
+  }).catch(async (err: unknown) => {
+    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, startedAt, null, err);
+    throw err;
   });
+
+  await recordChatCall(FEATURE_KEY, 'anthropic', modelId, startedAt, message);
 
   const block = message.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'record_quotation'
