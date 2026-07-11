@@ -1276,7 +1276,12 @@ export async function POST(request: NextRequest) {
     const textBlocks = response.content.filter(
       (block): block is Anthropic.TextBlock => block.type === 'text'
     );
-    const responseText = textBlocks.map(b => b.text).join('\n');
+    let responseText = textBlocks.map(b => b.text).join('\n');
+    // Max-lane user whose question fell back here: say so (small footer note)
+    // instead of silently pretending the seat answered.
+    if (maxLaneMiss) {
+      responseText = `${responseText}\n\n${MAX_LANE_MISS_NOTE[maxLaneMiss]}`;
+    }
 
     // Log the query
     const responseTime = Date.now() - startTime;
