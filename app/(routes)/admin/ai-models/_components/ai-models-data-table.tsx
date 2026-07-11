@@ -471,9 +471,16 @@ export function AiModelsDataTable() {
                               <div className="space-y-0.5">
                                 <div className="text-sm">{formatInr(f.monthly_spend_cap_inr)}</div>
                                 {overCap && (
-                                  <div className="flex items-center justify-end gap-1 text-xs text-destructive">
-                                    <AlertTriangle className="h-3 w-3" />
-                                    Over cap
+                                  <div className="space-y-0.5 text-right">
+                                    <div className="flex items-center justify-end gap-1 text-xs text-destructive">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      Over cap
+                                    </div>
+                                    {f.provider === 'anthropic' && (
+                                      <div className="text-[11px] text-muted-foreground">
+                                        auto-running on Haiku until next month
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
