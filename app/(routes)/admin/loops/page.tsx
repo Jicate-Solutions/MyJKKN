@@ -27,7 +27,8 @@ import {
 import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
-import { staleThresholdMs } from '@/lib/ai-routines/loop-governance';
+import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
+import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
   LoopTier,
   LoopTone,
@@ -352,7 +353,8 @@ export default async function LoopControlTowerPage({
     // can't distinguish "new" from "dead"; the watchdog cron handles those
     // via updated_at.
     const lastRunBad = Boolean(
-      (sched?.last_status && /HTTP [45]\d\d|timeout|timed out|failed|exception|not in registry/i.test(sched.last_status)) ||
+      (sched &&
+        isAlarmStatus(sched.last_status, Boolean(getRoutineById(routineId!)))) ||
         (sched?.last_fired_at &&
           Date.now() - new Date(sched.last_fired_at).getTime() > staleThresholdMs(sched.days_of_week))
     );

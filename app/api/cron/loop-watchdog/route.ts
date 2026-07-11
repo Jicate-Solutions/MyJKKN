@@ -15,7 +15,14 @@
 //      (reference_ai_pulse_loop_weld).
 //   2. ERRORED routines — last_status carrying an HTTP 4xx/5xx, timeout, or
 //      "not in registry". These were previously visible only to someone who
-//      happened to open /admin/ai-routines and read the grey text.
+//      happened to open /admin/ai-routines and read the grey text. A stale
+//      pre-deploy "skipped: not in registry" whose id the RUNNING registry
+//      now knows is suppressed — it self-heals at the next fire (review r2).
+//   2b. DISABLED routines — managed=true but enabled=false. A loop-bearing
+//      routine that should be off long-term is managed=false by convention
+//      (the maxlane pattern); enabled=false on a managed row silences a loop
+//      and must be visible, not skipped (review r2 — the old sweep filtered
+//      enabled=true while claiming to catch "a disabled schedule").
 //   3. FAILURE VERDICTS — loop_audits rows from the last 26h whose verdict is
 //      sim-failed / sim-error / walk-failed (shared isBadVerdict vocabulary).
 //      Honest states (self-reinforcing, no-loop, unmeasurable-no-fuel) are
@@ -45,11 +52,12 @@ import { fanoutNotification } from '@/lib/services/_shared/notifications/notify'
 import {
   staleThresholdMs,
   isBadVerdict,
+  isAlarmStatus,
   findingsFingerprint,
 } from '@/lib/ai-routines/loop-governance';
+import { getRoutineById } from '@/lib/ai-routines/registry';
 
 const AUDIT_WINDOW_HOURS = 26; // audit sweep window: this cron's own daily cadence + slack
-const ERROR_RX = /HTTP [45]\d\d|timeout|timed out|failed|exception|not in registry/i;
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -66,20 +74,25 @@ export async function GET(request: NextRequest) {
   const { data: rows, error: schedErr } = await admin
     .from('ai_routine_schedules')
     .select('routine_id, enabled, managed, days_of_week, last_fired_at, last_status, updated_at')
-    .eq('managed', true)
-    .eq('enabled', true);
+    .eq('managed', true);
   if (schedErr) {
     return NextResponse.json({ ok: false, error: schedErr.message }, { status: 500 });
   }
 
   type Row = {
     routine_id: string;
+    enabled: boolean;
     days_of_week: number[] | null;
     last_fired_at: string | null;
     last_status: string | null;
     updated_at: string | null;
   };
-  const silent = ((rows ?? []) as Row[]).filter((r) => {
+  const managed = (rows ?? []) as Row[];
+  // enabled=false on a managed row is its own finding; the silent/errored
+  // sweeps only judge rows that are supposed to be firing.
+  const disabled = managed.filter((r) => !r.enabled);
+  const active = managed.filter((r) => r.enabled);
+  const silent = active.filter((r) => {
     // Compare instants, not timestamp strings — PostgREST's `+00:00`/µs format
     // vs toISOString()'s `Z` makes lexicographic comparison boundary-unreliable
     // (review #7). Anchor on last fire, falling back to the row's updated_at
@@ -88,19 +101,23 @@ export async function GET(request: NextRequest) {
     if (!anchor) return true;
     return nowMs - new Date(anchor).getTime() > staleThresholdMs(r.days_of_week);
   });
-  const errored = ((rows ?? []) as Row[]).filter(
-    (r) => r.last_status !== null && ERROR_RX.test(r.last_status)
+  const errored = active.filter((r) =>
+    isAlarmStatus(r.last_status, Boolean(getRoutineById(r.routine_id)))
   );
 
   // Fetch the window unfiltered and classify with the shared vocabulary —
   // keeping the good/bad decision in one place (loop-governance) instead of a
   // PostgREST ilike that both false-alarmed honest states and NULL-skipped
   // (verdict is NOT NULL today, but isBadVerdict guards NULL anyway).
+  // Explicit limit: PostgREST silently caps unbounded selects at 1000; 5000
+  // is far above any real 26h audit volume, and a window that busy is itself
+  // pathological (review r2).
   const auditCutoff = new Date(nowMs - AUDIT_WINDOW_HOURS * 3600_000).toISOString();
   const { data: audits } = await admin
     .from('loop_audits')
     .select('loop_key, verdict, audited_at')
-    .gte('audited_at', auditCutoff);
+    .gte('audited_at', auditCutoff)
+    .limit(5000);
   const badAudits = ((audits ?? []) as { loop_key: string; verdict: string | null }[]).filter(
     (a) => isBadVerdict(a.verdict)
   );
@@ -110,6 +127,7 @@ export async function GET(request: NextRequest) {
       (r) => `SILENT: ${r.routine_id} last fired ${r.last_fired_at ?? 'never'}`
     ),
     ...errored.map((r) => `ERROR: ${r.routine_id} → ${r.last_status}`),
+    ...disabled.map((r) => `DISABLED: ${r.routine_id} (managed loop routine switched off)`),
     ...badAudits.map((a) => `VERDICT: ${a.loop_key} → ${a.verdict}`),
   ];
 
@@ -122,7 +140,7 @@ export async function GET(request: NextRequest) {
     const userIds = (supers ?? []).map((s: { id: string }) => s.id);
     const istDay = new Date(nowMs + 19_800_000).toISOString().slice(0, 10);
     const outcome = await fanoutNotification(admin, {
-      title: `🔴 Loop watchdog: ${findings.length} issue${findings.length === 1 ? '' : 's'} (${silent.length} silent, ${errored.length} errored, ${badAudits.length} bad verdicts)`,
+      title: `🔴 Loop watchdog: ${findings.length} issue${findings.length === 1 ? '' : 's'} (${silent.length} silent, ${errored.length} errored, ${disabled.length} disabled, ${badAudits.length} bad verdicts)`,
       body: findings.slice(0, 12).join(' · '),
       userIds,
       priority: 'high',
@@ -138,9 +156,10 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    scanned: (rows ?? []).length,
+    scanned: managed.length,
     silent: silent.map((r) => r.routine_id),
     errored: errored.map((r) => r.routine_id),
+    disabled: disabled.map((r) => r.routine_id),
     bad_verdicts: badAudits.length,
     notified,
   });

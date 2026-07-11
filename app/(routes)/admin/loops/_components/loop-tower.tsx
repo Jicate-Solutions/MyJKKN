@@ -99,16 +99,19 @@ function RegistryChip({ row, audit }: { row: LoopRegistryRow; audit?: LoopAuditR
         <GateMiniDot g={row.gates.f} />
       </span>
       {audit &&
-        (isVerifiedVerdict(audit.verdict) ? (
-          <span className='truncate font-mono text-[9.5px] text-muted-foreground'>
-            tested {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
-          </span>
-        ) : isBadVerdict(audit.verdict) ? (
+        // Failures FIRST — a failure string that mentions "verified" must
+        // never render as healthy (review r2; isVerifiedVerdict is also
+        // anchored to the closed vocabulary as a second guard).
+        (isBadVerdict(audit.verdict) ? (
           // A failure verdict (sim-failed / sim-error / walk-failed) is a
           // release blocker for whatever last touched this loop — render it as
           // an alarm, not a footnote (governance wires, 2026-07-11).
           <span className='truncate font-mono text-[9.5px] font-semibold text-red-600 dark:text-red-400'>
             🔴 {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
+          </span>
+        ) : isVerifiedVerdict(audit.verdict) ? (
+          <span className='truncate font-mono text-[9.5px] text-muted-foreground'>
+            tested {fmtAuditDate(audit.audited_at)} · {audit.verdict ?? audit.layer}
           </span>
         ) : (
           // Honest states (self-reinforcing / no-loop / unmeasurable-no-fuel)

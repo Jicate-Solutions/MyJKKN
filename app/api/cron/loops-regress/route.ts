@@ -98,8 +98,25 @@ export async function GET(request: NextRequest) {
       };
       results.push(row);
       failures.push(row);
+      // Same persistent trail as the RPC-error branch — a thrown exception
+      // must still leave a loop_audits row / red badge (review r2). Guarded:
+      // the audit write failing must not mask the original error.
+      try {
+        await admin.from('loop_audits').insert({
+          loop_key: loopKey,
+          layer: 'sim',
+          verdict: row.verdict,
+          evidence: { runner: 'loops-regress-cron', thrown: String(e).slice(0, 500) },
+        });
+      } catch {
+        /* audit trail is best-effort here; the notification below still fires */
+      }
     }
   }
+  // Sentinel-leftover note (review r2): the sim's ZZREGRESS seeds live only
+  // inside fn_loops_regress_*'s own subtransaction — a dropped connection
+  // aborts the whole transaction server-side, so committed leftovers cannot
+  // exist and no pre-clean write is needed here.
 
   // Wire 2 — alert supers on any non-verified verdict. Idempotent per IST day.
   let notified = 0;

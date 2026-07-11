@@ -10,18 +10,42 @@ import { type AIRoutine } from './types';
 
 // Cadence-aware staleness: a routine is only SILENT once it has missed its OWN
 // schedule. days_of_week uses Postgres dow (0=Sun). The threshold is the
-// largest gap between consecutive scheduled days (cyclic) plus 2h slack —
-// daily rows resolve to the old 26h, a Sundays-only row to 7d+2h. A flat 26h
-// here false-alarmed weekly routines 6 days out of 7 (review #1, HIGH).
+// largest gap between consecutive scheduled days (cyclic) plus 1h slack —
+// daily rows resolve to 25h, a Sundays-only row to 7d+1h. A flat 26h here
+// false-alarmed weekly routines 6 days out of 7 (review #1, HIGH). Slack is
+// 1h, not 2h, so the 09:23 watchdog catches a missed 07:53 Sunday run the
+// SAME morning (1.5h later) instead of the next day; the dispatcher claims
+// its slot within a minute of schedule, so 1h absorbs all real jitter
+// (review r2, slack finding).
 export function staleThresholdMs(daysOfWeek: number[] | null | undefined): number {
   const days = [...new Set(daysOfWeek ?? [])].sort((a, b) => a - b);
-  if (days.length === 0) return 26 * 3600_000; // no cadence recorded — assume daily
+  if (days.length === 0) return 25 * 3600_000; // no cadence recorded — assume daily
   let maxGapDays = 0;
   for (let i = 0; i < days.length; i++) {
     const next = i === days.length - 1 ? days[0] + 7 : days[i + 1];
     maxGapDays = Math.max(maxGapDays, next - days[i]);
   }
-  return maxGapDays * 24 * 3600_000 + 2 * 3600_000;
+  return maxGapDays * 24 * 3600_000 + 3600_000;
+}
+
+// Errored-status detection — ONE regex for the watchdog cron and the
+// /admin/loops red line (they duplicated it and could drift, review r2).
+// "skipped: not in registry" needs the registry consulted: when the RUNNING
+// deployment's registry knows the id, the status is a pre-deploy leftover
+// that self-heals at the routine's next fire — not an alarm. When the running
+// code still doesn't know the id, the dispatcher will keep skipping it
+// forever while last_fired_at stays fresh (claim happens before the registry
+// check), so it would otherwise be a permanently invisible dead pipe — alarm.
+// Callers pass `knownToRegistry` themselves (this module can't import the
+// registry: registry.ts imports LOOP_GOVERNANCE_ROUTINES from here).
+export const ERROR_RX = /HTTP [45]\d\d|timeout|timed out|failed|exception|not in registry/i;
+export function isAlarmStatus(
+  lastStatus: string | null | undefined,
+  knownToRegistry: boolean
+): boolean {
+  if (!lastStatus || !ERROR_RX.test(lastStatus)) return false;
+  if (lastStatus.startsWith('skipped: not in registry') && knownToRegistry) return false;
+  return true;
 }
 
 // Verdict vocabulary (binding, from the /loops skill): verified states are
@@ -37,16 +61,23 @@ export function isBadVerdict(verdict: string | null | undefined): boolean {
   if (verdict == null) return true;
   return BAD_VERDICT_PREFIXES.some((p) => verdict.startsWith(p));
 }
+// Exact closed set — a loose /verified/ substring test let a failure string
+// that merely MENTIONS "verified" render as healthy (review r2). Callers must
+// still check isBadVerdict FIRST; failures win over everything.
+const VERIFIED_VERDICTS = new Set(['measure-verified', 'mechanism-verified', 'walk-verified']);
 export function isVerifiedVerdict(verdict: string | null | undefined): boolean {
-  return verdict != null && /verified/.test(verdict);
+  return verdict != null && VERIFIED_VERDICTS.has(verdict);
 }
 
 // Stable fingerprint of a finding set, folded into notification idempotency
 // keys so a DISTINCT same-day incident still notifies while re-runs over the
 // same findings stay deduplicated (review #4/deep-review — a day-only key let
-// the first alert consume the day).
+// the first alert consume the day). Parts are SORTED before hashing: they
+// arrive in PostgREST result order, which is not stable across runs, and an
+// order-sensitive hash would re-page admins for the identical finding set
+// (review r2, 3-lens consensus).
 export function findingsFingerprint(parts: string[]): string {
-  const s = parts.join('|');
+  const s = [...parts].sort().join('|');
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
   return h.toString(36);
@@ -79,7 +110,7 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     triggerPath: '/api/cron/loop-watchdog',
     callsClaude: false,
     whatItDoes:
-      'Flags dispatcher-managed routines that went SILENT past their own cadence (derived from days_of_week: daily rows after ~26h, weekly rows after ~7d), routines whose last run ERRORED, and any loop_audits FAILURE verdict (sim-failed / sim-error / walk-failed) from the last day. Honest states like unmeasurable-no-fuel do not alarm. Silence must not look like health: a dead dispatcher, a disabled schedule, or a deploy that broke a cron all age quietly otherwise.',
+      'Flags dispatcher-managed routines that went SILENT past their own cadence (derived from days_of_week: daily rows after ~25h, weekly rows after ~7d), routines whose last run ERRORED, managed routines that are DISABLED (a switched-off loop routine must be visible, not skipped), and any loop_audits FAILURE verdict (sim-failed / sim-error / walk-failed) from the last day. Honest states like unmeasurable-no-fuel do not alarm. Silence must not look like health: a dead dispatcher, a disabled schedule, or a deploy that broke a cron all age quietly otherwise.',
     configKnobs:
       'Staleness derives from each row’s days_of_week (staleThresholdMs in lib/ai-routines/loop-governance.ts); ERROR_RX in the route. Watches managed=true rows only (maxlane:* rows are the local Mac lane — their silence is expected when that lane is off).',
     sideEffects:
