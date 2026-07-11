@@ -79,9 +79,9 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     triggerPath: '/api/cron/loop-watchdog',
     callsClaude: false,
     whatItDoes:
-      'Flags dispatcher-managed routines that went SILENT past their cadence (>26h), routines whose last run ERRORED, and any loop_audits verdict from the last day that is not *-verified. Silence must not look like health: a dead dispatcher, a disabled schedule, or a deploy that broke a cron all age quietly otherwise.',
+      'Flags dispatcher-managed routines that went SILENT past their own cadence (derived from days_of_week: daily rows after ~26h, weekly rows after ~7d), routines whose last run ERRORED, and any loop_audits FAILURE verdict (sim-failed / sim-error / walk-failed) from the last day. Honest states like unmeasurable-no-fuel do not alarm. Silence must not look like health: a dead dispatcher, a disabled schedule, or a deploy that broke a cron all age quietly otherwise.',
     configKnobs:
-      'STALE_HOURS=26, ERROR_RX in the route. Watches managed=true rows only (maxlane:* rows are the local Mac lane — their silence is expected when that lane is off).',
+      'Staleness derives from each row’s days_of_week (staleThresholdMs in lib/ai-routines/loop-governance.ts); ERROR_RX in the route. Watches managed=true rows only (maxlane:* rows are the local Mac lane — their silence is expected when that lane is off).',
     sideEffects:
       'On findings: one high-priority notification fanned out to super admins (idempotent per IST day). Read-only otherwise; no model calls.',
     safeToManualTrigger: true,
