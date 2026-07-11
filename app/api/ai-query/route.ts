@@ -1084,10 +1084,49 @@ async function tryMaxLane(
 }
 
 /**
+ * PATCH /api/ai-query — acknowledge delivery of rendered Max answers.
+ * Body: { ack_ids: uuid[] }. Called by the client only AFTER the answers are
+ * on screen (inbox restores and live deliveries alike); the RPC is
+ * requester-scoped so users can only ack their own rows. Idempotent.
+ */
+export async function PATCH(request: NextRequest) {
+  await connection();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: { code: 'UNAUTHORIZED', message: 'Please log in to continue.' } },
+      { status: 401 },
+    );
+  }
+  let body: { ack_ids?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
+  }
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const ids = Array.isArray(body.ack_ids)
+    ? body.ack_ids.filter((v): v is string => typeof v === 'string' && uuidRe.test(v)).slice(0, 50)
+    : [];
+  if (ids.length === 0) {
+    return NextResponse.json({ ok: false, error: 'ack_ids required' }, { status: 400 });
+  }
+  const { error } = await supabase.rpc('fn_max_chat_ack', { p_ids: ids });
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}
+
+/**
  * GET /api/ai-query — the Max-lane "while you were away" inbox.
- * Returns finished, still-undelivered Max answers for the CALLER (the RPC is
- * requester-scoped; users who never ride the Max lane simply get []). The
- * fetch itself marks the rows delivered, so each answer surfaces exactly once.
+ * PURE READ (idempotent — safe under prefetch/retries): returns finished,
+ * still-unacknowledged Max answers for the CALLER (the RPC is requester-
+ * scoped; users who never ride the Max lane simply get []). Delivery is
+ * stamped only by the PATCH ack after the client has rendered the answers.
  */
 export async function GET() {
   await connection();
