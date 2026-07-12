@@ -26,7 +26,7 @@ CREATE OR REPLACE FUNCTION public.ai_rpc_mess_bookings(
   p_user_id uuid, p_learner_id uuid DEFAULT NULL, p_meal_type text DEFAULT NULL,
   p_date_from text DEFAULT NULL, p_date_to text DEFAULT NULL,
   p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET statement_timeout = '10s' AS $fn$
 DECLARE v_uid uuid := auth.uid(); v_super boolean; v_inst uuid; v_all boolean; v_ok boolean; v_result jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
@@ -50,8 +50,8 @@ BEGIN
     WHERE (v_all OR b.institution_id = v_inst)
       AND (p_learner_id IS NULL OR b.learner_id = p_learner_id)
       AND (p_meal_type IS NULL OR b.meal_type::text = p_meal_type)
-      AND (NULLIF(trim(p_date_from),'') IS NULL OR b.date >= NULLIF(trim(p_date_from),'')::date)
-      AND (NULLIF(trim(p_date_to),'')   IS NULL OR b.date <= NULLIF(trim(p_date_to),'')::date)),
+      AND (trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR b.date >= (CASE WHEN trim(p_date_from) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_from)::date END))
+      AND (trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR b.date <= (CASE WHEN trim(p_date_to) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_to)::date END))),
   paged AS (SELECT * FROM base ORDER BY meal_date DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
@@ -66,7 +66,7 @@ GRANT  EXECUTE ON FUNCTION public.ai_rpc_mess_bookings(uuid,uuid,text,text,text,
 CREATE OR REPLACE FUNCTION public.ai_rpc_hostel_allocations(
   p_user_id uuid, p_learner_id uuid DEFAULT NULL, p_status text DEFAULT NULL,
   p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET statement_timeout = '10s' AS $fn$
 DECLARE v_uid uuid := auth.uid(); v_super boolean; v_inst uuid; v_all boolean; v_ok boolean; v_result jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
@@ -109,7 +109,7 @@ CREATE OR REPLACE FUNCTION public.ai_rpc_meeting_bookings(
   p_user_id uuid, p_status text DEFAULT NULL,
   p_date_from text DEFAULT NULL, p_date_to text DEFAULT NULL,
   p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET statement_timeout = '10s' AS $fn$
 DECLARE v_uid uuid := auth.uid(); v_super boolean; v_inst uuid; v_all boolean; v_ok boolean; v_result jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
@@ -133,8 +133,8 @@ BEGIN
     LEFT JOIN jicate_booking_meeting_types mt ON mt.id = b.meeting_type_id
     WHERE (v_all OR b.institution_id = v_inst)
       AND (p_status IS NULL OR b.status::text = p_status)
-      AND (NULLIF(trim(p_date_from),'') IS NULL OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date >= NULLIF(trim(p_date_from),'')::date)
-      AND (NULLIF(trim(p_date_to),'')   IS NULL OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date <= NULLIF(trim(p_date_to),'')::date))
+      AND (trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date >= (CASE WHEN trim(p_date_from) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_from)::date END))
+      AND (trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date <= (CASE WHEN trim(p_date_to) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_to)::date END)))
   , paged AS (SELECT * FROM base ORDER BY start_time DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
@@ -149,7 +149,7 @@ GRANT  EXECUTE ON FUNCTION public.ai_rpc_meeting_bookings(uuid,text,text,text,in
 CREATE OR REPLACE FUNCTION public.ai_rpc_cdc_drive_attendance(
   p_user_id uuid, p_learner_id uuid DEFAULT NULL, p_drive_id uuid DEFAULT NULL,
   p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET statement_timeout = '10s' AS $fn$
 DECLARE v_uid uuid := auth.uid(); v_super boolean; v_inst uuid; v_all boolean; v_ok boolean; v_result jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
@@ -190,7 +190,7 @@ GRANT  EXECUTE ON FUNCTION public.ai_rpc_cdc_drive_attendance(uuid,uuid,uuid,int
 CREATE OR REPLACE FUNCTION public.ai_rpc_event_attendance(
   p_user_id uuid, p_learner_id uuid DEFAULT NULL, p_session_id uuid DEFAULT NULL,
   p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET statement_timeout = '10s' AS $fn$
 DECLARE v_uid uuid := auth.uid(); v_super boolean; v_inst uuid; v_all boolean; v_ok boolean; v_result jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
@@ -230,7 +230,7 @@ GRANT  EXECUTE ON FUNCTION public.ai_rpc_event_attendance(uuid,uuid,uuid,integer
 CREATE OR REPLACE FUNCTION public.ai_rpc_health_participation(
   p_user_id uuid, p_learner_id uuid DEFAULT NULL, p_program_id uuid DEFAULT NULL,
   p_limit integer DEFAULT 10000, p_offset integer DEFAULT 0
-) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET statement_timeout = '10s' AS $fn$
 DECLARE v_uid uuid := auth.uid(); v_super boolean; v_inst uuid; v_all boolean; v_ok boolean; v_result jsonb;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,

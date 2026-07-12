@@ -12,10 +12,10 @@
 -- p_user_id stays in the signature only so the existing service call shape
 -- (executeTool always sends p_user_id) still resolves.
 --
--- Gate = TRANSPORT permission model: super_admin OR the 'tms.bookings.view_all'
--- key (held only by the central "Transport Head" role — a cross-institution
--- role by design). NO institution scoping: tms_route has no institution_id
--- (buses serve every college), so the permission IS the tenant boundary.
+-- Gate: super_admin OR the 'tms.bookings.view_all' key. tms_route has no
+-- institution_id, so rows scope by the LEARNER's institution — a college-scoped
+-- role sees only its own learners' bookings; only super_admin or a role that
+-- grants this key AND is institution_scope='all' sees every college.
 -- Read-only; anon EXECUTE revoked.
 
 CREATE OR REPLACE FUNCTION public.ai_rpc_transport_bookings(
@@ -32,6 +32,7 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+SET statement_timeout = '10s'
 AS $function$
 DECLARE
   v_uid    uuid := auth.uid();
@@ -71,7 +72,7 @@ BEGIN
       AND lower(COALESCE(cr.permissions ->> 'tms.bookings.view_all', '')) IN ('true','t','1'));
 
   WITH base AS (
-    SELECT b.travel_date, b.booked_at,
+    SELECT b.ctid AS _rowid, b.travel_date, b.booked_at,
            lp.first_name, lp.last_name, lp.roll_number,
            r.route_number, r.route_name, st.stop_name
     FROM tms_booking b
@@ -81,19 +82,20 @@ BEGIN
     WHERE (v_all OR lp.institution_id = v_inst)
       AND (p_learner_id IS NULL OR b.learner_id = p_learner_id)
       AND (p_route_id   IS NULL OR b.route_id   = p_route_id)
-      AND (NULLIF(trim(p_date_from),'') IS NULL OR b.travel_date >= NULLIF(trim(p_date_from),'')::date)
-      AND (NULLIF(trim(p_date_to),'')   IS NULL OR b.travel_date <= NULLIF(trim(p_date_to),'')::date)
+      AND (trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR b.travel_date >= trim(p_date_from)::date)
+      AND (trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR b.travel_date <= trim(p_date_to)::date)
   ),
   paged AS (
     -- tms_booking has no primary key; ORDER BY a composite of its natural
     -- columns as a stable tiebreaker for deterministic LIMIT/OFFSET paging.
     SELECT * FROM base
-    ORDER BY travel_date DESC, booked_at DESC, roll_number, route_number, stop_name
+    ORDER BY travel_date DESC, booked_at DESC, roll_number, route_number, stop_name, _rowid
     LIMIT GREATEST(p_limit, 0) OFFSET GREATEST(p_offset, 0)
   )
   SELECT jsonb_build_object(
     'success', true,
-    'data', COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p), '[]'::jsonb),
+    -- strip the internal ctid tiebreaker from the output rows
+    'data', COALESCE((SELECT jsonb_agg((row_to_json(p)::jsonb) - '_rowid') FROM paged p), '[]'::jsonb),
     'metadata', jsonb_build_object(
       'total_count',    (SELECT COUNT(*) FROM base),
       'returned_count', (SELECT COUNT(*) FROM paged),
