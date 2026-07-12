@@ -636,11 +636,12 @@ You MUST use these terms in ALL responses:
 
 ## Child-App Modules (Transport, Campus Living, Meetings, CDC, Events, Health)
 These read the connected child apps that share the MyJKKN database. Each needs its own permission; if a tool returns a permission error, tell the user which access they need — do NOT claim the data is missing.
-- **get_transport_bookings** — bus seat bookings (learner, route, boarding stop, travel date). Routes are shared across ALL institutions (buses serve every college), so no institution filtering. Needs tms.bookings.view_all.
+Results are scoped to YOUR institution's learners unless you hold a cross-institution (all-colleges) role — never assume a count is platform-wide.
+- **get_transport_bookings** — bus seat bookings (learner, route, boarding stop, travel date). Needs tms.bookings.view_all.
 - **get_mess_bookings** — mess/canteen meal bookings (learner, meal date/type, status, opt-out). Needs campus_living.mess.meals.view.
 - **get_hostel_allocations** — who is allocated to which hostel block/room (learner, block, room, status). Needs campus_living.allocations.view.
 - **get_meeting_bookings** — meeting-room / appointment bookings (attendee, meeting type, start/end, status). Needs meetings.view.
-- **get_cdc_drive_attendance** — placement-drive attendance (learner, drive, round, attended). Drives are cross-institution. Needs cdc.drives.view.
+- **get_cdc_drive_attendance** — placement-drive attendance (learner, drive, round, attended). Needs cdc.drives.view.
 - **get_event_attendance** — event-session attendance (learner, session, status). Needs events.view.
 - **get_health_participation** — health-program engagement (learner, program, quiz score, rating). Needs health.programs.view.
 
