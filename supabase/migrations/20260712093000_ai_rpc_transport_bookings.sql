@@ -36,6 +36,8 @@ AS $function$
 DECLARE
   v_uid    uuid := auth.uid();
   v_super  boolean;
+  v_inst   uuid;
+  v_all    boolean;   -- caller sees ALL institutions (super_admin or any role scope='all')
   v_ok     boolean;
   v_result jsonb;
 BEGIN
@@ -46,7 +48,7 @@ BEGIN
       'error', jsonb_build_object('code','UNAUTHORIZED','message','Sign in required.'));
   END IF;
 
-  SELECT COALESCE(is_super_admin, false) INTO v_super FROM profiles WHERE id = v_uid;
+  SELECT COALESCE(is_super_admin, false), institution_id INTO v_super, v_inst FROM profiles WHERE id = v_uid;
   v_ok := COALESCE(v_super, false) OR EXISTS (
     SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
     WHERE ur.user_id = v_uid AND COALESCE(cr.is_active, true)
@@ -59,6 +61,14 @@ BEGIN
       'error', jsonb_build_object('code','FORBIDDEN','message','You do not have permission to view transport bookings (needs tms.bookings.view_all).'));
   END IF;
 
+  -- Cross-institution ONLY for super_admin or a role explicitly scoped 'all'
+  -- (e.g. central Transport Head/CEO). tms_booking/route carry no institution,
+  -- so scope by the LEARNER's institution — a college-scoped role sees only
+  -- its own learners' bookings (deep-review cross-tenant PII fix).
+  v_all := COALESCE(v_super, false) OR EXISTS (
+    SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_uid AND COALESCE(cr.is_active, true) AND cr.institution_scope = 'all');
+
   WITH base AS (
     SELECT b.travel_date, b.booked_at,
            lp.first_name, lp.last_name, lp.roll_number,
@@ -67,10 +77,11 @@ BEGIN
     LEFT JOIN learners_profiles lp ON lp.id = b.learner_id
     LEFT JOIN tms_route         r  ON r.id  = b.route_id
     LEFT JOIN tms_route_stop    st ON st.id = b.stop_id
-    WHERE (p_learner_id IS NULL OR b.learner_id = p_learner_id)
+    WHERE (v_all OR lp.institution_id = v_inst)
+      AND (p_learner_id IS NULL OR b.learner_id = p_learner_id)
       AND (p_route_id   IS NULL OR b.route_id   = p_route_id)
-      AND (p_date_from  IS NULL OR b.travel_date >= p_date_from::date)
-      AND (p_date_to    IS NULL OR b.travel_date <= p_date_to::date)
+      AND (NULLIF(trim(p_date_from),'') IS NULL OR b.travel_date >= NULLIF(trim(p_date_from),'')::date)
+      AND (NULLIF(trim(p_date_to),'')   IS NULL OR b.travel_date <= NULLIF(trim(p_date_to),'')::date)
   ),
   paged AS (
     SELECT * FROM base
