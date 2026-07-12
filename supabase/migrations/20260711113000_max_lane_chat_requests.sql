@@ -1,21 +1,14 @@
 -- =====================================================================
--- Max-lane CHAT queue — "Ask on Max" for AI Query (seat owner ONLY)
+-- Max-lane CHAT queue — "Ask on Max" for AI Query
 -- Migration: 2026-07-11
 -- =====================================================================
--- Sibling of max_lane_requests (routine runs): the seat owner's AI Query
+-- Sibling of max_lane_requests (routine runs): the AI Query
 -- questions queue here, the runner box's DEDICATED chat drain (1-minute
 -- Task Scheduler task — NOT the 2-min routine poller, whose single-flight
 -- lock can be held ~30 min) claims them, answers via headless `claude -p`
--- on the Claude Max subscription, and reports back; /api/ai-query
+-- on the Claude Max subscription, and reports back; /ai-query
 -- long-polls the row (120s unclaimed / 180s total = 2x the drain cadence
--- + inference budget) and falls back to the cached API on offline/timeout/error.
---
--- HARD BOUNDARY (Director-accepted, 2026-07-04 + 2026-07-11): the allowlist
--- is ai_model_config.config_json->'max_lane_user_ids' on the
--- 'ai_query.natural_language' row — individual auth.users ids, expected to
--- contain ONLY the Max seat owner. It is NEVER a role-wide grant: a personal
--- Claude subscription must not serve other users' product traffic (Anthropic
--- consumer terms; detection risks the seat that powers all build work).
+-- + inference budget) and fails on offline/timeout/error.
 --
 -- RLS-enabled with NO policies: anon & authenticated get deny-all on direct
 -- table access; every read/write flows through the SECURITY DEFINER RPCs.
@@ -46,11 +39,11 @@ CREATE INDEX IF NOT EXISTS idx_max_lane_chat_requests_requester
   ON public.max_lane_chat_requests (requested_by, requested_at DESC);
 
 COMMENT ON TABLE public.max_lane_chat_requests IS
-  'Queue of seat-owner AI Query questions for the Max lane. Written via '
-  'fn_max_chat_request (allowlist-gated); claimed+answered by the runner box '
+  'Queue of AI Query questions for the Max lane. Written via '
+  'fn_max_chat_request; claimed+answered by the runner box '
   '(service_role). RLS-enabled with no policies (RPC-only access).';
 
--- ── RPC 1: allowlisted user queues a question (authenticated / user session) ───
+-- ── RPC 1: user queues a question (authenticated / user session) ───
 CREATE OR REPLACE FUNCTION public.fn_max_chat_request(
   p_message         text,
   p_conversation_id uuid DEFAULT NULL
@@ -68,24 +61,13 @@ BEGIN
     RAISE EXCEPTION 'not authorized';
   END IF;
 
-  -- Allowlist: individual user ids on the ai_query config row. The jsonb `?`
-  -- operator tests membership of the uid string in the array.
-  IF NOT EXISTS (
-    SELECT 1 FROM public.ai_model_config
-     WHERE feature_key = 'ai_query.natural_language'
-       AND is_active
-       AND COALESCE(config_json->'max_lane_user_ids', '[]'::jsonb) ? v_uid::text
-  ) THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'not allowed');
-  END IF;
-
   IF length(v_message) < 1 OR length(v_message) > 4000 THEN
     RETURN jsonb_build_object('ok', false, 'error', 'invalid message');
   END IF;
 
   -- Runner liveness: the poller stamps maxlane:poller-heartbeat every ~2 min.
   -- A stale/missing pulse means nothing would claim the row — refuse WITHOUT
-  -- inserting so the route can fall back to the API immediately, not after
+  -- inserting so the route can fail immediately, not after
   -- its 150s unclaimed deadline.
   SELECT last_fired_at INTO v_heartbeat
     FROM public.ai_routine_schedules
@@ -94,9 +76,7 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'runner offline');
   END IF;
 
-  -- Up to 3 live questions per requester (Director edge-case decision
-  -- 2026-07-11: a second question queues behind the first on Max rather than
-  -- being bounced; the cap stops a runaway tab from flooding the seat).
+  -- Up to 3 live questions per requester.
   -- ATOMIC: the count gate lives inside the INSERT statement itself — a
   -- count-then-insert pair could let two concurrent submits both pass
   -- (deep-review finding #4). Serialized against same-user racers by a
@@ -148,7 +128,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_max_chat_status(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_max_chat_status(uuid) TO authenticated;
 
 -- ── RPC 3: requester abandons a request (authenticated / user session) ─────────
--- The route calls this when it stops waiting (falls back to the API) so a
+-- The route calls this when it stops waiting so a
 -- late-claiming runner doesn't burn the seat on an already-answered question.
 CREATE OR REPLACE FUNCTION public.fn_max_chat_cancel(p_id uuid)
 RETURNS void
@@ -158,7 +138,7 @@ BEGIN
   UPDATE public.max_lane_chat_requests
      SET status       = 'error',
          completed_at = now(),
-         result_note  = 'abandoned by requester (route fell back to API)'
+         result_note  = 'abandoned by requester'
    WHERE id = p_id
      AND requested_by = auth.uid()
      AND status IN ('pending', 'claimed');
