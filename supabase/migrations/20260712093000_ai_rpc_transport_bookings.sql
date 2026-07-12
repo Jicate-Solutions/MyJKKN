@@ -82,8 +82,8 @@ BEGIN
     WHERE (v_all OR lp.institution_id = v_inst)
       AND (p_learner_id IS NULL OR b.learner_id = p_learner_id)
       AND (p_route_id   IS NULL OR b.route_id   = p_route_id)
-      AND (trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR b.travel_date >= trim(p_date_from)::date)
-      AND (trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR b.travel_date <= trim(p_date_to)::date)
+      AND (p_date_from IS NULL OR trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR b.travel_date >= trim(p_date_from)::date)
+      AND (p_date_to IS NULL OR trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR b.travel_date <= trim(p_date_to)::date)
   ),
   paged AS (
     -- tms_booking has no primary key; ORDER BY a composite of its natural

@@ -50,8 +50,8 @@ BEGIN
     WHERE (v_all OR b.institution_id = v_inst)
       AND (p_learner_id IS NULL OR b.learner_id = p_learner_id)
       AND (p_meal_type IS NULL OR b.meal_type::text = p_meal_type)
-      AND (trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR b.date >= (CASE WHEN trim(p_date_from) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_from)::date END))
-      AND (trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR b.date <= (CASE WHEN trim(p_date_to) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_to)::date END))),
+      AND (p_date_from IS NULL OR trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR b.date >= (CASE WHEN trim(p_date_from) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_from)::date END))
+      AND (p_date_to IS NULL OR trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR b.date <= (CASE WHEN trim(p_date_to) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_to)::date END))),
   paged AS (SELECT * FROM base ORDER BY meal_date DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
@@ -133,8 +133,8 @@ BEGIN
     LEFT JOIN jicate_booking_meeting_types mt ON mt.id = b.meeting_type_id
     WHERE (v_all OR b.institution_id = v_inst)
       AND (p_status IS NULL OR b.status::text = p_status)
-      AND (trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date >= (CASE WHEN trim(p_date_from) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_from)::date END))
-      AND (trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date <= (CASE WHEN trim(p_date_to) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_to)::date END)))
+      AND (p_date_from IS NULL OR trim(p_date_from) !~ '^\d{4}-\d{2}-\d{2}$' OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date >= (CASE WHEN trim(p_date_from) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_from)::date END))
+      AND (p_date_to IS NULL OR trim(p_date_to) !~ '^\d{4}-\d{2}-\d{2}$' OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date <= (CASE WHEN trim(p_date_to) ~ '^\d{4}-\d{2}-\d{2}$' THEN trim(p_date_to)::date END)))
   , paged AS (SELECT * FROM base ORDER BY start_time DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
