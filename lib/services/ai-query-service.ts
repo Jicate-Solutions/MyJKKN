@@ -187,10 +187,20 @@ export class AIQueryService {
     // bookings). The legacy p_user_id is still passed for the older tools.
     const rpcName = `ai_rpc_${toolName}`;
 
+    // Drop empty-string args (the LLM sometimes emits "" for an unused filter).
+    // An empty string would hit ::uuid / ::date / enum casts and fail the tool;
+    // dropping it lets the RPC's DEFAULT NULL apply (= "no filter"), which is
+    // the intended behavior. Keeps the RPCs robust to sloppy tool arguments.
+    const cleanParams: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (typeof v === 'string' && v.trim() === '') continue;
+      cleanParams[k] = v;
+    }
+
     try {
       const { data, error } = await (this.supabase as any).rpc(rpcName, {
         p_user_id: userId,
-        ...params,
+        ...cleanParams,
       });
 
       if (error) {
