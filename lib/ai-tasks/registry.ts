@@ -422,10 +422,12 @@ function regenParseSpine(text: string): RegenParsedSpine {
 const curriculumLessonSpineRegen: AiTaskType = {
   featureKey: REGEN_FEATURE_KEY,
   label: 'lesson-spine regeneration',
-  dedupeScope: 'entity',
+  // 'user': the dedupe key embeds the requester (see the dedupeKey disposition
+  // below) — each reviewer gets their own pollable, RLS-visible task row.
+  dedupeScope: 'user',
   resultPath: '/academic/curriculum-review',
 
-  async resolveEnqueueContext(session, _userId, entityId) {
+  async resolveEnqueueContext(session, userId, entityId) {
     const courseId = (entityId || '').trim();
     if (!courseId) return { ok: false, status: 400, error: 'course id is required' };
     if (!UUID_RE.test(courseId)) return { ok: false, status: 400, error: 'course id must be a uuid' };
@@ -456,7 +458,19 @@ const curriculumLessonSpineRegen: AiTaskType = {
     return {
       ok: true,
       institutionId: (course.institution_id as string | null) ?? null,
-      dedupeKey: `${REGEN_FEATURE_KEY}:${courseId}`,
+      // DISPOSITION (advisory review r1, HIGH — FIXED): the key MUST embed the
+      // requester. The queue's in-flight guard is a GLOBAL partial unique index
+      // on (feature_key, dedupe_key) and fn_ai_task_enqueue's ON CONFLICT DO
+      // NOTHING returns the EXISTING task — with an entity-only key, reviewer
+      // B's click returned reviewer A's task_id, whose row is RLS-hidden from B
+      // (ai_task_queue own-rows SELECT policy) → B's button polled [] forever.
+      // The queue migration's own comment mandates the requester in per-user
+      // dedupe keys. Trade-off ACCEPTED knowingly: two reviewers CAN now both
+      // enqueue the same course — safe, because fn_curriculum_lesson_ai_draft_upsert
+      // is slot-idempotent (the later run rewrites the same draft slots) and the
+      // stale-slot cleanup in recordResult leaves the end state = the latest
+      // run's spine.
+      dedupeKey: `${REGEN_FEATURE_KEY}:${userId}:${courseId}`,
       context: { course_id: courseId, course_code: course.course_code as string },
     };
   },
@@ -643,6 +657,36 @@ const curriculumLessonSpineRegen: AiTaskType = {
     }
     if (lessonsRecorded === 0) {
       throw new Error('model output contained no usable lessons');
+    }
+
+    // DISPOSITION (advisory review r1, MEDIUM — FIXED): stale-orphan cleanup.
+    // Regen targets courses that ALREADY have a spine; the slot upsert only
+    // rewrites slots the NEW spine also produced, so a shorter or renumbered
+    // spine would leave the old run's extra slots behind as zombie drafts
+    // (e.g. 18 fresh + 4 stale lessons). Every slot THIS run wrote carries
+    // ai_batch_key = batchKey (the upsert stamps it on both its INSERT and
+    // UPDATE branches), so after a fully-successful write, any remaining
+    // draft+AI-source row for this course WITHOUT this run's key is a stale
+    // orphan → delete. NEVER touches approved lessons (status='draft' filter —
+    // approve flips status to 'published') nor faculty-authored rows (source
+    // filter). Runs only after the success gates above, and only with a
+    // non-null batchKey (a null key would make the not-this-run predicate match
+    // this run's own rows). A cleanup failure throws → task marked failed →
+    // the retry click re-upserts idempotently and re-attempts the cleanup.
+    if (batchKey) {
+      const { error: staleErr } = await admin
+        .from('curriculum_lesson')
+        .delete()
+        .eq('course_id', courseId)
+        .eq('status', 'draft')
+        .in('source', ['bos_ai', 'title_ai'])
+        // NULL-safe "not this run": .neq() alone compiles to SQL <> which drops
+        // NULL ai_batch_key rows (pre-tagging drafts) from the match. Value is
+        // double-quoted for PostgREST or-parsing (it contains ':').
+        .or(`ai_batch_key.is.null,ai_batch_key.neq."${batchKey}"`);
+      if (staleErr) {
+        throw new Error(`stale-draft cleanup failed after spine write: ${staleErr.message}`);
+      }
     }
 
     return {
