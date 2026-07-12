@@ -73,7 +73,7 @@ COMMENT ON COLUMN public.ims_kit_collections.void_item_returned IS
 --     otherwise out-of-college students show a permanent uncollectable "owed")
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_kit_guard_rule_item()
-RETURNS trigger LANGUAGE plpgsql AS $$
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
 DECLARE
   v_cost   numeric;
   v_source varchar(10);
@@ -177,6 +177,9 @@ BEGIN
       WHERE ri.rule_id = v_rule.id
         AND i.cost_price IS NOT NULL                              -- D34 belt (skip null-cost)
         AND NOT (ri.cadence = 'yearly' AND t.year_level IS NULL)
+        -- A yearly item needs a current AY to stamp granted_academic_year_id;
+        -- without it the row could never be reached by expire (review MED-4/LOW-3).
+        AND NOT (ri.cadence = 'yearly' AND t.current_ay_id IS NULL)
         AND (v_rule.year_level IS NULL OR t.year_level = v_rule.year_level)
     ),
     upserted AS (
@@ -197,6 +200,16 @@ BEGIN
         status = CASE
           WHEN ims_kit_entitlements.status = 'expired' THEN 'reopened'
           ELSE ims_kit_entitlements.status END,
+        -- Re-anchor the reopened row to the CURRENT grant year and clear the old
+        -- flag entirely (review MED-1): otherwise it stays anchored to the prior
+        -- year and a future expire(new_year) — scoped by granted_academic_year_id
+        -- — never re-bills it (the leak this scope fix exists to prevent).
+        granted_academic_year_id = CASE
+          WHEN ims_kit_entitlements.status = 'expired' THEN EXCLUDED.granted_academic_year_id
+          ELSE ims_kit_entitlements.granted_academic_year_id END,
+        billing_flagged_at = CASE
+          WHEN ims_kit_entitlements.status = 'expired' THEN NULL
+          ELSE ims_kit_entitlements.billing_flagged_at END,
         billing_flag_cancelled_at = CASE
           WHEN ims_kit_entitlements.status = 'expired' THEN now()                 -- D43/D17
           ELSE ims_kit_entitlements.billing_flag_cancelled_at END,
@@ -253,6 +266,13 @@ BEGIN
         status = CASE
           WHEN ims_kit_entitlements.status = 'expired' THEN 'reopened'
           ELSE ims_kit_entitlements.status END,
+        -- Re-anchor to the current grant year + clear the old flag (review MED-1).
+        granted_academic_year_id = CASE
+          WHEN ims_kit_entitlements.status = 'expired' THEN EXCLUDED.granted_academic_year_id
+          ELSE ims_kit_entitlements.granted_academic_year_id END,
+        billing_flagged_at = CASE
+          WHEN ims_kit_entitlements.status = 'expired' THEN NULL
+          ELSE ims_kit_entitlements.billing_flagged_at END,
         billing_flag_cancelled_at = CASE
           WHEN ims_kit_entitlements.status = 'expired' THEN now()
           ELSE ims_kit_entitlements.billing_flag_cancelled_at END,
@@ -361,12 +381,14 @@ BEGIN
     RAISE EXCEPTION 'a college item can only be handed over from its own institution''s store, not another college''s (D25)';
   END IF;
 
-  -- D27: block an accidental double-record (double click / double scan).
+  -- D27: block an accidental double-record (double click / double scan). A 10s
+  -- window catches instant double-submits/retries without wrongly rejecting a
+  -- deliberate second identical partial handover a few seconds later (review LOW-4).
   IF EXISTS (
     SELECT 1 FROM ims_kit_collections
     WHERE entitlement_id = v_ent.id AND kind = p_kind AND qty = p_qty
       AND store_id = p_store_id AND voided_at IS NULL
-      AND collected_at > now() - interval '30 seconds'
+      AND collected_at > now() - interval '10 seconds'
   ) THEN
     RAISE EXCEPTION 'an identical handover was just recorded — duplicate blocked (D27). Wait a moment or void the first if it was a mistake.';
   END IF;
@@ -496,9 +518,17 @@ BEGIN
 
   -- Reverse the ledger credit for a normal collection regardless of return —
   -- this handover was a mistake; the goods (if not returned) are a tracked loss.
+  -- Also reopen a terminal entitlement that is now under-collected (review
+  -- MED-3): voiding a collection on a closed/expired row would otherwise leave
+  -- the now-owed kit permanently uncollectable (record_collection needs open/reopened).
   IF v_coll.kind = 'normal' THEN
     UPDATE ims_kit_entitlements
-       SET qty_collected = GREATEST(qty_collected - v_coll.qty, 0), updated_at = now()
+       SET qty_collected = GREATEST(qty_collected - v_coll.qty, 0),
+           status = CASE
+             WHEN status IN ('closed','expired')
+                  AND GREATEST(qty_collected - v_coll.qty, 0) < qty_entitled
+             THEN 'reopened' ELSE status END,
+           updated_at = now()
      WHERE id = v_coll.entitlement_id;
   END IF;
 
@@ -573,14 +603,34 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE
   v_revoked int;
+  v_rule_inst uuid;
 BEGIN
   IF NOT (is_super_admin() OR is_admin() OR user_has_permission('ims.kits.manage')) THEN
     RAISE EXCEPTION 'not authorized to revoke kit entitlements';
   END IF;
 
+  -- LOW-1: tenant scope. A non-super manage holder may only revoke a rule scoped
+  -- to an institution they can access. NULL-institution (all-college) rules are
+  -- super/admin-only — role_has_institution_access(NULL) is TRUE (known trap), so
+  -- it must NOT be the guard for the cross-college case.
+  SELECT institution_id INTO v_rule_inst FROM ims_kit_rules WHERE id = p_rule_id;
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    IF v_rule_inst IS NULL OR NOT role_has_institution_access(v_rule_inst) THEN
+      RAISE EXCEPTION 'not authorized to revoke this rule''s entitlements';
+    END IF;
+  END IF;
+
+  -- MED-2: only pull back FRESHLY-granted rows — never collected, never billed,
+  -- with no collection history (a voided collection zeroes qty_collected but
+  -- leaves audit rows; deleting the parent would trip the FK / destroy the
+  -- audit trail, and expired+flagged rows carry outstanding charges).
   WITH del AS (
-    DELETE FROM ims_kit_entitlements
-    WHERE source_rule_id = p_rule_id AND qty_collected = 0
+    DELETE FROM ims_kit_entitlements e
+    WHERE e.source_rule_id = p_rule_id
+      AND e.qty_collected = 0
+      AND e.status = 'open'
+      AND e.billing_flagged_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM ims_kit_collections c WHERE c.entitlement_id = e.id)
     RETURNING 1
   )
   SELECT count(*) INTO v_revoked FROM del;
@@ -589,9 +639,17 @@ BEGIN
 END; $$;
 
 -- ----------------------------------------------------------------------------
--- Grants — new signatures need explicit anon lockdown + authenticated grant.
--- (CREATE OR REPLACE of the same-signature RPCs keeps their existing grants.)
+-- Grants — explicit anon lockdown + authenticated grant for every SECURITY
+-- DEFINER function this migration (re)defines. The CREATE OR REPLACE ones
+-- already carry these grants from K1; re-asserting them keeps the lockdown
+-- self-evident in this file (CLAUDE.md "Lock new RPCs from anon").
 -- ----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_kit_resolve_entitlements(uuid, boolean)      FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_kit_resolve_entitlements(uuid, boolean)      TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_kit_record_collection(uuid, int, text, text, uuid, text, text, boolean, boolean, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_kit_record_collection(uuid, int, text, text, uuid, text, text, boolean, boolean, text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_kit_expire_academic_year(uuid)              FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_kit_expire_academic_year(uuid)              TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_kit_void_collection(uuid, text, boolean)     FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_kit_void_collection(uuid, text, boolean)     TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_kit_revoke_rule_entitlements(uuid)           FROM anon, PUBLIC;
