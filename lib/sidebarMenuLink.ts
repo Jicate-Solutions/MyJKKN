@@ -1261,6 +1261,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
   '/ims/settings/units': 'ims.settings.units.manage',
   '/ims/settings/unit-conversions': 'ims.settings.units.manage',
+  // Store Kits (PR-K2, 2026-07-12) — per-group item kits handed over at the
+  // central store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
+  // Keys ship UNGRANTED (dark) until the grn_verify rollout.
+  '/ims/kits': 'ims.kits.manage',
+  '/ims/kits/counter': 'ims.kits.handover',
+  '/ims/kits/billing-flags': 'ims.kits.billing_flags.view',
+  // Learner/staff self view — top-level route; grant ims.kits.my.view to
+  // student/staff roles at rollout to reveal it.
+  '/my-kit': 'ims.kits.my.view',
   // Stock (visibility + adjustments + GRN lifecycle)
   '/ims/stock': 'ims.stock.view',
   '/ims/stock/adjustments': 'ims.stock.adjust',
@@ -1331,6 +1340,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          // Store Kits self view (PR-K2) — entitled vs collected vs owed.
+          // Hidden until ims.kits.my.view is granted to student/staff roles.
+          href: '/my-kit',
+          label: 'My Kit',
+          active: pathname === '/my-kit',
+          icon: Package,
           submenus: []
         }
       ]
@@ -2200,6 +2218,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
             { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
             { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
+            // Store Kits (PR-K2) — visibility gated per-entry via MENU_PERMISSIONS
+            { href: '/ims/kits', label: 'Kits · Rules', active: pathname === '/ims/kits' },
+            { href: '/ims/kits/counter', label: 'Kits · Counter', active: pathname === '/ims/kits/counter' },
+            { href: '/ims/kits/billing-flags', label: 'Kits · Billing Flags', active: pathname === '/ims/kits/billing-flags' },
           ]
         }
       ]

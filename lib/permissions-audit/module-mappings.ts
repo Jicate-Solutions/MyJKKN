@@ -139,6 +139,8 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Projects module (menu-visibility gap fix 2026-07-12 — first
   // MENU_PERMISSIONS entry for /projects needed a module mapping too)
   ['/projects', 'Projects'],
+  // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
+  ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
   // /admin/notifications relocated to /notifications/admin (2026-06-11
