@@ -22,6 +22,7 @@ import {
   BookOpen, Sparkles, Check, X, Loader2, ChevronRight, Info, PencilLine,
 } from 'lucide-react';
 
+import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -236,6 +237,26 @@ export default function CurriculumReviewPage() {
 
           {/* ── Draft spine for the selected course ──────────────────── */}
           <div className="space-y-4">
+            {selected && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{selected.course_code}</p>
+                  <p className="truncate text-xs text-muted-foreground">{selected.course_name}</p>
+                </div>
+                {/* "Regenerate spine" — enqueues a curriculum.lesson_spine_regen task on
+                    the async AI Max-button lane (lib/ai-tasks/registry.ts). The fresh
+                    spine REPLACES unapproved drafts slot-by-slot; approved (published)
+                    lessons are never touched. Server-side authz mirrors this page's
+                    read gate (fn_curriculum_lesson_drafts_for_course). */}
+                <AiTaskButton
+                  taskType="curriculum.lesson_spine_regen"
+                  entityId={selected.course_id}
+                  label="Regenerate spine"
+                  readyLabel="Spine regenerated"
+                  popoverTitle="Lesson-spine regeneration"
+                />
+              </div>
+            )}
             {!selected ? (
               <Card>
                 <CardContent className="flex min-h-[220px] flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
