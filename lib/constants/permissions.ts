@@ -1924,7 +1924,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.view', label: 'View IMS Settings' },
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
-      { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' }
+      { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' },
+
+      // Store Kits (PR-K2, 2026-07-12) — per-group item kits at the central
+      // store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
+      // Grant NOTHING until the grn_verify rollout (feature ships dark).
+      { key: 'ims.kits.view', label: 'View Kit Rules & Entitlements' },
+      { key: 'ims.kits.manage', label: 'Manage Kit Rules (central store team)' },
+      { key: 'ims.kits.handover', label: 'Record Kit Handovers (counter)' },
+      { key: 'ims.kits.billing_flags.view', label: 'View Kit Billing Flags (accounts)' },
+      { key: 'ims.kits.my.view', label: 'See My Kit (learners & staff self view)' }
     ]
   },
   {
