@@ -80,10 +80,10 @@ export default function LearnerSessionFeedbackPage() {
   const sessions = pending ?? [];
   const pendingCount = sessions.length;
 
-  // Confirmed-session history — absorbed from the former "My Attendance Feedback"
-  // tab so this is the single feedback surface. Last 30 days, confirmed rows only
-  // (pending ones already appear in the action list above). Read-only; this does
-  // not touch the feedback-confirms-attendance write path.
+  // Attended-session history — absorbed from the former "My Attendance Feedback"
+  // tab so this is the single feedback surface. Last 30 days, every Present session
+  // (each badged confirmed / not-yet-confirmed below). Read-only; this does not
+  // touch the feedback-confirms-attendance write path.
   const { from, to } = useMemo(() => {
     const ymd = (d: Date) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -92,8 +92,14 @@ export default function LearnerSessionFeedbackPage() {
     start.setDate(today.getDate() - 30);
     return { from: ymd(start), to: ymd(today) };
   }, []);
+  // Show EVERY attended session this month (confirmed + not-yet-confirmed), not
+  // only the confirmed subset — a learner who attended 64 must see 64 with badges,
+  // not just the 51 they've given feedback for (root cause of the BUG-004636/637
+  // "shows 51/42 classes" cluster). fn_scf_confirmation_status already returns one
+  // row per Present session with a `confirmed` flag, so no RPC change is needed.
   const { data: confirmRows } = useConfirmationStatus(from, to);
-  const confirmed = (confirmRows ?? []).filter((r) => r.confirmed === true);
+  const historyRows = confirmRows ?? [];
+  const confirmedCount = historyRows.filter((r) => r.confirmed === true).length;
 
   return (
     <ContentLayout title="Learning Studio Feedback">
@@ -259,21 +265,29 @@ export default function LearnerSessionFeedbackPage() {
           </p>
         )}
 
-        {/* Confirmed-session history — folded in from the former "My Attendance
-            Feedback" tab so this single page covers both what needs confirming
-            (above) and what's already confirmed (here). Collapsed by default to
-            keep the focus on the pending action. */}
-        {confirmed.length > 0 && (
+        {/* Your attended classes this month — EVERY Present session, each badged
+            Confirmed (feedback given in time) or Not yet confirmed (attended, no
+            feedback). Showing the full list — not only the confirmed subset — lets
+            a learner see their real attendance total and exactly which classes are
+            still missing feedback. Missing feedback never counts you absent. */}
+        {historyRows.length > 0 && (
           <details className="rounded-lg border bg-card">
             <summary className="flex cursor-pointer select-none items-center gap-2 px-4 py-3 text-sm font-medium">
-              <CheckCircle2 className="h-4 w-4" style={{ color: BRAND }} />
-              Confirmed this month
+              <CalendarDays className="h-4 w-4" style={{ color: BRAND }} />
+              Your classes this month
               <span className="font-normal text-muted-foreground">
-                ({confirmed.length})
+                ({historyRows.length})
+              </span>
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                {confirmedCount} of {historyRows.length} confirmed with feedback
               </span>
             </summary>
+            <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+              Every class you attended this month. &ldquo;Confirmed&rdquo; means you also gave
+              feedback within the window — you&apos;re never counted absent for missing feedback.
+            </p>
             <ul className="divide-y border-t">
-              {confirmed.map((r) => {
+              {historyRows.map((r) => {
                 const label =
                   r.course_code && r.course_name
                     ? `${r.course_code} — ${r.course_name}`
@@ -289,10 +303,17 @@ export default function LearnerSessionFeedbackPage() {
                         {formatDate(r.attendance_date)}
                       </p>
                     </div>
-                    <Badge variant="success" className="shrink-0 gap-1">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Confirmed
-                    </Badge>
+                    {r.confirmed ? (
+                      <Badge variant="success" className="shrink-0 gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Confirmed
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="shrink-0 gap-1 text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        Not yet confirmed
+                      </Badge>
+                    )}
                   </li>
                 );
               })}
