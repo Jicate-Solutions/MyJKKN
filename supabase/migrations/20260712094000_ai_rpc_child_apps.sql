@@ -236,7 +236,7 @@ BEGIN
     FROM health_program_participation p
     LEFT JOIN learners_profiles lp ON lp.id = p.learner_id
     LEFT JOIN health_programs pr ON pr.id = p.program_id
-    WHERE (v_all OR pr.institution_id = v_inst)   -- scope via parent program (table has no institution_id)
+    WHERE (v_all OR lp.institution_id = v_inst)   -- learner-scoped: health_programs.institution_id is unset, so scope by the learner
       AND (p_learner_id IS NULL OR p.learner_id = p_learner_id)
       AND (p_program_id IS NULL OR p.program_id = p_program_id)),
   paged AS (SELECT * FROM base ORDER BY watched_at DESC NULLS LAST LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
