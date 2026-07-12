@@ -130,12 +130,22 @@ export function useRecordKitCollection() {
 export function useVoidKitCollection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ collectionId, reason }: { collectionId: string; reason: string }) =>
-      ImsKitService.voidCollection(collectionId, reason),
+    mutationFn: ({ collectionId, reason, itemReturned }:
+      { collectionId: string; reason: string; itemReturned: boolean }) =>
+      ImsKitService.voidCollection(collectionId, reason, itemReturned),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ims-kit-entitlements'] });
       qc.invalidateQueries({ queryKey: ['ims-kit-collections'] });
     },
+  });
+}
+
+// D33: fat-finger undo — revoke a rule's not-yet-collected entitlements.
+export function useRevokeKitRuleEntitlements() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ruleId: string) => ImsKitService.revokeRuleEntitlements(ruleId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ims-kit-entitlements'] }),
   });
 }
 

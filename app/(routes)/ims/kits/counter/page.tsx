@@ -156,6 +156,8 @@ function CollectionHistory({ entitlementId }: { entitlementId: string }) {
   const voidCollection = useVoidKitCollection();
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  // D30: default to "returned" — stock is only restored when the item is back.
+  const [itemReturned, setItemReturned] = useState(true);
 
   return (
     <div className="mt-3 space-y-2 border-t pt-2">
@@ -169,22 +171,26 @@ function CollectionHistory({ entitlementId }: { entitlementId: string }) {
           </span>
           {!c.voided_at && (
             voidingId === c.id ? (
-              <span className="flex items-center gap-2">
+              <span className="flex flex-wrap items-center gap-2">
                 <Input className="h-8 w-48" placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
-                <Button size="sm" variant="destructive" onClick={async () => {
+                <span className="flex items-center gap-1">
+                  <Checkbox id={`ret-${c.id}`} checked={itemReturned} onCheckedChange={(v) => setItemReturned(v === true)} />
+                  <Label htmlFor={`ret-${c.id}`} className="text-xs whitespace-nowrap">Item returned to store</Label>
+                </span>
+                <Button size="sm" variant="destructive" disabled={voidCollection.isPending} onClick={async () => {
                   if (!reason.trim()) { toast.error('A reason is required'); return; }
                   try {
-                    await voidCollection.mutateAsync({ collectionId: c.id, reason: reason.trim() });
-                    toast.success('Entry voided, stock restored');
-                    setVoidingId(null); setReason('');
+                    await voidCollection.mutateAsync({ collectionId: c.id, reason: reason.trim(), itemReturned });
+                    toast.success(itemReturned ? 'Entry voided, stock restored' : 'Entry voided — recorded as a loss (stock not restored)');
+                    setVoidingId(null); setReason(''); setItemReturned(true);
                   } catch (e: unknown) {
                     toast.error(e instanceof Error ? e.message : 'Void failed');
                   }
-                }}>Void</Button>
+                }}>{voidCollection.isPending ? 'Voiding…' : 'Void'}</Button>
                 <Button size="sm" variant="ghost" onClick={() => setVoidingId(null)}>Cancel</Button>
               </span>
             ) : (
-              <Button size="sm" variant="ghost" onClick={() => { setVoidingId(c.id); setReason(''); }}>
+              <Button size="sm" variant="ghost" onClick={() => { setVoidingId(c.id); setReason(''); setItemReturned(true); }}>
                 <Undo2 className="h-3 w-3 mr-1" /> Void
               </Button>
             )
@@ -201,7 +207,7 @@ function CollectDialog({
   const record = useRecordKitCollection();
   const { data: stores = [] } = useKitStores();
   const [qty, setQty] = useState('1');
-  const [kind, setKind] = useState<'normal' | 'free_replacement' | 'defect_swap'>('normal');
+  const [kind, setKind] = useState<'normal' | 'defect_swap'>('normal');
   const [proof, setProof] = useState<'qr' | 'staff_verified'>('qr');
   const [collectorName, setCollectorName] = useState('');
   const [collectorReg, setCollectorReg] = useState('');
@@ -209,22 +215,25 @@ function CollectDialog({
   const [lateApproved, setLateApproved] = useState(false);
   const [returnedDefective, setReturnedDefective] = useState(true);
 
+  // Derived default (was a setState-in-render — #2000 review LOW-5): when the
+  // storekeeper hasn't picked a store, fall back to the central one. Purely
+  // computed — no effect, no cascading renders.
   const central = stores.find((s: { id: string; is_central_supply_store: boolean }) => s.is_central_supply_store);
-  if (!storeId && (central || stores[0])) setStoreId((central ?? stores[0]).id);
+  const effectiveStoreId = storeId || (central ?? stores[0])?.id || '';
 
   const submit = async () => {
     const n = Number(qty);
     if (!n || n < 1) { toast.error('Quantity must be at least 1'); return; }
     if (kind === 'normal' && n > maxNormalQty) { toast.error(`Only ${maxNormalQty} owed`); return; }
     if (!collectorName.trim()) { toast.error('Collector name is required'); return; }
-    if (!storeId) { toast.error('Pick the store'); return; }
+    if (!effectiveStoreId) { toast.error('Pick the store'); return; }
     try {
       const res = await record.mutateAsync({
         entitlement_id: ent.id,
         qty: n,
         collector_name: collectorName.trim(),
         proof_type: proof,
-        store_id: storeId,
+        store_id: effectiveStoreId,
         collector_register_no: collectorReg.trim() || undefined,
         kind,
         late_approved: lateApproved,
@@ -252,8 +261,7 @@ function CollectDialog({
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="normal">Kit handover</SelectItem>
-                  <SelectItem value="defect_swap">Defect swap (within 7 days)</SelectItem>
-                  <SelectItem value="free_replacement">Free replacement (staff override)</SelectItem>
+                  <SelectItem value="defect_swap">Defect swap (store fault, within 7 days)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -284,7 +292,7 @@ function CollectDialog({
           </div>
           <div>
             <Label>Store</Label>
-            <Select value={storeId} onValueChange={setStoreId}>
+            <Select value={effectiveStoreId} onValueChange={setStoreId}>
               <SelectTrigger><SelectValue placeholder="Pick store" /></SelectTrigger>
               <SelectContent>
                 {stores.map((s: { id: string; name: string }) => (
