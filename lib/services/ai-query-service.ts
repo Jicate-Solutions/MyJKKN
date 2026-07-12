@@ -554,6 +554,28 @@ export class AIQueryService {
   }
 
   // ============================================
+  // Transport Tools (TMS child app — tmsadmin.jkkn.ai)
+  // ============================================
+
+  static async getTransportBookings(userId: string, params: {
+    learnerId?: string;
+    routeId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('transport_bookings', userId, {
+      p_learner_id: params.learnerId,
+      p_route_id: params.routeId,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  // ============================================
   // Dashboard & Analytics Tools
   // ============================================
 

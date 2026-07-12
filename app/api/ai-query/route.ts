@@ -437,6 +437,20 @@ const AI_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  // Transport Tools (TMS child app — tmsadmin.jkkn.ai)
+  {
+    name: 'get_transport_bookings',
+    description: 'Get bus/transport seat bookings made by learners in the Transport Management System. Each booking is a learner reserving a seat on a route for a travel date. Returns learner name + roll, route number/name, boarding stop, and travel date. Use for questions about transport/bus bookings, who is travelling on a route, or a learner\'s transport bookings. Requires the tms.bookings.view_all permission.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        learner_id: { type: 'string', description: 'Filter by a specific learner UUID' },
+        route_id: { type: 'string', description: 'Filter by a specific transport route UUID' },
+        date_from: { type: 'string', description: 'Travel date on/after (YYYY-MM-DD)' },
+        date_to: { type: 'string', description: 'Travel date on/before (YYYY-MM-DD)' },
+      },
+    },
+  },
   // Dashboard Tools
   {
     name: 'get_kpi_summary',
@@ -567,6 +581,12 @@ You MUST use these terms in ALL responses:
 6. Use JKKN terminology: "Admission Applications" not just "admissions"
 7. Results include linked learner data when admission is enrolled (student_id, roll_number)
 8. **NO LIMITS**: All matching records are returned - present data in organized tables
+
+## Transport Module Guidelines (TMS)
+1. For questions about bus/transport bookings, who is travelling on a route, or a learner's transport usage, use **get_transport_bookings**.
+2. A transport booking = a learner reserved a seat on a route for a travel date. Results include learner name + roll, route number/name, boarding stop, and travel date.
+3. Transport routes are shared across ALL institutions (buses serve every college) — do not expect institution-level filtering here.
+4. If the tool returns a permission error, tell the user they need transport-booking access (tms.bookings.view_all); do NOT claim the data is missing.
 
 ## Response Format
 - Be concise but informative
@@ -792,6 +812,14 @@ async function executeTool(
     case 'get_departments':
       return AIQueryService.getDepartments(userId, {
         institutionId: toolInput.institution_id as string,
+      });
+
+    case 'get_transport_bookings':
+      return AIQueryService.getTransportBookings(userId, {
+        learnerId: toolInput.learner_id as string,
+        routeId: toolInput.route_id as string,
+        dateFrom: toolInput.date_from as string,
+        dateTo: toolInput.date_to as string,
       });
 
     case 'get_kpi_summary':
