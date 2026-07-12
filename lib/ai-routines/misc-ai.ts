@@ -63,6 +63,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "work-pulse-translate",
+    "maxLane": true,
     "name": "Work Pulse Tamil→English Translate",
     "category": "misc-ai",
     "type": "endpoint",
@@ -74,7 +75,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-haiku-4-5-20251001 (config row 'work_pulse.translate' — /admin/ai-models), max_tokens=1024, TAMIL_THRESHOLD=0.3 (>30% Tamil chars), allowed persist fields=[talent_waste_description_en, repetition_description_en]",
     "sideEffects": "Optionally updates the given _en column on wp_pulse_entries when { pulse_entry_id, field } are supplied; otherwise read-only. No outbound human messages.",
     "safeToManualTrigger": true,
-    "notes": "Any authenticated user may call it. POST body needs { text }; add { pulse_entry_id, field } to persist. Non-Tamil text returns translated:false and does nothing. Idempotent — re-running overwrites the same _en field. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing)."
+    "notes": "Any authenticated user may call it. POST body needs { text }; add { pulse_entry_id, field } to persist. Non-Tamil text returns translated:false and does nothing. Idempotent — re-running overwrites the same _en field. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing). Max lane: backlog drain rides the Max lane (⚡ = translate all pending Tamil entries — wp_pulse_entries rows whose source text is Tamil-detected but _en column is NULL — via a runner brain on the seat, ₹0 API; brain pending next iteration); the live per-click path in the work-pulse page stays on the API. Backlog measured 2026-07-12: 0 pending (18 pulse rows total, none Tamil) — a ⚡ run is honest-empty until Tamil pulses arrive."
   },
   {
     "id": "attention-bar-anthropic-client",
