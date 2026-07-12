@@ -326,6 +326,7 @@ DECLARE
   v_stock_rows   int;
   v_coll_id      uuid;
   v_last_normal  timestamptz;
+  v_swapped      int;
 BEGIN
   IF NOT (is_super_admin() OR is_admin()
           OR user_has_permission('ims.kits.handover')
@@ -404,6 +405,17 @@ BEGIN
     WHERE entitlement_id = v_ent.id AND kind = 'normal' AND voided_at IS NULL;
     IF v_last_normal IS NULL OR v_last_normal < now() - interval '7 days' THEN
       RAISE EXCEPTION 'defect swap window closed — after 7 days a replacement is a paid store sale (D41)';
+    END IF;
+    -- Round-3 fix: cap swaps at one per collected unit. A swap exchanges a unit
+    -- the person already holds, so total non-voided swapped qty can never exceed
+    -- qty_collected (unbounded swaps were a stock-drain hole — each decremented
+    -- stock with no ceiling).
+    SELECT coalesce(sum(qty), 0) INTO v_swapped
+    FROM ims_kit_collections
+    WHERE entitlement_id = v_ent.id AND kind = 'defect_swap' AND voided_at IS NULL;
+    IF v_swapped + p_qty > v_ent.qty_collected THEN
+      RAISE EXCEPTION 'defect swap cap: % of % collected unit(s) already swapped — cannot swap % more (one swap per collected unit, D18)',
+        v_swapped, v_ent.qty_collected, p_qty;
     END IF;
   END IF;
 
@@ -528,6 +540,18 @@ BEGIN
              WHEN status IN ('closed','expired')
                   AND GREATEST(qty_collected - v_coll.qty, 0) < qty_entitled
              THEN 'reopened' ELSE status END,
+           -- Round-3 fix: a row reopened by this void is collectable again, so it
+           -- must not ALSO stay billed (was: billed AND collectable). Mirror the
+           -- resolve-reopen path; only stamp cancelled_at when a flag existed.
+           billing_flagged_at = CASE
+             WHEN status IN ('closed','expired')
+                  AND GREATEST(qty_collected - v_coll.qty, 0) < qty_entitled
+             THEN NULL ELSE billing_flagged_at END,
+           billing_flag_cancelled_at = CASE
+             WHEN status IN ('closed','expired')
+                  AND GREATEST(qty_collected - v_coll.qty, 0) < qty_entitled
+                  AND billing_flagged_at IS NOT NULL
+             THEN now() ELSE billing_flag_cancelled_at END,
            updated_at = now()
      WHERE id = v_coll.entitlement_id;
   END IF;
@@ -543,6 +567,10 @@ END; $$;
 --     expired→reopened→re-expired was silently un-billed).
 --   MED scope fix: learner rows scoped by granted_academic_year_id, not "every
 --     year-anchored row in the institution".
+--   Round-3 HIGH fix: staff branch ALSO scopes by granted_academic_year_id (the
+--     reopen branch re-anchors granted, never anchor — anchor is part of the
+--     conflict key). anchor IS NOT NULL stays as the yearly-vs-once marker so
+--     once-per-employment rows are never expired (D24).
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_kit_expire_academic_year(
   p_academic_year_id uuid
@@ -564,7 +592,8 @@ BEGIN
     SELECT id, (qty_collected >= qty_entitled) AS complete
     FROM ims_kit_entitlements
     WHERE status IN ('open','reopened')
-      AND ( (staff_id   IS NOT NULL AND anchor_academic_year_id = p_academic_year_id)     -- staff yearly
+      AND ( (staff_id   IS NOT NULL AND anchor_academic_year_id IS NOT NULL               -- staff yearly
+             AND granted_academic_year_id = p_academic_year_id)
          OR (learner_id IS NOT NULL AND anchor_year_level IS NOT NULL                     -- learner yearly
              AND granted_academic_year_id = p_academic_year_id) )
   ),
