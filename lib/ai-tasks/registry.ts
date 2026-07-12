@@ -309,9 +309,404 @@ Generate the teaching-improvement JSON now.`;
   },
 };
 
+// ============================================================================
+// CURRICULUM — "Regenerate spine" (per-course click on /academic/curriculum-review)
+// The interactive sibling of the bulk-mint cron
+// (app/api/cron/curriculum-lesson-spine-generate/route.ts). entity_id = course id
+// (uuid). Own feature_key ('curriculum.lesson_spine_regen', seeded in the Phase 2
+// migration) so the generic ai-tasks-sweep collector and the cron's bespoke
+// collect handler NEVER drain each other's batch jobs (see the cron's header).
+//
+// PROMPT/PARSE LOCKSTEP: the system prompt, briefs addendum, user-prompt builder,
+// max_tokens and tolerant JSON extraction below are copied VERBATIM from the bulk
+// cron — a regenerated spine must be the same artefact the initial mint produces.
+// Next.js route files may only export route handlers (extra exports fail the
+// build's route-type check), so the cron cannot export them; any change there
+// MUST be mirrored here (and vice versa).
+// ============================================================================
+const REGEN_FEATURE_KEY = 'curriculum.lesson_spine_regen';
+const REGEN_MAX_TOKENS = 8192;
+const REGEN_DEFAULT_EMIT_BRIEFS = true; // policy row curriculum_ai.emit_assessment_briefs overrides (currently false in prod)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const REGEN_SYSTEM_PROMPT = `You are a curriculum designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved syllabus.
+
+You will receive the syllabus's units/chapters and its Course Learning Outcomes (CLOs, each with a clo_number and k_values — the Bloom cognitive levels K1-K6 the CLO targets: K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
+
+Your job: break each unit into an ordered sequence of teachable LESSONS (typically 3-6 per unit — one per major topic/chapter section, not one per chapter as a whole), each grounded in the syllabus content and mapped to the CLOs it serves.
+
+Use the Fink taxonomy dimension that best fits each lesson's PRIMARY teaching intent:
+foundational (facts/concepts), application (skills/practice), integration (connecting ideas), human (self-understanding/confidence), caring (values/motivation), learning_to_learn (how to keep learning this).
+
+For each lesson's learning_outcomes, cite ONE OR MORE Bloom levels (K1-K6) drawn from the CLOs it maps to (co_ref = the clo_number(s) it serves), and a Fink dimension per outcome statement (usually the lesson's own primary_fink_dimension, unless a specific outcome clearly targets a different one).
+
+Ground every lesson title and outcome in the ACTUAL syllabus content provided — do not invent topics absent from it. Be concrete and India-context aware.
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
+{
+  "lessons": [
+    {
+      "unit_label": "Unit 1",
+      "sequence_no": 1,
+      "title": "...",
+      "primary_fink_dimension": "foundational",
+      "learning_outcomes": [
+        {"text": "...", "fink_dimension": "foundational", "bloom_level": "K2", "co_ref": "CO1"}
+      ]
+    }
+  ]
+}
+CRITICAL: sequence_no must be a single strictly-increasing integer across the WHOLE spine (unit 2's first lesson continues after unit 1's last), so the spine has one unambiguous teaching order.`;
+
+const REGEN_BRIEFS_ADDENDUM = `
+You were ALSO given this course's assessment structure, which includes team-capstone options and/or a Concept-Application note. In addition to "lessons", also return:
+"concept_briefs": [{"unit_label": "Unit 1", "title": "...", "text": "a short in-class Concept-Application activity brief grounded in the unit's content and the syllabus's Concept-Application note", "co_ref": ["CO1"]}]  (at most one per unit that has enough content to ground one)
+"capstone_brief": {"title": "...", "text": "a short team-capstone brief, adapting ONE of the syllabus's own capstone options (pick the single best-grounded one) into a classroom-ready brief", "co_ref": ["CO1","CO2"]}  (omit entirely if the syllabus's capstone options don't give you enough to ground one)
+Keep both brief kinds SHORT (2-4 sentences of "text") — they are prompts for the teacher to run in class, not full lesson plans.`;
+
+type RegenLessonOut = {
+  unit_label?: string;
+  sequence_no?: number;
+  title?: string;
+  primary_fink_dimension?: string;
+  learning_outcomes?: unknown[];
+};
+type RegenBriefOut = { unit_label?: string; title?: string; text?: string; co_ref?: string[] };
+type RegenParsedSpine = { lessons?: RegenLessonOut[]; concept_briefs?: RegenBriefOut[]; capstone_brief?: RegenBriefOut | null };
+
+function regenHasCapstoneData(assessmentStructure: unknown): boolean {
+  if (!assessmentStructure || typeof assessmentStructure !== 'object') return false;
+  const as = assessmentStructure as { capstones?: unknown[]; components?: unknown[]; concept_applications_note?: string };
+  const hasCapstones = Array.isArray(as.capstones) && as.capstones.length > 0;
+  const hasNote = typeof as.concept_applications_note === 'string' && as.concept_applications_note.trim().length > 0;
+  return hasCapstones || hasNote;
+}
+
+function regenBuildUserPrompt(
+  course: { course_code: string; course_name: string },
+  syllabus: { course_content: unknown; course_learning_outcomes: unknown; assessment_structure: unknown },
+  emitBriefs: boolean,
+): string {
+  const content = JSON.stringify(syllabus.course_content ?? {}).slice(0, 12000); // defensive cap
+  const clos = JSON.stringify(syllabus.course_learning_outcomes ?? {}).slice(0, 6000);
+  let prompt = `Course: ${course.course_code} — ${course.course_name}
+
+Syllabus content (units/chapters):
+${content}
+
+Course Learning Outcomes (CLOs):
+${clos}
+
+Generate the lesson-spine JSON for this course now.`;
+  if (emitBriefs) {
+    const assessment = JSON.stringify(syllabus.assessment_structure ?? {}).slice(0, 4000);
+    prompt += `\n\nAssessment structure (capstone options / Concept-Application note):\n${assessment}`;
+  }
+  return prompt;
+}
+
+// Tolerant extraction — mirrors the cron's parseSpineMessage: the model sometimes
+// wraps the object in prose or trailing text, so slice the outermost {...} instead
+// of failing the whole course.
+function regenParseSpine(text: string): RegenParsedSpine {
+  const jsonStr = stripFences(text);
+  try {
+    return JSON.parse(jsonStr) as RegenParsedSpine;
+  } catch {
+    const m = jsonStr.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('no JSON object in model output');
+    return JSON.parse(m[0]) as RegenParsedSpine;
+  }
+}
+
+const curriculumLessonSpineRegen: AiTaskType = {
+  featureKey: REGEN_FEATURE_KEY,
+  label: 'lesson-spine regeneration',
+  // 'user': the dedupe key embeds the requester (see the dedupeKey disposition
+  // below) — each reviewer gets their own pollable, RLS-visible task row.
+  dedupeScope: 'user',
+  resultPath: '/academic/curriculum-review',
+
+  async resolveEnqueueContext(session, userId, entityId) {
+    const courseId = (entityId || '').trim();
+    if (!courseId) return { ok: false, status: 400, error: 'course id is required' };
+    if (!UUID_RE.test(courseId)) return { ok: false, status: 400, error: 'course id must be a uuid' };
+
+    // Authz — the EXACT review-page gate, evaluated in SQL as the caller:
+    // fn_curriculum_lesson_drafts_for_course RAISES unless the caller is
+    // super-admin OR (role_has_institution_access(course's institution) AND role
+    // in the curriculum teaching-staff/HOD/admin list). Calling it (and ignoring
+    // its data) reuses that rule verbatim instead of re-implementing it here —
+    // whoever may review this course's drafts may ask for them to be regenerated.
+    const { error: gateErr } = await session.rpc('fn_curriculum_lesson_drafts_for_course', {
+      p_course_id: courseId,
+    });
+    if (gateErr) {
+      const notFound = gateErr.message.includes('no such course');
+      return { ok: false, status: notFound ? 404 : 403, error: gateErr.message };
+    }
+
+    // Course identity for the queue row + notifications (session read — the gate
+    // above already proved institution access, so this is expected to succeed).
+    const { data: course } = await session
+      .from('courses')
+      .select('id, institution_id, course_code')
+      .eq('id', courseId)
+      .maybeSingle();
+    if (!course) return { ok: false, status: 404, error: 'no such course' };
+
+    return {
+      ok: true,
+      institutionId: (course.institution_id as string | null) ?? null,
+      // DISPOSITION (advisory review r1, HIGH — FIXED): the key MUST embed the
+      // requester. The queue's in-flight guard is a GLOBAL partial unique index
+      // on (feature_key, dedupe_key) and fn_ai_task_enqueue's ON CONFLICT DO
+      // NOTHING returns the EXISTING task — with an entity-only key, reviewer
+      // B's click returned reviewer A's task_id, whose row is RLS-hidden from B
+      // (ai_task_queue own-rows SELECT policy) → B's button polled [] forever.
+      // The queue migration's own comment mandates the requester in per-user
+      // dedupe keys. Trade-off ACCEPTED knowingly: two reviewers CAN now both
+      // enqueue the same course — safe, because fn_curriculum_lesson_ai_draft_upsert
+      // is slot-idempotent (the later run rewrites the same draft slots) and the
+      // stale-slot cleanup in recordResult leaves the end state = the latest
+      // run's spine.
+      dedupeKey: `${REGEN_FEATURE_KEY}:${userId}:${courseId}`,
+      context: { course_id: courseId, course_code: course.course_code as string },
+    };
+  },
+
+  async buildSubmitItem(admin, context) {
+    const courseId = String(context.course_id);
+
+    const { data: course, error: courseErr } = await admin
+      .from('courses')
+      .select('id, institution_id, course_code, course_name')
+      .eq('id', courseId)
+      .maybeSingle();
+    if (courseErr) throw new Error(`courses read: ${courseErr.message}`);
+    if (!course) {
+      return { skip: true, result: { suggestion: { summary: 'This course no longer exists — nothing was regenerated.' }, reason: 'no_course' } };
+    }
+
+    // Latest live BoS syllabus — the EXACT join contract the bulk cron (and
+    // fn_bos_clos_for_course) uses: course_code + institutions_id, is_latest,
+    // not archived. Newest-first in case of duplicate is_latest rows.
+    const { data: syllabusRows, error: sylErr } = await admin
+      .from('bos_course_syllabi')
+      .select('id, course_content, course_learning_outcomes, assessment_structure')
+      .eq('course_code', course.course_code)
+      .eq('institutions_id', course.institution_id)
+      .eq('is_latest', true)
+      .eq('is_archived', false)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (sylErr) throw new Error(`bos_course_syllabi read: ${sylErr.message}`);
+    const syllabus = syllabusRows?.[0];
+    if (!syllabus) {
+      // The ~87% no-syllabus path — same skip the bulk cron applies, reflected
+      // back honestly instead of burning an LLM call.
+      return {
+        skip: true,
+        result: {
+          suggestion: { summary: `No Board-of-Studies syllabus is on file for ${course.course_code} — there is nothing to regenerate the spine from. Once a syllabus is approved and uploaded, try again.` },
+          reason: 'no_syllabus',
+        },
+      };
+    }
+
+    // Config-table pattern — same policy read as the bulk cron (best-effort).
+    let emitBriefsPolicy = REGEN_DEFAULT_EMIT_BRIEFS;
+    try {
+      const { data: briefsData } = await admin.rpc('fn_get_policy_bool', {
+        p_key: 'curriculum_ai.emit_assessment_briefs',
+        p_default: REGEN_DEFAULT_EMIT_BRIEFS,
+        p_scope_id: null,
+      });
+      if (typeof briefsData === 'boolean') emitBriefsPolicy = briefsData;
+    } catch { /* policy read is best-effort — defaults apply */ }
+    const emitBriefs = emitBriefsPolicy && regenHasCapstoneData(syllabus.assessment_structure);
+
+    const { model_id: modelId } = await resolveChatModel(REGEN_FEATURE_KEY);
+
+    return {
+      skip: false,
+      params: {
+        model: modelId,
+        max_tokens: REGEN_MAX_TOKENS,
+        system: emitBriefs ? `${REGEN_SYSTEM_PROMPT}\n${REGEN_BRIEFS_ADDENDUM}` : REGEN_SYSTEM_PROMPT,
+        messages: [{
+          role: 'user',
+          content: regenBuildUserPrompt(
+            { course_code: String(course.course_code), course_name: String(course.course_name) },
+            syllabus,
+            emitBriefs,
+          ),
+        }],
+      },
+      // IDs + scope only — syllabus JSON went to Anthropic in `params`, never persisted.
+      itemContext: {
+        course_id: courseId,
+        course_code: course.course_code,
+        bos_syllabus_id: syllabus.id,
+        // Traceability stamp for curriculum_lesson.ai_batch_key (the generic sweep
+        // doesn't expose its ai_batch_jobs id to recordResult).
+        ai_batch_key: `regen:${courseId}:${Date.now()}`,
+      },
+    };
+  },
+
+  async recordResult(admin, itemContext, message) {
+    const text = message.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text).join('').trim();
+    const spine = regenParseSpine(text);
+
+    const courseId = String(itemContext.course_id);
+    const courseCode = String(itemContext.course_code ?? '');
+    const bosSyllabusId = String(itemContext.bos_syllabus_id);
+    const batchKey = typeof itemContext.ai_batch_key === 'string' ? itemContext.ai_batch_key : null;
+
+    // Record via the service-role-only draft writer — IDENTICAL contract to the
+    // bulk cron's recordSpine: status='draft' always, source='bos_ai', idempotent
+    // per (course, artifact_kind, slot) so a re-gen REPLACES the prior unapproved
+    // draft in each slot and never touches a faculty-approved (published) lesson.
+    // .rpc() does not throw on an RPC error — each call's .error is checked.
+    let lessonsRecorded = 0;
+    let briefsRecorded = 0;
+    let failed = 0;
+
+    for (const l of Array.isArray(spine.lessons) ? spine.lessons : []) {
+      if (!l.title || typeof l.title !== 'string') continue;
+      const { error } = await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
+        p_course_id: courseId,
+        p_artifact_kind: 'lesson',
+        p_sequence_no: typeof l.sequence_no === 'number' ? l.sequence_no : null,
+        p_unit_label: typeof l.unit_label === 'string' ? l.unit_label : null,
+        p_title: l.title,
+        p_learning_outcomes: Array.isArray(l.learning_outcomes) ? l.learning_outcomes : [],
+        p_primary_fink: typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null,
+        p_co_refs: Array.isArray(l.learning_outcomes)
+          ? [...new Set(l.learning_outcomes.map((o) => (o as { co_ref?: string })?.co_ref).filter((x): x is string => typeof x === 'string'))]
+          : [],
+        p_bos_syllabus_id: bosSyllabusId,
+        p_source: 'bos_ai',
+        p_gemini_prompt: null,
+        p_ai_batch_key: batchKey,
+      });
+      if (error) {
+        console.error(`[ai-tasks/lesson-spine-regen] lesson record failed (course ${courseId}):`, error);
+        failed++;
+      } else {
+        lessonsRecorded++;
+      }
+    }
+
+    for (const b of Array.isArray(spine.concept_briefs) ? spine.concept_briefs : []) {
+      if (!b.title || typeof b.title !== 'string' || !b.unit_label) continue;
+      const { error } = await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
+        p_course_id: courseId,
+        p_artifact_kind: 'concept_brief',
+        p_sequence_no: null,
+        p_unit_label: b.unit_label,
+        p_title: b.title,
+        p_learning_outcomes: [{ text: b.text ?? '', co_ref: Array.isArray(b.co_ref) ? b.co_ref : [] }],
+        p_primary_fink: null,
+        p_co_refs: Array.isArray(b.co_ref) ? b.co_ref : [],
+        p_bos_syllabus_id: bosSyllabusId,
+        p_source: 'bos_ai',
+        p_gemini_prompt: null,
+        p_ai_batch_key: batchKey,
+      });
+      if (error) {
+        console.error(`[ai-tasks/lesson-spine-regen] concept_brief record failed (course ${courseId}):`, error);
+        failed++;
+      } else {
+        briefsRecorded++;
+      }
+    }
+
+    const cap = spine.capstone_brief;
+    if (cap && typeof cap.title === 'string') {
+      const { error } = await admin.rpc('fn_curriculum_lesson_ai_draft_upsert', {
+        p_course_id: courseId,
+        p_artifact_kind: 'capstone_brief',
+        p_sequence_no: null,
+        p_unit_label: null,
+        p_title: cap.title,
+        p_learning_outcomes: [{ text: cap.text ?? '', co_ref: Array.isArray(cap.co_ref) ? cap.co_ref : [] }],
+        p_primary_fink: null,
+        p_co_refs: Array.isArray(cap.co_ref) ? cap.co_ref : [],
+        p_bos_syllabus_id: bosSyllabusId,
+        p_source: 'bos_ai',
+        p_gemini_prompt: null,
+        p_ai_batch_key: batchKey,
+      });
+      if (error) {
+        console.error(`[ai-tasks/lesson-spine-regen] capstone_brief record failed (course ${courseId}):`, error);
+        failed++;
+      } else {
+        briefsRecorded++;
+      }
+    }
+
+    // A partial or empty write must FAIL the task (the sweep marks it failed and
+    // tells the requester to try again) — the upsert is idempotent per slot, so a
+    // retry click is safe and completes the spine.
+    if (failed > 0) {
+      throw new Error(`${failed} draft write(s) failed (${lessonsRecorded} lessons + ${briefsRecorded} briefs recorded)`);
+    }
+    if (lessonsRecorded === 0) {
+      throw new Error('model output contained no usable lessons');
+    }
+
+    // DISPOSITION (advisory review r1, MEDIUM — FIXED): stale-orphan cleanup.
+    // Regen targets courses that ALREADY have a spine; the slot upsert only
+    // rewrites slots the NEW spine also produced, so a shorter or renumbered
+    // spine would leave the old run's extra slots behind as zombie drafts
+    // (e.g. 18 fresh + 4 stale lessons). Every slot THIS run wrote carries
+    // ai_batch_key = batchKey (the upsert stamps it on both its INSERT and
+    // UPDATE branches), so after a fully-successful write, any remaining
+    // draft+AI-source row for this course WITHOUT this run's key is a stale
+    // orphan → delete. NEVER touches approved lessons (status='draft' filter —
+    // approve flips status to 'published') nor faculty-authored rows (source
+    // filter). Runs only after the success gates above, and only with a
+    // non-null batchKey (a null key would make the not-this-run predicate match
+    // this run's own rows). A cleanup failure throws → task marked failed →
+    // the retry click re-upserts idempotently and re-attempts the cleanup.
+    if (batchKey) {
+      const { error: staleErr } = await admin
+        .from('curriculum_lesson')
+        .delete()
+        .eq('course_id', courseId)
+        .eq('status', 'draft')
+        .in('source', ['bos_ai', 'title_ai'])
+        // NULL-safe "not this run": .neq() alone compiles to SQL <> which drops
+        // NULL ai_batch_key rows (pre-tagging drafts) from the match. Value is
+        // double-quoted for PostgREST or-parsing (it contains ':').
+        .or(`ai_batch_key.is.null,ai_batch_key.neq."${batchKey}"`);
+      if (staleErr) {
+        throw new Error(`stale-draft cleanup failed after spine write: ${staleErr.message}`);
+      }
+    }
+
+    return {
+      suggestion: {
+        summary: `Regenerated the draft lesson spine for ${courseCode || 'this course'}: ${lessonsRecorded} lesson draft${lessonsRecorded === 1 ? '' : 's'}${briefsRecorded > 0 ? ` and ${briefsRecorded} brief${briefsRecorded === 1 ? '' : 's'}` : ''} are waiting in the review inbox. Nothing reaches students until you approve each draft.`,
+      },
+      meta: {
+        lessons_recorded: lessonsRecorded,
+        briefs_recorded: briefsRecorded,
+        course_code: courseCode || null,
+        model: message.model,
+      },
+    };
+  },
+};
+
 // ── registry ─────────────────────────────────────────────────────────────────
 export const AI_TASK_TYPES: Record<string, AiTaskType> = {
   [SF_FEATURE_KEY]: sessionFeedbackSummarize,
+  [REGEN_FEATURE_KEY]: curriculumLessonSpineRegen,
 };
 
 export function getTaskType(featureKey: string): AiTaskType | undefined {
