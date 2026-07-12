@@ -152,6 +152,16 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Projects module never had a permission category — its sidebar entry
+    // was hidden for every non-super-admin (menu-visibility gap fix
+    // 2026-07-12). Grant projects.view to roles in Role Management.
+    name: 'Projects',
+    key: 'projects',
+    permissions: [
+      { key: 'projects.view', label: 'View Projects Module' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [
