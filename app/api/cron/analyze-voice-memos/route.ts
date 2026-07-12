@@ -63,6 +63,7 @@ import {
   estimateChatCostInr,
 } from '@/lib/services/platform/ai-clients/sentiment';
 import { getModel } from '@/lib/services/platform/ai-providers';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
@@ -284,6 +285,19 @@ export async function GET(request: NextRequest) {
   const transcribeConfig = await getModelForFeature('voice_memo.transcribe');
   const sentimentConfig = await getModelForFeature('voice_memo.sentiment');
 
+  // Runner-aware Max-lane deferral — SENTIMENT stage only (transcription is
+  // audio and cannot ride the seat, so it always runs here). When the
+  // maxlane:voice-memo-sentiment schedule row is enabled AND the runner
+  // heartbeat is fresh, this run goes transcribe-only: transcripts still land
+  // (rows left in 'analyzing') and the Max brain takes the sentiment pass.
+  // Fail-open — any schedules-read problem and cloud sentiment runs normally.
+  const maxLaneDeferred = await shouldDeferToMaxLane('voice-memo-sentiment');
+  if (maxLaneDeferred) {
+    console.warn(
+      '[cron/analyze-voice-memos] sentiment deferred to Max lane — runner heartbeat fresh; transcribe-only this run',
+    );
+  }
+
   const supabase = createServiceRoleClient();
 
   // --- Find candidates ---------------------------------------------
@@ -367,7 +381,9 @@ export async function GET(request: NextRequest) {
   // Run-level provider-health evidence (see classifyFailure above).
   let txTransientStreak = 0; // consecutive distinct-row transient-class transcription failures
   let stTransientStreak = 0;
-  let skipSentiment = false; // transcribe-only mode after repeated sentiment provider failures
+  // transcribe-only mode: seeded by the Max-lane deferral above, or flipped
+  // mid-run after repeated sentiment provider failures
+  let skipSentiment = maxLaneDeferred;
   let skipTranscribe = false; // sentiment-only mode after transcribe provider confirmed down
   let transcribeSkipped = 0; // fresh rows skipped while skipTranscribe (untouched, next run's problem)
   let sentimentDeferred = 0; // rows left in 'analyzing' for a later sentiment resume
@@ -777,6 +793,7 @@ export async function GET(request: NextRequest) {
       failed,
       remaining,
       halted,
+      max_lane_deferred: maxLaneDeferred,
       sentiment_deferred: sentimentDeferred,
       transcribe_skipped: transcribeSkipped,
       claim_missed: claimMissed,
@@ -798,6 +815,9 @@ export async function GET(request: NextRequest) {
     // (quota exhaustion / rate limit / 5xx) — the remaining candidates were
     // left untouched for the next run rather than burned against the same wall.
     halted,
+    // True when the Max-lane runner was fresh at run start — sentiment was
+    // intentionally left for the Max brain (transcribe-only run).
+    max_lane_deferred: maxLaneDeferred,
     sentiment_deferred: sentimentDeferred,
     transcribe_skipped: transcribeSkipped,
     claim_missed: claimMissed,

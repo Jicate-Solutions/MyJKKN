@@ -41,6 +41,7 @@ import {
   resolveChatModel,
   recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -187,6 +188,25 @@ export async function GET(request: NextRequest) {
   }
 
   const started = Date.now();
+
+  // Runner-aware Max-lane deferral: when the maxlane:scf-learner-notes
+  // schedule row is enabled AND the runner heartbeat is fresh, the nightly
+  // Max run takes the WHOLE eligible batch (it honors scf_notes.batch_cap
+  // fully) — skip this serverless 50/run path instead of racing it.
+  // Fail-open: any schedules-read problem and this cloud run proceeds.
+  if (await shouldDeferToMaxLane('scf-learner-notes')) {
+    console.warn(
+      '[cron/scf-learner-notes] deferring to Max lane — maxlane twin enabled and runner heartbeat fresh',
+    );
+    return NextResponse.json({
+      ok: true,
+      deferred_to_max_lane: true,
+      generated: 0,
+      skipped: 0,
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
   const admin = createServiceRoleClient();
 
   // Per-run cap policy (0/negative or read failure -> ceiling default).

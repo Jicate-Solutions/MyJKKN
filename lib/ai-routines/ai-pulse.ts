@@ -48,6 +48,7 @@ export const AI_PULSE_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "ai-pulse-anomaly-scan",
+    "maxLane": true,
     "name": "AI Pulse Anomaly Scan",
     "category": "ai-pulse",
     "type": "cron",
@@ -60,7 +61,7 @@ export const AI_PULSE_ROUTINES: AIRoutine[] = [
     "configKnobs": "SCAN_WINDOW_DAYS=14; quiz_pass_threshold_live=40, ig_reach_threshold=500, reach_outlier_multiplier=20 (reach outlier threshold = 500*20 = 10000), poll_pattern_min_responses=3, rotation_fairness_slack=12, excuse_frequency_threshold=3 (all from ai_pulse_policies with these code defaults)",
     "sideEffects": "DB writes: inserts ai_pulse_anomaly_flags rows with review_outcome='pending'. No human messaging (flags are reviewed in-app at /ai-pulse/admin/anomalies).",
     "safeToManualTrigger": true,
-    "notes": "Auth: CRON_SECRET via ?secret= or Bearer. Idempotent — skips when an open (pending/null) flag of the same type+target+cycle already exists, and dedupes within a run. Honest-empty (0 flags) when no cycles in window. Optional substrates (polls, rotation_state, team attendance) degrade to 'no flags' rather than erroring. Does not call Claude — pure rule-based detectors."
+    "notes": "Auth: CRON_SECRET via ?secret= or Bearer. Idempotent — skips when an open (pending/null) flag of the same type+target+cycle already exists, and dedupes within a run. Honest-empty (0 flags) when no cycles in window. Optional substrates (polls, rotation_state, team attendance) degrade to 'no flags' rather than erroring. Does not call Claude — pure rule-based detectors. Max lane: the Max twin ports the anomaly scan to the runner box (headless claude -p on the subscription, ₹0 API); this cloud cron stays as the backup and defers a run when the runner heartbeat is fresh (shouldDeferToMaxLane — fail-open, inert until the maxlane:ai-pulse-anomaly-scan schedule row is enabled)."
   },
   {
     "id": "ai-pulse-pde-bridge",
