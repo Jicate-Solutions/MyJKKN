@@ -61,13 +61,14 @@ BEGIN
       'error', jsonb_build_object('code','FORBIDDEN','message','You do not have permission to view transport bookings (needs tms.bookings.view_all).'));
   END IF;
 
-  -- Cross-institution ONLY for super_admin or a role explicitly scoped 'all'
-  -- (e.g. central Transport Head/CEO). tms_booking/route carry no institution,
-  -- so scope by the LEARNER's institution — a college-scoped role sees only
-  -- its own learners' bookings (deep-review cross-tenant PII fix).
+  -- Cross-institution ONLY via a role that grants tms.bookings.view_all AND is
+  -- scope='all' (permission+scope from the SAME role — deep-review r3 fix).
+  -- tms_booking/route carry no institution, so otherwise scope by the LEARNER's
+  -- institution — a college-scoped role sees only its own learners' bookings.
   v_all := COALESCE(v_super, false) OR EXISTS (
     SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
-    WHERE ur.user_id = v_uid AND COALESCE(cr.is_active, true) AND cr.institution_scope = 'all');
+    WHERE ur.user_id = v_uid AND COALESCE(cr.is_active, true) AND cr.institution_scope = 'all'
+      AND lower(COALESCE(cr.permissions ->> 'tms.bookings.view_all', '')) IN ('true','t','1'));
 
   WITH base AS (
     SELECT b.travel_date, b.booked_at,

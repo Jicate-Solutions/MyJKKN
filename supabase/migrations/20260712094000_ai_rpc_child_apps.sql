@@ -39,17 +39,20 @@ BEGIN
   IF NOT COALESCE(v_ok,false) THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
     'metadata',jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),'actions_available','[]'::jsonb,
     'error',jsonb_build_object('code','FORBIDDEN','message','Needs campus_living.mess.meals.view to view mess bookings.')); END IF;
+  -- cross-institution ONLY via a role that grants THIS permission AND is scope='all'
+  -- (permission+scope must come from the SAME role — deep-review r3 decoupling fix)
   v_all := COALESCE(v_super,false) OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id=ur.role_id
-            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all');
+            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all'
+              AND lower(COALESCE(cr.permissions->>'campus_living.mess.meals.view','')) IN ('true','t','1'));
   WITH base AS (
-    SELECT b.date AS meal_date, b.meal_type, b.status, b.is_opt_out, lp.first_name, lp.last_name, lp.roll_number
+    SELECT b.id, b.date AS meal_date, b.meal_type, b.status, b.is_opt_out, lp.first_name, lp.last_name, lp.roll_number
     FROM mess_meal_bookings b LEFT JOIN learners_profiles lp ON lp.id = b.learner_id
     WHERE (v_all OR b.institution_id = v_inst)
       AND (p_learner_id IS NULL OR b.learner_id = p_learner_id)
       AND (p_meal_type IS NULL OR b.meal_type::text = p_meal_type)
       AND (NULLIF(trim(p_date_from),'') IS NULL OR b.date >= NULLIF(trim(p_date_from),'')::date)
       AND (NULLIF(trim(p_date_to),'')   IS NULL OR b.date <= NULLIF(trim(p_date_to),'')::date)),
-  paged AS (SELECT * FROM base ORDER BY meal_date DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
+  paged AS (SELECT * FROM base ORDER BY meal_date DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
       'has_more',(SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0)+(SELECT COUNT(*) FROM paged))),
@@ -76,10 +79,13 @@ BEGIN
   IF NOT COALESCE(v_ok,false) THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
     'metadata',jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),'actions_available','[]'::jsonb,
     'error',jsonb_build_object('code','FORBIDDEN','message','Needs campus_living.allocations.view to view hostel allocations.')); END IF;
+  -- cross-institution ONLY via a role that grants THIS permission AND is scope='all'
+  -- (permission+scope must come from the SAME role — deep-review r3 decoupling fix)
   v_all := COALESCE(v_super,false) OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id=ur.role_id
-            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all');
+            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all'
+              AND lower(COALESCE(cr.permissions->>'campus_living.allocations.view','')) IN ('true','t','1'));
   WITH base AS (
-    SELECT lp.first_name, lp.last_name, lp.roll_number, blk.name AS block_name, rm.room_number,
+    SELECT a.id, lp.first_name, lp.last_name, lp.roll_number, blk.name AS block_name, rm.room_number,
            a.allocation_date, a.status, a.fee_status
     FROM hostel_allocations a
     LEFT JOIN learners_profiles lp ON lp.id = a.learner_id
@@ -88,7 +94,7 @@ BEGIN
     WHERE (v_all OR a.institution_id = v_inst)
       AND (p_learner_id IS NULL OR a.learner_id = p_learner_id)
       AND (p_status IS NULL OR a.status::text = p_status)),
-  paged AS (SELECT * FROM base ORDER BY allocation_date DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
+  paged AS (SELECT * FROM base ORDER BY allocation_date DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
       'has_more',(SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0)+(SELECT COUNT(*) FROM paged))),
@@ -116,17 +122,20 @@ BEGIN
   IF NOT COALESCE(v_ok,false) THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
     'metadata',jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),'actions_available','[]'::jsonb,
     'error',jsonb_build_object('code','FORBIDDEN','message','Needs meetings.view to view meeting bookings.')); END IF;
+  -- cross-institution ONLY via a role that grants THIS permission AND is scope='all'
+  -- (permission+scope must come from the SAME role — deep-review r3 decoupling fix)
   v_all := COALESCE(v_super,false) OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id=ur.role_id
-            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all');
+            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all'
+              AND lower(COALESCE(cr.permissions->>'meetings.view','')) IN ('true','t','1'));
   WITH base AS (
-    SELECT b.attendee_name, b.attendee_email, mt.display_name AS meeting_type, b.start_time, b.end_time, b.status
+    SELECT b.id, b.attendee_name, b.attendee_email, mt.display_name AS meeting_type, b.start_time, b.end_time, b.status
     FROM meeting_bookings b
     LEFT JOIN jicate_booking_meeting_types mt ON mt.id = b.meeting_type_id
     WHERE (v_all OR b.institution_id = v_inst)
       AND (p_status IS NULL OR b.status::text = p_status)
       AND (NULLIF(trim(p_date_from),'') IS NULL OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date >= NULLIF(trim(p_date_from),'')::date)
       AND (NULLIF(trim(p_date_to),'')   IS NULL OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date <= NULLIF(trim(p_date_to),'')::date))
-  , paged AS (SELECT * FROM base ORDER BY start_time DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
+  , paged AS (SELECT * FROM base ORDER BY start_time DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
       'has_more',(SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0)+(SELECT COUNT(*) FROM paged))),
@@ -153,10 +162,13 @@ BEGIN
   IF NOT COALESCE(v_ok,false) THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
     'metadata',jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),'actions_available','[]'::jsonb,
     'error',jsonb_build_object('code','FORBIDDEN','message','Needs cdc.drives.view to view placement-drive attendance.')); END IF;
+  -- cross-institution ONLY via a role that grants THIS permission AND is scope='all'
+  -- (permission+scope must come from the SAME role — deep-review r3 decoupling fix)
   v_all := COALESCE(v_super,false) OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id=ur.role_id
-            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all');
+            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all'
+              AND lower(COALESCE(cr.permissions->>'cdc.drives.view','')) IN ('true','t','1'));
   WITH base AS (
-    SELECT lp.first_name, lp.last_name, lp.roll_number, dr.title AS drive_title,
+    SELECT a.id, lp.first_name, lp.last_name, lp.roll_number, dr.title AS drive_title,
            a.round_no, a.round_type, a.attended, a.no_show_reason, a.created_at
     FROM cdc_drive_attendance a
     LEFT JOIN learners_profiles lp ON lp.id = a.learner_id
@@ -164,7 +176,7 @@ BEGIN
     WHERE (v_all OR lp.institution_id = v_inst)   -- learner-scoped: cdc has no institution_id, key held per-college
       AND (p_learner_id IS NULL OR a.learner_id = p_learner_id)
       AND (p_drive_id IS NULL OR a.drive_id = p_drive_id)),
-  paged AS (SELECT * FROM base ORDER BY created_at DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
+  paged AS (SELECT * FROM base ORDER BY created_at DESC, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
       'has_more',(SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0)+(SELECT COUNT(*) FROM paged))),
@@ -191,17 +203,20 @@ BEGIN
   IF NOT COALESCE(v_ok,false) THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
     'metadata',jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),'actions_available','[]'::jsonb,
     'error',jsonb_build_object('code','FORBIDDEN','message','Needs events.view to view event attendance.')); END IF;
+  -- cross-institution ONLY via a role that grants THIS permission AND is scope='all'
+  -- (permission+scope must come from the SAME role — deep-review r3 decoupling fix)
   v_all := COALESCE(v_super,false) OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id=ur.role_id
-            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all');
+            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all'
+              AND lower(COALESCE(cr.permissions->>'events.view','')) IN ('true','t','1'));
   WITH base AS (
-    SELECT lp.first_name, lp.last_name, lp.roll_number, se.title AS session_title, a.status, a.marked_at
+    SELECT a.id, lp.first_name, lp.last_name, lp.roll_number, se.title AS session_title, a.status, a.marked_at
     FROM event_session_attendance a
     LEFT JOIN learners_profiles lp ON lp.id = a.learner_id
     LEFT JOIN event_sessions se ON se.id = a.session_id
     WHERE (v_all OR a.institution_id = v_inst)
       AND (p_learner_id IS NULL OR a.learner_id = p_learner_id)
       AND (p_session_id IS NULL OR a.session_id = p_session_id)),
-  paged AS (SELECT * FROM base ORDER BY marked_at DESC NULLS LAST LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
+  paged AS (SELECT * FROM base ORDER BY marked_at DESC NULLS LAST, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
       'has_more',(SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0)+(SELECT COUNT(*) FROM paged))),
@@ -228,10 +243,13 @@ BEGIN
   IF NOT COALESCE(v_ok,false) THEN RETURN jsonb_build_object('success',false,'data','[]'::jsonb,
     'metadata',jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),'actions_available','[]'::jsonb,
     'error',jsonb_build_object('code','FORBIDDEN','message','Needs health.programs.view to view health participation.')); END IF;
+  -- cross-institution ONLY via a role that grants THIS permission AND is scope='all'
+  -- (permission+scope must come from the SAME role — deep-review r3 decoupling fix)
   v_all := COALESCE(v_super,false) OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id=ur.role_id
-            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all');
+            WHERE ur.user_id=v_uid AND COALESCE(cr.is_active,true) AND cr.institution_scope='all'
+              AND lower(COALESCE(cr.permissions->>'health.programs.view','')) IN ('true','t','1'));
   WITH base AS (
-    SELECT lp.first_name, lp.last_name, lp.roll_number, pr.title AS program_title,
+    SELECT p.id, lp.first_name, lp.last_name, lp.roll_number, pr.title AS program_title,
            p.watch_completed, p.quiz_score, p.usefulness_rating, p.watched_at
     FROM health_program_participation p
     LEFT JOIN learners_profiles lp ON lp.id = p.learner_id
@@ -239,7 +257,7 @@ BEGIN
     WHERE (v_all OR lp.institution_id = v_inst)   -- learner-scoped: health_programs.institution_id is unset, so scope by the learner
       AND (p_learner_id IS NULL OR p.learner_id = p_learner_id)
       AND (p_program_id IS NULL OR p.program_id = p_program_id)),
-  paged AS (SELECT * FROM base ORDER BY watched_at DESC NULLS LAST LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
+  paged AS (SELECT * FROM base ORDER BY watched_at DESC NULLS LAST, id DESC LIMIT GREATEST(p_limit,0) OFFSET GREATEST(p_offset,0))
   SELECT jsonb_build_object('success',true,'data',COALESCE((SELECT jsonb_agg(row_to_json(p2)::jsonb) FROM paged p2),'[]'::jsonb),
     'metadata',jsonb_build_object('total_count',(SELECT COUNT(*) FROM base),'returned_count',(SELECT COUNT(*) FROM paged),
       'has_more',(SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0)+(SELECT COUNT(*) FROM paged))),
