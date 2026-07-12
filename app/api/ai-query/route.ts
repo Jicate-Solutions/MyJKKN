@@ -17,7 +17,13 @@ import type { AIQueryRequest } from '@/types/ai-query';
 
 const MAX_LANE_POLL_MS = 2_500;
 const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
-const MAX_LANE_TOTAL_DEADLINE_MS = 180_000;
+// Long-poll window raised 180s → 285s (2026-07-12) so heavy analytical questions
+// (e.g. multi-table profitability) can finish on the Max seat instead of erroring.
+// Kept 15s under maxDuration (300s) so the route can still cancel + respond before
+// the platform hard-kills the function. Coordinated with the Windows runner's
+// per-question SIGKILL budget (225s = this window − ~60s worst-case pickup); the
+// two MUST move together — see ai-query-chat.mjs PER_QUESTION_TIMEOUT_MS.
+const MAX_LANE_TOTAL_DEADLINE_MS = 285_000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
