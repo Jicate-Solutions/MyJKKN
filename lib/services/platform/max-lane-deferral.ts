@@ -17,6 +17,14 @@
 // /admin/ai-routines liveness strip (HEARTBEAT_STALE_MINUTES=10): skipping
 // real work needs a fresher pulse than merely displaying "alive".
 // ============================================================================
+// KNOWN GAP (review 2026-07-12, accepted): the global heartbeat proves the
+// runner is ALIVE, not that its manifest services THIS routine — enabling a
+// maxlane:<id> row before its brain is installed would silently skip cloud
+// batches. Operational gate today: schedule rows are only enabled after the
+// brain's dry-run is verified on the runner box. Durable fix queued: runners
+// will stamp maxlane:<id>.last_fired_at per service pass, and this guard then
+// additionally requires that stamp to be fresh (~2x cadence).
+// ============================================================================
 
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
