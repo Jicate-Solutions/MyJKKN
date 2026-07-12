@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { SolutionReposCard } from './solution-repos-card';
 import {
   Select,
   SelectContent,
@@ -709,6 +710,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                 )}
               </CardContent>
             </Card>
+            <SolutionReposCard solutionId={solutionId} />
           </TabsContent>
         )}
 
