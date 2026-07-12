@@ -437,6 +437,58 @@ const AI_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  // Child App Tools (mess, hostel, meeting rooms, CDC, events, health)
+  {
+    name: 'get_mess_bookings',
+    description: 'Get mess/canteen meal bookings by learners (Campus Living). Each row = a learner booked (or opted out of) a meal for a date. Returns learner name+roll, meal date, meal type, status, opt-out flag. Requires campus_living.mess.meals.view.',
+    input_schema: { type: 'object' as const, properties: {
+      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
+      meal_type: { type: 'string', description: 'Filter by meal type (e.g. breakfast, lunch, dinner)' },
+      date_from: { type: 'string', description: 'Meal date on/after (YYYY-MM-DD)' },
+      date_to: { type: 'string', description: 'Meal date on/before (YYYY-MM-DD)' },
+    } },
+  },
+  {
+    name: 'get_hostel_allocations',
+    description: 'Get hostel room allocations — which learner is allocated to which block and room (Campus Living). Returns learner name+roll, block name, room number, allocation date, status, fee status. Use for hostel occupancy / who-lives-where questions. Requires campus_living.allocations.view.',
+    input_schema: { type: 'object' as const, properties: {
+      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
+      status: { type: 'string', description: 'Filter by allocation status (e.g. active, vacated)' },
+    } },
+  },
+  {
+    name: 'get_meeting_bookings',
+    description: 'Get meeting-room / appointment bookings (Meetings module). Returns attendee name+email, meeting type, start/end time, status. Use for meeting-room or appointment scheduling questions. Requires meetings.view.',
+    input_schema: { type: 'object' as const, properties: {
+      status: { type: 'string', description: 'Filter by booking status (e.g. confirmed, cancelled)' },
+      date_from: { type: 'string', description: 'Start time on/after (YYYY-MM-DD)' },
+      date_to: { type: 'string', description: 'Start time on/before (YYYY-MM-DD)' },
+    } },
+  },
+  {
+    name: 'get_cdc_drive_attendance',
+    description: 'Get placement-drive attendance (Career Development Centre). Each row = a learner attended (or missed) a round of a recruitment drive. Returns learner name+roll, drive title, round number/type, attended flag, no-show reason. Placement drives are cross-institution. Requires cdc.drives.view.',
+    input_schema: { type: 'object' as const, properties: {
+      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
+      drive_id: { type: 'string', description: 'Filter by a recruitment drive UUID' },
+    } },
+  },
+  {
+    name: 'get_event_attendance',
+    description: 'Get event-session attendance. Each row = a learner marked present/absent for an event session. Returns learner name+roll, session title, status, marked-at time. Requires events.view.',
+    input_schema: { type: 'object' as const, properties: {
+      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
+      session_id: { type: 'string', description: 'Filter by an event session UUID' },
+    } },
+  },
+  {
+    name: 'get_health_participation',
+    description: 'Get health-program participation. Each row = a learner\'s engagement with a health program day (watched, quiz score, usefulness rating). Returns learner name+roll, program title, watch-completed, quiz score, rating. Requires health.programs.view.',
+    input_schema: { type: 'object' as const, properties: {
+      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
+      program_id: { type: 'string', description: 'Filter by a health program UUID' },
+    } },
+  },
   // Transport Tools (TMS child app — tmsadmin.jkkn.ai)
   {
     name: 'get_transport_bookings',
@@ -582,11 +634,15 @@ You MUST use these terms in ALL responses:
 7. Results include linked learner data when admission is enrolled (student_id, roll_number)
 8. **NO LIMITS**: All matching records are returned - present data in organized tables
 
-## Transport Module Guidelines (TMS)
-1. For questions about bus/transport bookings, who is travelling on a route, or a learner's transport usage, use **get_transport_bookings**.
-2. A transport booking = a learner reserved a seat on a route for a travel date. Results include learner name + roll, route number/name, boarding stop, and travel date.
-3. Transport routes are shared across ALL institutions (buses serve every college) — do not expect institution-level filtering here.
-4. If the tool returns a permission error, tell the user they need transport-booking access (tms.bookings.view_all); do NOT claim the data is missing.
+## Child-App Modules (Transport, Campus Living, Meetings, CDC, Events, Health)
+These read the connected child apps that share the MyJKKN database. Each needs its own permission; if a tool returns a permission error, tell the user which access they need — do NOT claim the data is missing.
+- **get_transport_bookings** — bus seat bookings (learner, route, boarding stop, travel date). Routes are shared across ALL institutions (buses serve every college), so no institution filtering. Needs tms.bookings.view_all.
+- **get_mess_bookings** — mess/canteen meal bookings (learner, meal date/type, status, opt-out). Needs campus_living.mess.meals.view.
+- **get_hostel_allocations** — who is allocated to which hostel block/room (learner, block, room, status). Needs campus_living.allocations.view.
+- **get_meeting_bookings** — meeting-room / appointment bookings (attendee, meeting type, start/end, status). Needs meetings.view.
+- **get_cdc_drive_attendance** — placement-drive attendance (learner, drive, round, attended). Drives are cross-institution. Needs cdc.drives.view.
+- **get_event_attendance** — event-session attendance (learner, session, status). Needs events.view.
+- **get_health_participation** — health-program engagement (learner, program, quiz score, rating). Needs health.programs.view.
 
 ## Response Format
 - Be concise but informative
@@ -820,6 +876,45 @@ async function executeTool(
         routeId: toolInput.route_id as string,
         dateFrom: toolInput.date_from as string,
         dateTo: toolInput.date_to as string,
+      });
+
+    case 'get_mess_bookings':
+      return AIQueryService.getMessBookings(userId, {
+        learnerId: toolInput.learner_id as string,
+        mealType: toolInput.meal_type as string,
+        dateFrom: toolInput.date_from as string,
+        dateTo: toolInput.date_to as string,
+      });
+
+    case 'get_hostel_allocations':
+      return AIQueryService.getHostelAllocations(userId, {
+        learnerId: toolInput.learner_id as string,
+        status: toolInput.status as string,
+      });
+
+    case 'get_meeting_bookings':
+      return AIQueryService.getMeetingBookings(userId, {
+        status: toolInput.status as string,
+        dateFrom: toolInput.date_from as string,
+        dateTo: toolInput.date_to as string,
+      });
+
+    case 'get_cdc_drive_attendance':
+      return AIQueryService.getCdcDriveAttendance(userId, {
+        learnerId: toolInput.learner_id as string,
+        driveId: toolInput.drive_id as string,
+      });
+
+    case 'get_event_attendance':
+      return AIQueryService.getEventAttendance(userId, {
+        learnerId: toolInput.learner_id as string,
+        sessionId: toolInput.session_id as string,
+      });
+
+    case 'get_health_participation':
+      return AIQueryService.getHealthParticipation(userId, {
+        learnerId: toolInput.learner_id as string,
+        programId: toolInput.program_id as string,
       });
 
     case 'get_kpi_summary':

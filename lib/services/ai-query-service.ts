@@ -575,6 +575,76 @@ export class AIQueryService {
     });
   }
 
+  static async getMessBookings(userId: string, params: {
+    learnerId?: string; mealType?: string; dateFrom?: string; dateTo?: string;
+    limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('mess_bookings', userId, {
+      p_learner_id: params.learnerId,
+      p_meal_type: params.mealType,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getHostelAllocations(userId: string, params: {
+    learnerId?: string; status?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('hostel_allocations', userId, {
+      p_learner_id: params.learnerId,
+      p_status: params.status,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getMeetingBookings(userId: string, params: {
+    status?: string; dateFrom?: string; dateTo?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('meeting_bookings', userId, {
+      p_status: params.status,
+      p_date_from: params.dateFrom,
+      p_date_to: params.dateTo,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getCdcDriveAttendance(userId: string, params: {
+    learnerId?: string; driveId?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('cdc_drive_attendance', userId, {
+      p_learner_id: params.learnerId,
+      p_drive_id: params.driveId,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getEventAttendance(userId: string, params: {
+    learnerId?: string; sessionId?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('event_attendance', userId, {
+      p_learner_id: params.learnerId,
+      p_session_id: params.sessionId,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
+  static async getHealthParticipation(userId: string, params: {
+    learnerId?: string; programId?: string; limit?: number; offset?: number;
+  } = {}): Promise<ToolResponse> {
+    return this.executeTool('health_participation', userId, {
+      p_learner_id: params.learnerId,
+      p_program_id: params.programId,
+      p_limit: params.limit || 10000,
+      p_offset: params.offset || 0,
+    });
+  }
+
   // ============================================
   // Dashboard & Analytics Tools
   // ============================================
