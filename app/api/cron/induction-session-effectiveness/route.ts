@@ -28,6 +28,7 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   resolveChatModel,
@@ -109,6 +110,23 @@ export async function GET(request: NextRequest) {
   const querySecret = request.nextUrl.searchParams.get('secret');
   if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  }
+
+  // Runner-aware Max-lane deferral: when the maxlane:induction-session-effectiveness
+  // schedule row owns this routine (max_only pin, or enabled + fresh heartbeat),
+  // the Max twin runs this tip generator on the runner box — stand down this run.
+  // Fail-open: any schedules-read problem and the cloud generator runs normally.
+  // Harmless either way (record is idempotent), but deferring keeps the twin the
+  // primary lane.
+  if (await shouldDeferToMaxLane('induction-session-effectiveness')) {
+    console.log('[cron/induction-session-effectiveness] deferred to Max lane');
+    return NextResponse.json({
+      ok: true,
+      generated: 0,
+      skipped: 0,
+      measured: null,
+      deferred_to_max_lane: true,
+    });
   }
 
   const started = Date.now();
