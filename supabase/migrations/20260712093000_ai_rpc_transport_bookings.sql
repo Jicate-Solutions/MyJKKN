@@ -85,8 +85,10 @@ BEGIN
       AND (NULLIF(trim(p_date_to),'')   IS NULL OR b.travel_date <= NULLIF(trim(p_date_to),'')::date)
   ),
   paged AS (
+    -- tms_booking has no primary key; ORDER BY a composite of its natural
+    -- columns as a stable tiebreaker for deterministic LIMIT/OFFSET paging.
     SELECT * FROM base
-    ORDER BY travel_date DESC, booked_at DESC
+    ORDER BY travel_date DESC, booked_at DESC, roll_number, route_number, stop_name
     LIMIT GREATEST(p_limit, 0) OFFSET GREATEST(p_offset, 0)
   )
   SELECT jsonb_build_object(
