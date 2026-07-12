@@ -42,6 +42,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 
 interface PolicyRow {
   config_key: string;
@@ -88,6 +89,21 @@ export async function GET(req: NextRequest) {
   const queryOk = querySecret === cronSecret;
   if (!headerOk && !queryOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Runner-aware Max-lane deferral: when the maxlane:ai-pulse-anomaly-scan
+  // schedule row is enabled AND the runner heartbeat is fresh, the Max twin
+  // owns this scan — stand down this run. Fail-open: any schedules-read
+  // problem and the cloud scan runs normally. Harmless either way — the scan
+  // is dedupe-idempotent — but deferring keeps the twin the primary lane.
+  if (await shouldDeferToMaxLane('ai-pulse-anomaly-scan')) {
+    console.log('[cron/ai-pulse-anomaly-scan] deferred to Max lane — runner heartbeat fresh');
+    return NextResponse.json({
+      ok: true,
+      processed: 0,
+      flagged: 0,
+      deferred_to_max_lane: true,
+    });
   }
 
   const supabase = createServiceRoleClient();
