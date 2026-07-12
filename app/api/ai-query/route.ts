@@ -1,1158 +1,46 @@
 export const dynamic = 'force-dynamic';
-// Max-lane waits long-poll the chat queue (runner box claims every ~2 min);
-// the API fallback then still needs room for its own tool-use loop.
+// Max-lane waits long-poll the chat queue (runner box claims every ~2 min).
 export const maxDuration = 300;
 
 /**
- * AI Query API Route
- * Handles natural language queries using Claude with MCP tools.
+ * AI Query Route
+ * Handles natural language queries using the Max lane.
  *
- * Engine selection (config-governed via ai_model_config, feature
- * 'ai_query.natural_language'):
- *  - Users listed in config_json.max_lane_user_ids (the Max-seat OWNER only —
- *    never a role-wide grant; a personal Claude subscription must not serve
- *    other users' product traffic) get their question queued to the Max lane
- *    (max_lane_chat_requests → Windows runner → answer), with automatic
- *    fallback to the API path on runner-offline/timeout/error.
- *  - Everyone else goes straight to the API path, which prompt-caches the
- *    static prefix (tools + static system block, measured ~8.4K tokens) —
- *    roughly halves the cost of tool-using questions and cuts simple
- *    no-tool answers ~90% while the cache is warm (5-min TTL).
+ * All questions are queued to the Max lane
+ * (max_lane_chat_requests -> Windows runner -> answer).
  */
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AIQueryService } from '@/lib/services/ai-query-service';
-import Anthropic from '@anthropic-ai/sdk';
-import {
-  resolveChatModel,
-  recordChatUsage,
-  computeChatCostInr,
-} from '@/lib/services/platform/ai-clients/chat';
-import type {
+import type { AIQueryRequest } from '@/types/ai-query';
 
-  AIQueryRequest,
-  AIUserContext,
-  ToolResponse,
-  TOOL_PERMISSIONS,
-  AI_ERROR_MESSAGES
-} from '@/types/ai-query';
-
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY!,
-});
-
-// Model resolves at runtime from ai_model_config (resolved once per request
-// inside POST — NOT at module level; resolveChatModel never throws).
-const FEATURE_KEY = 'ai_query.natural_language';
-
-
-// Maximum characters for tool results to prevent token overflow
-// Claude's context is ~200K tokens, we need to leave room for system prompt, tools, and response
-const MAX_TOOL_RESULT_CHARS = 80000; // ~20K tokens per result, safe margin
-const MAX_DATA_RECORDS = 100; // Maximum records to return in data array
-
-/**
- * Smart truncation of tool results to prevent token overflow
- * Preserves metadata, statistics, and summary while limiting data records
- */
-function truncateToolResult(result: ToolResponse): ToolResponse {
-  if (!result.success || !result.data) {
-    return result;
-  }
-
-  const resultStr = JSON.stringify(result);
-
-  // If result is small enough, return as-is
-  if (resultStr.length <= MAX_TOOL_RESULT_CHARS) {
-    return result;
-  }
-
-  // If data is an array, truncate it
-  if (Array.isArray(result.data)) {
-    const originalCount = result.data.length;
-    const truncatedData = result.data.slice(0, MAX_DATA_RECORDS);
-
-    return {
-      ...result,
-      data: truncatedData,
-      metadata: {
-        ...result.metadata,
-        total_count: originalCount,
-        returned_count: truncatedData.length,
-        has_more: originalCount > truncatedData.length,
-        truncated: true,
-        truncation_note: `Showing ${truncatedData.length} of ${originalCount} records. Use filters to narrow results.`,
-      },
-    };
-  }
-
-  // If data is an object with nested arrays, truncate those
-  if (typeof result.data === 'object' && result.data !== null) {
-    const truncatedData: Record<string, unknown> = {};
-    let wasTruncated = false;
-
-    for (const [key, value] of Object.entries(result.data)) {
-      if (Array.isArray(value) && value.length > MAX_DATA_RECORDS) {
-        truncatedData[key] = value.slice(0, MAX_DATA_RECORDS);
-        wasTruncated = true;
-      } else {
-        truncatedData[key] = value;
-      }
-    }
-
-    if (wasTruncated) {
-      return {
-        ...result,
-        data: truncatedData,
-        metadata: {
-          ...result.metadata,
-          truncated: true,
-          truncation_note: 'Some arrays were truncated. Use filters to narrow results.',
-        },
-      };
-    }
-  }
-
-  return result;
-}
-
-// Tool definitions for Claude (JKKN Terminology: students→learners, staff→facilitators, attendance→learning participation)
-const AI_TOOLS: Anthropic.Tool[] = [
-  // Academic Tools
-  {
-    name: 'get_attendance',
-    description: 'Get learner learning participation records with optional filters by learner, section, department, or date range',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        student_id: { type: 'string', description: 'Filter by specific learner UUID' },
-        section_id: { type: 'string', description: 'Filter by section UUID' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        date_from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'End date (YYYY-MM-DD)' },
-        threshold: { type: 'number', description: 'Learning participation percentage threshold' },
-      },
-    },
-  },
-  {
-    name: 'get_attendance_defaulters',
-    description: 'Get list of learners with learning participation below a threshold (default 75%)',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        threshold: { type: 'number', description: 'Learning participation percentage threshold (default 75)' },
-        semester: { type: 'string', enum: ['current', 'previous', 'all'], description: 'Learning period filter' },
-      },
-    },
-  },
-  // Billing Tools
-  {
-    name: 'get_student_bills',
-    description: 'Get learner billing records with optional filters',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        student_id: { type: 'string', description: 'Filter by specific learner UUID' },
-        section_id: { type: 'string', description: 'Filter by section UUID' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        status: { type: 'string', enum: ['paid', 'unpaid', 'overdue', 'partially_paid'] },
-      },
-    },
-  },
-  {
-    name: 'get_fee_defaulters',
-    description: 'Get list of learners with unpaid or overdue fees',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        status: { type: 'string', enum: ['unpaid', 'overdue', 'partially_paid'] },
-        min_amount: { type: 'number', description: 'Minimum pending amount filter' },
-        due_before: { type: 'string', description: 'Filter fees due before this date (YYYY-MM-DD)' },
-      },
-    },
-  },
-  // Learner Tools (JKKN: students → learners)
-  {
-    name: 'get_students',
-    description: 'Get list of learners with optional filters by department, program, section, status, or search term',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        program_id: { type: 'string', description: 'Filter by program UUID' },
-        semester_id: { type: 'string', description: 'Filter by learning period UUID' },
-        section_id: { type: 'string', description: 'Filter by section UUID' },
-        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'] },
-        search: { type: 'string', description: 'Search by name, roll number, or email' },
-      },
-    },
-  },
-  {
-    name: 'get_student_details',
-    description: 'Get detailed information about a specific learner including personal, academic, and contact details',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        student_id: { type: 'string', description: 'Learner UUID' },
-      },
-      required: ['student_id'],
-    },
-  },
-  {
-    name: 'search_students',
-    description: 'Advanced learner search - find learners by name, roll number, email, mobile, learning partner name, or other fields. Use this when looking for specific learners.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        search_query: { type: 'string', description: 'The search term to look for (e.g., learner name, roll number, email)' },
-        search_fields: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Fields to search in: name, roll_number, email, mobile, application_id, aadhar, father_name, mother_name. Defaults to [name, roll_number, email, mobile]'
-        },
-        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        exact_match: { type: 'boolean', description: 'If true, performs exact match instead of partial match. Defaults to false' },
-      },
-      required: ['search_query'],
-    },
-  },
-  {
-    name: 'get_students_by_department',
-    description: 'Get learner counts grouped by department with status breakdown (active, inactive, graduated, exited)',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
-      },
-    },
-  },
-  {
-    name: 'get_students_summary',
-    description: 'Get summary statistics for learners including total counts, status breakdown, gender distribution, accommodation types, and profile completion status',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-      },
-    },
-  },
-  {
-    name: 'get_learners_by_location',
-    description: 'Comprehensive location-based learner search - searches across permanent address district, street address, and taluk fields. Returns learners from specific geographic areas with location statistics and indicates which field matched. Use this when asked about learners from a specific district, city, state, or region.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        district: { type: 'string', description: 'Filter by district name (e.g., Erode, Salem, Coimbatore) - searches in district, street, and taluk fields' },
-        state: { type: 'string', description: 'Filter by state name (e.g., Tamil Nadu, Kerala)' },
-        taluk: { type: 'string', description: 'Filter by taluk/sub-district name' },
-        city: { type: 'string', description: 'Filter by city name - searches in district and street fields' },
-        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        include_stats: { type: 'boolean', description: 'Include location statistics (district/state distribution). Default: true' },
-      },
-    },
-  },
-  {
-    name: 'get_learners_comprehensive',
-    description: 'MOST POWERFUL learner search tool - searches ALL learner data across ALL institutions. Use this for: demographics (gender, religion, community, caste), accommodation (hostel, day scholar), academic filters, admission details (quota, category, first graduate), location, and education background. Returns statistics breakdown. Always use this tool when user asks about specific learner characteristics or wants comprehensive data.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        // Text search
-        search: { type: 'string', description: 'Free text search across name, roll number, email, mobile, father/mother name, district, school' },
-        // Identity filters
-        status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Learner status' },
-        gender: { type: 'string', enum: ['male', 'female'], description: 'Filter by gender (case-insensitive)' },
-        // Demographic filters
-        religion: { type: 'string', description: 'Filter by religion (e.g., Hindu, Muslim, Christian)' },
-        community: { type: 'string', description: 'Filter by community (e.g., BC, MBC, SC, ST, OC, OBC, BCM, SCA, DNC)' },
-        caste: { type: 'string', description: 'Filter by caste' },
-        // Accommodation filters
-        accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar, day scholar)' },
-        // Academic filters
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        program_id: { type: 'string', description: 'Filter by program UUID' },
-        degree_id: { type: 'string', description: 'Filter by degree UUID' },
-        semester_id: { type: 'string', description: 'Filter by semester UUID' },
-        section_id: { type: 'string', description: 'Filter by section UUID' },
-        // Admission filters
-        entry_type: { type: 'string', description: 'Filter by entry type (e.g., FIRST YEAR, LATERAL)' },
-        quota: { type: 'string', description: 'Filter by admission quota (e.g., GOVERNMENT, MANAGEMENT)' },
-        category: { type: 'string', description: 'Filter by admission category' },
-        first_graduate: { type: 'boolean', description: 'Filter first-generation graduates (first in family to attend college)' },
-        counseling_applied: { type: 'boolean', description: 'Filter learners who applied through counseling' },
-        // Location filters
-        district: { type: 'string', description: 'Filter by district (searches district, street, taluk)' },
-        state: { type: 'string', description: 'Filter by state' },
-        taluk: { type: 'string', description: 'Filter by taluk/sub-district' },
-        // Education background
-        board_of_study: { type: 'string', description: 'Filter by board of study (e.g., STATE BOARD, CBSE, ICSE)' },
-        last_school: { type: 'string', description: 'Filter by previous school name' },
-        // Options
-        include_stats: { type: 'boolean', description: 'Include statistics breakdown (gender, community, accommodation, institution). Default: true' },
-      },
-    },
-  },
-  // Admission Tools (JKKN: Admission Applications)
-  {
-    name: 'get_admissions',
-    description: 'COMPREHENSIVE admission query - searches ALL admission applications with FULL details including: identity, contact, parents, demographics, academic background (10th/12th marks, NEET scores), admission status, address, accommodation, and timestamps. Use for any admission-related query. Returns ALL fields and statistics by default. NO LIMIT on results.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        program_id: { type: 'string', description: 'Filter by program UUID' },
-        degree_id: { type: 'string', description: 'Filter by degree UUID' },
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'], description: 'Admission status' },
-        entry_type: { type: 'string', description: 'Entry type (FIRST YEAR, LATERAL ENTRY)' },
-        district: { type: 'string', description: 'Filter by district (permanent address)' },
-        state: { type: 'string', description: 'Filter by state' },
-        taluk: { type: 'string', description: 'Filter by taluk' },
-        gender: { type: 'string', enum: ['male', 'female'], description: 'Filter by gender' },
-        religion: { type: 'string', description: 'Filter by religion' },
-        community: { type: 'string', description: 'Filter by community (BC, MBC, SC, ST, OC, etc.)' },
-        counseling_applied: { type: 'boolean', description: 'Filter by counseling status' },
-        first_graduate: { type: 'boolean', description: 'Filter first-generation graduates' },
-        quota: { type: 'string', description: 'Filter by admission quota (GOVERNMENT, MANAGEMENT)' },
-        category: { type: 'string', description: 'Filter by category' },
-        accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar)' },
-        search: { type: 'string', description: 'Search by name, email, mobile, application ID, father name, mother name' },
-        date_from: { type: 'string', description: 'Admission date from (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'Admission date to (YYYY-MM-DD)' },
-        include_stats: { type: 'boolean', description: 'Include statistics (default: true)' },
-      },
-    },
-  },
-  {
-    name: 'get_admission_details',
-    description: 'Get COMPLETE details of a specific admission application including ALL 54 fields: personal info, parent details, 10th/12th marks, NEET scores, address, accommodation preferences, reference info, admission status, and enrollment status.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        admission_id: { type: 'string', description: 'Admission UUID' },
-        application_id: { type: 'string', description: 'Application ID (e.g., JKKN-DCH-084)' },
-      },
-    },
-  },
-  {
-    name: 'get_admissions_by_location',
-    description: 'Search admissions by geographic location - searches across district, state, taluk, and city. Returns ALL matching admissions with location statistics breakdown. Use this when asked about admissions from a specific district, city, or region.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        district: { type: 'string', description: 'District name (e.g., Karur, Salem, Erode, Coimbatore)' },
-        state: { type: 'string', description: 'State name (e.g., Tamil Nadu, Kerala)' },
-        taluk: { type: 'string', description: 'Taluk/sub-district name' },
-        city: { type: 'string', description: 'City name' },
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'], description: 'Admission status filter' },
-        include_stats: { type: 'boolean', description: 'Include location statistics (default: true)' },
-      },
-    },
-  },
-  {
-    name: 'get_admission_statistics',
-    description: 'Get admission STATISTICS and ANALYTICS - institution-wise breakdown, status distribution, demographics, academic performance metrics, entry type analysis, geographic distribution, and year-wise trends.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        date_from: { type: 'string', description: 'Date range start (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'Date range end (YYYY-MM-DD)' },
-        group_by: { type: 'string', enum: ['institution', 'status', 'entry_type', 'gender', 'community', 'district', 'program', 'department'], description: 'Primary grouping field' },
-      },
-    },
-  },
-  {
-    name: 'get_admission_analytics',
-    description: 'ADVANCED admission analytics - conversion rates, enrollment rates, counseling stats, quota utilization, first-graduate analysis, accommodation breakdown, reference source effectiveness, academic performance averages, and year-over-year comparisons.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        academic_year_id: { type: 'string', description: 'Filter by academic year UUID' },
-        include_trends: { type: 'boolean', description: 'Include time trends (default: true)' },
-      },
-    },
-  },
-  {
-    name: 'get_admission_referrers',
-    description: 'CONSULTANT/REFERRER ANALYTICS - Get top consultants, staff referrers, and direct admissions with detailed breakdown. Shows which programs each referrer refers to and from which locations/districts. Use this for queries like "top 5 consultants", "which consultants refer the most", "referrer performance", "consultant analytics", or "admission sources".',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        reference_type: { type: 'string', enum: ['CONSULTANT', 'STAFF', 'DIRECT', 'ALUMNI', 'OTHER'], description: 'Filter by referrer type (CONSULTANT, STAFF, DIRECT, etc.)' },
-        reference_name: { type: 'string', description: 'Search for specific referrer by name' },
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-        program_id: { type: 'string', description: 'Filter by program UUID' },
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        status: { type: 'string', enum: ['pending', 'approved', 'rejected', 'waitlisted', 'enrolled'], description: 'Filter by admission status' },
-        date_from: { type: 'string', description: 'Date range start (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'Date range end (YYYY-MM-DD)' },
-        top_n: { type: 'number', description: 'Number of top referrers to return (default: 10)' },
-        include_details: { type: 'boolean', description: 'Include program and location breakdown for each referrer (default: true)' },
-      },
-    },
-  },
-  // Learning Facilitator Tools (JKKN: staff → learning facilitators/team members)
-  {
-    name: 'get_staff',
-    description: 'Get list of learning facilitators and team members with optional filters',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        department_id: { type: 'string', description: 'Filter by department UUID' },
-        employment_category_id: { type: 'string', description: 'Filter by employment category UUID' },
-        status: { type: 'string', enum: ['active', 'inactive'] },
-        search: { type: 'string', description: 'Search by name, employee ID, or email' },
-      },
-    },
-  },
-  // Organization Tools
-  {
-    name: 'get_hierarchy_summary',
-    description: 'Get a summary of the organizational hierarchy (institutions, departments, programs, etc.)',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-      },
-    },
-  },
-  {
-    name: 'get_departments',
-    description: 'Get list of departments',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-      },
-    },
-  },
-  // Child App Tools (mess, hostel, meeting rooms, CDC, events, health)
-  {
-    name: 'get_mess_bookings',
-    description: 'Get mess/canteen meal bookings by learners (Campus Living). Each row = a learner booked (or opted out of) a meal for a date. Returns learner name+roll, meal date, meal type, status, opt-out flag. Requires campus_living.mess.meals.view.',
-    input_schema: { type: 'object' as const, properties: {
-      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
-      meal_type: { type: 'string', description: 'Filter by meal type (e.g. breakfast, lunch, dinner)' },
-      date_from: { type: 'string', description: 'Meal date on/after (YYYY-MM-DD)' },
-      date_to: { type: 'string', description: 'Meal date on/before (YYYY-MM-DD)' },
-    } },
-  },
-  {
-    name: 'get_hostel_allocations',
-    description: 'Get hostel room allocations — which learner is allocated to which block and room (Campus Living). Returns learner name+roll, block name, room number, allocation date, status, fee status. Use for hostel occupancy / who-lives-where questions. Requires campus_living.allocations.view.',
-    input_schema: { type: 'object' as const, properties: {
-      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
-      status: { type: 'string', description: 'Filter by allocation status (e.g. active, vacated)' },
-    } },
-  },
-  {
-    name: 'get_meeting_bookings',
-    description: 'Get meeting-room / appointment bookings (Meetings module). Returns attendee name+email, meeting type, start/end time, status. Use for meeting-room or appointment scheduling questions. Requires meetings.view.',
-    input_schema: { type: 'object' as const, properties: {
-      status: { type: 'string', description: 'Filter by booking status (e.g. confirmed, cancelled)' },
-      date_from: { type: 'string', description: 'Start time on/after (YYYY-MM-DD)' },
-      date_to: { type: 'string', description: 'Start time on/before (YYYY-MM-DD)' },
-    } },
-  },
-  {
-    name: 'get_cdc_drive_attendance',
-    description: 'Get placement-drive attendance (Career Development Centre). Each row = a learner attended (or missed) a round of a recruitment drive. Returns learner name+roll, drive title, round number/type, attended flag, no-show reason. Placement drives are cross-institution. Requires cdc.drives.view.',
-    input_schema: { type: 'object' as const, properties: {
-      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
-      drive_id: { type: 'string', description: 'Filter by a recruitment drive UUID' },
-    } },
-  },
-  {
-    name: 'get_event_attendance',
-    description: 'Get event-session attendance. Each row = a learner marked present/absent for an event session. Returns learner name+roll, session title, status, marked-at time. Requires events.view.',
-    input_schema: { type: 'object' as const, properties: {
-      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
-      session_id: { type: 'string', description: 'Filter by an event session UUID' },
-    } },
-  },
-  {
-    name: 'get_health_participation',
-    description: 'Get health-program participation. Each row = a learner\'s engagement with a health program day (watched, quiz score, usefulness rating). Returns learner name+roll, program title, watch-completed, quiz score, rating. Requires health.programs.view.',
-    input_schema: { type: 'object' as const, properties: {
-      learner_id: { type: 'string', description: 'Filter by a learner UUID' },
-      program_id: { type: 'string', description: 'Filter by a health program UUID' },
-    } },
-  },
-  // Transport Tools (TMS child app — tmsadmin.jkkn.ai)
-  {
-    name: 'get_transport_bookings',
-    description: 'Get bus/transport seat bookings made by learners in the Transport Management System. Each booking is a learner reserving a seat on a route for a travel date. Returns learner name + roll, route number/name, boarding stop, and travel date. Use for questions about transport/bus bookings, who is travelling on a route, or a learner\'s transport bookings. Requires the tms.bookings.view_all permission.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        learner_id: { type: 'string', description: 'Filter by a specific learner UUID' },
-        route_id: { type: 'string', description: 'Filter by a specific transport route UUID' },
-        date_from: { type: 'string', description: 'Travel date on/after (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'Travel date on/before (YYYY-MM-DD)' },
-      },
-    },
-  },
-  // Dashboard Tools
-  {
-    name: 'get_kpi_summary',
-    description: 'Get key performance indicators summary (total learners, team members, pending fees, learning participation today, etc.)',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        institution_id: { type: 'string', description: 'Filter by institution UUID' },
-      },
-    },
-  },
-  {
-    name: 'get_analytics_overview',
-    description: 'Get analytics overview including learning participation trends, fee collection, and learner status breakdown',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        date_from: { type: 'string', description: 'Start date (YYYY-MM-DD)' },
-        date_to: { type: 'string', description: 'End date (YYYY-MM-DD)' },
-      },
-    },
-  },
-  // Notification Tools
-  {
-    name: 'get_notifications',
-    description: 'Get user notifications with optional filters',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        is_read: { type: 'boolean', description: 'Filter by read status' },
-        type: { type: 'string', description: 'Filter by notification type' },
-      },
-    },
-  },
-  // Action Tools
-  {
-    name: 'export_csv',
-    description: 'Export data to CSV format. Available sources: learners, team_members, participation_defaulters, fee_defaulters',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        data_source: {
-          type: 'string',
-          enum: ['students', 'staff', 'attendance_defaulters', 'fee_defaulters'],
-          description: 'The data source to export (learners, team_members, participation_defaulters, fee_defaulters)'
-        },
-        filters: { type: 'object', description: 'Optional filters for the export' },
-      },
-      required: ['data_source'],
-    },
-  },
-  {
-    name: 'send_notification',
-    description: 'Send a notification to specified recipients (max 50 recipients)',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        recipient_ids: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Array of recipient user UUIDs'
-        },
-        title: { type: 'string', description: 'Notification title' },
-        message: { type: 'string', description: 'Notification message' },
-        type: { type: 'string', enum: ['info', 'warning', 'success', 'error'], description: 'Notification type' },
-        priority: { type: 'string', enum: ['low', 'normal', 'high'], description: 'Notification priority' },
-      },
-      required: ['recipient_ids', 'title', 'message'],
-    },
-  },
-];
-
-// System prompt split for prompt caching: this block is byte-identical for
-// every user and request, so it carries the cache_control breakpoint — the
-// whole prefix (tools + this block, measured ~8.4K tokens) is written to the
-// prompt cache once and re-read at 10% input price for 5 minutes, on EVERY
-// call of the tool-use loop. The per-user context lives in a separate small
-// block AFTER it (see buildSystemBlocks) so it can vary without breaking the
-// cached prefix. (Tool RESULTS are per-request data and are deliberately not
-// cache-managed — they never repeat across requests.)
-const STATIC_SYSTEM_PROMPT = `You are an AI assistant for MyJKKN, an educational institution management system following JKKN terminology standards. You help users query and analyze data about learners, learning facilitators, learning participation, billing, and more.
-
-## JKKN Terminology Standards (MANDATORY)
-You MUST use these terms in ALL responses:
-- **Learners** (NOT students, pupils, kids, children)
-- **Learning Facilitators** (NOT teachers, faculty, professors) - for academic/teaching roles
-- **Team Members** (NOT staff, employees, workers) - for non-academic roles
-- **Learning Partners** (NOT parents, guardians) - for family members
-- **Learning Studios** (NOT classrooms, rooms)
-- **Learning Participation** (NOT attendance)
-- **Learning Assessments** (NOT grades, marks, scores, tests, exams)
-- **Learning Period** (NOT semester, term, quarter)
-- **Learning Pathway** (NOT syllabus, course outline)
-- **Learning Framework** (NOT curriculum)
-- **Achieved Learning Outcomes** (NOT passed)
-- **Did Not Meet Learning Outcomes** (NOT failed)
-- **Independent Learning Activities** (NOT homework)
-- **Learning Tasks** (NOT assignments)
-
-## Guidelines
-1. Always use the available tools to fetch real data - never make up information
-2. Present data in a clear, organized manner using tables when appropriate
-3. When showing lists, limit to 10-20 items unless the user asks for more
-4. For actions like sending notifications, always confirm with the user first
-5. Respect data access boundaries - the system will automatically filter data based on user permissions
-6. If a query returns no results, explain possible reasons and suggest alternatives
-7. Format numbers appropriately (currency with ₹ symbol, percentages with %)
-8. For dates, use readable formats like "January 15, 2025"
-9. **ALWAYS use JKKN terminology** even if the user uses traditional terms - translate in your response
-
-## Available Actions
-- **Tier 1 (Auto-execute)**: Export to CSV, mark notifications read
-- **Tier 2 (Requires confirmation)**: Send notification (up to 50 recipients)
-- **Tier 3 (Requires explicit confirmation)**: Bulk notifications (50+ recipients)
-- **Tier 4 (Blocked)**: Delete records, financial transactions - direct users to appropriate modules
-
-## Admission Module Guidelines
-1. For ANY admission-related query (admissions, applications, enrollments from locations), use the admission tools:
-   - **get_admissions**: Comprehensive search with ALL 54 fields + statistics
-   - **get_admissions_by_location**: For location-based queries (e.g., "admissions from Karur")
-   - **get_admission_details**: Full details for a single admission
-   - **get_admission_statistics**: Analytics and breakdowns
-   - **get_admission_analytics**: Advanced metrics and trends
-2. **ALWAYS show admission year** (extracted from created_at) in results
-3. Include comprehensive statistics when displaying admission data
-4. Show all relevant fields - do NOT limit to basic fields only
-5. For location queries, use get_admissions_by_location with district/state/taluk parameters
-6. Use JKKN terminology: "Admission Applications" not just "admissions"
-7. Results include linked learner data when admission is enrolled (student_id, roll_number)
-8. **NO LIMITS**: All matching records are returned - present data in organized tables
-
-## Child-App Modules (Transport, Campus Living, Meetings, CDC, Events, Health)
-These read the connected child apps that share the MyJKKN database. Each needs its own permission; if a tool returns a permission error, tell the user which access they need — do NOT claim the data is missing.
-Results are scoped to YOUR institution's learners unless you hold a cross-institution (all-colleges) role — never assume a count is platform-wide.
-- **get_transport_bookings** — bus seat bookings (learner, route, boarding stop, travel date). Needs tms.bookings.view_all.
-- **get_mess_bookings** — mess/canteen meal bookings (learner, meal date/type, status, opt-out). Needs campus_living.mess.meals.view.
-- **get_hostel_allocations** — who is allocated to which hostel block/room (learner, block, room, status). Needs campus_living.allocations.view.
-- **get_meeting_bookings** — meeting-room / appointment bookings (attendee, meeting type, start/end, status). Needs meetings.view.
-- **get_cdc_drive_attendance** — placement-drive attendance (learner, drive, round, attended). Needs cdc.drives.view.
-- **get_event_attendance** — event-session attendance (learner, session, status). Needs events.view.
-- **get_health_participation** — health-program engagement (learner, program, quiz score, rating). Needs health.programs.view.
-
-## Response Format
-- Be concise but informative
-- Use markdown formatting for better readability
-- Include relevant statistics and summaries
-- Suggest related queries or actions when appropriate
-- Always use JKKN terminology in headings, labels, and explanations`;
-
-// Per-user context — small and per-request, deliberately OUTSIDE the cached
-// block so it never invalidates the static prefix cache.
-function buildUserContextBlock(context: AIUserContext): string {
-  return `## Current User Context
-- Name: ${context.full_name}
-- Role: ${context.role}
-- Email: ${context.email}
-${context.is_super_admin ? '- Access Level: Super Admin (full access)' : ''}
-${context.academic_context?.institution_name ? `- Institution: ${context.academic_context.institution_name}` : ''}
-${context.academic_context?.current_academic_year_name ? `- Learning Year: ${context.academic_context.current_academic_year_name}` : ''}`;
-}
-
-function buildSystemBlocks(context: AIUserContext): Anthropic.TextBlockParam[] {
-  return [
-    { type: 'text', text: STATIC_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-    { type: 'text', text: buildUserContextBlock(context) },
-  ];
-}
-
-// Execute a tool call
-async function executeTool(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  userId: string
-): Promise<ToolResponse> {
-  switch (toolName) {
-    case 'get_attendance':
-      return AIQueryService.getAttendance(userId, {
-        studentId: toolInput.student_id as string,
-        sectionId: toolInput.section_id as string,
-        departmentId: toolInput.department_id as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-        threshold: toolInput.threshold as number,
-      });
-
-    case 'get_attendance_defaulters':
-      return AIQueryService.getAttendanceDefaulters(userId, {
-        departmentId: toolInput.department_id as string,
-        threshold: toolInput.threshold as number,
-        semester: toolInput.semester as string,
-      });
-
-    case 'get_student_bills':
-      return AIQueryService.getStudentBills(userId, {
-        studentId: toolInput.student_id as string,
-        sectionId: toolInput.section_id as string,
-        departmentId: toolInput.department_id as string,
-        status: toolInput.status as string,
-      });
-
-    case 'get_fee_defaulters':
-      return AIQueryService.getFeeDefaulters(userId, {
-        departmentId: toolInput.department_id as string,
-        status: toolInput.status as string,
-        minAmount: toolInput.min_amount as number,
-        dueBefore: toolInput.due_before as string,
-      });
-
-    case 'get_students':
-      return AIQueryService.getStudents(userId, {
-        departmentId: toolInput.department_id as string,
-        programId: toolInput.program_id as string,
-        semesterId: toolInput.semester_id as string,
-        sectionId: toolInput.section_id as string,
-        status: toolInput.status as string,
-        search: toolInput.search as string,
-      });
-
-    case 'get_student_details':
-      return AIQueryService.getStudentDetails(userId, toolInput.student_id as string);
-
-    case 'search_students':
-      return AIQueryService.searchStudents(userId, {
-        searchQuery: toolInput.search_query as string,
-        searchFields: toolInput.search_fields as string[],
-        status: toolInput.status as string,
-        departmentId: toolInput.department_id as string,
-        exactMatch: toolInput.exact_match as boolean,
-      });
-
-    case 'get_students_by_department':
-      return AIQueryService.getStudentsByDepartment(userId, {
-        institutionId: toolInput.institution_id as string,
-        status: toolInput.status as string,
-      });
-
-    case 'get_students_summary':
-      return AIQueryService.getStudentsSummary(userId, {
-        institutionId: toolInput.institution_id as string,
-        departmentId: toolInput.department_id as string,
-      });
-
-    case 'get_learners_by_location':
-      return AIQueryService.getLearnersByLocation(userId, {
-        district: toolInput.district as string,
-        state: toolInput.state as string,
-        taluk: toolInput.taluk as string,
-        city: toolInput.city as string,
-        status: toolInput.status as string,
-        departmentId: toolInput.department_id as string,
-        includeStats: toolInput.include_stats as boolean,
-      });
-
-    case 'get_learners_comprehensive':
-      return AIQueryService.getLearnersComprehensive(userId, {
-        search: toolInput.search as string,
-        status: toolInput.status as string,
-        gender: toolInput.gender as string,
-        religion: toolInput.religion as string,
-        community: toolInput.community as string,
-        caste: toolInput.caste as string,
-        accommodationType: toolInput.accommodation_type as string,
-        institutionId: toolInput.institution_id as string,
-        departmentId: toolInput.department_id as string,
-        programId: toolInput.program_id as string,
-        degreeId: toolInput.degree_id as string,
-        semesterId: toolInput.semester_id as string,
-        sectionId: toolInput.section_id as string,
-        entryType: toolInput.entry_type as string,
-        quota: toolInput.quota as string,
-        category: toolInput.category as string,
-        firstGraduate: toolInput.first_graduate as boolean,
-        counselingApplied: toolInput.counseling_applied as boolean,
-        district: toolInput.district as string,
-        state: toolInput.state as string,
-        taluk: toolInput.taluk as string,
-        boardOfStudy: toolInput.board_of_study as string,
-        lastSchool: toolInput.last_school as string,
-        includeStats: toolInput.include_stats as boolean,
-      });
-
-    // Admission Tools
-    case 'get_admissions':
-      return AIQueryService.getAdmissions(userId, {
-        institutionId: toolInput.institution_id as string,
-        departmentId: toolInput.department_id as string,
-        programId: toolInput.program_id as string,
-        degreeId: toolInput.degree_id as string,
-        status: toolInput.status as string,
-        entryType: toolInput.entry_type as string,
-        district: toolInput.district as string,
-        state: toolInput.state as string,
-        taluk: toolInput.taluk as string,
-        gender: toolInput.gender as string,
-        religion: toolInput.religion as string,
-        community: toolInput.community as string,
-        counselingApplied: toolInput.counseling_applied as boolean,
-        firstGraduate: toolInput.first_graduate as boolean,
-        quota: toolInput.quota as string,
-        category: toolInput.category as string,
-        accommodationType: toolInput.accommodation_type as string,
-        search: toolInput.search as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-        includeStats: toolInput.include_stats as boolean,
-      });
-
-    case 'get_admission_details':
-      return AIQueryService.getAdmissionDetails(userId, {
-        admissionId: toolInput.admission_id as string,
-        applicationId: toolInput.application_id as string,
-      });
-
-    case 'get_admissions_by_location':
-      return AIQueryService.getAdmissionsByLocation(userId, {
-        district: toolInput.district as string,
-        state: toolInput.state as string,
-        taluk: toolInput.taluk as string,
-        city: toolInput.city as string,
-        status: toolInput.status as string,
-        includeStats: toolInput.include_stats as boolean,
-      });
-
-    case 'get_admission_statistics':
-      return AIQueryService.getAdmissionStatistics(userId, {
-        institutionId: toolInput.institution_id as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-        groupBy: toolInput.group_by as string,
-      });
-
-    case 'get_admission_analytics':
-      return AIQueryService.getAdmissionAnalytics(userId, {
-        institutionId: toolInput.institution_id as string,
-        academicYearId: toolInput.academic_year_id as string,
-        includeTrends: toolInput.include_trends as boolean,
-      });
-
-    case 'get_admission_referrers':
-      return AIQueryService.getAdmissionReferrers(userId, {
-        referenceType: toolInput.reference_type as string,
-        referenceName: toolInput.reference_name as string,
-        institutionId: toolInput.institution_id as string,
-        programId: toolInput.program_id as string,
-        departmentId: toolInput.department_id as string,
-        status: toolInput.status as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-        topN: toolInput.top_n as number,
-        includeDetails: toolInput.include_details as boolean,
-      });
-
-    case 'get_staff':
-      return AIQueryService.getStaff(userId, {
-        departmentId: toolInput.department_id as string,
-        employmentCategoryId: toolInput.employment_category_id as string,
-        status: toolInput.status as string,
-        search: toolInput.search as string,
-      });
-
-    case 'get_hierarchy_summary':
-      return AIQueryService.getHierarchySummary(userId, toolInput.institution_id as string);
-
-    case 'get_departments':
-      return AIQueryService.getDepartments(userId, {
-        institutionId: toolInput.institution_id as string,
-      });
-
-    case 'get_transport_bookings':
-      return AIQueryService.getTransportBookings(userId, {
-        learnerId: toolInput.learner_id as string,
-        routeId: toolInput.route_id as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-      });
-
-    case 'get_mess_bookings':
-      return AIQueryService.getMessBookings(userId, {
-        learnerId: toolInput.learner_id as string,
-        mealType: toolInput.meal_type as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-      });
-
-    case 'get_hostel_allocations':
-      return AIQueryService.getHostelAllocations(userId, {
-        learnerId: toolInput.learner_id as string,
-        status: toolInput.status as string,
-      });
-
-    case 'get_meeting_bookings':
-      return AIQueryService.getMeetingBookings(userId, {
-        status: toolInput.status as string,
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-      });
-
-    case 'get_cdc_drive_attendance':
-      return AIQueryService.getCdcDriveAttendance(userId, {
-        learnerId: toolInput.learner_id as string,
-        driveId: toolInput.drive_id as string,
-      });
-
-    case 'get_event_attendance':
-      return AIQueryService.getEventAttendance(userId, {
-        learnerId: toolInput.learner_id as string,
-        sessionId: toolInput.session_id as string,
-      });
-
-    case 'get_health_participation':
-      return AIQueryService.getHealthParticipation(userId, {
-        learnerId: toolInput.learner_id as string,
-        programId: toolInput.program_id as string,
-      });
-
-    case 'get_kpi_summary':
-      return AIQueryService.getKPISummary(userId, toolInput.institution_id as string);
-
-    case 'get_analytics_overview':
-      return AIQueryService.getAnalyticsOverview(userId, {
-        dateFrom: toolInput.date_from as string,
-        dateTo: toolInput.date_to as string,
-      });
-
-    case 'get_notifications':
-      return AIQueryService.getNotifications(userId, {
-        isRead: toolInput.is_read as boolean,
-        type: toolInput.type as string,
-      });
-
-    case 'export_csv':
-      return AIQueryService.exportData(userId, {
-        dataSource: toolInput.data_source as string,
-        filters: toolInput.filters as Record<string, unknown>,
-      });
-
-    default:
-      return {
-        success: false,
-        data: null,
-        metadata: {
-          total_count: 0,
-          returned_count: 0,
-          has_more: false,
-          filters_applied: {},
-        },
-        actions_available: [],
-        error: {
-          code: 'TOOL_NOT_FOUND',
-          message: `Unknown tool: ${toolName}`,
-        },
-      };
-  }
-}
-
-/**
- * Generate context-aware suggestions based on tools called
- * Returns suggestions related to the module the user queried
- */
-function getContextAwareSuggestions(toolsCalled: string[]): string[] {
-  // Module-specific suggestions
-  const suggestionsByModule: Record<string, string[]> = {
-    // Admissions module
-    admissions: [
-      'Show admission statistics by institution',
-      'List pending admission applications',
-      'Show admissions from Salem district',
-      'Get admission analytics and trends',
-      'Show admissions by community breakdown',
-      'List first-year admissions',
-      'Show hostel accommodation requests',
-      'Show top 5 consultants and their referrals',
-      'List consultants with their programs and locations',
-      'Get consultant performance analytics',
-    ],
-    // Academic/Attendance module
-    academic: [
-      'Show learners with participation below 75%',
-      'Get learning participation summary by department',
-      'Show today\'s participation status',
-      'List sections with low participation',
-      'Get department-wise participation trends',
-    ],
-    // Billing module
-    billing: [
-      'List fee defaulters',
-      'Show pending bills summary',
-      'Get billing statistics by department',
-      'Show overdue payments',
-      'List partially paid bills',
-    ],
-    // Students/Learners module
-    learners: [
-      'Get department-wise learner count',
-      'Show learners by status',
-      'List learners from specific district',
-      'Get learner demographics summary',
-      'Show section-wise learner distribution',
-    ],
-    // Staff/Facilitators module
-    staff: [
-      'List facilitators by department',
-      'Show facilitator count by category',
-      'Get facilitator details',
-      'List active facilitators',
-    ],
-    // Organization module
-    organization: [
-      'Show institution hierarchy',
-      'List all departments',
-      'Get program-wise summary',
-      'Show organization structure',
-    ],
-    // Dashboard/Analytics module
-    dashboard: [
-      'Get KPI summary',
-      'Show analytics overview',
-      'Get institution performance metrics',
-      'Show key statistics',
-    ],
-  };
-
-  // Tool to module mapping
-  const toolModuleMap: Record<string, string> = {
-    // Admissions tools
-    get_admissions: 'admissions',
-    get_admission_details: 'admissions',
-    get_admissions_by_location: 'admissions',
-    get_admission_statistics: 'admissions',
-    get_admission_analytics: 'admissions',
-    get_admission_referrers: 'admissions',
-    // Academic tools
-    get_attendance: 'academic',
-    get_attendance_summary: 'academic',
-    get_attendance_defaulters: 'academic',
-    // Billing tools
-    get_student_bills: 'billing',
-    get_fee_defaulters: 'billing',
-    get_bills_summary: 'billing',
-    // Learner tools
-    get_students: 'learners',
-    get_student_details: 'learners',
-    get_students_by_department: 'learners',
-    get_students_summary: 'learners',
-    get_learners_by_location: 'learners',
-    get_learners_comprehensive: 'learners',
-    // Staff tools
-    get_staff: 'staff',
-    get_staff_details: 'staff',
-    get_staff_by_department: 'staff',
-    // Organization tools
-    get_hierarchy_summary: 'organization',
-    get_departments: 'organization',
-    get_institutions: 'organization',
-    // Dashboard tools
-    get_kpi_summary: 'dashboard',
-    get_analytics_overview: 'dashboard',
-  };
-
-  // Determine which modules were queried
-  const queriedModulesSet = new Set<string>();
-  for (const tool of toolsCalled) {
-    const moduleName = toolModuleMap[tool];
-    if (moduleName) {
-      queriedModulesSet.add(moduleName);
-    }
-  }
-  const queriedModules = Array.from(queriedModulesSet);
-
-  // Generate suggestions from queried modules
-  const suggestions: string[] = [];
-
-  // First, add suggestions from the modules that were queried
-  for (const queriedModule of queriedModules) {
-    const moduleSuggestions = suggestionsByModule[queriedModule] || [];
-    // Add 2-3 suggestions from each queried module
-    suggestions.push(...moduleSuggestions.slice(0, 3));
-  }
-
-  // If we have suggestions, shuffle and return top 4
-  if (suggestions.length > 0) {
-    // Shuffle array
-    for (let i = suggestions.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [suggestions[i], suggestions[j]] = [suggestions[j], suggestions[i]];
-    }
-    return suggestions.slice(0, 4);
-  }
-
-  // Default suggestions if no module detected
-  return [
-    'Show me learning participation defaulters',
-    'List fee defaulters',
-    'Get KPI summary',
-    'Show department-wise learner count',
-  ];
-}
-
-// ============================================================================
-// Max-lane chat (seat-owner only)
-// ============================================================================
-// The runner box drains the chat queue every ~1 min, so an unclaimed request
-// after 120s means the box is not picking up. TOTAL wait is capped at 180s —
-// deliberately well under maxDuration=300 so the API fallback (tool-use loop)
-// always has ≥100s of function budget left; a 240s wait raced the 300s kill
-// and could leave the user with NO answer (deep-review consensus finding).
-// The 180/120 split is a REVIEWED trade-off (deep-review round-2 #4): the
-// fallback engine is Haiku (measured ~15s for a 2-call tool question), so
-// ~100s headroom is ~6x the measured worst case; shrinking the lane window
-// further would abandon legitimate Max runs (pickup ≤60s + run ≤110s = 170s).
 const MAX_LANE_POLL_MS = 2_500;
 const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
 const MAX_LANE_TOTAL_DEADLINE_MS = 180_000;
 
-function parseMaxLaneUserIds(configJson: unknown): string[] {
-  if (!configJson || typeof configJson !== 'object') return [];
-  const ids = (configJson as Record<string, unknown>).max_lane_user_ids;
-  return Array.isArray(ids)
-    ? ids.filter((v): v is string => typeof v === 'string')
-    : [];
-}
-
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Why the Max lane didn't answer — drives the small note appended to the
- *  API fallback answer (Director edge-case decision 2026-07-11: fallbacks
- *  should say so, not pretend to be Max). */
+/** Why the Max lane didn't answer */
 type MaxLaneMiss = 'offline' | 'busy' | 'slow' | 'error';
 
 const MAX_LANE_MISS_NOTE: Record<MaxLaneMiss, string> = {
-  offline: 'ⓘ _Answered by the paid engine — the Max lane machine is asleep._',
-  busy: 'ⓘ _Answered by the paid engine — the Max lane queue was full._',
-  slow: 'ⓘ _Answered by the paid engine — the Max lane didn’t finish in time._',
-  error: 'ⓘ _Answered by the paid engine — the Max lane hit an error._',
+  offline: 'ⓘ _The Max lane machine is asleep._',
+  busy: 'ⓘ _The Max lane queue is full._',
+  slow: 'ⓘ _The Max lane didn’t finish in time._',
+  error: 'ⓘ _The Max lane hit an error._',
 };
 
 /**
  * Queue one question on the Max lane and wait for the runner's answer.
  * Returns { answer } on success, or { answer: null, miss } for ANY failure
- * (runner offline, queue full, unclaimed too long, runner error, timeout) —
- * a miss always means "use the API path", never an error the user sees.
- * ('not allowed' returns no miss: the user isn't on the Max lane at all.)
+ * (runner offline, queue full, unclaimed too long, runner error, timeout).
  */
 async function tryMaxLane(
   supabase: Awaited<ReturnType<typeof createClient>>,
   message: string,
   conversationId: string | undefined,
 ): Promise<{ answer: string | null; miss?: MaxLaneMiss; requestId?: string }> {
-  // Entirely try/caught: a THROWN client/network error (vs a returned one)
-  // must also read as "miss → API path", never as an error the user sees.
   try {
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const { data: req, error: reqError } = await supabase.rpc('fn_max_chat_request', {
@@ -1164,7 +52,7 @@ async function tryMaxLane(
       const errText = typeof req?.error === 'string' ? req.error : '';
       if (errText === 'runner offline') return { answer: null, miss: 'offline' };
       if (errText === 'queue full') return { answer: null, miss: 'busy' };
-      return { answer: null }; // not allowed / invalid — plain API path, no note
+      return { answer: null };
     }
 
     const startedAt = Date.now();
@@ -1173,42 +61,30 @@ async function tryMaxLane(
       const { data: st, error: stError } = await supabase.rpc('fn_max_chat_status', {
         p_id: req.request_id,
       });
-      if (stError || !st || typeof st.status !== 'string') continue; // transient — keep polling
+      if (stError || !st || typeof st.status !== 'string') continue;
       if (st.status === 'done') {
-        // Terminal either way: a done row with an empty/whitespace answer is
-        // a runner defect — fall back NOW instead of polling a finished row
-        // to the deadline (deep-review finding).
         if (typeof st.answer === 'string' && st.answer.trim().length > 0) {
-          // NO server-side delivery stamp here (deep-review consensus): if
-          // this response is lost in transit, the row must resurface in the
-          // inbox. The client ACKs via PATCH after rendering, using the
-          // request id we hand back.
           return { answer: st.answer, requestId: req.request_id };
         }
         return { answer: null, miss: 'error' };
       }
       if (st.status === 'error') return { answer: null, miss: 'error' };
-      // Row vanished (expired/swept by the claim RPC's hygiene pass) — stop
-      // polling a ghost; fall back immediately.
       if (st.status === 'not_found') return { answer: null, miss: 'error' };
       if (st.status === 'pending' && Date.now() - startedAt > MAX_LANE_UNCLAIMED_DEADLINE_MS) {
-        break; // runner never claimed it — don't burn the full window waiting
+        break;
       }
     }
 
-    // Abandoning the wait: cancel so a late-claiming runner doesn't burn the
-    // seat on a question the API fallback is about to answer anyway. (A late
-    // completion is discarded — complete only updates status='claimed' rows.)
     await supabase.rpc('fn_max_chat_cancel', { p_id: req.request_id });
     return { answer: null, miss: 'slow' };
   } catch (err) {
-    console.error('[ai-query] max-lane attempt threw — falling back to API:', err);
+    console.error('[ai-query] max-lane attempt threw:', err);
     return { answer: null, miss: 'error' };
   }
 }
 
 /**
- * PATCH /api/ai-query — acknowledge delivery of rendered Max answers.
+ * PATCH route — acknowledge delivery of rendered Max answers.
  * Body: { ack_ids: uuid[] }. Called by the client only AFTER the answers are
  * on screen (inbox restores and live deliveries alike); the RPC is
  * requester-scoped so users can only ack their own rows. Idempotent.
@@ -1240,13 +116,14 @@ export async function PATCH(request: NextRequest) {
   }
   const { error } = await supabase.rpc('fn_max_chat_ack', { p_ids: ids });
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    console.error('[ai-query] ack failed:', error.message);
+    return NextResponse.json({ ok: false, error: 'ack failed' }, { status: 500 });
   }
   return NextResponse.json({ ok: true });
 }
 
 /**
- * GET /api/ai-query — the Max-lane "while you were away" inbox.
+ * GET route — the Max-lane "while you were away" inbox.
  * PURE READ (idempotent — safe under prefetch/retries): returns finished,
  * still-unacknowledged Max answers for the CALLER (the RPC is requester-
  * scoped; users who never ride the Max lane simply get []). Delivery is
@@ -1266,10 +143,125 @@ export async function GET() {
   }
   const { data, error } = await supabase.rpc('fn_max_chat_inbox');
   if (error) {
-    // RPC absent (migration not applied) or transient — an empty inbox, not an error.
     return NextResponse.json({ inbox: [] });
   }
   return NextResponse.json({ inbox: Array.isArray(data) ? data : [] });
+}
+
+function getContextAwareSuggestions(toolsCalled: string[]): string[] {
+  // Module-specific suggestions
+  const suggestionsByModule: Record<string, string[]> = {
+    admissions: [
+      'Show admission statistics by institution',
+      'List pending admission applications',
+      'Show admissions from Salem district',
+      'Get admission analytics and trends',
+      'Show admissions by community breakdown',
+      'List first-year admissions',
+      'Show hostel accommodation requests',
+      'Show top 5 consultants and their referrals',
+      'List consultants with their programs and locations',
+      'Get consultant performance analytics',
+    ],
+    academic: [
+      'Show learners with participation below 75%',
+      'Get learning participation summary by department',
+      'Show today\'s participation status',
+      'List sections with low participation',
+      'Get department-wise participation trends',
+    ],
+    billing: [
+      'List fee defaulters',
+      'Show pending bills summary',
+      'Get billing statistics by department',
+      'Show overdue payments',
+      'List partially paid bills',
+    ],
+    learners: [
+      'Get department-wise learner count',
+      'Show learners by status',
+      'List learners from specific district',
+      'Get learner demographics summary',
+      'Show section-wise learner distribution',
+    ],
+    staff: [
+      'List facilitators by department',
+      'Show facilitator count by category',
+      'Get facilitator details',
+      'List active facilitators',
+    ],
+    organization: [
+      'Show institution hierarchy',
+      'List all departments',
+      'Get program-wise summary',
+      'Show organization structure',
+    ],
+    dashboard: [
+      'Get KPI summary',
+      'Show analytics overview',
+      'Get institution performance metrics',
+      'Show key statistics',
+    ],
+  };
+
+  const toolModuleMap: Record<string, string> = {
+    get_admissions: 'admissions',
+    get_admission_details: 'admissions',
+    get_admissions_by_location: 'admissions',
+    get_admission_statistics: 'admissions',
+    get_admission_analytics: 'admissions',
+    get_admission_referrers: 'admissions',
+    get_attendance: 'academic',
+    get_attendance_summary: 'academic',
+    get_attendance_defaulters: 'academic',
+    get_student_bills: 'billing',
+    get_fee_defaulters: 'billing',
+    get_bills_summary: 'billing',
+    get_students: 'learners',
+    get_student_details: 'learners',
+    get_students_by_department: 'learners',
+    get_students_summary: 'learners',
+    get_learners_by_location: 'learners',
+    get_learners_comprehensive: 'learners',
+    get_staff: 'staff',
+    get_staff_details: 'staff',
+    get_staff_by_department: 'staff',
+    get_hierarchy_summary: 'organization',
+    get_departments: 'organization',
+    get_institutions: 'organization',
+    get_kpi_summary: 'dashboard',
+    get_analytics_overview: 'dashboard',
+  };
+
+  const queriedModulesSet = new Set<string>();
+  for (const tool of toolsCalled) {
+    const moduleName = toolModuleMap[tool];
+    if (moduleName) {
+      queriedModulesSet.add(moduleName);
+    }
+  }
+  const queriedModules = Array.from(queriedModulesSet);
+
+  const suggestions: string[] = [];
+  for (const queriedModule of queriedModules) {
+    const moduleSuggestions = suggestionsByModule[queriedModule] || [];
+    suggestions.push(...moduleSuggestions.slice(0, 3));
+  }
+
+  if (suggestions.length > 0) {
+    for (let i = suggestions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [suggestions[i], suggestions[j]] = [suggestions[j], suggestions[i]];
+    }
+    return suggestions.slice(0, 4);
+  }
+
+  return [
+    'Show me learning participation defaulters',
+    'List fee defaulters',
+    'Get KPI summary',
+    'Show department-wise learner count',
+  ];
 }
 
 export async function POST(request: NextRequest) {
@@ -1277,27 +269,10 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const toolsCalled: string[] = [];
 
-  // Capture request context for error logging
   const ipAddress = request.headers.get('x-forwarded-for') || undefined;
   const userAgent = request.headers.get('user-agent') || undefined;
-  let queryMessage: string | undefined;
-  let userInstitutionId: string | undefined;
-
-  // AI usage accounting — aggregated across every messages.create in the
-  // tool-use loop, recorded ONCE per request into ai_model_usage.
-  let aiModelId: string | null = null;
-  let aiAttempted = false;
-  let aiInputTokens = 0;
-  let aiOutputTokens = 0;
-  let aiCacheCreationTokens = 0;
-  let aiCacheReadTokens = 0;
-  let aiDurationMs = 0;
-  // Set once the success row is written, so a later throw (e.g. logQuery
-  // failing AFTER the AI call succeeded) can't add a second failure row.
-  let aiUsageRecorded = false;
 
   try {
-    // Get authenticated user
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
@@ -1308,13 +283,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Initialize AIQueryService with the server-side Supabase client
     AIQueryService.initialize(supabase as any);
 
-    // Parse request body
     const body: AIQueryRequest = await request.json();
     const { message, conversation_id } = body;
-    queryMessage = message; // Capture for error logging
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -1323,7 +295,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check rate limit
     const rateLimit = await AIQueryService.checkRateLimit(user.id);
     if (!rateLimit.allowed) {
       return NextResponse.json(
@@ -1338,7 +309,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user context
     const userContext = await AIQueryService.getUserContext(user.id);
     if (!userContext) {
       return NextResponse.json(
@@ -1346,233 +316,49 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    userInstitutionId = userContext.institution_ids?.[0]; // Capture for error logging
 
-    // Increment query count
     await AIQueryService.incrementQueryCount(user.id);
 
-    // Resolve the model ONCE per request and reuse it for the initial call AND
-    // every tool-use continuation — resolving per-iteration risks a mid-loop
-    // model flip when the config service's 60s cache expires. Never throws.
-    const { model_id: modelForRequest, resolved: modelConfig } =
-      await resolveChatModel(FEATURE_KEY);
-    aiModelId = modelForRequest;
+    const { answer: maxAnswer, miss, requestId: maxRequestId } =
+      await tryMaxLane(supabase, message, conversation_id);
 
-    // ── Max-lane branch (seat-owner only, config-governed) ──────────────────
-    // ai_model_config.config_json.max_lane_user_ids lists the auth.users ids
-    // whose questions run on the Claude Max seat via the runner box. This must
-    // stay a per-user allowlist (the seat owner), NEVER a role-wide grant — a
-    // personal subscription seat must not serve other users' product traffic.
-    // The RPC re-verifies the allowlist and runner heartbeat server-side; any
-    // failure falls through to the cached API path so an answer always comes.
-    let maxLaneMiss: MaxLaneMiss | undefined;
-    if (parseMaxLaneUserIds(modelConfig.config_json).includes(user.id)) {
-      const { answer: maxAnswer, miss, requestId: maxRequestId } =
-        await tryMaxLane(supabase, message, conversation_id);
-      maxLaneMiss = miss;
-      if (maxAnswer !== null) {
-        toolsCalled.push('max_lane');
-        await AIQueryService.logQuery({
-          userId: user.id,
-          institutionId: userContext.institution_ids?.[0],
-          queryText: message,
-          queryType: 'data_query',
-          toolsCalled,
-          responseTimeMs: Date.now() - startTime,
-          success: true,
-          ipAddress,
-          userAgent,
-        });
-        // No ai_model_usage row from the route on this path — the runner
-        // records the seat call (provider=claude_code, model=max-subscription,
-        // cost_inr=0) so /admin/ai-models still sees every invocation.
-        // max_request_id: the client ACKs delivery (PATCH) after rendering —
-        // until then the row stays inbox-visible so a lost response re-shows.
-        return NextResponse.json({
-          conversation_id: conversation_id || crypto.randomUUID(),
-          max_request_id: maxRequestId,
-          message: {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: maxAnswer,
-            timestamp: new Date().toISOString(),
-            toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
-          },
-          suggestions: getContextAwareSuggestions(toolsCalled),
-          rate_limit: rateLimit,
-        });
-      }
-    }
-
-    // Build messages for Claude
-    const messages: Anthropic.MessageParam[] = [
-      { role: 'user', content: message }
-    ];
-
-    // Call Claude with tools
-    aiAttempted = true;
-    let aiCallStart = Date.now();
-    let response = await anthropic.messages.create({
-      model: modelForRequest,
-      max_tokens: 4096,
-      system: buildSystemBlocks(userContext),
-      tools: AI_TOOLS,
-      messages,
-    });
-    aiDurationMs += Date.now() - aiCallStart;
-    aiInputTokens += response.usage?.input_tokens ?? 0;
-    aiOutputTokens += response.usage?.output_tokens ?? 0;
-    aiCacheCreationTokens += response.usage?.cache_creation_input_tokens ?? 0;
-    aiCacheReadTokens += response.usage?.cache_read_input_tokens ?? 0;
-
-    // Process tool calls
-    while (response.stop_reason === 'tool_use') {
-      const toolUseBlocks = response.content.filter(
-        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
-      );
-
-      const toolResults: Anthropic.MessageParam = {
-        role: 'user',
-        content: await Promise.all(
-          toolUseBlocks.map(async (toolUse) => {
-            toolsCalled.push(toolUse.name);
-            const result = await executeTool(
-              toolUse.name,
-              toolUse.input as Record<string, unknown>,
-              user.id
-            );
-            // Apply smart truncation to prevent token overflow
-            const truncatedResult = truncateToolResult(result);
-            return {
-              type: 'tool_result' as const,
-              tool_use_id: toolUse.id,
-              content: JSON.stringify(truncatedResult),
-            };
-          })
-        ),
-      };
-
-      // Continue conversation with tool results
-      messages.push({ role: 'assistant', content: response.content });
-      messages.push(toolResults);
-
-      aiCallStart = Date.now();
-      response = await anthropic.messages.create({
-        model: modelForRequest,
-        max_tokens: 4096,
-        system: buildSystemBlocks(userContext),
-        tools: AI_TOOLS,
-        messages,
+    if (maxAnswer !== null) {
+      toolsCalled.push('max_lane');
+      await AIQueryService.logQuery({
+        userId: user.id,
+        institutionId: userContext.institution_ids?.[0],
+        queryText: message,
+        queryType: 'data_query',
+        toolsCalled,
+        responseTimeMs: Date.now() - startTime,
+        success: true,
+        ipAddress,
+        userAgent,
       });
-      aiDurationMs += Date.now() - aiCallStart;
-      aiInputTokens += response.usage?.input_tokens ?? 0;
-      aiOutputTokens += response.usage?.output_tokens ?? 0;
-      aiCacheCreationTokens += response.usage?.cache_creation_input_tokens ?? 0;
-      aiCacheReadTokens += response.usage?.cache_read_input_tokens ?? 0;
+
+      return NextResponse.json({
+        conversation_id: conversation_id || crypto.randomUUID(),
+        max_request_id: maxRequestId,
+        message: {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: maxAnswer,
+          timestamp: new Date().toISOString(),
+          toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
+        },
+        suggestions: getContextAwareSuggestions(toolsCalled),
+        rate_limit: rateLimit,
+      });
     }
 
-    // Record aggregated usage for the whole request (internally non-throwing).
-    // Separate ledger from AIQueryService.logQuery (ai query log has no token
-    // fields) — this writes ai_model_usage so /admin/ai-models sees the spend.
-    // Cache-aware cost: cache WRITES bill at 1.25x the input price and cache
-    // READS at 0.1x, so fold both into a weighted input count for the linear
-    // pricer. The ledger's input_tokens stays the RAW total processed
-    // (uncached + writes + reads) so token volume is honest.
-    const billableInputTokens = Math.round(
-      aiInputTokens + 1.25 * aiCacheCreationTokens + 0.1 * aiCacheReadTokens,
+    const errorMessage = miss ? MAX_LANE_MISS_NOTE[miss] : 'The Max lane is currently unavailable.';
+    return NextResponse.json(
+      { error: { code: 'SERVER_ERROR', message: errorMessage } },
+      { status: 500 }
     );
-    await recordChatUsage(FEATURE_KEY, 'anthropic', modelForRequest, {
-      input_tokens: aiInputTokens + aiCacheCreationTokens + aiCacheReadTokens,
-      output_tokens: aiOutputTokens,
-      cost_inr:
-        computeChatCostInr(modelForRequest, billableInputTokens, aiOutputTokens) ??
-        undefined,
-      duration_ms: aiDurationMs,
-      success: true,
-    });
-    aiUsageRecorded = true;
-
-    // Extract final text response
-    const textBlocks = response.content.filter(
-      (block): block is Anthropic.TextBlock => block.type === 'text'
-    );
-    let responseText = textBlocks.map(b => b.text).join('\n');
-    // Max-lane user whose question fell back here: say so (small footer note)
-    // instead of silently pretending the seat answered.
-    if (maxLaneMiss) {
-      responseText = `${responseText}\n\n${MAX_LANE_MISS_NOTE[maxLaneMiss]}`;
-    }
-
-    // Log the query
-    const responseTime = Date.now() - startTime;
-    await AIQueryService.logQuery({
-      userId: user.id,
-      institutionId: userContext.institution_ids?.[0],
-      queryText: message,
-      queryType: 'data_query',
-      toolsCalled,
-      responseTimeMs: responseTime,
-      success: true,
-      ipAddress: request.headers.get('x-forwarded-for') || undefined,
-      userAgent: request.headers.get('user-agent') || undefined,
-    });
-
-    // Return response
-    return NextResponse.json({
-      conversation_id: conversation_id || crypto.randomUUID(),
-      message: {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: responseText,
-        timestamp: new Date().toISOString(),
-        toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
-      },
-      suggestions: getContextAwareSuggestions(toolsCalled),
-      rate_limit: rateLimit,
-    });
 
   } catch (error) {
-    console.error('[ai-query] API error:', error);
-
-    // Record the failed AI invocation (only when an AI call was actually
-    // attempted — auth/context failures before the first call are not AI
-    // usage — and the success row wasn't already written). recordChatUsage
-    // is internally non-throwing.
-    if (aiAttempted && aiModelId && !aiUsageRecorded) {
-      await recordChatUsage(FEATURE_KEY, 'anthropic', aiModelId, {
-        input_tokens:
-          (aiInputTokens + aiCacheCreationTokens + aiCacheReadTokens) || undefined,
-        output_tokens: aiOutputTokens || undefined,
-        duration_ms: Date.now() - startTime,
-        success: false,
-        error_message: error instanceof Error ? error.message.slice(0, 500) : String(error),
-      });
-    }
-
-    // Log failed query with all required parameters
-    const responseTime = Date.now() - startTime;
-    try {
-      const supabase = await createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await AIQueryService.logQuery({
-          userId: user.id,
-          institutionId: userInstitutionId,
-          queryText: queryMessage || 'unknown_query',
-          queryType: 'data_query',
-          toolsCalled: toolsCalled.length > 0 ? toolsCalled : [],
-          responseTimeMs: responseTime,
-          success: false,
-          errorCode: 'SERVER_ERROR',
-          ipAddress,
-          userAgent,
-        });
-      }
-    } catch (logError) {
-      // Log but don't fail on logging errors
-      console.error('[ai-query] Failed to log error query:', logError);
-    }
-
+    console.error('[ai-query] Route error:', error);
     return NextResponse.json(
       { error: { code: 'SERVER_ERROR', message: 'Something went wrong. Please try again.' } },
       { status: 500 }
