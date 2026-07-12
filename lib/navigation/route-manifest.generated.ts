@@ -1844,6 +1844,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/refund-approvals",
+        "label": "Refund Approvals",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/refunds",
         "label": "Refunds",
         "iconName": "Wallet",
@@ -1882,19 +1888,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/billing/schedule/students",
             "label": "Students",
             "iconName": "CalendarClock",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/billing/settings",
-        "label": "Settings",
-        "iconName": "Settings",
-        "children": [
-          {
-            "path": "/billing/settings/refund-approvals",
-            "label": "Refund Approvals",
-            "iconName": "Wallet",
             "children": []
           }
         ]
