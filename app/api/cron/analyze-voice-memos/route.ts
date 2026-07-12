@@ -42,6 +42,7 @@
 // Created: 2026-05-09 (Build #4 voice memo backend).
 // Updated: 2026-05-09 (multi-provider via ai_model_config).
 // Updated: 2026-05-22 (language-code normalization + Sarvam + orphan recovery).
+// Updated: 2026-07-12 (provider rate-limit cooldown gate — skip doomed probes).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -93,6 +94,22 @@ const MAX_ANALYZE_ATTEMPTS = 5;
 // per single charge — valid rows effectively never park from outages, and
 // the counter stops growing the moment the provider heals.
 const TRANSIENT_CHARGE_THRESHOLD = 10;
+
+// Provider rate-limit cooldown. When the most recent transcription call (same
+// provider+model as the current config) failed ratelimit-class, runs inside
+// this window make ZERO transcription calls instead of re-probing a wall that
+// resets on the provider's own clock (Groq ASPD is a DAILY audio budget).
+//
+// Bug receipt (2026-07-12): after #1764 drained the backlog (2,657 memos,
+// Jul 4–5), the Groq org's 28,800 audio-sec/day cap stayed saturated by
+// traffic OUTSIDE this pipeline's ledger (shared org key) — every 5-min run
+// probed 2 rows into a guaranteed 429, ~570 doomed calls/day for 6+ days,
+// and ratelimit-class failures (correctly) charge nothing, so the ~110
+// unparked rows would probe forever. 30 min bounds both the waste (≤ ~96
+// probe calls/day while the wall persists) and the recovery latency (≤ 30
+// min after quota frees). A provider/model flip in /admin/ai-models bypasses
+// the cooldown immediately — the ledger row no longer matches the config.
+const RATELIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
@@ -388,6 +405,40 @@ export async function GET(request: NextRequest) {
   let transcribeSkipped = 0; // fresh rows skipped while skipTranscribe (untouched, next run's problem)
   let sentimentDeferred = 0; // rows left in 'analyzing' for a later sentiment resume
   let claimMissed = 0; // rows another concurrent run claimed first (CAS returned 0 rows)
+
+  // --- Rate-limit cooldown gate (see RATELIMIT_COOLDOWN_MS) ---------
+  // Reads this route's own usage ledger (indexed: feature_key, invoked_at
+  // DESC). If the latest transcription call for the CURRENT provider+model
+  // was a ratelimit-class failure within the cooldown window, seed
+  // skipTranscribe: fresh rows are left untouched (counted in
+  // transcribe_skipped) while sentiment-resume rows still drain — their
+  // provider is independent and may be healthy. Fail-open: a ledger read
+  // problem must never stop the pipeline.
+  try {
+    const { data: lastTx } = await supabase
+      .from('ai_model_usage')
+      .select('success, error_message, invoked_at, provider, model_id')
+      .eq('feature_key', 'voice_memo.transcribe')
+      .order('invoked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (
+      lastTx &&
+      lastTx.success === false &&
+      lastTx.provider === transcribeConfig.provider &&
+      lastTx.model_id === transcribeConfig.model_id &&
+      classifyFailure(new Error(lastTx.error_message || '')) === 'ratelimit'
+    ) {
+      const cooldownUntil =
+        new Date(lastTx.invoked_at).getTime() + RATELIMIT_COOLDOWN_MS;
+      if (Date.now() < cooldownUntil) {
+        skipTranscribe = true;
+        halted = `ratelimit-cooldown until ${new Date(cooldownUntil).toISOString()}`;
+      }
+    }
+  } catch {
+    // best-effort — cooldown is an optimization, never a gate on progress
+  }
 
   for (const c of candidates) {
     // Don't START a row without enough wall-clock left for it to finish —
