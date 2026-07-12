@@ -179,6 +179,12 @@ export class AIQueryService {
     userId: string,
     params: Record<string, unknown> = {}
   ): Promise<ToolResponse> {
+    // NOTE: `this.supabase` is the caller's SSR session client (createClient()
+    // in app/api/ai-query/route.ts uses createServerClient with cookies), so
+    // the user's JWT reaches the RPC and auth.uid() resolves inside it — NOT a
+    // service-role client. The 7 child-app RPCs gate on auth.uid() safely on
+    // this path (proven E2E: a super-admin session returned 1,314 transport
+    // bookings). The legacy p_user_id is still passed for the older tools.
     const rpcName = `ai_rpc_${toolName}`;
 
     try {
