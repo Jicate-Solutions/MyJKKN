@@ -1,21 +1,25 @@
 -- =====================================================================
 -- AI Query tool: transport bookings (first child-app wiring)
--- Migration: 2026-07-12
+-- Migration: 2026-07-12  (hardened same day after deep-review)
 -- =====================================================================
--- Wires the Transport app (tmsadmin.jkkn.ai) into the AI Assistant. Like the
--- other 59 ai_rpc_* tools it is SECURITY DEFINER + returns the standard
--- {success,data,metadata,actions_available} envelope, BUT the access gate is
--- the TRANSPORT permission model, not the academic one:
---   * super_admin bypass, OR user_has_permission('tms.bookings.view_all')
---     — the exact key the transport admin app uses (custom_roles.permissions),
---       matching fn tms_users_with_permission('tms.bookings.view_all').
---   * NO institution scoping: tms_route has no institution_id — buses serve
---     every college, so bookings are a shared, cross-institution resource.
---     Applying role_has_institution_access here would wrongly blank the data.
--- Read-only: SELECT only, no writes. anon EXECUTE revoked (standing rule).
+-- Wires the Transport app (tmsadmin.jkkn.ai) into the AI Assistant.
+--
+-- SECURITY (deep-review CRITICAL fix): identity is derived from auth.uid(),
+-- NOT the caller-supplied p_user_id. The 65 legacy ai_rpc_* tools trust
+-- p_user_id, which is a confused-deputy hole — any authenticated caller could
+-- pass a privileged uuid and bypass the gate. This function (and its 6
+-- child-app siblings) ignore p_user_id for authz and gate on the JWT identity.
+-- p_user_id stays in the signature only so the existing service call shape
+-- (executeTool always sends p_user_id) still resolves.
+--
+-- Gate = TRANSPORT permission model: super_admin OR the 'tms.bookings.view_all'
+-- key (held only by the central "Transport Head" role — a cross-institution
+-- role by design). NO institution scoping: tms_route has no institution_id
+-- (buses serve every college), so the permission IS the tenant boundary.
+-- Read-only; anon EXECUTE revoked.
 
 CREATE OR REPLACE FUNCTION public.ai_rpc_transport_bookings(
-  p_user_id     uuid,
+  p_user_id     uuid,                       -- IGNORED for authz (see header); identity = auth.uid()
   p_learner_id  uuid    DEFAULT NULL,
   p_route_id    uuid    DEFAULT NULL,
   p_date_from   text    DEFAULT NULL,
@@ -30,41 +34,35 @@ SECURITY DEFINER
 SET search_path = public
 AS $function$
 DECLARE
-  v_is_super  boolean;
-  v_allowed   boolean;
-  v_result    jsonb;
+  v_uid    uuid := auth.uid();
+  v_super  boolean;
+  v_ok     boolean;
+  v_result jsonb;
 BEGIN
-  SELECT COALESCE(is_super_admin, false) INTO v_is_super
-  FROM profiles WHERE id = p_user_id;
-
-  v_allowed := COALESCE(v_is_super, false) OR EXISTS (
-    SELECT 1
-    FROM user_roles ur
-    JOIN custom_roles cr ON cr.id = ur.role_id
-    WHERE ur.user_id = p_user_id
-      AND COALESCE(cr.is_active, true) = true
-      AND COALESCE((cr.permissions ->> 'tms.bookings.view_all')::boolean, false) = true
-  );
-
-  IF NOT v_allowed THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'data', '[]'::jsonb,
-      'metadata', jsonb_build_object('total_count', 0, 'returned_count', 0, 'has_more', false),
-      'actions_available', '[]'::jsonb,
-      'error', jsonb_build_object(
-        'code', 'FORBIDDEN',
-        'message', 'You do not have permission to view transport bookings (needs tms.bookings.view_all).'
-      )
-    );
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'data', '[]'::jsonb,
+      'metadata', jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),
+      'actions_available','[]'::jsonb,
+      'error', jsonb_build_object('code','UNAUTHORIZED','message','Sign in required.'));
   END IF;
 
-  WITH bookings AS (
-    SELECT b.travel_date,
-           b.booked_at,
+  SELECT COALESCE(is_super_admin, false) INTO v_super FROM profiles WHERE id = v_uid;
+  v_ok := COALESCE(v_super, false) OR EXISTS (
+    SELECT 1 FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_uid AND COALESCE(cr.is_active, true)
+      AND lower(COALESCE(cr.permissions ->> 'tms.bookings.view_all', '')) IN ('true','t','1'));
+
+  IF NOT COALESCE(v_ok, false) THEN
+    RETURN jsonb_build_object('success', false, 'data', '[]'::jsonb,
+      'metadata', jsonb_build_object('total_count',0,'returned_count',0,'has_more',false),
+      'actions_available','[]'::jsonb,
+      'error', jsonb_build_object('code','FORBIDDEN','message','You do not have permission to view transport bookings (needs tms.bookings.view_all).'));
+  END IF;
+
+  WITH base AS (
+    SELECT b.travel_date, b.booked_at,
            lp.first_name, lp.last_name, lp.roll_number,
-           r.route_number, r.route_name,
-           st.stop_name
+           r.route_number, r.route_name, st.stop_name
     FROM tms_booking b
     LEFT JOIN learners_profiles lp ON lp.id = b.learner_id
     LEFT JOIN tms_route         r  ON r.id  = b.route_id
@@ -73,20 +71,22 @@ BEGIN
       AND (p_route_id   IS NULL OR b.route_id   = p_route_id)
       AND (p_date_from  IS NULL OR b.travel_date >= p_date_from::date)
       AND (p_date_to    IS NULL OR b.travel_date <= p_date_to::date)
-    ORDER BY b.travel_date DESC, b.booked_at DESC
+  ),
+  paged AS (
+    SELECT * FROM base
+    ORDER BY travel_date DESC, booked_at DESC
     LIMIT GREATEST(p_limit, 0) OFFSET GREATEST(p_offset, 0)
   )
   SELECT jsonb_build_object(
     'success', true,
-    'data', COALESCE(jsonb_agg(row_to_json(x)::jsonb), '[]'::jsonb),
+    'data', COALESCE((SELECT jsonb_agg(row_to_json(p)::jsonb) FROM paged p), '[]'::jsonb),
     'metadata', jsonb_build_object(
-      'total_count',    (SELECT COUNT(*) FROM bookings),
-      'returned_count', (SELECT COUNT(*) FROM bookings),
-      'has_more', false
+      'total_count',    (SELECT COUNT(*) FROM base),
+      'returned_count', (SELECT COUNT(*) FROM paged),
+      'has_more',       (SELECT COUNT(*) FROM base) > (GREATEST(p_offset,0) + (SELECT COUNT(*) FROM paged))
     ),
     'actions_available', '[]'::jsonb
-  ) INTO v_result
-  FROM bookings x;
+  ) INTO v_result;
 
   RETURN v_result;
 END;
