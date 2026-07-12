@@ -319,6 +319,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/induction': 'induction.view',
   '/events/induction/new': 'induction.manage',
   '/events/induction/catalog': 'induction.view',
+  // Events landing + Projects module entry (menu-visibility gap fix
+  // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
+  // Role Management to reveal the Projects sidebar entry.
+  '/events': 'events.view',
+  '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -375,6 +380,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+  // Admin lane of session feedback (D2 gate) — leadership-view key
+  // (menu-visibility gap fix 2026-07-12)
+  '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -645,6 +653,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
   '/admission/marketing/campaigns/roi': 'admission.marketing.view',
   '/admission/marketing/campaigns/segments': 'admission.marketing.view',
+  // Menu-visibility gap fix 2026-07-12: these sidebar hrefs had no
+  // MENU_PERMISSIONS entry, so the filter hid them for every
+  // non-super-admin role (caught by check:menu-coverage).
+  '/admission/marketing/campaigns': 'admission.marketing.view',
+  '/admission/marketing/automations/monitoring': 'admission.marketing.view',
+  '/admission/marketing/automations/roi': 'admission.marketing.view',
+  '/admission/marketing/automations/segments': 'admission.marketing.view',
+  '/admission/marketing/database': 'admission.marketing.view',
+  '/admission/marketing/whatsapp-broadcast': 'admission.marketing.view',
   '/admission/marketing/chat': 'admission.marketing.chat.view',
   '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
   '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',

@@ -136,6 +136,9 @@ export function getAllAuditModuleNames(): string[] {
 export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = [
   // Reference / Masters hub (registry-driven catalogs, 2026-07-11)
   ['/reference', 'Reference'],
+  // Projects module (menu-visibility gap fix 2026-07-12 — first
+  // MENU_PERMISSIONS entry for /projects needed a module mapping too)
+  ['/projects', 'Projects'],
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
   // /admin/notifications relocated to /notifications/admin (2026-06-11
