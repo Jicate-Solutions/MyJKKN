@@ -9,6 +9,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import type { EventPaymentTransaction } from '@/types/events';
 import { getActiveProviderName, getPaymentProvider } from '@/lib/services/payments/factory';
 import { toPaise } from '@/lib/services/payments/amount';
+import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
 
 export interface EventInitiatePaymentResult {
   payment_url: string;
@@ -203,6 +204,156 @@ export class EventPaymentService {
         phone: params.payerPhone,
       },
     };
+  }
+
+  // ==========================================================================
+  // 2b. Verify + Settle a Razorpay Hosted-Checkout Callback
+  // ==========================================================================
+
+  /**
+   * Verifies a Razorpay hosted-checkout POST-back (signature + dual inquiry)
+   * and settles the transaction + registration on success. Idempotent: if
+   * the async webhook already settled this transaction first, this is a
+   * no-op that still returns success so the payer sees a correct
+   * confirmation page.
+   *
+   * Razorpay-only — this does not touch HDFC. Marathon's callback route is
+   * unchanged and continues to call handleCallback() below.
+   */
+  static async verifyAndSettleRazorpayPayment(params: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  }): Promise<{
+    success: boolean;
+    registrationId: string | null;
+    transactionId: string | null;
+    returnUrl: string | null;
+  }> {
+    const supabase = createServiceRoleClient();
+
+    const { data: transaction, error: txnError } = await (supabase as any)
+      .from('event_payment_transactions')
+      .select('id, registration_id, status, razorpay_account_id, return_url')
+      .eq('razorpay_order_id', params.razorpayOrderId)
+      .single();
+
+    if (txnError || !transaction) {
+      logger.warn('events/payment', 'Razorpay callback for unknown order', {
+        razorpayOrderId: params.razorpayOrderId,
+      });
+      return { success: false, registrationId: null, transactionId: null, returnUrl: null };
+    }
+
+    // Idempotency: the webhook may have already settled this transaction.
+    if (transaction.status === 'success') {
+      return {
+        success: true,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    const provider = (await getPaymentProvider('events', {
+      accountId: transaction.razorpay_account_id ?? undefined,
+    })) as RazorpayProvider;
+
+    const signatureValid = provider.verifySignature({
+      gatewayOrderId: params.razorpayOrderId,
+      gatewayPaymentId: params.razorpayPaymentId,
+      signature: params.razorpaySignature,
+    });
+
+    if (!signatureValid) {
+      logger.error('events/payment', 'SECURITY: Razorpay signature verification failed', {
+        transactionId: transaction.id,
+        razorpayOrderId: params.razorpayOrderId,
+      });
+      await supabase
+        .from('event_payment_transactions')
+        .update({ status: 'failed' })
+        .eq('id', transaction.id);
+      return {
+        success: false,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    // Dual inquiry (GET /orders + GET /payments) — mandatory per the Razorpay
+    // security audit; never settle off the signature alone.
+    const status = await provider.dualInquiry(params.razorpayOrderId, params.razorpayPaymentId);
+
+    if (status.status !== 'captured' && status.status !== 'authorized') {
+      await supabase
+        .from('event_payment_transactions')
+        .update({ status: 'failed', gateway_response: status.raw })
+        .eq('id', transaction.id);
+      return {
+        success: false,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    const now = new Date().toISOString();
+    await supabase
+      .from('event_payment_transactions')
+      .update({
+        status: 'success',
+        razorpay_payment_id: params.razorpayPaymentId,
+        gateway_response: status.raw,
+        paid_at: now,
+      })
+      .eq('id', transaction.id);
+
+    if (transaction.registration_id) {
+      await supabase
+        .from('events_registrations')
+        .update({
+          payment_status: 'paid',
+          payment_method: 'razorpay',
+          payment_reference: params.razorpayPaymentId,
+        })
+        .eq('id', transaction.registration_id);
+    }
+
+    logger.info('events/payment', 'Razorpay callback verified and settled', {
+      transactionId: transaction.id,
+      registrationId: transaction.registration_id,
+    });
+
+    return {
+      success: true,
+      registrationId: transaction.registration_id,
+      transactionId: transaction.id,
+      returnUrl: transaction.return_url,
+    };
+  }
+
+  /**
+   * Marks a Razorpay order's transaction as failed from a hosted-checkout
+   * error callback. Never overwrites an already-terminal status (success or
+   * a prior failed) so a late/duplicate error POST can't clobber real data.
+   */
+  static async markRazorpayOrderFailed(
+    razorpayOrderId: string,
+    error: { code: string | null; description: string | null }
+  ): Promise<void> {
+    const supabase = createServiceRoleClient();
+    const { data: transaction } = await (supabase as any)
+      .from('event_payment_transactions')
+      .select('id, status')
+      .eq('razorpay_order_id', razorpayOrderId)
+      .single();
+    if (!transaction || ['success', 'failed'].includes(transaction.status)) return;
+    await supabase
+      .from('event_payment_transactions')
+      .update({ status: 'failed', gateway_response: error })
+      .eq('id', transaction.id);
   }
 
   // ==========================================================================
