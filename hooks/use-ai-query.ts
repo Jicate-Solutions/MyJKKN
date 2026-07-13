@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   AIQueryMessage,
   AIQueryResponse,
@@ -28,6 +29,7 @@ interface UseAIQueryReturn {
   sendMessage: (message: string) => Promise<void>;
   clearMessages: () => void;
   executeAction: (action: ActionDefinition, params?: Record<string, unknown>) => Promise<void>;
+  loadConversation: (conversationId: string) => Promise<void>;
 }
 
 export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
@@ -105,6 +107,11 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
 
   const sendMessage = useCallback(async (message: string) => {
     if (!message.trim()) return;
+
+    // Stamp a stable conversation_id from the VERY first turn so every job in
+    // this thread shares it — this is what lets the Max drain rebuild memory of
+    // the conversation (and what makes the thread reopenable from history).
+    if (!conversationIdRef.current) conversationIdRef.current = crypto.randomUUID();
 
     setIsLoading(true);
     setError(null);
@@ -262,6 +269,58 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
     await sendMessage(`Confirmed action: ${action.id} ${params ? JSON.stringify(params) : ''}`);
   }, [sendMessage]);
 
+  // Reopen a past conversation from history: load ALL of its turns into the
+  // thread and set the active conversation id, so follow-up questions continue
+  // it (the Max drain reloads prior turns of that conversation as context).
+  const loadConversation = useCallback(async (conversationId: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const supabase = createClientSupabaseClient();
+      // fn not yet in generated types (ships with the conversation-history migration).
+      const { data, error } = await (supabase as any).rpc('fn_ai_conversation_turns', {
+        p_conversation_id: conversationId,
+      });
+      if (error) return;
+      const turns: Array<{
+        id: string;
+        question: string | null;
+        answer: string | null;
+        status: string | null;
+        asked_at: string;
+      }> = Array.isArray(data) ? data : [];
+      const restored: AIQueryMessage[] = turns.flatMap((t) => {
+        const out: AIQueryMessage[] = [
+          {
+            id: `${t.id}-q`,
+            role: 'user' as const,
+            content: t.question ?? '',
+            timestamp: new Date(t.asked_at),
+          },
+        ];
+        if (t.answer) {
+          out.push({
+            id: t.id,
+            role: 'assistant' as const,
+            content: t.answer,
+            timestamp: new Date(t.asked_at),
+            jobId: t.id,
+            toolCalls: [
+              { id: `${t.id}-max`, name: 'max_lane', arguments: {}, status: 'completed' as const },
+            ],
+          });
+        }
+        return out;
+      });
+      setMessages(restored);
+      conversationIdRef.current = conversationId;
+    } catch {
+      // silent — a failed reopen leaves the current chat untouched
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     messages,
     isLoading,
@@ -272,6 +331,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
     sendMessage,
     clearMessages,
     executeAction,
+    loadConversation,
   };
 }
 

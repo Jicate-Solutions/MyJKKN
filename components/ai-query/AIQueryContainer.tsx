@@ -55,6 +55,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
     suggestions,
     sendMessage,
     clearMessages,
+    loadConversation,
   } = useAIQuery({
     onError: (err) => {
       console.warn('[AIQueryContainer] Error:', err);
@@ -131,8 +132,8 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             <RefreshCw className="h-4 w-4" />
             <span className="hidden sm:inline ml-1">Clear</span>
           </Button>
-          {/* Your past questions — visible to every user, shows only their own */}
-          <ChatHistorySheet />
+          {/* Your past chats — visible to every user; tap one to reopen + continue */}
+          <ChatHistorySheet onSelect={loadConversation} />
           {/* Super Admin Only - AI Query Tools Link */}
           {isSuperAdmin && (
             <TooltipProvider>
