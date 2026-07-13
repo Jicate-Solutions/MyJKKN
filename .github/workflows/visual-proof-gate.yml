@@ -18,6 +18,17 @@ name: Visual Proof Gate
 # cannot pass status checks.
 #
 # Pattern: skill instructions are read; CI gates can't be skipped.
+#
+# POLICY CHANGE — opt-in enforcement (2026-07-13, requested by Boobalan)
+# ----------------------------------------------------------------------
+# The gate now runs its classification + evidence checks ONLY when the
+# `visual-proof-required` label is on the PR. Without the label the gate
+# passes immediately with a "skipped" summary. Rationale: the gate fired on
+# every PR and its UI-touching default blocked changes with no visual diff;
+# enforcement is now on request (anyone can apply the label to demand proof).
+# NOTE: this inverts the 2026-05-08 enforce-by-default directive. When the
+# gate IS opted in, everything below behaves exactly as before — including
+# the Director-only `visual-proof-skip` authority.
 
 on:
   pull_request:
@@ -78,8 +89,45 @@ jobs:
             echo "MG_CTX_EOF"
           } >> "$GITHUB_ENV"
 
+      # Opt-in switch (2026-07-13): without the `visual-proof-required` label
+      # the gate passes immediately. Labels come from the PR event, or from
+      # MG_LABELS (fetched above) on merge-queue runs. The `labeled`/`unlabeled`
+      # trigger types above re-run the gate when the label is toggled.
+      - name: Check opt-in label
+        id: optin
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" ]]; then
+            LABELS="${MG_LABELS:-[]}"
+          fi
+          if echo "$LABELS" | grep -q '"visual-proof-required"'; then
+            echo "enforce=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "## 🔍 Visual Proof Gate — opted in"
+              echo ""
+              echo "\`visual-proof-required\` label present — running classification and evidence checks."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enforce=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## ✅ Visual Proof Gate — skipped (opt-in)"
+              echo ""
+              echo "Enforcement is opt-in (policy change 2026-07-13). No \`visual-proof-required\`"
+              echo "label on this PR, so the gate passes without checking for screenshots."
+              echo ""
+              echo "To demand visual proof on this PR:"
+              echo '```bash'
+              echo "gh pr edit ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --add-label visual-proof-required"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=Visual Proof Gate skipped::Opt-in label 'visual-proof-required' not present"
+          fi
+
       - name: Classify PR scope by changed files
         id: scope
+        if: steps.optin.outputs.enforce == 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
           MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
@@ -210,7 +258,7 @@ jobs:
           fi
 
       - name: Check for visual proof evidence
-        if: steps.scope.outputs.requires_proof == 'true'
+        if: steps.optin.outputs.enforce == 'true' && steps.scope.outputs.requires_proof == 'true'
         env:
           BASE_REF: ${{ github.base_ref }}
           MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
@@ -388,7 +436,7 @@ jobs:
           exit 1
 
       - name: Annotate questionable skip
-        if: steps.scope.outputs.requires_proof == 'true' && contains(github.event.pull_request.labels.*.name, 'visual-proof-skip')
+        if: steps.optin.outputs.enforce == 'true' && steps.scope.outputs.requires_proof == 'true' && contains(github.event.pull_request.labels.*.name, 'visual-proof-skip')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
