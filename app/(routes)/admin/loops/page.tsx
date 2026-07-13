@@ -148,6 +148,32 @@ async function loadScfEffectiveness(
   }
 }
 
+// Mean measured outcome_lift for SCF suggestions whose outcome landed in the
+// window. A count query can't average, so this pulls the lift values and means
+// them in JS (same swallow-to-hollow philosophy as cnt()). n=0 → mean null so
+// the strip cell renders hollow, not a fake 0.00.
+async function loadScfLift(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  sinceIso: string,
+): Promise<{ n: number | null; mean: number | null }> {
+  try {
+    const { data, error } = await admin
+      .from('scf_ai_suggestions')
+      .select('outcome_lift')
+      .eq('domain', 'session_feedback')
+      .gte('outcome_measured_at', sinceIso)
+      .not('outcome_lift', 'is', null);
+    if (error) return { n: null, mean: null };
+    const vals = (data ?? [])
+      .map((r) => Number(r.outcome_lift))
+      .filter((v) => Number.isFinite(v));
+    if (vals.length === 0) return { n: 0, mean: null };
+    return { n: vals.length, mean: vals.reduce((a, b) => a + b, 0) / vals.length };
+  } catch {
+    return { n: null, mean: null };
+  }
+}
+
 export default async function LoopControlTowerPage({
   searchParams,
 }: {
@@ -886,6 +912,114 @@ export default async function LoopControlTowerPage({
   const sumOrNull = (...vs: (number | null)[]): number | null =>
     vs.some((v) => v === null) ? null : vs.reduce((a, b) => (a as number) + (b as number), 0);
 
+  // ── Ring-2 extra lanes + 30-day management strip (2026-07-13) ─────────────
+  // Two new EXECUTION-ring lanes: the dispatcher's TRUE run log (ai_routine_run_log,
+  // new this deploy) and the typed async job queue (ai_jobs). Plus the 30-day
+  // closure counts that power the strip — same loops as the product ring, wider
+  // window. Every leg swallows to null (cnt) so a missing table renders hollow.
+  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [
+    dispatcherRuns7d,
+    dispatcherRunsToday,
+    jobsDone7d,
+    jobsError7d,
+    jobsTotal7d,
+    scfGen30d,
+    scfMeasured30d,
+    indGen30d,
+    indMeasured30d,
+    playbookGen30d,
+    playbookMeasured30d,
+    messGen30d,
+    messMeasured30d,
+    pulseGen30d,
+    pulseMeasured30d,
+    pdeSub30d,
+    pdeScored30d,
+    spineIn30d,
+    spineClassified30d,
+    refLeads30d,
+    refRouted30d,
+  ] = await Promise.all([
+    cnt(admin.from('ai_routine_run_log').select('*', { count: 'exact', head: true }).gte('fired_at', since7)),
+    cnt(admin.from('ai_routine_run_log').select('*', { count: 'exact', head: true }).gte('fired_at', istDayStartUtc)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', since7)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', since7)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).gte('requested_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('generated_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('outcome_measured_at', since30)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('generated_at', since30)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('generated_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('outcome_measured_at', since30)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('measured_at', since30)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since30)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('submitted_at', since30)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('scored_at', since30)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('ai_processed_at', since30)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', since30)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).not('assigned_counselor_id', 'is', null).gte('created_at', since30)),
+  ]);
+  const scfLift30d = await loadScfLift(admin, since30);
+
+  // 30-day closure map for the strip. `verb` = what "closed" means for each
+  // loop. `measureLoop` marks the loops whose closure is a baseline-measured
+  // outcome (Cell A's sum) vs. intake/routing/human-score (in the constraint
+  // scan but out of Cell A).
+  const strip30d: Record<
+    string,
+    { name: string; verb: string; num: number | null; den: number | null; measureLoop: boolean }
+  > = {
+    scf: { name: 'Session-feedback teaching', verb: 'measured', num: scfMeasured30d, den: scfGen30d, measureLoop: true },
+    'induction-session': { name: 'Induction session-effect.', verb: 'measured', num: indMeasured30d, den: indGen30d, measureLoop: true },
+    'induction-playbook': { name: 'Induction playbook', verb: 'measured', num: playbookMeasured30d, den: playbookGen30d, measureLoop: true },
+    mess: { name: 'Mess menu', verb: 'measured', num: messMeasured30d, den: messGen30d, measureLoop: true },
+    'ai-pulse': { name: 'AI Pulse', verb: 'measured', num: pulseMeasured30d, den: pulseGen30d, measureLoop: true },
+    'pde-quest': { name: 'PDE demonstrations', verb: 'scored', num: pdeScored30d, den: pdeSub30d, measureLoop: false },
+    'feedback-spine': { name: 'Feedback spine', verb: 'classified', num: spineClassified30d, den: spineIn30d, measureLoop: false },
+    'referral-desk': { name: 'Induction referral desk', verb: 'routed', num: refRouted30d, den: refLeads30d, measureLoop: false },
+  };
+
+  // Cell A — cycles closed 30d = measured closures across the MEASURE loops
+  // only (spine intake / referral routing / PDE human-score are excluded).
+  const cyclesClosed30d = sumOrNull(
+    strip30d.scf.num,
+    strip30d['induction-session'].num,
+    strip30d['induction-playbook'].num,
+    strip30d.mess.num,
+    strip30d['ai-pulse'].num,
+  );
+
+  // Cell D — the current constraint (Theory of Constraints, one item). Primary
+  // signal: the worst closure rate (num/den) among loops with fuel this window.
+  // On a tie, OR when no loop has fuel at all, fall back to the most fuel-starved
+  // line (lowest den) — mirroring the documented reality that the loop system is
+  // fuel-starved, not code-starved. Always names exactly one thing when any
+  // closure data exists; hollow only if every loop's counts failed to read.
+  // (Note: closure is a same-window ratio — a fresh generation may not have had
+  // time to measure, so a low rate can reflect measurement lag as well as a
+  // stuck Measure gate. Flip the tie-break to highest-den if the Director would
+  // rather surface the largest blocked flow than the most-starved line.)
+  const constraint = ((): { label: string; detail: string } | null => {
+    const entries = Object.values(strip30d).filter(
+      (e): e is { name: string; verb: string; num: number; den: number; measureLoop: boolean } =>
+        e.num !== null && e.den !== null,
+    );
+    if (entries.length === 0) return null;
+    const rated = entries.filter((e) => e.den > 0).map((e) => ({ ...e, rate: e.num / e.den }));
+    if (rated.length > 0) {
+      const worst = Math.min(...rated.map((r) => r.rate));
+      const c = rated.filter((r) => r.rate === worst).sort((a, b) => a.den - b.den)[0]!;
+      const pct = c.rate < 0.1 ? (c.rate * 100).toFixed(1) : String(Math.round(c.rate * 100));
+      return { label: c.name, detail: `${c.num} of ${c.den} ${c.verb} · ${pct}% closure (30d)` };
+    }
+    const c = entries.sort((a, b) => a.den - b.den)[0]!;
+    return { label: c.name, detail: '0 opened in 30d — starved of fuel' };
+  })();
+
   // Dispatcher lane: ai_routine_schedules keeps ONLY last_fired_at per routine
   // (no run-history table), so these are routines-whose-latest-fire-is-in-window,
   // not run counts — the component says so on the ring. Empty map = the read
@@ -958,6 +1092,19 @@ export default async function LoopControlTowerPage({
     })(),
     decisionsLogged7d,
     decisionsGraded7d,
+    // ring 2 — extra instrumented lanes (2026-07-13)
+    dispatcherRuns7d,
+    dispatcherRunsToday,
+    jobsDone7d,
+    jobsError7d,
+    jobsTotal7d,
+    // management strip (30d executive summary)
+    strip: {
+      cyclesClosed30d,
+      scfLiftMean30d: scfLift30d.mean,
+      scfLiftN30d: scfLift30d.n,
+      constraint,
+    },
   };
 
   const pillCls = (active: boolean) =>
