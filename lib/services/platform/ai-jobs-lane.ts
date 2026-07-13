@@ -64,6 +64,9 @@ export interface CollectedJobsLaneItem {
    * the drain produced no usable text (parse then skips, candidate re-qualifies).
    */
   message: Anthropic.Message | null;
+  /** The ai_jobs.job_type — lets a multi-type collector (e.g. scf judge vs
+   *  generate) dispatch each item to the right parse/record path. */
+  jobType: string;
 }
 
 /**
@@ -117,11 +120,11 @@ export async function collectJobsLane(
     if (error) console.error('[ai-jobs-lane] collect claim failed:', error.message);
     return [];
   }
-  return (data as Array<{ id: string; payload: Record<string, unknown> | null; result: unknown }>).map(
+  return (data as Array<{ id: string; job_type: string; payload: Record<string, unknown> | null; result: unknown }>).map(
     (row) => {
       const ctx = ((row.payload?._ctx as Record<string, unknown>) ?? {}) as Record<string, unknown>;
       const text = extractJobResultText(row.result);
-      return { jobId: row.id, context: ctx, message: text ? textToMessage(text) : null };
+      return { jobId: row.id, jobType: row.job_type, context: ctx, message: text ? textToMessage(text) : null };
     },
   );
 }
