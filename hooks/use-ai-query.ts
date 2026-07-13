@@ -83,6 +83,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
             role: 'assistant' as const,
             content: `${r.answer}\n\nⓘ _Answered on Max while you were away._`,
             timestamp: new Date(r.completed_at),
+            jobId: r.id,
             toolCalls: [
               { id: `${r.id}-max`, name: 'max_lane', arguments: {}, status: 'completed' as const },
             ],
@@ -190,6 +191,12 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
         toolCalls: responseData.message.toolCalls,
         data: responseData.message.data,
         actions: responseData.message.actions,
+        responseMs: (data as { response_ms?: number }).response_ms,
+        // Carry the ai_jobs.id so the answer can be flagged as "looks wrong".
+        jobId:
+          typeof (data as { max_request_id?: unknown }).max_request_id === 'string'
+            ? (data as { max_request_id: string }).max_request_id
+            : undefined,
       };
 
       setMessages(prev => {

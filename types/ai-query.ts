@@ -16,6 +16,10 @@ export interface AIQueryMessage {
   timestamp: Date;
   isStreaming?: boolean;
   toolCalls?: ToolCall[];
+  /** Total server-measured time (ms) the Max lane took to answer — shown next to the badge. */
+  responseMs?: number;
+  /** ai_jobs.id of the Max-lane answer — lets the user flag it as "looks wrong". */
+  jobId?: string;
 }
 
 export interface QueryResultData {

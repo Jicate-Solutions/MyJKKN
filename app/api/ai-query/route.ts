@@ -37,7 +37,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 type MaxLaneMiss = 'offline' | 'busy' | 'slow' | 'error' | 'forbidden' | 'capped';
 
 const MAX_LANE_MISS_NOTE: Record<'offline' | 'busy' | 'slow' | 'error', string> = {
-  offline: 'ⓘ _The AI Assistant isn’t available right now. Please try again later._',
+  offline: 'ⓘ _The AI Assistant is temporarily offline. Please try again in a little while._',
   busy: 'ⓘ _You already have questions in progress. Please wait for those to finish._',
   slow: 'ⓘ _The AI Assistant didn’t finish in time. Please try again._',
   error: 'ⓘ _The AI Assistant hit an error. Please try again._',
@@ -49,11 +49,21 @@ const MAX_LANE_MISS_NOTE: Record<'offline' | 'busy' | 'slow' | 'error', string> 
  * failure. 'forbidden' (no access) and 'capped' (daily limit) are pre-flight
  * rejections carrying { cap, used } for the caller's message.
  */
-async function tryScopedChat(
+type ChatResult = {
+  answer: string | null;
+  miss?: MaxLaneMiss;
+  requestId?: string;
+  cap?: number;
+  used?: number;
+  elapsedMs?: number;
+};
+
+/** One enqueue + poll attempt on the scoped ai_jobs chat lane. */
+async function scopedChatOnce(
   supabase: Awaited<ReturnType<typeof createClient>>,
   message: string,
   conversationId: string | undefined,
-): Promise<{ answer: string | null; miss?: MaxLaneMiss; requestId?: string; cap?: number; used?: number }> {
+): Promise<ChatResult> {
   try {
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
@@ -106,6 +116,27 @@ async function tryScopedChat(
     console.error('[ai-query] scoped-chat attempt threw:', err);
     return { answer: null, miss: 'error' };
   }
+}
+
+/**
+ * Enqueue one question and wait for the answer, with a single QUIET RETRY on a
+ * transient miss (a timeout or a runner error — NOT on access/cap/busy, which are
+ * deterministic). Reports elapsedMs (total user-perceived time) on success so the
+ * UI can show how long it took next to the "max lane" badge.
+ */
+async function tryScopedChat(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  message: string,
+  conversationId: string | undefined,
+): Promise<ChatResult> {
+  const t0 = Date.now();
+  let r = await scopedChatOnce(supabase, message, conversationId);
+  if (r.answer === null && (r.miss === 'error' || r.miss === 'slow')) {
+    // A one-off model-loop timeout (seen in the pilot) usually succeeds on retry.
+    r = await scopedChatOnce(supabase, message, conversationId);
+  }
+  if (r.answer !== null) r.elapsedMs = Date.now() - t0;
+  return r;
 }
 
 /**
@@ -344,7 +375,7 @@ export async function POST(request: NextRequest) {
 
     await AIQueryService.incrementQueryCount(user.id);
 
-    const { answer: maxAnswer, miss, requestId: maxRequestId, cap, used } =
+    const { answer: maxAnswer, miss, requestId: maxRequestId, cap, used, elapsedMs } =
       await tryScopedChat(supabase, message, conversation_id);
 
     if (maxAnswer !== null) {
@@ -364,6 +395,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         conversation_id: conversation_id || crypto.randomUUID(),
         max_request_id: maxRequestId,
+        response_ms: elapsedMs,
         message: {
           id: crypto.randomUUID(),
           role: 'assistant',
