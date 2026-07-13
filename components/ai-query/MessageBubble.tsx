@@ -14,6 +14,7 @@ import { Progress } from '@/components/ui/progress';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AIQueryMessage, ActionDefinition } from '@/types/ai-query';
+import { AnswerFeedback } from './AnswerFeedback';
 
 interface MessageBubbleProps {
   message: AIQueryMessage;
@@ -32,6 +33,16 @@ function parseStatValue(text: string): { value: string; label: string } | null {
 // Detect if content has KPI-like patterns
 function hasKPIPattern(content: string): boolean {
   return /Total\s+\w+:|Active\s+\w+:|Count:|students?:|staff:|Amount:|\d+%/i.test(content);
+}
+
+// Format the Max-lane response time for the badge (e.g. 25s, 1m 30s).
+function formatDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 1) return '<1s';
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem ? `${m}m ${rem}s` : `${m}m`;
 }
 
 export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
@@ -292,6 +303,9 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
               >
                 <CheckCircle className="h-3 w-3 mr-1" />
                 {tool.name.replace(/_/g, ' ')}
+                {tool.name === 'max_lane' && typeof message.responseMs === 'number' && (
+                  <span className="ml-1 opacity-70">· {formatDuration(message.responseMs)}</span>
+                )}
               </Badge>
             ))}
           </div>
@@ -312,6 +326,11 @@ export function MessageBubble({ message, onActionClick }: MessageBubbleProps) {
               </Button>
             ))}
           </div>
+        )}
+
+        {/* "Looks wrong?" feedback — assistant answers only; logs for admin review (no user alert) */}
+        {!isUser && !isStreaming && message.jobId && (
+          <AnswerFeedback jobId={message.jobId} />
         )}
 
         {/* Timestamp - Subtle */}

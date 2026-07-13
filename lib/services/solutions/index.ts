@@ -17,6 +17,14 @@ export type {
   SolutionStats,
 } from './solutions-service';
 
+export { solutionReposService, SolutionReposService } from './solution-repos-service';
+export type {
+  SolutionRepo,
+  SolutionRepoWithSharing,
+  SharedSolutionRef,
+  LinkRepoInput,
+} from './solution-repos-service';
+
 export { phasesService, PhasesService, PHASE_STATUSES } from './phases-service';
 export type {
   PhaseWithDetails,

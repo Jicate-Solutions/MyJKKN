@@ -16,13 +16,20 @@
 //   GET /api/admin/ai-models                       — list features + usage stats
 //   PATCH /api/admin/ai-models/[feature_key]       — change model selection
 //   GET /api/admin/ai-models/[feature_key]/usage   — usage history + audit log
+//
+// AI Studio tab (added 2026-07-13): manage the ai_job_types registry — create /
+// edit / enable / delete self-describing AI job types and run one on demand.
+//   GET/POST /api/admin/ai-job-types, PATCH/DELETE /api/admin/ai-job-types/[job_type]
+//   POST /api/ai-jobs/enqueue, GET /api/ai-jobs/status
 // ============================================================================
 
 export const navMeta = { label: 'AI Models', icon: 'Sparkles' } as const;
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AiModelsDataTable } from './_components/ai-models-data-table';
+import { AiStudioPanel } from './_components/ai-studio-panel';
 
 export default function AiModelsPage() {
   return (
@@ -38,7 +45,18 @@ export default function AiModelsPage() {
       }
     >
       <ContentLayout title="AI Models — Pick which AI runs each feature, set spend caps, see live usage">
-        <AiModelsDataTable />
+        <Tabs defaultValue="models" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="models">AI Models</TabsTrigger>
+            <TabsTrigger value="studio">AI Studio</TabsTrigger>
+          </TabsList>
+          <TabsContent value="models">
+            <AiModelsDataTable />
+          </TabsContent>
+          <TabsContent value="studio">
+            <AiStudioPanel />
+          </TabsContent>
+        </Tabs>
       </ContentLayout>
     </SuperAdminOnly>
   );

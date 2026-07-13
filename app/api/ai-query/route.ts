@@ -1,13 +1,17 @@
 export const dynamic = 'force-dynamic';
-// Max-lane waits long-poll the chat queue (runner box claims every ~2 min).
+// Waits long-poll the ai_jobs chat queue (scoped Windows drain claims ~every min).
 export const maxDuration = 300;
 
 /**
  * AI Query Route
- * Handles natural language queries using the Max lane.
+ * Handles natural language questions via the scoped AI-jobs chat lane.
  *
- * All questions are queued to the Max lane
- * (max_lane_chat_requests -> Windows runner -> answer).
+ * Each question is enqueued as an `ai_query.chat` job (fn_ai_enqueue) and the
+ * Windows chat drain answers it AS the requesting user (a per-user scoped session,
+ * auth.uid()-gated tools) — so a user only ever sees their own institution's data.
+ * fn_ai_enqueue also enforces access (allow_rule permission:ai_query.view) and the
+ * configurable per-person daily cap. No paid fallback: if the seat can't answer,
+ * the user is told to try again later.
  */
 
 import { NextRequest, NextResponse, connection } from 'next/server';
@@ -20,73 +24,119 @@ const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
 // Long-poll window raised 180s → 285s (2026-07-12) so heavy analytical questions
 // (e.g. multi-table profitability) can finish on the Max seat instead of erroring.
 // Kept 15s under maxDuration (300s) so the route can still cancel + respond before
-// the platform hard-kills the function. Coordinated with the Windows runner's
+// the platform hard-kills the function. Coordinated with the Windows chat drain's
 // per-question SIGKILL budget (225s = this window − ~60s worst-case pickup); the
-// two MUST move together — see ai-query-chat.mjs PER_QUESTION_TIMEOUT_MS.
+// two MUST move together — see the ai-jobs chat drain PER_QUESTION_TIMEOUT_MS.
 const MAX_LANE_TOTAL_DEADLINE_MS = 285_000;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Why the Max lane didn't answer */
-type MaxLaneMiss = 'offline' | 'busy' | 'slow' | 'error';
+/** Why the scoped chat lane didn't answer. 'forbidden'/'capped' are pre-flight
+ *  rejections (access / daily cap) surfaced with their own HTTP status; the rest
+ *  are runtime misses shown inline with a note. */
+type MaxLaneMiss = 'offline' | 'busy' | 'slow' | 'error' | 'forbidden' | 'capped';
 
-const MAX_LANE_MISS_NOTE: Record<MaxLaneMiss, string> = {
-  offline: 'ⓘ _The Max lane machine is asleep._',
-  busy: 'ⓘ _The Max lane queue is full._',
-  slow: 'ⓘ _The Max lane didn’t finish in time._',
-  error: 'ⓘ _The Max lane hit an error._',
+const MAX_LANE_MISS_NOTE: Record<'offline' | 'busy' | 'slow' | 'error', string> = {
+  offline: 'ⓘ _The AI Assistant is temporarily offline. Please try again in a little while._',
+  busy: 'ⓘ _You already have questions in progress. Please wait for those to finish._',
+  slow: 'ⓘ _The AI Assistant didn’t finish in time. Please try again._',
+  error: 'ⓘ _The AI Assistant hit an error. Please try again._',
 };
 
 /**
- * Queue one question on the Max lane and wait for the runner's answer.
- * Returns { answer } on success, or { answer: null, miss } for ANY failure
- * (runner offline, queue full, unclaimed too long, runner error, timeout).
+ * Enqueue one question on the scoped ai_jobs chat lane and wait for the drain's
+ * answer. Returns { answer } on success, or { answer: null, miss } for ANY
+ * failure. 'forbidden' (no access) and 'capped' (daily limit) are pre-flight
+ * rejections carrying { cap, used } for the caller's message.
  */
-async function tryMaxLane(
+type ChatResult = {
+  answer: string | null;
+  miss?: MaxLaneMiss;
+  requestId?: string;
+  cap?: number;
+  used?: number;
+  elapsedMs?: number;
+};
+
+/** One enqueue + poll attempt on the scoped ai_jobs chat lane. */
+async function scopedChatOnce(
   supabase: Awaited<ReturnType<typeof createClient>>,
   message: string,
   conversationId: string | undefined,
-): Promise<{ answer: string | null; miss?: MaxLaneMiss; requestId?: string }> {
+): Promise<ChatResult> {
   try {
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const { data: req, error: reqError } = await supabase.rpc('fn_max_chat_request', {
-      p_message: message,
-      p_conversation_id:
-        conversationId && uuidRe.test(conversationId) ? conversationId : null,
+    const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+      p_job_type: 'ai_query.chat',
+      p_payload: {
+        message,
+        conversation_id:
+          conversationId && uuidRe.test(conversationId) ? conversationId : null,
+      },
     });
-    if (reqError || !req?.ok || typeof req?.request_id !== 'string') {
-      const errText = typeof req?.error === 'string' ? req.error : '';
-      if (errText === 'runner offline') return { answer: null, miss: 'offline' };
-      if (errText === 'queue full') return { answer: null, miss: 'busy' };
-      return { answer: null };
+    if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+      const errText = typeof enq?.error === 'string' ? enq.error : '';
+      // Feature off (ai_query.chat disabled) — treat as "unavailable, try later".
+      if (errText === 'unknown or disabled job_type') return { answer: null, miss: 'offline' };
+      if (errText === 'not allowed for this job_type') return { answer: null, miss: 'forbidden' };
+      if (errText === 'daily limit reached') {
+        return { answer: null, miss: 'capped', cap: enq?.cap, used: enq?.used };
+      }
+      if (errText === 'too many in-flight jobs of this type') return { answer: null, miss: 'busy' };
+      return { answer: null, miss: 'error' };
     }
 
+    const jobId = enq.job_id;
     const startedAt = Date.now();
     while (Date.now() - startedAt < MAX_LANE_TOTAL_DEADLINE_MS) {
       await sleep(MAX_LANE_POLL_MS);
-      const { data: st, error: stError } = await supabase.rpc('fn_max_chat_status', {
-        p_id: req.request_id,
+      const { data: st, error: stError } = await supabase.rpc('fn_ai_job_status', {
+        p_job_id: jobId,
       });
       if (stError || !st || typeof st.status !== 'string') continue;
       if (st.status === 'done') {
-        if (typeof st.answer === 'string' && st.answer.trim().length > 0) {
-          return { answer: st.answer, requestId: req.request_id };
+        const answer =
+          st.result && typeof st.result === 'object' ? (st.result as { answer?: unknown }).answer : null;
+        if (typeof answer === 'string' && answer.trim().length > 0) {
+          return { answer, requestId: jobId };
         }
         return { answer: null, miss: 'error' };
       }
-      if (st.status === 'error') return { answer: null, miss: 'error' };
-      if (st.status === 'not_found') return { answer: null, miss: 'error' };
+      if (st.status === 'error' || st.status === 'canceled' || st.status === 'not_found') {
+        return { answer: null, miss: 'error' };
+      }
       if (st.status === 'pending' && Date.now() - startedAt > MAX_LANE_UNCLAIMED_DEADLINE_MS) {
         break;
       }
     }
 
-    await supabase.rpc('fn_max_chat_cancel', { p_id: req.request_id });
+    await supabase.rpc('fn_ai_job_cancel', { p_job_id: jobId });
     return { answer: null, miss: 'slow' };
   } catch (err) {
-    console.error('[ai-query] max-lane attempt threw:', err);
+    console.error('[ai-query] scoped-chat attempt threw:', err);
     return { answer: null, miss: 'error' };
   }
+}
+
+/**
+ * Enqueue one question and wait for the answer, with a single QUIET RETRY on a
+ * transient miss (a timeout or a runner error — NOT on access/cap/busy, which are
+ * deterministic). Reports elapsedMs (total user-perceived time) on success so the
+ * UI can show how long it took next to the "max lane" badge.
+ */
+async function tryScopedChat(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  message: string,
+  conversationId: string | undefined,
+): Promise<ChatResult> {
+  const t0 = Date.now();
+  let r = await scopedChatOnce(supabase, message, conversationId);
+  if (r.answer === null && (r.miss === 'error' || r.miss === 'slow')) {
+    // A one-off model-loop timeout (seen in the pilot) usually succeeds on retry.
+    r = await scopedChatOnce(supabase, message, conversationId);
+  }
+  if (r.answer !== null) r.elapsedMs = Date.now() - t0;
+  return r;
 }
 
 /**
@@ -120,7 +170,7 @@ export async function PATCH(request: NextRequest) {
   if (ids.length === 0) {
     return NextResponse.json({ ok: false, error: 'ack_ids required' }, { status: 400 });
   }
-  const { error } = await supabase.rpc('fn_max_chat_ack', { p_ids: ids });
+  const { error } = await supabase.rpc('fn_ai_job_ack', { p_ids: ids });
   if (error) {
     console.error('[ai-query] ack failed:', error.message);
     return NextResponse.json({ ok: false, error: 'ack failed' }, { status: 500 });
@@ -147,7 +197,7 @@ export async function GET() {
       { status: 401 },
     );
   }
-  const { data, error } = await supabase.rpc('fn_max_chat_inbox');
+  const { data, error } = await supabase.rpc('fn_ai_chat_inbox');
   if (error) {
     return NextResponse.json({ inbox: [] });
   }
@@ -325,8 +375,8 @@ export async function POST(request: NextRequest) {
 
     await AIQueryService.incrementQueryCount(user.id);
 
-    const { answer: maxAnswer, miss, requestId: maxRequestId } =
-      await tryMaxLane(supabase, message, conversation_id);
+    const { answer: maxAnswer, miss, requestId: maxRequestId, cap, used, elapsedMs } =
+      await tryScopedChat(supabase, message, conversation_id);
 
     if (maxAnswer !== null) {
       toolsCalled.push('max_lane');
@@ -345,6 +395,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         conversation_id: conversation_id || crypto.randomUUID(),
         max_request_id: maxRequestId,
+        response_ms: elapsedMs,
         message: {
           id: crypto.randomUUID(),
           role: 'assistant',
@@ -357,7 +408,28 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const errorMessage = miss ? MAX_LANE_MISS_NOTE[miss] : 'The Max lane is currently unavailable.';
+    // Pre-flight rejections carry their own HTTP status.
+    if (miss === 'forbidden') {
+      return NextResponse.json(
+        { error: { code: 'FORBIDDEN', message: 'You don’t have access to the AI Assistant. Ask an administrator to grant it.' } },
+        { status: 403 }
+      );
+    }
+    if (miss === 'capped') {
+      const capMsg =
+        typeof cap === 'number'
+          ? `You’ve reached today’s limit of ${cap} questions. Please try again tomorrow.`
+          : 'You’ve reached today’s question limit. Please try again tomorrow.';
+      return NextResponse.json(
+        { error: { code: 'RATE_LIMITED', message: capMsg, cap, used } },
+        { status: 429 }
+      );
+    }
+
+    const errorMessage =
+      miss && miss in MAX_LANE_MISS_NOTE
+        ? MAX_LANE_MISS_NOTE[miss as 'offline' | 'busy' | 'slow' | 'error']
+        : 'The AI Assistant is currently unavailable.';
     return NextResponse.json(
       { error: { code: 'SERVER_ERROR', message: errorMessage } },
       { status: 500 }
