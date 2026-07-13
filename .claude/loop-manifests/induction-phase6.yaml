@@ -1,0 +1,51 @@
+# Induction playbook loop manifest — shares scf_ai_suggestions (domain='induction').
+# Fn triple from migration 20260628130000_induction_phase6_self_improving_loop.sql.
+loop_key: induction-playbook
+name: Induction Playbook Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: "induction join/completion data (value-balanced join score per cohort)"
+  action: scf_ai_suggestions        # domain='induction', course_code='induction', cohort-keyed
+
+sim:
+  sentinel: ZZINDUCT
+  seed_input:
+    derive_at_run: true             # read fn_induction_measure_loop_outcomes body
+                                    # for the exact cohort-score source tables
+  seed_action: |
+    -- record via fn_induction_record_loop_suggestion(institution, academic_year,
+    -- window, input_score, suggestion, model). TRAP: institution_id AND
+    -- academic_year_id are REQUIRED (NULL slips the partial unique index and
+    -- the verifier's filter -> permanently unmeasurable orphan).
+  verifier: "public.fn_induction_measure_loop_outcomes(...)"
+  asserts:
+    no_change: "0.00"               # derive the exact numeric shape from THIS fn's types
+    known_delta: { seed: "derive_at_run", expect: "== seeded delta" }
+  notes:
+    - the record fn is a cohort-keyed UPSERT that RESETS outcome_* on refresh —
+      re-recording mid-sim silently discards the measured outcome; seed once.
+    - annual cadence: real fuel arrives once per cohort; expect
+      unmeasurable-no-fuel verdicts most of the year — that is honest, not broken.
+
+confound:
+  verdict_column: human_verdict     # shares the scf verdict arm (20260628150000)
+  query: |
+    SELECT COALESCE(human_verdict,'(none)'), count(*), round(avg(outcome_lift),2)
+    FROM scf_ai_suggestions WHERE domain='induction' AND outcome_lift IS NOT NULL GROUP BY 1;
+  min_rows: 4                       # cohort-grained; a handful is already meaningful
+
+feed_forward:
+  reader: fn_induction_prior_loop_suggestion
+  trigger: { kind: cron, path: /api/cron/induction-generate-playbook, note: "batch submit/collect like scf" }
+  pass_criteria: [cites_prior, cites_measured_outcome, changes_approach]
+
+walk:
+  personas: { admin: test.superadmin@jkkn.ac.in }
+  hops:
+    - { as: admin, do: open_assert, page: "/events/induction/[id] loop-playbook-section", expect: "playbook renders with prior-cycle citation" }
+  forbidden: [induction referral nudges, coo@ desk routing]
+  cleanup: |
+    DELETE FROM scf_ai_suggestions WHERE domain='induction' AND model='moat-audit';
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"on"}'

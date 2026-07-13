@@ -18,6 +18,23 @@ export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
     "notes": "POST only. Requires a logged-in user, an institutionId in the JSON body, and institution access (verified via role_has_institution_access RPC — rejects other tenants' IDs). Needs CLAUDE_API_KEY (or ANTHROPIC_API_KEY) set. Uses the service-role client to bypass RLS for the lead read + insight write. This IS the live path: admission Insights page -> AIInsightsService.generateInsights -> this route. Idempotent regen (delete-then-insert), so re-running just refreshes the insight set; honest-empty if Claude returns 0 insights. Max lane: on-demand via the ⚡ button — a Mac-side runner twin executes on the Claude Max subscription (₹0 API) and is guard-idempotent with the API path."
   },
   {
+    "id": "admission-counselor-briefing",
+    "maxLane": true,
+    "name": "Counselor Daily Briefing (nightly pre-generation)",
+    "category": "admission-ai",
+    "type": "cron",
+    "schedule": "Daily 00:30 UTC (06:00 IST)",
+    "cronExpr": "30 0 * * *",
+    "triggerPath": "/api/cron/generate-daily-briefings",
+    "callsClaude": false,
+    "featureKey": "admission.briefing",
+    "whatItDoes": "Every morning before counselors log in, pre-generates each institution's daily briefing — pipeline metrics (new/hot/overdue/conversion), highlights, and follow-up action items computed from live admission_leads data — so the counselor Briefing page opens instantly. One briefing per institution per day.",
+    "configKnobs": "OVERDUE_DAYS=3 (no-contact window), TOP_HOT_LEADS=3 (score-ranked action items), maxDuration=300. HONEST: generation today is RULES-BASED (computed metrics + templated summary — no LLM call); the 'admission.briefing' config row (default openai/gpt-4o-mini) is seeded in ai_model_config but not yet read by the live generation path.",
+    "sideEffects": "DB write: inserts one admission_daily_briefings row per institution per day (idempotency-guarded — institutions that already have today's briefing are skipped). The cron itself sends no emails/WhatsApp/notifications; the page's bell derives from the same table.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: CRON_SECRET (Bearer). Vercel cron '30 0 * * *'. Idempotent: the cron pre-checks admission_daily_briefings, and generateDailyBriefing() itself returns the existing row when one exists — re-firing never duplicates. Live paths today: this cron (service-role loop over active admission_counselors) and the Briefing page's Generate button (useGenerateBriefing -> BriefingDeliveryService.generateDailyBriefing, client-side under the counselor's own RLS session — there is no separate /api generate route). Max lane: the nightly Max run pre-generates every active counselor's briefing on the runner box; the on-demand page button stays the cloud-side backup for anyone the nightly pass missed."
+  },
+  {
     "id": "ai-query",
     "name": "AI Query Assistant (natural-language data)",
     "category": "admission-ai",
@@ -33,7 +50,25 @@ export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
     "notes": "POST requires a JSON body with {message, conversation_id?} and an authenticated user; enforces a per-user rate limit (checkRateLimit) before calling Claude. Needs CLAUDE_API_KEY (or ANTHROPIC_API_KEY). The agentic tool-use loop runs `while (response.stop_reason === 'tool_use')` with NO explicit max-iteration cap — bounded only by Claude deciding to stop. Interactive UI lives at /ai-query (and /ai-query/admin). Manual-run writes only an audit log + rate counter, so it is safe to fire, but it needs a real question in the body to do anything."
   },
   {
+    "id": "voice-memo-sentiment",
+    "maxLane": true,
+    "name": "Voice Memo Sentiment + Summary (analysis stage)",
+    "category": "admission-ai",
+    "type": "cron",
+    "schedule": "Every 5 min (sweep)",
+    "cronExpr": "*/5 * * * *",
+    "triggerPath": "/api/cron/analyze-voice-memos",
+    "callsClaude": false,
+    "featureKey": "voice_memo.sentiment",
+    "whatItDoes": "The analysis stage of the counselor voice-memo pipeline: after a 30-second post-call memo is transcribed (English-only guardrail), this reads the transcript and writes sentiment, a 1-2 sentence summary, and categories back onto the call log for the Lead Mood Digest. The same 5-min cron performs both stages; this registry entry tracks the SENTIMENT stage (feature 'voice_memo.sentiment' — transcription is 'voice_memo.transcribe').",
+    "configKnobs": "MODEL from config row 'voice_memo.sentiment' (default google/gemini-2.5-flash-lite — /admin/ai-models; provider-dispatched, so callsClaude only if repointed to Anthropic), BATCH_LIMIT=20/run, MAX_ANALYZE_ATTEMPTS=5, TRANSIENT_CHARGE_THRESHOLD=10, per-call sentiment timeout <=15s, maxDuration=60",
+    "sideEffects": "DB writes: memo_* columns on admission_call_logs (transcript, sentiment, score, summary, categories, status) + ai_model_usage cost rows. No human messaging.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: CRON_SECRET (Bearer or ?secret=). Idempotent: CAS soft-locks, orphan recovery, and a per-row attempt budget make re-firing safe. Max lane: sentiment+summary can ride the seat (plain text); TRANSCRIPTION stays Groq Whisper — the audio modality cannot run on the seat. When the maxlane:voice-memo-sentiment schedule row is enabled AND the runner heartbeat is fresh, the cloud cron runs transcribe-only (shouldDeferToMaxLane — fail-open) and leaves transcribed rows in 'analyzing' for the Max brain to analyze."
+  },
+  {
     "id": "admission-analytics-ai-service",
+    "maxLane": true,
     "name": "Admission Analytics AI Insights (service, dormant)",
     "category": "admission-ai",
     "type": "service",
@@ -45,7 +80,7 @@ export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-sonnet-4-5 (config row 'admission.ai_service' — /admin/ai-models), MAX_TOKENS=4096, requires CLAUDE_API_KEY (rejects placeholder 'your-api-key-here'); prompt caps: string fields <500 chars, response <6000 tokens",
     "sideEffects": "Read-only — returns an insights object to the caller; performs no DB writes and sends no messages.",
     "safeToManualTrigger": false,
-    "notes": "DORMANT in production: this class is NOT imported by any route, component or hook on jicate/main (grep found zero callers), and it has no HTTP endpoint. The live admission Insights feature uses a DIFFERENT service — ai-insights-service.ts -> /api/admission/insights/generate — not this class. File: lib/services/admission/admission-ai-service.ts. Pure compute so it would be safe to run, but there is no operator trigger surface."
+    "notes": "DORMANT in production: this class is NOT imported by any route, component or hook on jicate/main (grep found zero callers), and it has no HTTP endpoint. The live admission Insights feature uses a DIFFERENT service — ai-insights-service.ts -> /api/admission/insights/generate — not this class. File: lib/services/admission/admission-ai-service.ts. Pure compute so it would be safe to run, but there is no operator trigger surface. Max lane: DORMANT (0 calls in production); the Max path is on-demand ⚡ only, pending a runner twin — no schedule, no API spend either way."
   },
   {
     "id": "agentic-query-service",
@@ -64,6 +99,7 @@ export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "admission-ai-response-service",
+    "maxLane": true,
     "name": "Admission Reply Drafter (service; AI path dormant)",
     "category": "admission-ai",
     "type": "service",
@@ -75,6 +111,6 @@ export const ADMISSION_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-3-5-haiku-20241022 (config row 'admission.ai_response' — /admin/ai-models), MAX_TOKENS=2048, TEMPERATURE=0.7, RECENT_INTERACTIONS_CAP=5, DEFAULT_CONFIDENCE=0.8, SMS_CHAR_LIMIT=160; requires CLAUDE_API_KEY (rejects placeholder 'your-api-key-here')",
     "sideEffects": "Read-only — it GENERATES draft reply text only. It does NOT send any email/WhatsApp/SMS and writes nothing to the database (a human counselor reviews and sends separately).",
     "safeToManualTrigger": false,
-    "notes": "The Claude drafting path (generateResponse/getSuggestedReplies) is DORMANT: the hook useGenerateResponse POSTs to /api/ai/generate-response, which does NOT exist on jicate/main (no app/api/ai/ dir). The only LIVE method is personalizeTemplate — pure {{var}} substitution, NO Claude call — used by usePersonalizeTemplate in the CRM template editor. So today the service does not actually invoke Claude in production. Even when wired it only drafts text and never sends, so it is safe. File: lib/services/admission/ai-response-service.ts."
+    "notes": "The Claude drafting path (generateResponse/getSuggestedReplies) is DORMANT: the hook useGenerateResponse POSTs to /api/ai/generate-response, which does NOT exist on jicate/main (no app/api/ai/ dir). The only LIVE method is personalizeTemplate — pure {{var}} substitution, NO Claude call — used by usePersonalizeTemplate in the CRM template editor. So today the service does not actually invoke Claude in production. Even when wired it only drafts text and never sends, so it is safe. File: lib/services/admission/ai-response-service.ts. Max lane: DORMANT (0 Claude calls in production — the drafting endpoint does not exist); the Max path is on-demand ⚡ only, pending a runner twin."
   }
 ];

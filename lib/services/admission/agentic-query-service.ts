@@ -274,116 +274,87 @@ export class AgenticQueryService {
     };
 
     try {
-      // Resolve the configured model ONCE per query run — both AI calls
-      // (intent parse at step 1 + summary at step 5) share it, so the model
-      // cannot flip mid-run when the config cache expires.
-      const modelId = await resolveAgenticQueryModel();
+      // ── Max lane (2026-07-13) ──────────────────────────────────────────────
+      // This is the AGENTIC exception: instead of parsing intent + running the
+      // SELECTs + summarizing locally (three round-trips + two Anthropic calls),
+      // we enqueue a single `admission.agentic_query` registry job carrying ONLY
+      // the user's {{query}}. The job runs ON THE DRAIN with tools (tool_set=all,
+      // scoped to the enqueuer's identity by fn_ai_enqueue) — it queries the DB
+      // itself and returns a natural-language answer. Runs on the Claude Max
+      // subscription (₹0 API). Payload key MUST match the seeded {{query}}
+      // placeholder exactly. institutionId is retained in the signature for the
+      // existing caller contract; row-scoping is enforced server-side by the
+      // enqueuer's RLS identity, not by a passed id.
+      void institutionId;
 
-      // Step 1: Understanding
+      // Step 1: Understanding — enqueue the registry job.
       const understandingStep: QueryStep = {
         id: 'understanding',
         name: 'understanding',
         status: 'in_progress',
-        message: 'Analyzing your query...',
+        message: 'Sending your question to the assistant...',
         startedAt: new Date().toISOString(),
       };
       updateStep(understandingStep);
 
-      const intent = await this.parseQueryIntent(query, modelId);
+      const { data: enq, error: enqError } = await this.supabase.rpc(
+        'fn_ai_enqueue',
+        { p_job_type: AGENTIC_QUERY_FEATURE_KEY, p_payload: { query } }
+      );
+      if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+        const errText =
+          typeof enq?.error === 'string'
+            ? enq.error
+            : enqError?.message ?? 'could not start the query';
+        throw new Error(errText);
+      }
+      const jobId = enq.job_id;
 
       updateStep({
         ...understandingStep,
         status: 'completed',
-        message: `Understood: ${intent.type} query for ${intent.entities.join(', ')}`,
-        details: `Confidence: ${(intent.confidence * 100).toFixed(0)}%`,
+        message: 'Question accepted',
         completedAt: new Date().toISOString(),
       });
 
-      // Step 2: Planning
-      const planningStep: QueryStep = {
-        id: 'planning',
-        name: 'planning',
-        status: 'in_progress',
-        message: 'Planning data retrieval...',
-        startedAt: new Date().toISOString(),
-      };
-      updateStep(planningStep);
-
-      const dbQuery = await this.buildDatabaseQuery(intent, institutionId);
-
-      updateStep({
-        ...planningStep,
-        status: 'completed',
-        message: `Prepared query for ${intent.entities[0] || 'data'}`,
-        details: `Filters: ${intent.filters.length}, Group by: ${intent.groupBy?.join(', ') || 'none'}`,
-        completedAt: new Date().toISOString(),
-      });
-
-      // Step 3: Executing
-      const executingStep: QueryStep = {
+      // Steps 2-4 collapse into the drain's tool-use loop (plan → query → analyze).
+      const workingStep: QueryStep = {
         id: 'executing',
         name: 'executing',
         status: 'in_progress',
-        message: 'Fetching data...',
+        message: 'The assistant is querying the data...',
         startedAt: new Date().toISOString(),
       };
-      updateStep(executingStep);
+      updateStep(workingStep);
 
-      const rawData = await this.executeQuery(dbQuery);
-
-      updateStep({
-        ...executingStep,
-        status: 'completed',
-        message: `Retrieved ${Array.isArray(rawData) ? rawData.length : 1} records`,
-        completedAt: new Date().toISOString(),
-      });
-
-      // Step 4: Analyzing
-      const analyzingStep: QueryStep = {
-        id: 'analyzing',
-        name: 'analyzing',
-        status: 'in_progress',
-        message: 'Analyzing results...',
-        startedAt: new Date().toISOString(),
-      };
-      updateStep(analyzingStep);
-
-      const processedData = this.processResults(rawData, intent);
+      const answer = await this.pollForAnswer(jobId);
 
       updateStep({
-        ...analyzingStep,
+        ...workingStep,
         status: 'completed',
-        message: 'Analysis complete',
+        message: 'Data retrieved',
         completedAt: new Date().toISOString(),
       });
 
       // Step 5: Responding
-      const respondingStep: QueryStep = {
+      updateStep({
         id: 'responding',
         name: 'responding',
-        status: 'in_progress',
-        message: 'Generating response...',
-        startedAt: new Date().toISOString(),
-      };
-      updateStep(respondingStep);
-
-      const response = await this.formatResponse(processedData, query, intent, modelId);
-
-      updateStep({
-        ...respondingStep,
         status: 'completed',
         message: 'Response ready',
+        startedAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
       });
 
       return {
         success: true,
         query,
-        intent,
+        // The drain owns intent internally; expose a minimal, honest shape.
+        intent: { type: 'list', entities: [], filters: [], confidence: 1 },
         steps,
-        data: processedData,
-        summary: response.summary,
-        visualizationType: response.visualizationType,
+        data: null,
+        summary: answer,
+        visualizationType: 'metric',
         executionTimeMs: Date.now() - startTime,
       };
     } catch (error) {
@@ -405,6 +376,68 @@ export class AgenticQueryService {
         executionTimeMs: Date.now() - startTime,
       };
     }
+  }
+
+  // Poll cadence — mirrors app/api/work-pulse/translate/route.ts (the proven
+  // ai_jobs consumer). This service runs client-side, so the wait lives for the
+  // life of the open page; a longer job is picked up by the "while you were
+  // away" inbox pattern at the route/hook layer when one is wired.
+  private static readonly POLL_MS = 2_500;
+  private static readonly UNCLAIMED_DEADLINE_MS = 120_000; // drain offline → give up
+  private static readonly TOTAL_DEADLINE_MS = 285_000;
+
+  /**
+   * Long-poll fn_ai_job_status until the Max drain finishes, then return the
+   * answer text. Throws on error/timeout so processQuery's catch surfaces it.
+   */
+  private static async pollForAnswer(jobId: string): Promise<string> {
+    const startedAt = Date.now();
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    while (Date.now() - startedAt < this.TOTAL_DEADLINE_MS) {
+      await sleep(this.POLL_MS);
+      const { data: st, error: stError } = await this.supabase.rpc(
+        'fn_ai_job_status',
+        { p_job_id: jobId }
+      );
+      if (stError || !st || typeof st.status !== 'string') continue;
+      if (st.status === 'done') {
+        const ans = this.extractAnswer((st as { result?: unknown }).result);
+        if (ans) return ans;
+        throw new Error('The query finished with an empty result.');
+      }
+      if (
+        st.status === 'error' ||
+        st.status === 'canceled' ||
+        st.status === 'not_found'
+      ) {
+        throw new Error(`The query ${st.status}.`);
+      }
+      if (
+        st.status === 'pending' &&
+        Date.now() - startedAt > this.UNCLAIMED_DEADLINE_MS
+      ) {
+        throw new Error('The assistant is not available right now.');
+      }
+    }
+    throw new Error('The query did not finish in time. Please try again.');
+  }
+
+  /**
+   * Read the answer text out of the drain's result jsonb. The generic runner
+   * returns { answer }; tolerate a few shapes so a completed job is never lost.
+   */
+  private static extractAnswer(result: unknown): string | null {
+    if (typeof result === 'string') return result.trim() || null;
+    if (result && typeof result === 'object') {
+      const o = result as Record<string, unknown>;
+      for (const key of ['answer', 'summary', 'text', 'result']) {
+        const v = o[key];
+        if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+      }
+    }
+    return null;
   }
 
   /**

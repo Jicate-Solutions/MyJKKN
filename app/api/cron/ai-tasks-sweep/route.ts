@@ -20,8 +20,25 @@ import {
 } from '@/lib/services/platform/ai-clients/batch';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { resend } from '@/lib/resend';
 
 const CLAIM_CAP = 50;
+
+// ── Runner-down alert (fail-safe, P1) ─────────────────────────────────────────
+// The Max-lane AI runner has NO API fallback now (Director-approved). If it dies,
+// queued AI work silently stalls. This */15 sweep already runs on the cloud, so
+// we piggy-back a health check on its tail (a 67th Vercel cron would risk the
+// cron-ceiling that blocks ALL deploys). Copies the drift-check cron's
+// resend + DIRECTOR_EMAIL + FROM_EMAIL structure.
+const HEARTBEAT_ROW_ID = 'maxlane:poller-heartbeat'; // stamped ~every 2 min by a live runner
+const RUNNER_STALE_MS = 10 * 60 * 1000; // matches the /admin/ai-routines liveness strip
+const DIRECTOR_EMAIL = 'director@jkkn.ac.in';
+const DIRECTOR_UID = 'b2bcb548-6b4c-4c75-a6b3-72dd5e9a94f1';
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev';
+// Non-terminal statuses: a job in any of these that predates the cutoff is stuck.
+// Superset of the ai_jobs status enum ('pending','claimed','running',…) so it
+// stays correct if sibling queues add 'cancelled'/'failed'/'delivered'.
+const TERMINAL_STATUSES = '(done,error,canceled,cancelled,failed,delivered)';
 
 // P2: notify the requester on EVERY terminal outcome — not just success — so a
 // click never dead-ends silently (Director decision 2026-07-05). Best-effort +
@@ -64,6 +81,126 @@ async function notifyOutcome(
   } catch (notifyErr) {
     console.error('[ai-tasks-sweep] notify failed:', notifyErr);
   }
+}
+
+// Fail-safe runner-down check. Alerts the Director (in-app + email) at most once
+// per UTC hour, ONLY during 08:00–20:00 IST, when EITHER the runner heartbeat is
+// stale (>10 min) OR a non-terminal ai_job has been queued >10 min. Returns a
+// small summary; the caller wraps it in its own try/catch so it can NEVER throw
+// into the host cron.
+async function runnerDownHealthCheck(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const now = Date.now();
+
+  // 1) Heartbeat freshness. The table is RPC-only for anon/authenticated (RLS
+  // deny-all), so this read MUST use the service-role client.
+  const { data: hb } = await admin
+    .from('ai_routine_schedules')
+    .select('last_fired_at')
+    .eq('routine_id', HEARTBEAT_ROW_ID)
+    .maybeSingle();
+  const lastFiredMs = hb?.last_fired_at ? new Date(hb.last_fired_at).getTime() : NaN;
+  const heartbeatAgeMs = now - lastFiredMs; // NaN when the row is missing/null/unparseable
+  // Fail-safe: a NaN/absent age is NOT < threshold → treated as STALE → we alert.
+  // A live runner stamps this every ~2 min, so a missing pulse means it is down.
+  const heartbeatStale = !(heartbeatAgeMs < RUNNER_STALE_MS);
+
+  // 2) Oldest non-terminal ai_job stuck past the cutoff.
+  const staleCutoffIso = new Date(now - RUNNER_STALE_MS).toISOString();
+  const { data: stuckRows } = await admin
+    .from('ai_jobs')
+    .select('id, job_type, status, requested_at')
+    .not('status', 'in', TERMINAL_STATUSES)
+    .lt('requested_at', staleCutoffIso)
+    .order('requested_at', { ascending: true })
+    .limit(1);
+  const stuckJob = Array.isArray(stuckRows) && stuckRows.length > 0 ? stuckRows[0] : null;
+
+  const runnerDown = heartbeatStale || stuckJob !== null;
+
+  // 3) Business-hours gate: 08:00–20:00 IST (UTC+5:30). Shift the epoch by the
+  // offset, then read UTC fields to get the IST wall-clock hour.
+  const istHour = new Date(now + (5 * 60 + 30) * 60 * 1000).getUTCHours();
+  const withinBusinessHours = istHour >= 8 && istHour < 20;
+
+  const summary = {
+    checked: true,
+    runnerDown,
+    heartbeatStale,
+    heartbeatAgeMin: Number.isFinite(heartbeatAgeMs) ? Math.round(heartbeatAgeMs / 60000) : null,
+    stuckJob: Boolean(stuckJob),
+    withinBusinessHours,
+  };
+
+  if (!runnerDown || !withinBusinessHours) {
+    return { ...summary, alerted: false };
+  }
+
+  // 4) Alert — deduped to at most once per UTC hour per outage.
+  const nowDate = new Date(now);
+  const idempotencyKey = `maxlane-runner-down:${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}`;
+
+  const heartbeatAgeLabel = Number.isFinite(heartbeatAgeMs)
+    ? `${Math.round(heartbeatAgeMs / 60000)} min`
+    : 'never fired / no heartbeat row';
+  const stuckLabel = stuckJob
+    ? `job ${stuckJob.id} (${stuckJob.job_type}, status=${stuckJob.status}, queued ${new Date(stuckJob.requested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)`
+    : 'none';
+  const nowIst = nowDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+  // 4a) In-app notification. Its idempotency_key UNIQUE index is the single
+  // source of truth for "already alerted this hour" — we gate the email on its
+  // result so the two channels can't diverge (one fires without the other).
+  const fanout = await fanoutNotification(admin, {
+    title: 'AI runner appears down',
+    body:
+      `The MyJKKN Max-lane AI runner looks down — it has no API fallback, so queued AI work will stall until it is back. ` +
+      `Heartbeat age: ${heartbeatAgeLabel}. Oldest stuck job: ${stuckLabel}.`,
+    userIds: [DIRECTOR_UID],
+    createdBy: DIRECTOR_UID,
+    category: 'general', // free-text; 'general' guarantees the bell renders it
+    kind: 'work_item',
+    priority: 'urgent',
+    idempotencyKey,
+    url: '/admin/ai-routines',
+    source: 'ai-tasks-sweep:runner-down',
+  });
+
+  if (fanout.skipped === 'idempotent') {
+    // A prior sweep this hour already alerted → do not re-send the email.
+    return { ...summary, alerted: false, idempotent: true, idempotencyKey };
+  }
+
+  // 4b) Email the Director. Best-effort — the resend Idempotency-Key header is a
+  // provider-side backstop (24h window) on top of the notification-row gate.
+  let emailed = false;
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await resend.emails.send(
+        {
+          from: FROM_EMAIL,
+          to: DIRECTOR_EMAIL,
+          subject: '⚠️ MyJKKN AI runner appears down',
+          html: `<h2 style="color:#b91c1c">AI runner appears down</h2>
+<p>The MyJKKN Max-lane AI runner has stopped responding. <strong>The Max lane has no API fallback</strong> — queued AI work will not complete until the runner is back online.</p>
+<table style="border-collapse:collapse;margin-top:8px">
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Detected</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${nowIst} IST</td></tr>
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Heartbeat age</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${heartbeatAgeLabel}${heartbeatStale ? ' — STALE (&gt;10 min)' : ''}</td></tr>
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Oldest stuck job</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${stuckLabel}</td></tr>
+</table>
+<p style="margin-top:16px">Check the runner box (Windows poller) and the <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/admin/ai-routines">AI routines liveness strip</a>.</p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">Automated alert from /api/cron/ai-tasks-sweep runner-down health check. Fires at most once per hour, only 08:00–20:00 IST.</p>`,
+        },
+        { headers: { 'Idempotency-Key': idempotencyKey } },
+      );
+      emailed = true;
+    } catch (emailErr) {
+      console.error('[ai-tasks-sweep] runner-down email failed:', emailErr);
+    }
+  }
+
+  return { ...summary, alerted: true, notified: fanout.notified, emailed, idempotencyKey };
 }
 
 export async function GET(request: NextRequest) {
@@ -200,5 +337,17 @@ export async function GET(request: NextRequest) {
     features[featureKey] = stat;
   }
 
-  return NextResponse.json({ ok: true, features, elapsed_ms: Date.now() - started });
+  // ── 3) FAIL-SAFE runner-down health check ─────────────────────────────────
+  // Runs LAST, in its own try/catch, so a failure here can NEVER break the host
+  // sweep above. Additive `health` field in the response — existing callers are
+  // unaffected.
+  let health: Record<string, unknown> = { checked: false };
+  try {
+    health = await runnerDownHealthCheck(admin);
+  } catch (healthErr) {
+    console.error('[ai-tasks-sweep] runner-down health check failed:', healthErr);
+    health = { checked: false, error: healthErr instanceof Error ? healthErr.message : 'health check failed' };
+  }
+
+  return NextResponse.json({ ok: true, features, health, elapsed_ms: Date.now() - started });
 }

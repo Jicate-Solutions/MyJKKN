@@ -35,6 +35,7 @@ export interface CarreAuditableModule {
 export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   // ── Applications ──────────────────────────────────────────────────────
   { key: 'application-hub', label: 'Application Hub' },
+  { key: 'my-kit', label: 'My Kit (Store Kits)' }, // participant surface of the IMS kit module — IMS itself stays excluded (stockroom ops)
   { key: 'applications', label: 'Applications' },
 
   // ── Academic & learning experiences ──────────────────────────────────

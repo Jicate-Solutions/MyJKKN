@@ -91,6 +91,11 @@ export class ResourceService {
         );
       }
 
+      // Procurement intake drafts awaiting room/caretaker setup.
+      if (filters.needs_setup) {
+        query = query.contains('tags', ['needs-setup']);
+      }
+
       // Filter by availability date if provided
       if (filters.available_on) {
         // This will need to check against reservations - implement later
@@ -797,6 +802,26 @@ export class ResourceService {
   /**
    * Get resources for select/dropdown
    */
+  /**
+   * Count of procurement-intake drafts awaiting setup (tags contains 'needs-setup').
+   * Institution-scoped TOTAL — deliberately ignores the list's secondary filters
+   * (search/status/category); the badge click clears those so the click-through
+   * shows exactly this set. RLS prevents cross-tenant reads for own-scope roles;
+   * the institution filter aligns the number for scope-'all' users too.
+   */
+  static async getNeedsSetupCount(institutionId?: string): Promise<number> {
+    let query = (this.supabase as any)
+      .from('resources')
+      .select('id', { count: 'exact', head: true })
+      .contains('tags', ['needs-setup']);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { count, error } = await query;
+    if (error) throw error;
+    return count ?? 0;
+  }
+
   static async getResourcesForSelect(
     institutionId?: string,
     departmentId?: string

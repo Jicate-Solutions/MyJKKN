@@ -144,32 +144,80 @@ export class BulkLearnerUploadService {
       });
     });
 
-    // Check for duplicate emails in batch
+    // Rows that pass per-row validation but must still be excluded from
+    // insertion because of a batch-level or DB-level collision. Indices point
+    // into validRows; a single filter removes them all before processing.
+    const excludedIndices = new Set<number>();
+
+    // GUARD 1: duplicate college_email within this file (existing behaviour).
     const duplicates = LearnerValidationService.findDuplicateEmails(
       validRows.map(r => r.data)
     );
-
-    if (duplicates.size > 0) {
-      duplicates.forEach((rowIndices, email) => {
-        rowIndices.forEach(index => {
-          result.errors.push({
-            row: validRows[index].rowNumber,
-            email,
-            error: `Duplicate email in file: ${email} appears in rows ${rowIndices.map(i => validRows[i].rowNumber).join(', ')}`
-          });
+    duplicates.forEach((rowIndices, email) => {
+      rowIndices.forEach(index => {
+        result.errors.push({
+          row: validRows[index].rowNumber,
+          email,
+          error: `Duplicate email in file: ${email} appears in rows ${rowIndices.map(i => validRows[i].rowNumber).join(', ')}`
         });
+        excludedIndices.add(index);
       });
+    });
 
-      // Remove duplicates from valid rows
-      const duplicateIndices = new Set(Array.from(duplicates.values()).flat());
-      const uniqueValidRows = validRows.filter((_, index) => !duplicateIndices.has(index));
+    // GUARD 2: the SAME student_photo_url assigned to multiple distinct learners
+    // in this file. Root cause of BUG-004438/004437 — a bulk sheet repeated one
+    // photo URL across dozens of rows, so every learner rendered the same (wrong)
+    // person's face. A photo URL is inherently per-person; sharing one is always
+    // an error. Reject every row in the colliding group with an explicit message.
+    const photoDupes = LearnerValidationService.findDuplicatePhotoUrls(
+      validRows.map(r => r.data)
+    );
+    photoDupes.forEach((rowIndices) => {
+      const rowsLabel = rowIndices.map(i => validRows[i].rowNumber).join(', ');
+      rowIndices.forEach(index => {
+        result.errors.push({
+          row: validRows[index].rowNumber,
+          email: validRows[index].data.college_email,
+          error: `Same photo URL assigned to multiple learners (rows ${rowsLabel}). Each learner needs their own photo — fix the file and re-upload.`
+        });
+        excludedIndices.add(index);
+      });
+    });
 
-      // Process unique rows
-      await this.processValidRows(uniqueValidRows, result);
-    } else {
-      // Process all valid rows
-      await this.processValidRows(validRows, result);
+    // GUARD 3: student_photo_url already stored on a DIFFERENT learner in the DB
+    // (the same corruption class arriving one upload at a time). Re-uploading the
+    // same learner with their own existing photo is fine and is NOT flagged.
+    const photoOwners = await LearnerValidationService.findExistingPhotoOwners(
+      validRows.map(r => (r.data as { student_photo_url?: string }).student_photo_url || '')
+    );
+    if (photoOwners.size > 0) {
+      validRows.forEach((row, index) => {
+        const url = ((row.data as { student_photo_url?: string }).student_photo_url || '').trim();
+        if (!url) return;
+        const existingOwners = photoOwners.get(url);
+        if (!existingOwners) return;
+        const rowEmail = (row.data.college_email || '').toLowerCase();
+        const otherOwners = existingOwners.filter(e => e !== rowEmail);
+        if (otherOwners.length > 0) {
+          result.errors.push({
+            row: row.rowNumber,
+            email: row.data.college_email,
+            error: `Photo URL already belongs to another learner (${otherOwners.join(', ')}). Each learner needs their own photo.`
+          });
+          excludedIndices.add(index);
+        }
+      });
     }
+
+    // Surface the rejections in the summary + "learners failed" toast so nothing
+    // is dropped silently (repo rule: validation failures must be explicit).
+    result.upload_summary.learners_failed += excludedIndices.size;
+
+    const rowsToProcess = excludedIndices.size > 0
+      ? validRows.filter((_, index) => !excludedIndices.has(index))
+      : validRows;
+
+    await this.processValidRows(rowsToProcess, result);
 
     // Log bulk upload activity (summary)
     try {

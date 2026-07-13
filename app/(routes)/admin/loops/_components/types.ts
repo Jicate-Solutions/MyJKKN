@@ -39,6 +39,13 @@ export interface LoopCard {
    *  now records the routine's own result summary, not just the HTTP code).
    *  Absent for on-demand / direct-cron loops with no dispatcher schedule row. */
   lastRun?: string;
+  /** True when the last run errored OR the routine went silent past its OWN
+   *  cadence (derived from days_of_week: ~25h daily, ~7d weekly — see
+   *  staleThresholdMs in lib/ai-routines/loop-governance.ts) — the card
+   *  renders the last-run line red. Computed live by
+   *  the page from the same row; the loop-watchdog cron is the half that
+   *  notifies when nobody is looking (governance wires, 2026-07-11). */
+  lastRunBad?: boolean;
   /** Deep-link to the routine's row on /admin/ai-routines when it's dispatcher-
    *  managed — so "configure" is one click from the health view. */
   configHref?: string;

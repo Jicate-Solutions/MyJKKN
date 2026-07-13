@@ -31,6 +31,7 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
+  LibraryBig,
   FolderKanban,
   Lightbulb,
   Building,
@@ -227,6 +228,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
   '/learners/counseling': 'learners.counseling.view',
 
+  // Reference / Masters hub — registry-driven master-data catalogs
+  '/reference': 'reference.catalogs.view',
+
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
@@ -315,6 +319,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/induction': 'induction.view',
   '/events/induction/new': 'induction.manage',
   '/events/induction/catalog': 'induction.view',
+  // Events landing + Projects module entry (menu-visibility gap fix
+  // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
+  // Role Management to reveal the Projects sidebar entry.
+  '/events': 'events.view',
+  '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -371,6 +380,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+  // Admin lane of session feedback (D2 gate) — leadership-view key
+  // (menu-visibility gap fix 2026-07-12)
+  '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -640,6 +652,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
   '/admission/marketing/campaigns/roi': 'admission.marketing.view',
   '/admission/marketing/campaigns/segments': 'admission.marketing.view',
+  // Menu-visibility gap fix 2026-07-12: these sidebar hrefs had no
+  // MENU_PERMISSIONS entry, so the filter hid them for every
+  // non-super-admin role (caught by check:menu-coverage).
+  '/admission/marketing/campaigns': 'admission.marketing.view',
+  '/admission/marketing/automations/monitoring': 'admission.marketing.view',
+  '/admission/marketing/automations/roi': 'admission.marketing.view',
+  '/admission/marketing/automations/segments': 'admission.marketing.view',
+  '/admission/marketing/database': 'admission.marketing.view',
+  '/admission/marketing/whatsapp-broadcast': 'admission.marketing.view',
   '/admission/marketing/chat': 'admission.marketing.chat.view',
   '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
   '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',
@@ -1239,6 +1260,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
   '/ims/settings/units': 'ims.settings.units.manage',
   '/ims/settings/unit-conversions': 'ims.settings.units.manage',
+  // Store Kits (PR-K2, 2026-07-12) — per-group item kits handed over at the
+  // central store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
+  // Keys ship UNGRANTED (dark) until the grn_verify rollout.
+  '/ims/kits': 'ims.kits.manage',
+  '/ims/kits/counter': 'ims.kits.handover',
+  '/ims/kits/billing-flags': 'ims.kits.billing_flags.view',
+  // Learner/staff self view — top-level route; grant ims.kits.my.view to
+  // student/staff roles at rollout to reveal it.
+  '/my-kit': 'ims.kits.my.view',
   // Stock (visibility + adjustments + GRN lifecycle)
   '/ims/stock': 'ims.stock.view',
   '/ims/stock/adjustments': 'ims.stock.adjust',
@@ -1309,6 +1339,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          // Store Kits self view (PR-K2) — entitled vs collected vs owed.
+          // Hidden until ims.kits.my.view is granted to student/staff roles.
+          href: '/my-kit',
+          label: 'My Kit',
+          active: pathname === '/my-kit',
+          icon: Package,
           submenus: []
         }
       ]
@@ -1381,6 +1420,15 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/courses', label: 'Courses', active: pathname.startsWith('/organizations/courses') },
             { href: '/organizations/courses/mappings', label: 'Course Mappings', active: pathname === '/organizations/courses/mappings' },
           ]
+        },
+        {
+          // Reference / Masters hub — every master-data catalog with live
+          // counts; generic catalogs editable inline, complex ones link out.
+          href: '/reference',
+          label: 'Reference / Masters',
+          active: pathname === '/reference' || pathname.startsWith('/reference/'),
+          icon: LibraryBig,
+          submenus: []
         }
       ]
     },
@@ -2170,6 +2218,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
             { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
             { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
+            // Store Kits (PR-K2) — visibility gated per-entry via MENU_PERMISSIONS
+            { href: '/ims/kits', label: 'Kits · Rules', active: pathname === '/ims/kits' },
+            { href: '/ims/kits/counter', label: 'Kits · Counter', active: pathname === '/ims/kits/counter' },
+            { href: '/ims/kits/billing-flags', label: 'Kits · Billing Flags', active: pathname === '/ims/kits/billing-flags' },
           ]
         }
       ]

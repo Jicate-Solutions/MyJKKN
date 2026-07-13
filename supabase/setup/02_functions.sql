@@ -21945,3 +21945,15 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_refund_role_members() TO authenticated;
+
+-- ============================================================================
+-- 2026-07-11: fn_scf_admin_college_summary — "Low sessions" second lens
+-- (Director request). Two ADDITIVE trailing columns: low_flag_responses
+-- (responses rating understanding <= 2 in window) + low_flag_sessions
+-- (sessions containing >= 1 such response). Pure aggregates; the k>=3 floor
+-- on low_sessions / avg_understood and the authz body are UNCHANGED.
+-- RETURNS TABLE changed => DROP + CREATE; grants re-applied (authenticated +
+-- service_role, anon/PUBLIC revoked). Canonical body:
+--   supabase/migrations/20260711070000_scf_admin_college_summary_low_flags.sql
+-- (applied to prod 2026-07-11 after a rolled-back impersonated validation).
+-- ============================================================================

@@ -4257,6 +4257,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/ims/kits",
+        "label": "Kits",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ims/kits/billing-flags",
+            "label": "Billing Flags",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/ims/kits/counter",
+            "label": "Counter",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/ims/reports",
         "label": "Reports",
         "iconName": "FileBarChart",
@@ -4992,6 +5011,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-induction-sessions",
     "label": "My Induction Sessions",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-kit",
+    "label": "My Kit",
     "iconName": "FileText",
     "children": []
   },
@@ -5775,6 +5800,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       }
     ]
+  },
+  {
+    "path": "/reference",
+    "label": "Reference",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/resource-management",

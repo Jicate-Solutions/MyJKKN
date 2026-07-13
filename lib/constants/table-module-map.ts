@@ -60,6 +60,10 @@ export const TABLE_OVERRIDES: Record<string, string> = {
 
 /** Prefix-to-module mapping checked in order; first match wins. */
 export const MODULE_PREFIXES: [string, string][] = [
+  ['reference_catalog', 'Reference'],
+  // Projects module tables (project_statuses, project_labels, …) — module
+  // registered 2026-07-12 with its first permission key (projects.view)
+  ['project_', 'Projects'],
   ['billing_', 'Billing'],
   ['learners_', 'Learners'],
   ['staff_plan', 'Academic'],
