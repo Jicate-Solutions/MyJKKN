@@ -270,10 +270,17 @@ export class EventPaymentService {
         transactionId: transaction.id,
         razorpayOrderId: params.razorpayOrderId,
       });
-      await supabase
+      const { error: markFailedError } = await supabase
         .from('event_payment_transactions')
         .update({ status: 'failed' })
         .eq('id', transaction.id);
+      if (markFailedError) {
+        logger.error(
+          'events/payment',
+          'Failed to mark transaction failed after signature mismatch',
+          markFailedError
+        );
+      }
       return {
         success: false,
         registrationId: transaction.registration_id,
@@ -287,10 +294,17 @@ export class EventPaymentService {
     const status = await provider.dualInquiry(params.razorpayOrderId, params.razorpayPaymentId);
 
     if (status.status !== 'captured' && status.status !== 'authorized') {
-      await supabase
+      const { error: markFailedError } = await supabase
         .from('event_payment_transactions')
         .update({ status: 'failed', gateway_response: status.raw })
         .eq('id', transaction.id);
+      if (markFailedError) {
+        logger.error(
+          'events/payment',
+          'Failed to mark transaction failed after unsettled dual inquiry status',
+          markFailedError
+        );
+      }
       return {
         success: false,
         registrationId: transaction.registration_id,
@@ -300,7 +314,7 @@ export class EventPaymentService {
     }
 
     const now = new Date().toISOString();
-    await supabase
+    const { error: settleError } = await supabase
       .from('event_payment_transactions')
       .update({
         status: 'success',
@@ -310,8 +324,21 @@ export class EventPaymentService {
       })
       .eq('id', transaction.id);
 
+    if (settleError) {
+      logger.error('events/payment', 'CRITICAL: failed to settle transaction after verified Razorpay payment', {
+        transactionId: transaction.id,
+        error: settleError,
+      });
+      return {
+        success: false,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
     if (transaction.registration_id) {
-      await supabase
+      const { error: regError } = await supabase
         .from('events_registrations')
         .update({
           payment_status: 'paid',
@@ -319,6 +346,20 @@ export class EventPaymentService {
           payment_reference: params.razorpayPaymentId,
         })
         .eq('id', transaction.registration_id);
+
+      if (regError) {
+        logger.error('events/payment', 'CRITICAL: transaction settled but registration payment_status update failed', {
+          transactionId: transaction.id,
+          registrationId: transaction.registration_id,
+          error: regError,
+        });
+        return {
+          success: false,
+          registrationId: transaction.registration_id,
+          transactionId: transaction.id,
+          returnUrl: transaction.return_url,
+        };
+      }
     }
 
     logger.info('events/payment', 'Razorpay callback verified and settled', {
@@ -350,10 +391,16 @@ export class EventPaymentService {
       .eq('razorpay_order_id', razorpayOrderId)
       .single();
     if (!transaction || ['success', 'failed'].includes(transaction.status)) return;
-    await supabase
+    const { error: updateError } = await supabase
       .from('event_payment_transactions')
       .update({ status: 'failed', gateway_response: error })
       .eq('id', transaction.id);
+    if (updateError) {
+      logger.warn('events/payment', 'Failed to mark Razorpay order as failed', {
+        razorpayOrderId,
+        error: updateError,
+      });
+    }
   }
 
   // ==========================================================================
