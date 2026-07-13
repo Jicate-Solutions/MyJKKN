@@ -49,6 +49,7 @@ import { ConsultantAttributionCard } from './_components/consultant-attribution-
 import { ActivityTab } from './_components/tabs/activity-tab';
 import { CallsTab } from './_components/tabs/calls-tab';
 import { CommunicationTab } from './_components/tabs/communication-tab';
+import { AISuggestedResponses } from '@/components/admission/ai-suggested-responses';
 import { DetailsTab } from './_components/tabs/details-tab';
 import { JourneyTab } from './_components/tabs/journey-tab';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
@@ -1495,28 +1496,43 @@ function LeadDetailPageContent() {
 
                 <TabsContent value="communication" className="mt-4">
                   {activeTab === 'communication' && (
-                    <CommunicationTab
-                      leadFullName={lead?.full_name}
-                      leadPhone={lead?.phone}
-                      leadEmail={lead?.email}
-                      leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
-                      leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
-                      leadProgramName={lead?.program?.program_name || ''}
-                      waConnected={!!waStatus?.connected}
-                      commLoading={commLoading}
-                      communicationHistory={communicationHistory}
-                      templateAttachment={templateAttachment}
-                      setTemplateAttachment={setTemplateAttachment}
-                      channelTemplates={channelTemplates}
-                      selectedTemplateId={selectedTemplateId}
-                      setSelectedTemplateId={setSelectedTemplateId}
-                      setSendChannel={setSendChannel}
-                      setSendMessage={setSendMessage}
-                      sendMessage={sendMessage}
-                      isSending={isSending}
-                      handleSendPersonalWA={handleSendPersonalWA}
-                      replaceVariables={replaceVariables}
-                    />
+                    <div className="space-y-4">
+                      <CommunicationTab
+                        leadFullName={lead?.full_name}
+                        leadPhone={lead?.phone}
+                        leadEmail={lead?.email}
+                        leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
+                        leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
+                        leadProgramName={lead?.program?.program_name || ''}
+                        waConnected={!!waStatus?.connected}
+                        commLoading={commLoading}
+                        communicationHistory={communicationHistory}
+                        templateAttachment={templateAttachment}
+                        setTemplateAttachment={setTemplateAttachment}
+                        channelTemplates={channelTemplates}
+                        selectedTemplateId={selectedTemplateId}
+                        setSelectedTemplateId={setSelectedTemplateId}
+                        setSendChannel={setSendChannel}
+                        setSendMessage={setSendMessage}
+                        sendMessage={sendMessage}
+                        isSending={isSending}
+                        handleSendPersonalWA={handleSendPersonalWA}
+                        replaceVariables={replaceVariables}
+                      />
+                      {/* AI reply drafts (Max lane). "Use This" only fills the
+                          compose box above — it never sends. */}
+                      {lead && (
+                        <AISuggestedResponses
+                          lead={lead}
+                          counselorName={lead.counselor?.name}
+                          institutionName={institutionName}
+                          defaultChannel="whatsapp"
+                          onSelectResponse={(response) => {
+                            setSendMessage(response.content);
+                          }}
+                        />
+                      )}
+                    </div>
                   )}
                 </TabsContent>
 
