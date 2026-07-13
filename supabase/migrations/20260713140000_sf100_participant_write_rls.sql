@@ -1,10 +1,14 @@
 -- SF100 participant write-path enablement + team-ownership enforcement
 -- WHY: INSERT on sf100_check_ins/paid_users/customer_interviews/pivots was
 -- service_role-ONLY, so participant writes (which run as the authenticated user
--- via withAuth->runWithClient(auth.supabase)) were RLS-denied. This adds
+-- via withAuth->runWithClient(auth.supabase)) were RLS-denied (42501). This adds
 -- authenticated INSERT policies that pin the actor column to auth.uid() AND
--- require the caller to be a member of the enrollment's team (closes IDOR).
+-- require the caller to be an ACCEPTED member of the enrollment's team.
 -- Additive: existing *_insert_service_role policies remain for admin/server paths.
+--
+-- The membership predicate is the SAME canonical ownership gate used by
+-- public.fn_my_sf100_goal (event_team_members JOIN sf100_enrollments,
+-- status='accepted') -- extended, not reinvented.
 
 create or replace function public.sf100_can_write_enrollment(p_enrollment_id uuid)
 returns boolean
@@ -18,10 +22,11 @@ as $$
     or public.is_admin()
     or exists (
       select 1
-      from public.sf100_enrollments e
-      join public.event_team_members m on m.registration_id = e.registration_id
-      where e.id = p_enrollment_id
-        and m.profile_id = auth.uid()
+        from public.event_team_members tm
+        join public.sf100_enrollments e on e.registration_id = tm.registration_id
+       where e.id = p_enrollment_id
+         and tm.profile_id = auth.uid()
+         and tm.status = 'accepted'
     );
 $$;
 revoke execute on function public.sf100_can_write_enrollment(uuid) from anon, public;
