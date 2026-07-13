@@ -17,7 +17,33 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AIQueryService } from '@/lib/services/ai-query-service';
-import type { AIQueryRequest } from '@/types/ai-query';
+import type { AIQueryRequest, ArtifactRef, ArtifactType } from '@/types/ai-query';
+
+const ARTIFACT_TYPES: ArtifactType[] = ['chart', 'report', 'spreadsheet', 'slides'];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Validate + narrow the artifact refs the drain put in ai_jobs.result.artifacts.
+ *  The drain stores the real rows (owner-bound) via fn_ai_create_artifact; this
+ *  is a defensive shape-check before the refs reach the client. Content is NOT
+ *  carried here — the panel fetches it lazily (owner-scoped) via fn_ai_get_artifact. */
+function sanitizeArtifacts(raw: unknown): ArtifactRef[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ArtifactRef[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const a = item as Record<string, unknown>;
+    if (typeof a.id !== 'string' || !UUID_RE.test(a.id)) continue;
+    if (typeof a.type !== 'string' || !ARTIFACT_TYPES.includes(a.type as ArtifactType)) continue;
+    out.push({
+      id: a.id,
+      type: a.type as ArtifactType,
+      title: typeof a.title === 'string' ? a.title : null,
+      is_sensitive: a.is_sensitive === true,
+    });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
 
 const MAX_LANE_POLL_MS = 2_500;
 const MAX_LANE_UNCLAIMED_DEADLINE_MS = 120_000;
@@ -56,6 +82,7 @@ type ChatResult = {
   cap?: number;
   used?: number;
   elapsedMs?: number;
+  artifacts?: ArtifactRef[];
 };
 
 /** One enqueue + poll attempt on the scoped ai_jobs chat lane. */
@@ -95,10 +122,13 @@ async function scopedChatOnce(
       });
       if (stError || !st || typeof st.status !== 'string') continue;
       if (st.status === 'done') {
-        const answer =
-          st.result && typeof st.result === 'object' ? (st.result as { answer?: unknown }).answer : null;
+        const result =
+          st.result && typeof st.result === 'object'
+            ? (st.result as { answer?: unknown; artifacts?: unknown })
+            : null;
+        const answer = result ? result.answer : null;
         if (typeof answer === 'string' && answer.trim().length > 0) {
-          return { answer, requestId: jobId };
+          return { answer, requestId: jobId, artifacts: sanitizeArtifacts(result?.artifacts) };
         }
         return { answer: null, miss: 'error' };
       }
@@ -375,7 +405,7 @@ export async function POST(request: NextRequest) {
 
     await AIQueryService.incrementQueryCount(user.id);
 
-    const { answer: maxAnswer, miss, requestId: maxRequestId, cap, used, elapsedMs } =
+    const { answer: maxAnswer, miss, requestId: maxRequestId, cap, used, elapsedMs, artifacts: maxArtifacts } =
       await tryScopedChat(supabase, message, conversation_id);
 
     if (maxAnswer !== null) {
@@ -403,6 +433,7 @@ export async function POST(request: NextRequest) {
           timestamp: new Date().toISOString(),
           toolCalls: toolsCalled.map(name => ({ name, status: 'completed' })),
         },
+        artifacts: maxArtifacts ?? [],
         suggestions: getContextAwareSuggestions(toolsCalled),
         rate_limit: rateLimit,
       });

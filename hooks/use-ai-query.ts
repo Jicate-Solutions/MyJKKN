@@ -10,6 +10,7 @@ import type {
   AIQueryResponse,
   RateLimitResult,
   ActionDefinition,
+  ArtifactRef,
   SuggestedQuery,
   DEFAULT_SUGGESTED_QUERIES,
 } from '@/types/ai-query';
@@ -204,6 +205,10 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
           typeof (data as { max_request_id?: unknown }).max_request_id === 'string'
             ? (data as { max_request_id: string }).max_request_id
             : undefined,
+        // Artifact refs the drain produced (empty/absent = today's plain answer).
+        artifacts: Array.isArray((data as { artifacts?: ArtifactRef[] }).artifacts)
+          ? (data as { artifacts: ArtifactRef[] }).artifacts
+          : undefined,
       };
 
       setMessages(prev => {
@@ -312,6 +317,31 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
         }
         return out;
       });
+      // Reattach any artifacts this user produced in these turns (owner-scoped;
+      // fn_ai_my_artifacts pins auth.uid()). Match by job_id → the turn's id.
+      try {
+        const { data: arts } = await (supabase as any).rpc('fn_ai_my_artifacts', { p_limit: 200 });
+        const TYPES: ArtifactRef['type'][] = ['chart', 'report', 'spreadsheet', 'slides'];
+        const byJob = new Map<string, ArtifactRef[]>();
+        (Array.isArray(arts) ? arts : []).forEach((a: {
+          id: string; job_id: string | null; type: ArtifactRef['type'];
+          title: string | null; is_sensitive: boolean;
+        }) => {
+          if (!a?.job_id || typeof a.id !== 'string' || !TYPES.includes(a.type)) return;
+          const list = byJob.get(a.job_id) ?? [];
+          list.push({ id: a.id, type: a.type, title: a.title ?? null, is_sensitive: a.is_sensitive === true });
+          byJob.set(a.job_id, list);
+        });
+        if (byJob.size > 0) {
+          for (const m of restored) {
+            if (m.role === 'assistant' && m.jobId && byJob.has(m.jobId)) {
+              m.artifacts = byJob.get(m.jobId);
+            }
+          }
+        }
+      } catch {
+        // silent — artifacts are a bonus on reopen, never block the thread
+      }
       setMessages(restored);
       conversationIdRef.current = conversationId;
     } catch {

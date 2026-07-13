@@ -34,6 +34,7 @@ import { MessageBubble } from './MessageBubble';
 import { SuggestedQueries } from './SuggestedQueries';
 import { ChatHistorySheet } from './ChatHistorySheet';
 import { DrainHealthBanner } from './DrainHealthBanner';
+import { ArtifactPanel } from './ArtifactPanel';
 import type { ActionDefinition } from '@/types/ai-query';
 
 interface AIQueryContainerProps {
@@ -42,8 +43,15 @@ interface AIQueryContainerProps {
 
 export function AIQueryContainer({ className }: AIQueryContainerProps) {
   const [inputValue, setInputValue] = useState('');
+  const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const openArtifact = (id: string) => {
+    setOpenArtifactId(id);
+    setArtifactOpen(true);
+  };
 
   const { isSuperAdmin } = usePermissions([]);
 
@@ -186,6 +194,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
                 key={message.id}
                 message={message}
                 onActionClick={handleActionClick}
+                onOpenArtifact={openArtifact}
               />
             ))}
           </div>
@@ -244,6 +253,13 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
           </div>
         )}
       </div>
+
+      {/* Artifact side panel — opens when a message's artifact card is tapped */}
+      <ArtifactPanel
+        artifactId={openArtifactId}
+        open={artifactOpen}
+        onOpenChange={setArtifactOpen}
+      />
     </div>
   );
 }
