@@ -67,7 +67,7 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
   coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, ACADEMIC_REQUIRES.registrar, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager],
   "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin],
   "platform-admin": [],
   parent: [],
@@ -496,6 +496,9 @@ export const academicGuide: ModuleGuide = {
       sections: [
         ...withRequires(ACADEMIC_GUIDES.lanes.hod.sections, ACADEMIC_REQUIRES.hod),
         ...withRequires(ACADEMIC_GUIDES.lanes.principal.sections, ACADEMIC_REQUIRES.principal),
+        // Registrar's exam-audit walk-in (also unlocked for principals/CEO/EAO/
+        // administrators — anyone holding the exam-audit key).
+        ...withRequires(ACADEMIC_GUIDES.lanes.registrar.sections, ACADEMIC_REQUIRES.registrar),
       ],
       startHere: ACADEMIC_GUIDES.lanes.hod.startHere,
       title: ACADEMIC_GUIDES.lanes.hod.title,
