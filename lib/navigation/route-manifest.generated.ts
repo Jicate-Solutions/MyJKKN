@@ -1844,17 +1844,16 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/refund-approvals",
+        "label": "Refund Approvals",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/refunds",
         "label": "Refunds",
         "iconName": "Wallet",
-        "children": [
-          {
-            "path": "/billing/refunds/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
+        "children": []
       },
       {
         "path": "/billing/reports",

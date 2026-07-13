@@ -55,6 +55,10 @@ export interface StudentBill {
   payment_date?: string;
   balance_amount: number;
   remarks?: string;
+  // Set once a refund-workflow request against this bill is disbursed
+  // (billing_refund_requests → fn_disburse_refund_request RPC).
+  refunded_amount?: number;
+  refund_status?: 'partially_refunded' | 'refunded' | null;
   is_recurring: boolean;
   recurrence_pattern?: RecurrencePattern;
   number_of_recurrences?: number;

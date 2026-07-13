@@ -140,6 +140,13 @@ CREATE TRIGGER trigger_receipts_refresh_summary AFTER INSERT OR UPDATE OR DELETE
 CREATE TRIGGER trigger_refunds_refresh_summary AFTER INSERT OR UPDATE OR DELETE ON billing_refunds
     FOR EACH ROW EXECUTE FUNCTION trigger_refresh_student_billing_summary();
 
+-- BILLING REFUND WORKFLOW (2026-07-11) updated_at triggers
+CREATE TRIGGER trigger_refund_flow_configs_updated_at BEFORE UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+CREATE TRIGGER trigger_refund_requests_updated_at BEFORE UPDATE ON billing_refund_requests
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
 -- ================================================================================
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
 -- ================================================================================

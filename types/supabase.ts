@@ -12675,6 +12675,189 @@ export type Database = {
           },
         ]
       }
+      billing_refund_flow_configs: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          disburser_roles: string[]
+          disburser_users: string[]
+          id: string
+          initiator_roles: string[]
+          initiator_users: string[]
+          institution_id: string | null
+          is_active: boolean
+          name: string
+          stages: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          disburser_roles?: string[]
+          disburser_users?: string[]
+          id?: string
+          initiator_roles?: string[]
+          initiator_users?: string[]
+          institution_id?: string | null
+          is_active?: boolean
+          name: string
+          stages?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          disburser_roles?: string[]
+          disburser_users?: string[]
+          id?: string
+          initiator_roles?: string[]
+          initiator_users?: string[]
+          institution_id?: string | null
+          is_active?: boolean
+          name?: string
+          stages?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      billing_refund_request_actions: {
+        Row: {
+          action_type: string
+          actor_id: string
+          actor_role_name: string | null
+          attachments: Json
+          created_at: string
+          id: string
+          notes: string | null
+          request_id: string
+          stage_index: number | null
+          stage_name: string
+        }
+        Insert: {
+          action_type: string
+          actor_id: string
+          actor_role_name?: string | null
+          attachments?: Json
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id: string
+          stage_index?: number | null
+          stage_name: string
+        }
+        Update: {
+          action_type?: string
+          actor_id?: string
+          actor_role_name?: string | null
+          attachments?: Json
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id?: string
+          stage_index?: number | null
+          stage_name?: string
+        }
+        Relationships: []
+      }
+      billing_refund_request_bills: {
+        Row: {
+          bill_id: string
+          id: string
+          paid_amount_snapshot: number
+          refund_amount: number
+          request_id: string
+        }
+        Insert: {
+          bill_id: string
+          id?: string
+          paid_amount_snapshot: number
+          refund_amount: number
+          request_id: string
+        }
+        Update: {
+          bill_id?: string
+          id?: string
+          paid_amount_snapshot?: number
+          refund_amount?: number
+          request_id?: string
+        }
+        Relationships: []
+      }
+      billing_refund_requests: {
+        Row: {
+          created_at: string | null
+          current_stage_index: number
+          decline_reason: string | null
+          declined_at: string | null
+          declined_by: string | null
+          declined_stage_name: string | null
+          disbursed_at: string | null
+          disbursed_by: string | null
+          flow_snapshot: Json
+          id: string
+          initiated_at: string
+          initiated_by: string
+          institution_id: string
+          payment_details: Json | null
+          payment_mode: string | null
+          previous_lifecycle_status: string | null
+          refund_type: string
+          request_number: string
+          status: string
+          student_id: string
+          total_refund_amount: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          current_stage_index?: number
+          decline_reason?: string | null
+          declined_at?: string | null
+          declined_by?: string | null
+          declined_stage_name?: string | null
+          disbursed_at?: string | null
+          disbursed_by?: string | null
+          flow_snapshot: Json
+          id?: string
+          initiated_at?: string
+          initiated_by: string
+          institution_id: string
+          payment_details?: Json | null
+          payment_mode?: string | null
+          previous_lifecycle_status?: string | null
+          refund_type: string
+          request_number: string
+          status?: string
+          student_id: string
+          total_refund_amount: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          current_stage_index?: number
+          decline_reason?: string | null
+          declined_at?: string | null
+          declined_by?: string | null
+          declined_stage_name?: string | null
+          disbursed_at?: string | null
+          disbursed_by?: string | null
+          flow_snapshot?: Json
+          id?: string
+          initiated_at?: string
+          initiated_by?: string
+          institution_id?: string
+          payment_details?: Json | null
+          payment_mode?: string | null
+          previous_lifecycle_status?: string | null
+          refund_type?: string
+          request_number?: string
+          status?: string
+          student_id?: string
+          total_refund_amount?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       billing_refunds: {
         Row: {
           approval_status: string | null
@@ -12848,6 +13031,8 @@ export type Database = {
           payment_date: string | null
           quantity: number | null
           recurrence_pattern: string | null
+          refund_status: string | null
+          refunded_amount: number
           remarks: string | null
           status: string | null
           student_id: string
@@ -12877,6 +13062,8 @@ export type Database = {
           payment_date?: string | null
           quantity?: number | null
           recurrence_pattern?: string | null
+          refund_status?: string | null
+          refunded_amount?: number
           remarks?: string | null
           status?: string | null
           student_id: string
@@ -12906,6 +13093,8 @@ export type Database = {
           payment_date?: string | null
           quantity?: number | null
           recurrence_pattern?: string | null
+          refund_status?: string | null
+          refunded_amount?: number
           remarks?: string | null
           status?: string | null
           student_id?: string
@@ -102584,6 +102773,16 @@ export type Database = {
         Returns: boolean
       }
       fn_accounts_metrics: { Args: never; Returns: Json }
+      fn_act_on_refund_request: {
+        Args: {
+          p_action: string
+          p_notes?: string
+          p_reason?: string
+          p_request_id: string
+          p_attachments?: Json
+        }
+        Returns: undefined
+      }
       fn_admission_counselor_impact_preview: {
         Args: { p_counselor_id: string; p_user_id?: string }
         Returns: {
@@ -102990,6 +103189,16 @@ export type Database = {
         Args: { p_scope_id?: string; p_scope_type?: string; p_tab_key: string }
         Returns: Json
       }
+      fn_disburse_refund_request: {
+        Args: {
+          p_notes: string
+          p_payment_details: Json
+          p_payment_mode: string
+          p_request_id: string
+          p_attachments?: Json
+        }
+        Returns: undefined
+      }
       fn_escalate_silent_resource_approvals: { Args: never; Returns: number }
       fn_expire_stale_callbacks: { Args: never; Returns: Json }
       fn_faculty_metrics: { Args: never; Returns: Json }
@@ -103362,6 +103571,16 @@ export type Database = {
         Args: { p_comment?: string; p_event_id: string; p_rating: number }
         Returns: string
       }
+      fn_initiate_refund_request: {
+        Args: {
+          p_bills: Json
+          p_notes: string
+          p_refund_type: string
+          p_student_id: string
+          p_attachments?: Json
+        }
+        Returns: string
+      }
       fn_institution_comparison: {
         Args: { p_admission_year?: number; p_institution_ids: string[] }
         Returns: {
@@ -103488,6 +103707,10 @@ export type Database = {
           institution_id: string
           wa_opt_in: boolean
         }[]
+      }
+      fn_my_refund_capabilities: {
+        Args: { p_institution_id: string }
+        Returns: Json
       }
       fn_naac_5_2_1_export: {
         Args: { p_cycle: string }

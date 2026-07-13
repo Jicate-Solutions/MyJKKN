@@ -239,6 +239,42 @@ export async function uploadProcurementQuotation(
   };
 }
 
+export interface RefundAttachmentUploadOptions {
+  institutionName: string;
+  requestRef: string; // request_number, or 'draft-<studentId>' before initiation
+  file: File;
+}
+
+/** Upload a refund supporting document to <ROOT>/Billing Refunds/<Institution>/<RequestRef>. */
+export async function uploadRefundAttachment(
+  opts: RefundAttachmentUploadOptions
+): Promise<{ name: string; driveFileId: string; url: string }> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, ['Billing Refunds', opts.institutionName, opts.requestRef]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'file').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
 export interface ProcurementInvoiceUploadOptions {
   institutionName: string;
   poNumber: string;

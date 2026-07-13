@@ -1637,6 +1637,51 @@ CREATE POLICY "billing_categories_delete" ON billing_categories
             AND role_has_institution_access(institution_id))
     );
 
+-- BILLING REFUND WORKFLOW (2026-07-11) — SELECT only; ALL writes via SECURITY DEFINER RPCs
+ALTER TABLE billing_refund_flow_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_refund_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_refund_request_bills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_refund_request_actions ENABLE ROW LEVEL SECURITY;
+
+-- Configs: readable by all authenticated (capability resolution); writable with configure perm.
+CREATE POLICY refund_flow_configs_select ON billing_refund_flow_configs
+    FOR SELECT TO authenticated USING (true);
+CREATE POLICY refund_flow_configs_write ON billing_refund_flow_configs
+    FOR ALL TO authenticated
+    USING (is_super_admin() OR user_has_permission('billing.refunds.configure'))
+    WITH CHECK (is_super_admin() OR user_has_permission('billing.refunds.configure'));
+
+-- Requests: staff with view perm + institution access; snapshot participants; the learner.
+CREATE POLICY refund_requests_select ON billing_refund_requests
+    FOR SELECT TO authenticated USING (
+        is_super_admin()
+        OR (user_has_permission('billing.refunds.view')
+            AND role_has_institution_access(billing_refund_requests.institution_id))
+        OR billing_refund_requests.initiated_by = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(billing_refund_requests.flow_snapshot->'stages') s
+            WHERE s->'assignee_users' ? auth.uid()::text
+               OR EXISTS (SELECT 1 FROM user_roles ur
+                          WHERE ur.user_id = auth.uid() AND s->'assignee_roles' ? ur.role_id::text))
+        OR (billing_refund_requests.flow_snapshot->'disburser'->'assignee_users' ? auth.uid()::text)
+        OR EXISTS (SELECT 1 FROM user_roles ur
+                   WHERE ur.user_id = auth.uid()
+                     AND billing_refund_requests.flow_snapshot->'disburser'->'assignee_roles' ? ur.role_id::text)
+        OR EXISTS (  -- learner self-view (mirrors existing billing_refunds student policy)
+            SELECT 1 FROM learners_profiles lp
+            JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+            WHERE lp.id = billing_refund_requests.student_id
+              AND p.id = auth.uid() AND p.role = 'student')
+    );
+
+-- Child tables inherit visibility through the parent (subquery runs under caller RLS).
+CREATE POLICY refund_request_bills_select ON billing_refund_request_bills
+    FOR SELECT TO authenticated USING (
+        EXISTS (SELECT 1 FROM billing_refund_requests r WHERE r.id = billing_refund_request_bills.request_id));
+CREATE POLICY refund_request_actions_select ON billing_refund_request_actions
+    FOR SELECT TO authenticated USING (
+        EXISTS (SELECT 1 FROM billing_refund_requests r WHERE r.id = billing_refund_request_actions.request_id));
+
 -- ================================================================================
 -- SECTION 10: BUG REPORT MODULE TABLES
 -- ================================================================================

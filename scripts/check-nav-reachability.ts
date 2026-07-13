@@ -194,7 +194,6 @@ const NAV_EXCLUDE = new Set<string>([
   // Billing /new forms
   '/billing/categories/new',
   '/billing/discounts/new',
-  '/billing/refunds/new',
   // Billing button-invoked bulk-action pages (linked from /billing/schedule header)
   '/billing/schedule/bulk-edit',
 

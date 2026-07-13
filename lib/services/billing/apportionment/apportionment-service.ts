@@ -10,7 +10,8 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
  * reads bills and writes the separate overlay tables. Lifecycle transitions go
  * through SECURITY DEFINER RPCs (dual-control enforced in-DB).
  *
- * Heads = existing billing_categories rows. Precedent: billing-refund-service.ts.
+ * Heads = existing billing_categories rows. Precedent: refund-workflow-service.ts
+ * (billing-refund-service.ts, the receipt-based predecessor, was retired).
  */
 
 export type SplitMethod = 'fixed' | 'percent';
