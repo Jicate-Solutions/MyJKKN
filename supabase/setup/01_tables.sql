@@ -3555,6 +3555,8 @@ CREATE TABLE IF NOT EXISTS public.event_payment_transactions (
   gateway_transaction_id TEXT,
   gateway_response JSONB,
 
+  return_url TEXT,
+
   payer_name TEXT,
   payer_phone TEXT,
   payer_email TEXT,
