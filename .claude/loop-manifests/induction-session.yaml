@@ -1,42 +1,57 @@
-# Induction Session-Effectiveness loop manifest — discovery pass 2026-07-13.
-# Every table/column/function below verified against prod (Mgmt API,
-# information_schema + pg_proc) and jicate/main (git show) on 2026-07-13.
-# NOT yet run as an executable sim — the sim block is a designed recipe from the
-# verified verifier body (20260629160000_induction_session_effectiveness_loop.sql),
-# not a replayed one. First /loops regress run should confirm the asserts, then
-# promote this comment.
+# Induction Session-Effectiveness loop manifest — moat-loop DISCOVERY PASS
+# re-verified end-to-end 2026-07-13 (this file). Every table/column/constraint/
+# function below was independently checked against prod (Mgmt API:
+# information_schema, pg_constraint, pg_proc, live counts) and against
+# jicate/main (git show) on 2026-07-13. A sibling manifest exists IN the repo at
+# jicate/main:.claude/loop-manifests/induction-session.yaml (same discovery
+# date); this pass re-verified its claims rather than trusting them — all held,
+# fill-rate updated (10,141 -> 10,147).
+# HONESTY: the sim block is a DESIGNED recipe derived from the verified verifier
+# body (jicate/main:supabase/migrations/20260629160000_induction_session_effectiveness_loop.sql)
+# — it has NOT yet been replayed as an executable rolled-back run. First
+# `/loops regress induction-session` should confirm the asserts, then promote
+# this comment (contrast scf.yaml, whose sim WAS run live 2026-07-10).
 loop_key: induction-session
 name: Induction Session-Effectiveness Loop
 prod_ref: kvizhngldtiuufknvehv
 
 # Loop shape (verified from jicate/main:app/api/cron/induction-session-effectiveness/route.ts):
-#   detect weak topic (first batch run avg < 3.5 with >= 3 ratings)
-#   -> AI tip (fn_induction_record_session_tip)
-#   -> speaker sees tip (SessionLoopTipCard on /learners/my-induction) before Batch B
+#   detect weak topic (first batch run avg < 3.5 with >= 3 ratings,
+#     fn_induction_session_loop_candidates, NOT-EXISTS guard = one tip per event+topic)
+#   -> AI tip recorded (fn_induction_record_session_tip; no API key -> generation
+#      skipped, verifier still runs)
+#   -> credited speaker sees tip (SessionLoopTipCard inside sessions-led-card.tsx
+#      on /learners/my-induction) before the Batch B re-run
 #   -> RTM-corrected verifier scores the re-run net of regression-to-the-mean
-#      (fn_induction_measure_session_effectiveness).
-# Cadence: cron "43 */4 * * *" (vercel.json, verified), routine_id
-# induction-session-effectiveness (lib/ai-routines/induction-ai.ts), Max-lane
-# twin may defer the cloud run (shouldDeferToMaxLane in the route).
+#      (fn_induction_measure_session_effectiveness; controls = untreated re-run pairs).
+# Cadence: cron "43 */4 * * *" (vercel.json on jicate/main, verified 2026-07-13).
+# Registry (loop_registry, read 2026-07-13): class self_improving, tier 3,
+#   routine_id induction-session-effectiveness, is_active true, gates g/a/m/f all on.
+# Registry edges (loop_edges from_key='induction-session', read 2026-07-13):
+#   -> induction-playbook (measured_outcomes)  [DECLARED, NOT wired — see feed_forward]
+#   -> referral-desk (fuel, #1887)
+#   -> metaloop (measured_outcomes)
+# Max-lane twin may defer the cloud run (shouldDeferToMaxLane in the route).
 
 tables:
-  input: event_session_feedback           # 10,141 rows / 43 sessions, rating int 1-5 (counted 2026-07-13)
-  action: induction_session_effectiveness # loop memory; 1 row, measure_status='pending' as of 2026-07-13
-  # supporting chain (all verified in information_schema):
-  #   event_sessions (topic = event_id + fn_induction_norm_topic(title); NOT NULLs: event_id,title,start_at,end_at)
-  #   events (seed NOT NULLs w/o default: institution_id, event_type, name, slug — all text/uuid)
-  #   induction_programs (only event_id required; institution_id nullable but MUST be set for candidates/record)
-  #   induction_enrollment (walk only: event_id, learner_id, institution_id required)
-  #   event_session_speakers (speaker lane gate: profile_id = auth.uid())
-  #   induction_completion (side effect: submit fn upserts value_score_avg per learner)
+  input: event_session_feedback           # 10,147 rows / 43 distinct sessions rated (counted 2026-07-13); rating int CHECK 1..5
+  action: induction_session_effectiveness # loop memory; UNIQUE (event_id, topic_key); 1 row, measure_status='pending' as of 2026-07-13
+  # supporting chain (all verified in information_schema / pg_constraint 2026-07-13):
+  #   event_sessions   — topic identity = (event_id, fn_induction_norm_topic(title))
+  #   events           — seed NOT NULLs w/o default: institution_id, event_type, name, slug
+  #   induction_programs — cron discovers events through this; candidates fn resolves institution via it
+  #   induction_enrollment — walk only; NOT NULLs w/o default: event_id, learner_id, institution_id
+  #   event_session_speakers — speaker lane gate (profile_id = auth.uid()); has session_id + profile_id
+  #   induction_completion — side effect: submit fn upserts value_score_avg per learner
+  #     (verified in 20260627200000_induction_phase2b_feedback.sql)
 
 sim:
   sentinel: ZZISE                         # topic keys are lowercased by fn_induction_norm_topic -> 'zzise-…'
-  # event_session_feedback FKs are REAL (unlike scf's session_feedback):
+  # event_session_feedback FKs are REAL (pg_constraint verified — unlike scf's session_feedback):
   #   learner_id -> learners_profiles(id), session_id -> event_sessions(id),
-  #   event_id -> events(id), institution_id -> institutions(id).
+  #   event_id -> events(id), institution_id -> institutions(id), all ON DELETE CASCADE.
   #   UNIQUE (session_id, learner_id). CHECK rating 1..5.
-  #   CHECK (submitted_by IS NULL) = (capture_method='phone').
+  #   CHECK (submitted_by IS NULL) = (capture_method='phone'); capture_method in ('phone','volunteer_kiosk').
   # Seed a fully-sentinel event so the per-event RTM baseline is 100% controlled.
   seed_input: |
     -- (1) sentinel event: copy a VALID event_type from a real induction event
@@ -86,7 +101,8 @@ sim:
     WHERE ev.slug = 'zzise-audit-event';
   seed_action: |
     -- backdated tip on the treated topic's FIRST run (or call
-    -- fn_induction_record_session_tip — Mgmt API runs as postgres, grant is service_role).
+    -- fn_induction_record_session_tip — Mgmt API runs as postgres; the fn's grant
+    -- is service_role-only, verified in the migration's REVOKE/GRANT block).
     -- topic_key MUST equal fn_induction_norm_topic(title) = 'zzise-t1'.
     INSERT INTO public.induction_session_effectiveness
       (institution_id, event_id, topic_key, first_session_id, window_start,
@@ -97,13 +113,16 @@ sim:
     JOIN public.event_sessions s ON s.event_id = ev.id AND s.title = 'ZZISE-T1'
     WHERE ev.slug = 'zzise-audit-event'
     ORDER BY s.start_at ASC LIMIT 1;
+  # Signature verified in pg_proc 2026-07-13:
+  #   fn_induction_measure_session_effectiveness(p_event_id uuid, p_threshold numeric,
+  #     p_min_responses int, p_min_pairs int) RETURNS int (count of rows measured).
   # Pass the SENTINEL event id — p_event_id NULL would also scan the real
   # pending row(s) (1 as of 2026-07-13; harmless in ROLLBACK, but the
-  # measured-count assert stops being exact).
+  # returned-count assert stops being exact).
   verifier: "public.fn_induction_measure_session_effectiveness('<zzise event id>'::uuid, 3.5, 3, 5)"
   asserts:
-    no_change: "0.00"                     # net_effect: run2_avg 2.0 − (0 + 1·2.00); also expect rtm_expected_avg='2.00', measure_status='measured', returns 1
-    known_delta: { seed: "UPDATE ZZISE-T1 LATER-run feedback SET rating=4", expect: "2.00" }
+    no_change: "0.00"                     # net_effect: run2_avg 2.00 − (0 + 1·2.00); also expect rtm_expected_avg='2.00', raw_lift='0.00', measure_status='measured', fn returns 1
+    known_delta: { seed: "UPDATE ZZISE-T1 LATER-run (start_at DESC) feedback SET rating=4", expect: "2.00" }
   reset_between_deltas: |
     UPDATE public.induction_session_effectiveness
     SET measure_status='pending', rerun_session_id=NULL, rerun_avg=NULL,
@@ -111,85 +130,96 @@ sim:
         net_effect=NULL, outcome_measured_at=NULL
     WHERE topic_key = 'zzise-t1';
   notes:
-    - NO maturity age gate — the verifier measures as soon as run2 has >= p_min_responses
-      ratings (hours-fast by design; contrast the cohort loop's 300d gate).
-    - topic identity = (event_id, fn_induction_norm_topic(title)) — batch runs MUST carry
-      the byte-identical normalized title, and run order is start_at ASC (rn=1 vs rn=2).
-    - RTM baseline is PER EVENT from UNTREATED pairs (run1_avg >= p_threshold AND run2
-      exists). Fewer than p_min_pairs(5) usable pairs OR zero x-variance in run1 avgs
-      => regr_slope NULL => measure_status='insufficient_rtm_data', net_effect NULL.
+    - NO maturity age gate — the verifier measures as soon as the topic's run2 has
+      >= p_min_responses ratings (hours-fast by design; contrast SCF's two-sided
+      48h window and the cohort loop's long gate).
+    - topic identity = (event_id, fn_induction_norm_topic(title)) where norm =
+      lower(btrim(regexp_replace(title,'\s+',' ','g'))) — batch runs MUST carry a
+      title that normalizes identically; run order is start_at ASC (rn=1 vs rn=2).
+    - RTM baseline is PER EVENT from UNTREATED pairs (run1_avg >= p_threshold AND
+      run2 exists), via regr_slope/regr_intercept(run2,run1). Fewer than
+      p_min_pairs(5) usable pairs OR zero x-variance in run1 avgs => slope NULL =>
+      measure_status='insufficient_rtm_data', net_effect NULL (never fabricated).
       Seed EXACTLY 5 controls with VARYING run1 avgs or the assert reads NULL.
-    - controls with run2 == run1 give slope=1/intercept=0, so rtm_expected = input_avg
-      and net_effect = run2_avg − input_avg; asserts derive from round(numeric,2)
-      => '0.00'/'2.00' (this loop's own scale — never borrow another loop's numbers).
-    - learner_id has a REAL FK to learners_profiles — select 3 existing learner ids;
-      gen_random_uuid() is NOT safe here (unlike scf's session_feedback).
+    - controls with run2 == run1 give slope=1/intercept=0, so rtm_expected =
+      input_avg and net_effect = run2_avg − input_avg; asserts derive from
+      round(numeric,2) => '0.00'/'2.00' (THIS loop's own scale — never borrow
+      another loop's magic numbers).
+    - learner_id has a REAL FK to learners_profiles — select 3 existing learner
+      ids; gen_random_uuid() is NOT safe here (unlike scf's session_feedback).
     - UNIQUE (session_id, learner_id) — use 3 DISTINCT learners per session.
-    - the verifier CREATEs a TEMP table per event — run the whole sim as ONE
-      BEGIN…ROLLBACK Mgmt-API batch or a self-rolling-back DO block
-      (feedback_savepoint_subtransaction_self_rollback_sims).
-    - fn_induction_record_session_tip ON CONFLICT does NOT reset outcome_* (unlike the
-      cohort loop's record fn) — and the verifier skips measure_status='measured', so a
-      measured topic is never re-measured; reset_between_deltas must set status back
-      to 'pending', not just null the numbers.
-    - candidates arm (optional extra assert, needs induction_programs seeded):
-      fn_induction_session_loop_candidates('<zzise event id>', 3.5, 3) returns exactly
-      1 row (zzise-t1) BEFORE seed_action, 0 rows after (NOT EXISTS guard).
+    - the verifier CREATEs a TEMP table (_ise_runs, ON COMMIT DROP) per event —
+      run the whole sim as ONE BEGIN…ROLLBACK Mgmt-API batch or a
+      self-rolling-back DO block (savepoint-subtransaction pattern).
+    - fn_induction_record_session_tip's ON CONFLICT does NOT reset outcome_*
+      columns, and the verifier skips measure_status='measured' rows — so a
+      measured topic is never re-measured; reset_between_deltas must set status
+      back to 'pending', not just null the numbers.
+    - candidates arm (optional extra assert; needs induction_programs seeded) —
+      fn_induction_session_loop_candidates('<zzise event id>', 3.5, 3) returns
+      exactly 1 row (zzise-t1) BEFORE seed_action, 0 rows after (NOT EXISTS guard).
 
 # confound: OMITTED — cannot block. induction_session_effectiveness has NO
-# human_verdict (or any verdict) column (information_schema verified 2026-07-13),
-# so the not_tried-vs-tried falsification has nothing to read. Causal validity
-# here is DESIGNED-IN instead: the RTM baseline from untreated re-run pairs is the
-# built-in control (raw_lift vs net_effect columns keep the confounded and honest
-# numbers side by side). Gap worth logging: no human-verdict arm means "speaker
-# actually applied the tip" is unobserved — treated-vs-untreated is assignment by
-# weakness, not by application.
+# human_verdict (or any verdict) column (full column list read from
+# information_schema 2026-07-13: outcome columns are rerun_*, raw_lift,
+# rtm_expected_avg, net_effect, measure_status, outcome_measured_at), so the
+# not_tried-vs-tried falsification has nothing to read. Causal validity is
+# DESIGNED-IN instead: the RTM baseline from untreated re-run pairs is the
+# built-in control, and raw_lift vs net_effect keep the confounded and honest
+# numbers side by side. Gap worth logging on any audit: with no verdict arm,
+# "speaker actually applied the tip" is unobserved — treatment assignment is by
+# weakness (avg < threshold), not by application.
 
 feed_forward:
-  # HONEST: there is NO scf-style AI feed-forward arm. The generator prompt is
-  # built ONLY from the candidate row (verified: cron route generateTip()), and
-  # candidates NOT-EXISTS-guard means one tip per (event, topic) ever — the AI
-  # never re-reads its own measured outcome. The loop's adjust arm is HUMAN:
-  reader: none (human arm — SessionLoopTipCard on /learners/my-induction, sessions-led-card.tsx)
+  # HONEST: there is NO scf-style AI feed-forward arm. generateTip() builds its
+  # prompt ONLY from the candidate row (title, input_avg, input_responses —
+  # verified in the cron route on jicate/main), and the candidates NOT-EXISTS
+  # guard means one tip per (event, topic) ever — the AI never re-reads its own
+  # measured outcome. The loop's adjust arm is HUMAN:
+  reader: none (human arm — SessionLoopTipCard in sessions-led-card.tsx on /learners/my-induction, fed by fn_induction_session_loop_summary via induction-speakers-service.ts)
   trigger:
     kind: cron_get
     path: /api/cron/induction-session-effectiveness?secret=$CRON_SECRET
-    cadence: "43 */4 * * *"               # vercel.json, verified 2026-07-13
-    note: Max-lane twin may defer the cloud run (shouldDeferToMaxLane('induction-session-effectiveness')); deferral returns ok:true deferred_to_max_lane:true.
+    cadence: "43 */4 * * *"               # vercel.json on jicate/main, verified 2026-07-13
+    note: auth = Bearer CRON_SECRET or ?secret=; Max-lane twin may defer the cloud run (shouldDeferToMaxLane('induction-session-effectiveness')) — deferral returns ok:true deferred_to_max_lane:true with measured:null.
   pass_criteria:
-    - tip renders to the CREDITED speaker (event_session_speakers.profile_id) before the re-run
-    - after re-run + verifier, EffectBadge shows honest net-of-luck effect ("+X above luck" only when net_effect > 0.05)
+    - tip renders to the CREDITED speaker (event_session_speakers.profile_id = auth.uid()) before the re-run
+    - after re-run + verifier, EffectBadge shows the honest net-of-luck effect ("+X above luck on re-run" ONLY when net_effect > 0.05; else "No real lift above luck yet"; pending => "awaiting next-batch re-run") — thresholds verified in session-loop-tip.tsx
   notes:
-    - registry edge induction-session -> induction-playbook ('measured_outcomes') is
-      DECLARED but NOT wired in code — induction-generate-playbook route reads NO
-      induction_session_effectiveness data (grep verified 2026-07-13). Treat as a gap,
-      not a tested arm.
-    - registry gates say f='on'; that claim maps to the human tip->re-run arm above,
-      not to an AI-cites-prior mechanism.
+    - registry edge induction-session -> induction-playbook ('measured_outcomes')
+      is DECLARED but NOT wired in code — the induction-generate-playbook route
+      contains ZERO references to induction_session_effectiveness (grep on
+      jicate/main, 2026-07-13). Treat as a gap, not a tested arm.
+    - registry gates say f='on'; that claim maps to the human tip->re-run arm
+      above, not to an AI-cites-prior mechanism.
+    - caps in the route — EVENT_CAP 50 induction events scanned, CANDIDATE_CAP 40
+      tips per run; FEATURE_KEY 'induction.session_effectiveness' resolves the
+      model from ai_model_config.
 
 walk:
   personas:
-    student: test.student@jkkn.ac.in       # learner-linked profile (complete, per test-login roster)
-    faculty: test.faculty@jkkn.ac.in       # CAUTION (adversarial verify 2026-07-13): this account's role is
-                                           # staff_counselor (profiles.role + user_roles), NOT faculty, and
-                                           # staff_counselor LACKS induction.view. The faculty custom_role does
-                                           # have induction.view+manage=true, but this test account doesn't hold
-                                           # it. Unused in hops — use superadmin for any coordinator-lane hop.
-    superadmin: test.superadmin@jkkn.ac.in
+    student: test.student@jkkn.ac.in       # profiles.role='student', learner-linked (complete profile per test-login roster)
+    superadmin: test.superadmin@jkkn.ac.in # profiles.role='super_admin' -> is_super_admin bypass
+    faculty: test.faculty@jkkn.ac.in       # CAUTION (verified vs prod profiles+user_roles 2026-07-13): this
+                                           # account's role is staff_counselor, NOT faculty, and
+                                           # staff_counselor's custom_roles.permissions LACK induction.view.
+                                           # The 'faculty' custom_role DOES have induction.view+manage=true,
+                                           # but this test account doesn't hold it. Unused in hops — use
+                                           # superadmin for any coordinator-lane hop.
   hops:
     - { as: superadmin, do: sql_seed,
-        detail: "sentinel induction event + sessions (as in sim) COMMITTED, plus induction_enrollment (event_id, learner_id, institution_id — source defaults 'auto_first_year') for the student persona's learner_id, and event_session_speakers row crediting the student persona on the ZZISE-T1 first run",
+        detail: "sentinel induction event + sessions (as in sim) COMMITTED, plus induction_enrollment (event_id, learner_id, institution_id required) for the student persona's learner_id, and an event_session_speakers row crediting the student persona (profile_id) on the ZZISE-T1 first run",
         assert_db: "enrollment + speaker rows exist" }
     - { as: student, do: form_submit, page: /learners/my-induction,
-        detail: "rate the sentinel session Low (fn_induction_submit_feedback; identity-bound via get_my_learner_id(); batch guard: session.batch_id NULL or = enrollment batch)",
+        detail: "rate the sentinel session Low (fn_induction_submit_feedback(p_session_id, p_rating, p_comment); identity-bound via get_my_learner_id(); batch guard compares session.batch_id vs enrollment batch — both verified in 20260627200000)",
         assert_db: "event_session_feedback row capture_method='phone' + induction_completion.value_score_avg upserted for the SENTINEL learner only" }
     - { as: superadmin, do: api_get, path: "/api/cron/induction-session-effectiveness?secret=$CRON_SECRET",
-        assert: "http 200 ok:true; generated>=1 if AI key present (skipped generation still runs verifier); measured populated",
-        note: "cron scans ALL induction events (EVENT_CAP 50) — a walk run may also tip REAL weak topics and spend AI budget; accept or time the walk when no real weak topic is pending" }
+        assert: "http 200 ok:true; generated>=1 if AI key present (no-key runs still execute the verifier); measured populated",
+        note: "cron scans ALL induction events (EVENT_CAP 50) — a walk run may also tip REAL weak topics and spend AI budget; accept that or time the walk when no real weak topic is pending; a Max-lane deferral response (deferred_to_max_lane:true) means the hop must be re-run on the runner lane or the deferral pin lifted" }
     - { as: student, do: open_assert, page: /learners/my-induction,
-        expect: "Sessions-Led card shows SessionLoopTipCard for ZZISE-T1 with badge 'awaiting next-batch re-run' (pending) or '+X above luck' (measured)" }
+        expect: "Sessions-Led card shows SessionLoopTipCard for ZZISE-T1 with badge 'awaiting next-batch re-run' (pending) or '+X above luck on re-run' (measured, net_effect > 0.05)" }
     - { as: superadmin, do: open_assert, page: "/events/induction/[zzise-event-id]",
-        expect: "event page renders sessions + ratings; NOTE: no coordinator-facing card consumes fn_induction_session_loop_summary today — only the speaker lane renders tips (grep verified 2026-07-13); assert the RPC directly if a coordinator view is required" }
+        expect: "event page renders sessions + ratings; NOTE: fn_induction_session_loop_summary's only code consumer is induction-speakers-service.ts (grep on jicate/main 2026-07-13) — no coordinator-facing card consumes it today; assert the RPC directly if a coordinator view is required" }
   forbidden:
     - real-learner induction_completion.value_score_avg mutation (submit fn upserts it — sentinel learner only)
     - AI spend / tip rows for REAL weak topics via the cron hop (see hop-3 note)
@@ -206,15 +236,16 @@ walk:
     -- verify in a SEPARATE call: zzise counts = 0 everywhere; real
     -- induction_session_effectiveness count restored (baseline 1 on 2026-07-13).
   notes:
-    - /learners/my-induction is in INDUCTION_ONLY_NAV_HREFS (sidebarMenuLink.ts) —
-      student-reachable without a MENU_PERMISSIONS entry; /events/induction gates on
-      induction.view ('/events/induction' -> 'induction.view' in MENU_PERMISSIONS).
-    - fn_induction_session_loop_summary is authenticated: coordinator path needs
-      induction.view + role_has_institution_access(event institution); speaker path
-      needs event_session_speakers.profile_id = auth.uid() on first_ or rerun_session.
-    - fuel reality 2026-07-13: exactly 1 real loop row (topic 'umis overview and
-      interactive games', input_avg 3.33, event 'Fresher Induction 2026'), still
-      'pending' — its topic never re-ran. Expect unmeasurable-no-fuel outside
-      induction season; that is honest, not broken.
+    - /learners/my-induction is in INDUCTION_ONLY_NAV_HREFS (lib/sidebarMenuLink.ts
+      ~line 2896 on jicate/main) — student-reachable without a MENU_PERMISSIONS
+      entry; '/events/induction' -> 'induction.view' in MENU_PERMISSIONS (~line 319).
+    - fn_induction_session_loop_summary is authenticated (GRANT TO authenticated) —
+      coordinator path needs induction.view + role_has_institution_access(event
+      institution); speaker path needs event_session_speakers.profile_id =
+      auth.uid() on first_ or rerun_session_id (fn body verified).
+    - fuel reality 2026-07-13 — exactly 1 real loop row (topic 'umis overview and
+      interactive games', input_avg 3.33, 3 responses, event 'Fresher Induction
+      2026'), still 'pending' — its topic never re-ran. Expect
+      unmeasurable-no-fuel outside induction season; that is honest, not broken.
 
-registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"on"}'   # loop_registry verified 2026-07-13
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"on"}'   # loop_registry read 2026-07-13

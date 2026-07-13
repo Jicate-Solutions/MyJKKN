@@ -2,6 +2,12 @@
 # carries its receipt: jicate/main path or prod-DB query). No sim/walk has been
 # EXECUTED from this manifest yet — asserts are derived from function bodies,
 # not from a live run (unlike scf.yaml which is post-run).
+# INDEPENDENTLY RE-AUDITED 2026-07-13 (second agent, all receipts re-pulled):
+#   capture-fn body, log-fn body, action-log columns/NOT-NULLs/numeric(5,2),
+#   pace-fn signature+live call (6/8 gaps incl. Pharmacy +31.84 / Engg −14.76),
+#   fill-rates (1 row / 0 captured / id 9203c184), routes+tab lines, sidebar:597,
+#   7-role permission list, sole updated_at trigger, pivot 2,462 rows
+#   (date col = admission_date) — all confirmed exact.
 #
 # ⚠️ HEADLINE FINDING (measure gate is starved, not broken):
 #   fn_arps_capture_outcomes EXISTS and is deterministic, but has ZERO callers —
@@ -120,8 +126,10 @@ walk:
     # (jicate/main lib/sidebarMenuLink.ts:597). Roles holding it (custom_roles,
     # 2026-07-13): admission, admission_staff, seo, ceo, coo, registrar,
     # executive_admin_officer — NONE has a usable complete-profile test account.
-    # Only superadmin (bypass) is walkable. test.admission@jkkn.ac.in exists but
-    # profile completeness unverified — check before adding as a persona.
+    # Only superadmin (bypass) is walkable. test.admission@jkkn.ac.in: profile
+    # row verified 2026-07-13 (role=admission, institution_id set, full_name
+    # set) — LOGIN-FLOW completeness (no /auth/complete-profile bounce) still
+    # untested; promote to a persona only after one successful test-login.
     superadmin: test.superadmin@jkkn.ac.in
   hops:
     - { as: superadmin, do: open_assert, page: /admission/group-dashboard,

@@ -1,5 +1,12 @@
 # PDE Quest → Demonstration Loop manifest — discovery pass 2026-07-13.
 # Every fact below carries its receipt (prod DB query or jicate/main path).
+# RE-VERIFIED independently 2026-07-13 (second pass, this session): registry row,
+# edge, fill-rates, pg_proc list, pde_demonstrations columns, RLS polcmd,
+# fn_pde_validate_demonstration prosrc (reviewer array + status machine),
+# persona roles, ceo-only pde.* custom_roles, route existence, category_key 400,
+# guard-free layouts, MENU_PERMISSIONS L1230, bridge routine row (enabled,
+# minute_of_day=630=10:30 IST, last_status "skipped 35, created 0, candidates 35,
+# processed 3") — all receipts held.
 # Registry row (loop_registry, read 2026-07-13): stack_tier=3, loop_class=cadence,
 # domain=pde, gates {"g":"on","a":"on","m":"off","f":"off"}, routine_id=NULL,
 # is_active=true. loop_edges: pde-quest → ai-pulse (what_flows=fuel,
@@ -65,8 +72,10 @@ walk:
     # 'dean','hod','coordinator','faculty') → cannot see the review queue or
     # validate. Use test.hod for the reviewer hops.
   hops:
-    # Page reachability receipt: NO RoutePermissionGuard layout exists anywhere
-    # under app/(routes)/pde/** on jicate/main (grep 2026-07-13; the guard is
+    # Page reachability receipt: layouts DO exist under app/(routes)/pde/**
+    # (pde/layout.tsx = plain pass-through; pde/admin/layout.tsx = AdminCategoryNav
+    # chrome only) but NEITHER mounts RoutePermissionGuard — no permission guard
+    # anywhere under the pde tree on jicate/main (read 2026-07-13; the guard is
     # opt-in per-module and PDE is absent from
     # __tests__/lib/auth/route-permission-guard-access.test.ts GATED list;
     # no root middleware.ts on jicate/main). MENU_PERMISSIONS maps

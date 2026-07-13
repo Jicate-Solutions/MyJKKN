@@ -1,4 +1,8 @@
 # Institutional Audit Loop (AAA) manifest — DISCOVERY PASS 2026-07-13.
+# Independently RE-VERIFIED 2026-07-13 (second pass): fn body (505 lines,
+# branch f), constraints, triggers, ACLs, enum labels, role grants, fuel
+# counts, and routes were all re-read from prod / jicate/main; one stale fact
+# corrected (loop_edges is_draft) and receipts strengthened.
 # Every fact below carries its receipt (prod table read via Mgmt API, or file
 # path on jicate/main). No sim/walk has been EXECUTED yet from this manifest —
 # seed templates are schema-verified (NOT-NULLs, FKs, CHECKs, enum labels all
@@ -9,7 +13,8 @@
 # domain=accreditation, tier=3, gates {"g":"on","a":"on","m":"on","f":"half"},
 # routine_id=null, is_active=true.
 # loop_edges: iqac-meeting -> institutional-audit (what_flows=measured_outcomes,
-# is_draft=TRUE) — the only edge; still a draft, not a live wire.
+# is_draft=FALSE — re-read 2026-07-13, the wire is LIVE; an earlier pass
+# recorded it as draft) — the only edge.
 loop_key: institutional-audit
 name: Institutional Audit Loop (AAA)
 prod_ref: kvizhngldtiuufknvehv
@@ -93,8 +98,12 @@ sim:
     WHERE cyc.name = plan.cname;
   verifier: "public.fn_accreditation_rollup_loop_evidence()"
   # Assert on the CURRENT sentinel cycle's junction row (NOT on the fn's
-  # returned count — the fn re-touches REAL cycles inside the 45-day window,
-  # e.g. the one real closed cycle, so the count is not sentinel-pure):
+  # returned count — the count is not reliably sentinel-pure: the fn runs all
+  # six branches and re-touches any REAL cycle updated inside the 45-day
+  # window. As of 2026-07-13 the one real closed cycle has aged OUT of that
+  # window (updated_at 2026-05-02) and already has its junction row, so branch
+  # (f) happens to be sentinel-pure today — but any real cycle edit/close
+  # re-opens the impurity, so keep asserting on the row):
   #   SELECT metadata->'outcome'->>'findings_total',
   #          metadata->'outcome'->>'findings_resolved',
   #          metadata->'outcome'->>'prior_cycle_findings',
@@ -116,7 +125,8 @@ sim:
     -- WHERE is_auto — sentinel rows are emitted with is_auto=true, so ok).
   notes:
     - verifier is REVOKEd from anon/authenticated/PUBLIC (migration 20260710070000
-      tail) — run it as postgres via Mgmt API; it is NOT callable from app personas.
+      tail; pg_proc.proacl re-read 2026-07-13 = postgres + service_role only) —
+      run it as postgres via Mgmt API; it is NOT callable from app personas.
     - verifier runs ALL SIX loop branches (scf/induction x2/mess/iqac/audit) and
       upserts junction rows for real recent rows too — inside BEGIN..ROLLBACK this
       is harmless (same class as the SCF manifest note), just slower.
@@ -125,8 +135,17 @@ sim:
     - "PRIOR cycle also gets its own junction row asserting the baseline
       branch: delta_summary LIKE 'first closed audit cycle (baseline)%' — a
       free second assert on the same run."
-    - prior-cycle matching is per-institution (institution_ids[1] equality) and
-      by closed_at ordering — both sentinel cycles MUST share one institution.
+    - prior-cycle matching is per-institution (institution_ids[1] equality),
+      requires the prior to ALSO be single-institution (cardinality(p.
+      institution_ids)=1 inside the LATERAL — fn body re-read 2026-07-13), and
+      orders by closed_at DESC — both sentinel cycles MUST share one institution.
+    - "the 45-day sweep window filters on ac.updated_at (NOT closed_at) OR an
+      anti-join on the missing junction row — seeded sentinel cycles get
+      updated_at=now() by default, so they are always in-window (fn body
+      2026-07-13)."
+    - "metadata.loop_key inside evidence rows is 'institutional_audit'
+      (UNDERSCORE) while the registry loop_key is 'institutional-audit'
+      (hyphen) — don't grep one spelling and conclude the other is missing."
     - "findings are matched by form_data->>'audit_cycle_id' = cycle id::text;
       a finding without that key silently counts for NO cycle. Receipt: the ONE
       real audit_finding row on prod (SR-AUDI-MOAH96PD) has audit_cycle_id NULL,
@@ -162,9 +181,11 @@ sim:
 # app/(routes)/audit/cycles/new/page.tsx on jicate/main finds no prior/previous-
 # cycle read; new cycles freeze a fresh parameter_catalog_snapshot with no
 # conditioning on prior outcomes. The iqac-meeting -> institutional-audit edge
-# (measured_outcomes) is is_draft=true in loop_edges. To earn a feed_forward
-# block, a reader (e.g. fn surfacing prior-cycle open findings during cycle
-# creation) would need to exist first.
+# (measured_outcomes) is now is_draft=false in loop_edges (re-read 2026-07-13),
+# but that wire feeds meeting outcomes INTO audit evidence — it is not a
+# next-cycle-conditions-on-prior-outcome reader. To earn a feed_forward block,
+# a reader (e.g. fn surfacing prior-cycle open findings during cycle creation)
+# would need to exist first.
 
 walk:
   # Permission reality (verified 2026-07-13): /audit/* is gated by
@@ -174,7 +195,11 @@ walk:
   # custom_roles: ONLY evidence_uploader, external_auditor_timeboxed,
   # lead_auditor, registrar hold ANY audit.* grant — and NO test.* account has
   # those roles (profiles/user_roles read 2026-07-13: test accounts hold
-  # student/staff_counselor/hod/principal/super_admin/etc.). audit.finding.
+  # student/staff_counselor/hod/principal/super_admin/etc.).
+  # AUDIT-QUERY TRAP: check jsonb VALUES, not keys — ~65 roles carry audit.*
+  # KEYS with value false (Role Management writes explicit false); a keys-only
+  # grep concludes "student can manage audits". Filter jsonb_each(...) v='true'.
+  # audit.finding.
   # rectify (/audit/my-findings) is granted to NOBODY. So the ONLY walkable
   # test persona is superadmin (is_super_admin bypass). GAP for a richer walk:
   # a test.lead_auditor account would exercise the real permission path.
