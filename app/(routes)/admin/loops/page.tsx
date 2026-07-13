@@ -796,60 +796,166 @@ export default async function LoopControlTowerPage({
 
   const asOf = new Date().toISOString().slice(0, 10);
 
-  // ── Loop Tower stats (the loopcraft stack, live) ───────────────────────────
-  // IST day start → UTC instant, so "today" matches the campus day.
-  // Same inline-Date idiom as since7/since14 above: floor now to the IST day
-  // boundary (UTC+5:30 = 19_800_000 ms), then express it back as a UTC instant.
+  // ── Loop Tower v2 stats (corrected loopcraft rings, 2026-07-12) ────────────
+  // ONE shared 7d window (since7, computed above) + an IST "today" for the
+  // engine rings. IST day start → UTC instant, so "today" matches the campus
+  // day: floor now to the IST day boundary (UTC+5:30 = 19_800_000 ms), then
+  // express it back as a UTC instant (same inline-Date idiom as since7/14).
   const istDayStartUtc = new Date(
     Math.floor((Date.now() + 19_800_000) / 86_400_000) * 86_400_000 - 19_800_000,
   ).toISOString();
   const [
+    // ring 1 — generation engine. ai_model_usage's timestamp column is
+    // invoked_at (the old created_at filter errored → chips always showed '—').
+    maxCalls7d,
     maxCallsToday,
+    apiCalls7d,
     apiCallsToday,
+    // ring 2 — execution engine (Max lane; dispatcher derived from schedById)
+    maxlaneDone7d,
     maxlaneDoneToday,
+    maxlaneError7d,
     maxlaneErrorToday,
-    scfNotes,
-    scfMeasured,
-    scfVerdicts,
-    scfStudentConfirms,
-    scfPositiveLifts,
-    spineAiDrafts,
-    spineFaculty,
-    learnerNotes7d,
-    escalations7d,
+    // ring 3/4 — per-loop 7d closures (den = opened, num = closed, same window)
+    scfGen7d,
+    scfMeasured7d,
+    scfVerdicts7d,
+    confirms7d,
+    indGen7d,
+    indMeasured7d,
+    playbookGen7d,
+    playbookMeasured7d,
+    messGen7d,
+    messMeasured7d,
+    pulseGen7d,
+    pulseMeasured7d,
+    pulseVerdicts7d,
+    pdeSub7d,
+    pdeScored7d,
+    spineIn7d,
+    spineClassified7d,
+    refLeads7d,
+    refRouted7d,
+    // SCF all-time measured record — data-derived copy for the product ring
+    // (replaces the hardcoded "8 Jul, both positive" claim that went stale).
+    scfMeasuredAll,
+    scfPosAll,
+    scfNegAll,
+    // seam 5↔6 — decisions between system and oversight
+    decisionsLogged7d,
+    decisionsGraded7d,
   ] = await Promise.all([
-    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('created_at', istDayStartUtc)),
-    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('created_at', istDayStartUtc)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('invoked_at', since7)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('invoked_at', istDayStartUtc)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('invoked_at', since7)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('invoked_at', istDayStartUtc)),
+    cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', since7)),
     cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', istDayStartUtc)),
+    cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', since7)),
     cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', istDayStartUtc)),
-    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback')),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('generated_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('outcome_measured_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('human_verdict_at', since7)),
+    cnt(admin.from('scf_note_resolution_votes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('generated_at', since7)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('generated_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('outcome_measured_at', since7)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('measured_at', since7)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since7)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('human_verdict_at', since7)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('submitted_at', since7)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('scored_at', since7)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('ai_processed_at', since7)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', since7)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).not('assigned_counselor_id', 'is', null).gte('created_at', since7)),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('outcome_measured_at', 'is', null)),
-    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('human_verdict', 'is', null)),
-    cnt(admin.from('scf_note_resolution_votes').select('*', { count: 'exact', head: true })),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gt('outcome_lift', 0.05)),
-    cnt(admin.from('curriculum_lesson').select('*', { count: 'exact', head: true }).eq('source', 'bos_ai')),
-    cnt(admin.from('curriculum_lesson').select('*', { count: 'exact', head: true }).eq('source', 'faculty')),
-    cnt(admin.from('scf_learner_notes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
-    cnt(admin.from('session_feedback_escalations').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').lt('outcome_lift', -0.05)),
+    cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).gte('actual_outcome_recorded_at', since7)),
   ]);
+
+  // A null leg means that count query FAILED — the sum must go hollow too, or
+  // a partial failure would render as a smaller-but-healthy-looking number.
+  const sumOrNull = (...vs: (number | null)[]): number | null =>
+    vs.some((v) => v === null) ? null : vs.reduce((a, b) => (a as number) + (b as number), 0);
+
+  // Dispatcher lane: ai_routine_schedules keeps ONLY last_fired_at per routine
+  // (no run-history table), so these are routines-whose-latest-fire-is-in-window,
+  // not run counts — the component says so on the ring. Empty map = the read
+  // failed above → hollow, not zero.
   const sched = [...schedById.values()];
   const towerStats: LoopTowerStats = {
+    maxCalls7d,
     maxCallsToday,
+    apiCalls7d,
     apiCallsToday,
-    routinesEnabled: sched.filter((r) => r.enabled).length || null,
-    routinesTotal: sched.length || null,
-    routinesFiredToday: sched.filter((r) => r.last_fired_at && r.last_fired_at >= istDayStartUtc).length,
+    maxlaneDone7d,
     maxlaneDoneToday,
+    maxlaneError7d,
     maxlaneErrorToday,
-    scfNotes,
-    scfMeasured,
-    scfVerdicts,
-    scfStudentConfirms,
-    scfPositiveLifts,
-    spineAiDrafts,
-    spineFaculty,
-    learnerNotes7d,
-    escalations7d,
+    routinesEnabled: sched.length ? sched.filter((r) => r.enabled).length : null,
+    routinesTotal: sched.length || null,
+    routinesFired7d: sched.length
+      ? sched.filter((r) => r.last_fired_at && r.last_fired_at >= since7).length
+      : null,
+    routinesFiredToday: sched.length
+      ? sched.filter((r) => r.last_fired_at && r.last_fired_at >= istDayStartUtc).length
+      : null,
+    // Task ring: an iteration is closed when its outcome lands — summed across
+    // every instrumented iteration table (scf, induction session, playbook,
+    // mess proposals, pulse cycles), all in the same 7d window.
+    iterationsClosed7d: sumOrNull(scfMeasured7d, indMeasured7d, playbookMeasured7d, messMeasured7d, pulseMeasured7d),
+    verdicts7d: sumOrNull(scfVerdicts7d, pulseVerdicts7d),
+    confirms7d,
+    // Product ring closures by loop_key. Keys with no derivable closure
+    // counter (feeder: on-demand recompute with no iteration rows;
+    // mentor-checkins: no completion marker until the first beat lands;
+    // arps: no iteration table) are intentionally ABSENT — the chip renders
+    // "closure: not instrumented" instead of an invented number.
+    productClosure7d: {
+      scf: { label: 'notes → measured', num: scfMeasured7d, den: scfGen7d },
+      'induction-session': { label: 'tips → measured', num: indMeasured7d, den: indGen7d },
+      'induction-playbook': { label: 'playbooks → measured', num: playbookMeasured7d, den: playbookGen7d },
+      mess: { label: 'proposals → measured', num: messMeasured7d, den: messGen7d },
+      'ai-pulse': { label: 'cycles → measured', num: pulseMeasured7d, den: pulseGen7d },
+      'pde-quest': { label: 'demos → scored', num: pdeScored7d, den: pdeSub7d },
+      'feedback-spine': { label: 'items → classified', num: spineClassified7d, den: spineIn7d },
+      'referral-desk': { label: 'referrals → routed', num: refRouted7d, den: refLeads7d },
+    },
+    scfMeasuredAll,
+    scfPosAll,
+    scfNegAll,
+    // System ring machinery. registry/audits are swallow-to-empty above, so an
+    // empty array means "unreachable or truly empty" — both render hollow.
+    registryActive: registry.length || null,
+    audits7d: audits.length
+      ? audits.filter((a) => a.audited_at >= since7).length
+      : null,
+    // audits arrive newest-first — the first sim-layer row is the latest regress.
+    latestRegress: (() => {
+      const r = audits.find((a) => a.layer === 'sim');
+      return r ? { verdict: r.verdict, auditedAt: r.audited_at } : null;
+    })(),
+    // Watchdog health from the SAME row + helpers the watchdog cron uses
+    // (isAlarmStatus / staleThresholdMs), so the two can't drift.
+    watchdog: (() => {
+      const w = schedById.get('loop-watchdog');
+      if (!w) return null;
+      const alarm =
+        isAlarmStatus(w.last_status, Boolean(getRoutineById('loop-watchdog'))) ||
+        Boolean(
+          w.last_fired_at &&
+            Date.now() - new Date(w.last_fired_at).getTime() > staleThresholdMs(w.days_of_week),
+        );
+      return { enabled: w.enabled, alarm, lastStatus: w.last_status };
+    })(),
+    decisionsLogged7d,
+    decisionsGraded7d,
   };
 
   const pillCls = (active: boolean) =>
