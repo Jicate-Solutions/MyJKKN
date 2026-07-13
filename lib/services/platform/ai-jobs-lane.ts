@@ -125,3 +125,43 @@ export async function collectJobsLane(
     },
   );
 }
+
+/**
+ * Bounded poll for specific enqueued jobs (by id) — for a SYNCHRONOUS caller that
+ * must have the results within one request (e.g. an aggregate-then-apply weekly
+ * digest). Returns a Map jobId→text for jobs that completed with usable text;
+ * jobs that error, are still pending at the deadline, or produced no text are
+ * ABSENT, so the caller falls back (e.g. to a template — graceful degradation).
+ * Reads ai_jobs directly (service-role); the requester is the seat owner, not
+ * auth.uid, so fn_ai_job_status (auth-scoped) does not apply. Keep deadlineMs
+ * comfortably below the route's maxDuration.
+ */
+export async function awaitJobsLaneResults(
+  admin: Admin,
+  jobIds: string[],
+  opts: { deadlineMs?: number; intervalMs?: number } = {},
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (jobIds.length === 0) return out;
+  const interval = opts.intervalMs ?? 2_500;
+  const deadline = Date.now() + (opts.deadlineMs ?? 200_000);
+  const pending = new Set(jobIds);
+  while (pending.size > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, interval));
+    const { data, error } = await admin
+      .from('ai_jobs')
+      .select('id, status, result')
+      .in('id', [...pending]);
+    if (error || !Array.isArray(data)) continue;
+    for (const row of data as Array<{ id: string; status: string; result: unknown }>) {
+      if (row.status === 'done') {
+        const text = extractJobResultText(row.result);
+        if (text) out.set(row.id, text);
+        pending.delete(row.id);
+      } else if (row.status === 'error' || row.status === 'canceled') {
+        pending.delete(row.id); // absent from the map → caller falls back
+      }
+    }
+  }
+  return out;
+}
