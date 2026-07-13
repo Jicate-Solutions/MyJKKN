@@ -253,6 +253,7 @@ export async function getCoeCurrentTerm(
 export interface CoeInstitutionBridgeRow {
   id: string;
   institution_code: string;
+  name?: string | null;
   myjkkn_institution_ids: string[];
 }
 
@@ -267,11 +268,12 @@ export async function getAllCoeInstitutions(): Promise<CoeInstitutionBridgeRow[]
   const coe = createCoeDbClient();
   const { data, error } = await coe
     .from('institutions')
-    .select('id, institution_code, myjkkn_institution_ids');
+    .select('id, institution_code, name, myjkkn_institution_ids');
   if (error) throw new Error(`COE institutions list read failed: ${error.message}`);
   return (data ?? []).map((r) => ({
     id: r.id as string,
     institution_code: r.institution_code as string,
+    name: (r.name as string | null) ?? null,
     myjkkn_institution_ids: (r.myjkkn_institution_ids as string[] | null) ?? [],
   }));
 }
