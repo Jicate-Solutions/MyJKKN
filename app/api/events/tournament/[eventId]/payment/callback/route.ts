@@ -1,32 +1,68 @@
 export const dynamic = 'force-dynamic';
 
-// GET /api/events/tournament/[eventId]/payment/callback?transaction_ref=...
-// HDFC SmartGateway redirects here after a tournament entry payment. Reuses
-// EventPaymentService.handleCallback (event-type-agnostic — it finalizes off the
-// transaction_ref → events_registrations). On completion we redirect the payer back
-// to the tournament page with a status flag.
+// POST /api/events/tournament/[eventId]/payment/callback
+// Razorpay's hosted checkout POSTs back here after payment. Verifies the
+// signature + runs the dual inquiry server-side (NEVER trusts the client),
+// settles the transaction + registration, then redirects the payer back to
+// whichever page initiated payment — the transaction's stashed return_url
+// (the guest public page or the organizer management page).
+//
+// Replaces the old GET handler, which only supported the decommissioned HDFC
+// SmartGateway redirect contract and is no longer reachable (getActiveProviderName
+// throws for anything but 'razorpay').
 
 import { NextRequest, NextResponse } from 'next/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 
-export async function GET(
+export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   const { eventId } = await params;
-  const url = new URL(request.url);
-  const transactionRef = url.searchParams.get('transaction_ref') || '';
-  const clientStatus = url.searchParams.get('status') || undefined;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || url.origin;
-  const back = (flag: string) =>
-    NextResponse.redirect(`${appUrl}/events/tournament/${eventId}?payment=${flag}`);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+  const fallback = (flag: string) =>
+    NextResponse.redirect(`${appUrl}/p/tournament/${eventId}?payment=${flag}`, 303);
 
-  if (!transactionRef) return back('error');
+  const formData = await request.formData().catch(() => null);
+  if (!formData) return fallback('error');
 
-  try {
-    const result = await EventPaymentService.handleCallback(transactionRef, clientStatus);
-    return back(result.success ? 'success' : 'failed');
-  } catch {
-    return back('error');
+  const razorpayOrderId = formData.get('razorpay_order_id')?.toString();
+  const razorpayPaymentId = formData.get('razorpay_payment_id')?.toString();
+  const razorpaySignature = formData.get('razorpay_signature')?.toString();
+
+  if (razorpayOrderId && razorpayPaymentId && razorpaySignature) {
+    const result = await EventPaymentService.verifyAndSettleRazorpayPayment({
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    });
+    const target = result.returnUrl || `${appUrl}/p/tournament/${eventId}`;
+    const url = new URL(target);
+    url.searchParams.set('payment', result.success ? 'success' : 'failed');
+    return NextResponse.redirect(url, 303);
   }
+
+  // Razorpay hosted-checkout FAILURE callback: no signed success trio; instead
+  // error[code]/error[description]/error[metadata] (JSON string with order_id).
+  const errorCode = formData.get('error[code]')?.toString();
+  const errorMetadataRaw = formData.get('error[metadata]')?.toString();
+  let failedOrderId: string | undefined;
+  if (errorMetadataRaw) {
+    try {
+      failedOrderId = JSON.parse(errorMetadataRaw)?.order_id;
+    } catch {
+      // metadata wasn't JSON; fall back to the bracketed key below.
+    }
+  }
+  failedOrderId = failedOrderId || formData.get('error[metadata][order_id]')?.toString();
+
+  if (failedOrderId) {
+    await EventPaymentService.markRazorpayOrderFailed(failedOrderId, {
+      code: errorCode ?? null,
+      description: formData.get('error[description]')?.toString() ?? null,
+    });
+  }
+
+  if (errorCode || failedOrderId) return fallback('failed');
+  return fallback('error');
 }
