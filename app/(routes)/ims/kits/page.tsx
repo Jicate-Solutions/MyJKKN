@@ -4,7 +4,7 @@
 // Rules list + rule dialog + per-rule detail (items / members / resolve)
 // + collection windows. Spec: specs/store-kit-entitlements-spec-2026-07-12.md
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,14 +22,15 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus, Play, Package, Users, CalendarRange, Trash2 } from 'lucide-react';
+import { Plus, Play, Package, Users, CalendarRange, Trash2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useKitRules, useCreateKitRule, useUpdateKitRule,
   useKitRuleItems, useAddKitRuleItem, useRemoveKitRuleItem,
   useKitRuleMembers, useAddKitRuleMember, useRemoveKitRuleMember,
   useKitWindows, useCreateKitWindow, useToggleKitWindow,
-  useResolveKitRule, useKitInstitutions, useKitPrograms, useKitDepartments,
+  useResolveKitRule, useRevokeKitRuleEntitlements,
+  useKitInstitutions, useKitPrograms, useKitDepartments,
 } from '@/hooks/ims/use-ims-kits';
 import { ImsKitService, type KitRule, type KitPerson } from '@/lib/services/ims/kit-service';
 
@@ -145,11 +146,12 @@ function RuleDialog({
   const { data: programs = [] } = useKitPrograms(institutionId === ANY ? undefined : institutionId);
   const { data: departments = [] } = useKitDepartments(institutionId === ANY ? undefined : institutionId);
 
-  // re-seed local state when a different rule opens
-  const [seedId, setSeedId] = useState<string | null>(null);
+  // Re-seed local state on every open (MED-4 #2000): the old guard keyed on
+  // currentId, so reopening "New Rule" (currentId stays 'new') kept the last
+  // rule's values. An effect keyed on the open transition reseeds every time.
   const currentId = editing?.id ?? 'new';
-  if (open && seedId !== currentId) {
-    setSeedId(currentId);
+  useEffect(() => {
+    if (!open) return;
     setName(editing?.rule_name ?? '');
     setAudience(editing?.audience ?? 'learner');
     setKind(editing?.rule_kind ?? 'criteria');
@@ -159,7 +161,8 @@ function RuleDialog({
     setYearLevel(editing?.year_level?.toString() ?? ANY);
     setHostelStatus(editing?.hostel_status ?? 'any');
     setIsActive(editing?.is_active ?? true);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, currentId]);
 
   const save = async () => {
     if (!name.trim()) { toast.error('Rule name is required'); return; }
@@ -314,6 +317,7 @@ function RuleDetail({ rule }: { rule: KitRule }) {
   const addMember = useAddKitRuleMember();
   const removeMember = useRemoveKitRuleMember(rule.id);
   const resolve = useResolveKitRule();
+  const revoke = useRevokeKitRuleEntitlements();
 
   const [itemTerm, setItemTerm] = useState('');
   const [itemResults, setItemResults] = useState<Array<{ id: string; name: string; code: string | null }>>([]);
@@ -456,6 +460,27 @@ function RuleDetail({ rule }: { rule: KitRule }) {
               Safe to run repeatedly — newcomers get their kit, nobody is granted twice,
               and a repeated year never re-issues a received kit.
             </p>
+            {/* D33: fat-finger undo — pull back not-yet-collected grants. */}
+            <Button
+              variant="outline"
+              className="w-full text-destructive hover:text-destructive"
+              disabled={revoke.isPending}
+              onClick={async () => {
+                if (!window.confirm(
+                  'Pull back entitlements from this rule that NOBODY has collected yet? ' +
+                  'Anything already collected (even partly) is kept. This cannot be undone.'
+                )) return;
+                try {
+                  const res = await revoke.mutateAsync(rule.id);
+                  toast.success(`Revoked ${res.revoked} uncollected entitlement(s)`);
+                } catch (e: unknown) {
+                  toast.error(e instanceof Error ? e.message : 'Revoke failed');
+                }
+              }}
+            >
+              <Undo2 className="h-4 w-4 mr-2" />
+              {revoke.isPending ? 'Revoking…' : 'Revoke uncollected (undo a mistaken grant)'}
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -516,6 +541,9 @@ function WindowsCard() {
           </div>
           <Button onClick={async () => {
             if (!label.trim() || !start || !end) { toast.error('Label, start and end are required'); return; }
+            // LOW-6 (#2000): reject an inverted / zero-length window client-side
+            // (the DB CHECK also enforces it, but fail fast with a clear message).
+            if (new Date(end) <= new Date(start)) { toast.error('End must be after start'); return; }
             try {
               await createWindow.mutateAsync({
                 label: label.trim(),

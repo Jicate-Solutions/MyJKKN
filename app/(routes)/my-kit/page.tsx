@@ -6,6 +6,7 @@
 // the caller's own rows).
 
 import { ContentLayout } from '@/components/layout/content-layout';
+import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PackageCheck, PackageOpen, Package } from 'lucide-react';
@@ -19,6 +20,16 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function MyKitPage() {
+  // MED-2 (#2000): enforce the self-view permission — without this guard the
+  // route was reachable by any authenticated user (the permission was cosmetic).
+  return (
+    <ImsPageGuard module="ims.kits.my" action="view">
+      <MyKitInner />
+    </ImsPageGuard>
+  );
+}
+
+function MyKitInner() {
   const { data: kit = [], isLoading } = useMyKit();
 
   const totalOwed = kit.reduce((s, k) => s + (k.owed > 0 && (k.status === 'open' || k.status === 'reopened') ? k.owed : 0), 0);
@@ -39,8 +50,8 @@ export default function MyKitPage() {
               <span className="font-semibold">{totalOwed}</span>
             </div>
             <p className="text-sm text-muted-foreground w-full">
-              Collect from the central store during announced windows. Bring your app QR —
-              a friend can collect for you if they carry it.
+              Collect from the store during announced windows. Bring your own app QR to
+              collect — it&apos;s scanned at the counter to confirm the handover.
             </p>
           </CardContent>
         </Card>

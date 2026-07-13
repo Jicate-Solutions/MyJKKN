@@ -11,6 +11,15 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const MOD = 'ims/kits';
 
+// PostgREST `.or()` filter-injection guard (#2000 review HIGH, same class as
+// #1977): a raw term with , . ( ) re-parses as extra filter nodes. We double-
+// quote each ilike pattern so those chars stay literal, and strip the only two
+// chars that could break out of the quotes. Verified against prod PostgREST.
+function orIlike(cols: string[], term: string): string {
+  const safe = term.replace(/["\\]/g, '');
+  return cols.map((c) => `${c}.ilike."%${safe}%"`).join(',');
+}
+
 export interface KitRule {
   id: string;
   rule_name: string;
@@ -204,7 +213,9 @@ export class ImsKitService {
     proof_type: 'qr' | 'staff_verified';
     store_id: string;
     collector_register_no?: string;
-    kind?: 'normal' | 'free_replacement' | 'defect_swap';
+    // free_replacement removed (D41 — lost/damaged is always a paid sale);
+    // the RPC rejects it. 'normal' or 'defect_swap' (store-fault, D18) only.
+    kind?: 'normal' | 'defect_swap';
     late_approved?: boolean;
     returned_defective?: boolean;
     notes?: string;
@@ -228,16 +239,31 @@ export class ImsKitService {
     return data as { collection_id: string; remaining: number };
   }
 
-  static async voidCollection(collectionId: string, reason: string) {
+  // D30: the void UI must state whether the physical item came back. When it
+  // did not, stock is NOT restored — the void is booked as a loss.
+  static async voidCollection(collectionId: string, reason: string, itemReturned: boolean) {
     const { data, error } = await this.supabase.rpc('fn_kit_void_collection', {
       p_collection_id: collectionId,
       p_reason: reason,
+      p_item_returned: itemReturned,
     });
     if (error) {
       logger.error(MOD, 'void failed', error);
       throw error;
     }
     return data;
+  }
+
+  // D33: fat-finger undo — pull back a rule's not-yet-collected entitlements.
+  static async revokeRuleEntitlements(ruleId: string) {
+    const { data, error } = await this.supabase.rpc('fn_kit_revoke_rule_entitlements', {
+      p_rule_id: ruleId,
+    });
+    if (error) {
+      logger.error(MOD, 'revoke failed', error);
+      throw error;
+    }
+    return data as { rule_id: string; revoked: number };
   }
 
   static async myKit() {
@@ -280,7 +306,7 @@ export class ImsKitService {
       const { data, error } = await this.supabase
         .from('learners_profiles')
         .select('id, first_name, last_name, register_number, institution_id')
-        .or(`register_number.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+        .or(orIlike(['register_number', 'first_name', 'last_name'], q))
         .limit(15);
       if (error) throw error;
       return (data ?? []).map((r: any) => ({
@@ -294,7 +320,7 @@ export class ImsKitService {
     const { data, error } = await this.supabase
       .from('staff')
       .select('id, first_name, last_name, institution_id')
-      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`)
+      .or(orIlike(['first_name', 'last_name'], q))
       .eq('is_active', true)
       .limit(15);
     if (error) throw error;
@@ -336,7 +362,7 @@ export class ImsKitService {
       .from('ims_items')
       .select('id, name, code')
       .eq('is_active', true)
-      .or(`name.ilike.%${q}%,code.ilike.%${q}%`)
+      .or(orIlike(['name', 'code'], q))
       .limit(15);
     if (error) throw error;
     return data ?? [];
@@ -361,10 +387,12 @@ export class ImsKitService {
     return data ?? [];
   }
 
+  // limit raised well past any real per-institution program/department count so
+  // the targeting selects don't silently drop options (#2000 review LOW-7).
   static async getPrograms(institutionId?: string) {
     let q = this.supabase.from('programs').select('id, program_name, institution_id').order('program_name');
     if (institutionId) q = q.eq('institution_id', institutionId);
-    const { data, error } = await q.limit(200);
+    const { data, error } = await q.limit(2000);
     if (error) throw error;
     return data ?? [];
   }
@@ -372,7 +400,7 @@ export class ImsKitService {
   static async getDepartments(institutionId?: string) {
     let q = this.supabase.from('departments').select('id, department_name, institution_id').order('department_name');
     if (institutionId) q = q.eq('institution_id', institutionId);
-    const { data, error } = await q.limit(200);
+    const { data, error } = await q.limit(2000);
     if (error) throw error;
     return data ?? [];
   }
