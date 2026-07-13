@@ -356,7 +356,7 @@ export const GUIDES: GuideBook = {
             {
               action: "Pick the **College**, then the **Exam session** you are auditing.",
               detail:
-                "The current term is auto-detected; you can switch to any past cycle. A session with no registrations shows an honest empty state — that usually means the exam cell has not opened registrations for that college yet.",
+                "The current term is auto-detected; you can switch to any past cycle. Two empty states are possible and mean different things: a session with no registrations means the exam cell has not opened registrations for that college yet, and a college with no sessions at all (the page says so) means the exam cell has never created an exam session for it — in both cases the follow-up is with the exam cell, not the departments.",
               tip: "Audit the cycle whose exams are nearest — that is where a missing trail still has time to be fixed.",
             },
           ],
