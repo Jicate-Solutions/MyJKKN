@@ -1025,6 +1025,40 @@ export default async function LoopControlTowerPage({
   // not run counts — the component says so on the ring. Empty map = the read
   // failed above → hollow, not zero.
   const sched = [...schedById.values()];
+
+  // Cell C — mission-pillar coverage from the mission_pillars config table
+  // (edited on /admin/loops/pillars). Weighted: covered = 1, partial = 0.5,
+  // everything else = 0, over ACTIVE pillars only. Table may not exist yet
+  // (migration pending apply) → null, which renders the cell hollow rather
+  // than a fake 0%.
+  const pillars = await (async () => {
+    try {
+      const { data, error } = await admin
+        .from('mission_pillars')
+        .select('coverage_status')
+        .eq('is_active', true);
+      // Missing relation (migration not applied yet) or permission error →
+      // hollow, never a fake 0%. Same swallow-to-null contract as cnt().
+      if (error || !data) return null;
+      const total = data.length;
+      if (total === 0) return { score: 0, total: 0, pct: 0 };
+      const score = data.reduce(
+        (acc: number, r: { coverage_status: string }) =>
+          acc +
+          (r.coverage_status === 'covered'
+            ? 1
+            : r.coverage_status === 'partial'
+              ? 0.5
+              : 0),
+        0
+      );
+      return { score, total, pct: Math.round((score / total) * 100) };
+    } catch {
+      // Any unexpected throw must not 500 the super-admin page — render hollow.
+      return null;
+    }
+  })();
+
   const towerStats: LoopTowerStats = {
     maxCalls7d,
     maxCallsToday,
@@ -1103,6 +1137,7 @@ export default async function LoopControlTowerPage({
       cyclesClosed30d,
       scfLiftMean30d: scfLift30d.mean,
       scfLiftN30d: scfLift30d.n,
+      pillars,
       constraint,
     },
   };
