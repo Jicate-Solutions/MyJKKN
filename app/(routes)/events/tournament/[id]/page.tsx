@@ -69,6 +69,7 @@ import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
+import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 
 function divisionLabel(d: TournamentDivision): string {
   return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
@@ -309,6 +310,12 @@ export default function TournamentManagePage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogDivision, setDialogDivision] = useState<string | undefined>(undefined);
+  const [rzp, setRzp] = useState<{
+    orderId: string;
+    keyId: string;
+    amountPaise: number;
+    customer: { name?: string; email?: string; phone?: string };
+  } | null>(null);
 
   // Surface gateway callback outcome (?payment=success|failed|error). Read from
   // window.location (client-only) to avoid the useSearchParams Suspense requirement.
@@ -386,6 +393,21 @@ export default function TournamentManagePage() {
   }
 
   const publicOn = !!(tournament.config as Record<string, unknown>)?.public_scoreboard;
+
+  if (rzp) {
+    return (
+      <EventRazorpayHostedRedirect
+        eventId={id}
+        razorpayKeyId={rzp.keyId}
+        razorpayOrderId={rzp.orderId}
+        amountPaise={rzp.amountPaise}
+        currency="INR"
+        customer={rzp.customer}
+        description="Tournament entry fee"
+        cancelPath={`/events/tournament/${id}`}
+      />
+    );
+  }
 
   return (
     <ContentLayout title={tournament.name}>
@@ -657,7 +679,20 @@ export default function TournamentManagePage() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => payLink.mutate(e.id)}
+                                  onClick={() =>
+                                    payLink.mutateAsync(e.id).then((res) => {
+                                      if (res.razorpay_order_id && res.razorpay_key_id) {
+                                        setRzp({
+                                          orderId: res.razorpay_order_id,
+                                          keyId: res.razorpay_key_id,
+                                          amountPaise: res.amount_paise ?? 0,
+                                          customer: res.customer ?? {},
+                                        });
+                                      } else {
+                                        toast.error('No payment link returned');
+                                      }
+                                    })
+                                  }
                                   disabled={payLink.isPending}
                                   title="Generate online payment link"
                                 >
