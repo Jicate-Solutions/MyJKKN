@@ -34,6 +34,9 @@ import {
   useSF100Interviews,
   useSF100Pivots,
 } from '@/hooks/startup-studio';
+import { SF100PaidUserForm } from '../../../_components/sf100-paid-user-form';
+import { SF100InterviewForm } from '../../../_components/sf100-interview-form';
+import { SF100PivotForm } from '../../../_components/sf100-pivot-form';
 import { cn } from '@/lib/utils';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -378,9 +381,15 @@ function CheckInsTab({ enrollmentId }: { enrollmentId: string }) {
 
 // ─── Paid Users Tab ──────────────────────────────────────────────────────────
 
-function PaidUsersTab({ enrollmentId }: { enrollmentId: string }) {
+function PaidUsersTab({ enrollmentId, canEdit = false }: { enrollmentId: string; canEdit?: boolean }) {
   const { data: raw, isLoading, error } = useSF100PaidUsers(enrollmentId);
   const items: any[] = Array.isArray(raw) ? raw : ((raw as any)?.data ?? []);
+
+  const addButton = canEdit ? (
+    <div className="flex justify-end">
+      <SF100PaidUserForm enrollmentId={enrollmentId} />
+    </div>
+  ) : null;
 
   if (isLoading) return <ListSkeleton rows={5} />;
   if (error) {
@@ -400,15 +409,20 @@ function PaidUsersTab({ enrollmentId }: { enrollmentId: string }) {
 
   if (sorted.length === 0) {
     return (
-      <div className="flex flex-col items-center py-12 text-center">
-        <Users className="h-10 w-10 text-muted-foreground/30 mb-3" aria-hidden="true" />
-        <p className="text-sm text-muted-foreground">No paid users logged yet.</p>
+      <div className="space-y-3">
+        {addButton}
+        <div className="flex flex-col items-center py-12 text-center">
+          <Users className="h-10 w-10 text-muted-foreground/30 mb-3" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">No paid users logged yet.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-white">
+    <div className="space-y-3">
+      {addButton}
+      <div className="overflow-x-auto rounded-xl border bg-white">
       <table className="w-full text-sm" aria-label="Paid users list">
         <thead>
           <tr className="border-b bg-muted/30">
@@ -463,15 +477,22 @@ function PaidUsersTab({ enrollmentId }: { enrollmentId: string }) {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
 
 // ─── Interviews Tab ──────────────────────────────────────────────────────────
 
-function InterviewsTab({ enrollmentId }: { enrollmentId: string }) {
+function InterviewsTab({ enrollmentId, canEdit = false }: { enrollmentId: string; canEdit?: boolean }) {
   const { data: raw, isLoading, error } = useSF100Interviews(enrollmentId);
   const items: any[] = Array.isArray(raw) ? raw : ((raw as any)?.data ?? []);
+
+  const addButton = canEdit ? (
+    <div className="flex justify-end">
+      <SF100InterviewForm enrollmentId={enrollmentId} />
+    </div>
+  ) : null;
 
   if (isLoading) return <ListSkeleton rows={3} />;
   if (error) {
@@ -485,15 +506,19 @@ function InterviewsTab({ enrollmentId }: { enrollmentId: string }) {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center py-12 text-center">
-        <Mic className="h-10 w-10 text-muted-foreground/30 mb-3" aria-hidden="true" />
-        <p className="text-sm text-muted-foreground">No customer interviews logged yet.</p>
+      <div className="space-y-3">
+        {addButton}
+        <div className="flex flex-col items-center py-12 text-center">
+          <Mic className="h-10 w-10 text-muted-foreground/30 mb-3" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">No customer interviews logged yet.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {addButton}
       {items.map((item: any, i: number) => {
         const painLevel = item.pain_level ?? item.painLevel;
         return (
@@ -557,9 +582,15 @@ function InterviewsTab({ enrollmentId }: { enrollmentId: string }) {
 
 // ─── Pivots Tab ──────────────────────────────────────────────────────────────
 
-function PivotsTab({ enrollmentId }: { enrollmentId: string }) {
+function PivotsTab({ enrollmentId, canEdit = false }: { enrollmentId: string; canEdit?: boolean }) {
   const { data: raw, isLoading, error } = useSF100Pivots(enrollmentId);
   const items: any[] = Array.isArray(raw) ? raw : ((raw as any)?.data ?? []);
+
+  const addButton = canEdit ? (
+    <div className="flex justify-end">
+      <SF100PivotForm enrollmentId={enrollmentId} />
+    </div>
+  ) : null;
 
   if (isLoading) return <ListSkeleton rows={3} />;
   if (error) {
@@ -579,15 +610,20 @@ function PivotsTab({ enrollmentId }: { enrollmentId: string }) {
 
   if (sorted.length === 0) {
     return (
-      <div className="flex flex-col items-center py-12 text-center">
-        <GitBranch className="h-10 w-10 text-muted-foreground/30 mb-3" aria-hidden="true" />
-        <p className="text-sm text-muted-foreground">No pivots recorded yet.</p>
+      <div className="space-y-4">
+        {addButton}
+        <div className="flex flex-col items-center py-12 text-center">
+          <GitBranch className="h-10 w-10 text-muted-foreground/30 mb-3" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">No pivots recorded yet.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="relative space-y-4 pl-5">
+    <div className="space-y-4">
+      {addButton}
+      <div className="relative space-y-4 pl-5">
       {/* Timeline line */}
       <div
         className="absolute left-[7px] top-4 bottom-4 w-0.5 bg-border"
@@ -659,6 +695,7 @@ function PivotsTab({ enrollmentId }: { enrollmentId: string }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -669,11 +706,18 @@ interface SF100TeamDetailProps {
   enrollmentId: string;
   /** Pre-select a tab via URL hash or query param */
   defaultTab?: 'overview' | 'check-ins' | 'paid-users' | 'interviews' | 'pivots';
+  /**
+   * When true, renders the paid-user / interview / pivot "Add" forms in their
+   * tabs. This is the participant's OWN dashboard. The public transparency view
+   * leaves this false (read-only). Default: false.
+   */
+  canEdit?: boolean;
 }
 
 export function SF100TeamDetail({
   enrollmentId,
   defaultTab = 'overview',
+  canEdit = false,
 }: SF100TeamDetailProps) {
   return (
     <Tabs defaultValue={defaultTab} className="space-y-4">
@@ -708,15 +752,15 @@ export function SF100TeamDetail({
       </TabsContent>
 
       <TabsContent value="paid-users" className="mt-0">
-        <PaidUsersTab enrollmentId={enrollmentId} />
+        <PaidUsersTab enrollmentId={enrollmentId} canEdit={canEdit} />
       </TabsContent>
 
       <TabsContent value="interviews" className="mt-0">
-        <InterviewsTab enrollmentId={enrollmentId} />
+        <InterviewsTab enrollmentId={enrollmentId} canEdit={canEdit} />
       </TabsContent>
 
       <TabsContent value="pivots" className="mt-0">
-        <PivotsTab enrollmentId={enrollmentId} />
+        <PivotsTab enrollmentId={enrollmentId} canEdit={canEdit} />
       </TabsContent>
     </Tabs>
   );
