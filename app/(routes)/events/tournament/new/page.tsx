@@ -5,7 +5,7 @@
 // format, dates, registration window, venue (optional), is_public, external reg.
 // Created: 2026-06-22 (Sports Tournament PR1).
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -29,8 +29,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { useCreateTournament } from '@/hooks/events/use-tournaments';
-import { useAuth } from '@/hooks/use-auth';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
 import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
 import type { SportLevel } from '@/types/health-sports';
@@ -43,10 +42,17 @@ import { Loader2 } from 'lucide-react';
 
 export default function CreateTournamentPage() {
   const router = useRouter();
-  const { profile } = useAuth();
-  const { selectedInstitutionId } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId || profile?.institution_id || '';
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  const [institutionId, setInstitutionId] = useState('');
   const createMutation = useCreateTournament();
+
+  // Convenience default: pre-select the first accessible institution, but the
+  // picker stays visible and editable — explicit per the product decision.
+  useEffect(() => {
+    if (!institutionId && institutions.length > 0) {
+      setInstitutionId(institutions[0].id);
+    }
+  }, [institutions, institutionId]);
 
   const currentYear = new Date().getFullYear();
 
@@ -131,6 +137,30 @@ export default function CreateTournamentPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Host Institution */}
+              <div className="space-y-2">
+                <Label htmlFor="host_institution">
+                  Host Institution <span className="text-destructive">*</span>
+                </Label>
+                <Select value={institutionId} onValueChange={setInstitutionId}>
+                  <SelectTrigger id="host_institution">
+                    <SelectValue
+                      placeholder={institutionsLoading ? 'Loading institutions…' : 'Select host institution'}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Registration fees for this tournament settle into this institution&apos;s payment account.
+                </p>
+              </div>
+
               {/* Name */}
               <div className="space-y-2">
                 <Label htmlFor="name">
