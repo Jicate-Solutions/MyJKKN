@@ -271,7 +271,12 @@ export default function ExamAuditPage() {
         </div>
       ) : data?.noTerm ? (
         <div className="py-16 text-center text-sm text-muted-foreground">
-          No current exam term detected for this college — pick a session above.
+          {/* QA sweep 2026-07-13: "pick a session above" with an EMPTY picker is
+              misleading — Dental has zero exam sessions in the exam system, so
+              say that instead of pointing at a dropdown with nothing in it. */}
+          {(data.sessions ?? []).length === 0
+            ? 'This college has no exam sessions in the exam system yet — there is nothing to audit until the exam cell creates one.'
+            : 'No current exam term detected for this college — pick a session above.'}
         </div>
       ) : data ? (
         <>
