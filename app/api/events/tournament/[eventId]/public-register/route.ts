@@ -49,7 +49,7 @@ export async function POST(
     // ---- tournament must exist, be a non-draft tournament, and have an OPEN window ----
     const { data: ev } = await (svc as any)
       .from('events')
-      .select('id, event_type, status, registration_open_date, registration_close_date')
+      .select('id, event_type, status, registration_open_date, registration_close_date, institution_id')
       .eq('id', eventId)
       .eq('event_type', 'sports_tournament')
       .maybeSingle();
@@ -196,12 +196,12 @@ export async function POST(
       if (rows.length) await (svc as any).from('tournament_team_members').insert(rows);
     }
 
-    // ---- payment (online link for paid divisions) ----
-    let payment_url: string | null = null;
+    // ---- payment (Razorpay order for paid divisions) ----
+    let paymentResult: Awaited<ReturnType<typeof EventPaymentService.initiatePayment>> | null = null;
     if (fee > 0) {
       try {
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
-        const res = await EventPaymentService.initiatePayment({
+        paymentResult = await EventPaymentService.initiatePayment({
           registrationId: reg.id,
           eventId,
           amount: fee,
@@ -210,8 +210,9 @@ export async function POST(
           payerPhone: dto.participant_phone || '',
           returnUrl: `${appUrl}/p/tournament/${eventId}`,
           callbackUrl: `${appUrl}/api/events/tournament/${eventId}/payment/callback`,
+          institutionIdOverride: ev.institution_id ?? null,
+          feeHead: 'tuition',
         });
-        payment_url = res.payment_url || null;
       } catch {
         return NextResponse.json(
           { entry_id: entry.id, warning: 'Registered (unpaid) — payment link could not be created, please retry.' },
@@ -220,7 +221,17 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ entry_id: entry.id, payment_url, paid_required: fee > 0 }, { status: 201 });
+    return NextResponse.json(
+      {
+        entry_id: entry.id,
+        paid_required: fee > 0,
+        razorpay_order_id: paymentResult?.razorpay_order_id ?? null,
+        razorpay_key_id: paymentResult?.razorpay_key_id ?? null,
+        amount_paise: paymentResult?.amount_paise ?? null,
+        customer: paymentResult?.customer ?? null,
+      },
+      { status: 201 }
+    );
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to register' },
