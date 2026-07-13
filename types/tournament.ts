@@ -233,11 +233,15 @@ export interface CreateEntryDto {
   notes?: string | null;
 }
 
-/** Result of a register call: the created entry, plus a payment link when online. */
+/** Result of a register call: the created entry, plus Razorpay order details when a payment was initiated. */
 export interface RegisterEntryResult {
   entry: TournamentEntry;
   payment_url?: string | null;
   transaction_id?: string | null;
+  razorpay_order_id?: string | null;
+  razorpay_key_id?: string | null;
+  amount_paise?: number | null;
+  customer?: { name?: string; email?: string; phone?: string } | null;
 }
 
 export interface UpdateEntryDto {
