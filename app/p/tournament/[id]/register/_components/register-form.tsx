@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { TEAM_SPORTS } from '@/types/health-sports';
+import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 
 interface DivisionLite {
   id: string;
@@ -59,6 +60,12 @@ export function RegisterForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [rzp, setRzp] = useState<{
+    orderId: string;
+    keyId: string;
+    amountPaise: number;
+    customer: { name?: string; email?: string; phone?: string };
+  } | null>(null);
 
   const division = useMemo(() => divisions.find((d) => d.id === divisionId), [divisions, divisionId]);
   const isTeam = division ? (TEAM_SPORTS as readonly string[]).includes(division.sport) : false;
@@ -94,8 +101,13 @@ export function RegisterForm({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok && res.status !== 207) throw new Error(body.error || `Failed (${res.status})`);
-      if (body.payment_url) {
-        window.location.href = body.payment_url; // go pay
+      if (body.razorpay_order_id && body.razorpay_key_id) {
+        setRzp({
+          orderId: body.razorpay_order_id,
+          keyId: body.razorpay_key_id,
+          amountPaise: body.amount_paise ?? 0,
+          customer: body.customer ?? {},
+        });
         return;
       }
       setDone(true);
@@ -106,13 +118,31 @@ export function RegisterForm({
     }
   }
 
+  if (rzp) {
+    return (
+      <EventRazorpayHostedRedirect
+        eventId={eventId}
+        razorpayKeyId={rzp.keyId}
+        razorpayOrderId={rzp.orderId}
+        amountPaise={rzp.amountPaise}
+        currency="INR"
+        customer={rzp.customer}
+        description="Tournament entry fee"
+        cancelPath={`/p/tournament/${eventId}/register`}
+      />
+    );
+  }
+
   if (done) {
     return (
       <div className="rounded-xl border bg-white p-6 text-center shadow-sm">
         <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-600" />
         <h2 className="text-lg font-semibold">You&apos;re registered!</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {fee > 0 ? 'Your payment is confirmed.' : 'No entry fee for this division.'} See you at the tournament.
+          {fee > 0
+            ? 'Your registration is recorded — your payment is being confirmed.'
+            : 'No entry fee for this division.'}{' '}
+          See you at the tournament.
         </p>
       </div>
     );
