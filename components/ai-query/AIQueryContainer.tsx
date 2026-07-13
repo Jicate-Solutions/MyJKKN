@@ -32,6 +32,8 @@ import {
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './MessageBubble';
 import { SuggestedQueries } from './SuggestedQueries';
+import { ChatHistorySheet } from './ChatHistorySheet';
+import { DrainHealthBanner } from './DrainHealthBanner';
 import type { ActionDefinition } from '@/types/ai-query';
 
 interface AIQueryContainerProps {
@@ -96,6 +98,9 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
+      {/* Admin-only banner — renders only when the Max chat drain is confirmed offline */}
+      <DrainHealthBanner />
+
       {/* Header - Responsive */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -126,6 +131,8 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             <RefreshCw className="h-4 w-4" />
             <span className="hidden sm:inline ml-1">Clear</span>
           </Button>
+          {/* Your past questions — visible to every user, shows only their own */}
+          <ChatHistorySheet />
           {/* Super Admin Only - AI Query Tools Link */}
           {isSuperAdmin && (
             <TooltipProvider>
