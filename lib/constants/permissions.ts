@@ -506,6 +506,13 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.live_poll.manage',
         label: 'Manage Live Polls & Pulses (leadership override)'
       },
+      // 2026-07-13: Exam IA Audit — the Registrar's in-person audit sheet.
+      // Joins COE university-bound records (CIA provenance + registrations)
+      // against MyJKKN's continuous day-one attendance, program-wise per exam.
+      {
+        key: 'academic.internal_marks.exam_audit.view',
+        label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'

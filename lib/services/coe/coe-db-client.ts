@@ -446,3 +446,118 @@ export async function getCoeCiaStudentDetail(
   }
   return out;
 }
+
+// ── Exam IA Audit (2026-07-13) ───────────────────────────────────────────────
+// The Registrar's audit joins COE's university-bound records against MyJKKN's
+// continuous data. These reads pull the RAW provenance columns the summary
+// views hide: who entered each CIA row, when, in which round, and whether the
+// attendance component was ever filled — the "as per JKKN data or some other
+// data" fingerprint. Server-side only (service creds), scope-gated by the
+// caller's fn_exam_audit_access() result in the API route.
+
+/** Raw cia_marks provenance — one row per student × course entry. */
+export interface CoeCiaProvenanceRow {
+  student_id: string | null;
+  program_id: string | null;
+  course_id: string | null;
+  cia_round: number | null;
+  created_by: string | null;
+  faculty_id: string | null;
+  submission_date: string | null;
+  created_at: string | null;
+  is_verified: boolean | null;
+  is_approved: boolean | null;
+  attendance_marks: number | null;
+  max_attendance_marks: number | null;
+  total_internal_marks: number | null;
+  max_internal_marks: number | null;
+  internal_percentage: number | null;
+}
+
+/** Raw cia_marks provenance for a set of examination_session ids (one code can
+ *  span several session rows) within one COE institution. Paged (~1000 cap). */
+export async function getCoeCiaProvenance(
+  sessionIds: string[],
+  coeInstitutionId: string,
+): Promise<CoeCiaProvenanceRow[]> {
+  if (sessionIds.length === 0) return [];
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, program_id, course_id, cia_round, created_by, faculty_id, ' +
+    'submission_date, created_at, is_verified, is_approved, attendance_marks, ' +
+    'max_attendance_marks, total_internal_marks, max_internal_marks, internal_percentage';
+  const pageSize = 1000;
+  const out: CoeCiaProvenanceRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('cia_marks')
+      .select(cols)
+      .in('examination_session_id', sessionIds)
+      .eq('institutions_id', coeInstitutionId)
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE cia_marks read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeCiaProvenanceRow[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+/** One exam registration — the universe of students the university expects. */
+export interface CoeExamRegistrationRow {
+  student_id: string | null;
+  student_name: string | null;
+  stu_register_no: string | null;
+  program_code: string | null;
+  course_code: string | null;
+  registration_status: string | null;
+}
+
+/** Registrations for a session code within one COE institution. Paged. */
+export async function getCoeExamRegistrations(
+  sessionCode: string,
+  coeInstitutionId: string,
+): Promise<CoeExamRegistrationRow[]> {
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, student_name, stu_register_no, program_code, course_code, registration_status';
+  const pageSize = 1000;
+  const out: CoeExamRegistrationRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('exam_registrations')
+      .select(cols)
+      .eq('session_code', sessionCode)
+      .eq('institutions_id', coeInstitutionId)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE exam_registrations read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeExamRegistrationRow[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+/** Program id → code/name bridge for one COE institution. */
+export interface CoeProgramRef {
+  id: string;
+  program_code: string | null;
+  program_name: string | null;
+}
+
+export async function getCoePrograms(
+  coeInstitutionId: string,
+): Promise<CoeProgramRef[]> {
+  const coe = createCoeDbClient();
+  const { data, error } = await coe
+    .from('programs')
+    .select('id, program_code, program_name')
+    .eq('institutions_id', coeInstitutionId);
+  if (error) throw new Error(`COE programs read failed: ${error.message}`);
+  return (data ?? []) as CoeProgramRef[];
+}

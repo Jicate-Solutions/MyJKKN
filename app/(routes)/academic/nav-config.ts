@@ -179,6 +179,11 @@ const config: ModuleNavConfig = {
           href: '/academic/internal-marks/attendance-insight',
         },
         {
+          label: 'Exam IA Audit',
+          icon: 'ClipboardCheck',
+          href: '/academic/internal-marks/exam-audit',
+        },
+        {
           label: 'Internal Marks Report',
           icon: 'FileBarChart',
           href: '/academic/internal-marks/report',
