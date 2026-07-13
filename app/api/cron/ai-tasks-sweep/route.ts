@@ -20,9 +20,16 @@ import {
 } from '@/lib/services/platform/ai-clients/batch';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 import { resend } from '@/lib/resend';
 
 const CLAIM_CAP = 50;
+// Loop-lane outage pager threshold (Director-ratified 2026-07-13 §B.5, "page
+// immediately", 30 min "filters Windows-update reboots"). Distinct from the
+// 10-min RUNNER_STALE_MS runner-down check below (Director-only, business-hours):
+// this pages ALL super-admins, 24/7, when LOOP-generation jobs (schedulable job
+// types migrated onto the #1998 ai_jobs registry) stall with no drain activity.
+const LOOP_OUTAGE_STALE_MS = 30 * 60 * 1000;
 
 // ── Runner-down alert (fail-safe, P1) ─────────────────────────────────────────
 // The Max-lane AI runner has NO API fallback now (Director-approved). If it dies,
@@ -203,6 +210,107 @@ async function runnerDownHealthCheck(
   return { ...summary, alerted: true, notified: fanout.notified, emailed, idempotencyKey };
 }
 
+// ── Loop-lane outage pager (fail-safe, Director-ratified §B.5) ───────────────
+// Pages ALL super-admins (in-app, high priority), 24/7, when LOOP-generation
+// jobs on the #1998 ai_jobs registry (schedulable job types — the loops this
+// migration moves onto the Max lane) sit non-terminal past 30 min AND the drain
+// shows no recent claim activity (ai_jobs.claimed_at — the #1998 schema's own
+// last-claim signal). Idempotent per finding-set per hour so a persistent outage
+// pages once, but a NEW stalled loop still pages. Runs LAST in its own try/catch
+// so it can never break the host sweep. Distinct from runnerDownHealthCheck
+// (10 min, Director-only email, business-hours) — overlap noted in the PR.
+async function loopLaneOutagePager(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const now = Date.now();
+  const cutoffIso = new Date(now - LOOP_OUTAGE_STALE_MS).toISOString();
+
+  // Scope: only schedulable (loop-generator) job types. Interactive chat/cdc/
+  // translate are covered by the requester's own long-poll + the runner-down
+  // check. Self-maintaining: each migrated loop seeds schedulable=true.
+  const { data: loopTypes } = await admin
+    .from('ai_job_types')
+    .select('job_type')
+    .eq('schedulable', true);
+  const loopJobTypes = (loopTypes ?? []).map((t: { job_type: string }) => t.job_type);
+  if (loopJobTypes.length === 0) return { checked: true, loop_types: 0, stuck: 0, alerted: false };
+
+  // Loop jobs stuck: non-terminal, requested before the 30-min cutoff.
+  const { data: stuckRows } = await admin
+    .from('ai_jobs')
+    .select('id, job_type, requested_at')
+    .in('job_type', loopJobTypes)
+    .not('status', 'in', TERMINAL_STATUSES)
+    .lt('requested_at', cutoffIso)
+    .order('requested_at', { ascending: true })
+    .limit(200);
+  const stuck = (stuckRows ?? []) as { id: string; job_type: string; requested_at: string }[];
+  if (stuck.length === 0) return { checked: true, loop_types: loopJobTypes.length, stuck: 0, alerted: false };
+
+  // "No drain activity" — the drain has not CLAIMED any job in the last 30 min.
+  // A live drain claims within seconds. NaN/absent age → no activity (fail-safe).
+  const { data: lastClaim } = await admin
+    .from('ai_jobs')
+    .select('claimed_at')
+    .not('claimed_at', 'is', null)
+    .order('claimed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastClaimMs = lastClaim?.claimed_at ? new Date(lastClaim.claimed_at).getTime() : NaN;
+  const drainActive = now - lastClaimMs < LOOP_OUTAGE_STALE_MS;
+  if (drainActive) {
+    // Old jobs but the drain IS claiming — a large/slow backlog, not an outage.
+    return { checked: true, loop_types: loopJobTypes.length, stuck: stuck.length, drain_active: true, alerted: false };
+  }
+
+  // OUTAGE: loop jobs stuck > 30 min AND no drain claim in 30 min → page supers.
+  const { data: supers, error: supersErr } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('is_super_admin', true);
+  if (supersErr || !supers?.length) {
+    return {
+      checked: true, stuck: stuck.length, alerted: false,
+      error: `super-admin lookup failed: ${supersErr?.message ?? 'no recipients'}`,
+    };
+  }
+  const userIds = supers.map((s: { id: string }) => s.id);
+
+  const byType = new Map<string, number>();
+  for (const j of stuck) byType.set(j.job_type, (byType.get(j.job_type) ?? 0) + 1);
+  const findings = [...byType.entries()].map(([t, n]) => `${t} (${n} stuck)`);
+  const oldestMin = Math.round((now - new Date(stuck[0].requested_at).getTime()) / 60000);
+
+  // Hour + finding-set fingerprint: a persistent outage pages once/hour; a NEW
+  // stalled loop the same hour still pages (mirrors loop-watchdog's key shape).
+  const nowDate = new Date(now);
+  const idempotencyKey = `loop-lane-outage:${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}:${findingsFingerprint(findings)}`;
+  const outcome = await fanoutNotification(admin, {
+    title: `🔴 Loop lane outage: ${stuck.length} job${stuck.length === 1 ? '' : 's'} stalled >30 min, no drain activity`,
+    body:
+      `The ₹0 Max-lane drain has not claimed a job in over 30 min while loop generation is queued: ` +
+      findings.join(' · ') +
+      `. Oldest queued ${oldestMin} min ago. Loop generation is stalled until the Windows seat drain is back — flip a loop's generation_lane to 'direct' to fall back to the paid lane if urgent.`,
+    userIds,
+    priority: 'high',
+    category: 'loops',
+    url: '/admin/ai-models',
+    idempotencyKey,
+    source: 'ai-tasks-sweep:loop-lane-outage',
+  });
+
+  return {
+    checked: true,
+    loop_types: loopJobTypes.length,
+    stuck: stuck.length,
+    oldest_min: oldestMin,
+    drain_active: false,
+    alerted: outcome.skipped !== 'idempotent',
+    notified: outcome.notified,
+    idempotencyKey,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -349,5 +457,15 @@ export async function GET(request: NextRequest) {
     health = { checked: false, error: healthErr instanceof Error ? healthErr.message : 'health check failed' };
   }
 
-  return NextResponse.json({ ok: true, features, health, elapsed_ms: Date.now() - started });
+  // ── 4) LOOP-LANE OUTAGE PAGER (Director-ratified §B.5) ────────────────────
+  // Same fail-safe discipline: own try/catch, additive `loop_lane` field.
+  let loopLane: Record<string, unknown> = { checked: false };
+  try {
+    loopLane = await loopLaneOutagePager(admin);
+  } catch (pagerErr) {
+    console.error('[ai-tasks-sweep] loop-lane outage pager failed:', pagerErr);
+    loopLane = { checked: false, error: pagerErr instanceof Error ? pagerErr.message : 'pager failed' };
+  }
+
+  return NextResponse.json({ ok: true, features, health, loop_lane: loopLane, elapsed_ms: Date.now() - started });
 }
