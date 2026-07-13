@@ -155,7 +155,9 @@ export async function GET(request: NextRequest) {
     const istDay = new Date(nowMs + 19_800_000).toISOString().slice(0, 10);
     const outcome = await fanoutNotification(admin, {
       title: `🔴 Loop watchdog: ${findings.length} issue${findings.length === 1 ? '' : 's'} (${silent.length} silent, ${errored.length} errored, ${disabled.length} disabled, ${badAudits.length} bad verdicts)`,
-      body: findings.slice(0, 12).join(' · '),
+      body:
+        findings.slice(0, 12).join(' · ') +
+        (findings.length > 12 ? ` · …and ${findings.length - 12} more (see /admin/loops)` : ''),
       userIds,
       priority: 'high',
       category: 'loops',
