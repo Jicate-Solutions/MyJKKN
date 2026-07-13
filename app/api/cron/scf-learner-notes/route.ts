@@ -42,6 +42,7 @@ import {
   recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
 import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,27 @@ import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral'
 // resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
 // config failure).
 const FEATURE_KEY = 'scf.learner_notes';
+// ₹0 Max-lane migration (§B): job type (seeded 20260713190000) + flip-back switch.
+// ⚠️ SEEDED 'direct' (INERT) — student-facing boundary; flip to 'jobs' is a
+// Director decision. The jobs-lane path below is built + ready but does not run
+// until the policy is set to 'jobs'. This is a SINGLE-SHOT loop restructured into
+// enqueue+collect (drafts stay status='draft', staff-approved before any student sees them).
+const JOB_TYPE = FEATURE_KEY;
+const GENERATION_LANE_KEY = 'loops.scf_learner_notes.generation_lane';
+
+/** Read the generation-lane switch as a cron (fn_get_policy at global scope, no
+ *  auth.uid). Fail-safe to 'direct' (the proven inline path) on any read error. */
+async function readGenerationLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'direct'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', { p_key: GENERATION_LANE_KEY, p_scope_id: null });
+    if (error) return 'direct';
+    return data === 'jobs' ? 'jobs' : 'direct';
+  } catch {
+    return 'direct';
+  }
+}
 // Per-run cap is a platform policy ('scf_notes.batch_cap', editable on
 // /admin/ai-routines — Director 2026-07-11: cap is config, default unlimited).
 // The Max-lane twin honors the policy fully; THIS serverless route additionally
@@ -106,19 +128,15 @@ function mondayOf(d: Date): string {
   return m.toISOString().slice(0, 10);
 }
 
-// Generate the note via Claude. Returns null on ANY failure (missing key, timeout,
-// empty text) — the cron then writes NOTHING for this learner (no template fallback).
-async function generateNote(
-  anthropic: Anthropic | null,
-  modelId: string,
+// The per-learner user prompt — shared by the inline path and the jobs-lane
+// enqueue so both feed the model identical instructions (byte-parity).
+function buildNotePrompt(
   courseLabel: string,
   ratings: number[],
   ratedOn: string[],
   unmetItems: string[],
   facultyName: string | null,
-): Promise<{ note: string | null; modelUsed: string }> {
-  if (!anthropic) return { note: null, modelUsed: 'none' };
-
+): string {
   const trend = ratings
     .map((r) => `${r}/5 (${UNDERSTOOD_WORD[r] ?? '?'})`)
     .join(' → ');
@@ -132,12 +150,34 @@ async function generateNote(
         : p.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
     })
     .join(', ');
-  const userPrompt = `Course: ${courseLabel}
+  return `Course: ${courseLabel}
 The student's own "how well did you understand?" ratings over their last 3 classes, oldest to newest (1=Lost … 5=Crystal clear): ${trend}.
 Those classes were on: ${dates || 'dates unavailable'}.
 Checklist items the student could NOT tick in at least 2 of those classes (each item describes something that should happen in class — for this student it did NOT): ${unmetItems.length > 0 ? unmetItems.join('; ') : '(none marked — rely on the ratings only)'}.
 Course facilitator to approach: ${facultyName ?? '(name unavailable — suggest a quick word with the course facilitator right after class, or the student support desk)'}.
 Write the supportive note now.`;
+}
+
+// Clean the model's note text (strip stray surrounding quotes) — shared by both
+// lanes so the persisted note is identical. Returns '' when there's no text.
+function cleanNoteText(text: string | null): string {
+  if (!text) return '';
+  return text.trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+}
+
+// Generate the note via Claude. Returns null on ANY failure (missing key, timeout,
+// empty text) — the cron then writes NOTHING for this learner (no template fallback).
+async function generateNote(
+  anthropic: Anthropic | null,
+  modelId: string,
+  courseLabel: string,
+  ratings: number[],
+  ratedOn: string[],
+  unmetItems: string[],
+  facultyName: string | null,
+): Promise<{ note: string | null; modelUsed: string }> {
+  if (!anthropic) return { note: null, modelUsed: 'none' };
+  const userPrompt = buildNotePrompt(courseLabel, ratings, ratedOn, unmetItems, facultyName);
 
   try {
     const t0 = Date.now();
@@ -157,14 +197,12 @@ Write the supportive note now.`;
       throw apiErr; // outer catch keeps the { note: null, modelUsed: 'error' } sentinel
     }
     await recordChatCall(FEATURE_KEY, 'anthropic', modelId, t0, resp);
-    const text = resp.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-      .trim()
-      // strip any stray surrounding quotes the model might add
-      .replace(/^["'`]+|["'`]+$/g, '')
-      .trim();
+    const text = cleanNoteText(
+      resp.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join(''),
+    );
     if (!text) return { note: null, modelUsed: 'empty' };
     return { note: text, modelUsed: resp.model };
   } catch (err) {
@@ -188,26 +226,31 @@ export async function GET(request: NextRequest) {
   }
 
   const started = Date.now();
+  const admin = createServiceRoleClient();
 
-  // Runner-aware Max-lane deferral: when the maxlane:scf-learner-notes
-  // schedule row is enabled AND the runner heartbeat is fresh, the nightly
-  // Max run takes the WHOLE eligible batch (it honors scf_notes.batch_cap
-  // fully) — skip this serverless 50/run path instead of racing it.
-  // Fail-open: any schedules-read problem and this cloud run proceeds.
-  if (await shouldDeferToMaxLane('scf-learner-notes')) {
+  // ₹0 Max-lane migration (§B). SEEDED 'direct' (INERT) — the flip to 'jobs' is a
+  // Director decision (student-facing boundary). On 'jobs' the cron enqueues each
+  // draft onto the #1998 ai_jobs registry and a jobs-lane collect persists it as a
+  // status='draft' row (staff-approved before any student sees it). On 'direct'
+  // (default) the legacy inline path runs unchanged.
+  const lane = await readGenerationLane(admin);
+
+  // Runner-aware Max-lane deferral: applies ONLY on 'direct'. On 'jobs' the cron
+  // feeds ai_jobs itself. Overlap-safe: the upsert ignores duplicates on
+  // (learner_id, course_code, week_of).
+  if (lane === 'direct' && (await shouldDeferToMaxLane('scf-learner-notes'))) {
     console.warn(
-      '[cron/scf-learner-notes] deferring to Max lane — maxlane twin enabled and runner heartbeat fresh',
+      '[cron/scf-learner-notes] deferring to Max manifest twin (direct lane) — twin enabled and heartbeat fresh',
     );
     return NextResponse.json({
       ok: true,
+      generation_lane: lane,
       deferred_to_max_lane: true,
       generated: 0,
       skipped: 0,
       elapsed_ms: Date.now() - started,
     });
   }
-
-  const admin = createServiceRoleClient();
 
   // Per-run cap policy (0/negative or read failure -> ceiling default).
   let batchCap = BATCH_CAP_CEILING;
@@ -285,81 +328,154 @@ export async function GET(request: NextRequest) {
   const weekOf = mondayOf(new Date());
   let generated = 0;
   let skipped = 0;
+  let enqueued = 0;
 
-  // Process in bounded-concurrency waves so the whole batch finishes well within
-  // the dispatcher's 120s window (sequential was ~150s → aborted). generateNote is
-  // best-effort (returns null on any failure) and every upsert targets an
-  // independent (learner, course, week) row, so concurrency adds no cross-item
-  // hazard. Counter increments are safe: the runtime is single-threaded, so ++
-  // inside these awaited callbacks never races.
-  for (let i = 0; i < batch.length; i += NOTE_CONCURRENCY) {
-    if (Date.now() - started > BATCH_DEADLINE_MS) {
-      console.warn(
-        `[cron/scf-learner-notes] batch deadline reached (${generated} generated) — remainder deferred to next run`,
-      );
-      break;
-    }
-
-    const wave = batch.slice(i, i + NOTE_CONCURRENCY);
-    const outcomes = await Promise.all(
-      wave.map(async (c): Promise<'generated' | 'skipped'> => {
-        const ratings = Array.isArray(c.ratings) ? c.ratings.map(Number) : [];
-        if (ratings.length < 3) return 'skipped';
-        const courseLabel = c.course_name || c.course_code;
-
-        const { note, modelUsed } = await generateNote(
-          anthropic,
-          modelId,
-          courseLabel,
-          ratings,
-          Array.isArray(c.rated_on) ? c.rated_on.map(String) : [],
-          Array.isArray(c.unmet_items) ? c.unmet_items.map(String) : [],
-          c.faculty_name ?? null,
-        );
-        if (!note) {
-          // NO template fallback (decision #3) — write nothing; learner sees nothing.
-          return 'skipped';
-        }
-
-        // Insert the note. Unique (learner_id, course_code, week_of) backstops
-        // same-week races; ignoreDuplicates so a re-run within the week is a safe
-        // no-op. status:'draft' — notes await super-admin approval
-        // (fn_scf_learner_notes_review) before learners see them (approval queue).
-        const { error: insErr } = await admin.from('scf_learner_notes').upsert(
-          {
-            learner_id: c.learner_id,
-            institution_id: c.institution_id,
-            course_code: c.course_code,
-            course_name: c.course_name,
-            note,
-            model: modelUsed,
-            net_decline: c.net_decline,
-            week_of: weekOf,
-            status: 'draft',
-          },
-          { onConflict: 'learner_id,course_code,week_of', ignoreDuplicates: true },
-        );
-        if (insErr) {
-          console.error(`[cron/scf-learner-notes] insert failed for ${c.learner_id}/${c.course_code}:`, insErr);
-          return 'skipped';
-        }
-        return 'generated';
-      }),
+  // Shared draft upsert — identical rows on both lanes (byte-parity). week_of is
+  // a param (a collected job carries the week it was ENQUEUED, not the collect
+  // run's week). status:'draft' — notes await super-admin approval before any
+  // learner sees them. ignoreDuplicates → a re-run within the week is a safe no-op.
+  const upsertNote = async (
+    f: { learner_id: string; institution_id: string; course_code: string; course_name: string | null; net_decline: number | null },
+    note: string,
+    model: string,
+    wkOf: string,
+  ): Promise<boolean> => {
+    const { error: insErr } = await admin.from('scf_learner_notes').upsert(
+      {
+        learner_id: f.learner_id,
+        institution_id: f.institution_id,
+        course_code: f.course_code,
+        course_name: f.course_name,
+        note,
+        model,
+        net_decline: f.net_decline,
+        week_of: wkOf,
+        status: 'draft',
+      },
+      { onConflict: 'learner_id,course_code,week_of', ignoreDuplicates: true },
     );
+    if (insErr) {
+      console.error(`[cron/scf-learner-notes] insert failed for ${f.learner_id}/${f.course_code}:`, insErr);
+      return false;
+    }
+    return true;
+  };
 
-    for (const o of outcomes) {
-      if (o === 'generated') generated++;
-      else skipped++;
+  if (lane === 'jobs') {
+    // ₹0 Max lane: collect prior runs' done drafts and persist them, then enqueue
+    // this run's batch (fast, no waves needed). fn_ai_collect_claim stamps
+    // delivered_at → each draft persists at most once. week_of rides in the context.
+    try {
+      const items = await collectJobsLane(admin, [JOB_TYPE], batch.length || 50);
+      for (const item of items) {
+        const ctx = item.context as unknown as {
+          learner_id: string; institution_id: string; course_code: string;
+          course_name: string | null; net_decline: number | null; week_of: string;
+        };
+        const note = cleanNoteText(
+          item.message
+            ? item.message.content
+                .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+                .map((b) => b.text)
+                .join('')
+            : null,
+        );
+        if (!note || !ctx?.learner_id) {
+          skipped++;
+          continue;
+        }
+        if (await upsertNote(ctx, note, 'max-lane', ctx.week_of ?? weekOf)) generated++;
+        else skipped++;
+      }
+    } catch (e) {
+      console.error('[cron/scf-learner-notes] jobs-lane collect failed:', e);
+    }
+    for (const c of batch) {
+      const ratings = Array.isArray(c.ratings) ? c.ratings.map(Number) : [];
+      if (ratings.length < 3) {
+        skipped++;
+        continue;
+      }
+      const courseLabel = c.course_name || c.course_code;
+      const prompt = `${SYSTEM_PROMPT}\n\n${buildNotePrompt(
+        courseLabel,
+        ratings,
+        Array.isArray(c.rated_on) ? c.rated_on.map(String) : [],
+        Array.isArray(c.unmet_items) ? c.unmet_items.map(String) : [],
+        c.faculty_name ?? null,
+      )}`;
+      const res = await enqueueJobsLane(admin, {
+        jobType: JOB_TYPE,
+        prompt,
+        context: {
+          learner_id: c.learner_id,
+          institution_id: c.institution_id,
+          course_code: c.course_code,
+          course_name: c.course_name,
+          net_decline: c.net_decline,
+          week_of: weekOf,
+        },
+        dedupeKey: `${FEATURE_KEY}|${weekOf}|${c.learner_id}|${c.course_code}`,
+      });
+      if (res.ok) enqueued++;
+      else if (res.reason === 'in_flight') skipped++;
+      else { console.warn(`[cron/scf-learner-notes] jobs-lane enqueue failed (${res.reason})`); skipped++; }
+    }
+  } else {
+    // Process in bounded-concurrency waves so the whole batch finishes well within
+    // the dispatcher's 120s window (sequential was ~150s → aborted). generateNote is
+    // best-effort (returns null on any failure) and every upsert targets an
+    // independent (learner, course, week) row, so concurrency adds no cross-item
+    // hazard. Counter increments are safe: the runtime is single-threaded, so ++
+    // inside these awaited callbacks never races.
+    for (let i = 0; i < batch.length; i += NOTE_CONCURRENCY) {
+      if (Date.now() - started > BATCH_DEADLINE_MS) {
+        console.warn(
+          `[cron/scf-learner-notes] batch deadline reached (${generated} generated) — remainder deferred to next run`,
+        );
+        break;
+      }
+
+      const wave = batch.slice(i, i + NOTE_CONCURRENCY);
+      const outcomes = await Promise.all(
+        wave.map(async (c): Promise<'generated' | 'skipped'> => {
+          const ratings = Array.isArray(c.ratings) ? c.ratings.map(Number) : [];
+          if (ratings.length < 3) return 'skipped';
+          const courseLabel = c.course_name || c.course_code;
+
+          const { note, modelUsed } = await generateNote(
+            anthropic,
+            modelId,
+            courseLabel,
+            ratings,
+            Array.isArray(c.rated_on) ? c.rated_on.map(String) : [],
+            Array.isArray(c.unmet_items) ? c.unmet_items.map(String) : [],
+            c.faculty_name ?? null,
+          );
+          if (!note) {
+            // NO template fallback (decision #3) — write nothing; learner sees nothing.
+            return 'skipped';
+          }
+          return (await upsertNote(c, note, modelUsed, weekOf)) ? 'generated' : 'skipped';
+        }),
+      );
+
+      for (const o of outcomes) {
+        if (o === 'generated') generated++;
+        else skipped++;
+      }
     }
   }
 
   return NextResponse.json({
     ok: true,
+    generation_lane: lane,
     week_of: weekOf,
     candidates: allCandidates.length,
     eligible: targets.length, // after the weekly regen guard
     capped: cappedCount,
     generated,
+    enqueued,
     skipped,
     ai_available: Boolean(anthropic),
     elapsed_ms: Date.now() - started,
