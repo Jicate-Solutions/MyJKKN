@@ -62,6 +62,7 @@ import {
   type SubmitBatchRequest,
   type SubmitBatchResult,
 } from '@/lib/services/platform/ai-clients/batch';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,42 @@ import {
 // config failure). One feature key covers BOTH calls in this file (help-ask
 // judge + suggestion generator).
 const FEATURE_KEY = 'scf.generate_suggestions';
+
+// ₹0 Max-lane migration (work order 2026-07-13 §B). The three ai_job_types this
+// loop enqueues on lane='jobs' (seeded 20260713150000), one per pipeline stage,
+// and the flip-back switch key. Prompt rides in payload.prompt (glue {{prompt}}).
+const JOB_TYPE_JUDGE = 'scf.judge_help_ask';
+const JOB_TYPE_IMPROVE = 'scf.suggest_improvement';
+const JOB_TYPE_SUCCESS = 'scf.suggest_success';
+const SCF_JOB_TYPES = [JOB_TYPE_JUDGE, JOB_TYPE_IMPROVE, JOB_TYPE_SUCCESS];
+const GENERATION_LANE_KEY = 'loops.scf_generate_suggestions.generation_lane';
+
+/** Read the generation-lane switch as a cron (fn_get_policy at global scope, no
+ *  auth.uid). Fail-safe to 'direct' (the proven paid path) on any read error. */
+async function readGenerationLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'direct'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', {
+      p_key: GENERATION_LANE_KEY,
+      p_scope_id: null,
+    });
+    if (error) return 'direct';
+    return data === 'jobs' ? 'jobs' : 'direct';
+  } catch {
+    return 'direct';
+  }
+}
+
+/** The assembled prompt (system + first user turn) the direct path would have
+ *  sent — extracted from an Anthropic request so the Max-lane job (glue
+ *  {{prompt}}) feeds the model identical instructions. */
+function promptFromParams(params: Anthropic.Messages.MessageCreateParamsNonStreaming): string {
+  const system = typeof params.system === 'string' ? params.system : '';
+  const first = params.messages?.[0]?.content;
+  const user = typeof first === 'string' ? first : JSON.stringify(first);
+  return `${system}\n\n${user}`;
+}
 const BATCH_CAP = 25; // max courses to scan+submit per run; excess is logged
 // Director 2026-07-10 (decision 2): of the BATCH_CAP, up to this many slots are
 // reserved for courses whose prior improvement note is already MEASURED and is
@@ -599,16 +636,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
-  // Runner-aware Max-lane deferral: when the maxlane:scf-generate-suggestions
-  // schedule row owns this routine (max_only pin, or enabled + fresh heartbeat),
-  // the Max twin runs this generator on the runner box — stand down this run.
-  // Fail-open: any schedules-read problem and the cloud generator runs normally.
-  // Harmless either way (the batch is idempotent), but deferring keeps the twin
-  // the primary lane.
-  if (await shouldDeferToMaxLane('scf-generate-suggestions')) {
-    console.log('[cron/scf-generate-suggestions] deferred to Max lane');
+  const started = Date.now();
+  const admin = createServiceRoleClient();
+  const mode = request.nextUrl.searchParams.get('mode');
+  const isCollectOnly = mode === 'collect';
+
+  // ₹0 Max-lane migration (§B): 'jobs' (default after this PR) = the cron enqueues
+  // each pipeline stage (judge / improve / success) onto the #1998 ai_jobs registry
+  // (generic Windows seat drain runs it, ₹0); 'direct' = the legacy Anthropic-batch
+  // path (defer to the manifest twin + paid sub-fallback). Flip-back switch.
+  const lane = await readGenerationLane(admin);
+
+  // Manifest-twin deferral applies ONLY on 'direct'. On 'jobs' the cron feeds
+  // ai_jobs itself and must NOT stand down for the twin (that would leave the
+  // queue unfed). Overlap with a still-running twin is idempotency-safe:
+  // fn_scf_record_suggestion / leadership concerns upsert, and the regen +
+  // in-flight guards dedupe — whichever lane records a window first wins.
+  if (lane === 'direct' && (await shouldDeferToMaxLane('scf-generate-suggestions'))) {
+    console.log('[cron/scf-generate-suggestions] deferred to Max manifest twin (direct lane)');
     return NextResponse.json({
       ok: true,
+      generation_lane: lane,
       generated: 0,
       skipped: 0,
       measured: null,
@@ -616,13 +664,12 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const started = Date.now();
-  const admin = createServiceRoleClient();
-  const mode = request.nextUrl.searchParams.get('mode');
-  const isCollectOnly = mode === 'collect';
-
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   const aiAvailable = Boolean(apiKey);
+  // AI work is possible if either the paid key exists (direct lane) OR we're on
+  // the jobs lane (no key needed — the Max seat runs it). Gates the AI-decision
+  // branches below so lane='jobs' still judges/generates without an Anthropic key.
+  const aiPossible = aiAvailable || lane === 'jobs';
   // Resolve the model ONCE per run (never throws). Used for submit params and for
   // building any chained generation batch during collect.
   const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
@@ -640,6 +687,7 @@ export async function GET(request: NextRequest) {
   let concerns = 0;
   let resolved = 0;
   let genChained = 0;
+  let enqueued = 0; // jobs-lane: judge+gen jobs enqueued on the ₹0 Max lane
 
   // =====================================================================
   // COLLECT PHASE — always runs first (daily run collects yesterday's batches
@@ -846,6 +894,100 @@ export async function GET(request: NextRequest) {
   }
 
   // =====================================================================
+  // JOBS-LANE COLLECT (₹0 Max lane) — drain done scf ai_jobs and record via the
+  // IDENTICAL fns as the batch path (byte-parity of effects). Runs whenever jobs
+  // may exist (no Anthropic key needed). Dispatch by job_type: a judge result
+  // elevates (enqueue a gen job) / flags a lone-voice concern / resolves; a gen
+  // result is recorded as a suggestion. delivered_at → each result records once.
+  // =====================================================================
+  if (lane === 'jobs') {
+    try {
+      const items = await collectJobsLane(admin, SCF_JOB_TYPES, BATCH_CAP);
+      for (const item of items) {
+        if (item.jobType === JOB_TYPE_JUDGE) {
+          const ctx = item.context as unknown as JudgeContext;
+          const judged = parseJudgeMessage(item.message);
+          if (judged.helpAskCount >= WIDENED_MIN_ASKS) {
+            // Elevate → enqueue a generation job (regen + in-flight guards first,
+            // exactly as the batch chain does).
+            const guardHit = await regenGuardHit(admin, ctx.target, 'improvement', ctx.normFaculty, ctx.recentSince);
+            if (guardHit === null) { guardErrors++; continue; }
+            if (guardHit) { skipped++; continue; }
+            const trackRecord = await buildTrackRecordBlock(
+              admin, ctx.target.course_code, ctx.target.faculty_email, ctx.target.institution_id,
+            );
+            const genCtx: GenContext = {
+              target: ctx.target, kind: 'improvement', responses: ctx.responses,
+              low_responses: ctx.low_responses, avg: ctx.avg, session_dates: ctx.session_dates ?? [],
+            };
+            const params = buildGenerationParams(
+              modelId, 'improvement', ctx.target.course_code, signalFromCtx(ctx),
+              ctx.target.window_from, ctx.target.window_to, trackRecord,
+            );
+            const r = await enqueueJobsLane(admin, {
+              jobType: JOB_TYPE_IMPROVE,
+              prompt: promptFromParams(params),
+              context: genCtx as unknown as Record<string, unknown>,
+              dedupeKey: genDedupeKey(ctx.target, 'improvement'),
+            });
+            if (r.ok) genChained++;
+            else if (r.reason !== 'in_flight') {
+              console.warn(`[cron/scf-generate-suggestions] jobs-lane gen enqueue failed (${r.reason})`);
+            }
+          } else if (judged.helpAskCount === 1) {
+            const ok = await recordLeadershipConcern(admin, ctx, judged.modelUsed);
+            if (ok) { leadershipFlagged++; concerns++; }
+          } else {
+            if (judged.modelUsed !== 'error') {
+              await clearLeadershipConcern(admin, ctx.target, 'resolve');
+              resolved++;
+            }
+            skipped++;
+          }
+        } else {
+          // generate stage (improvement | success)
+          const ctx = item.context as unknown as GenContext;
+          const { suggestion, modelUsed } = parseSuggestionMessage(item.message);
+          if (suggestion !== null) {
+            const suggestionWithDates =
+              (ctx.session_dates ?? []).length > 0
+                ? { ...suggestion, contributing_dates: ctx.session_dates }
+                : suggestion;
+            const { error: recErr } = await admin.rpc('fn_scf_record_suggestion', {
+              p_institution_id: ctx.target.institution_id,
+              p_course_code: ctx.target.course_code,
+              p_faculty_email: ctx.target.faculty_email,
+              p_window_from: ctx.target.window_from,
+              p_window_to: ctx.target.window_to,
+              p_input_responses: ctx.responses,
+              p_input_low: Number(ctx.low_responses ?? 0),
+              p_input_avg: ctx.avg,
+              p_suggestion: suggestionWithDates,
+              p_model: modelUsed,
+              p_kind: ctx.kind,
+            });
+            if (recErr) {
+              console.error(
+                `[cron/scf-generate-suggestions] jobs-lane record failed for ${ctx.target.course_code}:`, recErr,
+              );
+            } else {
+              generated++;
+              suggestionsWritten++;
+              if (ctx.kind === 'success') generatedSuccess++;
+              else generatedImprovement++;
+              if (ctx.kind === 'improvement') await clearLeadershipConcern(admin, ctx.target, 'supersede');
+            }
+          } else {
+            skipped++;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[cron/scf-generate-suggestions] jobs-lane collect failed:', e);
+    }
+  }
+
+  // =====================================================================
   // SUBMIT PHASE — only on the default (daily) run, not ?mode=collect.
   // Scan candidates, classify, apply the regen + in-flight guards, and submit a
   // judge batch and/or a generation batch. No polling.
@@ -978,7 +1120,7 @@ export async function GET(request: NextRequest) {
         kind = 'improvement';
       } else if (avgUnderstood >= STANDOUT_THRESHOLD && freeTextCount >= 1) {
         kind = 'success';
-      } else if (freeTextCount >= WIDENED_MIN_COMMENTS && aiAvailable) {
+      } else if (freeTextCount >= WIDENED_MIN_COMMENTS && aiPossible) {
         // WIDENED path — spend guard first (already-tipped windows skip re-judge).
         const handled = await widenedWindowAlreadyHandled(admin, target, normFaculty, recentSince);
         if (handled === null) {
@@ -1057,9 +1199,38 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ₹0 Max lane: enqueue each judge/gen candidate as its own ai_job. The
+    // in-flight guard is fn_ai_enqueue_system's dedupe (a candidate already
+    // queued → 'in_flight' → skipped), so partitionInFlight isn't needed. The
+    // prompt is the SAME assembled prompt buildJudge/GenerationParams produced.
+    if (lane === 'jobs' && (judgeReqs.length > 0 || genReqs.length > 0)) {
+      for (const r of judgeReqs) {
+        const res = await enqueueJobsLane(admin, {
+          jobType: JOB_TYPE_JUDGE,
+          prompt: promptFromParams(r.params),
+          context: r.context,
+          dedupeKey: r.dedupeKey ?? judgeDedupeKey((r.context as unknown as JudgeContext).target),
+        });
+        if (res.ok) enqueued++;
+        else if (res.reason === 'in_flight') skipped++;
+        else { console.warn(`[cron/scf-generate-suggestions] jobs-lane judge enqueue failed (${res.reason})`); skipped++; }
+      }
+      for (const r of genReqs) {
+        const gctx = r.context as unknown as GenContext;
+        const res = await enqueueJobsLane(admin, {
+          jobType: gctx.kind === 'success' ? JOB_TYPE_SUCCESS : JOB_TYPE_IMPROVE,
+          prompt: promptFromParams(r.params),
+          context: r.context,
+          dedupeKey: r.dedupeKey ?? genDedupeKey(gctx.target, gctx.kind),
+        });
+        if (res.ok) enqueued++;
+        else if (res.reason === 'in_flight') skipped++;
+        else { console.warn(`[cron/scf-generate-suggestions] jobs-lane gen enqueue failed (${res.reason})`); skipped++; }
+      }
+    }
     // In-flight guard: drop any candidate whose batch is already outstanding
     // (submitted-not-yet-collected) — prevents re-submit + re-bill.
-    if (aiAvailable && (judgeReqs.length > 0 || genReqs.length > 0)) {
+    else if (aiAvailable && (judgeReqs.length > 0 || genReqs.length > 0)) {
       // For each JUDGE request also check its course's gen-IMPROVEMENT key: once a
       // judge batch elevates and chains a gen batch, the judge job is 'collected'
       // (judge key no longer in-flight) but the tip isn't recorded until the gen
@@ -1106,7 +1277,7 @@ export async function GET(request: NextRequest) {
         console.error('[cron/scf-generate-suggestions] generation submit failed:', e);
         skipped += freshGen.length;
       }
-    } else if (!aiAvailable) {
+    } else if (!aiPossible) {
       skipped += judgeReqs.length + genReqs.length;
     }
   }
@@ -1133,6 +1304,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     mode: isCollectOnly ? 'collect' : 'submit',
+    generation_lane: lane,
     candidates: candidatesCount,
     capped: cappedCount,
     // Numeric keys read by ai-routine-dispatcher.summarize() — reflect what was
@@ -1141,6 +1313,7 @@ export async function GET(request: NextRequest) {
     generated,
     generated_improvement: generatedImprovement,
     generated_success: generatedSuccess,
+    enqueued,
     skipped,
     guard_errors: guardErrors,
     leadership_flagged: leadershipFlagged,
