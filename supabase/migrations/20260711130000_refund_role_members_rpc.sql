@@ -18,5 +18,5 @@ AS $$
     AND (is_super_admin() OR is_admin() OR user_has_permission('billing.refunds.configure'));
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_refund_role_members() TO authenticated;

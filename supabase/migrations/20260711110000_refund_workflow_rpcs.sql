@@ -203,14 +203,15 @@ BEGIN
   PERFORM refresh_student_billing_summary(v_req.student_id);
 END; $$;
 
--- Default PUBLIC EXECUTE must be revoked (REVOKE from anon alone is a no-op —
--- anon inherits EXECUTE via PUBLIC; repo gotcha). Self-auth remains the primary gate.
-REVOKE EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) FROM PUBLIC;
+-- Revoke from BOTH anon and PUBLIC: anon holds a direct default grant on top of
+-- the PUBLIC one, so either alone leaves the RPC callable. Self-auth remains the
+-- primary gate.
+REVOKE EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) TO authenticated;
