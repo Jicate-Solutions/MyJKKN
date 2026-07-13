@@ -37,9 +37,17 @@ export async function POST(
       razorpaySignature,
     });
     const target = result.returnUrl || `${appUrl}/p/tournament/${eventId}`;
-    const url = new URL(target);
-    url.searchParams.set('payment', result.success ? 'success' : 'failed');
-    return NextResponse.redirect(url, 303);
+    try {
+      const url = new URL(target);
+      url.searchParams.set('payment', result.success ? 'success' : 'failed');
+      return NextResponse.redirect(url, 303);
+    } catch {
+      // result.returnUrl was non-empty but malformed/non-absolute (e.g. a
+      // misconfigured NEXT_PUBLIC_APP_URL at order-creation time). The
+      // payment has ALREADY been verified + settled above — never let a bad
+      // redirect URL surface as a raw 500 to a payer who genuinely paid.
+      return fallback(result.success ? 'success' : 'failed');
+    }
   }
 
   // Razorpay hosted-checkout FAILURE callback: no signed success trio; instead
