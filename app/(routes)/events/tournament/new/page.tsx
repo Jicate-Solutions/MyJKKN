@@ -64,6 +64,7 @@ export default function CreateTournamentPage() {
     gender: 'open' as DivisionGender,
     format: 'knockout' as TournamentFormat,
     age_band: '',
+    entry_fee: '',
     start_date: '',
     end_date: '',
     registration_open_date: '',
@@ -103,6 +104,7 @@ export default function CreateTournamentPage() {
             format: form.format,
             level: form.level,
             sort_order: 0,
+            config: form.entry_fee ? { entry_fee: Number(form.entry_fee) } : undefined,
           },
         ],
       });
@@ -266,6 +268,20 @@ export default function CreateTournamentPage() {
                     onChange={(e) => update('age_band', e.target.value)}
                   />
                 </div>
+              </div>
+
+              {/* Entry Fee */}
+              <div className="space-y-2">
+                <Label htmlFor="entry_fee">Entry Fee (₹, optional)</Label>
+                <Input
+                  id="entry_fee"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0 = free entry"
+                  value={form.entry_fee}
+                  onChange={(e) => update('entry_fee', e.target.value)}
+                />
               </div>
 
               {/* Dates */}
