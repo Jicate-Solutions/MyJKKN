@@ -66,6 +66,7 @@ import { Label } from '@/components/ui/label';
 import type {
   ExamAuditOverviewResponse,
   ExamAuditProgramRow,
+  ExamAuditRubricVerdict,
   ExamAuditVerdict,
 } from '@/types/exam-audit';
 
@@ -76,6 +77,39 @@ async function fetchJson(url: string) {
   const body = await res.json();
   if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
   return body;
+}
+
+function RubricBadge({
+  verdict,
+  configured,
+  used,
+}: {
+  verdict: ExamAuditRubricVerdict;
+  configured: number | null;
+  used: number;
+}) {
+  switch (verdict) {
+    case 'follows_rubric':
+      return (
+        <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+          Follows rubric
+        </Badge>
+      );
+    case 'partial':
+      return (
+        <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+          Partial · {used}/{configured ?? '?'} rounds
+        </Badge>
+      );
+    case 'off_rubric':
+      return (
+        <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+          Off rubric · {used}/{configured ?? '?'} rounds
+        </Badge>
+      );
+    case 'no_rubric':
+      return <Badge variant="destructive">No rubric set</Badge>;
+  }
 }
 
 function VerdictBadge({ verdict }: { verdict: ExamAuditVerdict }) {
@@ -313,12 +347,17 @@ export default function ExamAuditPage() {
               </CardTitle>
               <CardDescription>
                 CIA source = who entered the internal marks and how they landed
-                (faculty spread over the term vs an exam-cell dump). Eligibility
-                columns count REGISTERED students against JKKN&apos;s continuous
-                attendance: below {data.thresholds.eligibility}% needs
-                condonation; below {data.thresholds.condonation}% is at risk of
-                ineligibility. &ldquo;No record&rdquo; = registered for the exam
-                but absent from JKKN attendance — audit those first.
+                (faculty spread over the term vs an exam-cell dump). Rubric =
+                the entries graded against the configured assessment pattern
+                (rounds, components, entry windows) — internal marks are defined
+                by that rubric, never by attendance. The eligibility columns are
+                a separate check: they count REGISTERED students against
+                JKKN&apos;s continuous attendance (below{' '}
+                {data.thresholds.eligibility}% needs condonation; below{' '}
+                {data.thresholds.condonation}% is at risk of ineligibility;
+                &ldquo;No record&rdquo; = registered for the exam but absent
+                from JKKN attendance — audit those first). Attendance gates who
+                may SIT the exam; it does not decide the marks.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -333,6 +372,8 @@ export default function ExamAuditPage() {
                       <TableRow>
                         <TableHead>Program</TableHead>
                         <TableHead>CIA source</TableHead>
+                        <TableHead>Rubric</TableHead>
+                        <TableHead className="text-right">On-window</TableHead>
                         <TableHead className="text-right">Students</TableHead>
                         <TableHead className="text-right">CIA rows</TableHead>
                         <TableHead className="text-right">Enterers</TableHead>
@@ -358,6 +399,16 @@ export default function ExamAuditPage() {
                           </TableCell>
                           <TableCell>
                             <VerdictBadge verdict={r.verdict} />
+                          </TableCell>
+                          <TableCell>
+                            <RubricBadge
+                              verdict={r.rubric_verdict}
+                              configured={r.rubric_rounds_configured}
+                              used={r.rounds_used.length}
+                            />
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {r.on_window_pct === null ? '—' : `${r.on_window_pct}%`}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {r.registered_students}

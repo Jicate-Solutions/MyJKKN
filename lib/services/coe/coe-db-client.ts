@@ -561,3 +561,29 @@ export async function getCoePrograms(
   if (error) throw new Error(`COE programs read failed: ${error.message}`);
   return (data ?? []) as CoeProgramRef[];
 }
+
+/** CIA settings (the assessment RUBRIC: rounds + components + entry windows)
+ *  for a set of examination_session ids, read from cia_entry_settings.cia_rounds
+ *  — the SAME canonical shape `/api/v1/cia-settings` serves (types/internal-marks
+ *  CiaSettings/CiaRound/CiaComponent; consumed by the entry grid, round picker
+ *  and my-marks). The table additionally scopes by a program_codes ARRAY, which
+ *  the REST shape flattens — carried through here so callers can match programs. */
+export type CoeCiaSettingsRow = import('@/types/internal-marks').CiaSettings & {
+  program_codes?: string[] | null;
+};
+
+export async function getCoeCiaSettings(
+  coeInstitutionId: string,
+  sessionIds: string[],
+): Promise<CoeCiaSettingsRow[]> {
+  if (sessionIds.length === 0) return [];
+  const coe = createCoeDbClient();
+  const { data, error } = await coe
+    .from('cia_entry_settings')
+    .select('id, setting_name, examination_session_id, program_codes, cia_rounds, use_course_max, is_active')
+    .eq('institutions_id', coeInstitutionId)
+    .in('examination_session_id', sessionIds)
+    .eq('is_active', true);
+  if (error) throw new Error(`COE cia_entry_settings read failed: ${error.message}`);
+  return (data ?? []) as CoeCiaSettingsRow[];
+}

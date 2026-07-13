@@ -24,10 +24,12 @@ import {
   getCoeExaminationSessions,
   getCoeCurrentTerm,
   getCoeCiaProvenance,
+  getCoeCiaSettings,
   getCoeExamRegistrations,
   getCoePrograms,
   resolveCoeInstitutionByMyjkknId,
 } from '@/lib/services/coe/coe-db-client';
+import { resolveRoundDates } from '@/types/internal-marks';
 import {
   resolveExamAuditScope,
   scopeAllowsInstitution,
@@ -36,6 +38,7 @@ import {
 import type {
   ExamAuditOverviewResponse,
   ExamAuditProgramRow,
+  ExamAuditRubricVerdict,
   ExamAuditVerdict,
 } from '@/types/exam-audit';
 
@@ -151,10 +154,11 @@ export async function GET(request: NextRequest) {
 
     // The three source pulls: university-bound records (COE) + continuous
     // attendance (MyJKKN, caller-session RPC — the SECDEF fn re-checks scope).
-    const [registrations, provenance, programs, attendanceRes] = await Promise.all([
+    const [registrations, provenance, programs, ciaSettings, attendanceRes] = await Promise.all([
       getCoeExamRegistrations(sessionCode, coeInst.coeId),
       getCoeCiaProvenance(sessionRows.map((s) => s.id), coeInst.coeId),
       getCoePrograms(coeInst.coeId),
+      getCoeCiaSettings(coeInst.coeId, sessionRows.map((s) => s.id)),
       supabase.rpc('fn_exam_audit_attendance', {
         p_institution_ids: coeInst.myjkknInstitutionIds,
         p_from: window.from,
@@ -192,8 +196,9 @@ export async function GET(request: NextRequest) {
         rounds: Set<number>;
         verified: number;
         approved: number;
-        attendanceComponentFilled: number;
         students: Set<string>;
+        /** (round, entry-day) per row — graded against the rubric's windows. */
+        roundDays: Array<{ round: number | null; day: string }>;
       };
     }
     const byProgram = new Map<string, ProgAgg>();
@@ -211,8 +216,8 @@ export async function GET(request: NextRequest) {
             rounds: new Set(),
             verified: 0,
             approved: 0,
-            attendanceComponentFilled: 0,
             students: new Set(),
+            roundDays: [],
           },
         };
         byProgram.set(code, p);
@@ -249,10 +254,38 @@ export async function GET(request: NextRequest) {
       if (typeof c.cia_round === 'number') agg.rounds.add(c.cia_round);
       if (c.is_verified) agg.verified += 1;
       if (c.is_approved) agg.approved += 1;
-      if (c.attendance_marks !== null && c.attendance_marks !== undefined)
-        agg.attendanceComponentFilled += 1;
       if (c.student_id) agg.students.add(c.student_id);
+      if (day) agg.roundDays.push({ round: c.cia_round ?? null, day });
     }
+
+    // Rubric per program: which active CIA settings cover it, the rounds they
+    // configure, and each round's entry window (resolveRoundDates — the same
+    // canonical fallback logic the entry grid uses).
+    interface Rubric {
+      settingNames: string[];
+      rounds: Set<number>;
+      windowsByRound: Map<number, Array<{ from: string | null; to: string | null }>>;
+    }
+    const rubricFor = (code: string): Rubric | null => {
+      const covering = ciaSettings.filter((s) => {
+        const codes = s.program_codes ?? (s.program_code ? [s.program_code] : []);
+        return Array.isArray(codes) && codes.includes(code);
+      });
+      if (covering.length === 0) return null;
+      const rounds = new Set<number>();
+      const windowsByRound = new Map<number, Array<{ from: string | null; to: string | null }>>();
+      for (const s of covering) {
+        for (const r of s.cia_rounds ?? []) {
+          if (typeof r.round !== 'number') continue;
+          rounds.add(r.round);
+          const { entryFrom, entryTo } = resolveRoundDates(r);
+          const list = windowsByRound.get(r.round) ?? [];
+          list.push({ from: entryFrom, to: entryTo });
+          windowsByRound.set(r.round, list);
+        }
+      }
+      return { settingNames: covering.map((s) => s.setting_name), rounds, windowsByRound };
+    };
 
     const rows: ExamAuditProgramRow[] = [];
     for (const [code, p] of byProgram) {
@@ -265,6 +298,45 @@ export async function GET(request: NextRequest) {
         topDayShare = Math.round((100 * top) / cia.rows);
       }
       const facultyShare = cia.rows > 0 ? Math.round((100 * cia.facultyFilled) / cia.rows) : 0;
+
+      // Rubric compliance: all configured rounds entered + entries inside their
+      // round's window. Attendance plays NO part here — internal marks are
+      // defined by the rubric's components, attendance only gates eligibility.
+      const rubric = rubricFor(code);
+      let rubricVerdict: ExamAuditRubricVerdict = 'no_rubric';
+      let onWindowPct: number | null = null;
+      if (rubric) {
+        const configured = [...rubric.rounds];
+        const enteredConfigured = configured.filter((r) => cia.rounds.has(r)).length;
+        let dated = 0;
+        let onWindow = 0;
+        for (const rd of cia.roundDays) {
+          if (rd.round === null) continue;
+          const windows = rubric.windowsByRound.get(rd.round);
+          if (!windows || windows.length === 0) continue;
+          const bounded = windows.filter((w) => w.from && w.to);
+          if (bounded.length === 0) continue; // window not configured — don't penalize
+          dated += 1;
+          if (bounded.some((w) => rd.day >= (w.from as string) && rd.day <= (w.to as string)))
+            onWindow += 1;
+        }
+        onWindowPct = dated > 0 ? Math.round((100 * onWindow) / dated) : null;
+        if (cia.rows === 0) {
+          rubricVerdict = 'off_rubric'; // rubric exists, nothing entered
+        } else if (
+          enteredConfigured === configured.length &&
+          (onWindowPct === null || onWindowPct >= 80)
+        ) {
+          rubricVerdict = 'follows_rubric';
+        } else if (
+          enteredConfigured * 2 < configured.length ||
+          (onWindowPct !== null && onWindowPct < 50)
+        ) {
+          rubricVerdict = 'off_rubric';
+        } else {
+          rubricVerdict = 'partial';
+        }
+      }
 
       let verdict: ExamAuditVerdict;
       if (cia.rows === 0) verdict = 'missing';
@@ -305,9 +377,11 @@ export async function GET(request: NextRequest) {
         rounds_used: [...cia.rounds].sort((a, b) => a - b),
         verified_pct: cia.rows > 0 ? Math.round((100 * cia.verified) / cia.rows) : 0,
         approved_pct: cia.rows > 0 ? Math.round((100 * cia.approved) / cia.rows) : 0,
-        attendance_component_filled_pct:
-          cia.rows > 0 ? Math.round((100 * cia.attendanceComponentFilled) / cia.rows) : 0,
         verdict,
+        rubric_verdict: rubricVerdict,
+        rubric_rounds_configured: rubric ? rubric.rounds.size : null,
+        on_window_pct: onWindowPct,
+        rubric_setting_names: rubric?.settingNames ?? [],
         att_below_75: below75,
         att_below_65: below65,
         att_no_record: noAttendanceRecord,

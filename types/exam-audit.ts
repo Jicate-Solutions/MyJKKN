@@ -4,7 +4,13 @@
 // Spec origin: Director 2026-07-13 — "is the internal assessment as per JKKN
 // data or some other data"; Registrar audits departments in person.
 
-/** How a program's CIA entries read against continuous-entry expectations. */
+/** How a program's CIA entries sit against its configured rubric. */
+export type ExamAuditRubricVerdict =
+  | 'follows_rubric' // all configured rounds entered, inside their windows
+  | 'partial'        // some rounds/windows honoured
+  | 'off_rubric'     // most rounds missing or entries outside every window
+  | 'no_rubric';     // no active CIA setting covers this program
+
 export type ExamAuditVerdict =
   | 'faculty_continuous' // faculty-stamped, spread over the term — as intended
   | 'partial'            // some continuous signal, not clean
@@ -28,9 +34,17 @@ export interface ExamAuditProgramRow {
   rounds_used: number[];
   verified_pct: number;
   approved_pct: number;
-  /** % of CIA rows whose attendance component was actually filled. */
-  attendance_component_filled_pct: number;
   verdict: ExamAuditVerdict;
+  /** Rubric compliance — graded against the canonical CIA settings
+   *  (cia_entry_settings.cia_rounds, the same CiaSettings/CiaRound shape the
+   *  entry grid uses). Internal marks are defined by the rubric's components
+   *  (tests/assignments/etc.) — never by attendance. */
+  rubric_verdict: ExamAuditRubricVerdict;
+  /** Rounds the rubric configures (null = no rubric covers this program). */
+  rubric_rounds_configured: number | null;
+  /** % of CIA rows entered inside their round's configured entry window. */
+  on_window_pct: number | null;
+  rubric_setting_names: string[];
   /** Eligibility risk among registered students, from JKKN day-one attendance. */
   att_below_75: number;
   att_below_65: number;
