@@ -3,6 +3,13 @@
 # below was verified by prod-DB reads (Mgmt API, ref kvizhngldtiuufknvehv) or
 # jicate/main file reads, but the sim SQL itself is designed-not-yet-run.
 # First executor: update these header lines with the run receipt.
+# RE-VERIFIED 2026-07-13 (independent second pass): fn_decision_outcome_check
+# + fn_decision_resolve_metric full definitions, director_decisions
+# constraints/RLS/FK, admission_leads NOT-NULLs + FK + 9 triggers, funnel_stage
+# enum ('enrolled','new' real), fn_create_dashboard_work_item dual-insert,
+# cron route + vercel.json "0 4 * * *", all 4 fuel rows, both profile ids,
+# sidebarMenuLink.ts:451, admin/loops 'graded' bug, zero app/pg readers of
+# prediction_correct. One correction applied: the loop_edges block below.
 #
 # WHAT THIS LOOP IS (loop_registry row, read 2026-07-13): stack_tier=3,
 # loop_class=accountability, domain=governance — "Director decisions logged →
@@ -39,9 +46,10 @@
 #     re-touched: EVERY fn run appends a "Manual verdict required" line to its
 #     verdict_notes (observed multi-day append trail in the row).
 #
-# INBOUND loop_edges (read 2026-07-13): arps→decisions "YoY grid feeds
-# decisions-verdict-check" (is_draft=false); referral-desk→decisions and
-# mentor-checkins→decisions (both is_draft=true, escalations).
+# INBOUND loop_edges (re-read 2026-07-13, second pass): exactly ONE edge —
+# arps→decisions, what_flows='escalations', is_draft=false. (An earlier draft
+# of this manifest listed three edges incl. two drafts; the live SELECT
+# returns only the arps edge — trust the current read.)
 #
 # KNOWN GAP (report, don't fix — /loops rail 4): jicate/main
 # app/(routes)/admin/loops/page.tsx line 218 counts director_decisions
