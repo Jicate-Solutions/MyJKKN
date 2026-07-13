@@ -44,6 +44,7 @@ const ENROLLMENT_SELECT = `
   *,
   registration:event_registrations(
     team_name,
+    problem_idea,
     team_code,
     institution_id,
     owner_id,
@@ -557,6 +558,7 @@ export class SF100Service extends BaseService {
     const rows = (data || []).map((row: any) => ({
       ...row,
       team_name: row.registration?.team_name ?? null,
+      problem_idea: row.registration?.problem_idea ?? null,
       college: row.registration?.institution?.name ?? null,
     }));
     return {
@@ -610,6 +612,95 @@ export class SF100Service extends BaseService {
       .eq('id', enrollmentId);
 
     if (error) throw new Error('Failed to withdraw enrollment: ' + error.message);
+  }
+
+  /**
+   * Update the editable team details for an enrollment: the team NAME and the
+   * PROBLEM statement. Both fields live on the single `event_registrations` row
+   * (keyed by the enrollment's `registration_id`), NOT on `sf100_enrollments`.
+   *
+   * AUTHORIZATION — enforced entirely by RLS (no role check duplicated here):
+   * `event_registrations` has its own UPDATE policy
+   * (`supabase/setup/03_policies.sql` → "event_registrations_update"):
+   *   owner_id = auth.uid()  OR  super_admin/admin/administrator.
+   * This service runs under the CALLER's authenticated client (withAuth →
+   * runWithClient), so the DB decides. IMPORTANT: that policy is USING-only, so
+   * a denied UPDATE returns ZERO rows with NO error — Postgres raises 42501 only
+   * on a WITH CHECK violation, never on a USING filter-out. We therefore treat a
+   * 0-row result as an authorization failure and return `null`; the route maps
+   * that to an explicit 403 (never a silent success).
+   *
+   * @returns the updated registration row, or `null` when the UPDATE matched no
+   *   row (caller is neither owner nor admin).
+   * @throws an Error tagged `notFound` when the enrollment can't be resolved.
+   */
+  static async updateTeamDetails(
+    enrollmentId: string,
+    data: { team_name?: string; problem_idea?: string },
+    _actorId?: string
+  ): Promise<{ id: string; team_name: string | null; problem_idea: string | null } | null> {
+    // 1. Resolve the enrollment's registration_id — team_name + problem_idea
+    //    live on event_registrations, one hop away from the enrollment.
+    const { data: enrollment, error: resolveError } = await this.supabase
+      .from('sf100_enrollments')
+      .select('registration_id')
+      .eq('id', enrollmentId)
+      .single();
+
+    if (resolveError) {
+      if (resolveError.code === 'PGRST116') {
+        const notFound: any = new Error('Enrollment not found');
+        notFound.notFound = true;
+        throw notFound;
+      }
+      throw new Error('Failed to resolve enrollment: ' + resolveError.message);
+    }
+
+    const registrationId = (enrollment as any)?.registration_id;
+    if (!registrationId) {
+      const notFound: any = new Error('Enrollment has no linked registration');
+      notFound.notFound = true;
+      throw notFound;
+    }
+
+    // 2. Build a trimmed payload; ignore undefined fields.
+    const payload: Record<string, any> = {};
+    if (data.team_name !== undefined) {
+      // event_registrations.team_name is NOT NULL — callers must guard blanks
+      // (the route returns 400 for an empty name); we still trim defensively.
+      payload.team_name = data.team_name.trim();
+    }
+    if (data.problem_idea !== undefined) {
+      // problem_idea is nullable — an emptied field clears back to NULL.
+      const trimmed = data.problem_idea.trim();
+      payload.problem_idea = trimmed.length === 0 ? null : trimmed;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      throw new Error('No team fields provided to update');
+    }
+
+    // 3. UPDATE under the caller's RLS. `.select()` returns the updated rows.
+    const { data: updated, error } = await this.supabase
+      .from('event_registrations')
+      .update(payload)
+      .eq('id', registrationId)
+      .select('id, team_name, problem_idea');
+
+    if (error) {
+      // Preserve the Postgres error code so withAuth maps 42501 → 403.
+      const wrapped: any = new Error('Failed to update team details: ' + error.message);
+      wrapped.code = error.code;
+      throw wrapped;
+    }
+
+    // RLS USING-denial → 0 rows, no error. The registration is guaranteed to
+    // exist (FK from the resolved enrollment), so 0 rows == not owner/admin.
+    if (!updated || updated.length === 0) {
+      return null;
+    }
+
+    return updated[0] as { id: string; team_name: string | null; problem_idea: string | null };
   }
 
   // =========================================================================
