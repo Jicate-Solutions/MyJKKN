@@ -15,8 +15,9 @@
 // fn_ai_routine_claim_due marks the slot atomically before firing (review r3
 // disposition); manual re-runs appending extra rows is fine — audits are an
 // append-only log and the notification fanout is idempotent.
-// Coverage today: scf (the proven recipe). Additional loops join by adding
-// fn_loops_regress_<loop> + extending LOOP_FNS — see .claude/loop-manifests/.
+// Coverage today: scf (the proven recipe), feeder (cycle_delta known-delta,
+// added 2026-07-13). Additional loops join by adding fn_loops_regress_<loop>
+// + extending LOOP_FNS — see .claude/loop-manifests/.
 //
 // Alerting (wire 2): any verdict that is not 'measure-verified' fans out a
 // HIGH-priority notification to every super admin (two-write pattern).
@@ -40,6 +41,7 @@ import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 // manifests — never remove entries without retiring the manifest too.
 const LOOP_FNS: { loopKey: string; fn: string }[] = [
   { loopKey: 'scf', fn: 'fn_loops_regress_scf' },
+  { loopKey: 'feeder', fn: 'fn_loops_regress_feeder' },
 ];
 
 type RegressRow = {
