@@ -25,6 +25,7 @@
 // JS, no fetches here.
 // ============================================================================
 
+import Link from 'next/link';
 import type { LoopRegistryRow, LoopAuditRow, GateState } from './types';
 import { isBadVerdict, isVerifiedVerdict } from '@/lib/ai-routines/loop-governance';
 
@@ -98,6 +99,9 @@ export interface LoopTowerStats {
     /** Cell B — mean outcome_lift of SCF suggestions measured in 30d. */
     scfLiftMean30d: number | null;
     scfLiftN30d: number | null;
+    /** Cell C — mission-pillar coverage: (covered + 0.5·partial) / active total.
+     *  null when the mission_pillars table is absent/unreadable → cell hollow. */
+    pillars: { score: number; total: number; pct: number } | null;
     /** Cell D — the single computed constraint (or null → hollow). */
     constraint: { label: string; detail: string } | null;
   };
@@ -485,9 +489,39 @@ function ManagementStrip({ s }: { s: LoopTowerStats }) {
       />
       <StripCell
         label='Mission pillars covered'
-        value='awaiting pillar list'
-        hollow
-        sub='the pillar list is a separate draft with the Director — this cell stays hollow until it lands, rather than inventing a coverage number.'
+        value={
+          st.pillars && st.pillars.total > 0
+            ? `${
+                Number.isInteger(st.pillars.score)
+                  ? st.pillars.score
+                  : st.pillars.score.toFixed(1)
+              } of ${st.pillars.total} pillars · ${st.pillars.pct}%`
+            : 'no pillars configured'
+        }
+        hollow={!st.pillars || st.pillars.total === 0}
+        sub={
+          st.pillars && st.pillars.total > 0 ? (
+            <>
+              weighted coverage (covered = 1 · partial = ½) across active pillars —{' '}
+              <Link
+                href='/admin/loops/pillars'
+                className='underline underline-offset-2'
+              >
+                edit the pillar map →
+              </Link>
+            </>
+          ) : (
+            <>
+              the mission-pillar map has no active rows —{' '}
+              <Link
+                href='/admin/loops/pillars'
+                className='underline underline-offset-2'
+              >
+                configure pillars →
+              </Link>
+            </>
+          )
+        }
       />
       <StripCell
         label='Current constraint'
