@@ -19,6 +19,7 @@ import {
 } from '@/lib/services/events/tournament/organizer-access';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { checkEligibility, type EligibilitySubject } from '@/lib/services/events/tournament/eligibility';
+import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
 import type { CreateEntryDto, EligibilityRules } from '@/types/tournament';
 
 // ---------------------------------------------------------------------------
@@ -178,6 +179,26 @@ export async function POST(
       }
     }
 
+    // ---- custom registration fields (Dynamic Form Builder) ----
+    // Skip validation entirely when the form exists but is explicitly disabled —
+    // matches the Add Entry dialog (Task 11), which renders no custom fields in
+    // that case, so an organizer should never be 422'd for a field never shown.
+    const { data: formRow } = await (svc as any)
+      .from('event_registration_forms')
+      .select('is_enabled')
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (!formRow || formRow.is_enabled !== false) {
+      const { data: customFieldDefs } = await (svc as any)
+        .from('event_registration_form_fields')
+        .select('*')
+        .eq('event_id', eventId);
+      const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+      if (customFieldsError) {
+        return NextResponse.json({ error: customFieldsError }, { status: 422 });
+      }
+    }
+
     // ---- entry fee + payment intent ----
     const fee = Number((division.config as any)?.entry_fee ?? 0) || 0;
     const wantsOnline = fee > 0 && dto.payment_mode === 'online';
@@ -206,6 +227,7 @@ export async function POST(
         source: 'tournament',
         custom_data: { division_id: dto.division_id, entry_type: dto.entry_type },
         registered_by: user.id,
+        custom_fields: dto.custom_fields ?? null,
       })
       .select('id')
       .single();

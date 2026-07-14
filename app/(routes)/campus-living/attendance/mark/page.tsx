@@ -8,6 +8,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -54,6 +55,8 @@ export default function MarkAttendancePage() {
   const [selectedBlock, setSelectedBlock] = useState(blockParam ?? 'all');
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFloor, setSelectedFloor] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: blocksData } = useHostelBlocks(profile?.institution_id ?? '');
@@ -78,8 +81,12 @@ export default function MarkAttendancePage() {
     if (!isBlockScoped) return;
     if (selectedBlock === 'all' && myBlockIds.length === 1) {
       setSelectedBlock(myBlockIds[0]);
+      setSelectedFloor('all');
+      setSelectedCategory('all');
     } else if (selectedBlock !== 'all' && !myBlockIds.includes(selectedBlock)) {
       setSelectedBlock(myBlockIds[0]);
+      setSelectedFloor('all');
+      setSelectedCategory('all');
     }
   }, [isBlockScoped, myBlockIds, selectedBlock]);
 
@@ -99,6 +106,48 @@ export default function MarkAttendancePage() {
       (s) => s.allocation && myBlockIds.includes(s.allocation.block_id)
     );
   }, [studentsRaw, isBlockScoped, selectedBlock, myBlockIds]);
+
+  // Floors present among the currently loaded (block-scoped) residents. Only
+  // meaningful once a specific block is chosen — floor numbers repeat across
+  // blocks, so "All blocks" + a floor number would be ambiguous.
+  const floorOptions = useMemo(() => {
+    if (selectedBlock === 'all') return [] as number[];
+    const floors = new Set<number>();
+    students?.forEach((s) => {
+      const floor = s.allocation?.room?.floor;
+      if (floor !== null && floor !== undefined) floors.add(floor);
+    });
+    return Array.from(floors).sort((a, b) => a - b);
+  }, [students, selectedBlock]);
+
+  // Room categories present within the current Block -> Floor scope.
+  const categoryOptions = useMemo(() => {
+    if (selectedBlock === 'all') return [] as { id: string; name: string; sortOrder: number }[];
+    const categories = new Map<string, { id: string; name: string; sortOrder: number }>();
+    students?.forEach((s) => {
+      if (selectedFloor !== 'all' && s.allocation?.room?.floor !== Number(selectedFloor)) return;
+      const category = s.allocation?.room?.category;
+      if (category && !categories.has(category.id)) {
+        categories.set(category.id, {
+          id: category.id,
+          name: category.name,
+          sortOrder: category.sort_order ?? 0,
+        });
+      }
+    });
+    return Array.from(categories.values()).sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+    );
+  }, [students, selectedBlock, selectedFloor]);
+
+  const floorLabel = (floor: number) => (floor === 0 ? 'Ground floor' : `Floor ${floor}`);
+
+  const getInitials = (name?: string | null) => {
+    const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
+    const initials = (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
+    return initials.toUpperCase() || '?';
+  };
+
   const markAttendance = useMarkAttendance();
 
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
@@ -119,10 +168,15 @@ export default function MarkAttendancePage() {
     setAttendance(allPresent);
   }, [students]);
 
+  const handleClearAll = useCallback(() => {
+    setAttendance({});
+  }, []);
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
       let skippedNoBlock = 0;
+      let skippedNoInstitution = 0;
       const records = Object.entries(attendance)
         .filter(([, status]) => !!status)
         .flatMap(([residentId, status]) => {
@@ -141,8 +195,19 @@ export default function MarkAttendancePage() {
             skippedNoBlock += 1;
             return [];
           }
+          // institution_id must be the RESIDENT's own institution, not the
+          // marking staff member's — a block can house residents from
+          // multiple affiliated colleges (hostel-rooms-v2), and the marker
+          // (e.g. a super admin) may carry no institution_id at all. Falling
+          // back to '' crashes the insert with 22P02 on this NOT NULL uuid.
+          const residentInstitutionId =
+            resident?.profile?.institution_id ?? resident?.allocation?.learner?.institution_id ?? null;
+          if (!residentInstitutionId) {
+            skippedNoInstitution += 1;
+            return [];
+          }
           return [{
-            institution_id: profile?.institution_id ?? '',
+            institution_id: residentInstitutionId,
             learner_id: resident?.profile_id ?? residentId,
             block_id: blockId,
             date: attendanceDate,
@@ -162,6 +227,11 @@ export default function MarkAttendancePage() {
           `${skippedNoBlock} resident${skippedNoBlock === 1 ? '' : 's'} skipped — no room allocation. Allocate them to a block first or pick a specific block.`
         );
       }
+      if (skippedNoInstitution > 0) {
+        toast.warning(
+          `${skippedNoInstitution} resident${skippedNoInstitution === 1 ? '' : 's'} skipped — no institution on record.`
+        );
+      }
       if (records.length > 0) {
         await markAttendance.mutateAsync(records);
       }
@@ -172,7 +242,13 @@ export default function MarkAttendancePage() {
     }
   };
 
-  const filteredStudents = students?.filter((s: MarkableResident) => {
+  const filteredStudents = useMemo(() => students?.filter((s: MarkableResident) => {
+    if (selectedFloor !== 'all' && s.allocation?.room?.floor !== Number(selectedFloor)) {
+      return false;
+    }
+    if (selectedCategory !== 'all' && s.allocation?.room?.category?.id !== selectedCategory) {
+      return false;
+    }
     const q = searchQuery.toLowerCase();
     return (
       (s.profile?.full_name ?? '').toLowerCase().includes(q) ||
@@ -181,7 +257,53 @@ export default function MarkAttendancePage() {
       (s.allocation?.room?.room_number ?? '').toLowerCase().includes(q) ||
       (s.allocation?.block?.name ?? '').toLowerCase().includes(q)
     );
-  }) ?? [];
+  }) ?? [], [students, selectedFloor, selectedCategory, searchQuery]);
+
+  // Roll-call grouping: Block -> Floor -> Room, mirroring the physical walk
+  // a warden does through the hostel. Relies on filteredStudents already
+  // being sorted Block/Floor/Room/Name by getMarkableResidents — grouping is
+  // a single pass that preserves that order via Map insertion order.
+  const groupedStudents = useMemo(() => {
+    const blocks = new Map<
+      string,
+      { label: string; floors: Map<string, { label: string; rooms: Map<string, { label: string; students: MarkableResident[] }> }> }
+    >();
+
+    for (const s of filteredStudents) {
+      const alloc = s.allocation;
+      const blockKey = alloc?.block_id ?? 'unallocated';
+      if (!blocks.has(blockKey)) {
+        blocks.set(blockKey, { label: alloc?.block?.name ?? 'Unallocated', floors: new Map() });
+      }
+      const block = blocks.get(blockKey)!;
+
+      const floor = alloc?.room?.floor;
+      const floorKey = floor != null ? `f${floor}` : 'no-floor';
+      if (!block.floors.has(floorKey)) {
+        block.floors.set(floorKey, { label: floor != null ? floorLabel(floor) : 'No Room Allocated', rooms: new Map() });
+      }
+      const floorGroup = block.floors.get(floorKey)!;
+
+      const roomKey = alloc?.room?.id ?? 'no-room';
+      if (!floorGroup.rooms.has(roomKey)) {
+        floorGroup.rooms.set(roomKey, {
+          label: alloc?.room?.room_number ? `Room ${alloc.room.room_number}` : 'Unassigned',
+          students: [],
+        });
+      }
+      floorGroup.rooms.get(roomKey)!.students.push(s);
+    }
+
+    return Array.from(blocks.entries()).map(([key, b]) => ({
+      key,
+      label: b.label,
+      floors: Array.from(b.floors.entries()).map(([fKey, f]) => ({
+        key: fKey,
+        label: f.label,
+        rooms: Array.from(f.rooms.entries()).map(([rKey, r]) => ({ key: rKey, ...r })),
+      })),
+    }));
+  }, [filteredStudents]);
 
   const markedCount = Object.values(attendance).filter(Boolean).length;
   const presentCount = Object.values(attendance).filter((s) => s === 'present').length;
@@ -219,13 +341,17 @@ export default function MarkAttendancePage() {
         {/* Controls */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4">
               <div className="space-y-1.5 flex-1">
                 <Label>Hostel Block</Label>
                 <select
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={selectedBlock}
-                  onChange={(e) => setSelectedBlock(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedBlock(e.target.value);
+                    setSelectedFloor('all');
+                    setSelectedCategory('all');
+                  }}
                 >
                   {(!isBlockScoped || myBlockIds.length > 1) && (
                     <option value="all">{isBlockScoped ? 'All my blocks' : 'All blocks'}</option>
@@ -241,6 +367,48 @@ export default function MarkAttendancePage() {
                   </p>
                 )}
               </div>
+              {/* Floor/category only make sense once a specific block is picked —
+                  floor numbers repeat across blocks, so "All blocks" + a floor
+                  would silently mix residents from unrelated blocks. */}
+              {selectedBlock !== 'all' && floorOptions.length > 0 && (
+                <div className="space-y-1.5 flex-1">
+                  <Label className="flex items-center gap-1.5">
+                    <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                    Floor
+                  </Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={selectedFloor}
+                    onChange={(e) => {
+                      setSelectedFloor(e.target.value);
+                      setSelectedCategory('all');
+                    }}
+                  >
+                    <option value="all">All Floors</option>
+                    {floorOptions.map((f) => (
+                      <option key={f} value={String(f)}>{floorLabel(f)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {selectedBlock !== 'all' && categoryOptions.length > 0 && (
+                <div className="space-y-1.5 flex-1">
+                  <Label className="flex items-center gap-1.5">
+                    <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                    Room Category
+                  </Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                  >
+                    <option value="all">All Categories</option>
+                    {categoryOptions.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Date</Label>
                 <Input
@@ -273,6 +441,10 @@ export default function MarkAttendancePage() {
               <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
               Mark All Present
             </Button>
+            <Button variant="outline" size="sm" onClick={handleClearAll} disabled={markedCount === 0}>
+              <XCircle className="mr-2 h-4 w-4 text-muted-foreground" />
+              Clear All
+            </Button>
           </div>
           <div className="flex gap-4 text-sm">
             <span className="text-muted-foreground">
@@ -287,66 +459,94 @@ export default function MarkAttendancePage() {
           </div>
         </div>
 
-        {/* Student List */}
+        {/* Student List — grouped Block -> Floor -> Room for roll-call order */}
         {isLoading ? (
           <div className="flex items-center justify-center min-h-[200px]">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="space-y-2">
-            {filteredStudents.map((student) => {
-              const status = attendance[student.id];
-              return (
-                <Card key={student.id} className={status ? 'border-l-4' : ''} style={{
-                  borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
-                }}>
-                  <CardContent className="p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                          <Users className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{student.profile?.full_name ?? 'Unknown'}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {student.id_proof_number ?? student.profile?.email ?? student.id.slice(0, 8)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {student.allocation
-                              ? [
-                                  student.allocation.block?.name,
-                                  student.allocation.room?.room_number
-                                    ? `Room ${student.allocation.room.room_number}`
-                                    : null,
-                                  student.allocation.bed?.bed_number
-                                    ? `Bed ${student.allocation.bed.bed_number}`
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')
-                              : 'No room allocated'}
-                          </p>
+          <div className="space-y-5">
+            {groupedStudents.map((block) => (
+              <div key={block.key} className="space-y-4">
+                {groupedStudents.length > 1 && (
+                  <h2 className="text-base font-semibold border-b pb-1">{block.label}</h2>
+                )}
+                {block.floors.map((floor) => (
+                  <div key={floor.key} className="space-y-3">
+                    <h3 className="text-sm font-semibold text-foreground">{floor.label}</h3>
+                    {floor.rooms.map((room) => (
+                      <div key={room.key} className="space-y-1.5 pl-2 border-l-2 border-muted">
+                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide pl-2">
+                          {room.label}{' '}
+                          <span className="normal-case font-normal">({room.students.length})</span>
+                        </h4>
+                        <div className="space-y-2">
+                          {room.students.map((student) => {
+                            const status = attendance[student.id];
+                            return (
+                              <Card key={student.id} className={status ? 'border-l-4' : ''} style={{
+                                borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
+                              }}>
+                                <CardContent className="p-4">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                      <Avatar className="h-10 w-10">
+                                        <AvatarImage
+                                          src={student.profile?.avatar_url ?? undefined}
+                                          alt={student.profile?.full_name ?? 'Learner'}
+                                        />
+                                        <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
+                                          {getInitials(student.profile?.full_name)}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div>
+                                        <p className="font-medium">{student.profile?.full_name ?? 'Unknown'}</p>
+                                        <p className="text-sm text-muted-foreground">
+                                          {student.id_proof_number ?? student.profile?.email ?? student.id.slice(0, 8)}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {student.allocation
+                                            ? [
+                                                student.allocation.block?.name,
+                                                student.allocation.room?.room_number
+                                                  ? `Room ${student.allocation.room.room_number}`
+                                                  : null,
+                                                student.allocation.bed?.bed_number
+                                                  ? `Bed ${student.allocation.bed.bed_number}`
+                                                  : null,
+                                              ]
+                                                .filter(Boolean)
+                                                .join(' · ')
+                                            : 'No room allocated'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                      {statusOptions.map((opt) => (
+                                        <button
+                                          key={opt.value}
+                                          onClick={() => handleMarkStatus(student.id, opt.value)}
+                                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
+                                            status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
+                                          }`}
+                                        >
+                                          {opt.icon}
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
                         </div>
                       </div>
-                      <div className="flex gap-1.5 flex-wrap">
-                        {statusOptions.map((opt) => (
-                          <button
-                            key={opt.value}
-                            onClick={() => handleMarkStatus(student.id, opt.value)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-colors ${
-                              status === opt.value ? opt.color + ' border-current' : 'bg-background hover:bg-muted border-border'
-                            }`}
-                          >
-                            {opt.icon}
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         )}
 
@@ -375,7 +575,7 @@ export default function MarkAttendancePage() {
                 <>
                   <p className="text-lg font-medium">No matching residents</p>
                   <p className="text-sm text-muted-foreground">
-                    Clear the search or pick a different block
+                    Clear the search, or pick a different block, floor, or room category
                   </p>
                 </>
               )}

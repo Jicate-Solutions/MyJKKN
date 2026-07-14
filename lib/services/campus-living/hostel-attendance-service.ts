@@ -121,7 +121,7 @@ export class HostelAttendanceService {
       const residentsQ = supabase
         .from('hostel_residents')
         .select(
-          'id, profile_id, id_proof_number, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email)'
+          'id, profile_id, id_proof_number, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email, institution_id, avatar_url)'
         )
         .eq('is_active', true)
         .limit(1000);
@@ -129,7 +129,7 @@ export class HostelAttendanceService {
       const allocQ = supabase
         .from('hostel_allocations')
         .select(
-          'learner_id, block_id, room_id, bed_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code), room:hostel_rooms!hostel_allocations_room_id_fkey(id, room_number, floor), bed:hostel_beds!hostel_allocations_bed_id_fkey(id, bed_number), learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email)'
+          'learner_id, block_id, room_id, bed_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code), room:hostel_rooms!hostel_allocations_room_id_fkey(id, room_number, floor, category_id, category:hostel_categories(id, name, sort_order)), bed:hostel_beds!hostel_allocations_bed_id_fkey(id, bed_number), learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, institution_id, avatar_url)'
         )
         .eq('status', 'active')
         .limit(1000);
@@ -172,11 +172,18 @@ export class HostelAttendanceService {
       const list = blockId
         ? merged.filter((m) => m.allocation?.block_id === blockId)
         : merged;
-      // Roll-call order: block, then room, then name; unallocated last.
+      // Roll-call order: block, then floor, then room number, then name;
+      // unallocated last. Floor must sort ahead of room number — room
+      // numbers alone don't reliably encode floor (e.g. reused "1", "2"
+      // per floor), which previously let rooms from different floors
+      // interleave instead of walking the block floor-by-floor.
       return list.sort((x, y) => {
         const bx = x.allocation?.block?.name ?? '￿';
         const by = y.allocation?.block?.name ?? '￿';
         if (bx !== by) return bx.localeCompare(by);
+        const fx = x.allocation?.room?.floor ?? Infinity;
+        const fy = y.allocation?.room?.floor ?? Infinity;
+        if (fx !== fy) return fx - fy;
         const rx = x.allocation?.room?.room_number ?? '￿';
         const ry = y.allocation?.room?.room_number ?? '￿';
         if (rx !== ry) return rx.localeCompare(ry, undefined, { numeric: true });
@@ -381,7 +388,7 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_attendance')
-        .upsert(payload, { onConflict: 'institution_id,learner_id,date' })
+        .upsert(payload, { onConflict: 'learner_id,date' })
         .select()
         .single();
 
@@ -402,7 +409,7 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_attendance')
-        .upsert(records, { onConflict: 'institution_id,learner_id,date' })
+        .upsert(records, { onConflict: 'learner_id,date' })
         .select();
 
       if (error) {

@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { checkEligibility, type EligibilitySubject } from '@/lib/services/events/tournament/eligibility';
+import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
 import type { EligibilityRules, CreateTeamMemberDto } from '@/types/tournament';
 
 interface PublicRegisterBody {
@@ -28,6 +29,7 @@ interface PublicRegisterBody {
   participant_gender?: string | null;
   participant_age?: number | null;
   members?: CreateTeamMemberDto[];
+  custom_fields?: Record<string, unknown> | null;
 }
 
 export async function POST(
@@ -129,6 +131,26 @@ export async function POST(
       if (!elig.ok) return NextResponse.json({ error: elig.reason }, { status: 422 });
     }
 
+    // ---- custom registration fields (Dynamic Form Builder) ----
+    // Skip validation entirely when the form exists but is explicitly disabled —
+    // matches the guest page (Task 9), which renders no custom fields in that case,
+    // so a registrant should never be 422'd for a field they were never shown.
+    const { data: formRow } = await (svc as any)
+      .from('event_registration_forms')
+      .select('is_enabled')
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (!formRow || formRow.is_enabled !== false) {
+      const { data: customFieldDefs } = await (svc as any)
+        .from('event_registration_form_fields')
+        .select('*')
+        .eq('event_id', eventId);
+      const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+      if (customFieldsError) {
+        return NextResponse.json({ error: customFieldsError }, { status: 422 });
+      }
+    }
+
     // ---- fee + payment intent ----
     const fee = Number((division.config as any)?.entry_fee ?? 0) || 0;
     const paymentStatus = fee > 0 ? 'pending' : 'not_required';
@@ -153,6 +175,7 @@ export async function POST(
         payment_status: paymentStatus,
         payment_amount: fee,
         source: 'tournament_self',
+        custom_fields: dto.custom_fields ?? null,
       })
       .select('id')
       .single();

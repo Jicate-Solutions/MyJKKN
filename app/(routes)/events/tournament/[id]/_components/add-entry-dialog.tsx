@@ -45,6 +45,8 @@ import { TEAM_SPORTS } from '@/types/health-sports';
 import { TEAM_MEMBER_ROLES } from '@/types/tournament';
 import type { TournamentDivision, CreateEntryDto, CreateTeamMemberDto } from '@/types/tournament';
 import { useRegisterEntry } from '@/hooks/events/use-tournament-registrations';
+import { useRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
+import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 
 function divisionLabel(d: TournamentDivision): string {
@@ -253,6 +255,7 @@ export function AddEntryDialog({
   defaultDivisionId?: string;
 }) {
   const register = useRegisterEntry(eventId);
+  const { data: registrationForm } = useRegistrationForm(eventId);
 
   const [divisionId, setDivisionId] = useState(defaultDivisionId ?? divisions[0]?.id ?? '');
   const [participantType, setParticipantType] = useState<ParticipantType>('jkkn');
@@ -264,6 +267,7 @@ export function AddEntryDialog({
   const [age, setAge] = useState('');
   const [members, setMembers] = useState<CreateTeamMemberDto[]>([{ member_name: '', role: 'captain' }]);
   const [paymentMode, setPaymentMode] = useState<'online' | 'offline'>('offline');
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [rzp, setRzp] = useState<{
     orderId: string;
     keyId: string;
@@ -293,6 +297,7 @@ export function AddEntryDialog({
     setAge('');
     setMembers([{ member_name: '', role: 'captain' }]);
     setPaymentMode('offline');
+    setCustomFields({});
   }
 
   function switchType(t: ParticipantType) {
@@ -353,6 +358,8 @@ export function AddEntryDialog({
     }
 
     if (fee > 0) dto.payment_mode = paymentMode;
+
+    dto.custom_fields = customFields;
 
     const result = await register.mutateAsync(dto);
     if (result.razorpay_order_id && result.razorpay_key_id) {
@@ -641,6 +648,22 @@ export function AddEntryDialog({
               </Select>
             </div>
           )}
+
+          {registrationForm?.is_enabled !== false && (registrationForm?.sections ?? []).map((section) => (
+            <div key={section.id} className="space-y-3 border-t pt-4">
+              <p className="text-sm font-semibold">{section.title}</p>
+              {(section.fields ?? [])
+                .filter((f) => isFieldVisible(f, customFields))
+                .map((f) => (
+                  <DynamicFieldInput
+                    key={f.id}
+                    field={f}
+                    value={customFields[f.field_key]}
+                    onChange={(v) => setCustomFields((prev) => ({ ...prev, [f.field_key]: v }))}
+                  />
+                ))}
+            </div>
+          ))}
         </div>
 
         <DialogFooter>

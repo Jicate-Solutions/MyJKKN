@@ -2910,6 +2910,8 @@ export class LearnerProfileService {
    * Helper: Get hierarchical institution data
    * Returns institution → degree → department → program → semester → section hierarchy
    * Fetches all learner records to build accurate hierarchy
+   * Always scoped to active learners (lifecycle_status = 'active'), independent of
+   * the dashboard's status filter — the Organizational tab represents current org headcount.
    */
   private static async getHierarchicalInstitutions(
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
@@ -2944,7 +2946,8 @@ export class LearnerProfileService {
           section_id,
           sections(id, section_name)
         `)
-        .not('institution_id', 'is', null);
+        .not('institution_id', 'is', null)
+        .eq('lifecycle_status', 'active');
 
       // Apply institution filter if provided
       if (filters.institutionIds && filters.institutionIds.length > 0) {

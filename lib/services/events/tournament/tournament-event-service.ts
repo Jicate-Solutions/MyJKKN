@@ -111,6 +111,20 @@ export class TournamentEventService {
         }
       }
 
+      // Auto-create an empty registration form row (best-effort — the read
+      // path lazy-creates one anyway if this fails, per getOrCreateForm).
+      try {
+        const { EventRegistrationFormService } = await import(
+          '@/lib/services/events/tournament/event-registration-form-service'
+        );
+        await EventRegistrationFormService.getOrCreateForm(event.id);
+      } catch (formError) {
+        logger.warn('events/tournament', 'Failed to seed registration form', {
+          eventId: event.id,
+          error: formError,
+        });
+      }
+
       logger.info('events/tournament', 'Tournament created', {
         eventId: event.id,
         name: event.name,

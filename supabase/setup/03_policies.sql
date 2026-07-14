@@ -7876,3 +7876,135 @@ CREATE POLICY "tournament_divisions_incharge_all" ON public.tournament_divisions
 CREATE POLICY "tournament_divisions_committee_read" ON public.tournament_divisions
   FOR SELECT TO authenticated
   USING (public.fn_is_event_committee_member(event_id));
+
+-- ── Tournament dynamic registration form builder (2026-07-14, event_registration_form_builder) ──
+-- Mirrors tournament_divisions_select/_insert/_update/_delete (sports_tournament_pr1)
+-- + the in-charge FOR ALL policy (tournament_incharge_access) above. event_id is
+-- denormalized onto all 3 tables so each policy stays a single-join EXISTS.
+
+ALTER TABLE event_registration_forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registration_form_sections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registration_form_fields ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "event_registration_forms_select" ON event_registration_forms
+  FOR SELECT USING (
+    is_super_admin() OR is_admin() OR (
+      user_has_permission('sports.tournaments.view')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_forms.event_id
+          AND (
+            e.scope = 'all_jkkn'
+            OR e.visibility IN ('all_jkkn', 'public')
+            OR role_has_institution_access(e.institution_id)
+          )
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_forms_manage" ON event_registration_forms
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_forms.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  ) WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_forms.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_sections_select" ON event_registration_form_sections
+  FOR SELECT USING (
+    is_super_admin() OR is_admin() OR (
+      user_has_permission('sports.tournaments.view')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_sections.event_id
+          AND (
+            e.scope = 'all_jkkn'
+            OR e.visibility IN ('all_jkkn', 'public')
+            OR role_has_institution_access(e.institution_id)
+          )
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_sections_manage" ON event_registration_form_sections
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_sections.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  ) WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_sections.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_fields_select" ON event_registration_form_fields
+  FOR SELECT USING (
+    is_super_admin() OR is_admin() OR (
+      user_has_permission('sports.tournaments.view')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_fields.event_id
+          AND (
+            e.scope = 'all_jkkn'
+            OR e.visibility IN ('all_jkkn', 'public')
+            OR role_has_institution_access(e.institution_id)
+          )
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_fields_manage" ON event_registration_form_fields
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_fields.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  ) WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_fields.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  );

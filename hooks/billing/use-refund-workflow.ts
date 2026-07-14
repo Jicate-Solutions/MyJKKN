@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { RefundWorkflowService } from '@/lib/services/billing/refunds/refund-workflow-service';
-import type { InitiateRefundInput, RefundAttachment, RefundRequestFilters } from '@/types/billing-refund-workflow';
+import { RefundWorkflowService, RefundFlowActiveConflictError } from '@/lib/services/billing/refunds/refund-workflow-service';
+import type { InitiateRefundInput, RefundAttachment, RefundFlowConfig, RefundRequestFilters } from '@/types/billing-refund-workflow';
 
 export const refundWorkflowKeys = {
   requests: (f?: RefundRequestFilters) => ['refund-requests', f ?? {}] as const,
@@ -18,9 +18,11 @@ export function useRefundFlowConfigs() {
 export function useSaveRefundFlowConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: RefundWorkflowService.saveConfig.bind(RefundWorkflowService),
+    mutationFn: (v: { cfg: Partial<RefundFlowConfig>; replaceActive?: boolean }) =>
+      RefundWorkflowService.saveConfig(v.cfg, { replaceActive: v.replaceActive }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: refundWorkflowKeys.configs }); toast.success('Flow saved'); },
-    onError: (e: Error) => toast.error(e.message)
+    // Conflict errors are handled by the caller (confirm-and-replace dialog), not toasted.
+    onError: (e: Error) => { if (!(e instanceof RefundFlowActiveConflictError)) toast.error(e.message); }
   });
 }
 
