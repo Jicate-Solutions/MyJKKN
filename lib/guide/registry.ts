@@ -994,28 +994,29 @@ export const foundationGuide: ModuleGuide = {
 };
 
 /* ── Audit (self-improving institutional audit — Lead Auditor / Registrar) ────
- * ONE auditor lane, contributed to BOTH the canonical lanes the auditor roles
- * resolve to: supervisor (registrar reaches it via the academic-registrar key)
- * and external (lead_auditor reaches it by role). Every section is gated by
- * AUDIT_REQUIRES.auditor (audit.parameter.view) so it only shows to a viewer who
- * can actually open the parameter sheet — fail-closed, same as every other module.
+ * ONE auditor lane, contributed to EVERY staff lane an auditor's OWN lane can
+ * resolve to — coordinator, supervisor, module-admin (the registrar defaults to
+ * module-admin because they hold an admin key), and external (lead_auditor by
+ * role). Every section is gated by AUDIT_REQUIRES.auditor (audit.parameter.view),
+ * so it appears on whatever lane the viewer lands on IF they can open the
+ * parameter sheet, and never otherwise — fail-closed, same as every module. The
+ * duplication is intentional: the audit is a cross-cutting function whose holders
+ * span several primary personas, so it can't live in one lane alone.
  * ────────────────────────────────────────────────────────────────────────── */
+const auditLane = () => ({
+  sections: withRequires(AUDIT_GUIDES.lanes.auditor.sections, AUDIT_REQUIRES.auditor),
+  startHere: AUDIT_GUIDES.lanes.auditor.startHere,
+  title: AUDIT_GUIDES.lanes.auditor.title,
+  tagline: AUDIT_GUIDES.lanes.auditor.tagline,
+});
 export const auditGuide: ModuleGuide = {
   module: "audit",
   basePath: "/audit",
   lanes: {
-    supervisor: {
-      sections: withRequires(AUDIT_GUIDES.lanes.auditor.sections, AUDIT_REQUIRES.auditor),
-      startHere: AUDIT_GUIDES.lanes.auditor.startHere,
-      title: AUDIT_GUIDES.lanes.auditor.title,
-      tagline: AUDIT_GUIDES.lanes.auditor.tagline,
-    },
-    external: {
-      sections: withRequires(AUDIT_GUIDES.lanes.auditor.sections, AUDIT_REQUIRES.auditor),
-      startHere: AUDIT_GUIDES.lanes.auditor.startHere,
-      title: AUDIT_GUIDES.lanes.auditor.title,
-      tagline: AUDIT_GUIDES.lanes.auditor.tagline,
-    },
+    coordinator: auditLane(),
+    supervisor: auditLane(),
+    "module-admin": auditLane(),
+    external: auditLane(),
   },
   routes: [
     { pattern: "/audit/*", persona: "supervisor" },
