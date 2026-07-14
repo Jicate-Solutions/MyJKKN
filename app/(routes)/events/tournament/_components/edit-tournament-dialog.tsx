@@ -56,16 +56,22 @@ function DivisionFields({
   division,
   edits,
   onEdit,
+  onEditConfig,
 }: {
   division: TournamentDivision;
   edits: UpdateDivisionDto;
   onEdit: (field: keyof UpdateDivisionDto, value: string) => void;
+  onEditConfig: (patch: Record<string, unknown>) => void;
 }) {
   const sport = (edits.sport ?? division.sport) || '';
   // Keep a legacy/renamed sport selectable even if it left the catalog.
   const sportOptions = JKKN_SPORTS.includes(sport as (typeof JKKN_SPORTS)[number])
     ? JKKN_SPORTS
     : [sport, ...JKKN_SPORTS];
+
+  const currentFee = Number(
+    ((edits.config ?? division.config) as { entry_fee?: number } | undefined)?.entry_fee ?? 0
+  );
 
   return (
     <div className="space-y-4">
@@ -153,6 +159,24 @@ function DivisionFields({
           onChange={(e) => onEdit('age_band', e.target.value)}
         />
       </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="t-entry-fee">Entry Fee (₹)</Label>
+        <Input
+          id="t-entry-fee"
+          type="number"
+          min="0"
+          step="1"
+          value={currentFee || ''}
+          onChange={(e) =>
+            onEditConfig({
+              ...(division.config as Record<string, unknown>),
+              entry_fee: e.target.value ? Number(e.target.value) : 0,
+            })
+          }
+          placeholder="0 = free"
+        />
+      </div>
     </div>
   );
 }
@@ -197,6 +221,9 @@ function EditTournamentForm({
 
   const setDivision = (field: keyof UpdateDivisionDto, value: string) =>
     setDivisionEdits((prev) => ({ ...prev, [field]: value }));
+
+  const setDivisionConfig = (patch: Record<string, unknown>) =>
+    setDivisionEdits((prev) => ({ ...prev, config: patch }));
 
   const isPending = update.isPending || updateDivision.isPending;
 
@@ -350,6 +377,7 @@ function EditTournamentForm({
               division={selectedDivision}
               edits={divisionEdits}
               onEdit={setDivision}
+              onEditConfig={setDivisionConfig}
             />
           ) : (
             <p className="text-sm text-muted-foreground">

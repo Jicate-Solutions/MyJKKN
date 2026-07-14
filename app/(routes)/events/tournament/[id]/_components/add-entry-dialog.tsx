@@ -45,6 +45,7 @@ import { TEAM_SPORTS } from '@/types/health-sports';
 import { TEAM_MEMBER_ROLES } from '@/types/tournament';
 import type { TournamentDivision, CreateEntryDto, CreateTeamMemberDto } from '@/types/tournament';
 import { useRegisterEntry } from '@/hooks/events/use-tournament-registrations';
+import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 
 function divisionLabel(d: TournamentDivision): string {
   return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
@@ -263,6 +264,12 @@ export function AddEntryDialog({
   const [age, setAge] = useState('');
   const [members, setMembers] = useState<CreateTeamMemberDto[]>([{ member_name: '', role: 'captain' }]);
   const [paymentMode, setPaymentMode] = useState<'online' | 'offline'>('offline');
+  const [rzp, setRzp] = useState<{
+    orderId: string;
+    keyId: string;
+    amountPaise: number;
+    customer: { name?: string; email?: string; phone?: string };
+  } | null>(null);
 
   const isExternal = participantType === 'external';
 
@@ -348,9 +355,36 @@ export function AddEntryDialog({
     if (fee > 0) dto.payment_mode = paymentMode;
 
     const result = await register.mutateAsync(dto);
-    if (result.payment_url) window.open(result.payment_url, '_blank', 'noopener');
+    if (result.razorpay_order_id && result.razorpay_key_id) {
+      setRzp({
+        orderId: result.razorpay_order_id,
+        keyId: result.razorpay_key_id,
+        amountPaise: result.amount_paise ?? 0,
+        customer: result.customer ?? {},
+      });
+      return; // keep the dialog open to show the redirect overlay
+    }
     reset();
     onOpenChange(false);
+  }
+
+  if (rzp) {
+    return (
+      <Dialog open={open} onOpenChange={() => {}}>
+        <DialogContent>
+          <EventRazorpayHostedRedirect
+            eventId={eventId}
+            razorpayKeyId={rzp.keyId}
+            razorpayOrderId={rzp.orderId}
+            amountPaise={rzp.amountPaise}
+            currency="INR"
+            customer={rzp.customer}
+            description="Tournament entry fee"
+            cancelPath={`/events/tournament/${eventId}`}
+          />
+        </DialogContent>
+      </Dialog>
+    );
   }
 
   return (
