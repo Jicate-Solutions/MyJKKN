@@ -30,6 +30,7 @@ import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AiModelsDataTable } from './_components/ai-models-data-table';
 import { AiStudioPanel } from './_components/ai-studio-panel';
+import { CapabilityGapLoopCard } from './_components/capability-gap-loop-card';
 
 export default function AiModelsPage() {
   return (
@@ -49,12 +50,16 @@ export default function AiModelsPage() {
           <TabsList>
             <TabsTrigger value="models">AI Models</TabsTrigger>
             <TabsTrigger value="studio">AI Studio</TabsTrigger>
+            <TabsTrigger value="capability-gap-loop">Capability-Gap Loop</TabsTrigger>
           </TabsList>
           <TabsContent value="models">
             <AiModelsDataTable />
           </TabsContent>
           <TabsContent value="studio">
             <AiStudioPanel />
+          </TabsContent>
+          <TabsContent value="capability-gap-loop">
+            <CapabilityGapLoopCard />
           </TabsContent>
         </Tabs>
       </ContentLayout>
