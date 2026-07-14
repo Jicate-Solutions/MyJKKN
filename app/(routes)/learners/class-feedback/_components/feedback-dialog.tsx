@@ -339,16 +339,18 @@ export function FeedbackDialog({
 
           {/* Anonymity — say it where the fear bites, right before the rating.
               (Director 2026-07-14: ratings cluster at 4; learners may fear
-              being identified.) TRUE by construction: faculty read aggregates
-              via SECDEF fns only; raw rows are RLS'd to the learner + platform
-              admin; free-text reaches staff without names attached. */}
+              being identified.) TRUE by construction: facilitators read
+              aggregates via SECDEF fns only; raw rows are RLS'd to the learner
+              + platform admin; free-text reaches staff without names attached.
+              Copy follows JKKN terminology (facilitators/sessions — never
+              teachers/classes). */}
           <p className="flex items-start gap-1.5 rounded-md px-2.5 py-2 text-xs"
              style={{ backgroundColor: 'rgba(11,109,65,0.06)' }}>
             <EyeOff className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: BRAND }} />
             <span>
-              <span className="font-semibold">Anonymous to your teachers.</span>{' '}
-              They see class totals only — never your name with your answer.
-              Answer honestly; that is what improves the classes.
+              <span className="font-semibold">Anonymous to your facilitators.</span>{' '}
+              They see session totals only — never your name with your answer.
+              Answer honestly; that is what improves the sessions.
             </span>
           </p>
 
