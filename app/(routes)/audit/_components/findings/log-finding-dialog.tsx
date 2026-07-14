@@ -43,6 +43,7 @@ import { useParametersForInstitution } from '@/hooks/audit/use-audit-parameters'
 import { useLogFinding } from '@/hooks/audit/use-audit-findings';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAuth } from '@/hooks/use-auth';
+import { getErrorMessage } from '@/lib/utils';
 import type { FindingSeverity } from '@/lib/types/audit';
 
 const logFindingSchema = z.object({
@@ -130,9 +131,7 @@ export function LogFindingDialog({
       onOpenChange(false);
       onSuccess?.(result.finding_id);
     } catch (err) {
-      toast.error(
-        `Failed to log finding: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toast.error(`Failed to log finding: ${getErrorMessage(err)}`);
     }
   }
 

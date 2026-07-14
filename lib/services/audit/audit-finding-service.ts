@@ -77,6 +77,16 @@ export class AuditFindingService {
     input: LogAuditFindingDto,
     opts: { requesterId: string }
   ): Promise<AuditFindingView> {
+    // service_requests RLS enforces `WITH CHECK (requester_id = auth.uid())`.
+    // Derive the requester from the live session rather than trusting a client-passed
+    // id: a stale profile or an impersonated session can make the passed id drift from
+    // auth.uid(), which RLS rejects as a 400 (the "Failed to log finding" bug).
+    const { data: authData } = await this.supabase.auth.getUser();
+    const requesterId = authData?.user?.id ?? opts.requesterId;
+    if (!requesterId) {
+      throw new Error('You must be signed in to log a finding.');
+    }
+
     const serviceTypeId = await this.getAuditFindingServiceTypeId();
     const owner = await this.resolveDefaultOwner(input.parameter_code, input.institution_id);
 
@@ -107,7 +117,7 @@ export class AuditFindingService {
       .from('service_requests')
       .insert({
         service_type_id: serviceTypeId,
-        requester_id: opts.requesterId,
+        requester_id: requesterId,
         institution_id: input.institution_id,
         form_data: formData,
         priority,

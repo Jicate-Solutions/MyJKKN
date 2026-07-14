@@ -75,9 +75,14 @@ export class AuditCycleService {
 
     if (current.phase === 'draft' && next === 'in-progress') {
       // Thrash: freeze catalog snapshot at transition
+      // Capture the display + grouping columns too — the parameter sheet and
+      // attestations grid group by `parameter_group` and render `name`/`default_owner_role`.
+      // Omitting them froze a snapshot the UI couldn't group, so every group rendered empty.
       const { data: params, error: paramsErr } = await (this.supabase as any)
         .from('audit_parameter_catalog')
-        .select('code, framework_mapping, evidence_required, p1_sla_days, p2_sla_days')
+        .select(
+          'code, name, parameter_group, default_owner_role, framework_mapping, evidence_required, p1_sla_days, p2_sla_days'
+        )
         .eq('is_active', true);
       if (paramsErr) throw paramsErr;
       updates.parameter_catalog_snapshot = {

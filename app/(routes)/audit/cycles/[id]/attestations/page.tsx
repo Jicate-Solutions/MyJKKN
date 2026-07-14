@@ -61,6 +61,7 @@ import {
 import { useSystemParameters } from '@/hooks/audit/use-audit-parameters';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAuth } from '@/hooks/use-auth';
+import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { CyclePhaseBadge } from '../../../_components/cycle-phase-badge';
 import { AttestationStateBadge } from '../../../_components/cycles/attestation-state-badge';
@@ -425,9 +426,7 @@ function AttestationCellDialog({
       toast.success('Attestation saved.');
       onOpenChange(false);
     } catch (err) {
-      toast.error(
-        `Failed to sign: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Failed to sign: ${getErrorMessage(err)}`);
     }
   }
 
@@ -445,9 +444,7 @@ function AttestationCellDialog({
       toast.success('Cosignature added.');
       onOpenChange(false);
     } catch (err) {
-      toast.error(
-        `Failed to cosign: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast.error(`Failed to cosign: ${getErrorMessage(err)}`);
     }
   }
 
