@@ -3,6 +3,8 @@
 // =====================================================================
 // Capability Gaps tab (Phase 2 — human-gated fix loop + measured drop-check)
 // =====================================================================
+// Moat proven on prod 2026-07-14: billing.fee_defaulters refusal-frequency
+// 1.0 → 0.0 after the class-1b tool exposure → fn_capgap_measure auto-resolved.
 // Phase 1 rendered clusters of AI-assistant refusals read-only. Phase 2 turns
 // each cluster into a human-gated workflow:
 //   • Confirm / change the auto-proposed gap class      → fn_capgap_triage
