@@ -20,7 +20,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -37,8 +37,10 @@ import {
   RefreshCw,
   RotateCw,
   BookOpen,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { AuditCycleService } from '@/lib/services/audit';
 import {
   useAuditCycles,
   useMyFindings,
@@ -185,6 +187,26 @@ export default function AuditDashboardPage() {
     [cycles],
   );
   const activeIsCulture = activeCycle ? !hasComplianceFramework(activeCycle) : false;
+
+  // Standing "Whole Institution — Ongoing" audit — holds the org-wide checks
+  // (loop health, exam integrity). Prefer the already-loaded row; also ensure it
+  // exists on mount (self-heal) so the link below never dead-ends.
+  const standingCycle = useMemo(
+    () => (cycles ?? []).find((c) => c.is_standing) ?? null,
+    [cycles],
+  );
+  const [ensuredStandingId, setEnsuredStandingId] = useState<string | null>(null);
+  const standingEnsuredRef = useRef(false);
+  useEffect(() => {
+    if (standingEnsuredRef.current) return;
+    standingEnsuredRef.current = true;
+    AuditCycleService.ensureStandingAudit()
+      .then(setEnsuredStandingId)
+      .catch((err) => {
+        console.error('[audit/dashboard] ensureStandingAudit failed:', err);
+      });
+  }, []);
+  const standingId = standingCycle?.id ?? ensuredStandingId;
 
   const { data: systemParams = [], isLoading: paramsLoading } = useSystemParameters();
   const { data: myFindings = [], isLoading: myFindingsLoading } = useMyFindings(
@@ -443,6 +465,26 @@ export default function AuditDashboardPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Standing whole-institution audit — always-on org-wide checks, kept
+            unobtrusive so it complements (not competes with) the active cycle. */}
+        {standingId && (
+          <Link
+            href={`/audit/cycles/${standingId}`}
+            className="group flex items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
+          >
+            <span className="inline-flex items-center gap-2 text-muted-foreground">
+              <ShieldCheck className="h-4 w-4 flex-shrink-0 text-primary" />
+              <span>
+                <span className="font-medium text-foreground">
+                  Whole-institution checks
+                </span>{' '}
+                — loop health, exam integrity · always on
+              </span>
+            </span>
+            <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          </Link>
         )}
 
         {/* 3 + 4 + 5 — KPIs, findings, coverage. Compliance-oriented, so shown only for a

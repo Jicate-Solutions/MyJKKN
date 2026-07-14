@@ -148,6 +148,19 @@ export function LogFindingDialog({
     [cycles, watchedCycleId]
   );
 
+  // Routing rule (Director decision): the standing "Whole Institution" cycle logs
+  // findings ONLY against org-wide checks (loop health, exam integrity); every
+  // per-college cycle EXCLUDES them. Mirror the parameter-sheet routing so the
+  // dropdown never offers a parameter that doesn't belong to this cycle type.
+  // Missing is_org_wide (older frozen catalog rows) counts as false.
+  const visibleParameters = useMemo(
+    () =>
+      parameters.filter((p) =>
+        selectedCycle?.is_standing ? p.is_org_wide === true : !p.is_org_wide,
+      ),
+    [parameters, selectedCycle?.is_standing]
+  );
+
   // Institutions a finding can be filed against for the selected cycle. A cycle's
   // `institution_ids` NULL = all accessible; a non-empty list scopes to that subset.
   // Filtering here both prevents out-of-scope findings and, when it narrows to one,
@@ -411,7 +424,7 @@ export function LogFindingDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent className="max-h-72">
-                      {parameters.map((p) => (
+                      {visibleParameters.map((p) => (
                         <SelectItem key={`${p.code}-${p.institution_id ?? 'sys'}`} value={p.code}>
                           <span className="font-mono text-xs mr-2">{p.code}</span>
                           {p.name}
