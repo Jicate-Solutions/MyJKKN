@@ -77,6 +77,9 @@ export interface AuditCycle {
   lead_auditor_id: string;
   cosigner_roles: string[];
   institution_ids: string[] | null; // NULL = all institutions creator has scope for
+  /** The single standing "Whole Institution" audit that holds org-wide checks
+   *  (loop health, exam integrity). Never closes; not a per-college cycle. */
+  is_standing?: boolean;
   phase: AuditCyclePhase;
   parameter_catalog_snapshot: Record<string, unknown> | null;
   created_by: string | null;
@@ -118,6 +121,9 @@ export interface AuditParameterCatalogRow {
   /** Severity the log-finding dialog pre-selects for this parameter (auditor can
    *  override). Culture (CARRE) params default to 'green'; others to 'yellow'. */
   default_severity: FindingSeverity;
+  /** True for institution-wide checks (loop health, exam integrity) that are
+   *  audited once in the standing "Whole Institution" audit, not per college. */
+  is_org_wide: boolean;
   evidence_required: EvidenceRequirementItem[];
   institution_id: string | null;
   is_system: boolean;

@@ -31,6 +31,20 @@ export class AuditCycleService {
     return (data ?? []) as AuditCycle[];
   }
 
+  /**
+   * Idempotently ensure the single standing "Whole Institution — Ongoing" audit
+   * exists (creating it if missing) and return its id. Backs the cycles list +
+   * dashboard self-heal so the org-wide checks (loop health, exam integrity)
+   * always have a home. Wraps public.fn_ensure_standing_institution_audit().
+   */
+  static async ensureStandingAudit(): Promise<string> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_ensure_standing_institution_audit',
+    );
+    if (error) throw error;
+    return data as string;
+  }
+
   static async get(id: string): Promise<AuditCycle | null> {
     const { data, error } = await (this.supabase as any)
       .from('audit_cycles')

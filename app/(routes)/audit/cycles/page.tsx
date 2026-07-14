@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -37,6 +37,7 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit';
+import { AuditCycleService } from '@/lib/services/audit';
 import { CyclePhaseBadge } from '../_components/cycle-phase-badge';
 import type { AuditCycle } from '@/lib/types/audit';
 
@@ -81,17 +82,39 @@ export default function AuditCyclesPage() {
     refetch,
   } = useAuditCycles({ includeClosed });
 
+  // Self-heal: guarantee the standing "Whole Institution — Ongoing" audit exists
+  // (it holds the org-wide checks — loop health, exam integrity). Runs once on
+  // mount; if the row was ever deleted the RPC recreates it, then we refetch so
+  // it reappears in the list below.
+  const ensuredRef = useRef(false);
+  useEffect(() => {
+    if (ensuredRef.current) return;
+    ensuredRef.current = true;
+    AuditCycleService.ensureStandingAudit()
+      .then(() => refetch())
+      .catch((err) => {
+        console.error('[audit/cycles] ensureStandingAudit failed:', err);
+      });
+  }, [refetch]);
+
   const filtered = useMemo<AuditCycle[]>(() => {
     if (!cycles) return [];
     const q = search.trim().toLowerCase();
-    if (!q) return cycles;
-    return cycles.filter((c) => {
-      return (
-        c.name.toLowerCase().includes(q) ||
-        (c.description ?? '').toLowerCase().includes(q) ||
-        c.frameworks.join(' ').toLowerCase().includes(q)
-      );
-    });
+    const matched = !q
+      ? cycles
+      : cycles.filter((c) => {
+          return (
+            c.name.toLowerCase().includes(q) ||
+            (c.description ?? '').toLowerCase().includes(q) ||
+            c.frameworks.join(' ').toLowerCase().includes(q)
+          );
+        });
+    // Pin the standing whole-institution audit to the top so it never gets lost
+    // among the per-college quarterly cycles. Stable sort keeps created_at order
+    // (from the service) for every non-standing row.
+    return [...matched].sort(
+      (a, b) => Number(b.is_standing ?? false) - Number(a.is_standing ?? false),
+    );
   }, [cycles, search]);
 
   const activeCount = (cycles ?? []).filter((c) => c.phase !== 'closed').length;
@@ -247,9 +270,26 @@ export default function AuditCyclesPage() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((c) => (
-                    <TableRow key={c.id}>
+                    <TableRow
+                      key={c.id}
+                      className={
+                        c.is_standing
+                          ? 'bg-amber-50/50 dark:bg-amber-950/20'
+                          : undefined
+                      }
+                    >
                       <TableCell>
-                        <div className="font-medium">{c.name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{c.name}</span>
+                          {c.is_standing && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                            >
+                              Standing · Whole Institution
+                            </Badge>
+                          )}
+                        </div>
                         {c.description && (
                           <div className="text-xs text-muted-foreground line-clamp-1 max-w-md">
                             {c.description}

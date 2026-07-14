@@ -160,6 +160,13 @@ export default function CycleParametersPage({ params }: PageProps) {
   );
   const isSnapshot = snapshotParams !== null && snapshotParams.length > 0;
 
+  // Routing rule (Director decision): a STANDING cycle shows ONLY org-wide params
+  // (institution-wide checks audited once for the whole institution); every normal
+  // per-college cycle EXCLUDES them. Missing is_org_wide on older frozen snapshots
+  // counts as false — so it stays in a normal cycle, and is read-enriched from the
+  // live catalog when routing a standing cycle.
+  const isStanding = Boolean(cycle?.is_standing);
+
   // Live catalog indexed by code — the read-enrichment source for frozen snapshots
   // that predate the freeze fix (they lack name / owner / discovery flag).
   const liveByCode = useMemo(() => {
@@ -202,6 +209,9 @@ export default function CycleParametersPage({ params }: PageProps) {
       const code = raw.code;
       if (!code) continue;
       const live = liveByCode.get(code);
+      // Route by cycle type: standing → keep org-wide only; normal → drop org-wide.
+      const isOrgWide = Boolean(raw.is_org_wide ?? live?.is_org_wide ?? false);
+      if (isStanding ? !isOrgWide : isOrgWide) continue;
       const enriched: EnrichedParam = {
         code,
         name: raw.name ?? live?.name ?? code,
@@ -225,7 +235,7 @@ export default function CycleParametersPage({ params }: PageProps) {
         def: l,
         params: (buckets.get(l.key) ?? []).sort((a, b) => a.code.localeCompare(b.code)),
       }));
-  }, [sourceRows, liveByCode, statusByCode]);
+  }, [sourceRows, liveByCode, statusByCode, isStanding]);
 
   const total = useMemo(() => lanes.reduce((n, l) => n + l.params.length, 0), [lanes]);
   const loading = cycleLoading || (!isSnapshot && systemLoading);
@@ -306,6 +316,14 @@ export default function CycleParametersPage({ params }: PageProps) {
                 Each lane groups parameters by the standard they serve, with its own coverage. Open a
                 lane, work each parameter, and log a finding where the evidence falls short.
               </p>
+              {cycle?.is_standing && (
+                <div className="flex w-fit items-center gap-2 rounded-md border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-xs dark:border-emerald-800/60 dark:bg-emerald-950/30">
+                  <Building2 className="h-4 w-4 flex-shrink-0 text-emerald-700 dark:text-emerald-300" />
+                  <span className="font-medium text-emerald-900 dark:text-emerald-100">
+                    Institution-wide checks — audited once for the whole institution.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
