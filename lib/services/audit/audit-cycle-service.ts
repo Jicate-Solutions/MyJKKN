@@ -2,6 +2,7 @@
 // Spec: specs/myjkkn-audit-workflow-sprint-01-plan.md (decisions #1-20 + thrash T6-T8)
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { AuditParameterResultsService } from './audit-parameter-results-service';
 import type {
   AuditCycle,
   AuditCyclePhase,
@@ -102,6 +103,19 @@ export class AuditCycleService {
       .select('*')
       .single();
     if (error) throw error;
+
+    // Gate ③ capture — snapshot per-parameter results as the cycle closes, so the
+    // audit keeps cross-cycle memory (recurrence, deltas). Best-effort: a capture
+    // failure must NEVER fail the close; results are recomputable via
+    // fn_audit_capture_cycle_results (AuditParameterResultsService.capture is idempotent).
+    if (next === 'closed') {
+      try {
+        await AuditParameterResultsService.capture(id);
+      } catch (captureErr) {
+        console.error('[audit/cycles] Gate ③ result capture failed on close:', captureErr);
+      }
+    }
+
     return data as AuditCycle;
   }
 

@@ -124,6 +124,46 @@ export interface AuditParameterCatalogRow {
   updated_at: string;
 }
 
+// ============================================================================
+// Gate ③ capture — audit_parameter_results (per parameter × institution × cycle).
+// Written by fn_audit_capture_cycle_results; the audit's cross-cycle memory.
+// ============================================================================
+
+export type AuditParameterVerdict = 'pass' | 'partial' | 'fail';
+
+export interface AuditParameterResultMeasured {
+  finding_count: number;
+  open_finding_count: number;
+  attested: boolean;
+}
+
+export interface AuditParameterResultDelta {
+  /** finding_count(this cycle) − finding_count(prior cycle). */
+  finding_count_change: number;
+  /** Of the prior cycle's findings for this pair, how many are now closed. */
+  closed_from_prior: number;
+  /** Of the prior cycle's findings for this pair, how many are still open. */
+  still_open_from_prior: number;
+}
+
+export interface AuditParameterResult {
+  id: string;
+  audit_cycle_id: string;
+  parameter_code: string;
+  institution_id: string | null;
+  finding_count: number;
+  open_finding_count: number;
+  attested: boolean;
+  verdict: AuditParameterVerdict;
+  measured_value: AuditParameterResultMeasured | null;
+  prior_result_id: string | null;
+  delta: AuditParameterResultDelta | null;
+  /** Consecutive cycles this pair has carried findings — the "keeps failing" signal. */
+  recurrence_count: number;
+  computed_at: string;
+  created_at: string;
+}
+
 export interface AuditFindingType {
   id: string;
   code: string;
