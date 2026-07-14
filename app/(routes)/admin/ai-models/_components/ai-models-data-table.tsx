@@ -19,11 +19,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { Pencil, RefreshCw, AlertTriangle, Zap } from 'lucide-react';
+import { Pencil, RefreshCw, AlertTriangle, Zap, Play } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { AiJobRunCard } from './ai-job-run-card';
+import type { AiJobType } from './ai-job-types';
 import {
   Table,
   TableBody,
@@ -181,6 +189,9 @@ interface FeatureRow {
   month_to_date_success_rate: number;
   last_24h_cost_inr: number;
   last_24h_invocations: number;
+  // Config merge (2026-07-14): registry-sourced governance.
+  lane?: string | null;
+  runnable?: boolean;
 }
 
 function formatInr(n: number): string {
@@ -196,6 +207,11 @@ export function AiModelsDataTable() {
   const [features, setFeatures] = useState<FeatureRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingFeature, setEditingFeature] = useState<FeatureRow | null>(null);
+  // Config merge (2026-07-14): the registry's job types power an inline Run
+  // card on runnable features (reuses the AI Studio runner). Map keyed by
+  // job_type === feature_key; empty until loaded / on failure (→ no Run button).
+  const [runningFeature, setRunningFeature] = useState<FeatureRow | null>(null);
+  const [jobTypeMap, setJobTypeMap] = useState<Map<string, AiJobType>>(new Map());
   // Latest Max-lane request per routine_id (drives queued/running/done state
   // on the Run-on-Max buttons). Same hook the AI Routines page uses.
   const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
@@ -274,6 +290,27 @@ export function AiModelsDataTable() {
   useEffect(() => {
     loadFeatures();
   }, [loadFeatures]);
+
+  // Load the registry's job types once so runnable features can open an inline
+  // Run card. Best-effort — a failure just means no Run buttons render, never a
+  // broken page (matches the house style of the other config fetches here).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/ai-job-types', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        const list: AiJobType[] = Array.isArray(json?.jobTypes) ? json.jobTypes : [];
+        if (!cancelled) setJobTypeMap(new Map(list.map((jt) => [jt.job_type, jt])));
+      } catch {
+        // silent — no Run buttons on failure
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Group by category for the table sectioning
   const grouped = useMemo(() => {
@@ -376,6 +413,30 @@ export function AiModelsDataTable() {
                               <div className="text-xs text-muted-foreground/70 font-mono">
                                 {f.feature_key}
                               </div>
+                              {/* Config merge: the registry's own lane (max/api/either) —
+                                  which lane this feature's model runs on per the
+                                  unified ai_job_types config. */}
+                              {f.lane && (
+                                <Badge
+                                  variant="outline"
+                                  className={`mt-1 gap-1 text-[10px] font-normal ${
+                                    f.lane === 'max'
+                                      ? 'border-[#0b6d41]/40 text-[#0b6d41]'
+                                      : 'text-muted-foreground'
+                                  }`}
+                                  title="Registry lane: where this feature's model runs — Max (₹0 subscription seat), API (paid), or Either."
+                                >
+                                  {f.lane === 'max' ? (
+                                    <>
+                                      <Zap className="h-3 w-3" /> Max lane
+                                    </>
+                                  ) : f.lane === 'api' ? (
+                                    'API lane'
+                                  ) : (
+                                    'Either lane'
+                                  )}
+                                </Badge>
+                              )}
                               {!f.is_active && (
                                 <Badge variant="outline" className="mt-1">Inactive</Badge>
                               )}
@@ -516,14 +577,31 @@ export function AiModelsDataTable() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setEditingFeature(f)}
-                              aria-label={`Edit ${f.display_name}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              {/* Config merge: runnable registry features get an
+                                  on-demand Run card (reuses the AI Studio runner).
+                                  Shown only when the registry says runnable AND we
+                                  have its job-type def loaded. */}
+                              {f.runnable && jobTypeMap.has(f.feature_key) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setRunningFeature(f)}
+                                  aria-label={`Run ${f.display_name}`}
+                                  title="Run this feature on demand"
+                                >
+                                  <Play className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setEditingFeature(f)}
+                                aria-label={`Edit ${f.display_name}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -547,6 +625,27 @@ export function AiModelsDataTable() {
           loadFeatures();
         }}
       />
+
+      {/* Config merge (2026-07-14): on-demand Run dialog — embeds the AI Studio
+          run card for the selected runnable feature, so the AI Models page both
+          governs the model AND runs the feature per the unified registry. */}
+      <Dialog
+        open={!!runningFeature}
+        onOpenChange={(open) => {
+          if (!open) setRunningFeature(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Run {runningFeature?.display_name ?? 'feature'} on demand
+            </DialogTitle>
+          </DialogHeader>
+          {runningFeature && jobTypeMap.get(runningFeature.feature_key) && (
+            <AiJobRunCard jobType={jobTypeMap.get(runningFeature.feature_key)!} />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
