@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
-import { CheckCircle2, ShieldCheck, History } from 'lucide-react';
+import { CheckCircle2, EyeOff, ShieldCheck, History } from 'lucide-react';
 import {
   useChecklistConfig,
   useSubmitFeedback,
@@ -336,6 +336,21 @@ export function FeedbackDialog({
               </div>
             </div>
           )}
+
+          {/* Anonymity — say it where the fear bites, right before the rating.
+              (Director 2026-07-14: ratings cluster at 4; learners may fear
+              being identified.) TRUE by construction: faculty read aggregates
+              via SECDEF fns only; raw rows are RLS'd to the learner + platform
+              admin; free-text reaches staff without names attached. */}
+          <p className="flex items-start gap-1.5 rounded-md px-2.5 py-2 text-xs"
+             style={{ backgroundColor: 'rgba(11,109,65,0.06)' }}>
+            <EyeOff className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: BRAND }} />
+            <span>
+              <span className="font-semibold">Anonymous to your teachers.</span>{' '}
+              They see class totals only — never your name with your answer.
+              Answer honestly; that is what improves the classes.
+            </span>
+          </p>
 
           {/* Understanding 1–5 */}
           <div className="space-y-2">
