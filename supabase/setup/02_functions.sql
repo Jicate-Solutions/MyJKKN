@@ -21947,6 +21947,35 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_refund_role_members() TO authenticated;
 
+-- ── Tournament registration form event_id sync (2026-07-14,
+--    event_registration_form_event_id_sync_triggers) ──
+-- Derives (not just validates) event_id on sections/fields from their parent
+-- chain. BEFORE ROW triggers run before RLS WITH CHECK evaluation, so a
+-- caller who submits a mismatched event_id gets it silently corrected to the
+-- TRUE owning tournament before RLS checks permissions against it — closes
+-- the structural-drift gap the plain FK/UNIQUE columns alone don't prevent.
+CREATE OR REPLACE FUNCTION sync_event_registration_form_section_event_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT event_id INTO NEW.event_id FROM event_registration_forms WHERE id = NEW.form_id;
+  IF NEW.event_id IS NULL THEN
+    RAISE EXCEPTION 'event_registration_form_sections.form_id % does not reference a valid form', NEW.form_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE OR REPLACE FUNCTION sync_event_registration_form_field_event_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT event_id INTO NEW.event_id FROM event_registration_form_sections WHERE id = NEW.section_id;
+  IF NEW.event_id IS NULL THEN
+    RAISE EXCEPTION 'event_registration_form_fields.section_id % does not reference a valid section', NEW.section_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
 -- ============================================================================
 -- 2026-07-11: fn_scf_admin_college_summary — "Low sessions" second lens
 -- (Director request). Two ADDITIVE trailing columns: low_flag_responses
