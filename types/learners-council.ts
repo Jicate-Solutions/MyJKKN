@@ -658,6 +658,11 @@ export interface CreateAnnouncementDto {
   scope: AnnouncementScope;
   scope_id?: string;
   attachments?: { name: string; url: string; type: string }[];
+  /**
+   * Submit live on creation instead of saving a draft. LC office bearers only --
+   * the database rejects it for anyone else.
+   */
+  publish?: boolean;
 }
 export type UpdateAnnouncementDto = Partial<CreateAnnouncementDto> & { status?: AnnouncementStatus };
 

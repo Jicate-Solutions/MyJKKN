@@ -66,13 +66,17 @@ const typeLabels: Record<string, string> = {
 interface AnnouncementsClientProps {
   initialAnnouncements: LCAnnouncement[];
   userId: string;
-  canCreate: boolean;
+  /** Any Council member (plus staff/super admin) may write a draft. */
+  canDraft: boolean;
+  /** LC office bearers (or a super admin) only. Mirrors fn_lc_announcement_guard_publish(). */
+  canPublish: boolean;
 }
 
 export function AnnouncementsClient({
   initialAnnouncements,
   userId,
-  canCreate
+  canDraft,
+  canPublish
 }: AnnouncementsClientProps) {
   const [scopeFilter, setScopeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('published');
@@ -138,7 +142,7 @@ export function AnnouncementsClient({
 
   const announcements = announcementsData?.data || initialAnnouncements;
 
-  const handleCreate = () => {
+  const handleCreate = (publish: boolean) => {
     if (!formTitle.trim() || !formContent.trim()) return;
 
     const dto: CreateAnnouncementDto = {
@@ -146,7 +150,8 @@ export function AnnouncementsClient({
       content: formContent.trim(),
       type: formType,
       urgency: formUrgency,
-      scope: formScope
+      scope: formScope,
+      publish
     };
 
     createMutation.mutate(
@@ -159,6 +164,9 @@ export function AnnouncementsClient({
           setFormType('general');
           setFormUrgency('normal');
           setFormScope('lc_wide');
+          // A draft would otherwise vanish behind the default "Published" filter the
+          // instant it was saved, which read as "nothing happened".
+          setStatusFilter(publish ? 'published' : 'draft');
         }
       }
     );
@@ -170,7 +178,7 @@ export function AnnouncementsClient({
   };
 
   const handlePublish = (announcementId: string) => {
-    publishMutation.mutate({ id: announcementId, reviewerId: userId });
+    publishMutation.mutate({ id: announcementId });
   };
 
   return (
@@ -196,7 +204,7 @@ export function AnnouncementsClient({
             <Download className="h-4 w-4 mr-2" />
             {exportMutation.isPending ? 'Exporting...' : 'Export CSV'}
           </Button>
-          {canCreate && (
+          {canDraft && (
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -206,7 +214,9 @@ export function AnnouncementsClient({
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>Create Announcement</DialogTitle>
+                <DialogTitle>
+                  {canPublish ? 'Create Announcement' : 'Write a Draft'}
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div>
@@ -265,16 +275,31 @@ export function AnnouncementsClient({
                   </div>
                 </div>
               </div>
+              {!canPublish && (
+                <p className="text-xs text-muted-foreground">
+                  Your draft is saved for an LC office bearer (President, Vice President,
+                  Secretary or Treasurer) to submit. Only they can send it to the Council.
+                </p>
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
                   Cancel
                 </Button>
                 <Button
-                  onClick={handleCreate}
+                  variant={canPublish ? 'outline' : 'default'}
+                  onClick={() => handleCreate(false)}
                   disabled={createMutation.isPending || !formTitle.trim() || !formContent.trim()}
                 >
-                  {createMutation.isPending ? 'Creating...' : 'Create Draft'}
+                  {createMutation.isPending ? 'Saving...' : 'Save as Draft'}
                 </Button>
+                {canPublish && (
+                  <Button
+                    onClick={() => handleCreate(true)}
+                    disabled={createMutation.isPending || !formTitle.trim() || !formContent.trim()}
+                  >
+                    {createMutation.isPending ? 'Submitting...' : 'Submit Now'}
+                  </Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -295,7 +320,7 @@ export function AnnouncementsClient({
             <SelectItem value="vertical">Vertical</SelectItem>
           </SelectContent>
         </Select>
-        {canCreate && (
+        {canDraft && (
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
@@ -377,6 +402,22 @@ export function AnnouncementsClient({
                           <span>{announcement.read_count} reads</span>
                         </div>
                       </div>
+                      {/* Submit straight from the list -- an office bearer clearing a
+                          queue of drafts should not have to open each one. */}
+                      {canPublish && announcement.status === 'draft' && (
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePublish(announcement.id);
+                            }}
+                            disabled={publishMutation.isPending}
+                          >
+                            Submit Now
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -452,7 +493,7 @@ export function AnnouncementsClient({
                   </div>
                 )}
               </div>
-              {canCreate && selectedAnnouncement.status === 'draft' && (
+              {canPublish && selectedAnnouncement.status === 'draft' && (
                 <DialogFooter>
                   <Button
                     onClick={() => {
@@ -461,7 +502,7 @@ export function AnnouncementsClient({
                     }}
                     disabled={publishMutation.isPending}
                   >
-                    {publishMutation.isPending ? 'Publishing...' : 'Publish Now'}
+                    {publishMutation.isPending ? 'Submitting...' : 'Submit Now'}
                   </Button>
                 </DialogFooter>
               )}
