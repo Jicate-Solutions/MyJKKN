@@ -33,8 +33,9 @@ export async function POST(request: NextRequest) {
   let result: { success: boolean; results?: { phone: string; success: boolean; error?: string }[]; totalSent?: number; successCount?: number; failCount?: number };
   try {
     result = await personalSendBulkAPI(recipients, delay_ms || 1500, {
-      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      serviceUrl,
       apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      departmentId: clientId,
     });
   } catch (error) {
     result = { success: false, results: [] };

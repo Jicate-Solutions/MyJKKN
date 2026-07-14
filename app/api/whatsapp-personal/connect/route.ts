@@ -26,8 +26,9 @@ export async function POST(request: NextRequest) {
   });
 
   const result = await personalConnectAPI({
-    serviceUrl: `${serviceUrl}/clients/${clientId}`,
+    serviceUrl,
     apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+    departmentId: clientId,
   });
 
   if (result.success) {

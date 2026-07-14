@@ -50,8 +50,9 @@ export async function GET(request: NextRequest) {
 
     try {
       const liveStatus = await personalGetStatusAPI({
-        serviceUrl: `${whatsappConnection.service_url}/clients/${clientId}`,
+        serviceUrl: whatsappConnection.service_url,
         apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+        departmentId: clientId,
       });
 
       if (liveStatus.status !== whatsappConnection.status) {
