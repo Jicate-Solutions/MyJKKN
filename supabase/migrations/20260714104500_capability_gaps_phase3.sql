@@ -253,6 +253,31 @@ $$;
 --     with exactly the (uuid, uuid) read-tool signature — never arbitrary SQL.
 --   * On a 3/3 PASS the row advances to awaiting_approval (human still approves +
 --     Windows still exposes). On FAIL it parks at fix_drafted with the failing case.
+-- Internal helper: recursively remove scope-echo keys (institution_id / user_id / …) from a
+-- jsonb, so the leak-test's ISOLATION comparison looks at the SUBSTANTIVE data, not a
+-- per-institution id a tool merely echoes back (which would otherwise make isolation
+-- vacuously true even while a sibling field leaks global data). Internal-only.
+CREATE OR REPLACE FUNCTION public._capgap_strip_scope_keys(p jsonb)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT CASE jsonb_typeof(p)
+    WHEN 'object' THEN (
+      SELECT coalesce(jsonb_object_agg(e.k, public._capgap_strip_scope_keys(e.v)), '{}'::jsonb)
+      FROM jsonb_each(p) AS e(k, v)
+      WHERE e.k NOT IN ('institution_id','institution','institution_name',
+                        'user_id','uid','profile_id','learner_id')
+    )
+    WHEN 'array' THEN (
+      SELECT coalesce(jsonb_agg(public._capgap_strip_scope_keys(a.v)), '[]'::jsonb)
+      FROM jsonb_array_elements(p) AS a(v)
+    )
+    ELSE p
+  END
+$$;
+
 CREATE OR REPLACE FUNCTION public.fn_capgap_leaktest(
   p_id     uuid,
   p_user_a uuid DEFAULT NULL,
@@ -268,14 +293,19 @@ DECLARE
   v_tool       text;
   v_nargs      int;
   v_argtypes   text;
+  v_argnames   text[];
+  v_volatile   char;
   v_ua uuid; v_ub uuid; v_ia uuid; v_ib uuid;
+  v_a_super boolean; v_b_super boolean;
   v_orig       text;
-  v_res_a jsonb; v_res_b jsonb; v_res_spoof jsonb;
+  v_res_a jsonb; v_res_b jsonb;
+  v_res_s1 jsonb; v_res_s2 jsonb; v_res_s3 jsonb;   -- spoof variants: arg1, arg2, both
   v_isolation  boolean;
   v_spoof_ok   boolean;
   v_pass       boolean;
   v_result     jsonb;
   v_new_status text;
+  v_note       text;
 BEGIN
   IF NOT public.is_super_admin() THEN
     RETURN jsonb_build_object('success', false, 'error', 'forbidden');
@@ -292,10 +322,12 @@ BEGIN
       'candidate_tool missing or not an ai_rpc_* identifier');
   END IF;
 
-  -- Validate the tool exists with the read-tool signature (two uuid args). This
-  -- binds the dynamic call to a known catalog function — not an arbitrary primitive.
-  SELECT p.pronargs, pg_catalog.oidvectortypes(p.proargtypes)
-  INTO v_nargs, v_argtypes
+  -- Validate the tool: public.<name>(p_user_id uuid, p_institution_id uuid), STABLE/IMMUTABLE
+  -- (never VOLATILE — so the leak-tester never triggers a write under impersonation), with
+  -- the exact arg NAMES (so the arg-ORDER the spoof relies on is verifiably true, not assumed).
+  -- This binds the dynamic call to a known READ tool — not an arbitrary or write primitive.
+  SELECT p.pronargs, pg_catalog.oidvectortypes(p.proargtypes), p.proargnames, p.provolatile
+  INTO v_nargs, v_argtypes, v_argnames, v_volatile
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = v_tool
   ORDER BY p.pronargs DESC
@@ -306,6 +338,15 @@ BEGIN
   IF v_nargs <> 2 OR v_argtypes <> 'uuid, uuid' THEN
     RETURN jsonb_build_object('success', false, 'error',
       'tool signature is not (uuid, uuid): got (' || coalesce(v_argtypes,'?') || ')');
+  END IF;
+  IF v_argnames IS DISTINCT FROM ARRAY['p_user_id','p_institution_id']::text[] THEN
+    RETURN jsonb_build_object('success', false, 'error',
+      'tool args must be named (p_user_id, p_institution_id); got '
+      || coalesce(array_to_string(v_argnames, ','), '?'));
+  END IF;
+  IF v_volatile NOT IN ('s','i') THEN
+    RETURN jsonb_build_object('success', false, 'error',
+      'tool must be STABLE/IMMUTABLE (read-only); it is VOLATILE — refusing to run it under impersonation');
   END IF;
 
   -- Choose two test users from two DIFFERENT institutions.
@@ -326,63 +367,95 @@ BEGIN
     ) s ORDER BY s.insz DESC, s.inst LIMIT 1;
   END IF;
 
-  SELECT institution_id INTO v_ia FROM public.profiles WHERE id = v_ua;
-  SELECT institution_id INTO v_ib FROM public.profiles WHERE id = v_ub;
+  -- Resolve each user's institution + super-admin flag. BOTH test users MUST be non-super:
+  -- a super-admin caller takes a tool's super branch and honors the spoofed id, which would
+  -- distort the verdict (the auto-pick path filters supers; the explicit path must too).
+  SELECT institution_id, coalesce(is_super_admin, false)
+    INTO v_ia, v_a_super FROM public.profiles WHERE id = v_ua;
+  SELECT institution_id, coalesce(is_super_admin, false)
+    INTO v_ib, v_b_super FROM public.profiles WHERE id = v_ub;
   IF v_ua IS NULL OR v_ub IS NULL OR v_ia IS NULL OR v_ib IS NULL OR v_ia = v_ib THEN
     RETURN jsonb_build_object('success', false, 'error',
       'could not resolve two users from two different institutions');
+  END IF;
+  IF v_a_super OR v_b_super THEN
+    RETURN jsonb_build_object('success', false, 'error',
+      'both test users must be non-super-admins (a super-admin bypasses per-institution scoping)');
   END IF;
 
   -- Save the caller's claims so we can restore them after the impersonated calls.
   v_orig := current_setting('request.jwt.claims', true);
 
-  -- (A) College A user → capture A-scoped result.
+  -- (A) College A user, no spoof → A's legitimate scoped result.
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_ua::text, 'role', 'authenticated')::text, true);
   EXECUTE format('SELECT public.%I($1, $2)', v_tool) INTO v_res_a USING NULL::uuid, NULL::uuid;
 
-  -- (B) College B user → capture B-scoped result.
+  -- (B) College B user, no spoof → B's legitimate scoped result.
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_ub::text, 'role', 'authenticated')::text, true);
   EXECUTE format('SELECT public.%I($1, $2)', v_tool) INTO v_res_b USING NULL::uuid, NULL::uuid;
 
-  -- (SPOOF) College A user passing College B's institution id → must still be A.
+  -- SPOOF variants — all as College A, trying to reach B's data via EVERY caller-supplied
+  -- uuid position. A correctly-scoped tool ignores both args (hard-pinned to auth.uid()=A)
+  -- and returns A's data for all three. We spoof BOTH args because the tester cannot know
+  -- which arg a tool keys on — and the codebase's #1 leak class is a p_user_id (arg1)
+  -- confused deputy (feedback_ai_rpc_confused_deputy_p_user_id — the 4,486-learner leak),
+  -- which an arg2-only spoof would never exercise.
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_ua::text, 'role', 'authenticated')::text, true);
-  EXECUTE format('SELECT public.%I($1, $2)', v_tool) INTO v_res_spoof USING NULL::uuid, v_ib;
+  EXECUTE format('SELECT public.%I($1, $2)', v_tool) INTO v_res_s1 USING v_ub,       NULL::uuid;  -- spoof arg1 = B's user id
+  EXECUTE format('SELECT public.%I($1, $2)', v_tool) INTO v_res_s2 USING NULL::uuid, v_ib;        -- spoof arg2 = B's institution
+  EXECUTE format('SELECT public.%I($1, $2)', v_tool) INTO v_res_s3 USING v_ub,       v_ib;        -- spoof BOTH
 
   -- Restore the original caller claims (defense in depth; is_local resets at txn end anyway).
   PERFORM set_config('request.jwt.claims', coalesce(v_orig, ''), true);
 
-  -- Verdict. isolation: two colleges see DIFFERENT data (the tool scopes at all).
-  --          spoof_blocked: A-spoofing-B still gets A's data, never B's.
-  v_isolation := v_res_a IS DISTINCT FROM v_res_b;
-  v_spoof_ok  := (v_res_spoof IS NOT DISTINCT FROM v_res_a)
-                 AND (v_res_spoof IS DISTINCT FROM v_res_b OR v_res_a IS NOT DISTINCT FROM v_res_b);
-  v_pass      := v_isolation AND v_spoof_ok;
+  -- ISOLATION: the two colleges must see DIFFERENT SUBSTANTIVE data — compared with
+  -- scope-echo keys stripped (institution_id/user_id/…), so a tool that merely echoes a
+  -- different institution_id while leaking the SAME global data does NOT fake isolation.
+  v_isolation := public._capgap_strip_scope_keys(v_res_a)
+                 IS DISTINCT FROM public._capgap_strip_scope_keys(v_res_b);
+
+  -- SPOOF BLOCKED: EVERY spoof variant (arg1, arg2, both) must return A's OWN full result —
+  -- no caller-supplied uuid can move the result onto B's data.
+  v_spoof_ok := (v_res_s1 IS NOT DISTINCT FROM v_res_a)
+            AND (v_res_s2 IS NOT DISTINCT FROM v_res_a)
+            AND (v_res_s3 IS NOT DISTINCT FROM v_res_a);
+
+  v_pass := v_isolation AND v_spoof_ok;
+
+  v_note := CASE
+    WHEN NOT v_isolation
+      THEN 'INCONCLUSIVE/FAIL: the two colleges saw identical substantive data (echo-stripped) — pick two institutions with differing data, or the tool is not scoping.'
+    WHEN NOT v_spoof_ok
+      THEN 'FAIL: a caller-supplied id (p_user_id and/or p_institution_id) moved the result off College A''s data — the tool leaks cross-tenant. Do NOT expose.'
+    ELSE 'PASS: colleges isolated + every id-spoof (user, institution, both) blocked.'
+  END;
 
   v_result := jsonb_build_object(
     'pass',          v_pass,
     'isolation_ok',  v_isolation,
     'spoof_blocked', v_spoof_ok,
+    'spoof_user_ok',        (v_res_s1 IS NOT DISTINCT FROM v_res_a),
+    'spoof_institution_ok', (v_res_s2 IS NOT DISTINCT FROM v_res_a),
+    'spoof_both_ok',        (v_res_s3 IS NOT DISTINCT FROM v_res_a),
     'tool',          v_tool,
     'user_a',        v_ua, 'institution_a', v_ia,
     'user_b',        v_ub, 'institution_b', v_ib,
-    'result_a',      left(v_res_a::text, 500),
-    'result_b',      left(v_res_b::text, 500),
-    'result_spoof',  left(v_res_spoof::text, 500),
-    'note', CASE WHEN NOT v_isolation
-                 THEN 'INCONCLUSIVE/FAIL: both test users saw identical data (pick two institutions with differing data).'
-                 WHEN NOT v_spoof_ok
-                 THEN 'FAIL: cross-college id-spoof was NOT blocked — the tool leaks. Do NOT expose.'
-                 ELSE 'PASS: colleges isolated + spoof blocked.' END,
+    'result_a',      left(v_res_a::text, 400),
+    'result_b',      left(v_res_b::text, 400),
+    'result_spoof_user',        left(v_res_s1::text, 300),
+    'result_spoof_institution', left(v_res_s2::text, 300),
+    'note', v_note,
     'checked_at', now()
   );
 
   v_new_status := CASE
     WHEN v_pass AND v_row.status IN ('open','triaged','fix_drafted','leak_testing')
       THEN 'awaiting_approval'
-    WHEN (NOT v_pass) AND v_row.status IN ('open','triaged','leak_testing')
+    -- A FAIL never leaves a gap in a green approval state — un-approve on re-test failure.
+    WHEN (NOT v_pass) AND v_row.status IN ('open','triaged','leak_testing','awaiting_approval')
       THEN 'fix_drafted'
     ELSE v_row.status
   END;
@@ -485,6 +558,9 @@ $$;
 -- ---------------------------------------------------------------------
 -- 7. Grants — anon-lock per CLAUDE.md (Supabase default-grants anon + authenticated)
 -- ---------------------------------------------------------------------
+-- Internal helper: no anon/authenticated grant (called only inside fn_capgap_leaktest).
+REVOKE EXECUTE ON FUNCTION public._capgap_strip_scope_keys(jsonb) FROM anon, authenticated, PUBLIC;
+
 REVOKE EXECUTE ON FUNCTION public.fn_capgap_events_sync() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_capgap_events_sync() TO authenticated, service_role;
 
