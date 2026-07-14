@@ -47,6 +47,7 @@ import { CareSummaryStrip } from '../_components/care-summary-strip';
 import { CareResultsPanel } from '../_components/care-results-panel';
 import { careIndex } from '@/lib/services/audit/care-scoring-service';
 import { carreIndex } from '@/lib/services/audit/carre-scoring-service';
+import { SectionEyebrow, PhaseStepper } from '../../_components/redesign/kit';
 import type {
   CareAuditDetail,
   CareRpcDenial,
@@ -255,48 +256,61 @@ export default function CultureAuditDetailPage({
       />
 
       <div className="space-y-6 max-w-5xl">
-        {/* Header */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <HeartHandshake className="h-4 w-4 text-rose-600 flex-shrink-0" />
-                  <h2 className="text-lg font-semibold truncate">{d.cycle.name}</h2>
-                  <Badge variant="secondary" className="uppercase text-[10px]">
-                    {frameworkLabel} v{d.snapshot?.version ?? (isCarre ? '2.0' : '1.0')}
-                  </Badge>
-                  {isCarre && settingCode && (
-                    <Badge variant="outline" className="text-[10px]">
-                      {settingCode}
-                    </Badge>
-                  )}
-                </div>
+        {/* Header — eyebrow + heading + meta + phase spine */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                <HeartHandshake className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <SectionEyebrow>
+                  {frameworkLabel} v{d.snapshot?.version ?? (isCarre ? '2.0' : '1.0')}
+                  {isCarre && settingCode ? ` · ${settingCode}` : ''} · Culture audit
+                </SectionEyebrow>
+                <h1 className="truncate text-2xl font-semibold tracking-tight">
+                  {d.cycle.name}
+                </h1>
                 {d.cycle.audience && (
                   <p className="text-sm text-muted-foreground">{d.cycle.audience}</p>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  Owner: <span className="font-medium">{d.cycle.owner_name ?? '—'}</span>
-                  {' · '}Opened {formatDate(d.cycle.start_date)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <CalendarClock className="h-4 w-4 text-muted-foreground" />
-                <span>
-                  Re-audit {formatDate(d.cycle.re_audit_date)}
-                </span>
-                {overdue && (
-                  <Badge variant="outline" className="border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-                    Overdue
-                  </Badge>
-                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    Owner{' '}
+                    <span className="font-medium text-foreground">
+                      {d.cycle.owner_name ?? '—'}
+                    </span>
+                  </span>
+                  <span>Opened {formatDate(d.cycle.start_date)}</span>
+                  <span className="inline-flex items-center gap-1">
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    Re-audit {formatDate(d.cycle.re_audit_date)}
+                  </span>
+                  {overdue && (
+                    <Badge
+                      variant="outline"
+                      className="border-red-300 bg-red-50 text-[10px] text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+                    >
+                      Overdue
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          {/* Phase spine */}
+          <Card>
+            <CardContent className="py-4">
+              <PhaseStepper phase={d.cycle.phase} />
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Live pillar / index strip */}
-        <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
+        <section className="space-y-3">
+          <SectionEyebrow>Live score</SectionEyebrow>
+          <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
+        </section>
 
         {/* Second scorer */}
         <Card>

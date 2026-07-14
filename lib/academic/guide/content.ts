@@ -19,6 +19,10 @@ export const REQUIRES = {
   hod: "academic.attendance.dashboard.view",
   principal: "academic.attendance.dashboard.view_all_institutions",
   coordinator: "academic.years.view",
+  // Exam IA Audit — the Registrar's walk-in sheet (also held by principals,
+  // administrators, CEO and EAO). Gate-matches the page's own API authority
+  // (fn_exam_audit_access checks this exact key).
+  registrar: "academic.internal_marks.exam_audit.view",
 } as const;
 
 export const GUIDES: GuideBook = {
@@ -315,6 +319,92 @@ export const GUIDES: GuideBook = {
               action: "Open **Leave Settings** to configure leave types and approval workflows.",
               detail: "This decides which leave types staff and learners can apply for and who approves them.",
               link: { label: "Open Leave Settings", href: "/academic/leaves/settings" },
+            },
+          ],
+        },
+      ],
+    },
+
+    /* ── REGISTRAR (the in-person exam auditor — walks departments with the
+       Exam IA Audit sheet; principals/administrators/CEO/EAO hold the same
+       key and see this lane's sections too) ─────────────────────────────── */
+    registrar: {
+      persona: "registrar",
+      title: "Registrar Exam-Audit Guide",
+      tagline:
+        "Before you walk into a department, know exactly which programs to visit and what to ask for.",
+      whyItMatters:
+        "Colleges send semester attendance to the university from manual registers, and internal marks can reach the exam system as one-day bulk entries. This audit shows, program by program, where the continuous trail is missing — so your department visit starts from evidence, not suspicion.",
+      startHere: { label: "Open Exam IA Audit", href: "/academic/internal-marks/exam-audit" },
+      requires: REQUIRES.registrar,
+      journey: ["Pick college and exam", "Read the verdicts", "Note who to visit", "Check eligibility risk", "Walk the department"],
+      sections: [
+        {
+          id: "open-audit",
+          title: "Open the audit and pick the scope",
+          steps: [
+            {
+              action: "Open **Exam IA Audit** under Academic → Assessment.",
+              detail:
+                "The page computes everything fresh from JKKN day-one attendance and the exam system — nothing on it is self-reported.",
+              platforms: {
+                web: "left sidebar → Academic → the Assessment tab → Exam IA Audit",
+                mobile: "tap the menu (☰) → Academic → Assessment → Exam IA Audit",
+              },
+              link: { label: "Open Exam IA Audit", href: "/academic/internal-marks/exam-audit" },
+            },
+            {
+              action: "Pick the **College**, then the **Exam session** you are auditing.",
+              detail:
+                "The current term is auto-detected; you can switch to any past cycle. Two empty states are possible and mean different things: a session with no registrations means the exam cell has not opened registrations for that college yet, and a college with no sessions at all (the page says so) means the exam cell has never created an exam session for it — in both cases the follow-up is with the exam cell, not the departments.",
+              tip: "Audit the cycle whose exams are nearest — that is where a missing trail still has time to be fixed.",
+            },
+          ],
+        },
+        {
+          id: "read-verdicts",
+          title: "Read the two verdicts on each program",
+          steps: [
+            {
+              action: "Read the **CIA source** chip first: it says WHO entered the internal marks and how they landed.",
+              detail:
+                "'Faculty · continuous' is the intended state. 'Operator dump' means the marks reached the exam system through a handful of exam-cell accounts in a burst — not that the marks are wrong, but the continuous-assessment trail must exist somewhere else, and that is what you audit in person.",
+            },
+            {
+              action: "Read the **Rubric** chip next: it grades the entries against the configured assessment pattern.",
+              detail:
+                "'Partial · 1/2 rounds' means a whole configured round never happened. 'Off rubric · 0/2 rounds' means a rubric exists but nothing was entered. 'No rubric set' means the exam cell never configured an assessment pattern for that program — raise that with them before blaming the department.",
+              tip: "Internal marks are defined by the rubric's components (tests, assignments). Attendance never decides marks — it only gates who may sit the exam.",
+            },
+            {
+              action: "Use **Enterers / Entry days / Busiest day** to see the shape of the entry trail.",
+              detail:
+                "One enterer, one day, 100% on the busiest day = a bulk dump. Many enterers across many days = marks entered as assessments actually happened.",
+            },
+          ],
+        },
+        {
+          id: "eligibility",
+          title: "Check eligibility risk before the visit",
+          steps: [
+            {
+              action: "Read the **<75% / <65% / No record** columns — they count the exam-registered students against JKKN's own day-one attendance.",
+              detail:
+                "Below 75% needs condonation; below 65% risks ineligibility; 'No record' means the student is registered for the university exam but absent from JKKN attendance entirely — the university got their attendance from a manual register with nothing in our system behind it.",
+              prerequisite:
+                "Audit 'No record' programs FIRST — those are the ones where the manual register is the only evidence that exists.",
+            },
+          ],
+        },
+        {
+          id: "walk-in",
+          title: "Walk the department with the sheet",
+          steps: [
+            {
+              action: "For each flagged program, ask the department for the physical assessment records the chips say are missing.",
+              detail:
+                "'Partial · 1/2 rounds' → ask for the round-2 test papers and mark lists. 'Operator dump' → ask for the department's own continuous-assessment register that the bulk entry was copied from. 'No record' students → ask for the attendance register pages that were sent to the university.",
+              tip: "Cross-check a few students by hand: the same student's percentage on this page versus the manual register page the college submitted.",
             },
           ],
         },

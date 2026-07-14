@@ -394,6 +394,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/monitor': 'academic.internal-marks.view',
   '/academic/internal-marks/attendance-insight': 'academic.internal-marks.view',
+  // Exam IA Audit has its OWN narrower key (registrar/leadership audit sheet)
+  '/academic/internal-marks/exam-audit': 'academic.internal_marks.exam_audit.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
 
   // Regulations Management

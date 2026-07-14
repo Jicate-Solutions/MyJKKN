@@ -121,8 +121,9 @@ export function SF100MyTeamDashboard() {
         </Button>
       </div>
 
-      {/* Rich 5-tab team detail — URL query ?tab=X controls initial tab */}
-      <SF100TeamDetail enrollmentId={enrollmentId} defaultTab={defaultTab} />
+      {/* Rich 5-tab team detail — URL query ?tab=X controls initial tab.
+          canEdit: this is the viewer's OWN team, so the Add forms show here. */}
+      <SF100TeamDetail enrollmentId={enrollmentId} defaultTab={defaultTab} canEdit />
     </div>
   );
 }
