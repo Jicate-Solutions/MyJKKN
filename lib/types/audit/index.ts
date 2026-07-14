@@ -132,7 +132,9 @@ export interface AuditParameterCatalogRow {
 // Written by fn_audit_capture_cycle_results; the audit's cross-cycle memory.
 // ============================================================================
 
-export type AuditParameterVerdict = 'pass' | 'partial' | 'fail';
+// 'unchecked' = no findings AND not signed off yet ("Not checked yet"). 'partial' =
+// had findings, all now closed, but not re-signed. (Director decision 2026-07-14.)
+export type AuditParameterVerdict = 'pass' | 'partial' | 'fail' | 'unchecked';
 
 export interface AuditParameterResultMeasured {
   finding_count: number;

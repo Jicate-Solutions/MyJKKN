@@ -38,9 +38,10 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Building2, CalendarClock, FileText, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarClock, FileText, History, ShieldCheck } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit/use-audit-cycles';
 import { useParametersForInstitution } from '@/hooks/audit/use-audit-parameters';
+import { usePriorParameterResult } from '@/hooks/audit/use-audit-parameter-results';
 import { useLogFinding, useFindingsByCycle } from '@/hooks/audit/use-audit-findings';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAuth } from '@/hooks/use-auth';
@@ -215,6 +216,15 @@ export function LogFindingDialog({
         isOpenFinding(f)
     ).length;
   }, [cycleFindings, selectedParam, selectedInstitutionId]);
+
+  // This college's LAST-cycle result for the exact parameter about to be filed
+  // against — "how did we do here last time" context (only fetched once all three
+  // keys are set). null when the pair has never been scored in a prior cycle.
+  const { data: priorResult } = usePriorParameterResult(
+    watchedCycleId || undefined,
+    selectedParam?.code,
+    selectedInstitutionId || undefined
+  );
 
   // Pre-select the parameter's own default severity whenever the parameter changes
   // (culture params → observation, others → needs-attention). The auditor can still
@@ -453,6 +463,22 @@ export function LogFindingDialog({
                     </span>
                   </div>
                 ) : null}
+
+                {priorResult && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <History className="h-3.5 w-3.5 flex-shrink-0" />
+                    {priorResult.finding_count > 0 ? (
+                      <span>
+                        Last cycle:{' '}
+                        <span className="font-medium text-foreground">{priorResult.verdict}</span> —{' '}
+                        {priorResult.finding_count} finding{priorResult.finding_count === 1 ? '' : 's'},{' '}
+                        {priorResult.open_finding_count} still open
+                      </span>
+                    ) : (
+                      <span>Last cycle: clean</span>
+                    )}
+                  </div>
+                )}
 
                 {openFindingsHere > 0 && (
                   <div className="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
