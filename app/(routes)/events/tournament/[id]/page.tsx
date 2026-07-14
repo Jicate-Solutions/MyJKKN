@@ -67,6 +67,7 @@ import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/typ
 import { AddEntryDialog } from './_components/add-entry-dialog';
 import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
+import { RegistrationFormBuilder } from './_components/registration-form-builder';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -552,6 +553,9 @@ export default function TournamentManagePage() {
         tournament={tournament}
         canAssign={access.canAssignIncharge}
       />
+
+      {/* ── Registration Form builder ────────────────────────────────────── */}
+      <RegistrationFormBuilder eventId={id} canManage={canManage} />
 
       {/* ── KPI row ─────────────────────────────────────────────────────── */}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
