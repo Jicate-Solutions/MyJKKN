@@ -46,6 +46,27 @@ import { useAuth } from '@/hooks/use-auth';
 import { getErrorMessage } from '@/lib/utils';
 import type { FindingSeverity } from '@/lib/types/audit';
 
+// Remember the institution an auditor last logged a finding against. A walkthrough
+// of one college produces many findings for the same institution, so pre-selecting
+// the last pick removes a repeated click. Global (not per-cycle) on purpose.
+const LAST_INSTITUTION_KEY = 'audit:last-institution-id';
+function readLastInstitution(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(LAST_INSTITUTION_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeLastInstitution(id: string): void {
+  if (typeof window === 'undefined' || !id) return;
+  try {
+    window.localStorage.setItem(LAST_INSTITUTION_KEY, id);
+  } catch {
+    /* localStorage unavailable (private mode / quota) — non-fatal */
+  }
+}
+
 const logFindingSchema = z.object({
   audit_cycle_id: z.string().uuid('Select a cycle'),
   institution_id: z.string().uuid('Select an institution'),
@@ -109,10 +130,49 @@ export function LogFindingDialog({
     selectedInstitutionId || undefined
   );
 
+  // Watch the cycle id explicitly so the derived cycle (and its institution scope)
+  // stays in sync — memoizing on `form` alone leaves it stale when the cycle changes.
+  const watchedCycleId = form.watch('audit_cycle_id');
   const selectedCycle = useMemo(
-    () => cycles.find((c) => c.id === form.watch('audit_cycle_id')),
-    [cycles, form]
+    () => cycles.find((c) => c.id === watchedCycleId),
+    [cycles, watchedCycleId]
   );
+
+  // Institutions a finding can be filed against for the selected cycle. A cycle's
+  // `institution_ids` NULL = all accessible; a non-empty list scopes to that subset.
+  // Filtering here both prevents out-of-scope findings and, when it narrows to one,
+  // lets us auto-select it. Fall back to the full list if the cycle scopes only
+  // institutions the auditor can't access (never strand them with an empty picker).
+  const scopedInstitutions = useMemo(() => {
+    const ids = selectedCycle?.institution_ids;
+    if (!ids || ids.length === 0) return institutions;
+    const allowed = new Set(ids);
+    const filtered = institutions.filter((i) => allowed.has(i.id));
+    return filtered.length ? filtered : institutions;
+  }, [institutions, selectedCycle]);
+
+  // Auto-select the institution: exactly one in-scope option → pick it; otherwise
+  // restore the auditor's last pick if it's still a valid option. Keeps a valid
+  // manual/existing choice, and re-defaults in one pass when a cycle change makes
+  // the current pick out-of-scope.
+  useEffect(() => {
+    if (!open || institutionsLoading || !scopedInstitutions.length) return;
+    const current = form.getValues('institution_id');
+    const currentValid = !!current && scopedInstitutions.some((i) => i.id === current);
+    if (currentValid) return;
+
+    let next = '';
+    if (scopedInstitutions.length === 1) {
+      next = scopedInstitutions[0].id;
+    } else {
+      const last = readLastInstitution();
+      if (last && scopedInstitutions.some((i) => i.id === last)) next = last;
+    }
+    if (next !== current) {
+      form.setValue('institution_id', next);
+      form.setValue('parameter_code', '');
+    }
+  }, [open, institutionsLoading, scopedInstitutions, form]);
 
   async function onSubmit(values: LogFindingFormValues) {
     if (!requesterId) {
@@ -127,6 +187,7 @@ export function LogFindingDialog({
         institution_id: values.institution_id,
         notes: values.notes,
       });
+      writeLastInstitution(values.institution_id);
       toast.success(`Finding logged (${result.request_number ?? result.finding_id.slice(0, 8)}).`);
       onOpenChange(false);
       onSuccess?.(result.finding_id);
@@ -218,7 +279,7 @@ export function LogFindingDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {institutions.map((inst) => (
+                      {scopedInstitutions.map((inst) => (
                         <SelectItem key={inst.id} value={inst.id}>
                           {inst.name}
                         </SelectItem>
