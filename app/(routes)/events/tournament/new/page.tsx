@@ -5,7 +5,7 @@
 // format, dates, registration window, venue (optional), is_public, external reg.
 // Created: 2026-06-22 (Sports Tournament PR1).
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -43,16 +43,13 @@ import { Loader2 } from 'lucide-react';
 export default function CreateTournamentPage() {
   const router = useRouter();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
-  const [institutionId, setInstitutionId] = useState('');
-  const createMutation = useCreateTournament();
-
   // Convenience default: pre-select the first accessible institution, but the
   // picker stays visible and editable — explicit per the product decision.
-  useEffect(() => {
-    if (!institutionId && institutions.length > 0) {
-      setInstitutionId(institutions[0].id);
-    }
-  }, [institutions, institutionId]);
+  // Derived (not synced via effect+setState) so there's no extra render pass:
+  // institutionIdOverride is null until the user actually picks one.
+  const [institutionIdOverride, setInstitutionIdOverride] = useState<string | null>(null);
+  const institutionId = institutionIdOverride ?? institutions[0]?.id ?? '';
+  const createMutation = useCreateTournament();
 
   const currentYear = new Date().getFullYear();
 
@@ -144,7 +141,7 @@ export default function CreateTournamentPage() {
                 <Label htmlFor="host_institution">
                   Host Institution <span className="text-destructive">*</span>
                 </Label>
-                <Select value={institutionId} onValueChange={setInstitutionId}>
+                <Select value={institutionId} onValueChange={setInstitutionIdOverride}>
                   <SelectTrigger id="host_institution">
                     <SelectValue
                       placeholder={institutionsLoading ? 'Loading institutions…' : 'Select host institution'}
