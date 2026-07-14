@@ -16,7 +16,7 @@
 // Rows read from useParameterResults(id) and the recompute mutation from
 // useCaptureCycleResults() — both from '@/hooks/audit/use-audit-parameter-results'.
 
-import { use, useMemo } from 'react';
+import { use, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -57,12 +57,19 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+// The DB verdict domain includes 'unchecked' ("no findings AND not signed off")
+// per the Gate ③ contract. The shared AuditParameterVerdict type may still lag
+// that, so we widen it locally — this keeps the report card typechecking whether
+// or not the shared union has caught up, without touching shared types.
+type ReportVerdict = AuditParameterVerdict | 'unchecked';
+
 // ---------------------------------------------------------------------------
 // Verdict styling — mirrors the redesign kit's status pill language:
-// pass = emerald (certified), partial = amber, fail = claret/red.
+// pass = emerald (certified), partial = amber, fail = claret/red,
+// unchecked = neutral slate ("Not checked yet" — un-scored, not a soft fail).
 // ---------------------------------------------------------------------------
 const VERDICT_META: Record<
-  AuditParameterVerdict,
+  ReportVerdict,
   { label: string; className: string; dot: string }
 > = {
   pass: {
@@ -83,17 +90,25 @@ const VERDICT_META: Record<
       'border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200',
     dot: 'bg-red-500',
   },
+  unchecked: {
+    label: 'Not checked yet',
+    className:
+      'border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+    dot: 'bg-slate-400',
+  },
 };
 
-// Fails first, then partials, then passes. Within a verdict, the most-recurring
-// (worst offenders) float up, then by code for a stable order.
-const VERDICT_RANK: Record<AuditParameterVerdict, number> = {
+// Fails first, then partials, then unchecked (un-scored), then passes. Within a
+// verdict, the most-recurring (worst offenders) float up, then by code for a
+// stable order.
+const VERDICT_RANK: Record<ReportVerdict, number> = {
   fail: 0,
   partial: 1,
-  pass: 2,
+  unchecked: 2,
+  pass: 3,
 };
 
-function VerdictPill({ verdict }: { verdict: AuditParameterVerdict }) {
+function VerdictPill({ verdict }: { verdict: ReportVerdict }) {
   const m = VERDICT_META[verdict];
   return (
     <span
@@ -116,14 +131,23 @@ function institutionLabel(institutionId: string | null): string {
 // ---------------------------------------------------------------------------
 // Delta cell — how the gap moved since the prior cycle. More findings than last
 // time is WORSE (red, ↑); fewer is BETTER (green, ↓); unchanged is a muted dash.
-// A null delta means there is no prior cycle to compare against ("New").
+// When there is no prior_result_id, this parameter × institution was never scored
+// before — there is nothing to compare against, so we show a muted "New".
 // ---------------------------------------------------------------------------
-function DeltaCell({ delta }: { delta: AuditParameterResultDelta | null }) {
-  if (!delta) {
+function DeltaCell({
+  priorResultId,
+  delta,
+}: {
+  priorResultId: string | null;
+  delta: AuditParameterResultDelta | null;
+}) {
+  // No prior cycle for this pair → nothing to compare. (delta is also null here,
+  // but prior_result_id is the source of truth for "first time scored".)
+  if (!priorResultId || !delta) {
     return (
       <span
         className="text-xs text-muted-foreground"
-        title="No prior cycle to compare against"
+        title="First time this parameter was scored — no prior cycle to compare against"
       >
         New
       </span>
@@ -175,10 +199,28 @@ export default function CycleReportCardPage({ params }: PageProps) {
 
   const captureResults = useCaptureCycleResults();
 
+  // Auto-recompute once on mount so the card is always fresh without pressing
+  // Recompute. The useRef guard makes this fire a single time per mount (React
+  // 18 StrictMode double-invokes effects in dev — the ref makes that a no-op),
+  // and we skip if a capture is somehow already in flight. Success invalidates
+  // the results query (wired in useCaptureCycleResults), which refetches. Silent
+  // — no toast here; the manual Recompute button below owns the confirmation.
+  const didAutoCapture = useRef(false);
+  useEffect(() => {
+    if (didAutoCapture.current) return;
+    if (!id || captureResults.isPending) return;
+    didAutoCapture.current = true;
+    captureResults.mutate(id);
+    // captureResults.mutate is stable; we intentionally run this only for `id`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
   // Fails first — the report card should lead with what still needs work.
   const sortedResults = useMemo<AuditParameterResult[]>(() => {
     return [...results].sort((a, b) => {
-      const byVerdict = VERDICT_RANK[a.verdict] - VERDICT_RANK[b.verdict];
+      const byVerdict =
+        VERDICT_RANK[a.verdict as ReportVerdict] -
+        VERDICT_RANK[b.verdict as ReportVerdict];
       if (byVerdict !== 0) return byVerdict;
       if (b.recurrence_count !== a.recurrence_count) {
         return b.recurrence_count - a.recurrence_count;
@@ -193,12 +235,17 @@ export default function CycleReportCardPage({ params }: PageProps) {
     let pass = 0;
     let partial = 0;
     let fail = 0;
+    let unchecked = 0;
     for (const r of results) {
-      if (r.verdict === 'pass') pass++;
-      else if (r.verdict === 'partial') partial++;
-      else fail++;
+      const v = r.verdict as ReportVerdict;
+      if (v === 'pass') pass++;
+      else if (v === 'fail') fail++;
+      else if (v === 'unchecked') unchecked++;
+      else partial++;
     }
-    return { pass, partial, fail, total: results.length };
+    // 'unchecked' is un-scored — it counts toward the total (denominator) but is
+    // neither a pass nor a fail in the "X of N passed" math.
+    return { pass, partial, fail, unchecked, total: results.length };
   }, [results]);
 
   async function handleRecompute() {
@@ -290,13 +337,19 @@ export default function CycleReportCardPage({ params }: PageProps) {
                         p1: summary.fail,
                         p2: summary.partial,
                         observation: 0,
-                        todo: 0,
+                        // 'unchecked' rides the meter's neutral track slot — it
+                        // takes proportional width but renders as the grey rail,
+                        // reading as "un-scored" rather than pass/partial/fail.
+                        todo: summary.unchecked,
                       }}
                       className="max-w-sm"
                     />
                     <p className="text-[11.5px] text-muted-foreground">
                       {summary.pass} pass · {summary.partial} partial ·{' '}
                       {summary.fail} fail
+                      {summary.unchecked > 0 && (
+                        <> · {summary.unchecked} not checked</>
+                      )}
                     </p>
                   </div>
                   <p className="max-w-[34ch] text-right text-xs text-muted-foreground">
@@ -433,10 +486,13 @@ export default function CycleReportCardPage({ params }: PageProps) {
                             </span>
                           </td>
                           <td className="px-4 py-3 align-top">
-                            <DeltaCell delta={r.delta} />
+                            <DeltaCell
+                              priorResultId={r.prior_result_id}
+                              delta={r.delta}
+                            />
                           </td>
                           <td className="px-4 py-3 text-right align-top">
-                            <VerdictPill verdict={r.verdict} />
+                            <VerdictPill verdict={r.verdict as ReportVerdict} />
                           </td>
                         </tr>
                       ))}

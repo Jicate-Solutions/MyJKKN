@@ -24,6 +24,34 @@ export class AuditParameterResultsService {
   }
 
   /**
+   * The most recent captured result for one (parameter × institution) pair from a
+   * cycle OTHER than `cycleId` — i.e. this college's last-cycle verdict for the
+   * parameter about to be filed against. `institutionId` may be null for an
+   * institution-wide parameter (matched with IS NULL). Returns null when this pair
+   * has never been scored in a prior cycle.
+   */
+  static async getPriorForPair(
+    cycleId: string,
+    parameterCode: string,
+    institutionId: string | null
+  ): Promise<AuditParameterResult | null> {
+    let query = (this.supabase as any)
+      .from('audit_parameter_results')
+      .select('*')
+      .eq('parameter_code', parameterCode)
+      .neq('audit_cycle_id', cycleId);
+    query =
+      institutionId === null
+        ? query.is('institution_id', null)
+        : query.eq('institution_id', institutionId);
+    const { data, error } = await query
+      .order('computed_at', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    return (data?.[0] ?? null) as AuditParameterResult | null;
+  }
+
+  /**
    * Idempotent recompute of one cycle's parameter results. Callable by an
    * authenticated auditor or the service role. Returns the number of rows written.
    */
