@@ -43,6 +43,7 @@ import {
   Shield,
   Sparkles,
   RotateCw,
+  ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuditCycle } from '@/hooks/audit/use-audit-cycles';
@@ -89,6 +90,7 @@ const LANES: LaneDef[] = [
   { key: 'carre-rs', framework: 'Culture · CARRE', title: 'Respect', standard: 'CARRE', icon: Shield, order: 23 },
   { key: 'carre-e', framework: 'Culture · CARRE', title: 'Empowerment', standard: 'CARRE', icon: Sparkles, order: 24 },
   { key: 'loop', framework: 'Loop Health', title: 'Self-improving loops', standard: 'NAAC 7.3 · runs automatically', icon: RotateCw, order: 30 },
+  { key: 'exam', framework: 'Exam Integrity', title: 'Internal-assessment audit', standard: 'NAAC 2.5 · runs automatically', icon: ClipboardCheck, order: 31 },
   { key: 'other', framework: 'Other', title: 'Other parameters', standard: '', icon: Info, order: 99 },
 ];
 const LANE_BY_KEY = new Map(LANES.map((l) => [l.key, l]));
@@ -96,6 +98,7 @@ const LANE_BY_KEY = new Map(LANES.map((l) => [l.key, l]));
 function laneKeyFor(code: string): string {
   const c = code.toUpperCase();
   if (c === 'LOOP_HEALTH') return 'loop';
+  if (c === 'EXAM_IA_AUDIT') return 'exam';
   if (c.startsWith('CARRE-C')) return 'carre-c';
   if (c.startsWith('CARRE-A')) return 'carre-a';
   if (c.startsWith('CARRE-RS')) return 'carre-rs'; // must precede CARRE-R

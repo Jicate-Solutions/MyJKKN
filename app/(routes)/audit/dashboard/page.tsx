@@ -119,10 +119,11 @@ function pickActiveCycle(cycles: AuditCycle[] | undefined): AuditCycle | null {
 }
 
 // Coverage lanes group parameter codes the same way the parameter sheet does.
-type FwKey = 'acc' | 'carre' | 'loop' | 'other';
+type FwKey = 'acc' | 'carre' | 'loop' | 'exam' | 'other';
 function frameworkOf(code: string): FwKey {
   const c = code.toUpperCase();
   if (c === 'LOOP_HEALTH') return 'loop';
+  if (c === 'EXAM_IA_AUDIT') return 'exam';
   if (c.startsWith('CARRE')) return 'carre';
   if (/^G[1-4]/.test(c)) return 'acc';
   return 'other';
@@ -131,6 +132,7 @@ const FW_META: { key: FwKey; label: string; auto?: boolean }[] = [
   { key: 'acc', label: 'Accreditation' },
   { key: 'carre', label: 'Culture — CARRE' },
   { key: 'loop', label: 'Loop Health', auto: true },
+  { key: 'exam', label: 'Exam Integrity', auto: true },
 ];
 
 // Map a finding severity to the kit's status vocabulary (for the severity pill).
