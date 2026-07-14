@@ -191,6 +191,7 @@ export async function GET(request: NextRequest) {
             : null,
         findings: {
           no_rubric: findings.no_rubric,
+          rubric_empty: findings.rubric_empty,
           rubric_zero_entries: findings.rubric_zero_entries,
           rounds_missing: findings.rounds_missing,
           operator_bulk: findings.operator_bulk,
@@ -236,6 +237,7 @@ export async function GET(request: NextRequest) {
 
 const FINDING_LABEL: Record<string, string> = {
   no_rubric: 'No rubric',
+  rubric_empty: 'Empty rubric (0 marks)',
   rubric_zero_entries: 'Rubric, zero entries',
   rounds_missing: 'Round(s) never happened',
   operator_bulk: 'Operator dump',
@@ -299,6 +301,7 @@ function buildEvidencePdf(pack: ExamAuditEvidencePack): ArrayBuffer {
   for (const c of pack.colleges) {
     const groups: Array<[string, typeof c.findings.no_rubric]> = [
       ['no_rubric', c.findings.no_rubric],
+      ['rubric_empty', c.findings.rubric_empty],
       ['rubric_zero_entries', c.findings.rubric_zero_entries],
       ['rounds_missing', c.findings.rounds_missing],
       ['operator_bulk', c.findings.operator_bulk],

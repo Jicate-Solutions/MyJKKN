@@ -52,6 +52,33 @@ export interface ExamAuditProgramVerdict {
    *  that never happened, not just count it. */
   rubric_rounds: number[];
   rubric_setting_names: string[];
+  /** The rubric's actual definition (rounds, windows, components) — what the
+   *  page's rubric viewer shows. null = no rubric covers this program. */
+  rubric_definition: ExamAuditRubricDefinition | null;
+}
+
+export interface ExamAuditRubricComponentDef {
+  name: string;
+  max_marks: number;
+}
+
+export interface ExamAuditRubricRoundDef {
+  round: number;
+  round_name: string | null;
+  entry_from: string | null;
+  entry_to: string | null;
+  components: ExamAuditRubricComponentDef[];
+  total_max: number;
+}
+
+/** What the rubric SAYS — surfaced so the Director/Registrar can see the
+ *  assessment pattern itself, not just verdicts against it (2026-07-14). */
+export interface ExamAuditRubricDefinition {
+  setting_names: string[];
+  rounds: ExamAuditRubricRoundDef[];
+  /** True when the whole rubric carries zero max marks (the CAS case) —
+   *  a rubric that exists on paper but grades nothing. */
+  is_empty: boolean;
 }
 
 export interface ExamAuditComputeResult {
@@ -151,6 +178,7 @@ export function computeExamAuditPrograms(input: {
     settingNames: string[];
     rounds: Set<number>;
     windowsByRound: Map<number, Array<{ from: string | null; to: string | null }>>;
+    definition: ExamAuditRubricDefinition;
   }
   const rubricFor = (code: string): Rubric | null => {
     const covering = ciaSettings.filter((s) => {
@@ -163,6 +191,7 @@ export function computeExamAuditPrograms(input: {
       number,
       Array<{ from: string | null; to: string | null }>
     >();
+    const roundDefs: ExamAuditRubricRoundDef[] = [];
     for (const s of covering) {
       for (const r of s.cia_rounds ?? []) {
         if (typeof r.round !== 'number') continue;
@@ -171,9 +200,31 @@ export function computeExamAuditPrograms(input: {
         const list = windowsByRound.get(r.round) ?? [];
         list.push({ from: entryFrom, to: entryTo });
         windowsByRound.set(r.round, list);
+        const components = (r.components ?? []).map((c) => ({
+          name: c.name,
+          max_marks: c.max_marks ?? 0,
+        }));
+        roundDefs.push({
+          round: r.round,
+          round_name: r.round_name ?? null,
+          entry_from: entryFrom,
+          entry_to: entryTo,
+          components,
+          total_max: components.reduce((sum, c) => sum + c.max_marks, 0),
+        });
       }
     }
-    return { settingNames: covering.map((s) => s.setting_name), rounds, windowsByRound };
+    roundDefs.sort((a, b) => a.round - b.round);
+    return {
+      settingNames: covering.map((s) => s.setting_name),
+      rounds,
+      windowsByRound,
+      definition: {
+        setting_names: covering.map((s) => s.setting_name),
+        rounds: roundDefs,
+        is_empty: roundDefs.reduce((sum, r) => sum + r.total_max, 0) === 0,
+      },
+    };
   };
 
   const out: ExamAuditComputeResult[] = [];
@@ -256,6 +307,7 @@ export function computeExamAuditPrograms(input: {
         on_window_pct: onWindowPct,
         rubric_rounds: rubric ? [...rubric.rounds].sort((a, b) => a - b) : [],
         rubric_setting_names: rubric?.settingNames ?? [],
+        rubric_definition: rubric?.definition ?? null,
       },
       studentIds: [...p.students],
     });
@@ -431,6 +483,8 @@ export interface ExamAuditEvidenceFinding {
 
 export interface ExamAuditEvidenceFindings {
   no_rubric: ExamAuditEvidenceFinding[];
+  /** Rubric exists but every component carries 0 max marks — grades nothing. */
+  rubric_empty: ExamAuditEvidenceFinding[];
   rubric_zero_entries: ExamAuditEvidenceFinding[];
   rounds_missing: ExamAuditEvidenceFinding[];
   operator_bulk: ExamAuditEvidenceFinding[];
@@ -443,6 +497,7 @@ export function deriveEvidenceFindings(
 ): ExamAuditEvidenceFindings {
   const findings: ExamAuditEvidenceFindings = {
     no_rubric: [],
+    rubric_empty: [],
     rubric_zero_entries: [],
     rounds_missing: [],
     operator_bulk: [],
@@ -463,6 +518,12 @@ export function deriveEvidenceFindings(
           row.cia_rows === 0
             ? 'no assessment rubric configured and zero CIA entries'
             : `no assessment rubric configured — ${row.cia_rows} CIA rows entered without one`,
+      });
+      flagged = true;
+    } else if (row.rubric_definition?.is_empty) {
+      findings.rubric_empty.push({
+        ...ref,
+        detail: `rubric "${row.rubric_setting_names.join(', ')}" exists but every component carries 0 max marks — it grades nothing`,
       });
       flagged = true;
     } else if (row.cia_rows === 0) {

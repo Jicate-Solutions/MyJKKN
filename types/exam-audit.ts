@@ -17,6 +17,26 @@ export type ExamAuditVerdict =
   | 'operator_bulk'      // operator accounts and/or one-day dump — "some other data"
   | 'missing';           // registered for the exam but NO CIA rows at all
 
+/** One round of a rubric as the viewer displays it. */
+export interface ExamAuditRubricRoundDef {
+  round: number;
+  round_name: string | null;
+  entry_from: string | null;
+  entry_to: string | null;
+  components: Array<{ name: string; max_marks: number }>;
+  total_max: number;
+}
+
+/** What the rubric SAYS — the assessment pattern itself, not the verdicts
+ *  against it. Configured by the exam cell in COE (cia_entry_settings). */
+export interface ExamAuditRubricDefinition {
+  setting_names: string[];
+  rounds: ExamAuditRubricRoundDef[];
+  /** True when the whole rubric carries zero max marks — exists on paper,
+   *  grades nothing. */
+  is_empty: boolean;
+}
+
 export interface ExamAuditProgramRow {
   program_code: string;
   program_name: string | null;
@@ -48,6 +68,10 @@ export interface ExamAuditProgramRow {
    *  which round never happened, not just how many. */
   rubric_rounds: number[];
   rubric_setting_names: string[];
+  /** The rubric's actual definition (rounds, entry windows, components with
+   *  max marks) — what the rubric viewer shows. null = no rubric covers this
+   *  program for this session. */
+  rubric_definition: ExamAuditRubricDefinition | null;
   /** Eligibility risk among registered students, from JKKN day-one attendance. */
   att_below_75: number;
   att_below_65: number;
@@ -159,6 +183,7 @@ export interface ExamAuditEvidenceCollege {
   attendance: { with_record: number; no_record: number } | null;
   findings: {
     no_rubric: ExamAuditEvidenceProgramRef[];
+    rubric_empty: ExamAuditEvidenceProgramRef[];
     rubric_zero_entries: ExamAuditEvidenceProgramRef[];
     rounds_missing: ExamAuditEvidenceProgramRef[];
     operator_bulk: ExamAuditEvidenceProgramRef[];

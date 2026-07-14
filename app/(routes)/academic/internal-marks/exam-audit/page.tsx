@@ -74,6 +74,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import type {
   ExamAuditAttendanceBucket,
   ExamAuditEvidencePack,
@@ -149,6 +154,103 @@ function VerdictBadge({ verdict }: { verdict: ExamAuditVerdict }) {
     case 'missing':
       return <Badge variant="destructive">No CIA data</Badge>;
   }
+}
+
+/** The rubric badge, clickable: opens the rubric's actual definition — rounds,
+ *  entry windows, components with max marks (Director 2026-07-14: "where is
+ *  the rubric?"). Rubrics are configured by the exam cell in the COE system;
+ *  this shows what that configuration says, next to the verdict against it. */
+function RubricViewer({ row }: { row: ExamAuditProgramRow }) {
+  const def = row.rubric_definition;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className="cursor-pointer rounded focus:outline-none focus:ring-2 focus:ring-ring"
+          aria-label={`View rubric for ${row.program_code}`}
+        >
+          {def?.is_empty ? (
+            // "Follows rubric" against a zero-mark rubric would be a lie — an
+            // empty rubric grades nothing, so say that instead of the verdict.
+            <Badge variant="destructive">Empty rubric · 0 marks</Badge>
+          ) : (
+            <RubricBadge
+              verdict={row.rubric_verdict}
+              configured={row.rubric_rounds_configured}
+              used={row.rounds_used.length}
+            />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-96 text-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {!def ? (
+          <div className="space-y-2">
+            <p className="font-semibold">No rubric covers {row.program_code}</p>
+            <p className="text-xs text-muted-foreground">
+              No CIA entry setting in the exam system includes this program for
+              this exam session. Rubrics are configured by the exam cell in the
+              COE software (CIA entry settings) — per college, per exam session.
+              Until one exists, there is no defined assessment pattern to grade
+              the internal marks against.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <p className="font-semibold">{def.setting_names.join(', ')}</p>
+              <p className="text-xs text-muted-foreground">
+                The assessment pattern configured in the exam system for{' '}
+                {row.program_code} — internal marks are defined by this, never
+                by attendance.
+              </p>
+            </div>
+            {def.is_empty ? (
+              <p className="rounded border border-red-200 bg-red-50 p-2 text-xs font-medium text-red-800">
+                Empty rubric: every component carries 0 max marks — this rubric
+                exists on paper but grades nothing. Exam-cell follow-up.
+              </p>
+            ) : null}
+            {def.rounds.map((r) => (
+              <div key={`${r.round}-${r.round_name ?? ''}`} className="rounded border p-2">
+                <p className="text-xs font-semibold">
+                  Round {r.round}
+                  {r.round_name && r.round_name !== String(r.round)
+                    ? ` · ${r.round_name}`
+                    : ''}
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    {r.entry_from && r.entry_to
+                      ? `· entry ${r.entry_from} → ${r.entry_to}`
+                      : '· entry window not configured'}
+                  </span>
+                </p>
+                <ul className="mt-1 space-y-0.5 text-xs">
+                  {r.components.length === 0 ? (
+                    <li className="text-muted-foreground">No components configured.</li>
+                  ) : (
+                    r.components.map((c, i) => (
+                      <li key={`${c.name}-${i}`} className="flex justify-between">
+                        <span>{c.name}</span>
+                        <span className="tabular-nums">{c.max_marks}</span>
+                      </li>
+                    ))
+                  )}
+                  <li className="flex justify-between border-t pt-0.5 font-medium">
+                    <span>Round total</span>
+                    <span className="tabular-nums">{r.total_max}</span>
+                  </li>
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function BucketBadge({
@@ -301,6 +403,7 @@ function EvidencePackDialog({
 
   const findingLabel: Record<string, string> = {
     no_rubric: 'No rubric',
+    rubric_empty: 'Empty rubric (0 marks)',
     rubric_zero_entries: 'Rubric, zero entries',
     rounds_missing: 'Round(s) never happened',
     operator_bulk: 'Operator dump',
@@ -755,11 +858,7 @@ export default function ExamAuditPage() {
                             <VerdictBadge verdict={r.verdict} />
                           </TableCell>
                           <TableCell>
-                            <RubricBadge
-                              verdict={r.rubric_verdict}
-                              configured={r.rubric_rounds_configured}
-                              used={r.rounds_used.length}
-                            />
+                            <RubricViewer row={r} />
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {r.on_window_pct === null ? '—' : `${r.on_window_pct}%`}
