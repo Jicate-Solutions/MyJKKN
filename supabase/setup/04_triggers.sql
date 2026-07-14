@@ -147,6 +147,12 @@ CREATE TRIGGER trigger_refund_flow_configs_updated_at BEFORE UPDATE ON billing_r
 CREATE TRIGGER trigger_refund_requests_updated_at BEFORE UPDATE ON billing_refund_requests
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
+-- Global XOR institution-specific scope exclusivity backstop (2026-07-14,
+-- refund_flow_scope_exclusivity). See fn_enforce_refund_flow_scope_exclusivity
+-- in 02_functions.sql.
+CREATE TRIGGER trigger_refund_flow_scope_exclusivity BEFORE INSERT OR UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION fn_enforce_refund_flow_scope_exclusivity();
+
 -- ================================================================================
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
 -- ================================================================================

@@ -21947,6 +21947,107 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_refund_role_members() TO authenticated;
 
+-- Atomic save/swap for refund flow configs. See migrations
+-- 20260714120000_refund_flow_config_save_swap_rpc and
+-- 20260714130000_refund_flow_scope_exclusivity. A Global flow and any
+-- institution-specific flow must never both be active at once (product
+-- decision 2026-07-14) -- on top of the partial unique indexes
+-- uq_refund_flow_global_active / uq_refund_flow_institution_active (at most
+-- one active config per scope), this RPC also treats Global vs
+-- institution-specific as mutually exclusive. It collects every active row
+-- that must be deactivated for the target to become active (same-scope
+-- duplicate + opposing scope-mode) and, on confirmation via
+-- p_replace_active, deactivates all of them atomically before writing.
+CREATE OR REPLACE FUNCTION public.fn_save_refund_flow_config(
+  p_id uuid, p_institution_id uuid, p_name text,
+  p_initiator_roles uuid[], p_initiator_users uuid[], p_stages jsonb,
+  p_disburser_roles uuid[], p_disburser_users uuid[],
+  p_is_active boolean DEFAULT true, p_replace_active boolean DEFAULT false
+) RETURNS billing_refund_flow_configs LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_conflicts jsonb;
+  v_conflict_ids uuid[];
+  v_result billing_refund_flow_configs;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF NOT (is_super_admin() OR user_has_permission('billing.refunds.configure')) THEN
+    RAISE EXCEPTION 'not_authorized';
+  END IF;
+  IF COALESCE(btrim(p_name), '') = '' THEN RAISE EXCEPTION 'name_required'; END IF;
+  IF jsonb_typeof(p_stages) <> 'array' OR jsonb_array_length(p_stages) = 0 THEN RAISE EXCEPTION 'no_stages'; END IF;
+
+  IF p_is_active THEN
+    -- Every active row that must be deactivated for this one to become
+    -- active: same scope (mirrors uq_refund_flow_global_active /
+    -- uq_refund_flow_institution_active) OR the opposing scope-mode
+    -- (global XOR institution-specific).
+    SELECT jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) ORDER BY c.institution_id NULLS FIRST),
+           array_agg(c.id)
+      INTO v_conflicts, v_conflict_ids
+    FROM billing_refund_flow_configs c
+    WHERE c.is_active
+      AND (p_id IS NULL OR c.id <> p_id)
+      AND (
+        c.institution_id IS NOT DISTINCT FROM p_institution_id
+        OR (p_institution_id IS NULL) <> (c.institution_id IS NULL)
+      );
+
+    IF v_conflicts IS NOT NULL THEN
+      IF NOT p_replace_active THEN
+        RAISE EXCEPTION 'active_flow_exists|%', v_conflicts::text;
+      END IF;
+      UPDATE billing_refund_flow_configs SET is_active = false WHERE id = ANY(v_conflict_ids);
+    END IF;
+  END IF;
+
+  IF p_id IS NULL THEN
+    INSERT INTO billing_refund_flow_configs
+      (institution_id, name, initiator_roles, initiator_users, stages,
+       disburser_roles, disburser_users, is_active, created_by)
+    VALUES (p_institution_id, btrim(p_name), p_initiator_roles, p_initiator_users, p_stages,
+            p_disburser_roles, p_disburser_users, p_is_active, v_user)
+    RETURNING * INTO v_result;
+  ELSE
+    UPDATE billing_refund_flow_configs SET
+      institution_id = p_institution_id, name = btrim(p_name),
+      initiator_roles = p_initiator_roles, initiator_users = p_initiator_users,
+      stages = p_stages, disburser_roles = p_disburser_roles, disburser_users = p_disburser_users,
+      is_active = p_is_active
+    WHERE id = p_id
+    RETURNING * INTO v_result;
+    IF NOT FOUND THEN RAISE EXCEPTION 'config_not_found'; END IF;
+  END IF;
+
+  RETURN v_result;
+END; $$;
+
+REVOKE EXECUTE ON FUNCTION fn_save_refund_flow_config(uuid,uuid,text,uuid[],uuid[],jsonb,uuid[],uuid[],boolean,boolean) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION fn_save_refund_flow_config(uuid,uuid,text,uuid[],uuid[],jsonb,uuid[],uuid[],boolean,boolean) TO authenticated;
+
+-- Backstop for the same rule, unconditional regardless of write path (the
+-- RPC above is the guided/friendly path with a confirm-and-swap UX; this
+-- trigger blocks any INSERT/UPDATE -- including a future direct table write
+-- -- that would leave a Global flow and an institution-specific flow both
+-- active). The same-scope half of the invariant is already covered by
+-- uq_refund_flow_global_active / uq_refund_flow_institution_active, so this
+-- only needs to check the opposing scope-mode.
+CREATE OR REPLACE FUNCTION public.fn_enforce_refund_flow_scope_exclusivity()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF NEW.is_active AND EXISTS (
+    SELECT 1 FROM billing_refund_flow_configs c
+    WHERE c.is_active AND c.id <> NEW.id
+      AND (NEW.institution_id IS NULL) <> (c.institution_id IS NULL)
+  ) THEN
+    RAISE EXCEPTION 'refund_flow_scope_conflict: cannot activate a % flow while a % flow is active -- deactivate it first',
+      CASE WHEN NEW.institution_id IS NULL THEN 'global' ELSE 'institution-specific' END,
+      CASE WHEN NEW.institution_id IS NULL THEN 'institution-specific' ELSE 'global' END;
+  END IF;
+  RETURN NEW;
+END; $$;
+-- CREATE TRIGGER trigger_refund_flow_scope_exclusivity lives in 04_triggers.sql
+
 -- ── Tournament registration form event_id sync (2026-07-14,
 --    event_registration_form_event_id_sync_triggers) ──
 -- Derives (not just validates) event_id on sections/fields from their parent
