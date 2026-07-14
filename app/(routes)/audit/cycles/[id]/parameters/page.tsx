@@ -26,6 +26,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   ArrowLeft,
   ChevronRight,
@@ -142,6 +143,10 @@ export default function CycleParametersPage({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
   const [logOpen, setLogOpen] = useState(false);
+  // Parameter the per-row "Log finding" action pre-fills in the dialog.
+  const [logParamCode, setLogParamCode] = useState<string | undefined>(undefined);
+  const { canPerformAll } = usePermissions([], { waitForLoad: true });
+  const canLog = canPerformAll('audit', ['finding.log']);
 
   const { data: cycle, isLoading: cycleLoading, error: cycleError, refetch } = useAuditCycle(id);
   const { data: systemParams = [], isLoading: systemLoading } = useSystemParameters();
@@ -336,13 +341,29 @@ export default function CycleParametersPage({ params }: PageProps) {
                   onRowClick={(code) =>
                     router.push(`/audit/parameters/${encodeURIComponent(code)}`)
                   }
+                  onLogFinding={
+                    canLog
+                      ? (code) => {
+                          setLogParamCode(code);
+                          setLogOpen(true);
+                        }
+                      : undefined
+                  }
                 />
               ))}
             </div>
           )}
         </div>
 
-        <LogFindingDialog open={logOpen} onOpenChange={setLogOpen} cycleId={id} />
+        <LogFindingDialog
+          open={logOpen}
+          onOpenChange={(o) => {
+            setLogOpen(o);
+            if (!o) setLogParamCode(undefined);
+          }}
+          cycleId={id}
+          initialParameterCode={logParamCode}
+        />
       </ContentLayout>
     </PermissionGuard>
   );
@@ -358,11 +379,16 @@ function ParameterLane({
   params,
   defaultOpen,
   onRowClick,
+  onLogFinding,
 }: {
   def: LaneDef;
   params: EnrichedParam[];
   defaultOpen: boolean;
   onRowClick: (code: string) => void;
+  /** When set, each row shows a "Log" action that opens the finding dialog
+   *  pre-filled with that parameter (no navigating away). Omitted when the
+   *  viewer can't log findings. */
+  onLogFinding?: (code: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const Icon = def.icon;
@@ -437,7 +463,24 @@ function ParameterLane({
                       <OwnerChip role={p.ownerRole} />
                     </td>
                     <td className="px-4 py-3 text-right align-middle">
-                      <StatusPill status={p.status} />
+                      <div className="flex items-center justify-end gap-2">
+                        <StatusPill status={p.status} />
+                        {onLogFinding && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onLogFinding(p.code);
+                            }}
+                            title={`Log a finding on ${p.code}`}
+                          >
+                            <Plus className="mr-1 h-3 w-3" />
+                            Log
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
