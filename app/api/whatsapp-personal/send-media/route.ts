@@ -46,19 +46,22 @@ export async function POST(request: NextRequest) {
 
   let result: { success: boolean; messageId?: string; error?: string };
   try {
-    const res = await fetch(`${serviceUrl}/clients/${clientId}/send/media`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': apiKey,
-      },
-      body: JSON.stringify({
-        to,
-        mediaUrl: media_url,
-        caption: caption || undefined,
-        mediaType: media_type || 'image',
-      }),
-    });
+    const res = await fetch(
+      `${serviceUrl}/send-media?department_id=${encodeURIComponent(clientId)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify({
+          to,
+          mediaUrl: media_url,
+          caption: caption || undefined,
+          mediaType: media_type || 'image',
+        }),
+      }
+    );
 
     result = await res.json();
   } catch (error) {
