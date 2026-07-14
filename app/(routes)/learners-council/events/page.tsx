@@ -27,10 +27,12 @@ export default async function EventsPage({
   }
   const isMD = profile.role === 'super_admin';
 
-  // Resolve scope: MD defaults to lc_wide, others default to institution
+  // The Learners Council is one body across every JKKN institution, so everyone opens on
+  // the full Council view; "My Institution" narrows it. (This used to default to the
+  // viewer's own college, which hid the rest of the Council behind a toggle few found.)
   const params = searchParams ? await searchParams : {};
   const scopeParam = params.scope;
-  const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
+  const scopeAll = scopeParam !== 'institution';
 
   // Fetch events server-side for initial render
   const now = new Date().toISOString();

@@ -107,8 +107,12 @@ export function useCreateAnnouncement() {
   return useMutation({
     mutationFn: ({ data, userId }: { data: CreateAnnouncementDto; userId: string }) =>
       LCCommunicationService.createAnnouncement(data, userId),
-    onSuccess: () => {
-      toast.success('Announcement created as draft');
+    onSuccess: (created) => {
+      toast.success(
+        created.status === 'published'
+          ? 'Announcement submitted — it is now live'
+          : 'Draft saved. An LC office bearer can submit it.'
+      );
       queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.lists() });
     },
     onError: (error: Error) => {
@@ -144,10 +148,10 @@ export function usePublishAnnouncement() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, reviewerId }: { id: string; reviewerId: string }) =>
-      LCCommunicationService.publishAnnouncement(id, reviewerId),
+    mutationFn: ({ id }: { id: string }) =>
+      LCCommunicationService.publishAnnouncement(id),
     onSuccess: (published) => {
-      toast.success('Announcement published');
+      toast.success('Announcement submitted — it is now live');
       queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.detail(published.id) });
       queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.lists() });
     },
