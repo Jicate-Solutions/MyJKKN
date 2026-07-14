@@ -52,12 +52,30 @@ export async function GET(req: NextRequest) {
     clusters?: number;
     error?: string;
   };
-  console.log('[cron/capgap-scan]', { ...result, elapsed_ms: Date.now() - startedAt });
+
+  // Phase 3: sync the per-refusal event audit (capability_gap_events).
+  // Idempotent; non-fatal — a failure here must not fail the scan.
+  let eventsSynced: number | null = null;
+  const { data: evData, error: evError } = await (supabase as any).rpc(
+    'fn_capgap_events_sync'
+  );
+  if (evError) {
+    console.error('[cron/capgap-scan] fn_capgap_events_sync failed:', evError.message);
+  } else {
+    eventsSynced = (evData as { inserted?: number })?.inserted ?? 0;
+  }
+
+  console.log('[cron/capgap-scan]', {
+    ...result,
+    events_synced: eventsSynced,
+    elapsed_ms: Date.now() - startedAt,
+  });
 
   return NextResponse.json({
     ok: result.success !== false,
     scanned: result.scanned ?? 0,
     clusters: result.clusters ?? 0,
+    events_synced: eventsSynced,
     result,
     elapsed_ms: Date.now() - startedAt,
   });

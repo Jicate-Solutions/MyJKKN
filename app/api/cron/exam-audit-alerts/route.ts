@@ -177,6 +177,7 @@ export async function GET(request: NextRequest) {
     const results: Array<Record<string, unknown>> = [];
     let alertsSent = 0;
     let sessionsInWindow = 0;
+    let snapshotsWritten = 0;
 
     for (const inst of institutions) {
       // Sessions whose exams start within the lead window or are underway.
@@ -214,6 +215,41 @@ export async function GET(request: NextRequest) {
         const flagged = computed
           .map(({ row }) => flagOf(row))
           .filter((f): f is FlaggedProgram => f !== null);
+
+        // Persist a dated verdict snapshot for EVERY in-window program (clean and
+        // flagged) so the EXAM_IA_AUDIT audit parameter has a verdict on record to
+        // cite — the LOOP_HEALTH pattern (compute.ts is pure and persists nothing).
+        // Append-only; latest-in-cycle-window wins in the discovery query. dryRun
+        // writes nothing (mirrors the notification contract).
+        if (!dryRun) {
+          const problemByCode = new Map(flagged.map((f) => [f.code, f.problem]));
+          const snapshotRows = computed.map(({ row }) => ({
+            institution_id: inst.myjkkn_institution_ids?.[0] ?? null,
+            institution_code: inst.institution_code ?? null,
+            institution_name: inst.name ?? null,
+            session_code: code,
+            program_code: row.program_code,
+            program_name: row.program_name,
+            verdict: row.verdict,
+            rubric_verdict: row.rubric_verdict,
+            registered_students: row.registered_students,
+            cia_rows: row.cia_rows,
+            faculty_entered_pct: row.faculty_entered_pct,
+            flagged: problemByCode.has(row.program_code),
+            problem: problemByCode.get(row.program_code) ?? null,
+          }));
+          if (snapshotRows.length > 0) {
+            const { error: snapErr } = await db
+              .from('exam_ia_audit_verdicts')
+              .insert(snapshotRows);
+            if (snapErr) {
+              console.error('[cron/exam-audit-alerts] snapshot insert failed:', snapErr.message);
+            } else {
+              snapshotsWritten += snapshotRows.length;
+            }
+          }
+        }
+
         if (flagged.length === 0) continue;
 
         // That college's active Principal(s) + every Registrar.
@@ -279,6 +315,7 @@ export async function GET(request: NextRequest) {
       institutions_checked: institutions.length,
       sessions_in_window: sessionsInWindow,
       alerts_sent: alertsSent,
+      snapshots_written: snapshotsWritten,
       registrar_recipients: registrarIds.length,
       results,
     });

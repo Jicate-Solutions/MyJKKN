@@ -114,36 +114,81 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
     // Use service-role client so this works from server routes regardless of
     // user session. RLS blocks anonymous reads; service-role bypasses.
     const supabase = createServiceRoleClient();
-    const { data, error } = await supabase
-      .from('ai_model_config')
+
+    // ── CONFIG MERGE (2026-07-14) ──────────────────────────────────────────
+    // The ai_job_types registry (#1998) is the SOURCE OF TRUTH for model
+    // governance. Resolve from it FIRST, keying on model_id presence — on the
+    // registry `enabled` is the generic-drain runnable flag, NOT a model-active
+    // flag, so it must NEVER gate model resolution (a config-carrier feature
+    // that runs via its own cron/route is enabled=false but still has a live
+    // model here). ai_model_config remains the FALLBACK source while the
+    // cutover bakes; it is also the only holder of config_json — which no
+    // resolution consumer currently reads, so registry rows resolve it null.
+    let resolved: ResolvedModel | null = null;
+
+    const { data: reg, error: regError } = await supabase
+      .from('ai_job_types')
       .select(
-        'feature_key, provider, model_id, config_json, fallback_provider, fallback_model_id, monthly_spend_cap_inr, is_active',
+        'job_type, provider, model_id, fallback_provider, fallback_model_id, monthly_spend_cap_inr',
       )
-      .eq('feature_key', featureKey)
-      .eq('is_active', true)
+      .eq('job_type', featureKey)
+      .not('model_id', 'is', null)
       .maybeSingle();
 
-    if (error) {
-      console.error('[ai-model-config] getModelForFeature read error:', error);
-      return getHardcodedFallback(featureKey);
-    }
-
-    if (!data) {
-      console.warn(
-        `[ai-model-config] No row for feature_key=${featureKey}, using hardcoded fallback`,
+    if (regError) {
+      // Don't hard-fail on a registry read hiccup — fall through to the legacy
+      // ai_model_config read below so resolution keeps working.
+      console.error(
+        `[ai-model-config] ${featureKey}: registry read error (falling back to ai_model_config):`,
+        regError.message,
       );
-      return getHardcodedFallback(featureKey);
+    } else if (reg && reg.provider && reg.model_id) {
+      resolved = {
+        feature_key: featureKey,
+        provider: reg.provider,
+        model_id: reg.model_id,
+        config_json: null,
+        fallback_provider: reg.fallback_provider,
+        fallback_model_id: reg.fallback_model_id,
+        monthly_spend_cap_inr: reg.monthly_spend_cap_inr,
+      };
     }
 
-    const resolved: ResolvedModel = {
-      feature_key: data.feature_key,
-      provider: data.provider,
-      model_id: data.model_id,
-      config_json: (data.config_json as Record<string, unknown> | null) ?? null,
-      fallback_provider: data.fallback_provider,
-      fallback_model_id: data.fallback_model_id,
-      monthly_spend_cap_inr: data.monthly_spend_cap_inr,
-    };
+    // FALLBACK: legacy ai_model_config (pre-merge source; still authoritative
+    // for config_json and for any feature not yet carrying a model in the
+    // registry).
+    if (!resolved) {
+      const { data, error } = await supabase
+        .from('ai_model_config')
+        .select(
+          'feature_key, provider, model_id, config_json, fallback_provider, fallback_model_id, monthly_spend_cap_inr, is_active',
+        )
+        .eq('feature_key', featureKey)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[ai-model-config] getModelForFeature read error:', error);
+        return getHardcodedFallback(featureKey);
+      }
+
+      if (!data) {
+        console.warn(
+          `[ai-model-config] No registry or ai_model_config row for feature_key=${featureKey}, using hardcoded fallback`,
+        );
+        return getHardcodedFallback(featureKey);
+      }
+
+      resolved = {
+        feature_key: data.feature_key,
+        provider: data.provider,
+        model_id: data.model_id,
+        config_json: (data.config_json as Record<string, unknown> | null) ?? null,
+        fallback_provider: data.fallback_provider,
+        fallback_model_id: data.fallback_model_id,
+        monthly_spend_cap_inr: data.monthly_spend_cap_inr,
+      };
+    }
 
     // Spend-cap ENFORCEMENT (Director decision 2026-07-11: the cap box is
     // real, not decorative). When month-to-date spend has crossed the row's

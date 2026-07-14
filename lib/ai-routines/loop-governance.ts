@@ -144,4 +144,22 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       'Auth: CRON_SECRET Bearer only (dispatcher and the AI Routines manual trigger both send the header; secrets never sit in URLs). Complements the live red states on /admin/loops (page computes stale/errored at render); this cron is the half that reaches you when nobody is looking at the page.',
   },
+  {
+    id: 'capgap-scan',
+    name: 'Capability-Gap Scan (mines AI-query refusals into gap clusters)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 03:51 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/capgap-scan',
+    callsClaude: false,
+    whatItDoes:
+      "The detection pass of the capability-gap loop. It reads the AI-query chat log (ai_jobs, job_type='ai_query.chat'), finds where the model REFUSED or said it lacked a tool/data to answer, clusters those refusals by topic, auto-proposes a gap-class, and records each cluster in capability_gaps for a human to triage. This is the loop's own sensor: it turns the questions the assistant could not answer into a reviewable list of missing capabilities, then a later cycle MEASURES whether a shipped fix actually made those refusals stop.",
+    configKnobs:
+      'Refusal-phrase set + clustering live in fn_capgap_scan (rules-based SQL, no model call). Schedule (day/time) editable on /admin/ai-routines; the scan itself is idempotent so cadence only affects freshness.',
+    sideEffects:
+      'DB: upserts public.capability_gaps rows (one per detected cluster) via fn_capgap_scan. Read-only against ai_jobs. No emails/WhatsApp; no human messaging; no model calls.',
+    safeToManualTrigger: true,
+    notes:
+      "Auth: CRON_SECRET via Authorization: Bearer OR ?secret= (the dispatcher sends the header; secrets never sit in URLs). fn_capgap_scan is service-role-safe (auth.uid() IS NULL gate). Dispatcher-managed: NOT in vercel.json — its direct vercel cron was removed so the ai-routine-dispatcher is the single clock (no double-fire). Idempotent — safe to re-fire; clusters already recorded are updated, not duplicated. Pure rule-based detection; the loop's fix + measure stages are the human-gated half.",
+  },
 ];
