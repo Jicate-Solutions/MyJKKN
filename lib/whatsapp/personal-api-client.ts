@@ -39,13 +39,28 @@ export class ByowDisabledError extends Error {
 // ---------------------------------------------------------------------------
 
 /**
+ * Config for one BYOW service call.
+ *
+ * `departmentId` selects which per-department whatsapp-web.js client the
+ * service should act on. The service reads it from the `department_id` QUERY
+ * param on every route and falls back to a client literally named `default`
+ * when it is absent — so omitting it silently targets the wrong session
+ * rather than erroring.
+ */
+export interface ByowServiceConfig {
+  serviceUrl: string;
+  apiKey: string;
+  departmentId?: string;
+}
+
+/**
  * Make an authenticated request to the Railway WhatsApp service.
  * Falls back to env vars if no explicit URL/key provided (single-institution mode).
  */
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {},
-  serviceConfig?: { serviceUrl: string; apiKey: string }
+  serviceConfig?: ByowServiceConfig
 ): Promise<T> {
   // Kill-switch gate (v4 spec). Reads wa_byow.is_enabled from platform_policies.
   // Default true so first-deploy works; cron flips false after N consecutive
@@ -68,7 +83,14 @@ async function apiRequest<T>(
     throw new Error('BYOW WhatsApp API key not configured');
   }
 
-  const url = `${serviceUrl}${endpoint}`;
+  // The service routes every call by the `department_id` query param — it has
+  // no /clients/<id>/ path form. Passing the id in the path instead made the
+  // service strip the prefix and fall back to the `default` client, so /status
+  // reported `disconnected` forever and the QR never reached the UI (2026-07-14).
+  const deptId = serviceConfig?.departmentId;
+  const url = deptId
+    ? `${serviceUrl}${endpoint}?department_id=${encodeURIComponent(deptId)}`
+    : `${serviceUrl}${endpoint}`;
 
   return Sentry.startSpan(
     { op: 'whatsapp.byow', name: endpoint },
@@ -98,14 +120,14 @@ async function apiRequest<T>(
 
 /** Initialize WhatsApp connection and get QR code */
 export async function personalConnectAPI(
-  config?: { serviceUrl: string; apiKey: string }
+  config?: ByowServiceConfig
 ): Promise<PersonalConnectResponse> {
   return apiRequest<PersonalConnectResponse>('/connect', { method: 'POST' }, config);
 }
 
 /** Get current connection status (includes QR code if in qr_ready state) */
 export async function personalGetStatusAPI(
-  config?: { serviceUrl: string; apiKey: string }
+  config?: ByowServiceConfig
 ): Promise<PersonalWhatsAppStatus> {
   return apiRequest<PersonalWhatsAppStatus>('/status', { method: 'GET' }, config);
 }
@@ -114,7 +136,7 @@ export async function personalGetStatusAPI(
 export async function personalSendMessageAPI(
   to: string,
   message: string,
-  config?: { serviceUrl: string; apiKey: string }
+  config?: ByowServiceConfig
 ): Promise<PersonalSendResponse> {
   return apiRequest<PersonalSendResponse>(
     '/send',
@@ -127,7 +149,7 @@ export async function personalSendMessageAPI(
 export async function personalSendBulkAPI(
   recipients: PersonalRecipient[],
   delayMs: number = 1500,
-  config?: { serviceUrl: string; apiKey: string }
+  config?: ByowServiceConfig
 ): Promise<PersonalBulkSendResponse> {
   return apiRequest<PersonalBulkSendResponse>(
     '/send-bulk',
@@ -138,7 +160,7 @@ export async function personalSendBulkAPI(
 
 /** Disconnect from WhatsApp (logs out, clears session) */
 export async function personalDisconnectAPI(
-  config?: { serviceUrl: string; apiKey: string }
+  config?: ByowServiceConfig
 ): Promise<{ success: boolean; message: string }> {
   return apiRequest('/disconnect', { method: 'POST' }, config);
 }

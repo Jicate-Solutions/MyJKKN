@@ -48,8 +48,9 @@ export async function POST(request: NextRequest) {
   let result: { success: boolean; messageId?: string; error?: string };
   try {
     result = await personalSendMessageAPI(to, message, {
-      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      serviceUrl,
       apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      departmentId: clientId,
     });
   } catch (error) {
     result = { success: false, error: error instanceof Error ? error.message : 'Send failed' };

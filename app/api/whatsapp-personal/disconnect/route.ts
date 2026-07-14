@@ -21,8 +21,9 @@ export async function POST(request: NextRequest) {
 
   try {
     await personalDisconnectAPI({
-      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      serviceUrl,
       apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      departmentId: clientId,
     });
   } catch {
     // Service may already be down — proceed with DB cleanup
