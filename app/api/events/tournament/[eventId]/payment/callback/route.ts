@@ -26,51 +26,59 @@ export async function POST(
   const formData = await request.formData().catch(() => null);
   if (!formData) return fallback('error');
 
-  const razorpayOrderId = formData.get('razorpay_order_id')?.toString();
-  const razorpayPaymentId = formData.get('razorpay_payment_id')?.toString();
-  const razorpaySignature = formData.get('razorpay_signature')?.toString();
+  try {
+    const razorpayOrderId = formData.get('razorpay_order_id')?.toString();
+    const razorpayPaymentId = formData.get('razorpay_payment_id')?.toString();
+    const razorpaySignature = formData.get('razorpay_signature')?.toString();
 
-  if (razorpayOrderId && razorpayPaymentId && razorpaySignature) {
-    const result = await EventPaymentService.verifyAndSettleRazorpayPayment({
-      razorpayOrderId,
-      razorpayPaymentId,
-      razorpaySignature,
-    });
-    const target = result.returnUrl || `${appUrl}/p/tournament/${eventId}`;
-    try {
-      const url = new URL(target);
-      url.searchParams.set('payment', result.success ? 'success' : 'failed');
-      return NextResponse.redirect(url, 303);
-    } catch {
-      // result.returnUrl was non-empty but malformed/non-absolute (e.g. a
-      // misconfigured NEXT_PUBLIC_APP_URL at order-creation time). The
-      // payment has ALREADY been verified + settled above — never let a bad
-      // redirect URL surface as a raw 500 to a payer who genuinely paid.
-      return fallback(result.success ? 'success' : 'failed');
+    if (razorpayOrderId && razorpayPaymentId && razorpaySignature) {
+      const result = await EventPaymentService.verifyAndSettleRazorpayPayment({
+        razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+      const target = result.returnUrl || `${appUrl}/p/tournament/${eventId}`;
+      try {
+        const url = new URL(target);
+        url.searchParams.set('payment', result.success ? 'success' : 'failed');
+        return NextResponse.redirect(url, 303);
+      } catch {
+        // result.returnUrl was non-empty but malformed/non-absolute (e.g. a
+        // misconfigured NEXT_PUBLIC_APP_URL at order-creation time). The
+        // payment has ALREADY been verified + settled above — never let a bad
+        // redirect URL surface as a raw 500 to a payer who genuinely paid.
+        return fallback(result.success ? 'success' : 'failed');
+      }
     }
-  }
 
-  // Razorpay hosted-checkout FAILURE callback: no signed success trio; instead
-  // error[code]/error[description]/error[metadata] (JSON string with order_id).
-  const errorCode = formData.get('error[code]')?.toString();
-  const errorMetadataRaw = formData.get('error[metadata]')?.toString();
-  let failedOrderId: string | undefined;
-  if (errorMetadataRaw) {
-    try {
-      failedOrderId = JSON.parse(errorMetadataRaw)?.order_id;
-    } catch {
-      // metadata wasn't JSON; fall back to the bracketed key below.
+    // Razorpay hosted-checkout FAILURE callback: no signed success trio; instead
+    // error[code]/error[description]/error[metadata] (JSON string with order_id).
+    const errorCode = formData.get('error[code]')?.toString();
+    const errorMetadataRaw = formData.get('error[metadata]')?.toString();
+    let failedOrderId: string | undefined;
+    if (errorMetadataRaw) {
+      try {
+        failedOrderId = JSON.parse(errorMetadataRaw)?.order_id;
+      } catch {
+        // metadata wasn't JSON; fall back to the bracketed key below.
+      }
     }
-  }
-  failedOrderId = failedOrderId || formData.get('error[metadata][order_id]')?.toString();
+    failedOrderId = failedOrderId || formData.get('error[metadata][order_id]')?.toString();
 
-  if (failedOrderId) {
-    await EventPaymentService.markRazorpayOrderFailed(failedOrderId, {
-      code: errorCode ?? null,
-      description: formData.get('error[description]')?.toString() ?? null,
-    });
-  }
+    if (failedOrderId) {
+      await EventPaymentService.markRazorpayOrderFailed(failedOrderId, {
+        code: errorCode ?? null,
+        description: formData.get('error[description]')?.toString() ?? null,
+      });
+    }
 
-  if (errorCode || failedOrderId) return fallback('failed');
-  return fallback('error');
+    if (errorCode || failedOrderId) return fallback('failed');
+    return fallback('error');
+  } catch {
+    // Unexpected error (e.g. a network failure calling Razorpay's API during
+    // dual inquiry) can happen AFTER a payment has already been verified and
+    // settled server-side. Never surface a raw 500 to a payer who may have
+    // genuinely paid — fall back to a generic error redirect instead.
+    return fallback('error');
+  }
 }

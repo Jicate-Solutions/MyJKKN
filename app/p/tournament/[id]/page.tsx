@@ -55,19 +55,43 @@ function divisionTitle(d: PublicScoreboard['divisions'][number]): string {
 
 export default async function PublicScoreboardPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ payment?: string }>;
 }) {
   const { id } = await params;
+  const { payment } = await searchParams;
   const sb = UUID_RE.test(id) ? await loadScoreboard(id) : null;
+
+  const paymentBanner = payment ? (
+    payment === 'success' ? (
+      <div className="mb-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        Payment received — your registration is confirmed.
+      </div>
+    ) : payment === 'failed' ? (
+      <div className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        Payment failed or was cancelled. Please try registering again.
+      </div>
+    ) : (
+      <div className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        We could not verify your payment. Please contact the organizers if you were charged.
+      </div>
+    )
+  ) : null;
 
   if (!sb) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-16 text-center">
+        {paymentBanner}
         <Trophy className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-        <h1 className="text-xl font-semibold">Scoreboard not available</h1>
+        <h1 className="text-xl font-semibold">
+          {payment ? 'Registration received' : 'Scoreboard not available'}
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          This tournament is private or does not exist.
+          {payment
+            ? "The live scoreboard for this tournament isn't public yet — check back once fixtures are published."
+            : 'This tournament is private or does not exist.'}
         </p>
       </main>
     );
@@ -78,6 +102,7 @@ export default async function PublicScoreboardPage({
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
+      {paymentBanner}
       {/* Header */}
       <header className="mb-6 rounded-xl border bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
