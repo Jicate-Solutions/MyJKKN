@@ -49,8 +49,11 @@ import { useAuditCycle } from '@/hooks/audit/use-audit-cycles';
 import { useSystemParameters } from '@/hooks/audit/use-audit-parameters';
 import { useFindingsByCycle } from '@/hooks/audit/use-audit-findings';
 import { useAttestationsByCycle } from '@/hooks/audit/use-audit-attestations';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { LogFindingDialog } from '../../../_components/findings/log-finding-dialog';
 import { CyclePhaseBadge } from '../../../_components/cycle-phase-badge';
+import { StatusPill, CoverageMeter, tally, OwnerChip } from '../../../_components/redesign/kit';
+import { buildParamStatusResolver, type ParamStatus } from '../../../_components/redesign/param-status';
 import { cn } from '@/lib/utils';
 import type {
   AuditAttestation,
@@ -106,15 +109,9 @@ function laneKeyFor(code: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Per-parameter live status
+// Per-parameter live status — status derivation now lives in the shared kit
+// (buildParamStatusResolver / ParamStatus), so every audit surface agrees.
 // ---------------------------------------------------------------------------
-type ParamStatus = 'cleared' | 'p1' | 'p2' | 'observation' | 'todo';
-
-const OPEN_EXCLUDED = new Set(['closed', 'rejected', 'cancelled']);
-function isOpenFinding(f: AuditFindingView): boolean {
-  return !f.closed_at && !OPEN_EXCLUDED.has((f.status ?? '').toLowerCase());
-}
-
 interface EnrichedParam {
   code: string;
   name: string;
@@ -122,29 +119,6 @@ interface EnrichedParam {
   isAuto: boolean;
   evidenceCount: number;
   status: ParamStatus;
-}
-
-function ownerInitials(role: string): string {
-  return role
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
-
-function prettyRole(role: string): string {
-  if (!role) return 'Unassigned';
-  const map: Record<string, string> = {
-    hod: 'HoD',
-    coe: 'CoE',
-    coo: 'CoO',
-    ceo: 'CEO',
-    lead_auditor: 'Lead Auditor',
-    event_coordinator: 'Event Coord.',
-  };
-  return map[role] ?? role.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 /**
@@ -170,6 +144,7 @@ export default function CycleParametersPage({ params }: PageProps) {
   const { data: systemParams = [], isLoading: systemLoading } = useSystemParameters();
   const { data: findings = [] } = useFindingsByCycle(id);
   const { data: attestations = [] } = useAttestationsByCycle(id);
+  const { institutions: accessibleInstitutions } = useInstitutionsWithAccess();
 
   const snapshotParams = useMemo(
     () => extractSnapshotParameters(cycle?.parameter_catalog_snapshot ?? null),
@@ -185,30 +160,28 @@ export default function CycleParametersPage({ params }: PageProps) {
     return m;
   }, [systemParams]);
 
-  // Findings + attestations indexed by parameter code (this cycle only)
-  const statusByCode = useMemo(() => {
-    const openByCode = new Map<string, AuditFindingView[]>();
-    for (const f of findings as AuditFindingView[]) {
-      if (!isOpenFinding(f)) continue;
-      const arr = openByCode.get(f.parameter_code) ?? [];
-      arr.push(f);
-      openByCode.set(f.parameter_code, arr);
-    }
-    const attestedCodes = new Set<string>();
-    for (const a of attestations as AuditAttestation[]) {
-      if (a.attested_at) attestedCodes.add(a.parameter_code);
-    }
-    return (code: string): ParamStatus => {
-      const open = openByCode.get(code);
-      if (open && open.length) {
-        if (open.some((f) => f.severity === 'red')) return 'p1';
-        if (open.some((f) => f.severity === 'yellow')) return 'p2';
-        return 'observation';
-      }
-      if (attestedCodes.has(code)) return 'cleared';
-      return 'todo';
-    };
-  }, [findings, attestations]);
+  // In-scope institutions form the denominator for the "cleared" rule: a
+  // parameter clears only when EVERY in-scope institution has attested it. Use
+  // the cycle's explicit institution scope when set; a NULL/empty scope means
+  // "all institutions the viewer can access" (mirrors the attestations grid).
+  const institutionIds = useMemo(() => {
+    const scopeIds = cycle?.institution_ids;
+    if (scopeIds && scopeIds.length > 0) return scopeIds;
+    return accessibleInstitutions.map((i) => i.id);
+  }, [cycle?.institution_ids, accessibleInstitutions]);
+
+  // Per-parameter live status — derived by the shared resolver so the "cleared"
+  // rule (zero open findings anywhere AND every in-scope institution signed) is
+  // identical across every audit surface.
+  const statusByCode = useMemo(
+    () =>
+      buildParamStatusResolver(
+        findings as AuditFindingView[],
+        attestations as AuditAttestation[],
+        institutionIds,
+      ),
+    [findings, attestations, institutionIds],
+  );
 
   // Preferred source rows: frozen snapshot codes, else live catalog
   const sourceRows: Partial<AuditParameterCatalogRow>[] = isSnapshot
@@ -373,72 +346,9 @@ export default function CycleParametersPage({ params }: PageProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Presentational pieces
+// Presentational pieces — StatusPill / CoverageMeter / OwnerChip now come from
+// the shared redesign kit.
 // ---------------------------------------------------------------------------
-
-const STATUS_META: Record<ParamStatus, { label: string; className: string; dot: string }> = {
-  cleared: {
-    label: 'Cleared',
-    className: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
-    dot: 'bg-emerald-500',
-  },
-  p1: {
-    label: 'Finding · High',
-    className: 'border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200',
-    dot: 'bg-red-500',
-  },
-  p2: {
-    label: 'Finding · Medium',
-    className: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
-    dot: 'bg-amber-500',
-  },
-  observation: {
-    label: 'Observation',
-    className: 'border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200',
-    dot: 'bg-sky-500',
-  },
-  todo: {
-    label: 'Not started',
-    className: 'border-border bg-muted/40 text-muted-foreground',
-    dot: 'bg-muted-foreground/50',
-  },
-};
-
-function StatusPill({ status }: { status: ParamStatus }) {
-  const m = STATUS_META[status];
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap',
-        m.className,
-      )}
-    >
-      <span className={cn('h-1.5 w-1.5 rounded-full', m.dot)} />
-      {m.label}
-    </span>
-  );
-}
-
-function CoverageMeter({ params }: { params: EnrichedParam[] }) {
-  const n = params.length || 1;
-  const c = { cleared: 0, p1: 0, p2: 0, observation: 0 };
-  for (const p of params) {
-    if (p.status === 'cleared') c.cleared++;
-    else if (p.status === 'p1') c.p1++;
-    else if (p.status === 'p2') c.p2++;
-    else if (p.status === 'observation') c.observation++;
-  }
-  const seg = (v: number, cls: string) =>
-    v > 0 ? <span className={cls} style={{ width: `${(v / n) * 100}%` }} /> : null;
-  return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      {seg(c.cleared, 'block h-full bg-emerald-500')}
-      {seg(c.p1, 'block h-full bg-red-500')}
-      {seg(c.p2, 'block h-full bg-amber-500')}
-      {seg(c.observation, 'block h-full bg-sky-500')}
-    </div>
-  );
-}
 
 function ParameterLane({
   def,
@@ -482,7 +392,7 @@ function ParameterLane({
                 </span>
                 <span className="font-mono">{params.length}</span>
               </div>
-              <CoverageMeter params={params} />
+              <CoverageMeter t={tally(params.map((p) => p.status))} />
             </div>
           </div>
         </CollapsibleTrigger>
@@ -521,16 +431,7 @@ function ParameterLane({
                       )}
                     </td>
                     <td className="px-4 py-3 align-middle">
-                      {p.ownerRole ? (
-                        <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
-                            {ownerInitials(p.ownerRole)}
-                          </span>
-                          {prettyRole(p.ownerRole)}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      <OwnerChip role={p.ownerRole} />
                     </td>
                     <td className="px-4 py-3 text-right align-middle">
                       <StatusPill status={p.status} />
