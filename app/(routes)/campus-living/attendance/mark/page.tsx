@@ -2,13 +2,21 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -47,6 +55,7 @@ const statusOptions: { value: AttendanceStatus; label: string; icon: React.React
 
 export default function MarkAttendancePage() {
   const { profile } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const blockParam = searchParams.get('block');
 
@@ -58,6 +67,7 @@ export default function MarkAttendancePage() {
   const [selectedFloor, setSelectedFloor] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data: blocksData } = useHostelBlocks(profile?.institution_id ?? '');
   const blocks = blocksData as any;
@@ -234,9 +244,19 @@ export default function MarkAttendancePage() {
       }
       if (records.length > 0) {
         await markAttendance.mutateAsync(records);
+        // Success (mutateAsync throws on RLS/constraint errors, so we only reach
+        // here when the write landed): close the report and hand the warden back
+        // to the attendance dashboard to see the updated totals.
+        setConfirmOpen(false);
+        router.push('/campus-living/attendance');
+      } else {
+        // Everything was skipped (no block / no institution) — keep the user
+        // on the page; the skip warnings above explain why nothing was saved.
+        setConfirmOpen(false);
       }
     } catch (error) {
-      // Error is handled by the mutation hook's onError
+      // Error is handled by the mutation hook's onError; keep the dialog open
+      // so the warden can retry without re-marking.
     } finally {
       setIsSubmitting(false);
     }
@@ -308,6 +328,24 @@ export default function MarkAttendancePage() {
   const markedCount = Object.values(attendance).filter(Boolean).length;
   const presentCount = Object.values(attendance).filter((s) => s === 'present').length;
   const absentCount = Object.values(attendance).filter((s) => s === 'absent').length;
+
+  // Confirmation-report breakdown — counts EVERY marked status (not just the
+  // filtered view) because handleSubmit submits all of `attendance`, including
+  // residents the user marked before narrowing a filter.
+  const statusBreakdown = useMemo(() => {
+    const counts: Record<AttendanceStatus, number> = {
+      present: 0, absent: 0, on_leave: 0, late_entry: 0, medical: 0,
+    };
+    for (const s of Object.values(attendance)) {
+      if (s && s in counts) counts[s] += 1;
+    }
+    return counts;
+  }, [attendance]);
+
+  const selectedBlockLabel =
+    selectedBlock === 'all'
+      ? (isBlockScoped ? 'All my blocks' : 'All blocks')
+      : (blockOptions.find((b) => b.id === selectedBlock)?.name ?? '—');
 
   return (
     <ContentLayout title="Mark Attendance">
@@ -492,7 +530,7 @@ export default function MarkAttendancePage() {
                                     <div className="flex items-center gap-3">
                                       <Avatar className="h-10 w-10">
                                         <AvatarImage
-                                          src={student.profile?.avatar_url ?? undefined}
+                                          src={student.profile?.avatar_url ?? student.student_photo_url ?? undefined}
                                           alt={student.profile?.full_name ?? 'Learner'}
                                         />
                                         <AvatarFallback className="bg-muted text-muted-foreground text-sm font-medium">
@@ -594,9 +632,71 @@ export default function MarkAttendancePage() {
               <Link href="/campus-living/attendance">Cancel</Link>
             </Button>
             <Button
-              onClick={handleSubmit}
+              onClick={() => setConfirmOpen(true)}
               disabled={isSubmitting || markedCount === 0}
             >
+              <Save className="mr-2 h-4 w-4" />
+              Review &amp; Submit
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Final confirmation — shows a report of what's about to be submitted,
+          then commits on confirm and redirects to the attendance dashboard. */}
+      <Dialog open={confirmOpen} onOpenChange={(o) => { if (!isSubmitting) setConfirmOpen(o); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm attendance</DialogTitle>
+            <DialogDescription>
+              Review the summary before submitting. This records attendance for the
+              selected residents.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground text-xs">Date</p>
+                <p className="font-medium">{attendanceDate}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground text-xs">Block</p>
+                <p className="font-medium truncate">{selectedBlockLabel}</p>
+              </div>
+            </div>
+
+            <div className="rounded-md border divide-y">
+              <div className="flex items-center justify-between px-3 py-2 text-sm">
+                <span className="font-medium">Residents to mark</span>
+                <span className="font-semibold">{markedCount}</span>
+              </div>
+              {statusOptions.map((opt) => (
+                statusBreakdown[opt.value] > 0 && (
+                  <div key={opt.value} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium ${opt.color}`}>
+                      {opt.icon}
+                      {opt.label}
+                    </span>
+                    <span className="font-medium">{statusBreakdown[opt.value]}</span>
+                  </div>
+                )
+              ))}
+            </div>
+
+            {markedCount < filteredStudents.length && (
+              <p className="text-xs text-amber-600">
+                {filteredStudents.length - markedCount} resident
+                {filteredStudents.length - markedCount === 1 ? '' : 's'} in view {filteredStudents.length - markedCount === 1 ? 'is' : 'are'} not marked and will be skipped.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={isSubmitting}>
+              Back
+            </Button>
+            <Button onClick={handleSubmit} disabled={isSubmitting || markedCount === 0}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -604,14 +704,14 @@ export default function MarkAttendancePage() {
                 </>
               ) : (
                 <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Attendance
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Confirm &amp; Submit
                 </>
               )}
             </Button>
-          </div>
-        )}
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

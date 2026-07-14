@@ -134,7 +134,17 @@ export class HostelAttendanceService {
         .eq('status', 'active')
         .limit(1000);
 
-      const [residents, allocs] = await Promise.all([residentsQ, allocQ]);
+      // Real student photos live in learners_profiles.student_photo_url, NOT
+      // profiles.avatar_url (NULL for ~all students). learners_profiles SELECT
+      // RLS blocks block-scoped wardens from reading their own cross-college
+      // residents, so this goes through a SECURITY DEFINER RPC that self-authorizes
+      // on the caller's block/institution access and returns only the (public-bucket)
+      // photo URL. Failure is non-fatal — the roster still renders with initials.
+      const photosQ = supabase.rpc('get_markable_resident_photos', {
+        p_block_id: blockId ?? null,
+      });
+
+      const [residents, allocs, photos] = await Promise.all([residentsQ, allocQ, photosQ]);
       if (residents.error) {
         logger.error('campus-living/attendance', 'Failed to fetch markable residents', residents.error);
         throw residents.error;
@@ -143,14 +153,25 @@ export class HostelAttendanceService {
         logger.error('campus-living/attendance', 'Failed to fetch resident allocations', allocs.error);
         throw allocs.error;
       }
+      if (photos.error) {
+        // Non-fatal: log and fall back to initials rather than failing the roster.
+        logger.error('campus-living/attendance', 'Failed to fetch resident photos', photos.error);
+      }
+
+      const photoByProfile = new Map<string, string>(
+        ((photos.data ?? []) as Array<{ profile_id: string; student_photo_url: string }>).map(
+          (p) => [p.profile_id, p.student_photo_url]
+        )
+      );
 
       const allocRows = (allocs.data ?? []) as unknown as MarkableResidentAllocation[];
       const byLearner = new Map(allocRows.map((a) => [a.learner_id, a]));
       const merged: MarkableResident[] = ((residents.data ?? []) as unknown as Array<
-        Omit<MarkableResident, 'allocation'>
+        Omit<MarkableResident, 'allocation' | 'student_photo_url'>
       >).map((r) => ({
         ...r,
         allocation: byLearner.get(r.profile_id) ?? null,
+        student_photo_url: photoByProfile.get(r.profile_id) ?? null,
       }));
 
       // Allocated learners with no hostel_residents row (e.g. auto-allocated
@@ -165,6 +186,7 @@ export class HostelAttendanceService {
             id_proof_number: null,
             profile: a.learner ?? null,
             allocation: a,
+            student_photo_url: photoByProfile.get(a.learner_id) ?? null,
           });
         }
       }

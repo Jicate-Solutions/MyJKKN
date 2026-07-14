@@ -22088,3 +22088,47 @@ $$ LANGUAGE plpgsql SET search_path = public;
 --   supabase/migrations/20260711070000_scf_admin_college_summary_low_flags.sql
 -- (applied to prod 2026-07-11 after a rolled-back impersonated validation).
 -- ============================================================================
+
+-- ============================================================================
+-- 2026-07-14: get_markable_resident_photos — expose learner photos to the
+-- Hostel Mark Attendance roster. Student photos live in
+-- learners_profiles.student_photo_url (public-bucket URL), NOT profiles.avatar_url
+-- (NULL for ~all students). learners_profiles SELECT RLS blocks block-scoped
+-- wardens from reading their own cross-college residents, so this SECURITY DEFINER
+-- fn bypasses that RLS but SELF-AUTHORIZES on the caller's block/institution access
+-- (mirrors the hostel_attendance authority model), returning ONLY {profile_id,
+-- student_photo_url}. authenticated-only; anon/PUBLIC revoked. Canonical body:
+--   supabase/migrations/20260714170000_hostel_markable_resident_photos_rpc.sql
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.get_markable_resident_photos(p_block_id uuid DEFAULT NULL)
+RETURNS TABLE(profile_id uuid, student_photo_url text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT DISTINCT lp.profile_id, lp.student_photo_url
+  FROM learners_profiles lp
+  JOIN hostel_allocations a
+    ON a.learner_id = lp.profile_id AND a.status = 'active'
+  WHERE lp.student_photo_url IS NOT NULL
+    AND lp.student_photo_url <> ''
+    AND (p_block_id IS NULL OR a.block_id = p_block_id)
+    AND (
+      is_super_admin()
+      OR is_admin()
+      OR (
+        (
+          user_has_permission('campus_living.attendance.view')
+          OR user_has_permission('campus_living.attendance.mark')
+        )
+        AND (
+          role_has_institution_access(lp.institution_id)
+          OR role_has_block_access(a.block_id)
+        )
+      )
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.get_markable_resident_photos(uuid) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.get_markable_resident_photos(uuid) TO authenticated;

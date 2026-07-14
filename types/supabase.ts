@@ -104961,6 +104961,13 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_markable_resident_photos: {
+        Args: { p_block_id?: string }
+        Returns: {
+          profile_id: string
+          student_photo_url: string
+        }[]
+      }
       get_marketing_lead_upload_batches: {
         Args: { p_institution_id: string }
         Returns: {

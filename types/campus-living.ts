@@ -856,6 +856,10 @@ export interface MarkableResident {
     avatar_url: string | null;
   } | null;
   allocation: MarkableResidentAllocation | null;
+  /** Learner photo from learners_profiles.student_photo_url, merged in via the
+   *  get_markable_resident_photos RPC (profiles.avatar_url is NULL for ~all
+   *  students). Falls back to initials when absent. */
+  student_photo_url: string | null;
 }
 
 export interface CreateHostelAttendanceDTO {

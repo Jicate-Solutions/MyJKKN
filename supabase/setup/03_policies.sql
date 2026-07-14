@@ -8008,3 +8008,69 @@ CREATE POLICY "event_registration_form_fields_manage" ON event_registration_form
       )
     )
   );
+
+-- ── hostel_attendance: BLOCK-scoped RLS (multi-college hostel) ───────────
+-- Added: 2026-07-14 (migration: 20260714160000_hostel_attendance_block_scoped_rls,
+-- superseding 20260714153000_hostel_attendance_update_allow_marker).
+--
+-- The row's institution_id is the RESIDENT's home college and block_id is the
+-- physical block. In the hostel-rooms-v2 model one block houses residents from
+-- several affiliated colleges, so a block-scoped warden (chief_warden, granted
+-- the block via user_block_access) has BLOCK access but NO institution access to
+-- the residents' home colleges. The generated policies used
+--   role_has_institution_access(institution_id) AND role_has_block_access(block_id)
+-- which fails on the institution dimension for every resident such a warden can
+-- mark -> 42501 on bulkMarkAttendance. The two helpers encode two DIFFERENT
+-- authority models (institution-scoped staff vs block-scoped wardens); the correct
+-- rule is OR, not AND. role_has_block_access still precisely scopes a warden to
+-- THEIR granted blocks (block_id is NOT NULL, app-stamped from the resident's
+-- allocation), so this only enables legitimate actors the AND wrongly excluded.
+-- Also: the upsert-on-conflict (re-mark) path is an UPDATE, so it needs a
+-- mark-keyed UPDATE policy alongside the edit-keyed one (chief_warden has .mark,
+-- not .edit). DELETE left unchanged (its key is admin-only / not in the catalog).
+DROP POLICY IF EXISTS hostel_attendance_insert_permission ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_insert_permission ON public.hostel_attendance
+    FOR INSERT TO public
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.mark')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
+
+DROP POLICY IF EXISTS hostel_attendance_update_permission ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_update_permission ON public.hostel_attendance
+    FOR UPDATE TO public
+    USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.edit')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.edit')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
+
+-- mark-keyed UPDATE for the upsert-on-conflict (re-mark) path
+DROP POLICY IF EXISTS hostel_attendance_update_marker ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_update_marker ON public.hostel_attendance
+    FOR UPDATE TO authenticated
+    USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.mark')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.mark')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
+
+DROP POLICY IF EXISTS hostel_attendance_select_permission ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_select_permission ON public.hostel_attendance
+    FOR SELECT TO public
+    USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.view')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
