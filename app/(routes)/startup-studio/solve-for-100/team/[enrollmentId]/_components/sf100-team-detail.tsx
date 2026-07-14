@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Sf100TrainingNeedsPanel } from '../../../_components/sf100-training-needs-panel';
 import {
   AlertCircle,
   ExternalLink,
@@ -24,6 +25,7 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
+  HeartHandshake,
   Mic,
   TrendingUp,
 } from 'lucide-react';
@@ -741,6 +743,10 @@ export function SF100TeamDetail({
           <GitBranch className="h-3 w-3 mr-1.5" aria-hidden="true" />
           Pivots
         </TabsTrigger>
+        <TabsTrigger value="needs" className="text-xs sm:text-sm">
+          <HeartHandshake className="h-3 w-3 mr-1.5" aria-hidden="true" />
+          Training Needs
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="mt-0">
@@ -761,6 +767,10 @@ export function SF100TeamDetail({
 
       <TabsContent value="pivots" className="mt-0">
         <PivotsTab enrollmentId={enrollmentId} canEdit={canEdit} />
+      </TabsContent>
+
+      <TabsContent value="needs" className="mt-0">
+        <Sf100TrainingNeedsPanel enrollmentId={enrollmentId} canEdit={canEdit} />
       </TabsContent>
     </Tabs>
   );
