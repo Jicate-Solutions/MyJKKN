@@ -19,6 +19,8 @@ import {
 import { Loader2, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { TEAM_SPORTS } from '@/types/health-sports';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
+import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
+import type { EventRegistrationFormField } from '@/types/tournament';
 
 interface DivisionLite {
   id: string;
@@ -28,6 +30,12 @@ interface DivisionLite {
   format: string;
   config: Record<string, unknown>;
   eligibility: Record<string, unknown>;
+}
+
+interface SectionLite {
+  id: string;
+  title: string;
+  fields: EventRegistrationFormField[];
 }
 
 function divLabel(d: DivisionLite) {
@@ -42,11 +50,13 @@ export function RegisterForm({
   divisions,
   signedInName,
   isLearner,
+  sections,
 }: {
   eventId: string;
   divisions: DivisionLite[];
   signedInName: string | null;
   isLearner: boolean;
+  sections: SectionLite[];
 }) {
   const [divisionId, setDivisionId] = useState(divisions[0]?.id ?? '');
   const [entryName, setEntryName] = useState('');
@@ -57,6 +67,7 @@ export function RegisterForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [members, setMembers] = useState<{ member_name: string; jersey_no?: string }[]>([{ member_name: '' }]);
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -97,6 +108,7 @@ export function RegisterForm({
           participant_phone: phone.trim() || null,
           participant_email: email.trim() || null,
           members: isTeam ? members.filter((m) => m.member_name.trim()) : undefined,
+          custom_fields: customFields,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -249,6 +261,22 @@ export function RegisterForm({
           </div>
         </div>
       )}
+
+      {sections.map((section) => (
+        <div key={section.id} className="space-y-3 border-t pt-4">
+          <p className="text-sm font-semibold">{section.title}</p>
+          {section.fields
+            .filter((f) => isFieldVisible(f, customFields))
+            .map((f) => (
+              <DynamicFieldInput
+                key={f.id}
+                field={f}
+                value={customFields[f.field_key]}
+                onChange={(v) => setCustomFields((prev) => ({ ...prev, [f.field_key]: v }))}
+              />
+            ))}
+        </div>
+      ))}
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
