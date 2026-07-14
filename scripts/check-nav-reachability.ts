@@ -359,6 +359,12 @@ const NAV_EXCLUDE = new Set<string>([
   '/schools-portal/dashboard',
   '/schools-portal/update-contact',
 
+  // SF100 external Mentor/Investor portal — external (no-JKKN-account) persona
+  // reached via a coordinator-shared 6-digit code, NOT the staff sidebar. Same
+  // isolated dual-auth shape as the parent/schools portals.
+  '/external',
+  '/external/login',
+
   // 2026-06-10 admin-cluster relocation — consultants. Super-admin policy
   // pages relocated from /admin/consultants/* ("one module = one URL
   // prefix"). Under /admin they were chip-reachable only via manifest

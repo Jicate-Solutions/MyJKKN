@@ -31,6 +31,7 @@ import {
 import { SF100EnrollmentsTable } from '../../programs/[programId]/enrollments/_components/sf100-enrollments-table';
 import { SF100VerificationQueue as SF100VerificationQueueRich } from '../../programs/[programId]/verification-queue/_components/sf100-verification-queue';
 import { SF100AdjustmentsPanel } from './sf100-adjustments-panel';
+import { Sf100MentorsManager } from './sf100-mentors-manager';
 
 // ── Phase colors ────────────────────────────────────────────────────
 const PHASE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -52,7 +53,7 @@ const PROGRAM_STATUS_CONFIG: Record<string, { label: string; className: string }
   archived: { label: 'Archived', className: 'bg-gray-100 text-gray-500 border-gray-200' },
 };
 
-const VALID_TABS = ['overview', 'programs', 'enrollments', 'verification'] as const;
+const VALID_TABS = ['overview', 'programs', 'enrollments', 'verification', 'adjustments', 'mentors'] as const;
 
 // ── Loading skeleton ────────────────────────────────────────────────
 function AdminSkeleton() {
@@ -392,6 +393,7 @@ export function SF100AdminDashboard() {
             )}
           </TabsTrigger>
           <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
+          <TabsTrigger value="mentors">Mentors &amp; Investors</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -437,6 +439,10 @@ export function SF100AdminDashboard() {
 
         <TabsContent value="adjustments">
           <SF100AdjustmentsPanel programId={programId} />
+        </TabsContent>
+
+        <TabsContent value="mentors">
+          <Sf100MentorsManager />
         </TabsContent>
       </Tabs>
     </div>
