@@ -19,13 +19,16 @@
 // principal=own college, ceo, eao, registrar). Explicit denied state — never
 // a silent redirect (CLAUDE.md #27).
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Building2,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
+  FileDown,
   ShieldQuestion,
   Users,
 } from 'lucide-react';
@@ -62,9 +65,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import type {
+  ExamAuditAttendanceBucket,
+  ExamAuditEvidencePack,
   ExamAuditOverviewResponse,
+  ExamAuditProgramDetailResponse,
   ExamAuditProgramRow,
   ExamAuditRubricVerdict,
   ExamAuditVerdict,
@@ -137,9 +151,316 @@ function VerdictBadge({ verdict }: { verdict: ExamAuditVerdict }) {
   }
 }
 
+function BucketBadge({
+  bucket,
+  thresholds,
+}: {
+  bucket: ExamAuditAttendanceBucket;
+  thresholds: { eligibility: number; condonation: number };
+}) {
+  switch (bucket) {
+    case 'no_record':
+      return <Badge variant="destructive">No record</Badge>;
+    case 'below_65':
+      return (
+        <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+          Below {thresholds.condonation}%
+        </Badge>
+      );
+    case 'below_75':
+      return (
+        <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
+          Below {thresholds.eligibility}%
+        </Badge>
+      );
+    case 'ok':
+      return <Badge variant="outline">OK</Badge>;
+  }
+}
+
+/** Per-student rows behind one program's audit counts (lazy-loaded on expand).
+ *  Same permission key, same computation — the rows always sum to the counts. */
+function ProgramDrilldown({
+  institutionId,
+  sessionCode,
+  programCode,
+}: {
+  institutionId: string;
+  sessionCode: string;
+  programCode: string;
+}) {
+  const url = `/api/internal-marks/exam-audit?institutionId=${encodeURIComponent(
+    institutionId,
+  )}&sessionCode=${encodeURIComponent(sessionCode)}&program=${encodeURIComponent(programCode)}`;
+  const { data, isLoading, isError, error } = useQuery<ExamAuditProgramDetailResponse>({
+    queryKey: ['exam-audit-detail', institutionId, sessionCode, programCode],
+    queryFn: () => fetchJson(url),
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-3 py-6 pl-8">
+        <BeatLoader size={6} color={BRAND_GREEN} />
+        <span className="text-xs text-muted-foreground">
+          Loading the students behind these counts…
+        </span>
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <p className="py-4 pl-8 text-xs text-red-600">
+        {error instanceof Error ? error.message : 'Could not load the student rows.'}
+      </p>
+    );
+  }
+
+  const flagged = data.students.filter((s) => s.att_bucket !== 'ok');
+  const okCount = data.students.length - flagged.length;
+
+  return (
+    <div className="space-y-2 py-3 pl-8 pr-2">
+      <p className="text-xs text-muted-foreground">
+        {data.students.length} registered student{data.students.length === 1 ? '' : 's'} —{' '}
+        {flagged.length} at eligibility risk by JKKN&apos;s day-one record, {okCount} at/above{' '}
+        {data.thresholds.eligibility}%. Sorted risk-first. Attendance gates who may SIT the
+        exam; the marks themselves are judged by the rubric columns.
+      </p>
+      <div className="max-h-96 overflow-y-auto rounded border">
+        <Table>
+          <TableHeader className="sticky top-0 bg-background">
+            <TableRow>
+              <TableHead>Register no</TableHead>
+              <TableHead>Student</TableHead>
+              <TableHead>Eligibility</TableHead>
+              <TableHead className="text-right">JKKN attendance</TableHead>
+              <TableHead className="text-right">Courses reg.</TableHead>
+              <TableHead className="text-right">CIA rows</TableHead>
+              <TableHead className="text-right">CIA courses</TableHead>
+              <TableHead className="text-right">Rounds</TableHead>
+              <TableHead className="text-right">Faculty-stamped</TableHead>
+              <TableHead className="text-right">Avg internal</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.students.map((s) => (
+              <TableRow key={s.student_id}>
+                <TableCell className="font-mono text-xs">{s.register_no ?? '—'}</TableCell>
+                <TableCell className="max-w-[200px] truncate text-xs">
+                  {s.student_name ?? '—'}
+                </TableCell>
+                <TableCell>
+                  <BucketBadge bucket={s.att_bucket} thresholds={data.thresholds} />
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {s.att_pct === null ? '—' : `${s.att_present}/${s.att_total} · ${s.att_pct}%`}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {s.registered_courses}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">{s.cia_rows}</TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {s.cia_rows > 0 ? s.cia_courses : '—'}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {s.rounds_used.length > 0 ? s.rounds_used.join(', ') : '—'}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {s.faculty_stamped_pct === null ? '—' : `${s.faculty_stamped_pct}%`}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {s.avg_internal_pct === null ? '—' : `${s.avg_internal_pct}%`}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+/** The rubric-coverage evidence pack — on-screen view + PDF download. Numbers
+ *  come from the same computation as the table above; they cannot disagree. */
+function EvidencePackDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data, isLoading, isError, error } = useQuery<ExamAuditEvidencePack>({
+    queryKey: ['exam-audit-evidence'],
+    queryFn: () => fetchJson('/api/internal-marks/exam-audit/evidence'),
+    staleTime: 300_000,
+    retry: false,
+    enabled: open,
+  });
+
+  const findingLabel: Record<string, string> = {
+    no_rubric: 'No rubric',
+    rubric_zero_entries: 'Rubric, zero entries',
+    rounds_missing: 'Round(s) never happened',
+    operator_bulk: 'Operator dump',
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Rubric &amp; coverage evidence pack</DialogTitle>
+          <DialogDescription>
+            The document the Registrar hands to the exam cell: which colleges have no exam
+            sessions at all, which programs have no rubric, which rubrics sit at zero
+            entries, which rounds never happened, and where the marks arrived as operator
+            dumps. Same computation as the audit table — the pack cannot disagree with the
+            page.
+          </DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex flex-col items-center gap-3 py-10">
+            <BeatLoader color={BRAND_GREEN} />
+            <p className="text-xs text-muted-foreground">
+              Grading every college&apos;s current term…
+            </p>
+          </div>
+        ) : isError || !data ? (
+          <p className="py-6 text-center text-sm text-red-600">
+            {error instanceof Error ? error.message : 'Could not build the evidence pack.'}
+          </p>
+        ) : (
+          <div className="space-y-5 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Generated {data.generated_at} · {data.scope} · {data.totals.programs_flagged}{' '}
+                program finding{data.totals.programs_flagged === 1 ? '' : 's'}
+              </p>
+              <Button asChild size="sm" style={{ backgroundColor: BRAND_GREEN }}>
+                <a href="/api/internal-marks/exam-audit/evidence?format=pdf" download>
+                  <FileDown className="mr-1.5 h-4 w-4" />
+                  Download PDF
+                </a>
+              </Button>
+            </div>
+
+            <section>
+              <h3 className="mb-1 font-semibold">
+                1. Colleges with NO exam sessions in the exam system (
+                {data.colleges_no_sessions.length})
+              </h3>
+              {data.colleges_no_sessions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  None — every college has at least one exam session.
+                </p>
+              ) : (
+                <ul className="list-inside list-disc text-xs">
+                  {data.colleges_no_sessions.map((c) => (
+                    <li key={c.institution_code}>
+                      <span className="font-medium">{c.institution_code}</span> — {c.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section>
+              <h3 className="mb-1 font-semibold">2. Program findings — current term per college</h3>
+              <div className="space-y-3">
+                {data.colleges.map((c) => {
+                  const entries = (
+                    Object.keys(findingLabel) as Array<keyof typeof c.findings>
+                  ).flatMap((k) => c.findings[k].map((f) => ({ kind: findingLabel[k], ...f })));
+                  return (
+                    <div key={c.institution_code} className="rounded border p-3">
+                      <p className="mb-1 text-xs font-medium">
+                        {c.institution_code} · {c.session_code}
+                        <span className="ml-1 font-normal text-muted-foreground">
+                          (exams {c.exam_start_date} → {c.exam_end_date} ·{' '}
+                          {c.registered_students} registered · {c.programs_ok}/
+                          {c.programs_total} programs clean)
+                        </span>
+                      </p>
+                      {c.no_registrations ? (
+                        <p className="text-xs text-amber-700">
+                          Sessions exist but the graded term has zero exam registrations —
+                          exam-cell follow-up.
+                        </p>
+                      ) : entries.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No findings.</p>
+                      ) : (
+                        <ul className="space-y-0.5 text-xs">
+                          {entries.map((f, i) => (
+                            <li key={`${f.program_code}-${f.kind}-${i}`}>
+                              <Badge variant="outline" className="mr-1.5">
+                                {f.kind}
+                              </Badge>
+                              <span className="font-medium">{f.program_code}</span>{' '}
+                              ({f.registered_students}) — {f.detail}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-1 font-semibold">
+                3. JKKN attendance-record coverage (eligibility — separate from marks)
+              </h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>College</TableHead>
+                    <TableHead>Session graded</TableHead>
+                    <TableHead className="text-right">Registered</TableHead>
+                    <TableHead className="text-right">With JKKN record</TableHead>
+                    <TableHead className="text-right">No record</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.colleges.map((c) => (
+                    <TableRow key={c.institution_code}>
+                      <TableCell className="text-xs font-medium">
+                        {c.institution_code}
+                      </TableCell>
+                      <TableCell className="text-xs">{c.session_code ?? '—'}</TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {c.registered_students}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {c.attendance?.with_record ?? 0}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {(c.attendance?.no_record ?? 0) > 0 ? (
+                          <span className="font-semibold text-red-600">
+                            {c.attendance?.no_record ?? 0}
+                          </span>
+                        ) : (
+                          0
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </section>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ExamAuditPage() {
   const [institutionId, setInstitutionId] = useState<string | null>(null);
   const [sessionCode, setSessionCode] = useState<string | null>(null);
+  const [expandedProgram, setExpandedProgram] = useState<string | null>(null);
+  const [packOpen, setPackOpen] = useState(false);
 
   const url = useMemo(() => {
     const p = new URLSearchParams();
@@ -181,15 +502,23 @@ export default function ExamAuditPage() {
       {/* Pickers */}
       <Card className="mb-4">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <ClipboardCheck className="h-5 w-5" style={{ color: BRAND_GREEN }} />
-            Audit scope
-          </CardTitle>
-          <CardDescription>
-            Pick the college and exam session to audit. Internal-assessment
-            provenance and attendance figures are computed fresh from JKKN
-            day-one records and the exam system — nothing is self-reported.
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="space-y-1.5">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ClipboardCheck className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+                Audit scope
+              </CardTitle>
+              <CardDescription>
+                Pick the college and exam session to audit. Internal-assessment
+                provenance and attendance figures are computed fresh from JKKN
+                day-one records and the exam system — nothing is self-reported.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setPackOpen(true)}>
+              <FileDown className="mr-1.5 h-4 w-4" />
+              Evidence pack
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -202,6 +531,7 @@ export default function ExamAuditPage() {
               onValueChange={(v) => {
                 setInstitutionId(v);
                 setSessionCode(null); // re-detect the term for the new college
+                setExpandedProgram(null);
               }}
             >
               <SelectTrigger>
@@ -223,7 +553,10 @@ export default function ExamAuditPage() {
             </Label>
             <Select
               value={sessionCode ?? data?.session?.session_code ?? undefined}
-              onValueChange={(v) => setSessionCode(v)}
+              onValueChange={(v) => {
+                setSessionCode(v);
+                setExpandedProgram(null);
+              }}
               disabled={!institutionId}
             >
               <SelectTrigger>
@@ -393,11 +726,27 @@ export default function ExamAuditPage() {
                     </TableHeader>
                     <TableBody>
                       {programs.map((r: ExamAuditProgramRow) => (
-                        <TableRow key={r.program_code}>
+                        <Fragment key={r.program_code}>
+                        <TableRow
+                          className="cursor-pointer"
+                          aria-expanded={expandedProgram === r.program_code}
+                          onClick={() =>
+                            setExpandedProgram(
+                              expandedProgram === r.program_code ? null : r.program_code,
+                            )
+                          }
+                        >
                           <TableCell className="font-medium">
-                            {r.program_code}
+                            <span className="flex items-center gap-1">
+                              {expandedProgram === r.program_code ? (
+                                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              )}
+                              {r.program_code}
+                            </span>
                             {r.program_name ? (
-                              <span className="block max-w-[220px] truncate text-xs font-normal text-muted-foreground">
+                              <span className="block max-w-[220px] truncate pl-[18px] text-xs font-normal text-muted-foreground">
                                 {r.program_name}
                               </span>
                             ) : null}
@@ -462,6 +811,20 @@ export default function ExamAuditPage() {
                             )}
                           </TableCell>
                         </TableRow>
+                        {expandedProgram === r.program_code &&
+                        institutionId &&
+                        data.session.session_code ? (
+                          <TableRow className="hover:bg-transparent">
+                            <TableCell colSpan={14} className="bg-muted/30 p-0">
+                              <ProgramDrilldown
+                                institutionId={institutionId}
+                                sessionCode={data.session.session_code}
+                                programCode={r.program_code}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                        </Fragment>
                       ))}
                     </TableBody>
                   </Table>
@@ -479,6 +842,7 @@ export default function ExamAuditPage() {
           </Card>
         </>
       ) : null}
+      <EvidencePackDialog open={packOpen} onOpenChange={setPackOpen} />
     </ContentLayout>
   );
 }

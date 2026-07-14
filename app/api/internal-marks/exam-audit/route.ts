@@ -29,7 +29,14 @@ import {
   getCoePrograms,
   resolveCoeInstitutionByMyjkknId,
 } from '@/lib/services/coe/coe-db-client';
-import { computeExamAuditPrograms } from '@/lib/services/exam-audit/compute';
+import {
+  ATTENDANCE_ELIGIBILITY,
+  CONDONATION_FLOOR,
+  aggregateAttendanceByStudent,
+  computeExamAuditPrograms,
+  computeExamAuditStudentDetail,
+  eligibilityBucket,
+} from '@/lib/services/exam-audit/compute';
 import {
   resolveExamAuditScope,
   scopeAllowsInstitution,
@@ -37,11 +44,9 @@ import {
 } from '@/lib/utils/internal-marks/exam-audit-access';
 import type {
   ExamAuditOverviewResponse,
+  ExamAuditProgramDetailResponse,
   ExamAuditProgramRow,
 } from '@/types/exam-audit';
-
-const ATTENDANCE_ELIGIBILITY = 75; // university norm; condonation band below
-const CONDONATION_FLOOR = 65;
 
 interface AttendanceRow {
   student_id: string;
@@ -170,13 +175,7 @@ export async function GET(request: NextRequest) {
       );
     }
     const attendance = (attendanceRes.data ?? []) as AttendanceRow[];
-    const attByStudent = new Map<string, { present: number; total: number }>();
-    for (const a of attendance) {
-      const cur = attByStudent.get(a.student_id) ?? { present: 0, total: 0 };
-      cur.present += a.present;
-      cur.total += a.total;
-      attByStudent.set(a.student_id, cur);
-    }
+    const attByStudent = aggregateAttendanceByStudent(attendance);
 
     // Verdicts come from the SHARED computation (also used by the weekly alert
     // cron — the alert fires on exactly what this page shows). This route adds
@@ -192,14 +191,10 @@ export async function GET(request: NextRequest) {
       let below65 = 0;
       let noAttendanceRecord = 0;
       for (const sid of studentIds) {
-        const att = attByStudent.get(sid);
-        if (!att || att.total === 0) {
-          noAttendanceRecord += 1;
-          continue;
-        }
-        const pct = (100 * att.present) / att.total;
-        if (pct < CONDONATION_FLOOR) below65 += 1;
-        else if (pct < ATTENDANCE_ELIGIBILITY) below75 += 1;
+        const bucket = eligibilityBucket(attByStudent.get(sid));
+        if (bucket === 'no_record') noAttendanceRecord += 1;
+        else if (bucket === 'below_65') below65 += 1;
+        else if (bucket === 'below_75') below75 += 1;
       }
       return {
         ...row,
@@ -208,6 +203,43 @@ export async function GET(request: NextRequest) {
         att_no_record: noAttendanceRecord,
       };
     });
+
+    // Drill-down: ?program=<code> returns the per-student rows behind that
+    // program's counts — same pulls, same attach rule, same bucketing
+    // (computeExamAuditStudentDetail), so the rows always sum to the overview.
+    const programCode = searchParams.get('program');
+    if (programCode) {
+      const programRow = rows.find((r) => r.program_code === programCode);
+      if (!programRow) {
+        return NextResponse.json(
+          { error: `Program "${programCode}" has no exam registrations in this session.` },
+          { status: 404 },
+        );
+      }
+      const students = computeExamAuditStudentDetail({
+        programCode,
+        registrations,
+        provenance,
+        programs,
+        attendanceByStudent: attByStudent,
+      });
+      const detail: ExamAuditProgramDetailResponse = {
+        institution: { id: institutionId, name: coeInst.name },
+        session: {
+          session_code: sessionCode,
+          session_name: sessionMeta.session_name,
+          session_status: sessionMeta.session_status,
+          exam_start_date: sessionMeta.exam_start_date,
+          exam_end_date: sessionMeta.exam_end_date,
+          auto_detected: autoDetected,
+        },
+        window,
+        thresholds: { eligibility: ATTENDANCE_ELIGIBILITY, condonation: CONDONATION_FLOOR },
+        program: programRow,
+        students,
+      };
+      return NextResponse.json(detail);
+    }
 
     const response: ExamAuditOverviewResponse = {
       institutions,

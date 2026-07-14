@@ -21,7 +21,9 @@ import type {
   CoeProgramRef,
 } from '@/lib/services/coe/coe-db-client';
 import type {
+  ExamAuditAttendanceBucket,
   ExamAuditRubricVerdict,
+  ExamAuditStudentDetailRow,
   ExamAuditVerdict,
 } from '@/types/exam-audit';
 
@@ -46,6 +48,9 @@ export interface ExamAuditProgramVerdict {
   rubric_verdict: ExamAuditRubricVerdict;
   rubric_rounds_configured: number | null;
   on_window_pct: number | null;
+  /** The round NUMBERS the rubric configures — so consumers can name the round
+   *  that never happened, not just count it. */
+  rubric_rounds: number[];
   rubric_setting_names: string[];
 }
 
@@ -249,6 +254,7 @@ export function computeExamAuditPrograms(input: {
         rubric_verdict: rubricVerdict,
         rubric_rounds_configured: rubric ? rubric.rounds.size : null,
         on_window_pct: onWindowPct,
+        rubric_rounds: rubric ? [...rubric.rounds].sort((a, b) => a - b) : [],
         rubric_setting_names: rubric?.settingNames ?? [],
       },
       studentIds: [...p.students],
@@ -256,4 +262,233 @@ export function computeExamAuditPrograms(input: {
   }
   out.sort((a, b) => a.row.program_code.localeCompare(b.row.program_code));
   return out;
+}
+
+// ── Shared eligibility bucketing ─────────────────────────────────────────────
+// The overview counts and the drill-down's per-student rows MUST bucket the
+// same way — both call these. (Attendance gates who may SIT the exam; it never
+// decides the internal marks.)
+
+export const ATTENDANCE_ELIGIBILITY = 75; // university norm
+export const CONDONATION_FLOOR = 65; // condonation band below eligibility
+
+/** Sum per-course attendance rows into one {present,total} per student. */
+export function aggregateAttendanceByStudent(
+  rows: Array<{ student_id: string; present: number; total: number }>,
+): Map<string, { present: number; total: number }> {
+  const byStudent = new Map<string, { present: number; total: number }>();
+  for (const a of rows) {
+    const cur = byStudent.get(a.student_id) ?? { present: 0, total: 0 };
+    cur.present += a.present;
+    cur.total += a.total;
+    byStudent.set(a.student_id, cur);
+  }
+  return byStudent;
+}
+
+export function eligibilityBucket(
+  att: { present: number; total: number } | undefined,
+): ExamAuditAttendanceBucket {
+  if (!att || att.total === 0) return 'no_record';
+  const pct = (100 * att.present) / att.total;
+  if (pct < CONDONATION_FLOOR) return 'below_65';
+  if (pct < ATTENDANCE_ELIGIBILITY) return 'below_75';
+  return 'ok';
+}
+
+// ── Program drill-down: per-student rows (2026-07-14) ────────────────────────
+// Same raw pulls as the overview; same program-attach rule for CIA rows
+// (program_id → program_code, falling back to the student's registration
+// program) — so the per-student rows always sum to the overview's counts.
+
+const BUCKET_ORDER: Record<ExamAuditAttendanceBucket, number> = {
+  no_record: 0,
+  below_65: 1,
+  below_75: 2,
+  ok: 3,
+};
+
+export function computeExamAuditStudentDetail(input: {
+  programCode: string;
+  registrations: CoeExamRegistrationRow[];
+  provenance: CoeCiaProvenanceRow[];
+  programs: CoeProgramRef[];
+  attendanceByStudent: Map<string, { present: number; total: number }>;
+}): ExamAuditStudentDetailRow[] {
+  const { programCode, registrations, provenance, programs, attendanceByStudent } = input;
+  const programNameById = new Map(programs.map((p) => [p.id, p]));
+
+  // Student → registration program (the SAME fallback map the overview builds).
+  const programCodeByStudent = new Map<string, string>();
+  for (const r of registrations) {
+    if (r.student_id && !programCodeByStudent.has(r.student_id)) {
+      programCodeByStudent.set(r.student_id, r.program_code ?? '(unknown program)');
+    }
+  }
+
+  interface StudentAgg {
+    name: string | null;
+    registerNo: string | null;
+    regCourses: Set<string>;
+    ciaRows: number;
+    ciaCourses: Set<string>;
+    rounds: Set<number>;
+    facultyStamped: number;
+    verified: number;
+    pctSum: number;
+    pctCount: number;
+  }
+  const byStudent = new Map<string, StudentAgg>();
+  const studentOf = (sid: string): StudentAgg => {
+    let s = byStudent.get(sid);
+    if (!s) {
+      s = {
+        name: null,
+        registerNo: null,
+        regCourses: new Set(),
+        ciaRows: 0,
+        ciaCourses: new Set(),
+        rounds: new Set(),
+        facultyStamped: 0,
+        verified: 0,
+        pctSum: 0,
+        pctCount: 0,
+      };
+      byStudent.set(sid, s);
+    }
+    return s;
+  };
+
+  // The program's registered students — the SAME universe the overview counts.
+  for (const r of registrations) {
+    const code = r.program_code ?? '(unknown program)';
+    if (code !== programCode || !r.student_id) continue;
+    const s = studentOf(r.student_id);
+    if (!s.name && r.student_name) s.name = r.student_name;
+    if (!s.registerNo && r.stu_register_no) s.registerNo = r.stu_register_no;
+    if (r.course_code) s.regCourses.add(r.course_code);
+  }
+
+  // CIA rows attached to this program by the overview's exact rule.
+  for (const c of provenance) {
+    if (!c.student_id) continue;
+    const prog = c.program_id ? programNameById.get(c.program_id) : undefined;
+    const code =
+      prog?.program_code ?? programCodeByStudent.get(c.student_id) ?? '(unknown program)';
+    if (code !== programCode) continue;
+    const s = studentOf(c.student_id);
+    s.ciaRows += 1;
+    if (c.course_id) s.ciaCourses.add(c.course_id);
+    if (typeof c.cia_round === 'number') s.rounds.add(c.cia_round);
+    if (c.faculty_id) s.facultyStamped += 1;
+    if (c.is_verified) s.verified += 1;
+    if (typeof c.internal_percentage === 'number') {
+      s.pctSum += c.internal_percentage;
+      s.pctCount += 1;
+    }
+  }
+
+  const out: ExamAuditStudentDetailRow[] = [];
+  for (const [sid, s] of byStudent) {
+    const att = attendanceByStudent.get(sid);
+    const bucket = eligibilityBucket(att);
+    out.push({
+      student_id: sid,
+      student_name: s.name,
+      register_no: s.registerNo,
+      registered_courses: s.regCourses.size,
+      cia_rows: s.ciaRows,
+      cia_courses: s.ciaCourses.size,
+      rounds_used: [...s.rounds].sort((a, b) => a - b),
+      faculty_stamped_pct: s.ciaRows > 0 ? Math.round((100 * s.facultyStamped) / s.ciaRows) : null,
+      verified_pct: s.ciaRows > 0 ? Math.round((100 * s.verified) / s.ciaRows) : null,
+      avg_internal_pct: s.pctCount > 0 ? Math.round(s.pctSum / s.pctCount) : null,
+      att_present: att && att.total > 0 ? att.present : null,
+      att_total: att && att.total > 0 ? att.total : null,
+      att_pct: att && att.total > 0 ? Math.round((1000 * att.present) / att.total) / 10 : null,
+      att_bucket: bucket,
+    });
+  }
+  out.sort(
+    (a, b) =>
+      BUCKET_ORDER[a.att_bucket] - BUCKET_ORDER[b.att_bucket] ||
+      (a.register_no ?? '').localeCompare(b.register_no ?? ''),
+  );
+  return out;
+}
+
+// ── Evidence pack: findings derivation (2026-07-14) ──────────────────────────
+// Pure derivation from the SAME verdict rows the page and cron consume — the
+// pack the Registrar hands to the exam cell can never disagree with the page.
+// Zero-registered programs are noise, not findings (cron precedent).
+
+export interface ExamAuditEvidenceFinding {
+  program_code: string;
+  program_name: string | null;
+  registered_students: number;
+  detail: string;
+}
+
+export interface ExamAuditEvidenceFindings {
+  no_rubric: ExamAuditEvidenceFinding[];
+  rubric_zero_entries: ExamAuditEvidenceFinding[];
+  rounds_missing: ExamAuditEvidenceFinding[];
+  operator_bulk: ExamAuditEvidenceFinding[];
+  /** Programs with registered students and no finding above. */
+  ok_count: number;
+}
+
+export function deriveEvidenceFindings(
+  rows: ExamAuditProgramVerdict[],
+): ExamAuditEvidenceFindings {
+  const findings: ExamAuditEvidenceFindings = {
+    no_rubric: [],
+    rubric_zero_entries: [],
+    rounds_missing: [],
+    operator_bulk: [],
+    ok_count: 0,
+  };
+  for (const row of rows) {
+    if (row.registered_students === 0) continue;
+    const ref = {
+      program_code: row.program_code,
+      program_name: row.program_name,
+      registered_students: row.registered_students,
+    };
+    let flagged = false;
+    if (row.rubric_verdict === 'no_rubric') {
+      findings.no_rubric.push({
+        ...ref,
+        detail:
+          row.cia_rows === 0
+            ? 'no assessment rubric configured and zero CIA entries'
+            : `no assessment rubric configured — ${row.cia_rows} CIA rows entered without one`,
+      });
+      flagged = true;
+    } else if (row.cia_rows === 0) {
+      findings.rubric_zero_entries.push({
+        ...ref,
+        detail: `rubric "${row.rubric_setting_names.join(', ')}" configures round${row.rubric_rounds.length === 1 ? '' : 's'} ${row.rubric_rounds.join(', ')} — zero CIA entries`,
+      });
+      flagged = true;
+    } else if (row.rubric_rounds.length > 0) {
+      const missing = row.rubric_rounds.filter((r) => !row.rounds_used.includes(r));
+      if (missing.length > 0) {
+        findings.rounds_missing.push({
+          ...ref,
+          detail: `round${missing.length === 1 ? '' : 's'} ${missing.join(', ')} never entered (${row.rounds_used.length}/${row.rubric_rounds.length} rounds present)`,
+        });
+        flagged = true;
+      }
+    }
+    if (row.verdict === 'operator_bulk') {
+      findings.operator_bulk.push({
+        ...ref,
+        detail: `${row.cia_rows} rows by ${row.distinct_enterers} enterer${row.distinct_enterers === 1 ? '' : 's'} over ${row.entry_days} day${row.entry_days === 1 ? '' : 's'}, ${row.faculty_entered_pct}% faculty-stamped, busiest day ${row.top_day_share_pct}%`,
+      });
+      flagged = true;
+    }
+    if (!flagged) findings.ok_count += 1;
+  }
+  return findings;
 }
