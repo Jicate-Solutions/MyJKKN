@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 // RBAC: super_admin only — checked server-side. RLS in migration is defense-in-depth.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { listAllFeatures, type AiModelConfigRow } from '@/lib/services/platform/ai-model-config-service';
 
 interface FeatureWithUsage extends AiModelConfigRow {
@@ -67,7 +67,16 @@ export async function GET(_request: NextRequest) {
     // with ai_model_config for the display-only fields the registry does not yet
     // hold (display_name, category, config_json, is_active, audit stamps). The
     // registry also supplies `lane` and whether the feature is `runnable`.
-    const { data: regRows, error: regErr } = await auth.supabase
+    //
+    // Read via the SERVICE-ROLE client: ai_job_types RLS is `USING (enabled =
+    // true)`, so the super-admin's SESSION client only sees ENABLED rows — that
+    // hides the config-carrier features (registered enabled=false because they
+    // run via their own cron/route, not the generic drain) and the page would
+    // show ~10 instead of all 25. This route is already super-admin gated
+    // (requireSuperAdmin above), so bypassing RLS for the read is safe, and it
+    // matches how getModelForFeature resolves the registry.
+    const svc = createServiceRoleClient();
+    const { data: regRows, error: regErr } = await svc
       .from('ai_job_types')
       .select(
         'job_type, title, description, lane, enabled, prompt_template, interactive, provider, model_id, fallback_provider, fallback_model_id, monthly_spend_cap_inr, updated_at',
