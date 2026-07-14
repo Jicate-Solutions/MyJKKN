@@ -125,9 +125,3 @@ export function canSeeODChains(access: LCAccess): boolean {
 export function canManageElections(role: LCRole): boolean {
   return isStaffRole(role);
 }
-
-/** Check if a role should see the Selection tab */
-export function canSeeSelectionTab(role: LCRole): boolean {
-  // Staff + any LC member can see selection (to self-nominate / vote)
-  return role !== 'learner';
-}
