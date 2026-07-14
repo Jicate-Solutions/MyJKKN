@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JKKN terminology — DELTA + UI-SCOPE gate (advisory).
+JKKN terminology — DELTA + UI-SCOPE gate (BLOCKING).
 
 Wraps the canonical dictionary in .claude/skills/jkkn-terminologies (single
 source of truth — CRITICAL_TERMS imported, never duplicated) and applies it to:
@@ -9,9 +9,10 @@ source of truth — CRITICAL_TERMS imported, never duplicated) and applies it to
     not identifiers/imports/comments — because `\\bstaff\\b` etc. otherwise
     match variable and route names, which is unactionable noise.
 
-Enforces the CRITICAL ("zero-tolerance") tier only — the Director's chosen scope.
-Advisory: prints a markdown report to stdout and ALWAYS exits 0. The workflow
-posts it as a PR comment; it never blocks a merge.
+Enforces the CRITICAL ("zero-tolerance") tier only. BLOCKING as of the Director's
+2026-07-14 ruling (an advisory comment on #2049 went unread past a fast merge):
+this script still ALWAYS exits 0 (so the comment gets posted either way) — the
+WORKFLOW fails the check when the report is non-empty.
 
 Usage: check-terminology-delta.py <BASE_SHA> <HEAD_SHA>
 """
@@ -37,26 +38,49 @@ EXfP = (".tsx", ".jsx", ".ts", ".md", ".mdx")
 # code/identifier lines, imports, and comments.
 QUOTE_OR_JSX = re.compile(r"""["'`]|>[^<>]*[A-Za-z]{2,}[^<>]*<""")
 SKIP_LINE = re.compile(r"""^\s*(import\s|//|/\*|\*\s|\*/)""")
+# Multiline JSX text carries NO quotes ("Answer honestly; that is what improves
+# the classes." escaped the 2049 scan) — treat a 4+-word pure-prose line in
+# .tsx/.jsx as copy too. Prose tokens only: any code char ({}<>=`$) disqualifies.
+PROSE_TOKEN = r"[A-Za-z0-9,.;:'\u2019\u201c\u201d&%()!?\u2014\u2013\u2026/-]+"
+PROSE_JSX = re.compile(rf"^\s*(?:{PROSE_TOKEN}\s+){{3,}}{PROSE_TOKEN}\s*$")
 
 def added_lines(base, head):
-    """Yield (file, new_line_no, text) for lines this PR adds in copy-bearing files."""
+    """Yield (file, new_line_no, text, in_comment) for lines this PR adds in
+    copy-bearing files. in_comment tracks JSX/TS block comments ({/* … */} and
+    /* … */) across the hunk (unified=2 context) — comment prose is authored
+    for developers, not learners, so the PROSE_JSX heuristic must not flag it."""
     out = subprocess.run(
-        ["git", "diff", "--unified=0", "--no-color", f"{base}...{head}", "--",
+        ["git", "diff", "--unified=2", "--no-color", f"{base}...{head}", "--",
          "*.tsx", "*.jsx", "*.ts", "*.md", "*.mdx"],
         capture_output=True, text=True, check=False).stdout
-    cur_file, new_no = None, 0
+    cur_file, new_no, in_comment = None, 0, False
     for line in out.splitlines():
         if line.startswith("+++ b/"):
             cur_file = line[6:]
+            in_comment = False
         elif line.startswith("@@"):
             m = re.search(r"\+(\d+)", line)
             new_no = int(m.group(1)) if m else 0
         elif line.startswith("+") and not line.startswith("+++"):
             text = line[1:]
-            if cur_file and cur_file.endswith(EXfP):
-                yield cur_file, new_no, text
+            was_in_comment = in_comment
+            if "/*" in text and "*/" not in text.split("/*", 1)[1]:
+                in_comment = True
+            if "*/" in text:
+                in_comment = False
+            # The terminology skill's own docs must NAME the prohibited terms —
+            # never scan the dictionary against itself.
+            if cur_file and cur_file.endswith(EXfP) and not cur_file.startswith(
+                ".claude/skills/jkkn-terminologies/"
+            ):
+                yield cur_file, new_no, text, was_in_comment or in_comment
             new_no += 1
         elif not line.startswith("-"):
+            text = line[1:] if line else ""
+            if "/*" in text and "*/" not in text.split("/*", 1)[1]:
+                in_comment = True
+            if "*/" in text:
+                in_comment = False
             new_no += 1
 
 def main():
@@ -68,14 +92,37 @@ def main():
         sys.exit(0)
     compiled = [(re.compile(p, re.IGNORECASE), repl) for p, repl in terms.items()]
 
+    # Assessment-domain words are entrenched platform + university vocabulary
+    # (the module is NAMED Internal Marks; "max marks", COE marks entry; "grades"
+    # matches the verb). Enforcing them would fail routine work — the skill still
+    # recommends learning-assessment phrasing in fresh learner-facing prose.
+    DOMAIN_EXEMPT = {"mark", "marks", "grade", "grades", "grading"}
+
     hits = []
-    for f, ln, text in added_lines(base, head):
-        if SKIP_LINE.search(text) or not QUOTE_OR_JSX.search(text):
+    for f, ln, text, in_comment in added_lines(base, head):
+        if SKIP_LINE.search(text):
+            continue
+        is_copy = QUOTE_OR_JSX.search(text) or (
+            not in_comment and f.endswith((".tsx", ".jsx")) and PROSE_JSX.match(text)
+        )
+        if not is_copy:
             continue
         for rx, repl in compiled:
             m = rx.search(text)
-            if m:
-                hits.append((f, ln, m.group(), repl, text.strip()[:100]))
+            if not m:
+                continue
+            if m.group().lower() in DOMAIN_EXEMPT:
+                continue
+            # {children} etc. — a brace-wrapped match is a code expression
+            # (React children prop), not copy.
+            if (
+                m.start() > 0
+                and text[m.start() - 1] == "{"
+                and m.end() < len(text)
+                and text[m.end()] == "}"
+            ):
+                continue
+            hits.append((f, ln, m.group(), repl, text.strip()[:100]))
 
     if not hits:
         print("")  # empty → workflow skips posting
@@ -90,10 +137,10 @@ def main():
         rows.append(f"| `{f}:{ln}` | **{term}** → `{repl}` | {safe} |")
 
     print("<!-- jkkn-terminology -->")
-    print("## 🗣️ JKKN Terminology (advisory)\n")
+    print("## 🗣️ JKKN Terminology (blocking)\n")
     print(f"This PR's new copy uses {len(rows)} term(s) that the JKKN zero-tolerance "
-          "standard maps to learner-centered language. Delta-only (new lines), advisory — "
-          "merge not blocked. Source: `.claude/skills/jkkn-terminologies`.\n")
+          "standard maps to learner-centered language. Delta-only (new lines). This check "
+          "FAILS until the terms are fixed. Source: `.claude/skills/jkkn-terminologies`.\n")
     print("| Location | Term → JKKN term | Line |")
     print("| --- | --- | --- |")
     print("\n".join(rows[:25]))
