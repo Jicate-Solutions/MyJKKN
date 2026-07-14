@@ -145,6 +145,7 @@ export function OrganizationalTab({ data, filters }: OrganizationalTabProps) {
               </CardTitle>
               <CardDescription className="mt-2">
                 Complete institution hierarchy: Institution → Degree → Department → Program → Semester → Section
+                <span className="block mt-1 text-xs">Counts reflect active learners only, regardless of the status filter above.</span>
               </CardDescription>
             </div>
             <div className="flex gap-2">
