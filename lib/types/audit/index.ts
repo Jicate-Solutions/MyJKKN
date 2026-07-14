@@ -201,7 +201,8 @@ export interface LogAuditFindingDto {
   institution_id: string;
   assigned_to?: string | null;
   notes?: string;
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  // Matches the service_request_priority DB enum (no 'medium').
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
 }
 
 export interface SignAttestationDto {
