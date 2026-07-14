@@ -404,7 +404,7 @@ export default function AuditCycleDetailPage({ params }: PageProps) {
             </Card>
 
             {/* Workspace cards */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {/* Parameter sheet */}
               <WorkspaceCard
                 href={`/audit/cycles/${id}/parameters`}
@@ -495,6 +495,22 @@ export default function AuditCycleDetailPage({ params }: PageProps) {
                   {isSealed
                     ? 'Sealed and archived.'
                     : `Sealing unlocks at ${totalParameters} / ${totalParameters}.`}
+                </p>
+              </WorkspaceCard>
+
+              {/* Report card — gate ③ */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/report-card`}
+                icon={ClipboardCheck}
+                iconClass="bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                title="Report card"
+                blurb="How each parameter scored this cycle, and how the gap moved since last time."
+              >
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    Verdicts, deltas &amp; recurrence
+                  </span>{' '}
+                  — the audit measuring itself.
                 </p>
               </WorkspaceCard>
             </div>

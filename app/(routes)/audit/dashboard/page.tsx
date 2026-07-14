@@ -36,6 +36,7 @@ import {
   CalendarClock,
   RefreshCw,
   RotateCw,
+  BookOpen,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -367,6 +368,12 @@ export default function AuditDashboardPage() {
               <Link href="/audit/parameters/settings">
                 <Settings2 className="mr-1.5 h-4 w-4" />
                 Settings
+              </Link>
+            </Button>
+            <Button size="sm" variant="ghost" asChild>
+              <Link href="/guide?module=audit">
+                <BookOpen className="mr-1.5 h-4 w-4" />
+                Guide
               </Link>
             </Button>
           </div>
