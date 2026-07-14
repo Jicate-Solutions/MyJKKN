@@ -2,8 +2,9 @@
 
 /**
  * ArtifactPanel
- * Right-side panel that renders one AI Assistant artifact (Phase 1: charts +
- * reports) with download. Opened by tapping an artifact card in the chat.
+ * Right-side panel that renders one AI Assistant artifact — charts, reports,
+ * spreadsheets, and slides — with download. Opened by tapping an artifact card
+ * in the chat. (Phase 1: charts + reports. Phase 2: spreadsheets + slides.)
  *
  * Scope (server-enforced): fn_ai_get_artifact pins auth.uid() and filters
  * owner_id = auth.uid(), so a user can only ever open THEIR OWN artifacts —
@@ -25,11 +26,20 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Download, AlertTriangle, ShieldAlert, Image as ImageIcon } from 'lucide-react';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import {
+  Loader2, Download, AlertTriangle, ShieldAlert, Image as ImageIcon,
+  FileSpreadsheet, ChevronLeft, ChevronRight,
+} from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import XLSX from '@/lib/utils/excel-compat';
+import { downloadCsv } from '@/lib/utils/csv-export';
 import { markdownComponents } from './markdown-components';
 import type {
   ArtifactFull, ChartArtifactContent, ReportArtifactContent,
+  SpreadsheetArtifactContent, SlidesArtifactContent,
 } from '@/types/ai-query';
 
 // Accessible categorical palette (Tailwind-500 family — reads in both themes,
@@ -182,6 +192,151 @@ function ReportView({ content, reportRef }: { content: ReportArtifactContent; re
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {md}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+// ---- Spreadsheet view --------------------------------------------------------
+
+type SpreadsheetColumn = { key: string; label?: string; type?: string };
+
+// On-screen render cap so a huge dataset can't jank the tab. Downloads (xlsx/csv)
+// always include EVERY row — A8 "build the whole thing" applies to the artifact,
+// this cap is a UI courtesy with an explicit "download for all" note.
+const MAX_TABLE_ROWS = 500;
+
+/** Human-facing cell text for the on-screen table (mirrors QueryResultTable). */
+function formatCell(value: unknown, type?: string): string {
+  if (value === null || value === undefined || value === '') return '—';
+  switch (type) {
+    case 'currency': {
+      const n = Number(value);
+      return Number.isFinite(n) ? `₹${n.toLocaleString('en-IN')}` : String(value);
+    }
+    case 'percentage': {
+      const n = Number(value);
+      return Number.isFinite(n) ? `${n.toFixed(1)}%` : String(value);
+    }
+    case 'date': {
+      const d = new Date(value as string);
+      return isNaN(d.getTime())
+        ? String(value)
+        : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    case 'boolean':
+      return value ? 'Yes' : 'No';
+    default:
+      return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
+}
+
+/** Raw scalar for xlsx/csv — numbers stay numeric so the spreadsheet can compute. */
+function rawCell(value: unknown): string | number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
+}
+
+function SpreadsheetView({ content }: { content: SpreadsheetArtifactContent }) {
+  const columns: SpreadsheetColumn[] = Array.isArray(content?.columns) ? content.columns : [];
+  const rows: Record<string, unknown>[] = Array.isArray(content?.rows) ? content.rows : [];
+
+  if (columns.length === 0) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">This spreadsheet has no columns to show.</p>;
+  }
+  if (rows.length === 0) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">This spreadsheet has no rows.</p>;
+  }
+
+  const shown = rows.slice(0, MAX_TABLE_ROWS);
+
+  return (
+    <div className="space-y-3">
+      <div className="overflow-x-auto rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map((c) => (
+                <TableHead key={c.key} className="whitespace-nowrap">{c.label || c.key}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {shown.map((row, ri) => (
+              <TableRow key={ri}>
+                {columns.map((c) => (
+                  <TableCell key={c.key} className="whitespace-nowrap">
+                    {formatCell(row[c.key], c.type)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {rows.length > MAX_TABLE_ROWS && (
+        <p className="text-xs text-muted-foreground">
+          Showing the first {MAX_TABLE_ROWS.toLocaleString('en-IN')} of {rows.length.toLocaleString('en-IN')} rows —
+          download the Excel or CSV to get them all.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---- Slides view -------------------------------------------------------------
+
+function SlidesView({ content }: { content: SlidesArtifactContent }) {
+  const slides = Array.isArray(content?.slides) ? content.slides : [];
+  const [idx, setIdx] = useState(0);
+
+  if (slides.length === 0) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">This deck has no slides.</p>;
+  }
+
+  const safeIdx = Math.min(Math.max(idx, 0), slides.length - 1);
+  const slide = slides[safeIdx];
+  const bullets = Array.isArray(slide?.bullets) ? slide.bullets : [];
+
+  return (
+    <div className="space-y-3">
+      {/* Slide surface */}
+      <div className="rounded-xl border bg-card p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-foreground">
+          {slide?.title || `Slide ${safeIdx + 1}`}
+        </h3>
+        {bullets.length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {bullets.map((b, i) => (
+              <li key={i} className="flex gap-2 text-sm text-foreground/90">
+                <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary/70" />
+                <span>{String(b)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Speaker notes */}
+      {slide?.notes && (
+        <div className="rounded-lg border border-dashed bg-muted/40 p-3">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Speaker notes</p>
+          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{slide.notes}</p>
+        </div>
+      )}
+
+      {/* Prev / counter / next */}
+      <div className="flex items-center justify-between">
+        <Button size="sm" variant="outline" disabled={safeIdx === 0} onClick={() => setIdx(safeIdx - 1)}>
+          <ChevronLeft className="mr-1 h-4 w-4" /> Prev
+        </Button>
+        <span className="text-xs text-muted-foreground">{safeIdx + 1} / {slides.length}</span>
+        <Button size="sm" variant="outline" disabled={safeIdx === slides.length - 1} onClick={() => setIdx(safeIdx + 1)}>
+          Next <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }
@@ -365,6 +520,92 @@ export function ArtifactPanel({
     }
   }, [full, logDownload, isDark]);
 
+  const downloadSpreadsheetXlsx = useCallback(async () => {
+    if (!full) return;
+    const content = full.content as SpreadsheetArtifactContent;
+    const columns = (Array.isArray(content?.columns) ? content.columns : []) as SpreadsheetColumn[];
+    const rows = Array.isArray(content?.rows) ? content.rows : [];
+    if (columns.length === 0) return;
+    setDownloading(true);
+    setExportError(null);
+    try {
+      await logDownload('xlsx');
+      const aoa: (string | number | null)[][] = [
+        columns.map((c) => c.label || c.key),
+        ...rows.map((row) => columns.map((c) => rawCell((row as Record<string, unknown>)[c.key]))),
+      ];
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      XLSX.utils.book_append_sheet(wb, ws, 'Data');
+      await XLSX.writeFile(wb, safeName(full.title, 'xlsx'));
+    } catch (e) {
+      console.error('[ArtifactPanel] spreadsheet XLSX failed:', e);
+      setExportError('Could not build the Excel file. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [full, logDownload]);
+
+  const downloadSpreadsheetCsv = useCallback(async () => {
+    if (!full) return;
+    const content = full.content as SpreadsheetArtifactContent;
+    const columns = (Array.isArray(content?.columns) ? content.columns : []) as SpreadsheetColumn[];
+    const rows = Array.isArray(content?.rows) ? content.rows : [];
+    if (columns.length === 0) return;
+    setExportError(null);
+    try {
+      await logDownload('csv');
+      const base = (full.title || 'artifact').replace(/[^\w\d-]+/g, '_').slice(0, 60) || 'artifact';
+      downloadCsv(
+        rows as Record<string, unknown>[],
+        columns.map((c) => ({
+          header: c.label || c.key,
+          accessor: (row: Record<string, unknown>) => rawCell(row[c.key]),
+        })),
+        base,
+      );
+    } catch (e) {
+      console.error('[ArtifactPanel] spreadsheet CSV failed:', e);
+      setExportError('Could not build the CSV. Please try again.');
+    }
+  }, [full, logDownload]);
+
+  const downloadSlidesPptx = useCallback(async () => {
+    if (!full) return;
+    const content = full.content as SlidesArtifactContent;
+    const slides = Array.isArray(content?.slides) ? content.slides : [];
+    if (slides.length === 0) return;
+    setDownloading(true);
+    setExportError(null);
+    try {
+      await logDownload('pptx');
+      const { default: PptxGenJS } = await import('pptxgenjs');
+      const pptx = new PptxGenJS();
+      pptx.layout = 'LAYOUT_WIDE'; // 13.3in × 7.5in
+      for (const s of slides) {
+        const slide = pptx.addSlide();
+        slide.addText(String(s?.title || ''), {
+          x: 0.5, y: 0.3, w: 12.3, h: 0.9, fontSize: 26, bold: true, color: '363636',
+        });
+        const bullets = Array.isArray(s?.bullets) ? s.bullets : [];
+        if (bullets.length > 0) {
+          slide.addText(
+            bullets.map((b) => ({ text: String(b), options: { bullet: true } })),
+            { x: 0.7, y: 1.4, w: 11.9, h: 5.2, fontSize: 16, color: '404040', valign: 'top' },
+          );
+        }
+        if (s?.notes) slide.addNotes(String(s.notes));
+      }
+      const blob = (await pptx.write({ outputType: 'blob' })) as Blob;
+      downloadBlob(blob, safeName(full.title, 'pptx'));
+    } catch (e) {
+      console.error('[ArtifactPanel] slides PPTX failed:', e);
+      setExportError('Could not build the slides. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [full, logDownload]);
+
   const isSensitiveGated = full?.is_sensitive && !revealed;
 
   return (
@@ -406,18 +647,19 @@ export function ArtifactPanel({
             <ChartView content={full.content as ChartArtifactContent} chartRef={chartRef} />
           ) : full.type === 'report' ? (
             <ReportView content={full.content as ReportArtifactContent} reportRef={reportRef} />
+          ) : full.type === 'spreadsheet' ? (
+            <SpreadsheetView content={full.content as SpreadsheetArtifactContent} />
+          ) : full.type === 'slides' ? (
+            <SlidesView content={full.content as SlidesArtifactContent} />
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
-              <p className="text-sm">
-                {full.type === 'spreadsheet' ? 'Spreadsheets' : 'Slides'} open here soon.
-              </p>
-              <p className="mt-1 text-xs">This artifact type arrives in the next update.</p>
+              <p className="text-sm">This artifact can&rsquo;t be shown here.</p>
             </div>
           )}
         </ScrollArea>
 
-        {/* Footer: download (only for rendered, non-gated chart/report) */}
-        {full && !isSensitiveGated && (full.type === 'chart' || full.type === 'report') && (
+        {/* Footer: download (only for rendered, non-gated artifacts) */}
+        {full && !isSensitiveGated && ['chart', 'report', 'spreadsheet', 'slides'].includes(full.type) && (
           <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
             {exportError && (
               <span className="mr-auto text-xs text-destructive">{exportError}</span>
@@ -432,6 +674,24 @@ export function ArtifactPanel({
               <Button size="sm" variant="outline" disabled={downloading} onClick={downloadChartPng}>
                 {downloading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <ImageIcon className="mr-1.5 h-4 w-4" />}
                 Download PNG
+              </Button>
+            )}
+            {full.type === 'spreadsheet' && (
+              <>
+                <Button size="sm" variant="outline" disabled={downloading} onClick={downloadSpreadsheetCsv}>
+                  <Download className="mr-1.5 h-4 w-4" />
+                  CSV
+                </Button>
+                <Button size="sm" variant="outline" disabled={downloading} onClick={downloadSpreadsheetXlsx}>
+                  {downloading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-1.5 h-4 w-4" />}
+                  Excel
+                </Button>
+              </>
+            )}
+            {full.type === 'slides' && (
+              <Button size="sm" variant="outline" disabled={downloading} onClick={downloadSlidesPptx}>
+                {downloading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+                PowerPoint
               </Button>
             )}
           </div>
