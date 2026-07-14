@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, FileText, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarClock, FileText, ShieldCheck } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit/use-audit-cycles';
 import { useParametersForInstitution } from '@/hooks/audit/use-audit-parameters';
 import { useLogFinding, useFindingsByCycle } from '@/hooks/audit/use-audit-findings';
@@ -216,6 +216,25 @@ export function LogFindingDialog({
     ).length;
   }, [cycleFindings, selectedParam, selectedInstitutionId]);
 
+  // Pre-select the parameter's own default severity whenever the parameter changes
+  // (culture params → observation, others → needs-attention). The auditor can still
+  // override; picking a different parameter re-applies that parameter's default.
+  useEffect(() => {
+    if (selectedParam?.default_severity) {
+      form.setValue('severity', selectedParam.default_severity);
+    }
+  }, [selectedParam?.code, selectedParam?.default_severity, form]);
+
+  // The real due window comes from the SELECTED parameter's own SLA (p1/p2_sla_days),
+  // not a generic "P2 SLA" label. Green (observation) carries no deadline.
+  const watchedSeverity = form.watch('severity');
+  const dueInfo = useMemo(() => {
+    if (!selectedParam) return null;
+    if (watchedSeverity === 'green') return { days: null as number | null, text: 'Observation — no deadline' };
+    const days = watchedSeverity === 'red' ? selectedParam.p1_sla_days : selectedParam.p2_sla_days;
+    return { days, text: `Owner due in ${days} day${days === 1 ? '' : 's'}` };
+  }, [selectedParam, watchedSeverity]);
+
   async function submitFinding(values: LogFindingFormValues, keepOpen: boolean) {
     if (!requesterId) {
       toast.error('You must be signed in to log a finding.');
@@ -306,39 +325,51 @@ export function LogFindingDialog({
               )}
             />
 
-            {/* Institution */}
+            {/* Institution — when the cycle scopes exactly one college (a per-college
+                cycle), it's fixed and shown read-only so the auditor never re-picks it.
+                Otherwise (a cycle spanning colleges) it's a picker. */}
             <FormField
               control={form.control}
               name="institution_id"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Institution</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={(v) => {
-                      field.onChange(v);
-                      // Reset parameter when institution changes — override-merged list will refetch
-                      form.setValue('parameter_code', '');
-                    }}
-                    disabled={institutionsLoading}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            institutionsLoading ? 'Loading institutions…' : 'Select an institution'
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {scopedInstitutions.map((inst) => (
-                        <SelectItem key={inst.id} value={inst.id}>
-                          {inst.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {scopedInstitutions.length === 1 ? (
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                      <Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      <span className="font-medium">{scopedInstitutions[0].name}</span>
+                      <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">
+                        this cycle&apos;s college
+                      </span>
+                    </div>
+                  ) : (
+                    <Select
+                      value={field.value}
+                      onValueChange={(v) => {
+                        field.onChange(v);
+                        // Reset parameter when institution changes — override-merged list will refetch
+                        form.setValue('parameter_code', '');
+                      }}
+                      disabled={institutionsLoading}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={
+                              institutionsLoading ? 'Loading institutions…' : 'Select an institution'
+                            }
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {scopedInstitutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -433,7 +464,8 @@ export function LogFindingDialog({
               </div>
             )}
 
-            {/* Severity */}
+            {/* Severity — pre-set from the parameter; the due window is the parameter's
+                own SLA, shown as a real deadline instead of a generic "P2 SLA" label. */}
             <FormField
               control={form.control}
               name="severity"
@@ -447,11 +479,17 @@ export function LogFindingDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="red">Red — critical / P1 SLA</SelectItem>
-                      <SelectItem value="yellow">Yellow — warning / P2 SLA</SelectItem>
+                      <SelectItem value="red">Red — critical</SelectItem>
+                      <SelectItem value="yellow">Yellow — needs attention</SelectItem>
                       <SelectItem value="green">Green — observation</SelectItem>
                     </SelectContent>
                   </Select>
+                  {dueInfo && (
+                    <FormDescription className="flex items-center gap-1.5">
+                      <CalendarClock className="h-3.5 w-3.5 flex-shrink-0" />
+                      {dueInfo.text}
+                    </FormDescription>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
