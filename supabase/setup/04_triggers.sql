@@ -1522,17 +1522,21 @@ CREATE TRIGGER trg_events_guard_privileged_fields
   EXECUTE FUNCTION public.fn_guard_event_privileged_fields();
 
 -- ── Tournament registration form event_id sync (2026-07-14,
---    event_registration_form_event_id_sync_triggers) ──
+--    event_registration_form_event_id_sync_triggers,
+--    event_registration_form_sync_triggers_unconditional) ──
 -- Corrects the denormalized event_id from the parent chain before RLS
 -- WITH CHECK evaluation. Function bodies live in 02_functions.sql
 -- (sync_event_registration_form_section_event_id / _field_event_id).
+-- Fires on EVERY insert/update (not just OF form_id / OF section_id) — a bare
+-- UPDATE ... SET event_id = X touching neither FK column must still be
+-- corrected, otherwise it bypasses the sync entirely.
 
 DROP TRIGGER IF EXISTS trg_sync_event_registration_form_section_event_id ON public.event_registration_form_sections;
 CREATE TRIGGER trg_sync_event_registration_form_section_event_id
-  BEFORE INSERT OR UPDATE OF form_id ON public.event_registration_form_sections
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_sections
   FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_section_event_id();
 
 DROP TRIGGER IF EXISTS trg_sync_event_registration_form_field_event_id ON public.event_registration_form_fields;
 CREATE TRIGGER trg_sync_event_registration_form_field_event_id
-  BEFORE INSERT OR UPDATE OF section_id ON public.event_registration_form_fields
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_fields
   FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_field_event_id();
