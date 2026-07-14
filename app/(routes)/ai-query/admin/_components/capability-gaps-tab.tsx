@@ -91,6 +91,26 @@ interface CapGapRow {
   retest_at: string | null;
   disposed_reason: string | null;
   resolved_at: string | null;
+  // Phase 3 fields (spec §8/§9)
+  draft_sql: string | null;
+  leaktest_result: LeaktestResult | null;
+  leaktest_at: string | null;
+  retest_enqueued_at: string | null;
+  retest_job_ids: string[] | null;
+}
+
+// Phase 3 (§8): the in-app leak-test verdict written by fn_capgap_leaktest.
+interface LeaktestResult {
+  pass?: boolean;
+  isolation_ok?: boolean;
+  spoof_blocked?: boolean;
+  tool?: string;
+  user_a?: string;
+  user_b?: string;
+  institution_a?: string;
+  institution_b?: string;
+  note?: string;
+  checked_at?: string;
 }
 
 interface CapGapStats {
@@ -213,6 +233,111 @@ function fmtFreq(freq: number | null | undefined, n: number | null | undefined):
   }
   const pct = Math.round(freq * 100);
   return `${pct}%${n !== null && n !== undefined ? ` (n=${n})` : ''}`;
+}
+
+// Phase 3 (spec §10, D5): the sibling "answer quality" signal — user-flagged
+// WRONG answers (ai_query_feedback), complementary to the model-flagged NO-answer
+// capability gaps. Read-only fold via the existing super-admin fn_ai_feedback_list.
+interface FeedbackRow {
+  id: string;
+  job_id: string | null;
+  flagger_email: string | null;
+  note: string | null;
+  created_at?: string | null;
+  question?: string | null;
+  answer?: string | null;
+}
+
+function AnswerQualityFlags() {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<FeedbackRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const loadFb = useCallback(async () => {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc('fn_ai_feedback_list', {
+        p_limit: 25,
+      });
+      if (error) throw new Error(error.message);
+      setRows((Array.isArray(data) ? data : []) as FeedbackRow[]);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFb();
+  }, [loadFb]);
+
+  const count = rows?.length ?? 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 text-left"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldQuestion className="h-4 w-4 text-amber-600" />
+            Answer-quality flags
+            <Badge variant="secondary" className="ml-1">
+              {count} user-reported
+            </Badge>
+          </CardTitle>
+          {open ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+        <p className="text-xs text-muted-foreground">
+          The complementary signal: answers that came back but were flagged{' '}
+          <em>wrong</em> by a user (vs. the capability gaps below, where{' '}
+          <em>no</em> answer came back). Distinct fixes; same answer-quality surface.
+        </p>
+      </CardHeader>
+      {open && (
+        <CardContent className="pt-0">
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          {!err && count === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No wrong-answer flags recorded.
+            </p>
+          )}
+          {!err && count > 0 && (
+            <div className="space-y-2">
+              {rows!.map((f) => (
+                <div
+                  key={f.id}
+                  className="rounded-md border p-2.5 text-xs space-y-1"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">
+                      {f.flagger_email ?? 'user'}
+                    </span>
+                    {f.created_at && (
+                      <span className="text-muted-foreground">
+                        {fmtDate(f.created_at)}
+                      </span>
+                    )}
+                  </div>
+                  {f.question && (
+                    <div className="text-muted-foreground">
+                      Q: {f.question.slice(0, 160)}
+                    </div>
+                  )}
+                  {f.note && <div>“{f.note}”</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
 }
 
 export function CapabilityGapsTab() {
@@ -441,6 +566,9 @@ export function CapabilityGapsTab() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Phase 3: sibling wrong-answer signal (ai_query_feedback) */}
+      <AnswerQualityFlags />
 
       {/* Actionable toggle */}
       <div className="flex items-center justify-between">
@@ -755,6 +883,143 @@ export function CapabilityGapsTab() {
                           </Button>
                         </div>
                       </div>
+
+                      {/* Phase 3: draft tool (class 2) · in-app leak-test · auto-retest */}
+                      {!TERMINAL_STATUSES.has(c.status) && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Phase 3:
+                            </span>
+                            {c.gap_class === '2' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() =>
+                                  runAction(c.id, 'fn_capgap_draft_tool', { p_id: c.id })
+                                }
+                              >
+                                <Wrench className="h-3.5 w-3.5 mr-1" />
+                                Draft tool
+                              </Button>
+                            )}
+                            {c.candidate_tool && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() =>
+                                  runAction(c.id, 'fn_capgap_leaktest', { p_id: c.id })
+                                }
+                              >
+                                {busy ? (
+                                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                                ) : (
+                                  <ShieldQuestion className="h-3.5 w-3.5 mr-1" />
+                                )}
+                                Run leak-test
+                              </Button>
+                            )}
+                            {['fix_live', 'awaiting_approval', 'resolved'].includes(
+                              c.status
+                            ) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() =>
+                                  runAction(c.id, 'fn_capgap_retest', { p_id: c.id })
+                                }
+                              >
+                                <Repeat className="h-3.5 w-3.5 mr-1" />
+                                Re-ask samples
+                              </Button>
+                            )}
+                          </div>
+
+                          {/* Leak-test verdict panel (§8) */}
+                          {c.leaktest_result && (
+                            <div
+                              className={`rounded-lg border p-3 text-xs space-y-1 ${
+                                c.leaktest_result.pass
+                                  ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-900/20'
+                                  : 'border-red-300 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 font-medium">
+                                {c.leaktest_result.pass ? (
+                                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                ) : (
+                                  <XCircle className="h-4 w-4 text-red-600" />
+                                )}
+                                Leak-test{' '}
+                                {c.leaktest_result.pass ? 'PASSED (3/3)' : 'FAILED'} —{' '}
+                                <code className="font-mono">{c.leaktest_result.tool}</code>
+                              </div>
+                              <div className="text-muted-foreground">
+                                isolation {c.leaktest_result.isolation_ok ? '✓' : '✗'} ·
+                                spoof-blocked{' '}
+                                {c.leaktest_result.spoof_blocked ? '✓' : '✗'} · two
+                                colleges impersonated + id-spoof
+                              </div>
+                              {c.leaktest_result.note && (
+                                <div className="text-muted-foreground">
+                                  {c.leaktest_result.note}
+                                </div>
+                              )}
+                              {c.leaktest_result.pass && (
+                                <div className="text-emerald-700 dark:text-emerald-400">
+                                  Advanced to awaiting approval — the Director approves,
+                                  then Windows exposes it to the drain.
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Candidate tool draft SQL (class 2) */}
+                          {c.draft_sql && (
+                            <div className="rounded-md border bg-background p-2">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-[10px] uppercase text-muted-foreground">
+                                  Candidate tool draft — review, complete the query, then
+                                  leak-test before exposing
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() =>
+                                    copySnippet(`${c.id}-draft`, c.draft_sql ?? '')
+                                  }
+                                >
+                                  {copied === `${c.id}-draft` ? (
+                                    <>
+                                      <Check className="h-3 w-3 mr-1" /> Copied
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="h-3 w-3 mr-1" /> Copy
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                              <code className="block max-h-48 overflow-auto text-xs font-mono text-muted-foreground whitespace-pre-wrap">
+                                {c.draft_sql}
+                              </code>
+                            </div>
+                          )}
+
+                          {/* Auto-retest note (§9/G13) */}
+                          {c.retest_enqueued_at && (
+                            <div className="text-xs text-muted-foreground">
+                              Re-asked {c.retest_job_ids?.length ?? 0} sample question(s)
+                              as the original askers at {fmtDate(c.retest_enqueued_at)} —
+                              the owner-scoped answers feed the before→after proof.
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* 1b: mark fix live (+ Windows exposure snippet) */}
                       {c.gap_class === '1b' && c.status !== 'fix_live' && (
