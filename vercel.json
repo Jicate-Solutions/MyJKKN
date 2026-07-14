@@ -286,10 +286,6 @@
     {
       "path": "/api/cron/exam-audit-alerts?secret=${CRON_SECRET}",
       "schedule": "43 2 * * 1"
-    },
-    {
-      "path": "/api/cron/capgap-scan?secret=${CRON_SECRET}",
-      "schedule": "51 3 * * *"
     }
   ]
 }
