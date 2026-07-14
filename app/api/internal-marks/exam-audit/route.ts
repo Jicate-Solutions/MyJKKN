@@ -170,6 +170,13 @@ export async function GET(request: NextRequest) {
       );
     }
     const attendance = (attendanceRes.data ?? []) as AttendanceRow[];
+    const attByStudent = new Map<string, { present: number; total: number }>();
+    for (const a of attendance) {
+      const cur = attByStudent.get(a.student_id) ?? { present: 0, total: 0 };
+      cur.present += a.present;
+      cur.total += a.total;
+      attByStudent.set(a.student_id, cur);
+    }
 
     // Verdicts come from the SHARED computation (also used by the weekly alert
     // cron — the alert fires on exactly what this page shows). This route adds
