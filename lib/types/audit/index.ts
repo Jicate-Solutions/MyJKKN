@@ -115,6 +115,9 @@ export interface AuditParameterCatalogRow {
   escalation_role: string | null;
   p1_sla_days: number;
   p2_sla_days: number;
+  /** Severity the log-finding dialog pre-selects for this parameter (auditor can
+   *  override). Culture (CARRE) params default to 'green'; others to 'yellow'. */
+  default_severity: FindingSeverity;
   evidence_required: EvidenceRequirementItem[];
   institution_id: string | null;
   is_system: boolean;
