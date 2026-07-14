@@ -4,6 +4,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp-personal-message-service';
+import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -26,6 +27,16 @@ export async function POST(request: NextRequest) {
   }
   if (!whatsappConnection || whatsappConnection.status !== 'ready') {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
+  }
+
+  // Gate on the RESOLVED connection's department (the 'any' fallback can route a
+  // media send through a department the caller never named).
+  const access = await checkByowDeptAccess(user.id, whatsappConnection.department_id);
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: 'You do not have access to this department’s WhatsApp connection' },
+      { status: byowAccessHttpStatus(access) }
+    );
   }
 
   const logEntry = await WhatsAppPersonalMessageService.logMessage({
