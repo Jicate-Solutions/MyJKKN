@@ -88,12 +88,12 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
 
   const { data: formRow } = await svc
     .from('event_registration_forms')
-    .select('id')
+    .select('id, is_enabled')
     .eq('event_id', id)
     .maybeSingle();
 
   let sections: { id: string; title: string; display_order: number; fields: any[] }[] = [];
-  if (formRow) {
+  if (formRow && formRow.is_enabled !== false) {
     const { data: rawSections } = await svc
       .from('event_registration_form_sections')
       .select('*')
