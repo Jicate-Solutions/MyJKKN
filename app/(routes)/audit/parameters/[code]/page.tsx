@@ -18,14 +18,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,8 +45,9 @@ import type { DiscoveryQueryResult } from '@/lib/services/audit';
 const GROUP_LABELS: Record<number, string> = {
   1: 'Academic / Curricular',
   2: 'Research',
-  3: 'Governance',
-  4: 'Infrastructure'
+  3: 'Infrastructure',
+  4: 'Governance',
+  5: 'Empowerment'
 };
 
 export default function AuditParameterDetailPage() {
@@ -139,25 +132,6 @@ export default function AuditParameterDetailPage() {
     <PermissionGuard module='audit' action='parameter.view'>
       <ContentLayout title='Parameter Detail'>
         <div className='space-y-6'>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit'>Audit</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit/parameters'>Parameters</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage className='font-mono text-xs'>{code}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
 
           <Button variant='ghost' size='sm' onClick={() => router.back()}>
             <ArrowLeft className='h-4 w-4 mr-2' />
