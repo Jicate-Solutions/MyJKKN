@@ -217,6 +217,26 @@ export interface AuditAdaptation {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Standing "Whole Institution" report card. Org-wide params (is_org_wide) are
+// graded by their DISCOVERY output, not by findings — so the standing cycle
+// needs its own board. fn_audit_standing_board runs each org-wide param's
+// discovery over the cycle window and reports whether it produced fresh evidence.
+// ---------------------------------------------------------------------------
+
+export type AuditStandingBoardStatus = 'measured' | 'no_data' | 'error';
+
+export interface AuditStandingBoardRow {
+  parameter_code: string;
+  name: string;
+  framework_mapping: Record<string, string> | null;
+  discovery_source: string;
+  measured_count: number;
+  status: AuditStandingBoardStatus;
+  /** First few discovery evidence rows (verdict values, dates, etc.). */
+  sample: Array<Record<string, unknown>>;
+}
+
 export interface AuditFindingType {
   id: string;
   code: string;
