@@ -31,6 +31,7 @@ export type {
   CarreSnapshot,
   CarreSnapshotParameter,
 } from './carre-audit-service';
+export { AuditAdaptationsService } from './audit-adaptations-service';
 export { AuditReportService } from './audit-report-service';
 export type {
   AuditReportFormat,

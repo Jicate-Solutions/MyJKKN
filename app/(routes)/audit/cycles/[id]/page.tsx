@@ -44,6 +44,7 @@ import {
   Info,
   CalendarDays,
   UserCircle2,
+  Sparkles,
 } from 'lucide-react';
 import {
   useAuditCycle,
@@ -511,6 +512,22 @@ export default function AuditCycleDetailPage({ params }: PageProps) {
                     Verdicts, deltas &amp; recurrence
                   </span>{' '}
                   — the audit measuring itself.
+                </p>
+              </WorkspaceCard>
+
+              {/* Adapt — gate ④ */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/adapt`}
+                icon={Sparkles}
+                iconClass="bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                title="Adapt"
+                blurb="What the audit learned this cycle — escalate what keeps failing, automate what you find by hand."
+              >
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    Recommendations &amp; apply
+                  </span>{' '}
+                  — the audit sharpening itself.
                 </p>
               </WorkspaceCard>
             </div>
