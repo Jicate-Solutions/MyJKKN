@@ -1,19 +1,21 @@
-name: JKKN Conventions (advisory)
+name: JKKN Conventions
 
-# Two advisory, delta-only convention checks. Both are pure git/grep with NO
+# Delta-only convention checks. Both are pure git/grep with NO
 # personal secret (only the auto GITHUB_TOKEN, to post a comment) — so unlike the
 # SDK reviewer they need no base-ref hardening; a malicious PR editing them could
 # at most post a comment with the repo-scoped token.
 #
 #  1. Terminology — flags NEW user-facing copy that uses non-JKKN terms, against
 #     the canonical dictionary in .claude/skills/jkkn-terminologies (CRITICAL/
-#     zero-tolerance tier, the Director's chosen scope). Delta-only + UI-scope so
-#     it never flags the legacy backlog or code identifiers.
+#     zero-tolerance tier). Delta-only + UI-scope so it never flags the legacy
+#     backlog or code identifiers. BLOCKING since 2026-07-14 (Director ruling —
+#     an advisory comment on #2049 went unread past a fast merge): the job FAILS
+#     while findings exist; the comment still posts so the author sees the fix.
 #  2. Smart-guide coverage — when a PR adds pages under a module that HAS a smart
 #     guide without updating the guide, nudges the author to run /smart-guide.
 #
-# Both ADVISORY — post/update one comment each, never block. Run alongside the
-# other reviewers.
+# Terminology is BLOCKING; the rest are advisory — each posts/updates one
+# comment. Run alongside the other reviewers.
 
 on:
   pull_request:
@@ -30,7 +32,7 @@ permissions:
 
 jobs:
   terminology:
-    name: JKKN terminology (advisory)
+    name: JKKN terminology
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: ${{ !github.event.pull_request.draft }}
@@ -66,6 +68,13 @@ jobs:
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${IDS[0]}" -F body=@/tmp/term.md > /dev/null
             for s in "${IDS[@]:1}"; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$s" >/dev/null 2>&1 || true; done
           fi
+      - name: Fail on zero-tolerance findings (blocking since 2026-07-14)
+        run: |
+          if grep -q '[^[:space:]]' /tmp/term.md; then
+            echo "::error::New user-facing copy uses zero-tolerance terms — see the PR comment for the exact lines and JKKN replacements."
+            exit 1
+          fi
+          echo "No new terminology issues."
 
   smart-guide:
     name: Smart-guide coverage (advisory)

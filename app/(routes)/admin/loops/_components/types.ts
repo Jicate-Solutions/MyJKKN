@@ -39,6 +39,13 @@ export interface LoopCard {
    *  now records the routine's own result summary, not just the HTTP code).
    *  Absent for on-demand / direct-cron loops with no dispatcher schedule row. */
   lastRun?: string;
+  /** True when the last run errored OR the routine went silent past its OWN
+   *  cadence (derived from days_of_week: ~25h daily, ~7d weekly — see
+   *  staleThresholdMs in lib/ai-routines/loop-governance.ts) — the card
+   *  renders the last-run line red. Computed live by
+   *  the page from the same row; the loop-watchdog cron is the half that
+   *  notifies when nobody is looking (governance wires, 2026-07-11). */
+  lastRunBad?: boolean;
   /** Deep-link to the routine's row on /admin/ai-routines when it's dispatcher-
    *  managed — so "configure" is one click from the health view. */
   configHref?: string;
@@ -56,4 +63,37 @@ export interface LoopTier {
   gateLabel: string;
   blurb: string;
   loops: LoopCard[];
+}
+
+// ── loop_registry / loop_edges / loop_audits (2026-07-10) ───────────────────
+// The data-driven backbone behind the Tower's per-loop chips and the Wiring
+// view. Distinct from `Gate`/`LoopCard` above (which describe the hand-curated
+// four-gate cards on this page) — these mirror the new prod tables 1:1.
+export type GateState = 'on' | 'off' | 'half';
+
+export interface LoopRegistryRow {
+  loop_key: string;
+  name: string;
+  stack_tier: number;
+  loop_class: 'self_improving' | 'cadence' | 'accountability' | 'intake' | 'infrastructure';
+  domain?: string | null;
+  description?: string | null;
+  gates: Record<'g' | 'a' | 'm' | 'f', GateState>;
+  routine_id?: string | null;
+  is_active?: boolean;
+}
+
+export interface LoopEdgeRow {
+  from_key: string;
+  to_key: string;
+  what_flows: 'measured_outcomes' | 'decisions' | 'fuel' | 'escalations';
+  note: string | null;
+  is_draft: boolean;
+}
+
+export interface LoopAuditRow {
+  loop_key: string;
+  audited_at: string;
+  layer: 'sim' | 'walk' | 'full';
+  verdict: string | null;
 }

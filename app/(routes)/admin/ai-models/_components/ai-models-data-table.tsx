@@ -19,11 +19,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { Pencil, RefreshCw, AlertTriangle, Zap } from 'lucide-react';
+import { Pencil, RefreshCw, AlertTriangle, Zap, Play } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { AiJobRunCard } from './ai-job-run-card';
+import type { AiJobType } from './ai-job-types';
 import {
   Table,
   TableBody,
@@ -36,6 +44,7 @@ import { getModelLabel } from '@/lib/services/platform/ai-providers';
 import { AI_ROUTINES } from '@/lib/ai-routines/registry';
 import type { AIRoutine } from '@/lib/ai-routines/types';
 
+import { Switch } from '@/components/ui/switch';
 import { AiModelEditDialog } from './ai-model-edit-dialog';
 // Shared Max-lane plumbing (button + status hook) — source of truth lives with
 // the AI Routines page; reused here so both pages queue via the same
@@ -44,6 +53,7 @@ import {
   MaxLaneRunButton,
   useMaxLaneRequests,
 } from '@/app/(routes)/admin/ai-routines/_components/max-lane';
+import type { ScheduleRow } from '@/app/(routes)/admin/ai-routines/_components/schedule-editor';
 
 // Reverse cross-link: which /admin/ai-routines entries run on each feature row.
 // Static registry data, computed once at module scope (no hooks involved).
@@ -65,6 +75,101 @@ const ROUTINE_TYPE_LABELS: Record<AIRoutine['type'], string> = {
   service: 'Service',
 };
 
+// ---------------------------------------------------------------------------
+// Max-lane schedule rows (`maxlane:<routine-id>` in ai_routine_schedules) —
+// the REAL on/off switch for a routine's subscription-lane schedule. Edits go
+// through the same POST the AI Routines page uses; the runner box's
+// schedule-sync re-reads them within ~15 minutes.
+// ---------------------------------------------------------------------------
+function useMaxLaneSchedules() {
+  const [map, setMap] = useState<Map<string, ScheduleRow>>(new Map());
+
+  const load = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/admin/ai-routines/schedule', { cache: 'no-store' });
+      // 403/500 → switches simply don't render. Deliberate house style
+      // (matches model-chip + max-lane hooks: "the page must never get
+      // noisier because the config API is unreachable"); the WRITE path
+      // (toggleMaxSchedule) does surface its errors via toast.
+      // Deep-review 2026-07-11 finding #9 reviewed and declined on this basis.
+      if (!resp.ok) return;
+      const json = await resp.json();
+      const rows: ScheduleRow[] = Array.isArray(json?.schedules) ? json.schedules : [];
+      const m = new Map<string, ScheduleRow>();
+      for (const r of rows) {
+        if (typeof r?.routine_id === 'string' && r.routine_id.startsWith('maxlane:')) {
+          m.set(r.routine_id, r);
+        }
+      }
+      setMap(m);
+    } catch {
+      // silent — switches don't render
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return { map, refetch: load };
+}
+
+function fmtIstTime(minuteOfDay: number): string {
+  const h = Math.floor(minuteOfDay / 60);
+  const m = minuteOfDay % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} IST`;
+}
+
+/** Plain-English lane badge for one feature row. Absence of a badge = plain
+ *  API feature with nothing special to say. */
+function LaneBadge({ f, routines, scheduleMap }: {
+  f: FeatureRow;
+  routines: AIRoutine[];
+  scheduleMap: Map<string, ScheduleRow>;
+}) {
+  // The API sends only derived flags here (never raw max_lane_user_ids — the
+  // seat owner's user id stays server-side).
+  const seatUserCount =
+    typeof f.config_json?.seat_lane_user_count === 'number'
+      ? f.config_json.seat_lane_user_count
+      : 0;
+  if (seatUserCount > 0) {
+    return (
+      <Badge variant="outline" className="mt-1 gap-1 border-[#0b6d41]/40 text-[11px] font-normal text-[#0b6d41]">
+        <Zap className="h-3 w-3" /> Max for Director · API for others
+      </Badge>
+    );
+  }
+  const maxRoutine = routines.find((r) => r.maxLane);
+  if (maxRoutine) {
+    const sched = scheduleMap.get(`maxlane:${maxRoutine.id}`);
+    if (sched?.enabled) {
+      return (
+        <Badge variant="outline" className="mt-1 gap-1 border-[#0b6d41]/40 text-[11px] font-normal text-[#0b6d41]">
+          <Zap className="h-3 w-3" /> Max first · API backup
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className="mt-1 gap-1 text-[11px] font-normal text-muted-foreground">
+        <Zap className="h-3 w-3" /> Max on demand
+      </Badge>
+    );
+  }
+  if (f.config_json?.lane === 'api_policy') {
+    return (
+      <Badge
+        variant="outline"
+        className="mt-1 text-[11px] font-normal text-muted-foreground"
+        title="Serves learners or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
+      >
+        API only · policy
+      </Badge>
+    );
+  }
+  return null;
+}
+
 interface FeatureRow {
   feature_key: string;
   display_name: string;
@@ -84,6 +189,9 @@ interface FeatureRow {
   month_to_date_success_rate: number;
   last_24h_cost_inr: number;
   last_24h_invocations: number;
+  // Config merge (2026-07-14): registry-sourced governance.
+  lane?: string | null;
+  runnable?: boolean;
 }
 
 function formatInr(n: number): string {
@@ -99,9 +207,66 @@ export function AiModelsDataTable() {
   const [features, setFeatures] = useState<FeatureRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingFeature, setEditingFeature] = useState<FeatureRow | null>(null);
+  // Config merge (2026-07-14): the registry's job types power an inline Run
+  // card on runnable features (reuses the AI Studio runner). Map keyed by
+  // job_type === feature_key; empty until loaded / on failure (→ no Run button).
+  const [runningFeature, setRunningFeature] = useState<FeatureRow | null>(null);
+  const [jobTypeMap, setJobTypeMap] = useState<Map<string, AiJobType>>(new Map());
   // Latest Max-lane request per routine_id (drives queued/running/done state
   // on the Run-on-Max buttons). Same hook the AI Routines page uses.
   const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
+  // maxlane:* schedule rows — power the "Scheduled on Max" switches.
+  const { map: schedMap, refetch: refetchSched } = useMaxLaneSchedules();
+  const [togglingSched, setTogglingSched] = useState<string | null>(null);
+
+  const toggleMaxSchedule = useCallback(
+    async (routineId: string, row: ScheduleRow, next: boolean) => {
+      setTogglingSched(routineId);
+      try {
+        // Re-read the row FIRST: the upsert requires days/minute, and the
+        // mount-time snapshot could be stale if the time was edited on the
+        // routines page meanwhile — writing the old values back would be a
+        // silent lost update (deep-review finding). Fresh-read failure falls
+        // back to the snapshot rather than blocking the toggle.
+        let current = row;
+        try {
+          const fresh = await fetch('/api/admin/ai-routines/schedule', { cache: 'no-store' });
+          if (fresh.ok) {
+            const fj = await fresh.json();
+            const match = (Array.isArray(fj?.schedules) ? fj.schedules : []).find(
+              (s: ScheduleRow) => s?.routine_id === row.routine_id,
+            );
+            if (match) current = match;
+          }
+        } catch {
+          // keep snapshot
+        }
+        const resp = await fetch('/api/admin/ai-routines/schedule', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            routineId: current.routine_id,
+            enabled: next,
+            daysOfWeek: current.days_of_week,
+            minuteOfDay: current.minute_of_day,
+          }),
+        });
+        const json = await resp.json();
+        if (!resp.ok || json?.ok === false) throw new Error(json?.error ?? `HTTP ${resp.status}`);
+        toast.success(
+          next
+            ? 'Max schedule ON — the runner box picks this up within ~15 minutes'
+            : 'Max schedule OFF — the API cron keeps covering this routine',
+        );
+        await refetchSched();
+      } catch (e) {
+        toast.error(`Could not update the Max schedule: ${e instanceof Error ? e.message : 'request failed'}`);
+      } finally {
+        setTogglingSched(null);
+      }
+    },
+    [refetchSched],
+  );
 
   const loadFeatures = useCallback(async () => {
     setLoading(true);
@@ -125,6 +290,27 @@ export function AiModelsDataTable() {
   useEffect(() => {
     loadFeatures();
   }, [loadFeatures]);
+
+  // Load the registry's job types once so runnable features can open an inline
+  // Run card. Best-effort — a failure just means no Run buttons render, never a
+  // broken page (matches the house style of the other config fetches here).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/ai-job-types', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        const list: AiJobType[] = Array.isArray(json?.jobTypes) ? json.jobTypes : [];
+        if (!cancelled) setJobTypeMap(new Map(list.map((jt) => [jt.job_type, jt])));
+      } catch {
+        // silent — no Run buttons on failure
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Group by category for the table sectioning
   const grouped = useMemo(() => {
@@ -227,9 +413,38 @@ export function AiModelsDataTable() {
                               <div className="text-xs text-muted-foreground/70 font-mono">
                                 {f.feature_key}
                               </div>
+                              {/* Config merge: the registry's own lane (max/api/either) —
+                                  which lane this feature's model runs on per the
+                                  unified ai_job_types config. */}
+                              {f.lane && (
+                                <Badge
+                                  variant="outline"
+                                  className={`mt-1 gap-1 text-[10px] font-normal ${
+                                    f.lane === 'max'
+                                      ? 'border-[#0b6d41]/40 text-[#0b6d41]'
+                                      : 'text-muted-foreground'
+                                  }`}
+                                  title="Registry lane: where this feature's model runs — Max (₹0 subscription seat), API (paid), or Either."
+                                >
+                                  {f.lane === 'max' ? (
+                                    <>
+                                      <Zap className="h-3 w-3" /> Max lane
+                                    </>
+                                  ) : f.lane === 'api' ? (
+                                    'API lane'
+                                  ) : (
+                                    'Either lane'
+                                  )}
+                                </Badge>
+                              )}
                               {!f.is_active && (
                                 <Badge variant="outline" className="mt-1">Inactive</Badge>
                               )}
+                              <LaneBadge
+                                f={f}
+                                routines={ROUTINES_BY_FEATURE.get(f.feature_key) ?? []}
+                                scheduleMap={schedMap}
+                              />
                             </div>
                           </TableCell>
                           <TableCell>
@@ -277,13 +492,36 @@ export function AiModelsDataTable() {
                                           routines/features get nothing — the subscription
                                           seat cannot run interactive/product features. */}
                                       {r.maxLane ? (
-                                        <div className="flex justify-start [&>div]:items-start">
-                                          <MaxLaneRunButton
-                                            routineId={r.id}
-                                            routineName={r.name}
-                                            request={maxMap.get(r.id)}
-                                            onQueued={refetchMax}
-                                          />
+                                        <div className="space-y-1">
+                                          <div className="flex justify-start [&>div]:items-start">
+                                            <MaxLaneRunButton
+                                              routineId={r.id}
+                                              routineName={r.name}
+                                              request={maxMap.get(r.id)}
+                                              onQueued={refetchMax}
+                                            />
+                                          </div>
+                                          {(() => {
+                                            // The REAL switch: on/off of this routine's
+                                            // maxlane:* schedule row. Rows without one are
+                                            // button-only twins (no schedule to toggle).
+                                            const sched = schedMap.get(`maxlane:${r.id}`);
+                                            if (!sched) return null;
+                                            return (
+                                              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                                <Switch
+                                                  checked={sched.enabled}
+                                                  disabled={togglingSched === r.id}
+                                                  onCheckedChange={(next) => void toggleMaxSchedule(r.id, sched, next)}
+                                                  aria-label={`Scheduled Max runs for ${r.name}`}
+                                                  className="scale-75"
+                                                />
+                                                {sched.enabled
+                                                  ? `On Max daily ${fmtIstTime(sched.minute_of_day)}`
+                                                  : 'Max schedule off'}
+                                              </label>
+                                            );
+                                          })()}
                                         </div>
                                       ) : null}
                                     </div>
@@ -320,23 +558,50 @@ export function AiModelsDataTable() {
                               <div className="space-y-0.5">
                                 <div className="text-sm">{formatInr(f.monthly_spend_cap_inr)}</div>
                                 {overCap && (
-                                  <div className="flex items-center justify-end gap-1 text-xs text-destructive">
-                                    <AlertTriangle className="h-3 w-3" />
-                                    Over cap
+                                  <div className="space-y-0.5 text-right">
+                                    <div className="flex items-center justify-end gap-1 text-xs text-destructive">
+                                      <AlertTriangle className="h-3 w-3" />
+                                      Over cap
+                                    </div>
+                                    {/* Enforcement swaps anthropic rows to Haiku;
+                                        a row ALREADY on Haiku has nothing to swap,
+                                        so don't imply protection that isn't applied. */}
+                                    {f.provider === 'anthropic' && f.model_id !== 'claude-haiku-4-5' && (
+                                      <div className="text-[11px] text-muted-foreground">
+                                        auto-running on Haiku until next month
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
                             )}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setEditingFeature(f)}
-                              aria-label={`Edit ${f.display_name}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              {/* Config merge: runnable registry features get an
+                                  on-demand Run card (reuses the AI Studio runner).
+                                  Shown only when the registry says runnable AND we
+                                  have its job-type def loaded. */}
+                              {f.runnable && jobTypeMap.has(f.feature_key) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setRunningFeature(f)}
+                                  aria-label={`Run ${f.display_name}`}
+                                  title="Run this feature on demand"
+                                >
+                                  <Play className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setEditingFeature(f)}
+                                aria-label={`Edit ${f.display_name}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -360,6 +625,27 @@ export function AiModelsDataTable() {
           loadFeatures();
         }}
       />
+
+      {/* Config merge (2026-07-14): on-demand Run dialog — embeds the AI Studio
+          run card for the selected runnable feature, so the AI Models page both
+          governs the model AND runs the feature per the unified registry. */}
+      <Dialog
+        open={!!runningFeature}
+        onOpenChange={(open) => {
+          if (!open) setRunningFeature(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Run {runningFeature?.display_name ?? 'feature'} on demand
+            </DialogTitle>
+          </DialogHeader>
+          {runningFeature && jobTypeMap.get(runningFeature.feature_key) && (
+            <AiJobRunCard jobType={jobTypeMap.get(runningFeature.feature_key)!} />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

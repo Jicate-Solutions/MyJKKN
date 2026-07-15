@@ -1,0 +1,190 @@
+# Capability-Gap loop manifest — the AI assistant's self-improving loop.
+# Phase 1 (detect/cluster/surface) + Phase 2 (triage/measure/branch) are LIVE on
+# prod (2026-07-14). This manifest encodes the PROVEN moat demo so loop-watchdog
+# / loops-regress can audit the measure->branch mechanism mechanically.
+#
+# The moat (already observed on prod, not a claim): the billing.fee_defaulters
+# cluster went refusal-freq 1.0 -> 0.0 after its class-1b tool was exposed, and
+# fn_capgap_measure auto-flipped the row to `resolved`. The sim below reproduces
+# BOTH branches of that measurement in a rollback txn against sentinel rows.
+loop_key: capability-gap
+name: AI Assistant Capability-Gap Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: ai_jobs           # the chat log: WHERE job_type = 'ai_query.chat' (payload->>'message' asked, result->>'answer' returned)
+  action: capability_gaps  # one row per refusal-cluster; triage + measurement columns live here
+
+sim:
+  sentinel: ZZCAPGAP
+  # ---------------------------------------------------------------------------
+  # WHAT IS BEING PROVEN
+  #   fn_capgap_measure(row_id) reads the post-fix window (requested_at >=
+  #   capability_gaps.fix_applied_at), recomputes the cluster's refusal freq via
+  #   _capgap_topic_freq, and CHANGES THE NEXT ACTION from the measured outcome:
+  #     drop  (post_fix_freq < baseline_freq)  -> status='resolved' (class confirmed)
+  #     no drop, class 1b                       -> flip 1b->1a, status='open' (Branch B)
+  #   Branch B is what makes this a loop, not an echo: a fix that did NOT move
+  #   the metric is re-queued as a DIFFERENT (discoverability) fix.
+  #
+  # ISOLATION NOTE (critical): cluster_key 'ZZCAPGAP.fees' is NOT one of the
+  #   three known data clusters, so _capgap_topic_freq matches "is this job on
+  #   topic?" via FALLBACK word-patterns derived from the row's sample_questions
+  #   (>=4-char non-stopwords). We seed sample_questions with sentinel-only
+  #   tokens ('zzcapgapfees','zzcapgaptopic') so ONLY our seeded jobs count as
+  #   topic — the real corpus is never swept. (See notes.)
+  # ---------------------------------------------------------------------------
+
+  # ai_jobs NOT-NULLs: job_type (FK ai_job_types -> 'ai_query.chat' exists),
+  # payload, requested_by, status CHECK IN (pending|claimed|running|done|error|
+  # canceled), lane/priority/attempts have defaults. Refusal is detected by the
+  # answer matching the phrase list (see notes).
+  seed_input: |
+    -- >=2 BASELINE refusals (requested_at < the fix boundary). Message carries
+    -- both the sentinel token (for isolated topic-matching) and the human
+    -- 'fee defaulters' phrase (realism). Answer contains a refusal phrase.
+    INSERT INTO public.ai_jobs
+      (job_type, status, requested_by, requested_at, payload, result)
+    SELECT 'ai_query.chat', 'done', gen_random_uuid(), now() - interval '9 days',
+           jsonb_build_object('message',
+             'zzcapgapfees zzcapgaptopic — who are the fee defaulters this month?'),
+           jsonb_build_object('answer',
+             'I couldn''t find that — I don''t have access to fee-defaulter billing records.')
+    FROM generate_series(1, 2);
+
+  seed_action: |
+    -- Backdate the cluster row into the fix_live/1b state with a captured
+    -- baseline (freq 1.0 over 2 topic Qs). fix_applied_at is the boundary; the
+    -- post-fix window is everything at/after it.
+    INSERT INTO public.capability_gaps
+      (cluster_key, title, sample_questions, sample_job_ids,
+       first_seen, last_seen, occurrence_count, distinct_users,
+       gap_class, gap_class_source, suggested_fix, candidate_tool,
+       status, actionable, linked_tool_id,
+       fix_applied_at, baseline_freq, baseline_n)
+    VALUES
+      ('ZZCAPGAP.fees', 'ZZCAPGAP fee defaulters (sim)',
+       '["zzcapgapfees zzcapgaptopic"]'::jsonb, '[]'::jsonb,
+       now() - interval '10 days', now() - interval '1 day', 2, 2,
+       '1b', 'human', 'Expose existing tool (leak-test first)', 'ai_rpc_fee_defaulters',
+       'fix_live', true, 'ai_rpc_fee_defaulters',
+       now() - interval '2 days', 1.0, 2)
+    ON CONFLICT (cluster_key) DO NOTHING;
+    -- >=2 ANSWERED (non-refused) topic jobs in the POST-FIX window
+    -- (requested_at >= fix_applied_at). This realises the known_delta state:
+    -- post_fix_freq = 0/2 = 0.0 < baseline 1.0 -> freq_dropped=true.
+    INSERT INTO public.ai_jobs
+      (job_type, status, requested_by, requested_at, payload, result)
+    SELECT 'ai_query.chat', 'done', gen_random_uuid(), now() - interval '6 hours',
+           jsonb_build_object('message',
+             'zzcapgapfees zzcapgaptopic — list the fee defaulters this month'),
+           jsonb_build_object('answer',
+             'The fee defaulters this month are A, B and C — total outstanding shown from the billing tool.')
+    FROM generate_series(1, 2);
+
+  verifier: "public.fn_capgap_measure(<capability_gaps.id of the ZZCAPGAP.fees row>)"
+
+  asserts:
+    # NEVER carry another loop's magic number here — these derive from THIS sim's
+    # own seeds (baseline_freq=1.0 over n=2; post-fix 0-of-2 vs 2-of-2 refused).
+    no_change:                         # CONTROL / Branch B: the fix did NOT move the metric
+      seed: "post-fix window STILL refuses (>=2 topic jobs whose answer contains a refusal phrase) => post_fix_freq stays 1.0, NOT below baseline 1.0"
+      expect: "freq_dropped=false; because gap_class='1b', the row FLIPS 1b->1a and status->'open' with suggested_fix='Edit tool description/examples' (Branch B — re-queued as discoverability, NOT resolved)"
+    known_delta:                       # DELTA: the fix DID move the metric
+      seed: "post-fix answered, 0 refused (the 2 answered jobs seed_action already inserted) => post_fix_freq 1.0 -> 0.0"
+      expect: "freq_dropped=true; status->'resolved'; gap_class STAYS '1b' (the measured drop CONFIRMS the class)"
+
+  reset_between_deltas: |
+    -- Between the two asserts, null the measurement outputs and restore the row
+    -- to its fix_live/1b starting state (fn_capgap_measure mutates status AND,
+    -- on Branch B, gap_class/suggested_fix/source). Also swap the post-fix jobs
+    -- between the refusing (no_change) and answered (known_delta) forms.
+    UPDATE public.capability_gaps
+    SET post_fix_freq = NULL, post_fix_n = NULL, freq_dropped = NULL,
+        retest_answer = NULL, retest_at = NULL,
+        status = 'fix_live', gap_class = '1b', gap_class_source = 'human',
+        suggested_fix = 'Expose existing tool (leak-test first)', resolved_at = NULL
+    WHERE cluster_key = 'ZZCAPGAP.fees';
+    -- To realise no_change, first make the post-fix jobs refuse; to realise
+    -- known_delta, make them answer:
+    --   UPDATE public.ai_jobs SET result = jsonb_build_object('answer',
+    --     'I couldn''t find that — I don''t have access to fee-defaulter records.')
+    --   WHERE job_type='ai_query.chat' AND payload->>'message' ILIKE '%zzcapgapfees%'
+    --     AND requested_at >= now() - interval '2 days';   -- refusing (no_change)
+    --   UPDATE ... SET result = jsonb_build_object('answer','The fee defaulters ... billing tool.')
+    --     WHERE ... ;                                       -- answered (known_delta)
+
+  notes:
+    - fn_capgap_measure needs a SUPER-ADMIN JWT — it is guarded by is_super_admin()
+      strictly, with NO service-role bypass (unlike fn_capgap_scan, which also
+      allows the service-role cron context, auth.uid() IS NULL). Run the verifier
+      as a super-admin persona, not service_role. (Phase 2 migration
+      20260714031839_capability_gaps_phase2.sql.)
+    - Phase 2 columns fix_applied_at / baseline_n / post_fix_n were ADDED by that
+      migration; measurement columns baseline_freq / post_fix_freq / freq_dropped
+      are Phase 1. If any is absent at run, Phase 2 has not merged — derive from
+      supabase/migrations/*capability_gaps_phase2.sql:fn_capgap_measure.
+    - topic-match for the SENTINEL cluster uses _capgap_topic_freq's fallback
+      word-pattern branch (cluster_key NOT IN the known 3). Keep sample_questions
+      to sentinel-only >=4-char tokens ('zzcapgapfees','zzcapgaptopic') so only
+      seeded jobs are swept — a real word like 'defaulters' would pull real jobs
+      into the denominator and make the assert non-deterministic.
+    - >-
+      refusal phrase list (both fn_capgap_scan and _capgap_topic_freq),
+      matched as lower(answer) ~~ ANY: don't have / do not have / can't access
+      / cannot access / outside the data / couldn't find / not available to me
+      / don't have access / no access / not able to access (each wrapped in
+      %...% in the SQL). Every seeded refusal answer MUST contain one; every
+      seeded ANSWERED answer MUST contain none.
+    - retest_answer stays NULL for the sentinel cluster — fn_capgap_measure's
+      inline retest topic-test returns FALSE for unknown clusters. Do NOT assert
+      retest_answer in the sim — assert it only on the REAL billing cluster in
+      the walk. freq_dropped / status transitions ARE valid for the sentinel
+      (they flow through _capgap_topic_freq, which handles unknown clusters).
+    - directional at this corpus size (min_rows 2) — see confound.
+
+confound:
+  # Causal validity read: the "next action" must change BECAUSE the outcome was
+  # measured against a baseline, not by coincidence. The verdict is the measured
+  # drop itself (freq_dropped) — a class-1b cluster only resolves when
+  # post_fix_freq < baseline_freq; a no-drop reopens it as 1a. Read-only.
+  verdict_column: freq_dropped
+  query: |
+    SELECT coalesce(freq_dropped::text,'(unmeasured)') AS dropped,
+           status, gap_class, count(*) AS n,
+           round(avg(baseline_freq),2) AS avg_baseline,
+           round(avg(post_fix_freq),2) AS avg_post_fix
+    FROM public.capability_gaps
+    WHERE post_fix_freq IS NOT NULL
+    GROUP BY 1, 2, 3;
+  min_rows: 2   # tiny corpus — treat as DIRECTIONAL, not statistically powered.
+                # The prod moat proof is the single billing cluster (1.0->0.0);
+                # below this, report "insufficient fuel", don't generalise.
+
+feed_forward:
+  # f=off in the registry: there is NO automatic re-enqueue / auto-retest of a
+  # fixed cluster against fresh chat traffic yet — measurement is human-triggered
+  # (a super-admin clicks Measure). Phase 3 would add the auto-retest re-queue.
+  derive_at_run: true
+  pointer: "specs/capability-gap-loop-spec-2026-07-13.md (§ Phase 3, retest re-queue) — not built; registry gate f=off"
+
+walk:
+  personas:
+    superadmin: test.superadmin@jkkn.ac.in
+  hops:
+    - as: superadmin
+      do: open_assert
+      page: /ai-query/admin
+      detail: "click the 'Capability Gaps' tab (TabsTrigger value='capability-gaps')"
+      expect: "the tab renders; the RESOLVED billing.fee_defaulters cluster shows its before->after measurement panel (Baseline refusal rate -> post-fix, 'Resolved — fix confirmed by measured drop')"
+  forbidden:
+    - dispatching a fix without human approval    # every fix is human-gated (fn_capgap_set_status('fix_live') is run out-of-band by a human)
+    - running fn_capgap_scan or fn_capgap_measure as service_role in the walk (super-admin only)
+  cleanup: |
+    -- Sim rows only (the walk touches real prod rows read-only; do NOT delete those).
+    DELETE FROM public.capability_gaps WHERE cluster_key LIKE 'ZZCAPGAP%';
+    DELETE FROM public.ai_jobs
+     WHERE job_type = 'ai_query.chat' AND payload->>'message' ILIKE '%zzcapgap%';
+    -- verify in a SEPARATE call: ZZCAPGAP counts = 0.
+
+registry_gates_hint: '{"a":"on","f":"off","g":"on","m":"on"}'

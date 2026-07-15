@@ -76,6 +76,17 @@ export function TimetableFilters({
    */
   const effectiveInstitutionId = searchParams.institution_id || userInstitutionId;
 
+  /**
+   * Effective department ID — mirrors effectiveInstitutionId above.
+   * FIX (BUG-002592 / BUG-002720 / BUG-003027): userDepartmentId was already
+   * being passed down from the server for HOD/faculty users but was never
+   * applied, so the Program dropdown (and therefore Semester/Section) stayed
+   * disabled until the user manually re-selected Degree → Department — which
+   * HOD users cannot do for departments outside their own scope. Falling back
+   * to userDepartmentId here unblocks the downstream chain immediately.
+   */
+  const effectiveDepartmentId = searchParams.department_id || userDepartmentId;
+
   // CRITICAL FIX: Use ref to store the latest onFilterChange callback
   // This allows useEffects to call the latest callback without re-triggering
   const onFilterChangeRef = useRef(onFilterChange);
@@ -146,6 +157,17 @@ export function TimetableFilters({
     }
   }, [userInstitutionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-set department filter for HOD/faculty users, mirroring the institution
+  // auto-set above. FIX (BUG-002592 / BUG-002720 / BUG-003027): userDepartmentId
+  // was previously accepted as a prop but never wired up, so department_id never
+  // reached the URL/search params and the Program/Semester/Section filters stayed
+  // disabled for these users.
+  useEffect(() => {
+    if (userDepartmentId && !searchParams.department_id) {
+      stableFilterChange('department_id', userDepartmentId);
+    }
+  }, [userDepartmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     async function loadDegrees() {
       if (effectiveInstitutionId) {
@@ -182,10 +204,10 @@ export function TimetableFilters({
 
   useEffect(() => {
     async function loadPrograms() {
-      if (searchParams.department_id) {
+      if (effectiveDepartmentId) {
         try {
           const data = await ProgramService.getProgramsByDepartment(
-            searchParams.department_id
+            effectiveDepartmentId
           );
           setPrograms(data);
         } catch (error) {
@@ -196,7 +218,7 @@ export function TimetableFilters({
       }
     }
     loadPrograms();
-  }, [searchParams.department_id]);
+  }, [effectiveDepartmentId]);
 
   useEffect(() => {
     async function loadSemesters() {
@@ -393,7 +415,7 @@ export function TimetableFilters({
                 onFilterChange('section', undefined);
               }
             }}
-            disabled={!searchParams.department_id}
+            disabled={!effectiveDepartmentId}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
               <SelectValue placeholder={`Select ${adapt('program')}`} />

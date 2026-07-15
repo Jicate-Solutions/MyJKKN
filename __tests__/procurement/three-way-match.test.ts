@@ -67,10 +67,17 @@ describe('matchLine', () => {
     expect(r.match_status).toBe('matched');
   });
 
-  it('matches when no invoice is captured and goods equal the PO', () => {
+  it('does NOT match when no invoice is captured — a match needs an invoice to compare against', () => {
+    // Regression: previously fell through to 'matched', a misleading green pass.
     const r = matchLine({ orderedRemaining: 10, invoiceQty: null, receivedQty: 10 });
-    expect(r.match_status).toBe('matched');
-    expect(r.mismatch_flag).toBe(false);
+    expect(r.match_status).toBe('awaiting_invoice');
+    expect(r.mismatch_flag).toBe(true);
+    expect(r.reason).toMatch(/invoice/i);
+  });
+
+  it('treats an undefined invoice qty the same as awaiting_invoice', () => {
+    const r = matchLine({ orderedRemaining: 5, invoiceQty: undefined, receivedQty: 5 });
+    expect(r.match_status).toBe('awaiting_invoice');
   });
 
   it('absorbs float noise within tolerance', () => {
@@ -78,8 +85,8 @@ describe('matchLine', () => {
     expect(r.match_status).toBe('matched');
   });
 
-  it('coerces string/undefined inputs to numbers safely', () => {
-    const r = matchLine({ orderedRemaining: 5, invoiceQty: undefined, receivedQty: 5 });
+  it('coerces string/number inputs safely once an invoice is present', () => {
+    const r = matchLine({ orderedRemaining: 5, invoiceQty: 5, receivedQty: 5 });
     expect(r.match_status).toBe('matched');
   });
 });

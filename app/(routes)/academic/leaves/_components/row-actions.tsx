@@ -56,7 +56,18 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
 
-  const canApprove = leave.status === 'pending' && canAccess('academic.leaves', 'approve');
+  // Approval is scope-based (see permissions.ts): approvers hold a per-scope key
+  // like `academic.leaves.approve.institution`, NOT a flat `academic.leaves.approve`.
+  // An institution-level approver is the superset and may approve any scope; anyone
+  // else needs the key matching this leave's own scope_level. This mirrors
+  // LeaveManagementService.canUserApprove's "institution OR exact-scope" logic.
+  const hasApproveAuthority =
+    canAccess('academic.leaves', 'approve.institution') ||
+    canAccess('academic.leaves', `approve.${leave.scope_level}`);
+  const canApprove = leave.status === 'pending' && hasApproveAuthority;
+  const canReject =
+    leave.status === 'pending' &&
+    (hasApproveAuthority || canAccess('academic.leaves', 'reject'));
   const canEdit = leave.status === 'pending' && canAccess('academic.leaves', 'edit');
   const canDelete = canAccess('academic.leaves', 'delete');
 
@@ -141,24 +152,26 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
             </DropdownMenuItem>
           )}
 
+          {(canApprove || canReject) && <DropdownMenuSeparator />}
+
           {canApprove && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setShowApproveDialog(true)}
-                className='text-green-600'
-              >
-                <Check className='mr-2 h-4 w-4' />
-                Approve
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setShowRejectDialog(true)}
-                className='text-destructive'
-              >
-                <X className='mr-2 h-4 w-4' />
-                Reject
-              </DropdownMenuItem>
-            </>
+            <DropdownMenuItem
+              onClick={() => setShowApproveDialog(true)}
+              className='text-green-600'
+            >
+              <Check className='mr-2 h-4 w-4' />
+              Approve
+            </DropdownMenuItem>
+          )}
+
+          {canReject && (
+            <DropdownMenuItem
+              onClick={() => setShowRejectDialog(true)}
+              className='text-destructive'
+            >
+              <X className='mr-2 h-4 w-4' />
+              Reject
+            </DropdownMenuItem>
           )}
 
           {canDelete && (

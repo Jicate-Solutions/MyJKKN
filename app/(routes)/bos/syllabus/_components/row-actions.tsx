@@ -120,7 +120,18 @@ export function SyllabusPdfDownloadButton({
         }
       }
 
-      const header = getInstitutionHeader(institutionName ?? null);
+      // Engineering (Anna University / CET) courses use the CET syllabus wording
+      // AND the Engineering college banner/logo — even though they are managed
+      // under the A&S autonomous college's BoS. Keyed on the syllabus's OWN
+      // `stream` field; the hosting institution is NOT a reliable signal.
+      const variant: 'default' | 'engineering' =
+        /engineering/i.test(syllabus.stream ?? '') ? 'engineering' : 'default';
+
+      // Force the Engineering header (name/accreditation/right logo) for the CET
+      // variant; otherwise resolve branding from the hosting institution's name.
+      const header = getInstitutionHeader(
+        variant === 'engineering' ? 'Engineering' : (institutionName ?? null),
+      );
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
@@ -134,13 +145,6 @@ export function SyllabusPdfDownloadButton({
       const displayCourseName = coursePartLabel
         ? `${coursePartLabel}-${liveName}`
         : liveName;
-
-      // Engineering (Anna University / CET) courses use the CET syllabus wording;
-      // every other stream keeps the default A&S layout. Keyed on the syllabus's
-      // OWN `stream` field — engineering courses are managed under the A&S
-      // autonomous college's BoS, so the institution is NOT a reliable signal.
-      const variant: 'default' | 'engineering' =
-        /engineering/i.test(syllabus.stream ?? '') ? 'engineering' : 'default';
 
       generateCourseSyllabusPDF({
         variant,

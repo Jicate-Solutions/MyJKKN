@@ -18,6 +18,7 @@
 export const dynamic = 'force-dynamic';
 export const navMeta = { label: 'Loop Control Tower', icon: 'Repeat' } as const;
 
+import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   createServiceRoleClient,
@@ -25,7 +26,17 @@ import {
 } from '@/lib/supabase/server';
 import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
-import type { LoopTier, LoopTone, LoopExample } from './_components/types';
+import { LoopWiring } from './_components/loop-wiring';
+import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
+import { getRoutineById } from '@/lib/ai-routines/registry';
+import type {
+  LoopTier,
+  LoopTone,
+  LoopExample,
+  LoopRegistryRow,
+  LoopEdgeRow,
+  LoopAuditRow,
+} from './_components/types';
 
 async function cnt(query: unknown): Promise<number | null> {
   try {
@@ -137,7 +148,40 @@ async function loadScfEffectiveness(
   }
 }
 
-export default async function LoopControlTowerPage() {
+// Mean measured outcome_lift for SCF suggestions whose outcome landed in the
+// window. A count query can't average, so this pulls the lift values and means
+// them in JS (same swallow-to-hollow philosophy as cnt()). n=0 → mean null so
+// the strip cell renders hollow, not a fake 0.00.
+async function loadScfLift(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  sinceIso: string,
+): Promise<{ n: number | null; mean: number | null }> {
+  try {
+    const { data, error } = await admin
+      .from('scf_ai_suggestions')
+      .select('outcome_lift')
+      .eq('domain', 'session_feedback')
+      .gte('outcome_measured_at', sinceIso)
+      .not('outcome_lift', 'is', null);
+    if (error) return { n: null, mean: null };
+    const vals = (data ?? [])
+      .map((r) => Number(r.outcome_lift))
+      .filter((v) => Number.isFinite(v));
+    if (vals.length === 0) return { n: 0, mean: null };
+    return { n: vals.length, mean: vals.reduce((a, b) => a + b, 0) / vals.length };
+  } catch {
+    return { n: null, mean: null };
+  }
+}
+
+export default async function LoopControlTowerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view: viewParam } = await searchParams;
+  const view = viewParam === 'wiring' ? 'wiring' : 'tower';
+
   const { profile } = await getEnhancedUserProfile();
   // Canonical super-admin definition (matches hooks/use-permissions.ts and the
   // SuperAdminOnly guard): the boolean flag OR the role. MENU_PERMISSIONS maps
@@ -217,8 +261,11 @@ export default async function LoopControlTowerPage() {
       .eq('policy_key', 'mess.choose.loop.master_enabled')
       .eq('scope_type', 'global')
       .maybeSingle()
-      .then((r) => r.data?.value ?? null)
-      .catch(() => null),
+      // PromiseLike has no .catch — the rejection handler is .then's 2nd arg.
+      .then(
+        (r) => r.data?.value ?? null,
+        () => null
+      ),
   ]);
 
   const messOn = messPolicy === true;
@@ -238,6 +285,8 @@ export default async function LoopControlTowerPage() {
   try {
     const { data } = await admin
       .from('ai_routine_schedules')
+      // days_of_week + last_fired_at feed the cadence-aware red-state
+      // computation in wire() below — do not drop them from this select.
       .select('routine_id, enabled, days_of_week, minute_of_day, last_status, last_fired_at');
     for (const r of data ?? []) schedById.set(r.routine_id, r);
   } catch {
@@ -268,6 +317,44 @@ export default async function LoopControlTowerPage() {
     return `${when} ${fmtTime(s.minute_of_day)}${s.enabled ? '' : ' · paused'}`;
   };
 
+  // ── IQAC meeting loop + institutional audit loop (accountability tier) ─────
+  // Meetings/resolutions tables arrive with migration 20260710060000 — until it
+  // applies, cnt() swallows the missing-relation error and the card shows '—'.
+  const iqacCommittees = await cnt(
+    admin
+      .from('accreditation_committees')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', true),
+  );
+  const iqacMeetingsMinuted = await cnt(
+    admin
+      .from('accreditation_committee_meetings')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'minuted'),
+  );
+  const iqacResolutionsOpen = await cnt(
+    admin
+      .from('accreditation_committee_resolutions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open'),
+  );
+  const iqacResolutionsEscalate = await cnt(
+    admin
+      .from('accreditation_committee_resolutions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open')
+      .gte('carried_count', 2),
+  );
+  const auditCyclesTotal = await cnt(
+    admin.from('audit_cycles').select('id', { count: 'exact', head: true }),
+  );
+  const auditCyclesClosed = await cnt(
+    admin
+      .from('audit_cycles')
+      .select('id', { count: 'exact', head: true })
+      .not('closed_at', 'is', null),
+  );
+
   // Compose a card's config line + last-run + configure-link from live tables,
   // falling back to the static string when the loop has no dispatcher routine
   // (direct-cron or on-demand loops: induction-session, feeder, decisions, arps).
@@ -276,7 +363,7 @@ export default async function LoopControlTowerPage() {
     routineId: string | null,
     featureKey: string | null,
     staticCfg: string,
-  ): { cfg: string; lastRun?: string; configHref?: string } => {
+  ): { cfg: string; lastRun?: string; lastRunBad?: boolean; configHref?: string } => {
     // "Live" ONLY when the loop has a dispatcher SCHEDULE row — that's what makes
     // it editable on AI Routines and gives it a real last_status. A model row
     // alone (direct-cron loops like induction-session) is NOT enough: keep the
@@ -285,9 +372,24 @@ export default async function LoopControlTowerPage() {
     if (!live) return { cfg: staticCfg };
     const model = featureKey ? modelByKey.get(featureKey) ?? null : null;
     const parts = [fmtSchedule(routineId!), model].filter(Boolean) as string[];
+    const sched = schedById.get(routineId!);
+    // Red-state computation (watchdog wire, 2026-07-11): errored last run OR
+    // silent past the routine's OWN cadence — derived from days_of_week via
+    // the same staleThresholdMs the watchdog cron uses, so a healthy weekly
+    // routine never shows red on its six quiet days (review 2026-07-11 #2).
+    // Never-fired rows aren't flagged here: without a seed date the page
+    // can't distinguish "new" from "dead"; the watchdog cron handles those
+    // via updated_at.
+    const lastRunBad = Boolean(
+      (sched &&
+        isAlarmStatus(sched.last_status, Boolean(getRoutineById(routineId!)))) ||
+        (sched?.last_fired_at &&
+          Date.now() - new Date(sched.last_fired_at).getTime() > staleThresholdMs(sched.days_of_week))
+    );
     return {
       cfg: `${parts.join(' · ')} · editable on AI Routines`,
-      lastRun: schedById.get(routineId!)?.last_status ?? undefined,
+      lastRun: sched?.last_status ?? undefined,
+      lastRunBad,
       configHref: AI_ROUTINES,
     };
   };
@@ -600,6 +702,58 @@ export default async function LoopControlTowerPage() {
           noteTag: 'Why half a loop',
           note: 'Measures pace against targets and flags the gap — but a person owns the correction (the accountability meeting), so the feed-forward is human, not automatic.',
         },
+        {
+          id: 'iqac-meeting',
+          name: 'IQAC Meeting Loop (Loop Review)',
+          subid: 'accreditation · committees',
+          plain:
+            'The committee passes resolutions with an owner and a deadline → the NEXT meeting opens by reviewing every open item: done, carried, or dropped → the minutes are the Action-Taken Report. Twice-carried items escalate to the Director.',
+          cfg: 'human cadence · convened on /accreditation/naac/committees · 7.3.e evidence via accreditation-loop-evidence 04:23 IST',
+          status:
+            (iqacCommittees ?? 0) === 0
+              ? 'Built · awaiting first committee'
+              : (iqacMeetingsMinuted ?? 0) > 0
+                ? 'Live · reviewing resolutions'
+                : 'Live · awaiting first minuted meeting',
+          tone: (iqacMeetingsMinuted ?? 0) > 0 ? 'live' : 'sched',
+          gates: ['on', 'on', 'on', 'half'],
+          metrics: [
+            { v: n(iqacCommittees), k: 'committees constituted', tone: (iqacCommittees ?? 0) > 0 ? 'good' : 'warn' },
+            { v: n(iqacMeetingsMinuted), k: 'meetings minuted', tone: 'mute' },
+            {
+              v: n(iqacResolutionsOpen),
+              k: (iqacResolutionsEscalate ?? 0) > 0
+                ? `open resolutions (${iqacResolutionsEscalate} escalate)`
+                : 'open resolutions',
+              tone: (iqacResolutionsEscalate ?? 0) > 0 ? 'warn' : 'mute',
+            },
+          ],
+          verifyHref: '/accreditation/naac/committees',
+          verifyLabel: 'Verify on the committees page →',
+          noteTag: 'Why half a loop',
+          note: 'Measure is closed — every resolution is checked against its own deadline at the next meeting — but the review and the correction are the committee itself. IQAC-as-loops Move 1 (Director decision 2026-07-10): the Cell runs the same discipline it monitors.',
+        },
+        {
+          id: 'institutional-audit',
+          name: 'Institutional Audit Loop (AAA)',
+          subid: 'audit · cycles',
+          plain:
+            'An audit cycle attests parameters and logs findings with SLA owners → the cycle closes → the next cycle re-measures: findings that recur were never really fixed. Closed cycles emit 7.3.d evidence with the prior cycle as baseline.',
+          cfg: 'cycle cadence · run on /audit · 7.3.d evidence via accreditation-loop-evidence 04:23 IST',
+          status:
+            (auditCyclesClosed ?? 0) > 0 ? 'Live · cycles closing' : 'Live · first cycle in progress',
+          tone: (auditCyclesClosed ?? 0) > 0 ? 'live' : 'sched',
+          gates: ['on', 'on', 'on', 'half'],
+          metrics: [
+            { v: n(auditCyclesTotal), k: 'audit cycles', tone: 'mute' },
+            { v: n(auditCyclesClosed), k: 'closed cycles', tone: (auditCyclesClosed ?? 0) > 0 ? 'good' : 'warn' },
+            { v: 'vs prior', k: 'findings delta at close', tone: 'mute' },
+          ],
+          verifyHref: '/audit',
+          verifyLabel: 'Verify on the audit dashboard →',
+          noteTag: 'Why half a loop',
+          note: 'The audit engine (cycles, attestations, findings-with-SLA) predates this wiring; what was missing was the loop: each close now measures against the prior cycle and lands in the evidence junction. Feed-forward is the auditor and the finding owners. IQAC-as-loops Move 2.',
+        },
       ],
     },
   ];
@@ -625,68 +779,397 @@ export default async function LoopControlTowerPage() {
     },
   ];
 
+  // ── loop_registry / loop_edges / loop_audits (2026-07-10) ─────────────────
+  // Feeds the Tower's per-loop chips + the Wiring view. New prod tables — a
+  // missing/lagging migration must never break this page, so every leg falls
+  // back to an empty array (same swallow-to-empty philosophy as cnt() above).
+  const [registry, edges, audits] = await Promise.all([
+    admin
+      .from('loop_registry')
+      .select('loop_key,name,stack_tier,loop_class,gates,description')
+      .eq('is_active', true)
+      // PromiseLike has no .catch — rejection handler is .then's 2nd arg.
+      .then(
+        (r) => (r.data ?? []) as LoopRegistryRow[],
+        () => [] as LoopRegistryRow[]
+      ),
+    admin
+      .from('loop_edges')
+      .select('from_key,to_key,what_flows,note,is_draft')
+      .then(
+        (r) => (r.data ?? []) as LoopEdgeRow[],
+        () => [] as LoopEdgeRow[]
+      ),
+    admin
+      .from('loop_audits')
+      .select('loop_key,audited_at,layer,verdict')
+      .order('audited_at', { ascending: false })
+      // Shared newest-first window across ALL loops: one chatty loop could
+      // push a quiet loop's latest audit past the cap and its "tested" badge
+      // would silently vanish (review 2026-07-10, #5). 500 ≈ years of headroom
+      // at current audit volume; revisit with DISTINCT ON if audits get chatty.
+      .limit(500)
+      .then(
+        (r) => (r.data ?? []) as LoopAuditRow[],
+        () => [] as LoopAuditRow[]
+      ),
+  ]);
+
+  // Latest audit per loop — audits arrive newest-first, so the first row seen
+  // per loop_key wins.
+  const latestAuditByKey = new Map<string, LoopAuditRow>();
+  for (const a of audits) {
+    if (!latestAuditByKey.has(a.loop_key)) latestAuditByKey.set(a.loop_key, a);
+  }
+
   const asOf = new Date().toISOString().slice(0, 10);
 
-  // ── Loop Tower stats (the loopcraft stack, live) ───────────────────────────
-  // IST day start → UTC instant, so "today" matches the campus day.
-  // Same inline-Date idiom as since7/since14 above: floor now to the IST day
-  // boundary (UTC+5:30 = 19_800_000 ms), then express it back as a UTC instant.
+  // ── Loop Tower v2 stats (corrected loopcraft rings, 2026-07-12) ────────────
+  // ONE shared 7d window (since7, computed above) + an IST "today" for the
+  // engine rings. IST day start → UTC instant, so "today" matches the campus
+  // day: floor now to the IST day boundary (UTC+5:30 = 19_800_000 ms), then
+  // express it back as a UTC instant (same inline-Date idiom as since7/14).
   const istDayStartUtc = new Date(
     Math.floor((Date.now() + 19_800_000) / 86_400_000) * 86_400_000 - 19_800_000,
   ).toISOString();
   const [
+    // ring 1 — generation engine. ai_model_usage's timestamp column is
+    // invoked_at (the old created_at filter errored → chips always showed '—').
+    maxCalls7d,
     maxCallsToday,
+    apiCalls7d,
     apiCallsToday,
+    // ring 2 — execution engine (Max lane; dispatcher derived from schedById)
+    maxlaneDone7d,
     maxlaneDoneToday,
+    maxlaneError7d,
     maxlaneErrorToday,
-    scfNotes,
-    scfMeasured,
-    scfVerdicts,
-    scfStudentConfirms,
-    scfPositiveLifts,
-    spineAiDrafts,
-    spineFaculty,
-    learnerNotes7d,
-    escalations7d,
+    // ring 3/4 — per-loop 7d closures (den = opened, num = closed, same window)
+    scfGen7d,
+    scfMeasured7d,
+    scfVerdicts7d,
+    confirms7d,
+    indGen7d,
+    indMeasured7d,
+    playbookGen7d,
+    playbookMeasured7d,
+    messGen7d,
+    messMeasured7d,
+    pulseGen7d,
+    pulseMeasured7d,
+    pulseVerdicts7d,
+    pdeSub7d,
+    pdeScored7d,
+    spineIn7d,
+    spineClassified7d,
+    refLeads7d,
+    refRouted7d,
+    // SCF all-time measured record — data-derived copy for the product ring
+    // (replaces the hardcoded "8 Jul, both positive" claim that went stale).
+    scfMeasuredAll,
+    scfPosAll,
+    scfNegAll,
+    // seam 5↔6 — decisions between system and oversight
+    decisionsLogged7d,
+    decisionsGraded7d,
   ] = await Promise.all([
-    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('created_at', istDayStartUtc)),
-    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('created_at', istDayStartUtc)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('invoked_at', since7)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).eq('provider', 'claude_code').gte('invoked_at', istDayStartUtc)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('invoked_at', since7)),
+    cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).neq('provider', 'claude_code').gte('invoked_at', istDayStartUtc)),
+    cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', since7)),
     cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', istDayStartUtc)),
+    cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', since7)),
     cnt(admin.from('max_lane_requests').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', istDayStartUtc)),
-    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback')),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('generated_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('outcome_measured_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('human_verdict_at', since7)),
+    cnt(admin.from('scf_note_resolution_votes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('generated_at', since7)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('generated_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('outcome_measured_at', since7)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('measured_at', since7)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since7)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('human_verdict_at', since7)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('submitted_at', since7)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('scored_at', since7)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('ai_processed_at', since7)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', since7)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).not('assigned_counselor_id', 'is', null).gte('created_at', since7)),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('outcome_measured_at', 'is', null)),
-    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').not('human_verdict', 'is', null)),
-    cnt(admin.from('scf_note_resolution_votes').select('*', { count: 'exact', head: true })),
     cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gt('outcome_lift', 0.05)),
-    cnt(admin.from('curriculum_lesson').select('*', { count: 'exact', head: true }).eq('source', 'bos_ai')),
-    cnt(admin.from('curriculum_lesson').select('*', { count: 'exact', head: true }).eq('source', 'faculty')),
-    cnt(admin.from('scf_learner_notes').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
-    cnt(admin.from('session_feedback_escalations').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').lt('outcome_lift', -0.05)),
+    cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).gte('created_at', since7)),
+    cnt(admin.from('director_decisions').select('*', { count: 'exact', head: true }).gte('actual_outcome_recorded_at', since7)),
   ]);
-  const sched = [...schedById.values()];
-  const towerStats: LoopTowerStats = {
-    maxCallsToday,
-    apiCallsToday,
-    routinesEnabled: sched.filter((r) => r.enabled).length || null,
-    routinesTotal: sched.length || null,
-    routinesFiredToday: sched.filter((r) => r.last_fired_at && r.last_fired_at >= istDayStartUtc).length,
-    maxlaneDoneToday,
-    maxlaneErrorToday,
-    scfNotes,
-    scfMeasured,
-    scfVerdicts,
-    scfStudentConfirms,
-    scfPositiveLifts,
-    spineAiDrafts,
-    spineFaculty,
-    learnerNotes7d,
-    escalations7d,
+
+  // A null leg means that count query FAILED — the sum must go hollow too, or
+  // a partial failure would render as a smaller-but-healthy-looking number.
+  const sumOrNull = (...vs: (number | null)[]): number | null =>
+    vs.some((v) => v === null) ? null : vs.reduce((a, b) => (a as number) + (b as number), 0);
+
+  // ── Ring-2 extra lanes + 30-day management strip (2026-07-13) ─────────────
+  // Two new EXECUTION-ring lanes: the dispatcher's TRUE run log (ai_routine_run_log,
+  // new this deploy) and the typed async job queue (ai_jobs). Plus the 30-day
+  // closure counts that power the strip — same loops as the product ring, wider
+  // window. Every leg swallows to null (cnt) so a missing table renders hollow.
+  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [
+    dispatcherRuns7d,
+    dispatcherRunsToday,
+    jobsDone7d,
+    jobsError7d,
+    jobsTotal7d,
+    scfGen30d,
+    scfMeasured30d,
+    indGen30d,
+    indMeasured30d,
+    playbookGen30d,
+    playbookMeasured30d,
+    messGen30d,
+    messMeasured30d,
+    pulseGen30d,
+    pulseMeasured30d,
+    pdeSub30d,
+    pdeScored30d,
+    spineIn30d,
+    spineClassified30d,
+    refLeads30d,
+    refRouted30d,
+  ] = await Promise.all([
+    cnt(admin.from('ai_routine_run_log').select('*', { count: 'exact', head: true }).gte('fired_at', since7)),
+    cnt(admin.from('ai_routine_run_log').select('*', { count: 'exact', head: true }).gte('fired_at', istDayStartUtc)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', since7)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', since7)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).gte('requested_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('generated_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('outcome_measured_at', since30)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('generated_at', since30)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('generated_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('outcome_measured_at', since30)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('measured_at', since30)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since30)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('submitted_at', since30)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('scored_at', since30)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('ai_processed_at', since30)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', since30)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).not('assigned_counselor_id', 'is', null).gte('created_at', since30)),
+  ]);
+  const scfLift30d = await loadScfLift(admin, since30);
+
+  // 30-day closure map for the strip. `verb` = what "closed" means for each
+  // loop. `measureLoop` marks the loops whose closure is a baseline-measured
+  // outcome (Cell A's sum) vs. intake/routing/human-score (in the constraint
+  // scan but out of Cell A).
+  const strip30d: Record<
+    string,
+    { name: string; verb: string; num: number | null; den: number | null; measureLoop: boolean }
+  > = {
+    scf: { name: 'Session-feedback teaching', verb: 'measured', num: scfMeasured30d, den: scfGen30d, measureLoop: true },
+    'induction-session': { name: 'Induction session-effect.', verb: 'measured', num: indMeasured30d, den: indGen30d, measureLoop: true },
+    'induction-playbook': { name: 'Induction playbook', verb: 'measured', num: playbookMeasured30d, den: playbookGen30d, measureLoop: true },
+    mess: { name: 'Mess menu', verb: 'measured', num: messMeasured30d, den: messGen30d, measureLoop: true },
+    'ai-pulse': { name: 'AI Pulse', verb: 'measured', num: pulseMeasured30d, den: pulseGen30d, measureLoop: true },
+    'pde-quest': { name: 'PDE demonstrations', verb: 'scored', num: pdeScored30d, den: pdeSub30d, measureLoop: false },
+    'feedback-spine': { name: 'Feedback spine', verb: 'classified', num: spineClassified30d, den: spineIn30d, measureLoop: false },
+    'referral-desk': { name: 'Induction referral desk', verb: 'routed', num: refRouted30d, den: refLeads30d, measureLoop: false },
   };
+
+  // Cell A — cycles closed 30d = measured closures across the MEASURE loops
+  // only (spine intake / referral routing / PDE human-score are excluded).
+  const cyclesClosed30d = sumOrNull(
+    strip30d.scf.num,
+    strip30d['induction-session'].num,
+    strip30d['induction-playbook'].num,
+    strip30d.mess.num,
+    strip30d['ai-pulse'].num,
+  );
+
+  // Cell D — the current constraint (Theory of Constraints, one item). Primary
+  // signal: the worst closure rate (num/den) among loops with fuel this window.
+  // On a tie, OR when no loop has fuel at all, fall back to the most fuel-starved
+  // line (lowest den) — mirroring the documented reality that the loop system is
+  // fuel-starved, not code-starved. Always names exactly one thing when any
+  // closure data exists; hollow only if every loop's counts failed to read.
+  // (Note: closure is a same-window ratio — a fresh generation may not have had
+  // time to measure, so a low rate can reflect measurement lag as well as a
+  // stuck Measure gate. Flip the tie-break to highest-den if the Director would
+  // rather surface the largest blocked flow than the most-starved line.)
+  const constraint = ((): { label: string; detail: string } | null => {
+    const entries = Object.values(strip30d).filter(
+      (e): e is { name: string; verb: string; num: number; den: number; measureLoop: boolean } =>
+        e.num !== null && e.den !== null,
+    );
+    if (entries.length === 0) return null;
+    const rated = entries.filter((e) => e.den > 0).map((e) => ({ ...e, rate: e.num / e.den }));
+    if (rated.length > 0) {
+      const worst = Math.min(...rated.map((r) => r.rate));
+      const c = rated.filter((r) => r.rate === worst).sort((a, b) => a.den - b.den)[0]!;
+      const pct = c.rate < 0.1 ? (c.rate * 100).toFixed(1) : String(Math.round(c.rate * 100));
+      return { label: c.name, detail: `${c.num} of ${c.den} ${c.verb} · ${pct}% closure (30d)` };
+    }
+    const c = entries.sort((a, b) => a.den - b.den)[0]!;
+    return { label: c.name, detail: '0 opened in 30d — starved of fuel' };
+  })();
+
+  // Dispatcher lane: ai_routine_schedules keeps ONLY last_fired_at per routine
+  // (no run-history table), so these are routines-whose-latest-fire-is-in-window,
+  // not run counts — the component says so on the ring. Empty map = the read
+  // failed above → hollow, not zero.
+  const sched = [...schedById.values()];
+
+  // Cell C — mission-pillar coverage from the mission_pillars config table
+  // (edited on /admin/loops/pillars). Weighted: covered = 1, partial = 0.5,
+  // everything else = 0, over ACTIVE pillars only. Table may not exist yet
+  // (migration pending apply) → null, which renders the cell hollow rather
+  // than a fake 0%.
+  const pillars = await (async () => {
+    try {
+      const { data, error } = await admin
+        .from('mission_pillars')
+        .select('coverage_status')
+        .eq('is_active', true);
+      // Missing relation (migration not applied yet) or permission error →
+      // hollow, never a fake 0%. Same swallow-to-null contract as cnt().
+      if (error || !data) return null;
+      const total = data.length;
+      if (total === 0) return { score: 0, total: 0, pct: 0 };
+      const score = data.reduce(
+        (acc: number, r: { coverage_status: string }) =>
+          acc +
+          (r.coverage_status === 'covered'
+            ? 1
+            : r.coverage_status === 'partial'
+              ? 0.5
+              : 0),
+        0
+      );
+      return { score, total, pct: Math.round((score / total) * 100) };
+    } catch {
+      // Any unexpected throw must not 500 the super-admin page — render hollow.
+      return null;
+    }
+  })();
+
+  const towerStats: LoopTowerStats = {
+    maxCalls7d,
+    maxCallsToday,
+    apiCalls7d,
+    apiCallsToday,
+    maxlaneDone7d,
+    maxlaneDoneToday,
+    maxlaneError7d,
+    maxlaneErrorToday,
+    routinesEnabled: sched.length ? sched.filter((r) => r.enabled).length : null,
+    routinesTotal: sched.length || null,
+    routinesFired7d: sched.length
+      ? sched.filter((r) => r.last_fired_at && r.last_fired_at >= since7).length
+      : null,
+    routinesFiredToday: sched.length
+      ? sched.filter((r) => r.last_fired_at && r.last_fired_at >= istDayStartUtc).length
+      : null,
+    // Task ring: an iteration is closed when its outcome lands — summed across
+    // every instrumented iteration table (scf, induction session, playbook,
+    // mess proposals, pulse cycles), all in the same 7d window.
+    iterationsClosed7d: sumOrNull(scfMeasured7d, indMeasured7d, playbookMeasured7d, messMeasured7d, pulseMeasured7d),
+    verdicts7d: sumOrNull(scfVerdicts7d, pulseVerdicts7d),
+    confirms7d,
+    // Product ring closures by loop_key. Keys with no derivable closure
+    // counter (feeder: on-demand recompute with no iteration rows;
+    // mentor-checkins: no completion marker until the first beat lands;
+    // arps: no iteration table) are intentionally ABSENT — the chip renders
+    // "closure: not instrumented" instead of an invented number.
+    productClosure7d: {
+      scf: { label: 'notes → measured', num: scfMeasured7d, den: scfGen7d },
+      'induction-session': { label: 'tips → measured', num: indMeasured7d, den: indGen7d },
+      'induction-playbook': { label: 'playbooks → measured', num: playbookMeasured7d, den: playbookGen7d },
+      mess: { label: 'proposals → measured', num: messMeasured7d, den: messGen7d },
+      'ai-pulse': { label: 'cycles → measured', num: pulseMeasured7d, den: pulseGen7d },
+      'pde-quest': { label: 'demos → scored', num: pdeScored7d, den: pdeSub7d },
+      'feedback-spine': { label: 'items → classified', num: spineClassified7d, den: spineIn7d },
+      'referral-desk': { label: 'referrals → routed', num: refRouted7d, den: refLeads7d },
+    },
+    scfMeasuredAll,
+    scfPosAll,
+    scfNegAll,
+    // System ring machinery. registry/audits are swallow-to-empty above, so an
+    // empty array means "unreachable or truly empty" — both render hollow.
+    registryActive: registry.length || null,
+    audits7d: audits.length
+      ? audits.filter((a) => a.audited_at >= since7).length
+      : null,
+    // audits arrive newest-first — the first sim-layer row is the latest regress.
+    latestRegress: (() => {
+      const r = audits.find((a) => a.layer === 'sim');
+      return r ? { verdict: r.verdict, auditedAt: r.audited_at } : null;
+    })(),
+    // Watchdog health from the SAME row + helpers the watchdog cron uses
+    // (isAlarmStatus / staleThresholdMs), so the two can't drift.
+    watchdog: (() => {
+      const w = schedById.get('loop-watchdog');
+      if (!w) return null;
+      const alarm =
+        isAlarmStatus(w.last_status, Boolean(getRoutineById('loop-watchdog'))) ||
+        Boolean(
+          w.last_fired_at &&
+            Date.now() - new Date(w.last_fired_at).getTime() > staleThresholdMs(w.days_of_week),
+        );
+      return { enabled: w.enabled, alarm, lastStatus: w.last_status };
+    })(),
+    decisionsLogged7d,
+    decisionsGraded7d,
+    // ring 2 — extra instrumented lanes (2026-07-13)
+    dispatcherRuns7d,
+    dispatcherRunsToday,
+    jobsDone7d,
+    jobsError7d,
+    jobsTotal7d,
+    // management strip (30d executive summary)
+    strip: {
+      cyclesClosed30d,
+      scfLiftMean30d: scfLift30d.mean,
+      scfLiftN30d: scfLift30d.n,
+      pillars,
+      constraint,
+    },
+  };
+
+  const pillCls = (active: boolean) =>
+    `rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+      active
+        ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+        : 'border-border text-muted-foreground hover:bg-muted/40'
+    }`;
 
   return (
     <ContentLayout title="Loop Control Tower — every loop in MyJKKN, and whether it’s working">
-      <div className="mb-6"><LoopTower stats={towerStats} /></div>
-      <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+      <div className="mb-4 flex gap-1.5">
+        <Link href="/admin/loops" className={pillCls(view === 'tower')}>
+          Tower
+        </Link>
+        <Link href="/admin/loops?view=wiring" className={pillCls(view === 'wiring')}>
+          Wiring
+        </Link>
+      </div>
+
+      {view === 'wiring' ? (
+        <LoopWiring registry={registry} edges={edges} audits={audits} />
+      ) : (
+        <>
+          <div className="mb-6">
+            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} />
+          </div>
+          <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+        </>
+      )}
     </ContentLayout>
   );
 }

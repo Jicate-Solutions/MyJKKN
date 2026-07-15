@@ -10,22 +10,14 @@
 // the override ROWS (institution_id != null) for admins.
 //
 // Until a follow-up PR wires a link from the parameter detail page, users
-// reach this page via the URL. Breadcrumb still links back to detail so they
-// have a way out.
+// reach this page via the URL. The "Back to parameter" button links back to
+// detail so they have a way out.
 
 import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -44,8 +36,9 @@ import type { AuditParameterCatalogRow } from '@/lib/types/audit';
 const GROUP_LABELS: Record<number, string> = {
   1: 'G1 — Academic',
   2: 'G2 — Research',
-  3: 'G3 — Governance',
-  4: 'G4 — Infrastructure',
+  3: 'G3 — Infrastructure',
+  4: 'G4 — Governance',
+  5: 'G5 — Empowerment',
 };
 
 export default function AuditParameterOverridesPage() {
@@ -104,34 +97,6 @@ export default function AuditParameterOverridesPage() {
     <PermissionGuard module='audit' action='parameter.manage'>
       <ContentLayout title='Parameter Overrides'>
         <div className='space-y-6'>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit'>Audit</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit/parameters'>Parameters</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  href={`/audit/parameters/${encodeURIComponent(code)}`}
-                >
-                  <span className='font-mono text-xs'>{code}</span>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Overrides</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
           <div className='flex items-center justify-between flex-wrap gap-3'>
             <Button variant='ghost' size='sm' asChild>
               <Link href={`/audit/parameters/${encodeURIComponent(code)}`}>

@@ -16,6 +16,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
+  # Merge queue (2026-07-11): tsc re-runs on the queue's merged tree (latest
+  # main + this PR), catching the "two green PRs break when combined" class —
+  # e.g. a sibling PR renames a function this PR still calls. Inert until the
+  # merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -36,8 +42,11 @@ jobs:
       - name: Compute changed TS files (PR scope)
         id: changed
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Exactly one context exists per event: pull_request → PR base/head;
+          # merge_group → the queue group's parent/head (this PR's slice only —
+          # groups chain, so base_sha already contains PRs ahead in the queue).
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
           # Files added/modified by this PR (excluding deletions — no point checking removed files)
           git diff --name-only --diff-filter=AM "$BASE_SHA"..."$HEAD_SHA" > /tmp/changed-files.txt

@@ -62,8 +62,8 @@ export default function AdminFacultyCalendarPage() {
 
   return (
     <PermissionGuard
-      module='admin'
-      action='faculty'
+      module='faculty.calendar'
+      action='view'
       fallback={
         <ContentLayout title='Access Denied'>
           <div className='text-center py-8'>

@@ -1,0 +1,269 @@
+# Institutional Audit Loop (AAA) manifest — DISCOVERY PASS 2026-07-13.
+# Independently RE-VERIFIED 2026-07-13 (second pass): fn body (505 lines,
+# branch f), constraints, triggers, ACLs, enum labels, role grants, fuel
+# counts, and routes were all re-read from prod / jicate/main; one stale fact
+# corrected (loop_edges is_draft) and receipts strengthened.
+# Every fact below carries its receipt (prod table read via Mgmt API, or file
+# path on jicate/main). No sim/walk has been EXECUTED yet from this manifest —
+# seed templates are schema-verified (NOT-NULLs, FKs, CHECKs, enum labels all
+# read from prod) but the first regress run should treat asserts as candidate
+# values and append discovered traps to sim.notes.
+#
+# Registry row (loop_registry, read 2026-07-13): class=accountability,
+# domain=accreditation, tier=3, gates {"g":"on","a":"on","m":"on","f":"half"},
+# routine_id=null, is_active=true.
+# loop_edges: iqac-meeting -> institutional-audit (what_flows=measured_outcomes,
+# is_draft=FALSE — re-read 2026-07-13, the wire is LIVE; an earlier pass
+# recorded it as draft) — the only edge.
+loop_key: institutional-audit
+name: Institutional Audit Loop (AAA)
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  # A finding IS a service_request with service_types.slug='audit_finding'
+  # (lib/services/audit/audit-finding-service.ts on jicate/main: "thin wrapper
+  # over service_requests"). Cycle spine = audit_cycles.
+  input: service_requests        # findings enter here (slug audit_finding, form_data.audit_cycle_id)
+  action: audit_cycles           # cycle rows; measured outcome lands in quality_evidence_mappings (NAAC 7.3.d)
+
+# ── MEASURE (registry gates.m='on' — VERIFIED, not assumed) ────────────────
+# The measurer is the (f) institutional_audit branch of
+# public.fn_accreditation_rollup_loop_evidence() — pg_get_functiondef on prod
+# 2026-07-13 confirms the branch is LIVE (has_audit_loop=true), matching
+# jicate/main migration 20260710070000_rollup_iqac_meeting_and_audit_loops.sql.
+# Per CLOSED single-institution cycle it emits one quality_evidence_mappings
+# row (source_table='audit_cycles', NAAC 7.3.d) whose metadata.outcome holds
+# findings_total / findings_resolved / prior_cycle_findings — the known-delta
+# surface. It has run live: 1 real 7.3.d row exists (mapped_at 2026-07-10
+# 08:17 UTC, "first closed audit cycle (baseline) — 0 finding(s) across 36
+# parameter(s)"). Schedule: ai_routine_schedules routine_id=
+# 'accreditation-loop-evidence', enabled, all 7 days, minute_of_day=263
+# (04:23 IST) -> app/api/cron/accreditation-loop-evidence/route.ts (jicate/main).
+sim:
+  sentinel: ZZAUDIT
+  # audit_cycles NOT-NULLs (prod information_schema 2026-07-13): name,
+  # frameworks (CHECK nonempty array), start_date, end_date (CHECK end>=start),
+  # lead_auditor_id (FK auth.users — profiles.id is 1:1 with auth.users.id, so
+  # a test profile id works), cosigner_roles (array), phase (CHECK IN
+  # draft|in-progress|rectification|peer-visit|closed).
+  # institution_ids is uuid[] with NO FK, but quality_evidence_mappings
+  # .institution_id FKs institutions(id) — seed with a REAL institution id.
+  # Rollup only sweeps cycles with closed_at NOT NULL AND
+  # cardinality(institution_ids)=1 (multi-institution cycles are SKIPPED by
+  # design — documented in the migration).
+  seed_input: |
+    -- inst MUST be an institution with NO real closed audit cycle: the fn's
+    -- prior-cycle LATERAL matches ANY closed cycle of the same institution by
+    -- closed_at DESC, so a real cycle closing between sentinel PRIOR (-120d)
+    -- and CURRENT (-2d) would hijack CURRENT's prior and break both asserts
+    -- (a real closed cycle at 2026-05-02 sits exactly in that window today).
+    WITH inst AS (SELECT i.id AS institution_id FROM public.institutions i
+                  WHERE NOT EXISTS (SELECT 1 FROM public.audit_cycles ac
+                                    WHERE ac.closed_at IS NOT NULL
+                                      AND ac.institution_ids @> ARRAY[i.id])
+                  ORDER BY i.id LIMIT 1),
+         lead AS (SELECT id FROM public.profiles WHERE email='test.superadmin@jkkn.ac.in' LIMIT 1)
+    INSERT INTO public.audit_cycles
+      (name, frameworks, start_date, end_date, lead_auditor_id, cosigner_roles,
+       institution_ids, phase, parameter_catalog_snapshot, closed_at)
+    SELECT 'ZZAUDIT '||c.tag, ARRAY['NAAC'], c.s, c.e, lead.id, ARRAY['principal'],
+           ARRAY[inst.institution_id], 'closed',
+           '{"parameters":[{"code":"ZZ-1"},{"code":"ZZ-2"}]}'::jsonb, c.closed
+    FROM inst, lead,
+         (VALUES ('PRIOR',   current_date-200, current_date-140, now()-interval '120 days'),
+                 ('CURRENT', current_date-60,  current_date-10,  now()-interval '2 days')) AS c(tag,s,e,closed);
+  # Findings: service_requests NOT-NULLs without default (prod 2026-07-13):
+  # request_number (varchar, UNIQUE index service_requests_request_number_key,
+  # NO db default — the B2A app layer generates it, e.g. 'SR-AUDI-MOAH96PD';
+  # SQL seeds MUST supply it), service_type_id (FK service_types — slug
+  # 'audit_finding' exists, id 66e9072f-9d1e-4a24-b389-cda1dcfc2266),
+  # requester_id (FK profiles). status is enum service_request_status
+  # (draft|submitted|in_review|approved|rejected|returned|fulfilled|closed|
+  # cancelled); "resolved" in the measurer = status IN ('fulfilled','closed').
+  # Known delta: PRIOR cycle gets 2 findings, CURRENT gets 5 (3 resolved).
+  seed_action: |
+    WITH ft   AS (SELECT id FROM public.service_types WHERE slug='audit_finding'),
+         req  AS (SELECT id FROM public.profiles WHERE email='test.superadmin@jkkn.ac.in' LIMIT 1),
+         cyc  AS (SELECT id, name, institution_ids[1] AS inst FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT %'),
+         plan AS (SELECT 'ZZAUDIT PRIOR'::text   AS cname, gs AS n, false AS resolved FROM generate_series(1,2) gs
+                  UNION ALL
+                  SELECT 'ZZAUDIT CURRENT', gs, gs<=3 FROM generate_series(1,5) gs)
+    INSERT INTO public.service_requests
+      (request_number, service_type_id, requester_id, institution_id, status, form_data)
+    SELECT 'ZZAUDIT-'||substr(replace(cyc.name,' ',''),8)||'-'||plan.n, ft.id, req.id, cyc.inst,
+           CASE WHEN plan.resolved THEN 'closed'::service_request_status
+                ELSE 'submitted'::service_request_status END,
+           jsonb_build_object('audit_cycle_id', cyc.id, 'parameter_code', 'ZZ-1', 'severity', 'yellow')
+    FROM ft, req, cyc, plan
+    WHERE cyc.name = plan.cname;
+  verifier: "public.fn_accreditation_rollup_loop_evidence()"
+  # Assert on the CURRENT sentinel cycle's junction row (NOT on the fn's
+  # returned count — the count is not reliably sentinel-pure: the fn runs all
+  # six branches and re-touches any REAL cycle updated inside the 45-day
+  # window. As of 2026-07-13 the one real closed cycle has aged OUT of that
+  # window (updated_at 2026-05-02) and already has its junction row, so branch
+  # (f) happens to be sentinel-pure today — but any real cycle edit/close
+  # re-opens the impurity, so keep asserting on the row):
+  #   SELECT metadata->'outcome'->>'findings_total',
+  #          metadata->'outcome'->>'findings_resolved',
+  #          metadata->'outcome'->>'prior_cycle_findings',
+  #          metadata->>'delta_summary'
+  #   FROM public.quality_evidence_mappings
+  #   WHERE source_table='audit_cycles' AND body_code='NAAC' AND metric_code='7.3.d'
+  #     AND source_id=(SELECT id FROM public.audit_cycles WHERE name='ZZAUDIT CURRENT');
+  asserts:
+    # This loop's "lift" is a count comparison (jsonb text of integers), not a
+    # numeric column — values derive from THIS loop's SQL (schema rule).
+    no_change: "findings_total == prior_cycle_findings (seed both cycles with 2 findings) AND delta_summary = '2 finding(s) vs 2 in prior cycle \"ZZAUDIT PRIOR\"'"
+    known_delta: { seed: "PRIOR=2 findings, CURRENT=5 (3 with status fulfilled/closed)", expect: "findings_total=5, findings_resolved=3, prior_cycle_findings=2" }
+  reset_between_deltas: |
+    DELETE FROM public.quality_evidence_mappings
+    WHERE source_table='audit_cycles'
+      AND source_id IN (SELECT id FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT %');
+    -- then adjust sentinel service_requests to the next scenario's counts and
+    -- re-run the verifier (ON CONFLICT DO UPDATE refreshes metadata only
+    -- WHERE is_auto — sentinel rows are emitted with is_auto=true, so ok).
+  notes:
+    - verifier is REVOKEd from anon/authenticated/PUBLIC (migration 20260710070000
+      tail; pg_proc.proacl re-read 2026-07-13 = postgres + service_role only) —
+      run it as postgres via Mgmt API; it is NOT callable from app personas.
+    - verifier runs ALL SIX loop branches (scf/induction x2/mess/iqac/audit) and
+      upserts junction rows for real recent rows too — inside BEGIN..ROLLBACK this
+      is harmless (same class as the SCF manifest note), just slower.
+    - verifier RAISEs and skips the branch if service_types slug 'audit_finding'
+      is missing (r1 MEDIUM guard); slug verified present on prod 2026-07-13.
+    - "PRIOR cycle also gets its own junction row asserting the baseline
+      branch: delta_summary LIKE 'first closed audit cycle (baseline)%' — a
+      free second assert on the same run."
+    - prior-cycle matching is per-institution (institution_ids[1] equality),
+      requires the prior to ALSO be single-institution (cardinality(p.
+      institution_ids)=1 inside the LATERAL — fn body re-read 2026-07-13), and
+      orders by closed_at DESC — both sentinel cycles MUST share one institution.
+    - "the 45-day sweep window filters on ac.updated_at (NOT closed_at) OR an
+      anti-join on the missing junction row — seeded sentinel cycles get
+      updated_at=now() by default, so they are always in-window (fn body
+      2026-07-13)."
+    - "metadata.loop_key inside evidence rows is 'institutional_audit'
+      (UNDERSCORE) while the registry loop_key is 'institutional-audit'
+      (hyphen) — don't grep one spelling and conclude the other is missing."
+    - "findings are matched by form_data->>'audit_cycle_id' = cycle id::text;
+      a finding without that key silently counts for NO cycle. Receipt: the ONE
+      real audit_finding row on prod (SR-AUDI-MOAH96PD) has audit_cycle_id NULL,
+      so the real closed cycle measured findings_total=0 — the loop is
+      fuel-starved, not broken."
+    - "emit_audit_finding_evidence / revoke_audit_finding_evidence /
+      auto_revoke_delegations_on_finding_close are AFTER UPDATE triggers on
+      service_requests — seeding findings directly INSERTed as 'closed' does
+      NOT fire them (good: no stray per-finding evidence rows in the sim)."
+    - parameters_in_scope reads jsonb_array_length(parameter_catalog_snapshot->
+      'parameters') with a typeof guard — seed the snapshot as an object with a
+      'parameters' ARRAY (as above) or it counts 0.
+    - "TRAP (adversarial verify 2026-07-13): prior-cycle LATERAL is NOT
+      sentinel-scoped — it takes the most-recent REAL closed cycle of the seed
+      institution if one closed after sentinel PRIOR. Original seed used
+      'institutions LIMIT 1' (unordered, nondeterministic); fixed to pick an
+      institution with zero closed cycles. Re-check this exclusion still holds
+      before each run (a new real closed cycle can re-open the trap)."
+
+# ── CONFOUND: OMITTED (honesty rule) ─────────────────────────────────────────
+# The not_tried-vs-tried falsification needs an outcome column AND a human
+# verdict column on the action rows. Findings (service_requests) carry only the
+# B2A status enum — there is no human_verdict-style column on service_requests,
+# audit_cycles, or quality_evidence_mappings (prod information_schema
+# 2026-07-13), and fuel is 1 closed cycle + 1 (unlinked) finding — far below
+# any min_rows. Nothing to falsify yet.
+
+# ── FEED-FORWARD: OMITTED (registry gates.f='half' — verified why) ──────────
+# What exists: the measurer computes delta vs the institution's PRIOR closed
+# cycle at MEASURE time (metadata.prior_cycle / prior_cycle_findings), and the
+# dashboard renders it to humans. What does NOT exist: any generation-time
+# reader — grep of audit-cycle-service.ts, audit-discovery-service.ts, and
+# app/(routes)/audit/cycles/new/page.tsx on jicate/main finds no prior/previous-
+# cycle read; new cycles freeze a fresh parameter_catalog_snapshot with no
+# conditioning on prior outcomes. The iqac-meeting -> institutional-audit edge
+# (measured_outcomes) is now is_draft=false in loop_edges (re-read 2026-07-13),
+# but that wire feeds meeting outcomes INTO audit evidence — it is not a
+# next-cycle-conditions-on-prior-outcome reader. To earn a feed_forward block,
+# a reader (e.g. fn surfacing prior-cycle open findings during cycle creation)
+# would need to exist first.
+
+walk:
+  # Permission reality (verified 2026-07-13): /audit/* is gated by
+  # RoutePermissionGuard (app/(routes)/audit/layout.tsx) against
+  # MENU_PERMISSIONS in lib/sidebarMenuLink.ts ('/audit/cycles/new' ->
+  # audit.cycle.manage, '/audit/findings' -> audit.finding.view, etc.).
+  # custom_roles: ONLY evidence_uploader, external_auditor_timeboxed,
+  # lead_auditor, registrar hold ANY audit.* grant — and NO test.* account has
+  # those roles (profiles/user_roles read 2026-07-13: test accounts hold
+  # student/staff_counselor/hod/principal/super_admin/etc.).
+  # AUDIT-QUERY TRAP: check jsonb VALUES, not keys — ~65 roles carry audit.*
+  # KEYS with value false (Role Management writes explicit false); a keys-only
+  # grep concludes "student can manage audits". Filter jsonb_each(...) v='true'.
+  # audit.finding.
+  # rectify (/audit/my-findings) is granted to NOBODY. So the ONLY walkable
+  # test persona is superadmin (is_super_admin bypass). GAP for a richer walk:
+  # a test.lead_auditor account would exercise the real permission path.
+  personas:
+    superadmin: test.superadmin@jkkn.ac.in
+  hops:
+    - { as: superadmin, do: form_submit, page: /audit/cycles/new,
+        detail: "4-step wizard: name='ZZAUDIT WALK', framework NAAC, self as lead auditor, ONE institution",
+        assert_db: "audit_cycles row name='ZZAUDIT WALK', phase='draft'" }
+    - { as: superadmin, do: click, page: "/audit/cycles/[id]",
+        target: "phase transition draft -> in-progress",
+        assert_db: "phase='in-progress' AND parameter_catalog_snapshot IS NOT NULL (freeze happens on this transition — audit-cycle-service.ts)" }
+    - { as: superadmin, do: form_submit, page: "/audit/cycles/[id]/findings",
+        detail: "Log Finding dialog (log-finding-dialog.tsx) -> useLogFinding -> AuditFindingService.log() CLIENT-side (verified 2026-07-13: the dialog does NOT hit POST /api/audit/findings/log — that route exists as a parallel surface calling the same service); pick a catalog parameter + severity yellow",
+        assert_db: "service_requests row: slug audit_finding, form_data->>'audit_cycle_id'=cycle id, status='submitted', requester_context.default_owner_role resolved from audit_parameter_catalog" }
+    - { as: superadmin, do: click, page: "/audit/findings/[id]",
+        target: "Close as rectified (close-finding-dialog.tsx; button stays disabled until every required evidence item is uploaded)",
+        assert_db: "status='closed' AND form_data->>'resolution'='rectified'; AFTER UPDATE trigger emit_audit_finding_evidence writes quality_evidence_mappings rows per framework_mapping — MUST be cleaned up" }
+    - { as: superadmin, do: click, page: "/audit/cycles/[id]",
+        target: "phase transitions in-progress -> rectification -> peer-visit -> closed",
+        assert_db: "phase='closed' AND closed_at IS NOT NULL" }
+    - { as: superadmin, do: open_assert, page: /audit/dashboard,
+        expect: "ZZAUDIT WALK cycle visible as closed; findings count reflects the walk finding" }
+  forbidden:
+    - B2A assignment/SLA notifications or escalations reaching real
+      default-owner-role holders (finding log auto-resolves default_owner_role
+      + escalation_role from audit_parameter_catalog — verify no notification
+      rows target real users; delete any that do)
+    - attestation cosign requests to real cosigner_roles accounts (do not start
+      the attestation sign/cosign flow in a walk)
+    - leaving the sentinel CLOSED cycle committed past 04:23 IST — the daily
+      accreditation-loop-evidence routine (verified enabled, minute_of_day=263)
+      would emit real NAAC 7.3.d evidence for it
+  cleanup: |
+    DELETE FROM public.quality_evidence_mappings
+    WHERE source_table='audit_cycles'
+      AND source_id IN (SELECT id FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT%');
+    DELETE FROM public.quality_evidence_mappings
+    WHERE source_table='service_requests'
+      AND source_id IN (SELECT sr.id FROM public.service_requests sr
+                        WHERE sr.form_data->>'audit_cycle_id' IN
+                              (SELECT id::text FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT%'));
+    DELETE FROM public.audit_finding_delegations
+    WHERE finding_id IN (SELECT sr.id FROM public.service_requests sr
+                         WHERE sr.form_data->>'audit_cycle_id' IN
+                               (SELECT id::text FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT%'));
+    DELETE FROM public.audit_attestations
+    WHERE audit_cycle_id IN (SELECT id FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT%');
+    DELETE FROM public.service_requests
+    WHERE form_data->>'audit_cycle_id' IN
+          (SELECT id::text FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT%');
+    DELETE FROM public.audit_cycles WHERE name LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE call (delete-then-count in one statement sees the
+    -- pre-delete snapshot): sentinel counts = 0 across all five tables;
+    -- audit_cycles total restored to its pre-walk count (3 rows on 2026-07-13).
+  notes:
+    - "finding detail also routes via /service-requests/[id] (nav-config.ts
+      Sprint 01 decision no. 1); /audit/findings/[id]/page.tsx exists on
+      jicate/main too — either surface works for the close hop."
+    - "request_number is generated APP-side by the B2A engine (no DB default,
+      no INSERT trigger — verified pg_trigger + information_schema); UI-created
+      findings get 'SR-AUDI-…' numbers, so cleanup keys on form_data->>
+      'audit_cycle_id', NOT on a request_number prefix."
+    - "/audit/care/score/[token] is permission-EXEMPT by design (blind external
+      second-scorer link, layout.tsx exemption) — not part of this loop's walk."
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"half"}'

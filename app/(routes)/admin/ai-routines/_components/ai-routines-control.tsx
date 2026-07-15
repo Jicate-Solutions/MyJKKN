@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   CalendarClock,
   PauseCircle,
+  History,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +39,7 @@ import {
 } from './schedule-editor';
 import { ModelChip, useModelConfigMap, type ModelConfigEntry } from './model-chip';
 import { useMaxLaneRequests, MaxLaneRunButton, MaxLaneNote, type MaxLaneRequest } from './max-lane';
+import { CapChip, useCapPolicyMap } from './cap-chip';
 
 const BRAND = '#0b6d41';
 
@@ -134,6 +136,36 @@ function WindowsEngineHeartbeat({ initial }: { initial?: ScheduleRow }) {
 
 type RunState = { ok: boolean; summary: string } | undefined;
 
+/** One row of the rolling 7-day run log (fn_ai_routine_run_history). */
+type RunLogRow = { routine_id: string; lane: string; fired_at: string; status: string | null };
+
+/** Group run-log rows by IST calendar day, newest day first, each day's runs newest first. */
+function groupByIstDay(rows: RunLogRow[]): { day: string; runs: RunLogRow[] }[] {
+  const fmtDay = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+    });
+  const out: { day: string; runs: RunLogRow[] }[] = [];
+  for (const row of rows) {
+    const day = fmtDay(row.fired_at);
+    const bucket = out.find((b) => b.day === day);
+    if (bucket) bucket.runs.push(row);
+    else out.push({ day, runs: [row] });
+  }
+  return out;
+}
+
+const fmtIstTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
 function summarize(result: unknown): string {
   if (result == null) return 'done';
   if (typeof result === 'string') return result.slice(0, 240);
@@ -162,9 +194,11 @@ function RoutineRow({
   schedule,
   maxSchedule,
   configMap,
+  capMap,
   maxRequest,
   onMaxQueued,
   onScheduleSaved,
+  onCapSaved,
 }: {
   r: AIRoutine;
   schedule?: ScheduleRow;
@@ -173,17 +207,43 @@ function RoutineRow({
    *  to its Task Scheduler within 15 min, same window as the dispatcher. */
   maxSchedule?: ScheduleRow;
   configMap: Map<string, ModelConfigEntry>;
+  /** Live per-run cap values (platform_policies) for routines with a capPolicyKey. */
+  capMap: Map<string, number>;
   maxRequest?: MaxLaneRequest;
   onMaxQueued: () => void;
   onScheduleSaved: (next: ScheduleRow) => void;
+  onCapSaved: (key: string, value: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editingMax, setEditingMax] = useState(false);
   const [running, setRunning] = useState(false);
   const [last, setLast] = useState<RunState>(undefined);
+  const [histOpen, setHistOpen] = useState(false);
+  const [hist, setHist] = useState<RunLogRow[] | null>(null);
+  const [histLoading, setHistLoading] = useState(false);
 
   const runnable = r.type === 'cron' && r.safeToManualTrigger;
+
+  async function toggleHistory() {
+    const next = !histOpen;
+    setHistOpen(next);
+    if (next && hist === null) {
+      setHistLoading(true);
+      try {
+        const resp = await fetch(
+          `/api/admin/ai-routines/history?routineId=${encodeURIComponent(r.id)}`,
+          { cache: 'no-store' },
+        );
+        const data = await resp.json();
+        setHist(data.ok ? (data.runs as RunLogRow[]) : []);
+      } catch {
+        setHist([]);
+      } finally {
+        setHistLoading(false);
+      }
+    }
+  }
 
   async function runNow() {
     setRunning(true);
@@ -227,6 +287,7 @@ function RoutineRow({
                 <Badge variant="outline" className="font-normal text-muted-foreground">rules-based</Badge>
               )}
               <ModelChip featureKey={r.featureKey} configMap={configMap} />
+              <CapChip capPolicyKey={r.capPolicyKey} capMap={capMap} onSaved={onCapSaved} />
               {schedule && !schedule.enabled ? (
                 <Badge variant="outline" className="gap-1 border-amber-300 text-amber-600 dark:text-amber-400">
                   <PauseCircle className="h-3 w-3" /> paused
@@ -301,7 +362,63 @@ function RoutineRow({
               {schedule?.last_status ? (
                 <span className="text-muted-foreground/70">last run: {schedule.last_status}</span>
               ) : null}
+              <button
+                type="button"
+                onClick={toggleHistory}
+                className="flex items-center gap-1 hover:text-foreground"
+              >
+                <History className={`h-3.5 w-3.5 transition-transform ${histOpen ? 'text-foreground' : ''}`} />
+                {histOpen ? 'Hide 7-day history' : '7-day history'}
+              </button>
             </div>
+
+            {histOpen ? (
+              <div className="mt-1 rounded-md border bg-muted/30 p-2.5 text-xs">
+                {histLoading ? (
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> loading run history…
+                  </span>
+                ) : !hist || hist.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    No runs recorded in the last 7 days. (History began when this feature went live —
+                    a fresh routine simply hasn&apos;t fired yet.)
+                  </span>
+                ) : (
+                  <div className="space-y-2">
+                    {groupByIstDay(hist).map((day) => (
+                      <div key={day.day}>
+                        <div className="mb-1 font-medium text-foreground">
+                          {day.day}
+                          <span className="ml-1.5 font-normal text-muted-foreground/70">
+                            {day.runs.length} {day.runs.length === 1 ? 'run' : 'runs'}
+                          </span>
+                        </div>
+                        <ul className="space-y-0.5">
+                          {day.runs.map((run, i) => (
+                            <li key={`${run.fired_at}-${i}`} className="flex items-center gap-2">
+                              <span className="tabular-nums text-muted-foreground">{fmtIstTime(run.fired_at)}</span>
+                              <Badge
+                                variant="outline"
+                                className={`h-4 px-1.5 text-[10px] font-normal ${
+                                  run.lane === 'max'
+                                    ? 'border-violet-300 text-violet-600 dark:text-violet-400'
+                                    : 'border-sky-300 text-sky-600 dark:text-sky-400'
+                                }`}
+                              >
+                                {run.lane === 'max' ? 'Max lane' : 'cloud'}
+                              </Badge>
+                              <span className="min-w-0 truncate text-muted-foreground/80">
+                                {run.status ?? '—'}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -388,6 +505,9 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 export function AiRoutinesControl() {
   const { map, loading, error, setMap } = useSchedules();
   const configMap = useModelConfigMap();
+  const { map: capMap, setValue: onCapSaved } = useCapPolicyMap(
+    AI_ROUTINES.flatMap((r) => (r.capPolicyKey ? [r.capPolicyKey] : [])),
+  );
   const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
   const total = AI_ROUTINES.length;
   const runnable = triggerableCount();
@@ -462,9 +582,11 @@ export function AiRoutinesControl() {
                   schedule={map.get(r.id)}
                   maxSchedule={map.get(`maxlane:${r.id}`)}
                   configMap={configMap}
+                  capMap={capMap}
                   maxRequest={maxMap.get(r.id)}
                   onMaxQueued={refetchMax}
                   onScheduleSaved={onScheduleSaved}
+                  onCapSaved={onCapSaved}
                 />
               ))}
             </div>

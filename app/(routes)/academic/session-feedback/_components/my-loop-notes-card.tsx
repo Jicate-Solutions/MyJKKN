@@ -109,7 +109,17 @@ function NoteRow({
     })
     .join(', ');
   const measured = note.outcome_measured_at != null;
-  const beforeBand = BAND_WORD[understandingLevel(note.input_avg_understood)];
+  // Director 2026-07-10 (decision 3): once measured, the "was" band derives
+  // from the SAME recount the change was computed against (after − change),
+  // not the generation-time signal average — those use different estimators,
+  // and mixing them can read "Low → Strong" when the measured change was
+  // actually small.
+  const measuredBaseline =
+    note.outcome_avg_understood != null && note.outcome_lift != null
+      ? note.outcome_avg_understood - note.outcome_lift
+      : null;
+  const beforeBand =
+    BAND_WORD[understandingLevel(measuredBaseline ?? note.input_avg_understood)];
   const afterBand = BAND_WORD[understandingLevel(note.outcome_avg_understood)];
   const isImprovement = note.kind === 'improvement';
   // Same answerability rule as the attendance ask: a class must have been
@@ -153,6 +163,12 @@ function NoteRow({
           Since this note, the class&apos;s understanding reads{' '}
           <span className="font-medium text-foreground">{afterBand}</span>
           {beforeBand !== '—' && beforeBand !== afterBand ? ` (was ${beforeBand})` : ''}.
+        </p>
+      )}
+      {isImprovement && !measured && note.outcome_unmeasurable_at != null && (
+        <p className="text-xs text-muted-foreground">
+          This course had no later session with enough feedback, so this
+          note&apos;s outcome could not be measured.
         </p>
       )}
       {/* The fourth witness — students who flagged the class say whether it got

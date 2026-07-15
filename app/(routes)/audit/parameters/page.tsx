@@ -1,7 +1,7 @@
 'use client';
 
 // Audit Parameter Catalog browser.
-// 36-parameter Aassaan catalog, grouped 1-4, with framework-mapping badges
+// Aassaan catalog + CARRE pillars, grouped 1-5, with framework-mapping badges
 // + filter + active/inactive toggle. Row click → /audit/parameters/[code].
 //
 // Sprint 01 PR-B2.
@@ -9,14 +9,6 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -47,11 +39,16 @@ import type {
   ParameterGroup
 } from '@/lib/types/audit';
 
+// Hints follow the canonical seed (20260422_audit_parameter_catalog_seed):
+// G3 is Infrastructure (P32–P35) and G4 is Governance (P36) — this list had the
+// two the wrong way round. Group 5 holds the CARRE Empowerment pillar, added by
+// CARRE v2.0 and never surfaced here.
 const GROUPS: { value: ParameterGroup; label: string; hint: string }[] = [
   { value: 1, label: 'Group 1', hint: 'Academic / Curricular' },
   { value: 2, label: 'Group 2', hint: 'Research' },
-  { value: 3, label: 'Group 3', hint: 'Governance' },
-  { value: 4, label: 'Group 4', hint: 'Infrastructure' }
+  { value: 3, label: 'Group 3', hint: 'Infrastructure' },
+  { value: 4, label: 'Group 4', hint: 'Governance' },
+  { value: 5, label: 'Group 5', hint: 'Empowerment' }
 ];
 
 export default function AuditParametersPage() {
@@ -75,6 +72,10 @@ export default function AuditParametersPage() {
     });
   }, [parameters, filter, showInactive]);
 
+  // Header count tracks exactly what the group tabs add up to — the catalog has
+  // grown past the 36 this header used to hardcode.
+  const visibleCount = filtered.length;
+
   const byGroup = useMemo(() => {
     const map = new Map<ParameterGroup, AuditParameterCatalogRow[]>();
     for (const g of GROUPS) map.set(g.value, []);
@@ -89,30 +90,16 @@ export default function AuditParametersPage() {
     <PermissionGuard module='audit' action='parameter.view'>
       <ContentLayout title='Audit Parameters'>
         <div className='space-y-6'>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/'>Dashboard</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink href='/audit'>Audit</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>Parameters</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-
           <Card>
             <CardContent className='p-6 space-y-6'>
               <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
                 <div>
                   <h2 className='text-lg font-semibold'>Parameter Catalog</h2>
                   <p className='text-sm text-muted-foreground'>
-                    36 system-default parameters across 4 groups. Institution
-                    overrides are applied automatically on cycle pages.
+                    {visibleCount} {showInactive ? '' : 'active '}
+                    {visibleCount === 1 ? 'parameter' : 'parameters'} across{' '}
+                    {GROUPS.length} groups. Institution overrides are applied
+                    automatically on cycle pages.
                   </p>
                 </div>
                 <div className='flex items-center gap-3'>
@@ -152,7 +139,9 @@ export default function AuditParametersPage() {
                 value={String(activeGroup)}
                 onValueChange={(v) => setActiveGroup(Number(v) as ParameterGroup)}
               >
-                <TabsList className='grid grid-cols-2 sm:grid-cols-4 w-full'>
+                {/* Column count follows GROUPS — hardcoding 4 made the 5th tab
+                    wrap onto a second row and collide with the table below. */}
+                <TabsList className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 w-full h-auto'>
                   {GROUPS.map((g) => {
                     const count = byGroup.get(g.value)?.length ?? 0;
                     return (

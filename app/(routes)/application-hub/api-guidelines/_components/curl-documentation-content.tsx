@@ -125,19 +125,19 @@ export default function CurlDocumentationContent() {
     },
 
     testing: {
-      validity: `curl -X GET "https://jkkn.ai/api/api-management/students?limit=1" \\
+      validity: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?limit=1" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json" \\
   -w "\\nHTTP Status: %{http_code}\\nTotal Time: %{time_total}s\\n"`,
 
-      invalidKey: `curl -X GET "https://jkkn.ai/api/api-management/students?limit=1" \\
+      invalidKey: `curl -X GET "https://jkkn.ai/api/api-management/learners/profiles?limit=1" \\
   -H "Authorization: Bearer invalid_api_key" \\
   -H "Accept: application/json" \\
   -H "Content-Type: application/json" \\
   -w "\\nHTTP Status: %{http_code}\\n"`,
 
-      verbose: `curl -v -X GET "https://jkkn.ai/api/api-management/students?limit=1" \\
+      verbose: `curl -v -X GET "https://jkkn.ai/api/api-management/learners/profiles?limit=1" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Accept: application/json"`
     }
@@ -186,9 +186,9 @@ test_endpoint() {
 echo "Starting API Tests..."
 echo "========================================"
 
-# Students API
-test_endpoint "/api-management/students?limit=2" "Students List (Limited)"
-test_endpoint "/api-management/students?search=test&limit=1" "Students Search"
+# Learners API
+test_endpoint "/api-management/learners/profiles?limit=2" "Learners List (Limited)"
+test_endpoint "/api-management/learners/profiles?lifecycle_status=all&limit=1" "Learners — All Lifecycle Statuses"
 
 # Staff API
 test_endpoint "/api-management/staff?limit=2" "Staff List (Limited)"

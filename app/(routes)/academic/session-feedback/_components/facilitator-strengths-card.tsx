@@ -56,9 +56,25 @@ function fmtDate(iso: string | null): string | null {
   }
 }
 
-export function FacilitatorStrengthsCard({ from, to }: { from: string; to: string }) {
+export function FacilitatorStrengthsCard({
+  from,
+  to,
+  institutionId,
+}: {
+  from: string;
+  to: string;
+  /** Narrow to one college. The RPC already scopes rows to what the caller may
+   *  see, so this is a filter, never a widening — same doctrine as the
+   *  college/faculty tables on the Feedback Confirmation tab. */
+  institutionId?: string | null;
+}) {
   const strengths = useFacilitatorStrengths(from, to);
-  const rows = (strengths.data ?? []) as FacilitatorStrengthRow[];
+  const rows = useMemo(() => {
+    const all = (strengths.data ?? []) as FacilitatorStrengthRow[];
+    return institutionId
+      ? all.filter((r) => r.institution_id === institutionId)
+      : all;
+  }, [strengths.data, institutionId]);
 
   // Headline: how many facilitators have standout patterns, and how many patterns.
   const totals = useMemo(() => {
