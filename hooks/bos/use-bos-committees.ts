@@ -48,8 +48,10 @@ function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean 
   }
   if (scope === 'template') {
     // Key shape: ['bos-committees', 'template', <csv>, <isActive|'all'>]
-    // The template pool is UNASSIGNED committees only — once a row gains a
-    // composition_id (via attach) it drops out of this list automatically.
+    // The template pool is UNASSIGNED committees only. Adding a template to a
+    // composition COPIES it (a fresh row carrying composition_id), so the
+    // master row stays here and remains reusable by every other composition;
+    // the copy is rejected from this list by the composition_id check below.
     if (row.composition_id != null) return false;
     if (
       typeof scopeValue === 'string' &&
@@ -178,33 +180,34 @@ export function useBosCommitteeTemplates(
 }
 
 /**
- * Attach an existing (template) committee to a composition by setting its
- * composition_id — the "no clone, just add it" flow. The re-parented row leaves
- * the template pool cache and joins the composition's committee list cache via
- * upsertCommitteeInCaches (the 'template' scope predicate handles the removal).
+ * Copy a master (template) committee into a composition. The master row is left
+ * untouched — a NEW row carrying composition_id is created from its fields — so
+ * the same master committee stays reusable across every composition. (This
+ * replaces an earlier "attach" flow that re-parented the master row and thereby
+ * drained the pool: once used, a committee could never be added again.)
+ *
+ * Reuses useCreateBosCommittee — POST /api/bos/committees already accepts
+ * composition_id, so a copy is just a create seeded from the template.
  */
-export function useAttachBosCommittee() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      compositionId,
-    }: {
-      id: string;
-      compositionId: string;
-    }): Promise<BosCommittee> => {
-      const res = await fetch(`/api/bos/committees/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ composition_id: compositionId }),
-      });
-      if (!res.ok) await parseError(res, 'Failed to add committee');
-      return res.json();
-    },
-    onSuccess: (updated: BosCommittee) => {
-      upsertCommitteeInCaches(queryClient, updated);
-    },
-  });
+export function useCopyBosCommitteeToComposition() {
+  const create = useCreateBosCommittee();
+  return {
+    isPending: create.isPending,
+    /** Copy `template` into `compositionId`, anchored to `institutionsId`. */
+    copy: (
+      template: BosCommittee,
+      compositionId: string,
+      institutionsId: string
+    ): Promise<BosCommittee> =>
+      create.mutateAsync({
+        institutions_id: institutionsId,
+        composition_id: compositionId,
+        name: template.name,
+        short_code: template.short_code ?? null,
+        sort_order: template.sort_order,
+        is_active: true,
+      }),
+  };
 }
 
 export function useCreateBosCommittee() {

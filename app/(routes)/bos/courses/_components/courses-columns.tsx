@@ -65,15 +65,17 @@ export function createCoursesColumns(
   },
   {
     id: 'hours',
-    header: 'L+P',
+    header: 'L+T+P',
     cell: ({ row }) => {
       // Coerce explicitly — COE occasionally returns hours as strings.
       const t = Number(row.original.theory_hours ?? 0);
+      const tut = Number(row.original.tutorial_hours ?? 0);
       const p = Number(row.original.practical_hours ?? 0);
       const tSafe = isNaN(t) ? 0 : t;
+      const tutSafe = isNaN(tut) ? 0 : tut;
       const pSafe = isNaN(p) ? 0 : p;
-      if (tSafe === 0 && pSafe === 0) return <span className='text-xs text-muted-foreground'>—</span>;
-      return `${tSafe}+${pSafe}`;
+      if (tSafe === 0 && tutSafe === 0 && pSafe === 0) return <span className='text-xs text-muted-foreground'>—</span>;
+      return `${tSafe}+${tutSafe}+${pSafe}`;
     },
   },
   {

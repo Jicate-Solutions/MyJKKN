@@ -9,13 +9,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useAddMapping, type SchemeFilters } from '@/hooks/bos/use-bos-course-scheme';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
-import { COURSE_GROUP_VALUES } from '@/lib/services/bos/courses-schemas';
 import type { BosCourseMaster, BosCourseMappingDetailed } from '@/types/bos-courses';
 
 // "UBA-1" → "Semester 1", "UPH-5" → "Semester 5"
@@ -64,7 +60,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
         regulation_code: filters.regulation_code,
         batch_code: filters.batch_code,
         semester_code: semester,
-        course_group: courseGroup && courseGroup !== 'none' ? courseGroup : undefined,
+        course_group: courseGroup.trim() || undefined,
         course_order: courseOrder ? Number(courseOrder) : undefined,
       });
 
@@ -81,7 +77,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
         program_code: filters.program_code,
         course_code: selected.course_code,
         batch_code: filters.batch_code ?? null,
-        course_group: (courseGroup && courseGroup !== 'none' ? courseGroup : null) as BosCourseMappingDetailed['course_group'],
+        course_group: courseGroup.trim() || null,
         semester_code: semester,
         course_order: courseOrder ? Number(courseOrder) : null,
         regulation_code: filters.regulation_code,
@@ -165,16 +161,13 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
 
           <div className='grid grid-cols-2 gap-3'>
             <div className='space-y-1'>
-              <Label className='text-xs'>Course Group (optional)</Label>
-              <Select value={courseGroup} onValueChange={setCourseGroup}>
-                <SelectTrigger><SelectValue placeholder='—' /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='none'>—</SelectItem>
-                  {COURSE_GROUP_VALUES.map((g) => (
-                    <SelectItem key={g} value={g}>{g}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className='text-xs'>Group Code (optional)</Label>
+              <Input
+                type='number' min={0}
+                value={courseGroup}
+                onChange={(e) => setCourseGroup(e.target.value)}
+                placeholder='0'
+              />
             </div>
             <div className='space-y-1'>
               <Label className='text-xs'>Order (optional)</Label>

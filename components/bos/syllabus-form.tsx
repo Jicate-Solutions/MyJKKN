@@ -555,6 +555,52 @@ export function SyllabusForm({
     }
   }, [isSuperAdmin]);
 
+  // Edit path: the syllabus may reference an institution that the COE-driven
+  // /api/bos/institutions list omits (e.g. an engineering college whose MyJKKN
+  // UUID isn't mapped into any COE institution's myjkkn_institution_ids). Without
+  // a matching option the Institution SearchableSelect shows only its
+  // placeholder — even though formData.institutions_id is set — which reads as
+  // "institution missing". Resolve the name from the MyJKKN institutions table
+  // and inject a display-only option so the record's institution shows and is
+  // retained on save. The server still authorises the write via guardSyllabusEdit.
+  useEffect(() => {
+    if (!isEditingProp && !syllabusProp) return;
+    const instId = formData.institutions_id;
+    if (!instId) return;
+    if (institutions.some((i) => i.id === instId || i.myjkkn_institution_ids?.includes(instId))) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/institutions');
+        if (!res.ok) return;
+        const json = await res.json();
+        const rows = (json?.data ?? []) as Array<{ id: string; name: string; display_name?: string }>;
+        const match = rows.find((r) => r.id === instId);
+        if (cancelled || !match) return;
+        setInstitutions((prev) =>
+          prev.some((i) => i.id === instId)
+            ? prev
+            : [
+                ...prev,
+                {
+                  id: instId,
+                  name: match.display_name || match.name,
+                  // Left blank so the composition fetch keeps using the
+                  // institutionsId fallback (unchanged from the no-option case).
+                  institution_code: '',
+                  myjkkn_institution_ids: [instId],
+                },
+              ],
+        );
+      } catch {
+        /* non-fatal — dropdown simply stays on its placeholder */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditingProp, syllabusProp, institutions, formData.institutions_id]);
+
   // Fetch boards
   useEffect(() => {
     const fetchBoards = async () => {
@@ -3067,6 +3113,14 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
                   onChange={(e) => updateUnit(unitIdx, 'unit_title', e.target.value)}
                   className="h-7 flex-1 border-0 bg-transparent px-0 text-sm font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50"
                 />
+                {/* Hours (e.g. "9 + 3") — optional, not required for any unit. */}
+                <Input
+                  placeholder="Hours"
+                  value={unit.hours || ''}
+                  onChange={(e) => updateUnit(unitIdx, 'hours', e.target.value)}
+                  title="Hours (optional, e.g. 9 + 3)"
+                  className="h-7 w-20 shrink-0 rounded-md border bg-background px-2 text-center text-sm font-semibold tabular-nums placeholder:font-normal placeholder:text-muted-foreground/50"
+                />
                 <button
                   type="button"
                   onClick={() => removeUnit(unitIdx)}
@@ -3190,6 +3244,19 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
           >
             <Plus className="h-4 w-4" /> Add Unit
           </button>
+
+          {/* Total Hours — mirrors the PDF's bottom-right "TOTAL: 30+30 PERIODS".
+              Optional: a course-content total, not required to save. */}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total Hours</span>
+            <Input
+              placeholder="e.g. 30 + 30"
+              value={content.total_hours || ''}
+              onChange={(e) => onChange({ ...content, total_hours: e.target.value })}
+              title="Total Hours (optional, e.g. 30 + 30)"
+              className="h-7 w-28 shrink-0 rounded-md border bg-background px-2 text-center text-sm font-semibold tabular-nums placeholder:font-normal placeholder:text-muted-foreground/50"
+            />
+          </div>
 
           {/* Instructions — displayed after all units */}
           <div className="px-4 py-3 space-y-2">
@@ -3506,8 +3573,12 @@ function PedagogyEditor({ methods, onChange }: any) {
   );
 }
 
-// Stored values stay 'L'/'M'/'H' (JSONB + exports depend on them); institutions
-// notate correlation numerically, so only the displayed label is 1/2/3.
+// Stored values stay 'L'/'M'/'H' (JSONB + exports depend on them); only the
+// DISPLAYED label varies by institution type:
+//   • Engineering (non-CAS, e.g. CET) → numeric 1/2/3  (ALIGNMENT_LEVELS.label)
+//   • CAS (Arts & Science, Aided+SF pair) → letters L/M/H (the value itself)
+// The `label` field below is the engineering/numeric form; labelFor() in the
+// editor picks numeric vs letters using scope.isCAS.
 const ALIGNMENT_LEVELS = [
   { value: '' as const,  label: '-', bg: 'bg-gray-50',     text: 'text-gray-400',   desc: 'No Correlation' },
   { value: 'L' as const, label: '1', bg: 'bg-yellow-100',  text: 'text-yellow-700', desc: 'Low' },
@@ -3515,6 +3586,19 @@ const ALIGNMENT_LEVELS = [
   { value: 'H' as const, label: '3', bg: 'bg-green-100',   text: 'text-green-700',  desc: 'High' },
 ] as const;
 type AlignmentLevel = '' | 'L' | 'M' | 'H';
+
+// Canonicalize a stored correlation value to 'L'/'M'/'H'. Records may hold
+// EITHER letters ('H'/'M'/'L') or numeric strings ('3'/'2'/'1') depending on
+// how they were created — the docx importer writes numbers straight from
+// engineering curriculum PDFs, while the editor writes letters. Without this,
+// a numerically-stored mapping renders as an all-"–" (no correlation) table.
+const normalizeLevel = (v: unknown): AlignmentLevel => {
+  const s = String(v ?? '').trim().toUpperCase();
+  if (s === 'H' || s === '3') return 'H';
+  if (s === 'M' || s === '2') return 'M';
+  if (s === 'L' || s === '1') return 'L';
+  return '';
+};
 
 interface PoMappingsEditorProps {
   mappings: BosPOMappingsData | undefined;
@@ -3548,8 +3632,8 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
     const m: Record<string, Record<string, AlignmentLevel>> = {};
     for (const mapping of (mappings?.mappings ?? [])) {
       m[mapping.co_id] = {
-        ...Object.fromEntries(Object.entries(mapping.pos  ?? {}).map(([k, v]) => [k, v as AlignmentLevel])),
-        ...Object.fromEntries(Object.entries(mapping.psos ?? {}).map(([k, v]) => [k, v as AlignmentLevel])),
+        ...Object.fromEntries(Object.entries(mapping.pos  ?? {}).map(([k, v]) => [k, normalizeLevel(v)])),
+        ...Object.fromEntries(Object.entries(mapping.psos ?? {}).map(([k, v]) => [k, normalizeLevel(v)])),
       };
     }
     return m;
@@ -3635,8 +3719,8 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
     const newMappings: BosPoMapping[] = courseOutcomes.map(clo => {
       const key = `CO${clo.clo_number}`;
       const cell = updatedMatrix[key] ?? {};
-      const poEntries  = Object.fromEntries(pos.filter(p => cell[p.po_code]).map(p => [p.po_code,  cell[p.po_code]])) as Record<string, 'H' | 'M' | 'L'>;
-      const psoEntries = Object.fromEntries(psos.filter(p => cell[p.pso_code]).map(p => [p.pso_code, cell[p.pso_code]])) as Record<string, 'H' | 'M' | 'L'>;
+      const poEntries  = Object.fromEntries(pos.filter(p => cell[p.po_code]).map(p => [p.po_code,  serializeLevel(cell[p.po_code])])) as Record<string, 'H' | 'M' | 'L'>;
+      const psoEntries = Object.fromEntries(psos.filter(p => cell[p.pso_code]).map(p => [p.pso_code, serializeLevel(cell[p.pso_code])])) as Record<string, 'H' | 'M' | 'L'>;
       return { co_id: key, pos: poEntries, psos: psoEntries };
     });
 
@@ -3645,6 +3729,17 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
 
   const getCellLevel = (coCode: string, outcomeCode: string): AlignmentLevel =>
     (matrix[coCode]?.[outcomeCode] as AlignmentLevel) ?? '';
+
+  // Display label per institution type. CAS colleges (Aided+SF pair → isCAS)
+  // notate correlation as L/M/H; engineering (single-row, e.g. CET) as 1/2/3.
+  const labelFor = (level: typeof ALIGNMENT_LEVELS[number]): string =>
+    level.value === '' ? level.label : scope.isCAS ? level.value : level.label;
+
+  // Persist in the institution's own notation so the raw-printing PDF/DOCX
+  // exporters stay correct: CAS stores letters (L/M/H), engineering stores
+  // numbers (1/2/3). Reads are tolerant of both via normalizeLevel().
+  const serializeLevel = (level: AlignmentLevel): string =>
+    level === '' ? '' : scope.isCAS ? level : { L: '1', M: '2', H: '3' }[level];
 
   if (!boardId || !regulationId) {
     return <p className="text-sm text-muted-foreground">Select a board and regulation to load programme outcomes.</p>;
@@ -3731,7 +3826,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
                             onClick={() => handleCellClick(coCode, po.po_code)}
                             title={`${coCode} → ${po.po_code}: ${style.desc}`}
                           >
-                            <span className={`text-xs font-bold ${style.text}`}>{style.label}</span>
+                            <span className={`text-xs font-bold ${style.text}`}>{labelFor(style)}</span>
                           </td>
                         );
                       })}
@@ -3745,7 +3840,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
                             onClick={() => handleCellClick(coCode, pso.pso_code)}
                             title={`${coCode} → ${pso.pso_code}: ${style.desc}`}
                           >
-                            <span className={`text-xs font-bold ${style.text}`}>{style.label}</span>
+                            <span className={`text-xs font-bold ${style.text}`}>{labelFor(style)}</span>
                           </td>
                         );
                       })}
@@ -3761,7 +3856,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
             {ALIGNMENT_LEVELS.map(level => (
               <div key={level.value || 'none'} className="flex items-center gap-2">
                 <div className={`w-7 h-7 rounded border flex items-center justify-center ${level.bg}`}>
-                  <span className={`text-xs font-bold ${level.text}`}>{level.label}</span>
+                  <span className={`text-xs font-bold ${level.text}`}>{labelFor(level)}</span>
                 </div>
                 <span className="text-xs text-muted-foreground">{level.desc}</span>
               </div>

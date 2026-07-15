@@ -15,6 +15,10 @@ import type {
 	BosCapstoneRubricData,
 	BosLlcConferenceData,
 } from '@/types/bos'
+// Engineering (Anna University / CET) courses render a separate borderless
+// layout — see the branch in renderCourseSyllabusPDF. Kept in its own module so
+// the Arts & Science renderer here is never touched by the engineering path.
+import { renderEngineeringSyllabusPDF } from './course-syllabus-cet-pdf'
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 const A4_W = 210
@@ -517,6 +521,10 @@ export interface CourseSyllabusPDFData {
 	institution_accreditation?: string
 	logoImage?: string
 	rightLogoImage?: string
+	/** Extra centred banner lines (engineering CET variant only). */
+	banner_lines?: string[]
+	/** Website line for the engineering CET banner. */
+	institution_website?: string
 
 	// Course master
 	course_code: string
@@ -526,6 +534,19 @@ export interface CourseSyllabusPDFData {
 	total_hours?: number | null
 	contact_hours?: number | null
 	credits?: number | null
+	/**
+	 * Anna University L-T-P-C values for the engineering variant's header row.
+	 * Parsed from the syllabus `notes` ("LTPC: 3 1 0 4") because they are not
+	 * stored as structured columns. Only consumed by the CET renderer.
+	 */
+	ltpc?: { l?: string | number; t?: string | number; p?: string | number; c?: string | number }
+	/**
+	 * Total course periods "theory + tutorial" (e.g. 30 + 30) for the CET
+	 * variant's per-unit hour markers and the "TOTAL: N+M PERIODS" line. Used
+	 * only when the units don't already carry their own "6+6" markers; the
+	 * total is then distributed evenly across the units.
+	 */
+	total_periods?: { theory: number; tut: number }
 
 	// Syllabus content
 	objectives?: BosCourseObjective[]
@@ -584,10 +605,15 @@ export function renderCourseSyllabusPDF(
 	data: CourseSyllabusPDFData,
 	opts?: { startNewPage?: boolean },
 ): void {
+	// Engineering (Anna University / CET) courses render a completely different,
+	// borderless flowing layout. Kept in its own function so the Arts & Science
+	// (CAS) path below stays exactly as it was — never touched by the variant.
+	if (data.variant === 'engineering') {
+		renderEngineeringSyllabusPDF(doc, data, opts)
+		return
+	}
+
 	if (opts?.startNewPage) doc.addPage()
-	// Engineering (Anna University / CET) variant toggles a handful of wording
-	// differences vs the Arts & Science default; see CourseSyllabusPDFData.variant.
-	const isEngineering = data.variant === 'engineering'
 	let y = MARGIN
 
 	// ── INSTITUTION HEADER ────────────────────────────────────────────────────
@@ -653,9 +679,7 @@ export function renderCourseSyllabusPDF(
 	if (data.objectives && data.objectives.length > 0) {
 		const rows: object[][] = [
 			[cell(''), bold('Course Objectives')],
-			// Engineering/CET format drops the "The main objectives of this course
-			// are" lead-in row (matches the Anna University syllabus layout).
-			...(isEngineering ? [] : [[cell(''), cell('The main objectives of this course are')]]),
+			[cell(''), cell('The main objectives of this course are')],
 			...data.objectives.map(o => [
 				cell(String(o.number), { halign: 'center' }),
 				cell(sanitize(o.description)),
@@ -691,14 +715,7 @@ export function renderCourseSyllabusPDF(
 			],
 			[
 				cell(''),
-				{
-					...span(
-						isEngineering
-							? 'At the end of the course, the students will be able to:'
-							: 'On the successful completion of the course, student will be able to:',
-						2,
-					),
-				},
+				{ ...span('On the successful completion of the course, student will be able to:', 2) },
 			],
 			...data.clos.map(c => [
 				bold(`CO ${c.clo_number}`, { halign: 'center' }),
@@ -1129,6 +1146,17 @@ export function renderCourseSyllabusPDF(
 		return [[cell(sanitize(t), { halign: 'left' })]]
 	}
 
+	// v3.5 capstone gate: the Assessment Pattern, Capstone Rubric, and
+	// Learners Led Conference are the summative spec for the Capstone Project —
+	// they only make sense when a capstone project exists. Print ASSESSMENT
+	// PATTERN, CAPSTONE RUBRIC, and the LLC panel ONLY when capstone_project
+	// carries data (options or an intro note); a syllabus with no capstone
+	// project skips them all, even if their own JSONB columns happen to hold
+	// rows. Shared with the Capstone Project block below so the sections appear
+	// or disappear together.
+	const cp = data.capstone_project
+	const hasCapstoneProject = !!(cp && ((cp.options?.length ?? 0) > 0 || cp.intro_note?.trim()))
+
 	// Concept Applications (Formative Learning Activities)
 	const ca = data.concept_applications
 	if (ca && ((ca.activities?.length ?? 0) > 0 || ca.intro_note?.trim())) {
@@ -1172,7 +1200,7 @@ export function renderCourseSyllabusPDF(
 
 	// Assessment Pattern (Internal | External split + internal component rows)
 	const ap = data.assessment_pattern
-	if (ap && ((ap.components?.length ?? 0) > 0 || ap.internal_marks != null || ap.external_marks != null)) {
+	if (hasCapstoneProject && ap && ((ap.components?.length ?? 0) > 0 || ap.internal_marks != null || ap.external_marks != null)) {
 		sectionHeading('ASSESSMENT PATTERN:')
 		const comps = ap.components ?? []
 		const snoW = 16, marksW = 22
@@ -1209,9 +1237,10 @@ export function renderCourseSyllabusPDF(
 		}
 	}
 
-	// Capstone Project — choose ONE of FIVE (option cards)
-	const cp = data.capstone_project
-	if (cp && ((cp.options?.length ?? 0) > 0 || cp.intro_note?.trim())) {
+	// Capstone Project — choose ONE of FIVE (option cards). `cp` /
+	// `hasCapstoneProject` are computed once above and shared with the
+	// Assessment Pattern + Capstone Rubric gates.
+	if (hasCapstoneProject) {
 		sectionHeading('CAPSTONE PROJECT (CHOOSE ONE OF FIVE):')
 		if (cp.intro_note?.trim()) {
 			y = table(doc, y, paragraphRow(cp.intro_note), { 0: { cellWidth: TABLE_W } })
@@ -1248,7 +1277,7 @@ export function renderCourseSyllabusPDF(
 
 	// Capstone Rubric (criterion rows, common to all options)
 	const cr = data.capstone_rubric
-	if (cr && (cr.criteria?.length ?? 0) > 0) {
+	if (hasCapstoneProject && cr && (cr.criteria?.length ?? 0) > 0) {
 		const criteria = cr.criteria ?? []
 		sectionHeading(cr.note?.trim() ? `CAPSTONE RUBRIC (${sanitize(cr.note).trim()}):` : 'CAPSTONE RUBRIC:')
 		const marksW = 22
@@ -1268,7 +1297,7 @@ export function renderCourseSyllabusPDF(
 	// the source documents: a single inline header line (bold "LLC <title>"
 	// + regular "— <subtitle>") above the description paragraph.
 	const llc = data.llc_conference
-	if (llc && (llc.title?.trim() || llc.subtitle?.trim() || llc.description?.trim())) {
+	if (hasCapstoneProject && llc && (llc.title?.trim() || llc.subtitle?.trim() || llc.description?.trim())) {
 		if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 10 }
 		const rows: AnyCell[][] = []
 		const headerLines = wrapBoldPrefixRest(

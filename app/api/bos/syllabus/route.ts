@@ -159,9 +159,41 @@ export async function GET(request: NextRequest) {
       query = query.in('board_id', boardIds);
     }
 
+    // Resolve the regulation filter to a CAS-sibling-aware set.
+    // A CAS college has TWO institution rows (Aided + Self-Financed), each with
+    // its OWN regulation row that shares the same regulation_code (e.g. two
+    // "R-2024" rows). Syllabi may be authored under either sibling, so filtering
+    // by the single passed regulation_id silently drops the other sibling's
+    // syllabi (the exact bug behind "only one course downloads"). We expand the
+    // filter to every active regulation_id sharing the code; the counselling_code
+    // filter above still scopes results to the caller's institution(s).
+    //
+    // For a NON-CAS institution a code maps to exactly one regulation row, so
+    // this resolves to [regulationId] and behaves identically to a plain .eq().
+    let regulationIdsFilter: string[] | null = null;
+    if (regulationId) {
+      const { data: regRow } = await supabase
+        .from('regulations')
+        .select('regulation_code')
+        .eq('id', regulationId)
+        .maybeSingle();
+      const code = regRow?.regulation_code as string | undefined;
+      if (code) {
+        const { data: siblingRegs } = await supabase
+          .from('regulations')
+          .select('id')
+          .eq('regulation_code', code)
+          .eq('is_active', true);
+        const ids = (siblingRegs ?? []).map((r) => r.id as string);
+        regulationIdsFilter = ids.length > 0 ? ids : [regulationId];
+      } else {
+        regulationIdsFilter = [regulationId];
+      }
+    }
+
     // Apply filters
     if (boardId) query = query.eq('board_id', boardId);
-    if (regulationId) query = query.eq('regulation_id', regulationId);
+    if (regulationIdsFilter) query = query.in('regulation_id', regulationIdsFilter);
     if (courseCode) query = query.eq('course_code', courseCode);
     if (stream) query = query.eq('stream', stream);
     if (isLatest) query = query.eq('is_latest', true);

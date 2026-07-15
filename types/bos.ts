@@ -385,6 +385,8 @@ export interface BosUnit {
   unit_title: string;
   chapters: BosChapter[];
   remarks?: string;
+  /** Period marker "theory+tutorial" (e.g. "6+6"); engineering/CET syllabi. */
+  hours?: string;
 }
 
 // Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
@@ -425,6 +427,8 @@ export interface BosCourseContentData {
   is_project?: boolean;
   project_units?: BosProjectUnit[];
   instruction?: string;
+  /** Course total periods "theory+tutorial" (e.g. "30+30"); engineering/CET. */
+  total_hours?: string;
 }
 
 // ── Textbooks & References ────────────────────────────────────────────

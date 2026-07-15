@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useMemo, useState } from 'react';
+import { Fragment, use, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -8,6 +8,8 @@ import {
   Users,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   XCircle,
   Building2,
   Mail,
@@ -26,6 +28,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -136,15 +141,16 @@ function MemberTypeGroups({
   );
 }
 
-// ── Committee tabs ──────────────────────────────────────────────────────────
-// A composition can hold several committees. Rather than an ever-growing
-// vertical stack, each committee gets a tab; the active tab shows that
-// committee's members grouped by type. A virtual "General" tab collects rows
-// with no committee (or whose committee was deleted).
+// ── Committee table ─────────────────────────────────────────────────────────
+// A composition can hold several committees. They're listed as a table (name,
+// code, member count, status) rather than a tab bar, which stays readable as
+// the count grows and shows every committee's size at a glance. Expanding a row
+// reveals that committee's members grouped by type. A virtual "General" row
+// collects members with no committee (or whose committee was deleted).
 
-const GENERAL_TAB = '__general__';
+const GENERAL_ROW = '__general__';
 
-function CommitteeTabs({
+function CommitteeTable({
   committees,
   members,
   memberTypes,
@@ -160,90 +166,137 @@ function CommitteeTabs({
   onRemove: (id: string) => void;
   onAddMember: () => void;
 }) {
-  const knownIds = new Set(committees.map((c) => c.id));
-  const general = members.filter(
-    (m) => !m.committee_id || !knownIds.has(m.committee_id)
-  );
+  const rows = useMemo(() => {
+    const knownIds = new Set(committees.map((c) => c.id));
+    const general = members.filter(
+      (m) => !m.committee_id || !knownIds.has(m.committee_id)
+    );
+    return [
+      ...committees.map((c) => ({
+        value: c.id,
+        committee: c as BosCommittee | null,
+        items: members.filter((m) => m.committee_id === c.id),
+      })),
+      ...(general.length > 0
+        ? [{ value: GENERAL_ROW, committee: null, items: general }]
+        : []),
+    ];
+  }, [committees, members]);
 
-  const sections = [
-    ...committees.map((c) => ({
-      value: c.id,
-      committee: c as BosCommittee | null,
-      items: members.filter((m) => m.committee_id === c.id),
-    })),
-    ...(general.length > 0
-      ? [{ value: GENERAL_TAB, committee: null, items: general }]
-      : []),
-  ];
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  if (sections.length === 0) return null;
+  // Open the first committee once data arrives, so the card isn't a wall of
+  // collapsed rows on load. Keyed on the first row's id: it runs when the list
+  // first resolves (and if that committee changes), but not when the user
+  // collapses it — a manual collapse stays collapsed.
+  const firstValue = rows[0]?.value;
+  useEffect(() => {
+    if (firstValue) setExpanded(new Set([firstValue]));
+  }, [firstValue]);
+
+  const toggle = (value: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+
+  if (rows.length === 0) return null;
 
   return (
-    <Tabs defaultValue={sections[0].value} className='space-y-4'>
-      {/* Horizontal, scrollable committee bar — scales past the viewport width
-          instead of wrapping into a tall block. */}
-      <div className='overflow-x-auto pb-1'>
-        <TabsList className='inline-flex h-auto flex-nowrap justify-start gap-1 p-1'>
-          {sections.map((s) => (
-            <TabsTrigger
-              key={s.value}
-              value={s.value}
-              className='shrink-0 gap-1.5 data-[state=active]:bg-background'
-            >
-              <span className='max-w-[14rem] truncate'>
-                {s.committee ? s.committee.name : 'General'}
-              </span>
-              <span className='rounded-full bg-muted-foreground/15 px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
-                {s.items.length}
-              </span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </div>
+    <div className='rounded-lg border'>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className='w-10' />
+            <TableHead>Committee</TableHead>
+            <TableHead className='w-28'>Code</TableHead>
+            <TableHead className='w-24 text-right'>Members</TableHead>
+            <TableHead className='w-28'>Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => {
+            const isOpen = expanded.has(r.value);
+            return (
+              <Fragment key={r.value}>
+                <TableRow
+                  className='cursor-pointer'
+                  onClick={() => toggle(r.value)}
+                >
+                  <TableCell>
+                    {isOpen ? (
+                      <ChevronDown className='h-4 w-4 text-muted-foreground' />
+                    ) : (
+                      <ChevronRight className='h-4 w-4 text-muted-foreground' />
+                    )}
+                  </TableCell>
+                  <TableCell className='font-medium'>
+                    {r.committee ? r.committee.name : 'General'}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>
+                    {r.committee?.short_code ?? '—'}
+                  </TableCell>
+                  <TableCell className='text-right tabular-nums'>
+                    {r.items.length}
+                  </TableCell>
+                  <TableCell>
+                    {!r.committee ? (
+                      <Badge variant='outline' className='text-xs'>
+                        Unassigned
+                      </Badge>
+                    ) : r.committee.is_active ? (
+                      <Badge variant='outline' className='text-xs'>
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge variant='secondary' className='text-xs'>
+                        Inactive
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
 
-      {sections.map((s) => (
-        <TabsContent key={s.value} value={s.value} className='mt-0'>
-          <div className='rounded-lg border p-4'>
-            <div className='mb-3 flex items-center gap-2'>
-              <h3 className='text-sm font-semibold'>
-                {s.committee ? s.committee.name : 'General'}
-              </h3>
-              {s.committee?.short_code && (
-                <Badge variant='outline' className='text-xs'>
-                  {s.committee.short_code}
-                </Badge>
-              )}
-              {s.committee && !s.committee.is_active && (
-                <Badge variant='secondary' className='text-xs'>Inactive</Badge>
-              )}
-              <span className='ml-auto text-xs text-muted-foreground'>
-                {s.items.length} member{s.items.length === 1 ? '' : 's'}
-              </span>
-            </div>
-            {s.items.length === 0 ? (
-              <div className='flex flex-col items-start gap-2 py-2'>
-                <p className='text-xs text-muted-foreground'>
-                  No members in this committee yet.
-                </p>
-                {canManage && (
-                  <Button size='sm' variant='outline' onClick={onAddMember}>
-                    <Plus className='mr-2 h-4 w-4' />
-                    Add Member
-                  </Button>
+                {isOpen && (
+                  <TableRow className='hover:bg-transparent'>
+                    <TableCell colSpan={5} className='bg-muted/30 p-4'>
+                      {r.items.length === 0 ? (
+                        <div className='flex flex-col items-start gap-2'>
+                          <p className='text-xs text-muted-foreground'>
+                            No members in this committee yet.
+                          </p>
+                          {canManage && (
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAddMember();
+                              }}
+                            >
+                              <Plus className='mr-2 h-4 w-4' />
+                              Add Member
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <MemberTypeGroups
+                          members={r.items}
+                          memberTypes={memberTypes}
+                          canManage={canManage}
+                          onRemove={onRemove}
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
                 )}
-              </div>
-            ) : (
-              <MemberTypeGroups
-                members={s.items}
-                memberTypes={memberTypes}
-                canManage={canManage}
-                onRemove={onRemove}
-              />
-            )}
-          </div>
-        </TabsContent>
-      ))}
-    </Tabs>
+              </Fragment>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -584,7 +637,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
                   )}
                 </div>
               ) : (
-                <CommitteeTabs
+                <CommitteeTable
                   committees={committees}
                   members={membersForGrouping}
                   memberTypes={memberTypeRows}
@@ -693,15 +746,17 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       )}
 
       {/* ── Add Committee Dialog ────────────────────────────────────────── */}
-      {/* "No clone" attach flow: pick from the committees already created at
-          /bos/committees (unassigned template pool) and re-parent them into
-          this composition. institutionIdsCsv is CAS-expanded so the pool spans
-          both sibling UUIDs for CAS colleges. */}
+      {/* Copy flow: pick from the master committees created at /bos/committees
+          (the unassigned template pool) and copy them into this composition —
+          the master row stays reusable by other compositions. institutionIdsCsv
+          is CAS-expanded so the pool spans both sibling UUIDs for CAS colleges,
+          while the copies anchor to this composition's own institution. */}
       {composition.institutions_id && (
         <AddCommitteeDialog
           open={addCommitteeOpen}
           onClose={() => setAddCommitteeOpen(false)}
           compositionId={compositionId}
+          institutionsId={composition.institutions_id}
           institutionIdsCsv={institutionIdsCsv}
         />
       )}

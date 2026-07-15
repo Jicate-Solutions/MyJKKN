@@ -4,12 +4,18 @@
 // "Add Committee" picker for a BoS Composition.
 //
 // A composition holds several committees, and each committee has its own
-// members. This dialog does NOT create a committee from scratch — instead it
-// lists the committees you already defined at /bos/committees (the unassigned
-// "template" pool, composition_id IS NULL) and lets you ATTACH one or more to
-// this composition. Attaching re-parents the row (sets composition_id); the
-// committee then shows up as a tab where you add its members. "No clone" — the
-// same physical committee moves into the composition rather than being copied.
+// members. This dialog does NOT create a committee from scratch — it lists the
+// master committees defined at /bos/committees (the "template" pool,
+// composition_id IS NULL) and COPIES the picked ones into this composition.
+//
+// Copy, not move: the master row is left untouched so the same master committee
+// (e.g. Curriculum Development Cell) can be added to every composition. An
+// earlier version re-parented the master row instead, which silently drained
+// the pool — each committee could only ever be used once.
+//
+// Because copies are per-composition, a master already copied here is shown as
+// "Added" and can't be picked twice (the DB's (composition_id, name) unique
+// index would reject it anyway).
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -31,15 +37,18 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 
 import {
   useBosCommitteeTemplates,
-  useAttachBosCommittee,
+  useBosCommitteesByComposition,
+  useCopyBosCommitteeToComposition,
 } from '@/hooks/bos/use-bos-committees';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 interface AddCommitteeDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Composition the picked committees will be attached to. */
+  /** Composition the picked committees are copied into. */
   compositionId: string;
+  /** Institution the copies are anchored to (the composition's own). */
+  institutionsId: string;
   /** CAS-expanded csv of the composition's institution siblings. */
   institutionIdsCsv: string;
 }
@@ -48,6 +57,7 @@ export function AddCommitteeDialog({
   open,
   onClose,
   compositionId,
+  institutionsId,
   institutionIdsCsv,
 }: AddCommitteeDialogProps) {
   // Only fetch the template pool while the dialog is open (and the institution
@@ -55,7 +65,17 @@ export function AddCommitteeDialog({
   const { data: templates = [], isLoading } = useBosCommitteeTemplates(
     open ? institutionIdsCsv : undefined
   );
-  const attach = useAttachBosCommittee();
+  // Already-copied masters — matched by name, the same key the DB's
+  // (composition_id, name) unique index uses.
+  const { data: existing = [] } = useBosCommitteesByComposition(compositionId);
+  const { copy, isPending } = useCopyBosCommitteeToComposition();
+
+  const addedNames = useMemo(
+    () => new Set(existing.map((c) => c.name.trim().toLowerCase())),
+    [existing]
+  );
+  const isAdded = (c: { name: string }) =>
+    addedNames.has(c.name.trim().toLowerCase());
 
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -91,16 +111,17 @@ export function AddCommitteeDialog({
     if (selected.size === 0) return;
     const ids = Array.from(selected);
     let ok = 0;
-    // Attach sequentially so each success reconciles the cache in turn and a
+    // Copy sequentially so each success reconciles the cache in turn and a
     // mid-list failure doesn't abort the rest.
     for (const id of ids) {
+      const template = templates.find((t) => t.id === id);
+      if (!template) continue;
       try {
-        await attach.mutateAsync({ id, compositionId });
+        await copy(template, compositionId, institutionsId);
         ok += 1;
       } catch (err) {
-        logger.error('academic/bos', 'Failed to attach committee', err);
-        const name = templates.find((t) => t.id === id)?.name ?? 'committee';
-        toast.error(`Could not add "${name}": ${(err as Error).message}`);
+        logger.error('academic/bos', 'Failed to copy committee', err);
+        toast.error(`Could not add "${template.name}": ${(err as Error).message}`);
       }
     }
     if (ok > 0) {
@@ -115,8 +136,9 @@ export function AddCommitteeDialog({
         <DialogHeader>
           <DialogTitle>Add Committee</DialogTitle>
           <DialogDescription>
-            Pick from the committees you already created. Each one is added to
-            this composition, where you can then add its members.
+            Pick from your master committees. Each one is copied into this
+            composition, where you can then add its members. The master stays
+            available for other compositions.
           </DialogDescription>
         </DialogHeader>
 
@@ -149,26 +171,41 @@ export function AddCommitteeDialog({
           ) : (
             <ScrollArea className='h-64 rounded-md border'>
               <ul className='divide-y'>
-                {filtered.map((c) => (
-                  <li key={c.id}>
-                    <label className='flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/50'>
-                      <Checkbox
-                        checked={selected.has(c.id)}
-                        onCheckedChange={() => toggle(c.id)}
-                      />
-                      <span className='min-w-0 flex-1'>
-                        <span className='block truncate text-sm font-medium'>
-                          {c.name}
+                {filtered.map((c) => {
+                  const added = isAdded(c);
+                  return (
+                    <li key={c.id}>
+                      <label
+                        className={
+                          added
+                            ? 'flex items-center gap-3 px-3 py-2.5 opacity-60'
+                            : 'flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/50'
+                        }
+                      >
+                        <Checkbox
+                          checked={added || selected.has(c.id)}
+                          disabled={added}
+                          onCheckedChange={() => toggle(c.id)}
+                        />
+                        <span className='min-w-0 flex-1'>
+                          <span className='block truncate text-sm font-medium'>
+                            {c.name}
+                          </span>
+                          {c.short_code && (
+                            <span className='block truncate text-xs text-muted-foreground'>
+                              {c.short_code}
+                            </span>
+                          )}
                         </span>
-                        {c.short_code && (
-                          <span className='block truncate text-xs text-muted-foreground'>
-                            {c.short_code}
+                        {added && (
+                          <span className='shrink-0 text-xs text-muted-foreground'>
+                            Added
                           </span>
                         )}
-                      </span>
-                    </label>
-                  </li>
-                ))}
+                      </label>
+                    </li>
+                  );
+                })}
               </ul>
             </ScrollArea>
           )}
@@ -181,9 +218,9 @@ export function AddCommitteeDialog({
           <Button
             type='button'
             onClick={handleAdd}
-            disabled={selected.size === 0 || attach.isPending}
+            disabled={selected.size === 0 || isPending}
           >
-            {attach.isPending ? (
+            {isPending ? (
               <>
                 <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                 Adding…

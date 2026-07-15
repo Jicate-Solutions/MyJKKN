@@ -119,6 +119,7 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
                 exam_duration: course.exam_duration ?? 3,
                 credit: course.credit ?? course.credits ?? 3,
                 theory_hours: course.theory_hours ?? 0,
+                tutorial_hours: course.tutorial_hours ?? 0,
                 practical_hours: course.practical_hours ?? 0,
                 internal_max_mark: course.internal_max_mark ?? 25,
                 external_max_mark: course.external_max_mark ?? 75,

@@ -82,6 +82,7 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       exam_duration: 3,
       credit: 3,
       theory_hours: 0,
+      tutorial_hours: 0,
       practical_hours: 0,
       internal_max_mark: 25,
       external_max_mark: 75,
@@ -115,7 +116,7 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
   }, [internal, external]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6 max-w-3xl'>
+    <form onSubmit={form.handleSubmit(onSubmit)} className='w-full space-y-6'>
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Identity</legend>
         {!lockedBoardId && (
@@ -249,7 +250,7 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
 
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Workload</legend>
-        <div className='grid grid-cols-4 gap-3'>
+        <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
           <Field label='Exam (Hrs)' required error={form.formState.errors.exam_duration?.message}>
             <Input type='number' min={0} max={8} {...form.register('exam_duration', { valueAsNumber: true })} />
           </Field>
@@ -258,6 +259,11 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
           </Field>
           <Field label='Theory Hours' required error={form.formState.errors.theory_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('theory_hours', { valueAsNumber: true })} />
+          </Field>
+          {/* Tutorial Hours — optional (default 0); not every course has a
+              tutorial component, so it carries no `required` flag. */}
+          <Field label='Tutorial Hours' error={form.formState.errors.tutorial_hours?.message}>
+            <Input type='number' min={0} max={40} {...form.register('tutorial_hours', { valueAsNumber: true })} />
           </Field>
           <Field label='Practical Hours' required error={form.formState.errors.practical_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('practical_hours', { valueAsNumber: true })} />
@@ -268,11 +274,13 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Max Marks</legend>
         <div className='grid grid-cols-3 gap-3'>
+          {/* No max cap — the total (internal + external) varies by subject, so
+              allow any non-negative value rather than fixing it at 100. */}
           <Field label='Internal (CIA)' required error={form.formState.errors.internal_max_mark?.message}>
-            <Input type='number' min={0} max={100} {...form.register('internal_max_mark', { valueAsNumber: true })} />
+            <Input type='number' min={0} {...form.register('internal_max_mark', { valueAsNumber: true })} />
           </Field>
           <Field label='External (ESE)' required error={form.formState.errors.external_max_mark?.message}>
-            <Input type='number' min={0} max={100} {...form.register('external_max_mark', { valueAsNumber: true })} />
+            <Input type='number' min={0} {...form.register('external_max_mark', { valueAsNumber: true })} />
           </Field>
           <Field label='Total (auto)'>
             <Input disabled type='number' {...form.register('total_max_mark', { valueAsNumber: true })} />
