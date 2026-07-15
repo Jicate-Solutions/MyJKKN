@@ -27,7 +27,6 @@ import {
 } from '@/components/ui/select';
 import {
   Loader2,
-  Plus,
   Trophy,
   Calendar,
   MapPin,
@@ -64,10 +63,9 @@ import {
 import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import { TEAM_SPORTS } from '@/types/health-sports';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
-import { AddEntryDialog } from './_components/add-entry-dialog';
 import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
-import { RegistrationFormBuilder } from './_components/registration-form-builder';
+import { RegistrationFormCard } from './_components/registration-form-card';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -309,8 +307,6 @@ export default function TournamentManagePage() {
   const withdraw = useWithdrawEntry(id);
   const payLink = useGeneratePaymentLink(id);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogDivision, setDialogDivision] = useState<string | undefined>(undefined);
   const [rzp, setRzp] = useState<{
     orderId: string;
     keyId: string;
@@ -554,8 +550,8 @@ export default function TournamentManagePage() {
         canAssign={access.canAssignIncharge}
       />
 
-      {/* ── Registration Form builder ────────────────────────────────────── */}
-      <RegistrationFormBuilder eventId={id} canManage={canManage} />
+      {/* ── Registration form (builder lives on its own page) ─────────────── */}
+      <RegistrationFormCard eventId={id} canManage={canManage} />
 
       {/* ── KPI row ─────────────────────────────────────────────────────── */}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -613,7 +609,8 @@ export default function TournamentManagePage() {
       {divisions.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            No divisions yet. Add divisions from the tournament edit screen, then register entries here.
+            No divisions yet. Add divisions from the tournament edit screen. Students then register
+            themselves through the public registration link.
           </CardContent>
         </Card>
       ) : (
@@ -640,17 +637,6 @@ export default function TournamentManagePage() {
                       {d.format.replace('_', ' ')}
                     </Badge>
                   </CardTitle>
-                  {canManage && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setDialogDivision(d.id);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Plus className="mr-1 h-3.5 w-3.5" /> Add Entry
-                    </Button>
-                  )}
                 </CardHeader>
                 <CardContent className="pt-0">
                   {loadingE ? (
@@ -756,14 +742,6 @@ export default function TournamentManagePage() {
         eventType="sports_tournament"
         canManage={canManage}
         canEditTasks={canManage || access.isTaskOnly}
-      />
-
-      <AddEntryDialog
-        eventId={id}
-        divisions={divisions}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        defaultDivisionId={dialogDivision}
       />
     </ContentLayout>
   );
