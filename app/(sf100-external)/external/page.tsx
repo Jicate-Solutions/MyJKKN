@@ -7,6 +7,7 @@ import {
 import { getTeamsSummary } from '@/lib/services/startup-studio/sf100-mentor-assign-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { ExternalLogoutButton } from './_components/external-logout-button';
+import { ExternalInvestorNotes } from './_components/external-investor-notes';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -129,6 +130,12 @@ export default async function ExternalDashboardPage() {
                     SF100 team
                   </span>
                 </div>
+
+                {isInvestor && (
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <ExternalInvestorNotes enrollmentId={t.enrollmentId} />
+                  </div>
+                )}
               </div>
             );
           })}
