@@ -6,6 +6,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   getNotifications,
+  getNotificationCounts,
   createNotification,
   bulkUpdateNotifications,
   markAllAsRead,
@@ -68,19 +69,35 @@ export async function GET(request: NextRequest) {
     // `authenticated`. The service's module-level fallback is anon-keyed and
     // would trigger 500 "permission denied for function fn_notification_is_for_user"
     // when an RLS policy on user_notifications invokes that function.
-    const notifications = await getNotifications(filters, supabase);
+    // Counts are GLOBAL and must not depend on this request's page/limit, so
+    // they come from COUNT queries rather than from the page we just fetched.
+    const [notifications, counts] = await Promise.all([
+      getNotifications(filters, supabase),
+      getNotificationCounts(user.id, supabase)
+    ]);
 
     // Response keys cover both consumer shapes:
     //   - `data` / `count` — original API contract (used by future server callers)
     //   - `notifications` / `unread_count` / `has_more` — what hooks/use-notifications.ts
     //     expects for the /notifications page list. Without these, the page renders
     //     "No notifications yet" even though the API returns rows. Bug found 2026-05-04.
+    //
+    // `count` stays page-scoped (rows in THIS response) — that is its original
+    // contract. `total_count` is the global figure; they are different numbers
+    // on purpose.
+    //
+    // unread_count was `notifications.filter((n) => !n.is_read).length` until
+    // 2026-07-15 — unread within the RETURNED PAGE. The UI renders it as a
+    // global "N unread", and with limit=20 it could never exceed 20: a
+    // 258-unread inbox displayed "18 unread". It is now a real COUNT.
     const effectiveLimit = limit ?? 20;
     return NextResponse.json({
       data: notifications,
       count: notifications.length,
       notifications,
-      unread_count: notifications.filter((n) => !n.is_read).length,
+      unread_count: counts.unread,
+      total_count: counts.total,
+      category_counts: counts.byCategory,
       has_more: notifications.length === effectiveLimit
     });
   } catch (error: any) {
