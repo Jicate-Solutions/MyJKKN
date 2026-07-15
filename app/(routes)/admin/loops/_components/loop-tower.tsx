@@ -54,8 +54,8 @@ export interface LoopTowerStats {
   routinesEnabled: number | null;
   routinesTotal: number | null;
   /** Routines whose LATEST fire falls in the 7d window. ai_routine_schedules
-   *  keeps only last_fired_at per routine — there is no run-history table, so
-   *  a true 7-day RUN count for the dispatcher lane is not derivable. */
+   *  keeps only last_fired_at per routine — for true per-run counts see
+   *  dispatcherRuns7d below (ai_routine_run_log, logging since 2026-07-13). */
   routinesFired7d: number | null;
   routinesFiredToday: number | null;
   // ring 3 — TASK loop (shared 7d window only)
@@ -705,8 +705,12 @@ export function LoopTower({
               }
             >
               <Seam
-                label='runs per closed iteration'
-                uninstrumented="no run-history table; the dispatcher keeps only each routine's latest fire"
+                label='dispatcher runs per closed iteration (7d)'
+                num={s.dispatcherRuns7d}
+                den={s.iterationsClosed7d}
+                numUnit='runs'
+                denUnit='closed'
+                note='dispatcher-logged runs only (ai_routine_run_log, since 13 Jul) — Max-lane and static-cron runs not in the log yet'
               />
               <Ring
                 num='2 · Execution'
