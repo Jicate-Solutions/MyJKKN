@@ -66,6 +66,7 @@ import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/typ
 import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
 import { RegistrationFormCard } from './_components/registration-form-card';
+import { DivisionFeeBadge } from './_components/division-fee-badge';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -637,6 +638,9 @@ export default function TournamentManagePage() {
                       {d.format.replace('_', ' ')}
                     </Badge>
                   </CardTitle>
+                  {/* Entry fee lives on the division, not the registration form —
+                      surfaced here so pricing is visible/editable where organizers work. */}
+                  <DivisionFeeBadge division={d} eventId={id} canManage={canManage} />
                 </CardHeader>
                 <CardContent className="pt-0">
                   {loadingE ? (

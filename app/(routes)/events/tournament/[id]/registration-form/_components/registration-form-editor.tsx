@@ -491,6 +491,12 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
         division / name / roster / contact fields every tournament already collects. These apply
         to all divisions in this tournament.
       </p>
+      <p className="text-sm text-muted-foreground">
+        Payment is not a field here — each division carries its own{' '}
+        <span className="font-medium text-foreground">Entry Fee</span>, editable from the
+        tournament page. Set it above ₹0 and the registration form collects it online
+        automatically.
+      </p>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ── Builder ── */}
