@@ -175,6 +175,44 @@ export interface AuditParameterResult {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Gate ④ — adapt. Recommendations the audit makes about ITSELF each cycle,
+// read from audit_parameter_results history + findings. Recommend-only:
+// applying (which can change a parameter's rigor) is human-gated.
+// ---------------------------------------------------------------------------
+
+export type AuditAdaptationRule =
+  | 'reduce_frequency' // clean K cycles running → sample less often
+  | 'escalate_recurring' // keeps failing → bump owner + shorten SLA
+  | 'add_discovery' // found by hand, no auto-check → add a discovery query
+  | 'tune_threshold'; // findings mostly dismissed / mostly actioned → tune the bar
+
+export type AuditAdaptationStatus = 'proposed' | 'applied' | 'dismissed';
+export type AuditAdaptationSeverity = 'high' | 'medium' | 'low';
+
+export interface AuditAdaptation {
+  id: string;
+  audit_cycle_id: string;
+  rule: AuditAdaptationRule;
+  parameter_code: string;
+  /** null for a parameter-level recommendation (not tied to one college). */
+  institution_id: string | null;
+  severity: AuditAdaptationSeverity;
+  title: string;
+  detail: string;
+  /** { kind, ...payload } — the apply-time instructions (e.g. new_owner_role, new_frequency). */
+  suggested_action: {
+    kind?: 'escalate' | 'reduce_frequency' | 'add_discovery' | 'tune_threshold';
+    [key: string]: unknown;
+  };
+  status: AuditAdaptationStatus;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AuditFindingType {
   id: string;
   code: string;
