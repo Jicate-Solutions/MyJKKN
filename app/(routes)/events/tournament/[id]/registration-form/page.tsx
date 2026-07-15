@@ -23,15 +23,18 @@ export default function TournamentRegistrationFormPage() {
   const { data: tournament, isLoading } = useTournament(id);
   const access = useTournamentAccess(id, tournament);
   const canManage = access.canManage;
+  const accessLoading = access.isLoading;
 
   // Managers only — mirrors the old inline builder's `if (!canManage) return null`.
+  // Wait for access (permissions + membership) to finish loading before redirecting,
+  // otherwise a real manager gets bounced while `can()`/`isSuperAdmin` are still false.
   useEffect(() => {
-    if (!isLoading && tournament && !canManage) {
+    if (!isLoading && !accessLoading && tournament && !canManage) {
       router.replace(`/events/tournament/${id}`);
     }
-  }, [isLoading, tournament, canManage, id, router]);
+  }, [isLoading, accessLoading, tournament, canManage, id, router]);
 
-  if (isLoading) {
+  if (isLoading || accessLoading) {
     return (
       <ContentLayout title="Registration Form">
         <div className="flex h-64 items-center justify-center">

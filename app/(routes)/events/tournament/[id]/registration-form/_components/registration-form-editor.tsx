@@ -328,32 +328,32 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dirty]);
 
-  function mutate(next: EditableSection[]) {
+  function applyLocal(next: EditableSection[]) {
     setSections(next);
     setDirty(true);
   }
 
   function addSection() {
-    mutate([...sections, { uid: nextUid(), title: 'New section', fields: [] }]);
+    applyLocal([...sections, { uid: nextUid(), title: 'New section', fields: [] }]);
   }
   function updateSection(uid: string, title: string) {
-    mutate(sections.map((s) => (s.uid === uid ? { ...s, title } : s)));
+    applyLocal(sections.map((s) => (s.uid === uid ? { ...s, title } : s)));
   }
   function deleteSection(uid: string) {
-    mutate(sections.filter((s) => s.uid !== uid));
+    applyLocal(sections.filter((s) => s.uid !== uid));
   }
   function moveSection(index: number, direction: 'up' | 'down') {
     const target = direction === 'up' ? index - 1 : index + 1;
     if (target < 0 || target >= sections.length) return;
     const next = [...sections];
     [next[index], next[target]] = [next[target], next[index]];
-    mutate(next);
+    applyLocal(next);
   }
   function addField(sectionUid: string) {
-    mutate(sections.map((s) => (s.uid === sectionUid ? { ...s, fields: [...s.fields, newField()] } : s)));
+    applyLocal(sections.map((s) => (s.uid === sectionUid ? { ...s, fields: [...s.fields, newField()] } : s)));
   }
   function updateField(sectionUid: string, fieldUid: string, updates: Partial<EditableField>) {
-    mutate(
+    applyLocal(
       sections.map((s) =>
         s.uid === sectionUid
           ? { ...s, fields: s.fields.map((f) => (f.uid === fieldUid ? { ...f, ...updates } : f)) }
@@ -362,14 +362,14 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
     );
   }
   function deleteField(sectionUid: string, fieldUid: string) {
-    mutate(
+    applyLocal(
       sections.map((s) =>
         s.uid === sectionUid ? { ...s, fields: s.fields.filter((f) => f.uid !== fieldUid) } : s
       )
     );
   }
   function moveField(sectionUid: string, index: number, direction: 'up' | 'down') {
-    mutate(
+    applyLocal(
       sections.map((s) => {
         if (s.uid !== sectionUid) return s;
         const target = direction === 'up' ? index - 1 : index + 1;
@@ -382,10 +382,35 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
   }
 
   async function onSave() {
-    await save.mutateAsync({ isEnabled, sections: serialize(sections) });
+    const snapshot = sections;
+    const payload = serialize(snapshot);
+
+    // Capture uid -> the key we are about to persist, BEFORE the await, so the
+    // mapping survives any edit/reorder the user makes while the save is inflight.
+    const keyByUid = new Map<string, string>();
+    snapshot.forEach((section, si) =>
+      section.fields.forEach((field, fi) => {
+        const assigned = payload[si]?.fields[fi]?.field_key;
+        if (assigned) keyByUid.set(field.uid, assigned);
+      })
+    );
+
+    await save.mutateAsync({ isEnabled, sections: payload });
+
+    // Adopt the persisted keys so a brand-new field keeps a stable field_key on
+    // the next save. Deliberately NOT done by re-seeding from the refetch:
+    // mutateAsync resolves before the invalidated query refetches, so re-seeding
+    // would race and could restore pre-save state.
+    setSections((prev) =>
+      prev.map((section) => ({
+        ...section,
+        fields: section.fields.map((field) => ({
+          ...field,
+          field_key: field.field_key ?? keyByUid.get(field.uid) ?? null,
+        })),
+      }))
+    );
     setDirty(false);
-    // Let the refetch reseed with server-assigned field_keys.
-    setSeeded(false);
   }
 
   const previewSections = useMemo(
