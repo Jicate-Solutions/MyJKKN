@@ -1004,6 +1004,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/bos/member-types': 'academic.bos-members.view',
   '/bos/committees': 'bos.view',
   '/bos/email-settings': 'bos.view',
+  // PO & PSO master page — no dedicated permission key; same bos.view parent
+  // fallback as committees (page-level access is BosViewGuard + membership).
+  '/bos/po-pso': 'bos.view',
 
   // OKR — admin landing (redirects to /okr/admin/compliance which is gated
   // by okr.admin.view; reuse the same key on the parent)
@@ -1117,6 +1120,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/procurement/rfqs/[id]/quotations': 'procurement.view',
   '/procurement/purchase-orders': 'procurement.view',
   '/procurement/purchase-orders/[id]': 'procurement.view',
+  '/procurement/purchase-orders/formats': 'procurement.po_create',
+  '/procurement/purchase-orders/formats/new': 'procurement.po_create',
+  '/procurement/purchase-orders/formats/[id]/edit': 'procurement.po_create',
   '/procurement/grn': 'procurement.view',
   '/procurement/grn/[id]': 'procurement.view',
   '/procurement/grn/new': 'procurement.grn_create',

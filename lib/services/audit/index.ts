@@ -7,6 +7,10 @@ export { AuditAttestationService } from './audit-attestation-service';
 export { AuditParameterCatalogService } from './audit-parameter-catalog-service';
 export { AuditCoverageService } from './audit-coverage-service';
 export type { CoverageOptions } from './audit-coverage-service';
+export {
+  parameterMatchesFrameworks,
+  filterParametersByFrameworks,
+} from './framework-filter';
 export { AuditDiscoveryService } from './audit-discovery-service';
 export type {
   DiscoveryQueryResult,

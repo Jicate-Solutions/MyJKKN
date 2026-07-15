@@ -573,7 +573,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/loops",
         "label": "Loop Control Tower",
         "iconName": "Repeat",
-        "children": []
+        "children": [
+          {
+            "path": "/admin/loops/pillars",
+            "label": "Mission Pillars",
+            "iconName": "Landmark",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admin/lti",
@@ -2003,6 +2010,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/bos/member-types",
         "label": "Member Types",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/bos/po-pso",
+        "label": "Po Pso",
         "iconName": "FileText",
         "children": []
       },

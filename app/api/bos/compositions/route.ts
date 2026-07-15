@@ -5,6 +5,8 @@ import {
   resolveBosBoardScope,
   compositionScopeFilter,
   guardInstitutionWrite,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/compositions ─────────────────────────────────────────────────
@@ -21,7 +23,13 @@ export async function GET(request: NextRequest) {
     // belong to OR comps they created (bootstrap case — new HOD has no member
     // row yet for the comp they just made).
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    // Read-only observer: a view-only role (no board membership, not a principal)
+    // holding academic.bos-compositions.view sees every institution's
+    // compositions (view-only). Never gates any write below.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-compositions.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
 
     // For compositions specifically we cannot early-return on 'none' because
     // a user with zero memberships might still have created comps that are
@@ -50,7 +58,7 @@ export async function GET(request: NextRequest) {
       const ctx = await resolveInstitutionContextByCode(institutionCode, supabase);
       const ids = ctx?.myjkkn_institution_ids ?? [];
 
-      if (scope.isSuperAdmin) {
+      if (seeAll) {
         if (ids.length > 0) multiInstitutionIds = ids.join(',');
       } else {
         // Non-admin: keep only IDs that belong to the caller's own scope.
@@ -64,7 +72,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!multiInstitutionIds) {
-      if (scope.isSuperAdmin) {
+      if (seeAll) {
         multiInstitutionIds = searchParams.get('institutionIds') ?? undefined;
       } else {
         const clientIds =
@@ -84,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     const filters: BosCompositionFilters = {
-      institutionsId: scope.isSuperAdmin
+      institutionsId: seeAll
         ? (searchParams.get('institutionsId') ?? undefined)
         : (scope.institutionsId ?? undefined),
       boardId: searchParams.get('boardId') ?? undefined,
@@ -131,7 +139,7 @@ export async function GET(request: NextRequest) {
     //                   PostgREST `.or()` accepts a comma-separated condition list;
     //                   we use `id.in.(uuid,uuid,...)` to express the member set
     //                   in a single clause instead of N `id.eq.` clauses.
-    if (!scope.isSuperAdmin && !scope.isPrincipal) {
+    if (!seeAll && !scope.isPrincipal) {
       const memberIds = scope.memberOf.size > 0 ? Array.from(scope.memberOf) : [];
       const orClauses: string[] = [`created_by.eq.${user.id}`];
       if (memberIds.length > 0) {

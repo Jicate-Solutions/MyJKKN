@@ -46,6 +46,30 @@ function InstitutionCell({ institutionsId }: { institutionsId: string }) {
   return <div className='text-sm text-muted-foreground'>{name ?? '—'}</div>;
 }
 
+// Composition label for the master page's "All" view. Template rows (no
+// composition) render a muted "Template" badge so the two kinds stay
+// visually distinct in one flat list.
+function CompositionCell({ committee }: { committee: BosCommittee }) {
+  if (!committee.composition_id) {
+    return (
+      <Badge variant='outline' className='text-muted-foreground'>
+        Template
+      </Badge>
+    );
+  }
+  return (
+    <div className='text-sm'>{committee.composition_title ?? '—'}</div>
+  );
+}
+
+const compositionColumn: ColumnDef<BosCommittee> = {
+  id: 'composition',
+  header: ({ column }) => <DataTableColumnHeader column={column} title='Composition' />,
+  size: 220,
+  enableSorting: false,
+  cell: ({ row }) => <CompositionCell committee={row.original} />,
+};
+
 const baseColumns: ColumnDef<BosCommittee>[] = [
   {
     id: 'select',
@@ -122,12 +146,19 @@ const baseColumns: ColumnDef<BosCommittee>[] = [
 
 export const getColumns = (options: {
   canManage: boolean;
+  showComposition?: boolean;
   onEdit: (committee: BosCommittee) => void;
   onChanged: () => void;
 }): ColumnDef<BosCommittee>[] => {
-  if (!options.canManage) return baseColumns;
+  // In the "All" view, append the Composition column (users can reorder/hide
+  // via column visibility) so instances across compositions are
+  // distinguishable at a glance.
+  const cols = options.showComposition
+    ? [...baseColumns, compositionColumn]
+    : baseColumns;
+  if (!options.canManage) return cols;
   return [
-    ...baseColumns,
+    ...cols,
     {
       id: 'actions',
       header: 'Actions',

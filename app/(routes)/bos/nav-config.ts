@@ -58,6 +58,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/compositions'],
     },
     {
+      label: 'PO & PSO',
+      icon: 'Target',
+      href: '/bos/po-pso',
+      matchPaths: ['/bos/po-pso'],
+    },
+    {
       label: 'Syllabus',
       icon: 'BookOpen',
       href: '/bos/syllabus',

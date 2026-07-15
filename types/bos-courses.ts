@@ -21,7 +21,11 @@ export type CourseType =
   | 'Internship' | 'Language' | 'Naanmuthalvan' | 'Non Academic'
   | 'Non Major Elective Practical' | 'Non Major Elective'
   | 'Practical' | 'Project'
-  | 'Skill Enhancement Practical' | 'Skill Enhancement';
+  | 'Skill Enhancement Practical' | 'Skill Enhancement'
+  // AICTE / Anna University engineering categories — keep in sync with
+  // COURSE_TYPE_VALUES in lib/services/bos/courses-schemas.ts.
+  | 'Engineering Science Courses' | 'Professional Core Courses' | 'Programme Elective'
+  | 'Open Elective Courses' | 'Employability Enhancement Courses';
 
 /** Roman numerals I..XX (1..20). Pairs with CourseType in COE to form
  *  course_type_code (e.g., "Core" + "I" => "Core-I"). */
@@ -33,9 +37,9 @@ export type CourseLevel =
 
 export type EvaluationType = 'CIA' | 'ESE' | 'CIA + ESE';
 export type ResultType = 'Mark' | 'Status' | 'comment' | 'credit';
-export type CourseGroup =
-  | 'General' | 'Elective - I' | 'Elective - II' | 'Elective - III'
-  | 'Elective - IV' | 'Elective - V' | 'Elective - VI';
+// Free-form group code (COE column `course_mapping.course_group` is plain text).
+// Historically held labels like 'Elective - I'; now entered as a numeric code.
+export type CourseGroup = string;
 
 export interface BosCourseMaster {
   id: string;
@@ -62,6 +66,7 @@ export interface BosCourseMaster {
   evaluation_type: EvaluationType;
   result_type: ResultType;
   theory_hours: number;
+  tutorial_hours: number | null;   // optional L-T-P tutorial component; defaults to 0
   practical_hours: number;
   class_hours: number;
   internal_max_mark: number;
@@ -98,6 +103,7 @@ export interface BosCourseFormData {
   exam_duration: number;
   credit: number;
   theory_hours: number;
+  tutorial_hours?: number;   // optional — defaults to 0 when omitted
   practical_hours: number;
   internal_max_mark: number;
   external_max_mark: number;

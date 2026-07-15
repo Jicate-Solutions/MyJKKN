@@ -71,6 +71,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (body.sort_order !== undefined) update.sort_order = body.sort_order;
     if (body.is_active !== undefined) update.is_active = body.is_active;
     if (body.institutions_id !== undefined) update.institutions_id = body.institutions_id;
+    // Attach/detach a committee to/from a composition (20260706). Sending
+    // composition_id re-parents an existing template committee (composition_id
+    // NULL) into a composition — this is how the composition detail page's
+    // "Add Committee" picker works. null detaches it back to the template pool.
+    if (body.composition_id !== undefined) update.composition_id = body.composition_id;
 
     const { data, error } = await supabase
       .from('bos_committees')

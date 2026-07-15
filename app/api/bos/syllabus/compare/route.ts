@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBosBoardScope, applyInstitutionScope, readableInstitutionIds, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 /**
  * POST /api/bos/syllabus/compare
@@ -33,7 +33,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
 
     // Step 3: Parse request body
     const body = await request.json() as {
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 4: Fetch both syllabi (CAS-aware — see syllabus/[id]/route.ts)
-    const allowedIds = readableInstitutionIds(scope);
+    const allowedIds = readableInstitutionIds(scope, canReadAllBos);
     if (allowedIds !== null && allowedIds.length === 0) {
       return NextResponse.json(
         { error: 'Syllabi not found' },
@@ -57,11 +60,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let query1 = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query1 = readDb
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', body.syllabus_id_1);
-    let query2 = supabase
+    let query2 = readDb
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', body.syllabus_id_2);

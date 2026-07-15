@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
+import { resolveBosBoardScope, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,13 +58,19 @@ export async function GET(request: NextRequest) {
 
     if (applyBoardScope && formatted.length > 0) {
       const scope = await resolveBosBoardScope(user.id);
+      // Read-only observer: a role holding academic.bos-courses.view but on no
+      // board (not a principal, member of nothing) sees all programmes, like a
+      // super-admin — the boardsOf restriction below is skipped. VIEW ONLY.
+      const hasView = await hasBosPermission(user.id, 'academic.bos-courses.view');
+      const canReadAllBos = isBosReadAllObserver(scope, hasView);
+      const seeAll = scope.isSuperAdmin || canReadAllBos;
 
       // Strict rule: every non-super-admin caller must be an active member
       // (any member_type) of an active composition whose board governs the
       // programme via bos_board_programmes. No role-based carve-outs —
       // principals/HODs/etc. who need access get added to the relevant
       // composition explicitly. Source of truth is bos_board_programmes.
-      if (!scope.isSuperAdmin) {
+      if (!seeAll) {
         if (scope.boardsOf.size === 0) {
           // No active BoS composition → no programmes visible.
           formatted = [];

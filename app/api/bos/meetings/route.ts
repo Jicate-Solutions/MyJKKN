@@ -7,6 +7,8 @@ import {
   guardInstitutionWrite,
   guardCompositionChairman,
   guardAcademicCouncilWrite,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/meetings ─────────────────────────────────────────────────────
@@ -19,7 +21,10 @@ export async function GET(request: NextRequest) {
     }
 
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-meetings.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
 
     // No BoS access at all → return empty list without hitting the DB.
     if (scopeFilter.kind === 'none') {
@@ -84,7 +89,8 @@ export async function GET(request: NextRequest) {
     // Super-admin filters by institution_code (= counselling_code); the
     // resolver returns the full myjkkn_institution_ids set so CAS pairs are
     // queried as one logical unit.
-    if (scope.isSuperAdmin) {
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    if (seeAll) {
       const institutionCode = searchParams.get('institutionCode') ?? undefined;
       if (institutionCode) {
         const { resolveInstitutionContextByCode } = await import(

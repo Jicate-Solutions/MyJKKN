@@ -1,11 +1,12 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
-  resolveBosAccess,
   resolveBosBoardScope,
   guardInstitutionWrite,
   guardSyllabusEdit,
   readableInstitutionIds,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 
@@ -43,11 +44,16 @@ export async function GET(
     }
 
     // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
 
     // Step 3: Fetch syllabus
     console.log('[GET /api/bos/syllabus/[id]] About to query with id:', id);
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', id);
@@ -56,7 +62,7 @@ export async function GET(
     // profile.institution_id points to one of two MyJKKN UUIDs (Aided or
     // Self) but syllabi may be stored under the sibling UUID â€” so we filter
     // by the full allInstitutionIds list, never a single UUID.
-    const allowedIds = readableInstitutionIds(scope);
+    const allowedIds = readableInstitutionIds(scope, canReadAllBos);
     if (allowedIds !== null) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });

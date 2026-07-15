@@ -13,6 +13,7 @@ import { InstitutionPicker, type InstitutionOption } from '../../_components/ins
 import { CourseForm } from '../_components/course-form';
 import { useCreateBosCourse } from '@/hooks/bos/use-bos-courses';
 import { useBosRegulationOptions } from '@/hooks/bos/use-bos-scheme-options';
+import { institutionSkipsPartLevel } from '@/lib/services/bos/courses-schemas';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { useInstitutionContextsByIds } from '@/hooks/use-institution-context';
 
@@ -272,6 +273,7 @@ export default function NewCoursePage() {
               // duplicate inner Board picker is hidden and the two can never
               // drift apart at submit time.
               lockedBoardId={boardId}
+              hidePartLevel={institutionSkipsPartLevel(institutionCode)}
               onSubmit={async (form) => {
                 try {
                   // Resolve human-readable board_code from the picked board_id so

@@ -35,10 +35,13 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
   course_code: string;
   course_name: string;
   coursePartLabel?: string;
+  /** Structured L-T-P-C from the course master (engineering CET header). */
+  workload?: { theory?: number; tutorial?: number; practical?: number; credit?: number };
 }> {
   let course_code = syllabus.course_code;
   let course_name = syllabus.course_name;
   let coursePartLabel: string | undefined;
+  let workload: { theory?: number; tutorial?: number; practical?: number; credit?: number } | undefined;
   try {
     let match: Record<string, unknown> | null = null;
     if (syllabus.course_id) {
@@ -71,11 +74,19 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
       const composed = (match.course_type_code as string | undefined)
         ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? undefined));
       if (composed) coursePartLabel = composed;
+
+      const num = (v: unknown) => (v == null || v === '' ? undefined : Number(v));
+      workload = {
+        theory: num(match.theory_hours),
+        tutorial: num(match.tutorial_hours),
+        practical: num(match.practical_hours),
+        credit: num(match.credit ?? match.credits ?? match.course_credits),
+      };
     }
   } catch {
     // non-fatal — fall back to the stored snapshot
   }
-  return { course_code, course_name, coursePartLabel };
+  return { course_code, course_name, coursePartLabel, workload };
 }
 
 // ── PDF Download Button ───────────────────────────────────────────────────────
@@ -120,26 +131,82 @@ export function SyllabusPdfDownloadButton({
         }
       }
 
-      const header = getInstitutionHeader(institutionName ?? null);
+      // Engineering (Anna University / CET) courses use the CET syllabus wording
+      // AND the Engineering college banner/logo — even though they are managed
+      // under the A&S autonomous college's BoS. The hosting institution is NOT a
+      // reliable signal, so detect from the syllabus itself:
+      //   1. an explicit `stream` of "Engineering", or
+      //   2. an Anna University course code (2–3 letters + 4 digits, e.g.
+      //      "EC3354") — a shape A&S codes like "24UUCSDSE01" never match, so it
+      //      is a safe fallback when the Stream field was left blank.
+      const isEngineeringStream = /engineering/i.test(syllabus.stream ?? '');
+      const isAnnaUnivCode = /^[A-Z]{2,3}\d{4}$/.test((syllabus.course_code ?? '').trim());
+      const variant: 'default' | 'engineering' =
+        isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
+
+      // Force the Engineering header (name/accreditation/right logo) for the CET
+      // variant; otherwise resolve branding from the hosting institution's name.
+      const header = getInstitutionHeader(
+        variant === 'engineering' ? 'Engineering' : (institutionName ?? null),
+      );
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
       // Resolve live course code/name + part (Core-I / Allied-II) from COE,
       // anchored on the stable course_id so a COE rename is reflected.
-      const { course_code: liveCode, course_name: liveName, coursePartLabel } =
+      const { course_code: liveCode, course_name: liveName, coursePartLabel, workload } =
         await resolveCourseForReport(syllabus);
 
-      // Prefix course_name with course_type_code so the PDF reads as
-      // "Major-I-Programming in Python" (matches the course_mapping format).
-      const displayCourseName = coursePartLabel
-        ? `${coursePartLabel}-${liveName}`
-        : liveName;
+      // A&S prefixes course_name with course_type_code ("Major-I-Programming in
+      // Python"); the engineering/CET header shows the bare name to match the
+      // Anna University layout.
+      const displayCourseName = variant === 'engineering'
+        ? liveName
+        : coursePartLabel
+          ? `${coursePartLabel}-${liveName}`
+          : liveName;
+
+      // LTPC isn't a structured column — the docx importer records it in notes
+      // as "LTPC: 3 1 0 4". Parse it for the engineering header (unused by A&S).
+      // Prefer the structured L-T-P-C from the course master; fall back to the
+      // "LTPC: 3 1 0 4" line the docx importer leaves in notes.
+      const ltpcFromCourse =
+        workload && (workload.theory != null || workload.credit != null)
+          ? {
+              l: workload.theory ?? '',
+              t: workload.tutorial ?? 0,
+              p: workload.practical ?? 0,
+              c: workload.credit ?? (syllabus.course_credits ?? ''),
+            }
+          : undefined;
+      const ltpcMatch = /LTPC[:\s]*([0-9]+)[\s/]+([0-9]+)[\s/]+([0-9]+)[\s/]+([0-9]+)/i.exec(syllabus.notes ?? '');
+      const ltpcFromNotes = ltpcMatch
+        ? { l: ltpcMatch[1], t: ltpcMatch[2], p: ltpcMatch[3], c: ltpcMatch[4] }
+        : undefined;
+      const ltpc = ltpcFromCourse ?? ltpcFromNotes;
+
+      // Total course periods ("30+30") for the CET per-unit hour markers and the
+      // TOTAL line, when the units don't carry their own "6+6". Parsed from notes
+      // ("TOTAL: 30+30 PERIODS" or "Periods: 30+30"); optional.
+      const totalHoursRaw = syllabus.course_content?.total_hours ?? '';
+      const periodsMatch =
+        /(\d+)\s*\+\s*(\d+)/.exec(totalHoursRaw) ??
+        /(\d+)\s*\+\s*(\d+)\s*PERIODS/i.exec(syllabus.notes ?? '') ??
+        /PERIODS?[:\s]*(\d+)\s*\+\s*(\d+)/i.exec(syllabus.notes ?? '');
+      const total_periods = periodsMatch
+        ? { theory: Number(periodsMatch[1]), tut: Number(periodsMatch[2]) }
+        : undefined;
 
       generateCourseSyllabusPDF({
+        variant,
+        ltpc,
+        total_periods,
         institution_name: header.institution_name,
         institution_address: header.institution_address,
         institution_accreditation: header.institution_accreditation,
-        logoImage: '/logo.png',
+        banner_lines: header.banner_lines,
+        institution_website: header.website,
+        logoImage: header.logoImage ?? '/logo.png',
         rightLogoImage: header.rightLogoImage,
         course_code: liveCode,
         course_name: displayCourseName,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { resolveBosAccess, resolveCoeInstitutionCode, resolveCoeInstitutionById } from '@/lib/utils/bos/bos-access';
+import { resolveBosBoardScope, resolveCoeInstitutionCode, resolveCoeInstitutionById, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 interface CoeBoard {
   id: string;
@@ -25,7 +25,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-courses.view but on no
+    // board (not a principal, member of nothing) may read any institution's
+    // boards, like a super-admin. VIEW ONLY — only the scope gate is relaxed;
+    // the COE/MyJKKN id resolution below is untouched.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-courses.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
     const { searchParams } = new URL(request.url);
     const requestedId = searchParams.get('institutionsId');
 
@@ -55,7 +62,7 @@ export async function GET(request: NextRequest) {
       // institution maps to one of their (CAS-expanded) MyJKKN institutions.
       const authorized =
         !!resolved &&
-        (scope.isSuperAdmin ||
+        (seeAll ||
           resolved.myJkknIds.some((mid) => scope.allInstitutionIds.includes(mid)));
       if (authorized) target = resolved;
     }
@@ -64,7 +71,7 @@ export async function GET(request: NextRequest) {
     // requested one couldn't be resolved/authorized. Keeps the edit page
     // working for non-super-admins even if the COE id can't be mapped, and
     // never leaks a foreign institution's boards.
-    if (!target && !scope.isSuperAdmin && scope.institutionsId) {
+    if (!target && !seeAll && scope.institutionsId) {
       const code = await resolveCoeInstitutionCode(scope.institutionsId);
       if (code) target = { code, myJkknIds: [scope.institutionsId] };
     }

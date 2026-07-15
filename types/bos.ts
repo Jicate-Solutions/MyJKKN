@@ -266,6 +266,53 @@ export interface BosProgrammeSpecificOutcome {
   updated_at: string;
 }
 
+// ── Institution-level master PO/PSO (bos_master_pos / bos_master_psos /
+// bos_board_psos, migration 20260710170000). Different axis from the
+// regulation-scoped BosProgrammeOutcome above — see /bos/po-pso.
+
+export interface BosMasterPo {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  po_code: string;           // PO1, PO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface BosMasterPso {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/** Board-level PSO override row. board_id is a COE board UUID (no local FK). */
+export interface BosBoardPso {
+  id: string;
+  board_id: string;
+  institutions_id: string;
+  regulation_id: string;
+  board_code?: string | null;
+  board_name?: string | null;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
 /** Summary row returned by GET /api/bos/taxonomy/[regulationId]/programmes */
 export interface BosProgrammeSummary {
   programme_code: string;
@@ -338,6 +385,8 @@ export interface BosUnit {
   unit_title: string;
   chapters: BosChapter[];
   remarks?: string;
+  /** Period marker "theory+tutorial" (e.g. "6+6"); engineering/CET syllabi. */
+  hours?: string;
 }
 
 // Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
@@ -378,6 +427,8 @@ export interface BosCourseContentData {
   is_project?: boolean;
   project_units?: BosProjectUnit[];
   instruction?: string;
+  /** Course total periods "theory+tutorial" (e.g. "30+30"); engineering/CET. */
+  total_hours?: string;
 }
 
 // ── Textbooks & References ────────────────────────────────────────────
@@ -868,6 +919,13 @@ export interface BosCommittee {
   created_by?: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Enriched on the paginated master-list GET only: the owning composition's
+   * title (null for unassigned template rows). Lets the /bos/committees "All"
+   * view distinguish otherwise-identical committee instances across
+   * compositions. Not a stored column.
+   */
+  composition_title?: string | null;
 }
 
 export type CreateBosCommitteeDto = Omit<

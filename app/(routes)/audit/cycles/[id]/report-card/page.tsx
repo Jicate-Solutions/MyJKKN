@@ -46,6 +46,7 @@ import {
 } from '@/hooks/audit/use-audit-parameter-results';
 import { CyclePhaseBadge } from '../../../_components/cycle-phase-badge';
 import { SectionEyebrow, CoverageMeter } from '../../../_components/redesign/kit';
+import { StandingReportCard } from '../../../_components/standing-report-card';
 import { cn, getErrorMessage } from '@/lib/utils';
 import type {
   AuditParameterResult,
@@ -208,12 +209,16 @@ export default function CycleReportCardPage({ params }: PageProps) {
   const didAutoCapture = useRef(false);
   useEffect(() => {
     if (didAutoCapture.current) return;
-    if (!id || captureResults.isPending) return;
+    // Wait for the cycle so we can tell a standing cycle apart — a standing
+    // "Whole Institution" audit is graded by discovery, not findings, so there
+    // is nothing for the finding-based capture to compute.
+    if (!id || !cycle || captureResults.isPending) return;
     didAutoCapture.current = true;
+    if (cycle.is_standing) return;
     captureResults.mutate(id);
-    // captureResults.mutate is stable; we intentionally run this only for `id`.
+    // captureResults.mutate is stable; we intentionally run this once per cycle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, cycle]);
 
   // Fails first — the report card should lead with what still needs work.
   const sortedResults = useMemo<AuditParameterResult[]>(() => {
@@ -259,6 +264,9 @@ export default function CycleReportCardPage({ params }: PageProps) {
 
   const recomputing = captureResults.isPending;
   const loading = cycleLoading || resultsLoading;
+  // Standing "Whole Institution" cycles are graded by discovery, not findings —
+  // they get the discovery-status board instead of the finding-based report card.
+  const isStanding = Boolean(cycle?.is_standing);
 
   return (
     <PermissionGuard module="audit" action="parameter.view">
@@ -291,33 +299,39 @@ export default function CycleReportCardPage({ params }: PageProps) {
                   Report card{cycle?.name ? ` · ${cycle.name}` : ''}
                 </SectionEyebrow>
                 <h1 className="text-2xl font-semibold tracking-tight">
-                  How this cycle scored
+                  {isStanding ? 'Always-on checks' : 'How this cycle scored'}
                 </h1>
               </div>
               <div className="flex items-center gap-2">
                 {cycle && <CyclePhaseBadge phase={cycle.phase} />}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleRecompute}
-                  disabled={recomputing}
-                >
-                  <RotateCw
-                    className={cn('mr-2 h-4 w-4', recomputing && 'animate-spin')}
-                  />
-                  {recomputing ? 'Recomputing…' : 'Recompute'}
-                </Button>
+                {!isStanding && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRecompute}
+                    disabled={recomputing}
+                  >
+                    <RotateCw
+                      className={cn('mr-2 h-4 w-4', recomputing && 'animate-spin')}
+                    />
+                    {recomputing ? 'Recomputing…' : 'Recompute'}
+                  </Button>
+                )}
               </div>
             </div>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Each parameter&rsquo;s verdict this cycle, and how the gap changed
-              since last cycle — closure, recurrence, and delta. This is how the
-              audit measures itself.
+              {isStanding
+                ? 'The institution-wide checks that run continuously — graded by their own discovery, not by findings. This is the current status of each.'
+                : 'Each parameter’s verdict this cycle, and how the gap changed since last cycle — closure, recurrence, and delta. This is how the audit measures itself.'}
             </p>
           </div>
 
+          {/* Standing "Whole Institution" cycles: discovery-status board instead
+              of the finding-based report card. */}
+          {isStanding && <StandingReportCard cycleId={id} />}
+
           {/* Summary meter */}
-          {!loading && !resultsError && summary.total > 0 && (
+          {!isStanding && !loading && !resultsError && summary.total > 0 && (
             <Card>
               <CardContent className="py-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -362,7 +376,8 @@ export default function CycleReportCardPage({ params }: PageProps) {
             </Card>
           )}
 
-          {/* Results */}
+          {/* Results (finding-based; hidden for the standing board above) */}
+          {!isStanding && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
@@ -502,6 +517,7 @@ export default function CycleReportCardPage({ params }: PageProps) {
               )}
             </CardContent>
           </Card>
+          )}
         </div>
       </ContentLayout>
     </PermissionGuard>

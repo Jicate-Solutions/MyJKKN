@@ -286,6 +286,14 @@
     {
       "path": "/api/cron/exam-audit-alerts?secret=${CRON_SECRET}",
       "schedule": "43 2 * * 1"
+    },
+    {
+      "path": "/api/cron/sf100-accountability?secret=${CRON_SECRET}",
+      "schedule": "37 3 * * *"
+    },
+    {
+      "path": "/api/cron/sf100-weekly-reminder?secret=${CRON_SECRET}",
+      "schedule": "33 14 * * 0"
     }
   ]
 }

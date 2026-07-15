@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CreateBosMemberTypeDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite, casSiblingInstitutionIds } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveBosBoardScope, guardInstitutionWrite, casSiblingInstitutionIds, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/member-types ────────────────────────────────────────────────
 // Institution-wise member type list. Same CAS-aware contract as
@@ -15,7 +15,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-members.view but on no
+    // board (not a principal, member of nothing) may read all institutions'
+    // member types. VIEW ONLY — POST still goes through guardInstitutionWrite.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-members.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
     const { searchParams } = new URL(request.url);
 
     const csv = searchParams.get('institutionsIds');
@@ -27,7 +33,7 @@ export async function GET(request: NextRequest) {
         : [];
 
     let ids: string[] = [];
-    if (scope.isSuperAdmin) {
+    if (seeAll) {
       ids = clientIds;
     } else {
       const allowed = new Set([
@@ -62,7 +68,9 @@ export async function GET(request: NextRequest) {
     const sortBy = SORTABLE.has(sortByParam) ? sortByParam : 'sort_order';
     const ascending = (searchParams.get('sortOrder') ?? 'asc') !== 'desc';
 
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_member_types')
       .select('*', { count: paginated ? 'exact' : undefined })
       .order(sortBy, { ascending })
