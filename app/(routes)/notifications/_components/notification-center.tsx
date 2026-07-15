@@ -23,7 +23,8 @@ import {
   XCircle,
   Info,
   ExternalLink,
-  Layers
+  Layers,
+  Newspaper
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,14 +38,61 @@ import Link from 'next/link';
 import { NotificationBriefing } from '@/components/notifications/notification-briefing';
 
 // ─── Category config ────────────────────────────────────────
-const CATEGORIES = [
-  { key: 'all', label: 'All', icon: Inbox },
-  { key: 'Announcement', label: 'Announcements', icon: Megaphone },
-  { key: 'Reminder', label: 'Reminders', icon: Clock },
-  { key: 'Event', label: 'Events', icon: Calendar },
-  { key: 'Alert', label: 'Alerts', icon: AlertTriangle },
-  { key: 'General', label: 'General', icon: Bell }
-] as const;
+// `match` says how a tab's key maps onto a notification's RAW category value:
+//   'all'    — everything
+//   'exact'  — equal, CASE-INSENSITIVELY. Live data is inconsistently cased
+//              ('Alert' capitalised, 'general' lowercase); the old exact `!==`
+//              compare meant the General tab could never match 'general' and
+//              was permanently empty.
+//   'prefix' — namespace match, so every future `dashboard:*` signal lands in
+//              Briefings without another code change.
+type CategoryTab = {
+  key: string;
+  label: string;
+  icon: typeof Inbox;
+  match: 'all' | 'exact' | 'prefix';
+};
+
+const CATEGORIES: CategoryTab[] = [
+  { key: 'all', label: 'All', icon: Inbox, match: 'all' },
+  { key: 'Announcement', label: 'Announcements', icon: Megaphone, match: 'exact' },
+  { key: 'Reminder', label: 'Reminders', icon: Clock, match: 'exact' },
+  { key: 'Event', label: 'Events', icon: Calendar, match: 'exact' },
+  { key: 'Alert', label: 'Alerts', icon: AlertTriangle, match: 'exact' },
+  { key: 'General', label: 'General', icon: Bell, match: 'exact' },
+  { key: 'dashboard:', label: 'Briefings', icon: Newspaper, match: 'prefix' }
+];
+
+/** Does a raw `category` value belong under the given tab? */
+function categoryMatchesTab(rawCategory: string, tabKey: string): boolean {
+  const tab = CATEGORIES.find((c) => c.key === tabKey);
+  if (!tab || tab.match === 'all') return true;
+  const cat = (rawCategory || '').toLowerCase();
+  const key = tab.key.toLowerCase();
+  return tab.match === 'prefix' ? cat.startsWith(key) : cat === key;
+}
+
+/**
+ * GLOBAL count for a tab, derived from the API's category_counts map (keyed by
+ * raw category value). Returns null when the API doesn't report counts — the
+ * caller must then render the tab normally rather than guess it is empty.
+ */
+function tabCount(
+  tab: CategoryTab,
+  counts: Record<string, number> | null,
+  total: number | null
+): number | null {
+  if (!counts) return null;
+  if (tab.match === 'all') {
+    return total ?? Object.values(counts).reduce((a, b) => a + b, 0);
+  }
+  const key = tab.key.toLowerCase();
+  return Object.entries(counts).reduce((sum, [cat, n]) => {
+    const c = cat.toLowerCase();
+    const hit = tab.match === 'prefix' ? c.startsWith(key) : c === key;
+    return hit ? sum + (n || 0) : sum;
+  }, 0);
+}
 
 const PRIORITY_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   urgent: { bg: 'bg-red-100 dark:bg-red-950/40', text: 'text-red-700 dark:text-red-400', label: 'Urgent' },
@@ -87,6 +135,8 @@ export function NotificationCenter() {
   const {
     notifications,
     unreadCount,
+    totalCount,
+    categoryCounts,
     isLoading,
     hasMore,
     markAsRead,
@@ -126,8 +176,7 @@ export function NotificationCenter() {
 
     // Category filter
     if (activeCategory !== 'all') {
-      const cat = notif.category || '';
-      if (cat !== activeCategory) return false;
+      if (!categoryMatchesTab(notif.category || '', activeCategory)) return false;
     }
 
     // Read filter
@@ -265,6 +314,9 @@ export function NotificationCenter() {
         {CATEGORIES.map((cat) => {
           const Icon = cat.icon;
           const isActive = activeCategory === cat.key;
+          // null = API didn't report counts → render normally, never dim.
+          const count = tabCount(cat, categoryCounts, totalCount);
+          const isEmpty = count === 0;
           return (
             <button
               key={cat.key}
@@ -273,11 +325,25 @@ export function NotificationCenter() {
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all shrink-0',
                 isActive
                   ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+                  : 'bg-muted/60 text-muted-foreground hover:bg-muted',
+                // Empty tabs stay visible and clickable — they exist for other
+                // users and hiding them would make the inbox feel unstable —
+                // but they read as dim so the eye skips them.
+                !isActive && isEmpty && 'opacity-50'
               )}
             >
               <Icon className="h-3.5 w-3.5" />
               {cat.label}
+              {count !== null && (
+                <span
+                  className={cn(
+                    'text-[11px] tabular-nums',
+                    isActive ? 'text-primary-foreground/80' : 'text-muted-foreground/70'
+                  )}
+                >
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}
@@ -427,7 +493,7 @@ export function NotificationCenter() {
                             'text-sm leading-tight line-clamp-2',
                             !isRead ? 'font-semibold' : 'font-medium text-muted-foreground'
                           )}>
-                            {isStack ? item.__stackPattern : notif.title}
+                            {isStack ? item.__stackLabel : notif.title}
                           </h4>
                           {/* Repeat count — the collapsed stack's affordance */}
                           {isStack && (
@@ -445,7 +511,7 @@ export function NotificationCenter() {
                         {!isExpanded && (
                           <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                             {isStack
-                              ? `Repeated ${stackCount} times · tap to see each`
+                              ? item.__stackSummary
                               : stripHtml(notif.body || '')}
                           </p>
                         )}
@@ -636,24 +702,59 @@ function prettifyPattern(title: string): string {
 }
 
 /**
- * Collapse runs of near-duplicates (same category + digit-stripped title) into
- * a single representative item carrying __stackCount/__stackItems. Groups
- * smaller than MIN_STACK pass through untouched, so normal mail is unaffected.
+ * Headline for a stack grouped by `metadata.event`. These are NOT repeats of one
+ * message — an event stack is N *distinct* subjects that share a cause, so the
+ * label must say what they are. "Repeated 35 times" was a lie: those 35 rows are
+ * 35 different departments, i.e. real signal reported as spam.
+ * Unknown or absent events fall back to a truthful count.
+ */
+function rollupLabel(event: string | null, count: number): string {
+  if (event === 'ig_silence_alert') {
+    return count === 1
+      ? '1 department is silent'
+      : `${count} departments are silent`;
+  }
+  return `${count} notifications`;
+}
+
+/** Grouping key for one item, plus the event it was keyed on (null = fell back). */
+function stackKeyFor(item: any): { key: string; event: string | null } {
+  const notif = item.notification || item;
+  const event = notif.metadata?.event;
+  // Prefer the event: it is stable across title rewording, and it does NOT
+  // strip digits — so two real accounts (@jkkn_mba2026 / @jkkn_mba2027) can
+  // never be mistaken for one another the way a digit-stripped title key does.
+  if (typeof event === 'string' && event) {
+    return { key: `event|${event}`, event };
+  }
+  // 161 of 302 live rows carry no metadata.event, so the original
+  // category|digit-stripped-title key MUST remain as the fallback.
+  return {
+    key: `${(notif.category || 'uncategorized').toLowerCase()}|${stripDigits(
+      notif.title || ''
+    )}`,
+    event: null
+  };
+}
+
+/**
+ * Collapse a run of related notifications into a single representative item
+ * carrying __stackCount/__stackItems. Groups smaller than MIN_STACK pass
+ * through untouched, so normal mail is unaffected.
  *
  * Input order is preserved (feed is already newest-first), and the newest item
  * of each group becomes the representative.
  */
 function collapseDuplicates(items: any[]): any[] {
   const map = new Map<string, any[]>();
+  const events = new Map<string, string | null>();
   const order: string[] = [];
 
   for (const item of items) {
-    const notif = item.notification || item;
-    const key = `${(notif.category || 'uncategorized').toLowerCase()}|${stripDigits(
-      notif.title || ''
-    )}`;
+    const { key, event } = stackKeyFor(item);
     if (!map.has(key)) {
       map.set(key, []);
+      events.set(key, event);
       order.push(key);
     }
     map.get(key)!.push(item);
@@ -663,11 +764,19 @@ function collapseDuplicates(items: any[]): any[] {
   for (const key of order) {
     const group = map.get(key)!;
     if (group.length >= MIN_STACK) {
+      const event = events.get(key) ?? null;
+      const count = group.length;
+      const title = (group[0].notification || group[0]).title || '';
       out.push({
         ...group[0],
-        __stackCount: group.length,
+        __stackCount: count,
         __stackItems: group,
-        __stackPattern: prettifyPattern((group[0].notification || group[0]).title || '')
+        // Event stacks are named by what they ARE; title-keyed stacks keep the
+        // shared title pattern, which is still the most informative headline.
+        __stackLabel: event ? rollupLabel(event, count) : prettifyPattern(title),
+        __stackSummary: event
+          ? 'Tap to see each'
+          : `${rollupLabel(null, count)} · tap to see each`
       });
     } else {
       out.push(...group);

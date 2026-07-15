@@ -10,6 +10,12 @@ interface NotificationsState {
   isLoading: boolean;
   error: string | null;
   hasMore: boolean;
+  /** GLOBAL total for the caller (not page-scoped). `null` until the API
+   *  reports it — older API builds don't, and callers must degrade, not crash. */
+  totalCount: number | null;
+  /** GLOBAL count per RAW category value, e.g. { Alert: 85, general: 12 }.
+   *  `null` when the API doesn't report it (see totalCount). */
+  categoryCounts: Record<string, number> | null;
 }
 
 export function useNotifications() {
@@ -18,7 +24,9 @@ export function useNotifications() {
     unreadCount: 0,
     isLoading: false,
     error: null,
-    hasMore: false
+    hasMore: false,
+    totalCount: null,
+    categoryCounts: null
   });
 
   // Memoize the supabase client to prevent re-creation on every render
@@ -52,6 +60,16 @@ export function useNotifications() {
               : [...(prev.notifications || []), ...(data.notifications || [])],
           unreadCount: data.unread_count || 0,
           hasMore: data.has_more || false,
+          // Global roll-ups. Absent on older API builds → keep the previous
+          // value (null on first load), which tells the UI "unknown, don't dim".
+          totalCount:
+            typeof data.total_count === 'number'
+              ? data.total_count
+              : prev.totalCount,
+          categoryCounts:
+            data.category_counts && typeof data.category_counts === 'object'
+              ? (data.category_counts as Record<string, number>)
+              : prev.categoryCounts,
           isLoading: false,
           error: null
         }));
