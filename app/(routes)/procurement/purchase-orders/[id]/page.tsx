@@ -12,14 +12,28 @@ import {
   useRejectPO,
   useMarkPOSent,
   useCancelPO,
+  useUpdatePoDocumentFields,
+  useUpdatePoItemExtraFields,
 } from '@/hooks/procurement/use-purchase-orders';
-import { PO_STATUS_CONFIG } from '@/types/procurement';
+import { usePoFormats } from '@/hooks/procurement/use-po-formats';
+import { useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
+import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement';
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
+import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -35,9 +49,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, FileDown, Send, Check, X, PackageCheck } from 'lucide-react';
+import { ArrowLeft, FileDown, FileText, Send, Check, X, PackageCheck } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+
+/** item_extra.<key> -> <key> */
+function extraFieldKey(source: string): string {
+  return source.startsWith('item_extra.') ? source.slice('item_extra.'.length) : source;
+}
+
+/** Free-entry header/footer field defs (source header_values.x or footer_values.x) an active format declares. */
+function freeEntryFields(format: ProcurementPoFormat | null | undefined) {
+  if (!format) return { header: [], footer: [] };
+  const header = format.header_fields.filter((f) => f.source.startsWith('header_values.'));
+  const footer = format.footer_columns.flatMap((group) =>
+    group.freeText
+      ? group.source && group.source.startsWith('footer_values.')
+        ? [{ key: group.source.slice('footer_values.'.length), label: group.title, source: group.source }]
+        : []
+      : (group.fields || []).filter((f) => f.source.startsWith('footer_values.'))
+  );
+  return { header, footer };
+}
 
 export default function PurchaseOrderDetailPage() {
   const router = useRouter();
@@ -55,9 +88,90 @@ export default function PurchaseOrderDetailPage() {
   const rejectPO = useRejectPO();
   const markSent = useMarkPOSent();
   const cancelPO = useCancelPO();
+  const updateDocFields = useUpdatePoDocumentFields();
+  const updateItemExtra = useUpdatePoItemExtraFields();
+  const updateSupplier = useUpdateImsSupplier();
+
+  const { data: formats } = usePoFormats(po?.institution_id, { activeOnly: true });
+  const [setAsVendorDefault, setSetAsVendorDefault] = useState(false);
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+
+  // Document formatting (format/header/footer/T&C/item extras) is presentational only — it never
+  // touches quantities, prices, or totals — so unlike the workflow actions (approve/send/cancel),
+  // it's never status-gated; only permission-gated (canCreate), same as the rest of this page.
+  const hasSavedDocDetails =
+    Object.keys(po?.header_field_values || {}).length > 0 ||
+    Object.keys(po?.footer_field_values || {}).length > 0 ||
+    !!po?.terms_and_conditions;
+  const activeFormat = po?.po_format ?? null;
+  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(activeFormat);
+  const itemExtraColumns = (activeFormat?.item_columns ?? []).filter((c) => c.source.startsWith('item_extra.'));
+
+  const [headerValues, setHeaderValues] = useState<Record<string, string>>({});
+  const [footerValues, setFooterValues] = useState<Record<string, string>>({});
+  const [termsText, setTermsText] = useState('');
+
+  // Re-derive the editable document fields whenever the loaded PO or its
+  // selected format changes, without a useEffect (adjusting state during
+  // render, per https://react.dev/learn/you-might-not-need-an-effect).
+  const syncKey = po ? `${po.id}:${po.po_format_id ?? ''}` : undefined;
+  const [lastSyncKey, setLastSyncKey] = useState<string | undefined>(undefined);
+  if (po && syncKey !== lastSyncKey) {
+    setLastSyncKey(syncKey);
+    setHeaderValues(po.header_field_values || {});
+    setFooterValues(po.footer_field_values || {});
+    setTermsText(po.terms_and_conditions ?? po.po_format?.terms_and_conditions_default ?? '');
+  }
+
+  const handleFormatChange = (formatId: string) => {
+    const resolvedId = formatId === 'none' ? null : formatId;
+    run(async () => {
+      await updateDocFields.mutateAsync({ id, patch: { po_format_id: resolvedId } });
+      if (setAsVendorDefault && po) {
+        await updateSupplier.mutateAsync({
+          id: po.supplier_id,
+          data: { default_po_format_id: resolvedId },
+        });
+      }
+    }, setAsVendorDefault ? 'Format applied and saved as vendor default' : 'Document format updated');
+  };
+
+  const handleToggleSetAsDefault = (checked: boolean) => {
+    setSetAsVendorDefault(checked);
+    if (checked && po?.po_format_id) {
+      run(
+        () =>
+          updateSupplier.mutateAsync({
+            id: po.supplier_id,
+            data: { default_po_format_id: po.po_format_id },
+          }),
+        'Saved as vendor default'
+      );
+    }
+  };
+
+  const handleSaveDocumentDetails = () => {
+    run(
+      () =>
+        updateDocFields.mutateAsync({
+          id,
+          patch: {
+            header_field_values: headerValues,
+            footer_field_values: footerValues,
+            terms_and_conditions: termsText.trim() || null,
+          },
+        }),
+      'Document details saved'
+    );
+  };
+
+  const handleItemExtraBlur = (itemId: string, key: string, value: string) => {
+    updateItemExtra.mutateAsync({ poId: id, itemId, extraFields: { [key]: value } }).catch((e) => {
+      toast.error(e instanceof Error ? e.message : 'Failed to save field');
+    });
+  };
 
   if (isLoading) {
     return (
@@ -104,9 +218,50 @@ export default function PurchaseOrderDetailPage() {
               </p>
             </div>
           </div>
-          <Badge variant="outline" className="text-sm">
-            {PO_STATUS_CONFIG[po.status].label}
-          </Badge>
+          <div className="flex items-center gap-3">
+            {canCreate ? (
+              <div className="flex flex-col items-end gap-1">
+                <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue placeholder="Document format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Standard (default)</SelectItem>
+                    {(formats ?? []).map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(formats ?? []).length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/procurement/purchase-orders/formats/new')}
+                    className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  >
+                    No custom formats for this institution — create one
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <Checkbox
+                      id="set-as-vendor-default"
+                      checked={setAsVendorDefault}
+                      onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
+                    />
+                    <Label htmlFor="set-as-vendor-default" className="text-xs text-muted-foreground cursor-pointer">
+                      Also use for {po.supplier?.name ?? 'this vendor'} going forward
+                    </Label>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Badge variant="secondary">{activeFormat?.name ?? 'Standard'} format</Badge>
+            )}
+            <Badge variant="outline" className="text-sm">
+              {PO_STATUS_CONFIG[po.status].label}
+            </Badge>
+          </div>
         </div>
 
         {/* Actions */}
@@ -114,6 +269,10 @@ export default function PurchaseOrderDetailPage() {
           <Button variant="outline" onClick={() => downloadPurchaseOrderPdf(po)}>
             <FileDown className="mr-2 h-4 w-4" />
             Download PO (PDF)
+          </Button>
+          <Button variant="outline" onClick={() => downloadPurchaseOrderDocx(po)}>
+            <FileText className="mr-2 h-4 w-4" />
+            Download PO (DOCX)
           </Button>
           {po.status === 'draft' && canCreate && (
             <Button
@@ -170,6 +329,73 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         )}
 
+        {(canCreate && activeFormat && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Document Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {canCreate ? (
+                <>
+                  {headerFieldDefs.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {headerFieldDefs.map((f) => {
+                        const key = f.source.slice('header_values.'.length);
+                        return (
+                          <div key={f.key} className="space-y-1">
+                            <Label className="text-xs">{f.label}</Label>
+                            <Input
+                              value={headerValues[key] ?? ''}
+                              onChange={(e) => setHeaderValues((prev) => ({ ...prev, [key]: e.target.value }))}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {footerFieldDefs.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {footerFieldDefs.map((f) => (
+                        <div key={f.key} className="space-y-1">
+                          <Label className="text-xs">{f.label}</Label>
+                          <Input
+                            value={footerValues[f.key] ?? ''}
+                            onChange={(e) => setFooterValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Terms &amp; Conditions</Label>
+                    <Textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} rows={3} />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={handleSaveDocumentDetails} disabled={updateDocFields.isPending}>
+                      Save Document Details
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  {Object.entries(po.header_field_values || {}).map(([k, v]) => (
+                    <p key={k}><span className="text-muted-foreground">{k}: </span>{v}</p>
+                  ))}
+                  {Object.entries(po.footer_field_values || {}).map(([k, v]) => (
+                    <p key={k}><span className="text-muted-foreground">{k}: </span>{v}</p>
+                  ))}
+                  {po.terms_and_conditions && (
+                    <p className="sm:col-span-2">
+                      <span className="text-muted-foreground">Terms &amp; Conditions: </span>
+                      {po.terms_and_conditions}
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Items</CardTitle>
@@ -183,6 +409,9 @@ export default function PurchaseOrderDetailPage() {
                   <TableHead className="text-right">Received</TableHead>
                   <TableHead className="text-right">Unit Price</TableHead>
                   <TableHead className="text-right">Line Total</TableHead>
+                  {itemExtraColumns.map((c) => (
+                    <TableHead key={c.key} className="text-right">{c.label}</TableHead>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -200,6 +429,22 @@ export default function PurchaseOrderDetailPage() {
                     <TableCell className="text-right">{it.received_quantity}</TableCell>
                     <TableCell className="text-right">₹{Number(it.unit_price).toLocaleString()}</TableCell>
                     <TableCell className="text-right">₹{Number(it.line_total).toLocaleString()}</TableCell>
+                    {itemExtraColumns.map((c) => {
+                      const key = extraFieldKey(c.source);
+                      return (
+                        <TableCell key={c.key} className="text-right">
+                          {canCreate ? (
+                            <Input
+                              defaultValue={String(it.extra_fields?.[key] ?? '')}
+                              onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
+                              className="h-8 w-28 ml-auto text-right"
+                            />
+                          ) : (
+                            it.extra_fields?.[key] ?? '-'
+                          )}
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
                 ))}
               </TableBody>
