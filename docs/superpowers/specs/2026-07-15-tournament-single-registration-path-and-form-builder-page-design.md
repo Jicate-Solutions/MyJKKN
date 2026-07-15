@@ -54,21 +54,25 @@ Two problems to fix:
 - **Layout:** roomy full-width, two columns — editor (left) and **live student preview** (right) rendered with the existing `DynamicFieldInput` (identical to what students see). This replaces the cramped inline card.
 - Reuses the field-editing primitives from the current `registration-form-builder.tsx` (FieldRow, section controls, `slugifyKey`, `FORM_FIELD_TYPES` minus `file`), refactored to call local-state setters instead of mutations.
 
-### 2. Bulk save endpoint + data integrity
+### 2. Bulk save (atomic, RLS-enforced) + data integrity
 
-**New route:** `PUT /api/events/tournament/[eventId]/registration-form`
+**Refinement (discovered during planning):** the `_manage` RLS policies on all three form tables already encode `canManageTournament` exactly — `is_super_admin() OR is_admin() OR fn_is_event_incharge(event_id) OR (user_has_permission('sports.tournaments.manage') AND institution access)`. So the bulk save needs **no server route and no service-role**: a `SECURITY INVOKER` Postgres function called via `supabase.rpc()` runs every statement under the caller's RLS *and* in one transaction — atomic + identically authorized (in-charges included), consistent with the fully client-side `EventRegistrationFormService`.
 
-- Organizer-gated with `canManageTournament(auth, eventId)` (same helper the entries route uses); returns 403 otherwise.
-- Body: the full form — `{ is_enabled, sections: [{ id?, title, display_order, fields: [{ id?, field_key, field_label, field_type, is_required, options, help_text, display_order }] }] }`.
-- Persists **atomically**: upsert existing rows by `id`, insert new rows, delete rows absent from the payload — implemented as a `SECURITY DEFINER` RPC that self-authorizes (repo standard for multi-table transactional writes), so a partial failure cannot leave a half-saved form. (Alternative if an RPC proves heavy: sequential service-role ops in the route mirroring `entries/route.ts`; atomicity + `field_key` preservation are the hard requirements either way.)
-- Lazy-creates the `event_registration_forms` row if missing (matching current `getFormWithFields` behavior).
+**New RPC:** `save_event_registration_form(p_event_id uuid, p_is_enabled boolean, p_sections jsonb) RETURNS void`
 
-**`field_key` stability (critical):** student answers persist in `custom_fields` keyed by `field_key`, not by field `id`.
+- `SECURITY INVOKER`, `SET search_path = public`; `GRANT EXECUTE` to `authenticated`, `REVOKE` from `anon`/`public`. A non-manager who calls it simply fails the RLS `WITH CHECK` inside the function → exception → full rollback.
+- Body: lazy-upsert the `event_registration_forms` row (`ON CONFLICT (event_id)`), then **delete-all-then-reinsert** — `DELETE FROM event_registration_form_sections WHERE form_id = <form>` (cascade removes fields), then re-insert every section + nested field from `p_sections` in order. One transaction, so a mid-save failure rolls back cleanly.
+- Safe because `events_registrations.custom_fields` keys answers by `field_key`, not row `id` — churning ids on every save does not orphan any stored answer.
+- Mirror the function into `supabase/setup/02_functions.sql`.
 
-- **New** fields derive a readable key from their label via `slugifyKey`, de-duplicated within the form (e.g. `t_shirt_size`, `t_shirt_size_2`) — replacing today's `field_${Date.now()}`.
-- **Existing** fields keep their `field_key` even when the label changes, so previously submitted answers never orphan.
+**Client wiring:** new `EventRegistrationFormService.saveForm(eventId, isEnabled, sections)` calls `supabase.rpc('save_event_registration_form', …)`; new hook `useSaveRegistrationForm(eventId)` wraps it and invalidates `['tournament-registration-form', eventId]` on success. The payload carries no row ids (the RPC reinserts fresh) — only `{ is_enabled, sections: [{ title, display_order, fields: [{ field_key, field_label, field_type, is_required, display_order, placeholder, help_text, min_length, max_length, min_value, max_value, pattern, options, condition }] }] }`.
 
-**New hook:** `useSaveRegistrationForm(eventId)` — one mutation calling the bulk endpoint; `onSuccess` invalidates `['tournament-registration-form', eventId]` and toasts success. The granular hooks (`useCreateFormField`, etc.) are no longer used by the UI and may be removed if nothing else references them (verify during planning).
+**`field_key` stability (critical):** student answers persist in `custom_fields` keyed by `field_key`, not by field `id`. The editor carries `field_key` in local state:
+
+- **Loaded** fields keep their existing DB `field_key` — even when the label is later edited — so previously submitted answers never orphan.
+- **New** fields have no key until Save; at serialize time each keyless field gets a readable key derived from its label via `slugifyKey`, de-duplicated against all keys already assigned in the payload (e.g. `t_shirt_size`, `t_shirt_size_2`) — replacing today's `field_${Date.now()}`. After the post-save refetch the field reloads with that key, so it is stable from then on.
+
+The granular form hooks (`useCreateFormField`, `useUpdateFormField`, …) are no longer used by any UI after this change; leave them in place unless planning confirms no other references (they are cheap to keep and low-risk).
 
 ### 3. Detail page changes (`app/(routes)/events/tournament/[id]/page.tsx`)
 
@@ -104,6 +108,6 @@ Two problems to fix:
 
 ## Affected files (summary)
 
-- **New:** `app/(routes)/events/tournament/[id]/registration-form/page.tsx` (+ `_components/` for the rebuilt builder), `app/api/events/tournament/[eventId]/registration-form/route.ts`, bulk-save RPC migration, `useSaveRegistrationForm` hook.
-- **Edit:** `app/(routes)/events/tournament/[id]/page.tsx`, `app/api/events/tournament/[eventId]/entries/route.ts`, `hooks/events/use-tournament-registrations.ts`, `lib/services/events/tournament/tournament-registration-service.ts`, `hooks/events/use-tournament-registration-form.ts` (add save hook; maybe prune granular ones).
+- **New:** `app/(routes)/events/tournament/[id]/registration-form/page.tsx` (+ `_components/registration-form-editor.tsx` for the rebuilt local-state builder), bulk-save RPC migration (`supabase/migrations/…_save_event_registration_form_rpc.sql`), `useSaveRegistrationForm` hook.
+- **Edit:** `app/(routes)/events/tournament/[id]/page.tsx`, `app/api/events/tournament/[eventId]/entries/route.ts` (drop POST), `hooks/events/use-tournament-registrations.ts` (drop `useRegisterEntry`), `lib/services/events/tournament/tournament-registration-service.ts` (drop `register`), `lib/services/events/tournament/event-registration-form-service.ts` (add `saveForm`), `hooks/events/use-tournament-registration-form.ts` (add save hook), `supabase/setup/02_functions.sql` (mirror RPC).
 - **Delete:** `app/(routes)/events/tournament/[id]/_components/add-entry-dialog.tsx`, `app/(routes)/events/tournament/[id]/_components/registration-form-builder.tsx` (moved), `app/api/events/tournament/learner-search/route.ts`.
