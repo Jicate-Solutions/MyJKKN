@@ -39,6 +39,7 @@ import {
   Building2,
   ExternalLink,
   Copy,
+  Pencil,
   Layers,
   Swords,
   Wallet,
@@ -67,6 +68,8 @@ import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
 import { RegistrationFormCard } from './_components/registration-form-card';
 import { DivisionFeeBadge } from './_components/division-fee-badge';
+// Reuses the list page's dialog — one editor, so the two entry points can't drift.
+import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -308,6 +311,7 @@ export default function TournamentManagePage() {
   const withdraw = useWithdrawEntry(id);
   const payLink = useGeneratePaymentLink(id);
 
+  const [editOpen, setEditOpen] = useState(false);
   const [rzp, setRzp] = useState<{
     orderId: string;
     keyId: string;
@@ -506,6 +510,11 @@ export default function TournamentManagePage() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {canManage && (
+                  <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                    <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -610,8 +619,8 @@ export default function TournamentManagePage() {
       {divisions.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            No divisions yet. Add divisions from the tournament edit screen. Students then register
-            themselves through the public registration link.
+            No divisions yet. Divisions are set up when a tournament is created; use Edit above to
+            change one. Students then register themselves through the public registration link.
           </CardContent>
         </Card>
       ) : (
@@ -746,6 +755,15 @@ export default function TournamentManagePage() {
         eventType="sports_tournament"
         canManage={canManage}
         canEditTasks={canManage || access.isTaskOnly}
+      />
+
+      {/* onSaved is a no-op: useUpdateTournament/useUpdateDivision already
+          invalidate this page's detail query. */}
+      <EditTournamentDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        tournament={tournament}
+        onSaved={() => {}}
       />
     </ContentLayout>
   );
