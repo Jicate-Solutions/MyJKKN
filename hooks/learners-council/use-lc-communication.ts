@@ -162,6 +162,26 @@ export function usePublishAnnouncement() {
 }
 
 /**
+ * Send a draft announcement back to its author with a reason (office bearers only)
+ */
+export function useReturnAnnouncement() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      LCCommunicationService.returnAnnouncement(id, reason),
+    onSuccess: (returned) => {
+      toast.success('Sent back to the author with your note');
+      queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.detail(returned.id) });
+      queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.lists() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to send announcement back');
+    }
+  });
+}
+
+/**
  * Mark an announcement as read
  */
 export function useMarkAnnouncementRead() {

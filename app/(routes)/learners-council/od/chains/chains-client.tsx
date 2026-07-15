@@ -23,8 +23,9 @@ import {
   Link2,
   Shield,
   Settings,
+  Star,
 } from 'lucide-react';
-import { useCreateApprovalChain, useUpdateApprovalChain } from '@/hooks/learners-council/use-lc-od';
+import { useCreateApprovalChain, useUpdateApprovalChain, useSetFallbackChain } from '@/hooks/learners-council/use-lc-od';
 import type {
   LCODApprovalChain,
   ODApprovalStep,
@@ -295,6 +296,7 @@ export function ApprovalChainsClient({
   const [dialogOpen, setDialogOpen] = useState(false);
   const chains = initialChains;
   const toggleChain = useUpdateApprovalChain();
+  const setFallback = useSetFallbackChain();
   // The list is server-rendered, so refresh the route after a write rather than relying
   // on React Query cache invalidation (which this list does not read from).
   const router = useRouter();
@@ -341,10 +343,12 @@ export function ApprovalChainsClient({
           <div className="text-sm">
             <p className="font-medium text-blue-900">How Approval Chains Work</p>
             <p className="text-blue-700 mt-0.5">
-              When a learner submits an OD request, it follows the approval chain assigned to their institution.
-              Each step must be completed before moving to the next. The chain is matched by event scope.
+              When a learner submits an OD request, the chain is chosen by the event&apos;s scope
+              (campus / inter-campus / institution-wide). Each step must be completed before the
+              next. If no chain matches the scope &mdash; or the request has no event &mdash; the
+              college&apos;s <span className="font-medium">Default</span> chain is used.
               {canManage
-                ? ' A college with no active chain cannot accept OD requests at all.'
+                ? ' Give each college one Default chain so a request is never left with nowhere to go.'
                 : ' Only LC office bearers can create or change a chain.'}
             </p>
           </div>
@@ -372,9 +376,15 @@ export function ApprovalChainsClient({
             return (
               <Card key={chain.id} className={chain.is_active ? undefined : 'opacity-60'}>
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">{chain.name}</CardTitle>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                      {chain.is_fallback && (
+                        <Badge variant="secondary" className="gap-1">
+                          <Star className="h-3 w-3" />
+                          Default
+                        </Badge>
+                      )}
                       <Badge variant={chain.is_active ? 'default' : 'outline'}>
                         {chain.is_active ? 'Active' : 'Inactive'}
                       </Badge>
@@ -394,6 +404,18 @@ export function ApprovalChainsClient({
                           }
                         >
                           {chain.is_active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      )}
+                      {canManage && chain.is_active && !chain.is_fallback && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={setFallback.isPending}
+                          onClick={() =>
+                            setFallback.mutate(chain.id, { onSuccess: () => router.refresh() })
+                          }
+                        >
+                          Set as default
                         </Button>
                       )}
                     </div>

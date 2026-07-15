@@ -216,6 +216,21 @@ export function useUpdateApprovalChain() {
 }
 
 /**
+ * Hook to mark a chain as its college's fallback (default) chain
+ */
+export function useSetFallbackChain() {
+  return useMutation({
+    mutationFn: (chainId: string) => LCODService.setFallbackChain(chainId),
+    onSuccess: () => {
+      toast.success('Default chain updated');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to set default chain');
+    },
+  });
+}
+
+/**
  * Hook to soft-delete an approval chain
  */
 export function useDeleteApprovalChain() {
