@@ -82,11 +82,14 @@ export function NotificationBell() {
           <Button variant='ghost' size='icon' className='relative'>
             <Bell className='h-5 w-5' />
             {unreadCount > 0 && (
+              // Show the REAL unread count — no '9+' cap. The badge grows from a
+              // circle (1 digit) to a pill (2-3+ digits) instead of clipping.
               <Badge
                 variant='destructive'
-                className='absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs'
+                aria-label={`${unreadCount} unread notifications`}
+                className='absolute -top-1 -right-1 h-5 min-w-[1.25rem] rounded-full px-1 flex items-center justify-center text-[10px] font-semibold leading-none tabular-nums'
               >
-                {unreadCount > 9 ? '9+' : unreadCount}
+                {unreadCount}
               </Badge>
             )}
           </Button>
