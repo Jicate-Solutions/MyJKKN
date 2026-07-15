@@ -76,6 +76,31 @@ export interface LoopTowerStats {
   // seam 5↔6 — decisions flowing between system and oversight
   decisionsLogged7d: number | null;
   decisionsGraded7d: number | null;
+  // ── ring 2 — EXECUTION engine, extra instrumented lanes (2026-07-13) ───────
+  // Dispatcher lane TRUE run counts from ai_routine_run_log (logging began
+  // 2026-07-13 — sparse until it accumulates; rendered "since 13 Jul", never as
+  // broken). Distinct from routinesFired*, which only reflect last_fired_at.
+  dispatcherRuns7d: number | null;
+  dispatcherRunsToday: number | null;
+  // Typed async job queue (ai_jobs, #1998) — a distinct table from the raw Max
+  // request log (max_lane_requests). It currently dispatches only max-lane jobs,
+  // so it OVERLAPS the Max lane today (disclosed in the ring blurb).
+  jobsDone7d: number | null;
+  jobsError7d: number | null;
+  jobsTotal7d: number | null;
+  // ── Management strip — 30-day executive summary at the top of the tower ────
+  // Every field is hollow-not-fabricated: null renders as an explicit no-data
+  // cell, never a healthy-looking number. See the page for how each is derived
+  // and which loops are in/out of each aggregate.
+  strip: {
+    /** Cell A — measured closures (30d) across the MEASURE loops only. */
+    cyclesClosed30d: number | null;
+    /** Cell B — mean outcome_lift of SCF suggestions measured in 30d. */
+    scfLiftMean30d: number | null;
+    scfLiftN30d: number | null;
+    /** Cell D — the single computed constraint (or null → hollow). */
+    constraint: { label: string; detail: string } | null;
+  };
 }
 
 // ── Ring membership (ratified key lists — NOT loop_registry.stack_tier,
@@ -378,6 +403,106 @@ function scfRecordSentence(s: LoopTowerStats): string {
   } (${pos} up · ${neg} down).`;
 }
 
+// ── Management strip ─────────────────────────────────────────────────────────
+// A four-cell executive summary that sits ABOVE the tower rings. It answers the
+// four questions a Director asks at a glance: are cycles closing, is the effect
+// real, are we covering the mission, and what is the single thing most limiting
+// the system now. Each cell renders an explicit hollow state when its data is
+// missing — a blank/absent metric is shown as "no data", never as a healthy
+// number (same thesis rule as the rings). The lift cell goes RED, unsmoothed,
+// when the measured effect is negative — bad news is not rounded away.
+function StripCell({
+  label,
+  value,
+  sub,
+  tone = 'default',
+  hollow = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub: React.ReactNode;
+  tone?: 'default' | 'good' | 'bad';
+  hollow?: boolean;
+}) {
+  const boxCls = hollow
+    ? 'border-dashed border-muted-foreground/40 bg-transparent'
+    : tone === 'bad'
+      ? 'border-red-400/70 bg-red-50/70 dark:border-red-800/60 dark:bg-red-950/30'
+      : tone === 'good'
+        ? 'border-emerald-400/50 bg-emerald-50/60 dark:border-emerald-800/50 dark:bg-emerald-950/20'
+        : 'border-border bg-muted/30';
+  const valCls = hollow
+    ? 'font-normal italic text-muted-foreground/60'
+    : tone === 'bad'
+      ? 'text-red-700 dark:text-red-400'
+      : 'text-foreground';
+  return (
+    <div className={`flex flex-col gap-0.5 rounded-xl border px-3 py-2.5 ${boxCls}`}>
+      <span className='font-mono text-[10px] uppercase tracking-wider text-muted-foreground'>
+        {label}
+      </span>
+      <span className={`font-mono text-lg font-semibold leading-tight tabular-nums ${valCls}`}>
+        {value}
+      </span>
+      <span className='text-[11px] leading-tight text-muted-foreground'>{sub}</span>
+    </div>
+  );
+}
+
+function ManagementStrip({ s }: { s: LoopTowerStats }) {
+  const st = s.strip;
+  // Cell B — hollow when nothing was measured (n = 0 or read failed); red when
+  // the mean effect is negative (ratified: no smoothing).
+  const liftHollow =
+    st.scfLiftN30d === null || st.scfLiftN30d === 0 || st.scfLiftMean30d === null;
+  const liftNeg = !liftHollow && (st.scfLiftMean30d as number) < 0;
+  const fmtLift = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
+  const cyclesHollow = st.cyclesClosed30d === null;
+  return (
+    <div
+      className='mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4'
+      aria-label='Management strip — 30-day loop-system summary'
+    >
+      <StripCell
+        label='Cycles closed · 30d'
+        value={cyclesHollow ? 'no data' : st.cyclesClosed30d}
+        hollow={cyclesHollow}
+        tone={!cyclesHollow && (st.cyclesClosed30d as number) > 0 ? 'good' : 'default'}
+        sub='measured closures — in: SCF, induction (session + playbook), mess, AI Pulse. Out: spine (intake), referral desk (routing), PDE (human-scored).'
+      />
+      <StripCell
+        label='Measured lift · checked'
+        value={liftHollow ? 'no data' : fmtLift(st.scfLiftMean30d as number)}
+        hollow={liftHollow}
+        tone={liftNeg ? 'bad' : 'default'}
+        sub={
+          liftHollow
+            ? 'SCF only — no outcomes measured in the last 30 days'
+            : `mean outcome lift · SCF only, n=${st.scfLiftN30d}${
+                liftNeg ? ' · negative, shown red (no smoothing)' : ''
+              }`
+        }
+      />
+      <StripCell
+        label='Mission pillars covered'
+        value='awaiting pillar list'
+        hollow
+        sub='the pillar list is a separate draft with the Director — this cell stays hollow until it lands, rather than inventing a coverage number.'
+      />
+      <StripCell
+        label='Current constraint'
+        value={st.constraint ? st.constraint.label : 'no closure data'}
+        hollow={!st.constraint}
+        sub={
+          st.constraint
+            ? st.constraint.detail
+            : 'no loop has a derivable closure counter in the last 30 days'
+        }
+      />
+    </div>
+  );
+}
+
 export function LoopTower({
   stats,
   registry,
@@ -407,6 +532,7 @@ export function LoopTower({
 
   return (
     <section aria-label='Loop tower — four loops riding a two-ring engine, live'>
+      <ManagementStrip s={s} />
       <div className='mb-2'>
         <h2 className='text-base font-semibold'>The Loop Tower — four loops riding a two-ring engine</h2>
         <p className='text-[13px] text-muted-foreground'>
@@ -554,7 +680,7 @@ export function LoopTower({
                 exit='run completes'
                 tone='slate'
                 kind='engine'
-                blurb="Iteration without gates — the loops ride it; it decides nothing. Three lanes share the window: the Max night lane (fully counted), the editable dispatcher (ai_routine_schedules records only each routine's LATEST fire — there is no run-history table, so true 7-day run counts are not derivable; the chips below count routines-that-fired, not runs), and static vercel crons (not instrumented at all)."
+                blurb="Iteration without gates — the loops ride it; it decides nothing. Four lanes share the window: the Max night lane (max_lane_requests, fully counted); the typed async job queue (ai_jobs — currently dispatches only max-lane jobs, so it overlaps the Max lane today); the editable dispatcher, now writing a true run log (ai_routine_run_log — logging since 13 Jul, sparse until it accumulates; the older 'routines fired' chips still count routines-whose-latest-fire-is-in-window, not runs); and static vercel crons (still not instrumented)."
                 chips={
                   <>
                     <Chip
@@ -570,6 +696,15 @@ export function LoopTower({
                       label='Max-lane error rate 7d'
                       value={errRate7d === null ? '—' : `${errRate7d}%`}
                       tone={errRate7d !== null && errRate7d > 0 ? 'warn' : 'default'}
+                    />
+                    <Chip
+                      label='async jobs 7d (done / err)'
+                      value={`${n(s.jobsDone7d)} / ${n(s.jobsError7d)}`}
+                      tone={(s.jobsError7d ?? 0) > 0 ? 'warn' : 'default'}
+                    />
+                    <Chip
+                      label='dispatcher runs logged 7d / today · since 13 Jul'
+                      value={`${n(s.dispatcherRuns7d)} / ${n(s.dispatcherRunsToday)}`}
                     />
                     <Chip
                       label='routines fired within 7d'
