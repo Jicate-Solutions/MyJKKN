@@ -54,7 +54,11 @@ import {
   useUpdateTournamentStatus,
 } from '@/hooks/events/use-tournaments';
 import type { EventStatus } from '@/types/events';
-import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
+import {
+  TOURNAMENT_ACTIVE_STATUS,
+  isTournamentActive,
+  tournamentStatusLabel,
+} from '@/types/tournament';
 import {
   useTournamentEntries,
   useMarkEntryPaid,
@@ -100,18 +104,11 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge className={map[status] ?? 'bg-gray-100 text-gray-600'}>{status}</Badge>;
 }
 
-const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
-  draft: 'Draft',
-  planning: 'Planning',
-  preparation: 'Preparation',
-  execution: 'Execution',
-  live: 'Live',
-  post_event: 'Post Event',
-  archived: 'Archived',
-  cancelled: 'Cancelled',
-};
-
-/** Status badge + transition dropdown (mirror of marathon's EventStatusControl). */
+/**
+ * Draft <-> Active. Tournaments run a 2-state model (see TOURNAMENT_STATUS_* in
+ * types/tournament.ts): Draft closes public registration, Active opens it. The
+ * shared 8-state event lifecycle is never offered here.
+ */
 function TournamentStatusControl({
   eventId,
   status,
@@ -122,34 +119,38 @@ function TournamentStatusControl({
   canManage: boolean;
 }) {
   const updateStatus = useUpdateTournamentStatus();
-  const allowedTransitions = canManage ? EVENT_STATUS_TRANSITIONS[status] ?? [] : [];
+  const active = isTournamentActive(status);
+  const target: EventStatus = active ? 'draft' : TOURNAMENT_ACTIVE_STATUS;
 
   return (
     <div className="flex items-center gap-2">
-      <Badge variant="outline" className="text-[10px] uppercase">
-        {EVENT_STATUS_LABELS[status] ?? status}
-        {status === 'live' && (
-          <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+      <Badge
+        variant="outline"
+        className={`text-[10px] uppercase ${
+          active ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400' : ''
+        }`}
+      >
+        {tournamentStatusLabel(status)}
+        {active && (
+          <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
         )}
       </Badge>
-      {allowedTransitions.length > 0 && (
-        <Select
-          onValueChange={(newStatus) =>
-            updateStatus.mutate({ id: eventId, status: newStatus as EventStatus })
-          }
+      {canManage && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
           disabled={updateStatus.isPending}
+          onClick={() => updateStatus.mutate({ id: eventId, status: target })}
+          title={
+            active
+              ? 'Close public registration and hide this tournament from students'
+              : 'Open this tournament for public registration'
+          }
         >
-          <SelectTrigger className="h-7 w-[140px] text-xs">
-            <SelectValue placeholder="Change status…" />
-          </SelectTrigger>
-          <SelectContent>
-            {allowedTransitions.map((s) => (
-              <SelectItem key={s} value={s}>
-                → {EVENT_STATUS_LABELS[s] ?? s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+          {active ? 'Move to Draft' : 'Make Active'}
+        </Button>
       )}
     </div>
   );
