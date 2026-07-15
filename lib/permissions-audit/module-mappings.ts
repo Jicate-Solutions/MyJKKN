@@ -208,6 +208,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/solutions', 'System'],
   ['/learners', 'Learners'],
   ['/moments', 'Learners'], // Family Moments — parent engagement (Father's Day 2026)
+  ['/my-proof', 'Learners'], // Verified Skills Record — learner self view (learners.proof.view)
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
   ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)

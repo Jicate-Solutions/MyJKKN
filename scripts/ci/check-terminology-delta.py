@@ -69,9 +69,14 @@ def added_lines(base, head):
             if "*/" in text:
                 in_comment = False
             # The terminology skill's own docs must NAME the prohibited terms —
-            # never scan the dictionary against itself.
-            if cur_file and cur_file.endswith(EXfP) and not cur_file.startswith(
-                ".claude/skills/jkkn-terminologies/"
+            # never scan the dictionary against itself. Machine-generated files
+            # (route manifest etc.) carry structural keys, not copy (2026-07-15:
+            # the manifest's "children" keys flagged on every new-page PR).
+            if (
+                cur_file
+                and cur_file.endswith(EXfP)
+                and ".generated." not in cur_file
+                and not cur_file.startswith(".claude/skills/jkkn-terminologies/")
             ):
                 yield cur_file, new_no, text, was_in_comment or in_comment
             new_no += 1
@@ -108,21 +113,29 @@ def main():
         if not is_copy:
             continue
         for rx, repl in compiled:
-            m = rx.search(text)
-            if not m:
-                continue
-            if m.group().lower() in DOMAIN_EXEMPT:
-                continue
-            # {children} etc. — a brace-wrapped match is a code expression
-            # (React children prop), not copy.
-            if (
-                m.start() > 0
-                and text[m.start() - 1] == "{"
-                and m.end() < len(text)
-                and text[m.end()] == "}"
-            ):
-                continue
-            hits.append((f, ln, m.group(), repl, text.strip()[:100]))
+            for m in rx.finditer(text):
+                if m.group().lower() in DOMAIN_EXEMPT:
+                    continue
+                # {children} etc. — a brace-wrapped match is a code expression
+                # (React children prop), not copy.
+                if (
+                    m.start() > 0
+                    and text[m.start() - 1] == "{"
+                    and m.end() < len(text)
+                    and text[m.end()] == "}"
+                ):
+                    continue
+                # Identifier/path context, not prose (2026-07-15 — the gate's
+                # own docstring calls these "unactionable noise"): the match is
+                # glued to a quote, backtick, bracket, hyphen, slash, or dot —
+                # e.g. ['student'], '/api/v1/student-cia-view', `student`,
+                # "children":, .student, student?: — never how copy uses a word.
+                prev_ch = text[m.start() - 1] if m.start() > 0 else ""
+                next_ch = text[m.end()] if m.end() < len(text) else ""
+                if prev_ch in "'\"`[/-." or next_ch in "'\"`]/-?":
+                    continue
+                hits.append((f, ln, m.group(), repl, text.strip()[:100]))
+                break  # one report per (line, term) is enough
 
     if not hits:
         print("")  # empty → workflow skips posting

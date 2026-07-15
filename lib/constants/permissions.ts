@@ -316,6 +316,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
 
       // Learner Portal Features (Student Self-Service)
+      { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
       { key: 'learners.my-timetable.view', label: 'View My Timetable (Students)' },
       { key: 'learners.my-attendance.view', label: 'View My Attendance (Students)' },
       { key: 'learners.my-profile.view', label: 'View My Profile (Students)' },

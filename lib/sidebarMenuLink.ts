@@ -103,6 +103,7 @@ import {
   HeadphonesIcon,
   UserCog,
   SearchCheck,
+  BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -135,6 +136,8 @@ export interface MenuItem {
   icon: LucideIcon;
   active: boolean;
   submenus: Submenu[];
+  /** Force a plain link even when submenus exist (read by Navbar/menu.tsx). */
+  noSubmenus?: boolean;
 }
 
 interface MenuGroup {
@@ -256,7 +259,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/class-incharges': 'staff.class_incharges.view',
 
   // HR Management (Sprints 1-6) — keys match permissions.ts HR block and hr_* RLS policies
-  '/hr': 'hr.dashboard.view',
+  // ('/hr' itself is mapped once, later in this object: 'hr.view' — the value
+  // that already won under JS last-key-wins before the duplicate was removed.)
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/new': 'hr.employees.create',
   '/hr/employees/[id]': 'hr.employees.view',
@@ -946,7 +950,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Billing — Payment chip (originally patched by PR #511, included here so
   // this PR's gate exits 0 regardless of merge order between the two PRs.
   // Trivial conflict-resolve if both land: identical entry on either side.)
-  '/billing/payment': 'billing.payment.view',
 
   // Tier-2 chip-leak sweep (2026-04-27, PR follow-up to #511).
   // The audit `comm -23 <find-pages> <sidebar-keys>` surfaced 23 routes that
@@ -1271,6 +1274,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Learner/staff self view — top-level route; grant ims.kits.my.view to
   // student/staff roles at rollout to reveal it.
   '/my-kit': 'ims.kits.my.view',
+  // Verified Skills Record — learner self view (granted to student role in the
+  // VSR migration) + the admin correction queue.
+  '/my-proof': 'learners.proof.view',
+  '/admin/proof-disputes': 'super_admin',
   // Stock (visibility + adjustments + GRN lifecycle)
   '/ims/stock': 'ims.stock.view',
   '/ims/stock/adjustments': 'ims.stock.adjust',
@@ -1350,6 +1357,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Kit',
           active: pathname === '/my-kit',
           icon: Package,
+          submenus: []
+        },
+        {
+          // Verified Skills Record self view (spec 2026-07-14) — visible to
+          // learners only (learners.proof.view, granted to the student role).
+          href: '/my-proof',
+          label: 'My Proof',
+          active: pathname === '/my-proof',
+          icon: BadgeCheck,
           submenus: []
         }
       ]
@@ -2835,6 +2851,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/system' ||
             pathname.startsWith('/system/') ||
             pathname.startsWith('/admin/bug-reports') ||
+            pathname.startsWith('/admin/proof-disputes') ||
             pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
@@ -2843,6 +2860,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/my-bug-reports', label: 'My Bug Reports', active: pathname === '/my-bug-reports' },
             { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
+            { href: '/admin/proof-disputes', label: 'Record Corrections', active: pathname === '/admin/proof-disputes' },
             { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }

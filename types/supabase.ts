@@ -101415,6 +101415,123 @@ export type Database = {
           },
         ]
       }
+      vsr_disputes: {
+        Row: {
+          created_at: string
+          detail: string
+          id: string
+          learner_id: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          section: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          detail: string
+          id?: string
+          learner_id: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          section: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string
+          id?: string
+          learner_id?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          section?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vsr_disputes_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vsr_learner_state: {
+        Row: {
+          first_viewed_at: string
+          last_viewed_at: string
+          learner_id: string
+          view_count: number
+        }
+        Insert: {
+          first_viewed_at?: string
+          last_viewed_at?: string
+          learner_id: string
+          view_count?: number
+        }
+        Update: {
+          first_viewed_at?: string
+          last_viewed_at?: string
+          learner_id?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vsr_learner_state_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: true
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vsr_share_tokens: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          label: string | null
+          last_viewed_at: string | null
+          learner_id: string
+          revoked_at: string | null
+          token: string
+          view_count: number
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          label?: string | null
+          last_viewed_at?: string | null
+          learner_id: string
+          revoked_at?: string | null
+          token: string
+          view_count?: number
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          label?: string | null
+          last_viewed_at?: string | null
+          learner_id?: string
+          revoked_at?: string | null
+          token?: string
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vsr_share_tokens_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wa_phone_numbers: {
         Row: {
           access_token_encrypted: string | null
@@ -101465,6 +101582,34 @@ export type Database = {
       }
     }
     Functions: {
+      fn_vsr_create_share_token: {
+        Args: { p_label?: string }
+        Returns: Json
+      }
+      fn_vsr_my_record: {
+        Args: never
+        Returns: Json
+      }
+      fn_vsr_my_share_panel: {
+        Args: never
+        Returns: Json
+      }
+      fn_vsr_open_dispute: {
+        Args: { p_detail: string; p_section: string }
+        Returns: Json
+      }
+      fn_vsr_resolve_dispute: {
+        Args: { p_dispute_id: string; p_note?: string; p_status: string }
+        Returns: Json
+      }
+      fn_vsr_revoke_share_token: {
+        Args: { p_token_id: string }
+        Returns: Json
+      }
+      fn_vsr_shared_record: {
+        Args: { p_token: string }
+        Returns: Json
+      }
       _admission_counselors_audit_actor: {
         Args: never
         Returns: {
