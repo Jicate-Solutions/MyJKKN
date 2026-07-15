@@ -26,6 +26,92 @@ import {
 
 // ==================== NOTIFICATION CRUD ====================
 
+/** Global (NOT page-scoped) tallies for a user's notification inbox. */
+export interface NotificationCounts {
+  /** Unread across the WHOLE inbox, independent of page/limit. */
+  unread: number;
+  /** Total across the whole inbox. */
+  total: number;
+  /** Global count per RAW stored category value, e.g. { Alert: 85, general: 12 }. */
+  byCategory: Record<string, number>;
+}
+
+/**
+ * Count a user's notifications GLOBALLY.
+ *
+ * Why this exists: callers used to derive counts with
+ * `notifications.filter(n => !n.is_read).length` over an already-paginated
+ * result. With the UI's limit=20 that could never exceed 20, so a 258-unread
+ * inbox reported "18 unread" — an array length standing in for a COUNT query.
+ *
+ * These queries deliberately mirror getNotifications()' `!inner` join to
+ * `notifications`: without it a user_notifications row whose notification is
+ * missing would be counted here but dropped from the list, so the badge and
+ * the list would disagree. `head: true` means no rows travel — Postgres
+ * returns the count only.
+ *
+ * Pass the route's cookie-scoped client so this runs as `authenticated`
+ * (RLS on user_notifications invokes fn_notification_is_for_user, which `anon`
+ * lacks EXECUTE on) — same contract as getNotifications().
+ */
+export async function getNotificationCounts(
+  userId: string,
+  client?: SupabaseClient
+): Promise<NotificationCounts> {
+  const db = client ?? supabase;
+
+  const base = () =>
+    db
+      .from('user_notifications')
+      .select(
+        'notification:notifications!user_notifications_notification_id_fkey!inner(category)',
+        { count: 'exact', head: true }
+      )
+      .eq('user_id', userId);
+
+  // Unread === read_at IS NULL. There is no archive concept on
+  // user_notifications (no is_archived / archived_at column exists), so this
+  // is the whole of "unread".
+  const [totalRes, unreadRes] = await Promise.all([
+    base(),
+    base().is('read_at', null)
+  ]);
+
+  if (totalRes.error) throw totalRes.error;
+  if (unreadRes.error) throw unreadRes.error;
+
+  // Per-category tallies. PostgREST has no GROUP BY, so pull just the single
+  // category column (head:false, no range) and tally in memory. One narrow
+  // column for the caller's own rows — not the fully-joined payload the list
+  // query returns.
+  const { data: catRows, error: catError } = await db
+    .from('user_notifications')
+    .select(
+      'notification:notifications!user_notifications_notification_id_fkey!inner(category)'
+    )
+    .eq('user_id', userId);
+
+  if (catError) throw catError;
+
+  const byCategory: Record<string, number> = {};
+  for (const row of (catRows || []) as any[]) {
+    // Supabase types an embedded to-one join as an array; it is an object at
+    // runtime. Handle both rather than trusting either.
+    const embedded = Array.isArray(row.notification)
+      ? row.notification[0]
+      : row.notification;
+    const category = embedded?.category;
+    if (!category) continue;
+    byCategory[category] = (byCategory[category] || 0) + 1;
+  }
+
+  return {
+    unread: unreadRes.count ?? 0,
+    total: totalRes.count ?? 0,
+    byCategory
+  };
+}
+
 export async function getNotifications(
   filters: NotificationFilters = {},
   client?: SupabaseClient
@@ -87,7 +173,16 @@ export async function getNotifications(
   // Alerts, General) ran client-side filters that produced 0 matches against
   // dashboard:* category data, then triggered an infinite loadMore() loop.
   if (filters.category) {
-    query = query.eq('notification.category', filters.category);
+    // Case-insensitive: stored categories are inconsistently cased ('general'
+    // lowercase, 'Alert' capitalised) and some are namespaced
+    // ('dashboard:hr_brief'). An eq() compare meant the UI's 'General' tab
+    // never matched the stored 'general' and rendered empty forever.
+    // ilike without wildcards is an exact match, case-insensitively; escape
+    // any %/_ in the caller's value so they stay literal.
+    query = query.ilike(
+      'notification.category',
+      filters.category.replace(/[%_]/g, '\\$&')
+    );
   }
 
   if (filters.priority) {
