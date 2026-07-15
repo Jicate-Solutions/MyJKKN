@@ -9,7 +9,7 @@
 // round-trip raced the keyboard and reverted characters. Here nothing touches
 // the network until Save, which sends the whole desired form to one atomic RPC.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -302,6 +302,13 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
   const [seeded, setSeeded] = useState(false);
   const [previewValues, setPreviewValues] = useState<Record<string, unknown>>({});
 
+  // Latest sections, readable after an await. Lets onSave tell whether the user
+  // edited while the save was in flight (inputs stay live during a save).
+  const sectionsRef = useRef(sections);
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
+
   // Seed local state from the server ONCE. Re-seeding on every refetch is what
   // made the old builder clobber in-progress typing.
   useEffect(() => {
@@ -397,6 +404,11 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
 
     await save.mutateAsync({ isEnabled, sections: payload });
 
+    // Inputs stay live during a save, so anything typed in that window was never
+    // sent. Every local edit replaces the sections array, so an unchanged
+    // reference means nothing was touched and we can safely mark the form clean.
+    const editedDuringSave = sectionsRef.current !== snapshot;
+
     // Adopt the persisted keys so a brand-new field keeps a stable field_key on
     // the next save. Deliberately NOT done by re-seeding from the refetch:
     // mutateAsync resolves before the invalidated query refetches, so re-seeding
@@ -410,7 +422,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
         })),
       }))
     );
-    setDirty(false);
+    setDirty(editedDuringSave);
   }
 
   const previewSections = useMemo(
