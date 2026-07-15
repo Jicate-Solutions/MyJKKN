@@ -50,6 +50,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCreateAuditCycle, useSystemParameters } from '@/hooks/audit';
+import { filterParametersByFrameworks } from '@/lib/services/audit/framework-filter';
 import { cn } from '@/lib/utils';
 
 /**
@@ -62,10 +63,26 @@ export const navMeta = {
 } as const;
 
 
+// The bodies a cycle can be audited against. Order: the three JKKN audits
+// against by default, then CARRE + IQAC (which own real catalog content), then
+// the profession/other bodies.
+//
+// CARRE and IQAC are here because the freeze now genuinely filters by framework.
+// Without a chip to admit them, the 25 CARRE-* parameters and the two org-wide
+// checks (LOOP_HEALTH, EXAM_IA_AUDIT) could never enter a cycle again. Both
+// org-wide checks also carry a NAAC mapping, so IQAC is for auditing them on
+// their own; CARRE is the only way to reach the Culture pillars.
+//
+// NOTE: DCI / PCI / INC / NCTE / AICTE / QS currently map to ZERO parameters —
+// selecting them alone yields an empty cycle. They are offered because the
+// bodies are real and the catalog is expected to grow into them (see the
+// Compliance Unification Program, sh_accreditation_metrics).
 const FRAMEWORK_OPTIONS = [
   'NAAC',
   'NBA',
   'NIRF',
+  'CARRE',
+  'IQAC',
   'UGC',
   'QS',
   'AICTE',
@@ -158,7 +175,12 @@ export default function NewAuditCyclePage() {
       description: '',
       start_date: defaultStart,
       end_date: defaultEnd,
-      frameworks: ['NAAC', 'NBA', 'NIRF'],
+      // CARRE is default-ON deliberately. NAAC+NBA+NIRF cover 38 parameters and
+      // CARRE the other 25, so this default freezes all 63 — exactly what every
+      // cycle froze before the freeze started filtering. Dropping CARRE from the
+      // default would have silently removed the Culture pillars from every new
+      // institutional cycle (and they hold the only attestations logged so far).
+      frameworks: ['NAAC', 'NBA', 'NIRF', 'CARRE'],
       institution_ids: [],
       cosigner_roles: ['cao', 'ceo'],
     },
@@ -672,13 +694,10 @@ function StepSnapshot({
   systemParams: Array<{ code: string; name: string; parameter_group: number; framework_mapping: Record<string, string> }> | undefined;
   isLoading: boolean;
 }) {
-  const lowerFw = frameworks.map((f) => f.toLowerCase());
-  const relevant = (systemParams ?? []).filter((p) => {
-    const mappedBodies = Object.keys(p.framework_mapping ?? {}).map((k) =>
-      k.toLowerCase(),
-    );
-    return mappedBodies.some((b) => lowerFw.includes(b));
-  });
+  // Same predicate the freeze uses (AuditCycleService.transitionPhase) — this
+  // preview's count IS what will be frozen. It used to be a private copy here
+  // while the freeze filtered nothing, so the preview and reality disagreed.
+  const relevant = filterParametersByFrameworks(systemParams ?? [], frameworks);
 
   const byGroup = relevant.reduce<Record<number, typeof relevant>>((acc, p) => {
     const g = p.parameter_group;

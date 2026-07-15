@@ -3,6 +3,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AuditParameterResultsService } from './audit-parameter-results-service';
+import { filterParametersByFrameworks } from './framework-filter';
 import type {
   AuditCycle,
   AuditCyclePhase,
@@ -100,9 +101,20 @@ export class AuditCycleService {
         )
         .eq('is_active', true);
       if (paramsErr) throw paramsErr;
+
+      // Freeze only what this cycle actually audits. This filter was missing:
+      // the wizard previewed a framework-filtered count while the freeze took
+      // every active row, so the number shown was never the number frozen
+      // (Q4 FY26-27 previewed 38, froze 63). Same predicate as the preview —
+      // see framework-filter.ts. Filtered in JS, not PostgREST, because the
+      // match is case-insensitive over jsonb KEYS, which `.select()` can't do.
+      const relevant = filterParametersByFrameworks(
+        (params ?? []) as Array<{ framework_mapping?: Record<string, string> | null }>,
+        current.frameworks ?? []
+      );
       updates.parameter_catalog_snapshot = {
         frozen_at: new Date().toISOString(),
-        parameters: params ?? [],
+        parameters: relevant,
       };
     }
 
