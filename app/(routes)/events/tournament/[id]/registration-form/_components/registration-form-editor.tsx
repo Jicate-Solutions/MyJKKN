@@ -302,12 +302,17 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
   const [seeded, setSeeded] = useState(false);
   const [previewValues, setPreviewValues] = useState<Record<string, unknown>>({});
 
-  // Latest sections, readable after an await. Lets onSave tell whether the user
-  // edited while the save was in flight (inputs stay live during a save).
+  // Latest editable state, readable after an await. Lets onSave tell whether the
+  // user changed anything while the save was in flight (inputs and the enable
+  // switch both stay live during a save).
   const sectionsRef = useRef(sections);
   useEffect(() => {
     sectionsRef.current = sections;
   }, [sections]);
+  const isEnabledRef = useRef(isEnabled);
+  useEffect(() => {
+    isEnabledRef.current = isEnabled;
+  }, [isEnabled]);
 
   // Seed local state from the server ONCE. Re-seeding on every refetch is what
   // made the old builder clobber in-progress typing.
@@ -390,6 +395,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
 
   async function onSave() {
     const snapshot = sections;
+    const enabledSnapshot = isEnabled;
     const payload = serialize(snapshot);
 
     // Capture uid -> the key we are about to persist, BEFORE the await, so the
@@ -402,12 +408,14 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
       })
     );
 
-    await save.mutateAsync({ isEnabled, sections: payload });
+    await save.mutateAsync({ isEnabled: enabledSnapshot, sections: payload });
 
-    // Inputs stay live during a save, so anything typed in that window was never
-    // sent. Every local edit replaces the sections array, so an unchanged
-    // reference means nothing was touched and we can safely mark the form clean.
-    const editedDuringSave = sectionsRef.current !== snapshot;
+    // Inputs and the enable switch stay live during a save, so anything changed
+    // in that window was never sent. Every local edit replaces the sections
+    // array, so an unchanged reference (and an unchanged switch) means nothing
+    // was touched and we can safely mark the form clean.
+    const editedDuringSave =
+      sectionsRef.current !== snapshot || isEnabledRef.current !== enabledSnapshot;
 
     // Adopt the persisted keys so a brand-new field keeps a stable field_key on
     // the next save. Deliberately NOT done by re-seeding from the refetch:
