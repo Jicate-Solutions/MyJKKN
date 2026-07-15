@@ -109,6 +109,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/internal-marks/exam-audit",
+            "label": "Exam Audit",
+            "iconName": "Star",
+            "children": []
+          },
+          {
             "path": "/academic/internal-marks/monitor",
             "label": "IA Monitor",
             "iconName": "Star",
@@ -603,6 +609,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/proof-disputes",
+        "label": "Proof Disputes",
         "iconName": "FileText",
         "children": []
       },
@@ -5017,6 +5029,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-kit",
     "label": "My Kit",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-proof",
+    "label": "My Proof",
     "iconName": "FileText",
     "children": []
   },
