@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CreateBosCommitteeDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveBosBoardScope, guardInstitutionWrite, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/committees ──────────────────────────────────────────────────
 // Institution-wise committee list. CAS-aware: accepts ?institutionsIds=<csv>
@@ -15,11 +15,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-compositions.view but on no
+    // board (not a principal, member of nothing) may read all institutions'
+    // committees. VIEW ONLY — POST still goes through guardInstitutionWrite.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-compositions.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
     const { searchParams } = new URL(request.url);
 
     // Same CAS-aware id resolution as /api/bos/taxonomy GET:
-    //   super-admin → trust client ids (empty = all institutions)
+    //   super-admin / observer → trust client ids (empty = all institutions)
     //   non-admin   → client ids filtered to own scope; fallback to own scope
     const csv = searchParams.get('institutionsIds');
     const single = searchParams.get('institutionsId');
@@ -30,7 +36,7 @@ export async function GET(request: NextRequest) {
         : [];
 
     let ids: string[] = [];
-    if (scope.isSuperAdmin) {
+    if (seeAll) {
       ids = clientIds;
     } else {
       const allowed = new Set([
@@ -65,7 +71,9 @@ export async function GET(request: NextRequest) {
     const sortBy = SORTABLE.has(sortByParam) ? sortByParam : 'sort_order';
     const ascending = (searchParams.get('sortOrder') ?? 'asc') !== 'desc';
 
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_committees')
       .select('*', { count: paginated ? 'exact' : undefined })
       .order(sortBy, { ascending })
@@ -83,15 +91,18 @@ export async function GET(request: NextRequest) {
     // an RLS-aligned belt-and-braces. Omitting it returns institution-level
     // template rows (composition_id IS NULL) plus every composition's rows.
     const compositionId = searchParams.get('compositionId');
+    const scopeParam = searchParams.get('scope');
     if (compositionId) {
       query = query.eq('composition_id', compositionId);
-    } else if (searchParams.get('scope') === 'template') {
-      // The standalone /bos/committees master page manages institution-level
-      // TEMPLATE committees only (composition_id IS NULL); per-composition rows
-      // are managed inside each composition. Without this it would list every
-      // composition's committees as a flat, duplicate-heavy set.
+    } else if (scopeParam === 'template') {
+      // The standalone /bos/committees master page's default view manages
+      // institution-level TEMPLATE committees only (composition_id IS NULL);
+      // per-composition rows are managed inside each composition.
       query = query.is('composition_id', null);
     }
+    // scope === 'all' (the master page's "All" toggle) applies no composition
+    // filter — templates AND every composition's committees. Rows are enriched
+    // below with their composition title so instances stay distinguishable.
 
     if (searchParams.has('isActive')) {
       query = query.eq('is_active', searchParams.get('isActive') === 'true');
@@ -112,9 +123,38 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch committees' }, { status: 500 });
     }
 
+    // Enrich the paginated master list with each row's composition title so the
+    // "All" view can label instances (an unlabelled all-committees list is a
+    // wall of identical names). Done via service-role — bos_compositions carries
+    // its own member/creator RLS, so a PostgREST embed on the user client would
+    // silently null the title for non-admins. The committee query above keeps
+    // its user-level access control; this only resolves display labels.
+    let rows = data ?? [];
+    if (paginated && rows.length > 0) {
+      const compIds = [
+        ...new Set(rows.map((r) => r.composition_id).filter(Boolean) as string[]),
+      ];
+      if (compIds.length > 0) {
+        const svc = createServiceRoleClient();
+        const { data: comps } = await svc
+          .from('bos_compositions')
+          .select('id, composition_title')
+          .in('id', compIds);
+        const titleById = new Map(
+          (comps ?? []).map((c) => [c.id as string, c.composition_title as string])
+        );
+        rows = rows.map((r) => ({
+          ...r,
+          composition_title: r.composition_id
+            ? titleById.get(r.composition_id) ?? null
+            : null,
+        }));
+      }
+    }
+
     if (paginated) {
       return NextResponse.json({
-        data: data ?? [],
+        data: rows,
         metadata: {
           total: count ?? 0,
           page,

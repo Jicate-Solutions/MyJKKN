@@ -21,7 +21,11 @@ export type CourseType =
   | 'Internship' | 'Language' | 'Naanmuthalvan' | 'Non Academic'
   | 'Non Major Elective Practical' | 'Non Major Elective'
   | 'Practical' | 'Project'
-  | 'Skill Enhancement Practical' | 'Skill Enhancement';
+  | 'Skill Enhancement Practical' | 'Skill Enhancement'
+  // AICTE / Anna University engineering categories — keep in sync with
+  // COURSE_TYPE_VALUES in lib/services/bos/courses-schemas.ts.
+  | 'Engineering Science Courses' | 'Professional Core Courses' | 'Programme Elective'
+  | 'Open Elective Courses' | 'Employability Enhancement Courses';
 
 /** Roman numerals I..XX (1..20). Pairs with CourseType in COE to form
  *  course_type_code (e.g., "Core" + "I" => "Core-I"). */

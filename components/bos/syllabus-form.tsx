@@ -325,6 +325,16 @@ export function SyllabusForm({
   );
   const courseOptions = coursesData?.data ?? [];
 
+  // Course category (Theory / Practical / Project / Theory + Practical / …) of
+  // the currently-selected course. Drives which Content-Type tabs are enabled in
+  // the Content tab. Resolved by matching the saved/selected course_code against
+  // the (institution + regulation + board)-scoped course list. When the course
+  // isn't in the list (synthetic-option fallback on edit) this is undefined and
+  // ContentEditor leaves all tabs enabled rather than blocking the user.
+  const selectedCourseCategory = (courseOptions.find(
+    (c) => c.course_code === formData.course_code,
+  ) as any)?.course_category as string | undefined;
+
   // Read sessionStorage handoff from the list page Import button — runs once
   // on mount, consume-and-delete so a refresh doesn't replay the data.
   useEffect(() => {
@@ -1373,6 +1383,8 @@ export function SyllabusForm({
               <ContentEditor
                 content={formData.course_content as any}
                 onChange={(val) => updateField('course_content', val)}
+                courseCode={formData.course_code}
+                courseCategory={selectedCourseCategory}
               />
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setActiveTab('clo')}>
@@ -2556,9 +2568,36 @@ function CloEditor({ clos, kValues, onChange }: any) {
   );
 }
 
-function ContentEditor({ content, onChange }: any) {
+function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
   const isPractical = !!content?.is_practical;
   const isProject = !!content?.is_project;
+  const activeMode: 'theory' | 'practical' | 'project' = isProject
+    ? 'project'
+    : isPractical
+    ? 'practical'
+    : 'theory';
+
+  // Which Content-Type tabs the course category permits. The category strings
+  // ("Theory", "Practical", "Project", "Theory + Practical", "Theory + Project",
+  // "Group Project", …) are matched by substring so combined types light up both
+  // tabs. Non-content categories ("Non Academic", "Field Work", "Community
+  // Service") match nothing → we fall back to enabling everything rather than
+  // stranding the user with no editable tab. The currently-active mode is always
+  // kept enabled so existing data can never be hidden behind a disabled tab.
+  const allowedModes = (() => {
+    const c = (courseCategory || '').toLowerCase();
+    const modes = {
+      theory: c.includes('theory'),
+      practical: c.includes('practical'),
+      project: c.includes('project'),
+    };
+    if (!c || (!modes.theory && !modes.practical && !modes.project)) {
+      modes.theory = modes.practical = modes.project = true;
+    }
+    modes[activeMode] = true;
+    return modes;
+  })();
+
   const units = content?.units || [];
   const topics: {
     number: number;
@@ -2594,37 +2633,33 @@ function ContentEditor({ content, onChange }: any) {
   }, []);
 
   const switchToMode = (targetMode: 'theory' | 'practical' | 'project') => {
-    if (targetMode === 'theory' && !isPractical && !isProject) return;
-    if (targetMode === 'practical' && isPractical) return;
-    if (targetMode === 'project' && isProject) return;
+    // Guard: never enter a mode the course category disallows.
+    if (!allowedModes[targetMode]) return;
+    // No-op if we're already there.
+    if (targetMode === activeMode) return;
 
+    // Switching mode ONLY flips the two view flags. Each mode's data lives under
+    // its own key (theory→units, practical→topics, project→project_units), so we
+    // spread `...content` to keep ALL of them intact. This is what fixes the
+    // data-loss bug: cycling Theory→Practical→Project→Theory no longer wipes the
+    // keys the previous switch didn't name.
     if (targetMode === 'theory') {
-      // From Practical or Project → Theory
-      if (isPractical) {
-        const chapters = topics.map((t, i) => ({
-          chapter_number: i + 1,
-          title: t.title,
-          sections: '',
-        }));
-        onChange({ is_practical: false, is_project: false, units: [{ unit_id: 'I', unit_title: '', chapters }] });
-      } else {
-        onChange({ is_practical: false, is_project: false, units: projectUnits.length > 0 ? [{ unit_id: 'I', unit_title: '', chapters: [] }] : units });
-      }
+      onChange({ ...content, is_practical: false, is_project: false });
     } else if (targetMode === 'practical') {
-      // From Theory or Project → Practical
-      if (!isPractical && !isProject) {
+      // Seed practical topics from theory chapters ONLY when practical has no
+      // topics yet — a one-time convenience that never overwrites existing
+      // topics and never drops units/project_units.
+      const patch: any = { ...content, is_practical: true, is_project: false };
+      if (!topics.length && units.length) {
         const allChapters = units.flatMap((u: any) => u.chapters || []);
-        const flatTopics = allChapters.map((ch: any, i: number) => ({
+        patch.topics = allChapters.map((ch: any, i: number) => ({
           number: i + 1,
           title: ch.title || '',
         }));
-        onChange({ is_practical: true, is_project: false, topics: flatTopics.length > 0 ? flatTopics : [] });
-      } else if (isProject) {
-        onChange({ is_practical: true, is_project: false, topics: [] });
       }
-    } else if (targetMode === 'project') {
-      // From Theory or Practical → Project
-      onChange({ is_practical: false, is_project: true, project_units: [] });
+      onChange(patch);
+    } else {
+      onChange({ ...content, is_practical: false, is_project: true });
     }
   };
 
@@ -2796,46 +2831,41 @@ function ContentEditor({ content, onChange }: any) {
   return (
     <div className="space-y-4">
       {/* ── Mode toggle ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Content Type</span>
         <div className="flex rounded-lg border bg-muted/40 p-0.5 text-sm gap-0.5">
-          <button
-            type="button"
-            onClick={() => switchToMode('theory')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              !isPractical && !isProject
-                ? 'bg-white dark:bg-card shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <BookText className="h-3.5 w-3.5" />
-            Theory
-          </button>
-          <button
-            type="button"
-            onClick={() => switchToMode('practical')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              isPractical
-                ? 'bg-white dark:bg-card shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <FlaskConical className="h-3.5 w-3.5" />
-            Practical
-          </button>
-          <button
-            type="button"
-            onClick={() => switchToMode('project')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              isProject
-                ? 'bg-white dark:bg-card shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            Project
-          </button>
+          {([
+            { mode: 'theory' as const, label: 'Theory', Icon: BookText, active: !isPractical && !isProject },
+            { mode: 'practical' as const, label: 'Practical', Icon: FlaskConical, active: isPractical },
+            { mode: 'project' as const, label: 'Project', Icon: BookOpen, active: isProject },
+          ]).map(({ mode, label, Icon, active }) => {
+            const enabled = allowedModes[mode];
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => switchToMode(mode)}
+                disabled={!enabled}
+                title={enabled ? undefined : `This course type does not include a ${label} component`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
+                  active
+                    ? 'bg-white dark:bg-card shadow-sm text-foreground'
+                    : enabled
+                    ? 'text-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground/40 cursor-not-allowed'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            );
+          })}
         </div>
+        {courseCategory ? (
+          <span className="text-[11px] text-muted-foreground">
+            {courseCode ? <span className="font-mono">{courseCode}</span> : null} · {courseCategory}
+          </span>
+        ) : null}
       </div>
 
       {isProject ? (
@@ -3476,11 +3506,13 @@ function PedagogyEditor({ methods, onChange }: any) {
   );
 }
 
+// Stored values stay 'L'/'M'/'H' (JSONB + exports depend on them); institutions
+// notate correlation numerically, so only the displayed label is 1/2/3.
 const ALIGNMENT_LEVELS = [
-  { value: '' as const,  label: '-', bg: 'bg-gray-50',     text: 'text-gray-400',   desc: 'No Mapping' },
-  { value: 'L' as const, label: 'L', bg: 'bg-yellow-100',  text: 'text-yellow-700', desc: 'Low' },
-  { value: 'M' as const, label: 'M', bg: 'bg-orange-100',  text: 'text-orange-700', desc: 'Medium' },
-  { value: 'H' as const, label: 'H', bg: 'bg-green-100',   text: 'text-green-700',  desc: 'High' },
+  { value: '' as const,  label: '-', bg: 'bg-gray-50',     text: 'text-gray-400',   desc: 'No Correlation' },
+  { value: 'L' as const, label: '1', bg: 'bg-yellow-100',  text: 'text-yellow-700', desc: 'Low' },
+  { value: 'M' as const, label: '2', bg: 'bg-orange-100',  text: 'text-orange-700', desc: 'Medium' },
+  { value: 'H' as const, label: '3', bg: 'bg-green-100',   text: 'text-green-700',  desc: 'High' },
 ] as const;
 type AlignmentLevel = '' | 'L' | 'M' | 'H';
 

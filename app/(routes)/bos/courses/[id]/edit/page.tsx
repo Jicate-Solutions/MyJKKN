@@ -11,6 +11,7 @@ import { CourseForm } from '../../_components/course-form';
 import { useBosCourse, useUpdateBosCourse } from '@/hooks/bos/use-bos-courses';
 import { useBosBoards } from '@/hooks/bos/use-bos-boards';
 import { isLocked } from '@/types/bos-courses';
+import { institutionSkipsPartLevel } from '@/lib/services/bos/courses-schemas';
 import type { BosBoard } from '@/types/bos';
 
 export default function EditCoursePage({ params }: { params: Promise<{ id: string }> }) {
@@ -100,6 +101,7 @@ export default function EditCoursePage({ params }: { params: Promise<{ id: strin
               submitLabel='Save Changes'
               boards={boardsForForm}
               boardsLoading={boardsLoading}
+              hidePartLevel={institutionSkipsPartLevel(course.institution_code)}
               defaultValues={{
                 course_code: course.course_code,
                 course_name: course.course_name ?? course.course_title ?? '',

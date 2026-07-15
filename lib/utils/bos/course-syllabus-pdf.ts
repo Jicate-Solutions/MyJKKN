@@ -503,6 +503,14 @@ export function extractPOKeys(
 // ── Public interface ──────────────────────────────────────────────────────────
 
 export interface CourseSyllabusPDFData {
+	/**
+	 * Document variant. 'engineering' renders the Anna University / CET-style
+	 * wording (Course Outcomes preamble "At the end of the course…", no
+	 * "The main objectives of this course are" line). 'default' (or unset)
+	 * keeps the Arts & Science wording that the live CAS syllabi already use.
+	 */
+	variant?: 'default' | 'engineering'
+
 	// Institution header
 	institution_name?: string
 	institution_address?: string
@@ -577,6 +585,9 @@ export function renderCourseSyllabusPDF(
 	opts?: { startNewPage?: boolean },
 ): void {
 	if (opts?.startNewPage) doc.addPage()
+	// Engineering (Anna University / CET) variant toggles a handful of wording
+	// differences vs the Arts & Science default; see CourseSyllabusPDFData.variant.
+	const isEngineering = data.variant === 'engineering'
 	let y = MARGIN
 
 	// ── INSTITUTION HEADER ────────────────────────────────────────────────────
@@ -642,7 +653,9 @@ export function renderCourseSyllabusPDF(
 	if (data.objectives && data.objectives.length > 0) {
 		const rows: object[][] = [
 			[cell(''), bold('Course Objectives')],
-			[cell(''), cell('The main objectives of this course are')],
+			// Engineering/CET format drops the "The main objectives of this course
+			// are" lead-in row (matches the Anna University syllabus layout).
+			...(isEngineering ? [] : [[cell(''), cell('The main objectives of this course are')]]),
 			...data.objectives.map(o => [
 				cell(String(o.number), { halign: 'center' }),
 				cell(sanitize(o.description)),
@@ -678,7 +691,14 @@ export function renderCourseSyllabusPDF(
 			],
 			[
 				cell(''),
-				{ ...span('On the successful completion of the course, student will be able to:', 2) },
+				{
+					...span(
+						isEngineering
+							? 'At the end of the course, the students will be able to:'
+							: 'On the successful completion of the course, student will be able to:',
+						2,
+					),
+				},
 			],
 			...data.clos.map(c => [
 				bold(`CO ${c.clo_number}`, { halign: 'center' }),

@@ -36,9 +36,15 @@ interface Props {
    * the mismatch risk between them.
    */
   lockedBoardId?: string;
+  /**
+   * Hide the Part & Level fields — institutions that don't use the TN
+   * arts-college tiers (see institutionSkipsPartLevel, e.g. CET). Both schema
+   * fields are optional, so submitting without them stays valid.
+   */
+  hidePartLevel?: boolean;
 }
 
-export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save', lockedBoardId }: Props) {
+export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save', lockedBoardId, hidePartLevel }: Props) {
   // Live course_type list from COE — falls back to the bundled list while loading
   // or on outage so the form is never blocked.
   const courseTypesQ = useCourseTypeOptions();
@@ -167,29 +173,31 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
         </div>
         <div className='grid grid-cols-2 gap-3'>
           <SelectField name='course_category' form={form} label='Category' options={COURSE_CATEGORY_VALUES} required />
-          <Field label='Part' error={form.formState.errors.course_part_master?.message}>
-            <Controller
-              name='course_part_master'
-              control={form.control}
-              render={({ field }) => (
-                <SearchableSelect
-                  value={(field.value as string) ?? ''}
-                  onValueChange={(v) =>
-                    // Empty value means "cleared" — PG courses carry no Part,
-                    // so we keep the field undefined rather than sending ''.
-                    field.onChange(v === '' ? undefined : v)
-                  }
-                  options={COURSE_PART_VALUES.map((v) => ({ value: v, label: v }))}
-                  placeholder='(none) — leave blank for PG'
-                  searchPlaceholder='Search part…'
-                  emptyMessage='No matching part'
-                  className='w-full justify-between'
-                />
-              )}
-            />
-          </Field>
+          {!hidePartLevel && (
+            <Field label='Part' error={form.formState.errors.course_part_master?.message}>
+              <Controller
+                name='course_part_master'
+                control={form.control}
+                render={({ field }) => (
+                  <SearchableSelect
+                    value={(field.value as string) ?? ''}
+                    onValueChange={(v) =>
+                      // Empty value means "cleared" — PG courses carry no Part,
+                      // so we keep the field undefined rather than sending ''.
+                      field.onChange(v === '' ? undefined : v)
+                    }
+                    options={COURSE_PART_VALUES.map((v) => ({ value: v, label: v }))}
+                    placeholder='(none) — leave blank for PG'
+                    searchPlaceholder='Search part…'
+                    emptyMessage='No matching part'
+                    className='w-full justify-between'
+                  />
+                )}
+              />
+            </Field>
+          )}
         </div>
-        <div className='grid grid-cols-[2fr_1fr] gap-3'>
+        <div className={hidePartLevel ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-[2fr_1fr] gap-3'}>
           <Field label='Type' error={form.formState.errors.course_type?.message}>
             <Controller
               name='course_type'
@@ -212,28 +220,30 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
               )}
             />
           </Field>
-          <Field label='Level' error={form.formState.errors.course_level?.message}>
-            <Controller
-              name='course_level'
-              control={form.control}
-              render={({ field }) => (
-                <SearchableSelect
-                  value={(field.value as string) ?? ''}
-                  onValueChange={(v) =>
-                    // Empty string means "cleared" — keep the field truly empty
-                    // so the optional Zod check stays happy and we don't send
-                    // an empty string to COE.
-                    field.onChange(v === '' ? undefined : v)
-                  }
-                  options={COURSE_LEVEL_VALUES.map((v) => ({ value: v, label: v }))}
-                  placeholder='Select level'
-                  searchPlaceholder='Search level…'
-                  emptyMessage='No matching level'
-                  className='w-full justify-between'
-                />
-              )}
-            />
-          </Field>
+          {!hidePartLevel && (
+            <Field label='Level' error={form.formState.errors.course_level?.message}>
+              <Controller
+                name='course_level'
+                control={form.control}
+                render={({ field }) => (
+                  <SearchableSelect
+                    value={(field.value as string) ?? ''}
+                    onValueChange={(v) =>
+                      // Empty string means "cleared" — keep the field truly empty
+                      // so the optional Zod check stays happy and we don't send
+                      // an empty string to COE.
+                      field.onChange(v === '' ? undefined : v)
+                    }
+                    options={COURSE_LEVEL_VALUES.map((v) => ({ value: v, label: v }))}
+                    placeholder='Select level'
+                    searchPlaceholder='Search level…'
+                    emptyMessage='No matching level'
+                    className='w-full justify-between'
+                  />
+                )}
+              />
+            </Field>
+          )}
         </div>
       </fieldset>
 

@@ -979,6 +979,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/bos/member-types': 'academic.bos-members.view',
   '/bos/committees': 'bos.view',
   '/bos/email-settings': 'bos.view',
+  // PO & PSO master page — no dedicated permission key; same bos.view parent
+  // fallback as committees (page-level access is BosViewGuard + membership).
+  '/bos/po-pso': 'bos.view',
 
   // OKR — admin landing (redirects to /okr/admin/compliance which is gated
   // by okr.admin.view; reuse the same key on the parent)

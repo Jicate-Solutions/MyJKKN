@@ -1996,6 +1996,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/bos/po-pso",
+        "label": "Po Pso",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/bos/reports",
         "label": "Reports",
         "iconName": "FileBarChart",

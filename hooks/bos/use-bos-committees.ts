@@ -12,6 +12,10 @@ export const bosCommitteeKeys = {
     [...bosCommitteeKeys.all, 'institutions', csv] as const,
   byComposition: (compositionId: string) =>
     [...bosCommitteeKeys.all, 'composition', compositionId] as const,
+  // Unassigned "template" committees (composition_id IS NULL) for an institution
+  // — the pool the composition detail page's Add Committee picker draws from.
+  templates: (csv: string) =>
+    [...bosCommitteeKeys.all, 'template', csv] as const,
 };
 
 async function parseError(res: Response, fallback: string): Promise<never> {
@@ -32,7 +36,7 @@ const committeeSort = (a: BosCommittee, b: BosCommittee) =>
 
 /** Does the row belong in the list cached under this query key? */
 function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean {
-  const scope = key[1]; // 'institutions' | 'composition'
+  const scope = key[1]; // 'institutions' | 'composition' | 'template'
   const scopeValue = key[2];
   const isActive = key[3];
   if (typeof isActive === 'boolean' && isActive !== row.is_active) {
@@ -41,6 +45,20 @@ function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean 
   if (scope === 'composition') {
     // Key shape: ['bos-committees', 'composition', <compositionId>, <isActive|'all'>]
     return typeof scopeValue !== 'string' || row.composition_id === scopeValue;
+  }
+  if (scope === 'template') {
+    // Key shape: ['bos-committees', 'template', <csv>, <isActive|'all'>]
+    // The template pool is UNASSIGNED committees only — once a row gains a
+    // composition_id (via attach) it drops out of this list automatically.
+    if (row.composition_id != null) return false;
+    if (
+      typeof scopeValue === 'string' &&
+      scopeValue !== '' &&
+      !scopeValue.split(',').includes(row.institutions_id)
+    ) {
+      return false;
+    }
+    return true;
   }
   // Key shape: ['bos-committees', 'institutions', <csv>, <isActive|'all'>]
   if (
@@ -128,6 +146,64 @@ export function useBosCommitteesByComposition(
     },
     enabled: options?.enabled ?? (compositionId != null && compositionId !== ''),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
+ * Unassigned "template" committees (composition_id IS NULL) for one logical
+ * institution — the pool the composition detail page's Add Committee picker
+ * offers. Pass the CAS-expanded csv (composition's institution siblings).
+ * Defaults to active-only since you rarely attach an inactive committee.
+ */
+export function useBosCommitteeTemplates(
+  institutionsIdsCsv: string | null | undefined,
+  options?: { isActive?: boolean; enabled?: boolean }
+) {
+  const isActive = options?.isActive ?? true;
+  return useQuery<BosCommittee[], Error>({
+    queryKey: [...bosCommitteeKeys.templates(institutionsIdsCsv ?? ''), isActive],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('scope', 'template');
+      if (institutionsIdsCsv) params.set('institutionsIds', institutionsIdsCsv);
+      params.set('isActive', String(isActive));
+      const res = await fetch(`/api/bos/committees?${params.toString()}`);
+      if (!res.ok) await parseError(res, 'Failed to fetch committees');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: options?.enabled ?? (institutionsIdsCsv != null && institutionsIdsCsv !== ''),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
+ * Attach an existing (template) committee to a composition by setting its
+ * composition_id — the "no clone, just add it" flow. The re-parented row leaves
+ * the template pool cache and joins the composition's committee list cache via
+ * upsertCommitteeInCaches (the 'template' scope predicate handles the removal).
+ */
+export function useAttachBosCommittee() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      compositionId,
+    }: {
+      id: string;
+      compositionId: string;
+    }): Promise<BosCommittee> => {
+      const res = await fetch(`/api/bos/committees/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ composition_id: compositionId }),
+      });
+      if (!res.ok) await parseError(res, 'Failed to add committee');
+      return res.json();
+    },
+    onSuccess: (updated: BosCommittee) => {
+      upsertCommitteeInCaches(queryClient, updated);
+    },
   });
 }
 

@@ -5,6 +5,8 @@ import {
   resolveBosBoardScope,
   guardCompositionChairman,
   guardAcademicCouncilWrite,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/members?compositionId= ──────────────────────────────────────
@@ -32,12 +34,18 @@ export async function GET(request: NextRequest) {
     // carve-out, a freshly-created comp's roster appears empty to its own
     // creator after they add the first member.
     const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-members.view but sitting on
+    // no board (not a principal, member of nothing) may read any composition's
+    // roster. VIEW ONLY — never widens board members/principals.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-members.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
     // AC bodies: the roster read must go through the service-role client because
     // principals lack the bos.members.view RLS grant, so a user-context SELECT
     // returns empty for them. Route-level visibility below is the source of truth.
     let isAcComp = false;
     if (!scope.isSuperAdmin) {
-      let visible = scope.memberOf.has(compositionId);
+      let visible = seeAll || scope.memberOf.has(compositionId);
       const { data: comp } = await supabase
         .from('bos_compositions')
         .select('institutions_id, created_by, is_academic_council')
@@ -65,7 +73,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const readDb = isAcComp ? createServiceRoleClient() : supabase;
+    // Observer (read-all, no membership) lacks the bos_members RLS grant for a
+    // comp it doesn't belong to, so its user-context SELECT would return an empty
+    // roster despite passing the visibility gate above. Read via service-role —
+    // route-level visibility is the source of truth. (Same precedent as AC bodies.)
+    const readDb = (isAcComp || canReadAllBos) ? createServiceRoleClient() : supabase;
     const { data, error } = await readDb
       .from('bos_members')
       .select(`

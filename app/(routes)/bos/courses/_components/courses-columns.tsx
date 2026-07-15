@@ -6,7 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import type { BosCourseMaster } from '@/types/bos-courses';
 import { CoursesRowActions, CoursesPdfDownloadButton } from './courses-row-actions';
 
-export function createCoursesColumns(institutionName?: string): ColumnDef<BosCourseMaster>[] {
+export function createCoursesColumns(
+  institutionName?: string,
+  opts?: {
+    /** Hide the Part column — institutions that don't use the TN
+     *  arts-college tiers (see institutionSkipsPartLevel, e.g. CET). */
+    hidePart?: boolean;
+  },
+): ColumnDef<BosCourseMaster>[] {
   return [
   {
     accessorKey: 'course_code',
@@ -23,7 +30,9 @@ export function createCoursesColumns(institutionName?: string): ColumnDef<BosCou
       return r.course_name || r.course_title || r.name || r.display_name || '—';
     },
   },
-  { accessorKey: 'course_part_master', header: 'Part' },
+  ...(opts?.hidePart
+    ? []
+    : [{ accessorKey: 'course_part_master', header: 'Part' } as ColumnDef<BosCourseMaster>]),
   {
     accessorKey: 'course_type',
     header: 'Type',

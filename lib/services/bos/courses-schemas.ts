@@ -28,6 +28,12 @@ export const COURSE_TYPE_VALUES = [
   'Non Major Elective Practical','Non Major Elective',
   'Practical','Professional Competency Skill','Project',
   'Skill Enhancement Practical','Skill Enhancement',
+  // AICTE / Anna University engineering categories (used by CET and other
+  // engineering institutions). These are the canonical Type strings the
+  // bos-curriculum-pdf-to-import skill writes, so keeping them here lets the
+  // manual New Course form offer them and lets Zod accept imported rows.
+  'Engineering Science Courses','Professional Core Courses','Programme Elective',
+  'Open Elective Courses','Employability Enhancement Courses',
 ] as const;
 
 export const COURSE_GROUP_VALUES = [
@@ -41,6 +47,17 @@ export const COURSE_LEVEL_VALUES = [
   'I','II','III','IV','V','VI','VII','VIII','IX','X',
   'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX',
 ] as const;
+
+/**
+ * Institutions that don't use the TN arts-college Part I–V / Roman-numeral
+ * Level tiers (e.g., engineering). For these, the course form, import
+ * template, and list table skip the Part & Level fields entirely.
+ */
+const PART_LEVEL_EXEMPT_CODES = new Set(['CET']);
+
+export function institutionSkipsPartLevel(institutionCode?: string | null): boolean {
+  return PART_LEVEL_EXEMPT_CODES.has((institutionCode ?? '').trim().toUpperCase());
+}
 
 /** Manual form schema — exactly the 13 fields per design Section 2. */
 export const courseFormSchema = z.object({
@@ -133,3 +150,7 @@ export function toCoeCreatePayload(
 export const importRowSchema = courseFormSchema.extend({
   __row: z.number().int().min(1),
 });
+
+/** Client-side pre-upload validation of parsed Excel rows — board_id is
+ *  picked in the import dialog (not typed in Excel), so it's omitted here. */
+export const importRowClientSchema = courseFormSchema.omit({ board_id: true });

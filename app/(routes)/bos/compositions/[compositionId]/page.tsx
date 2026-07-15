@@ -49,7 +49,7 @@ import {
 } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { AddMemberDialog } from '../_components/add-member-dialog';
-import { CommitteeFormDialog } from '../../committees/_components/committee-form-dialog';
+import { AddCommitteeDialog } from '../_components/add-committee-dialog';
 import { BoardProgrammesCard } from '../../_components/board-programmes-card';
 import { ProgrammeOutcomesEditor } from '../../taxonomy/_components/programme-outcomes-editor';
 
@@ -693,16 +693,16 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       )}
 
       {/* ── Add Committee Dialog ────────────────────────────────────────── */}
-      {/* Committees are owned by this composition (20260706). Institution is
-          inherited from the composition, so the picker is suppressed. */}
+      {/* "No clone" attach flow: pick from the committees already created at
+          /bos/committees (unassigned template pool) and re-parent them into
+          this composition. institutionIdsCsv is CAS-expanded so the pool spans
+          both sibling UUIDs for CAS colleges. */}
       {composition.institutions_id && (
-        <CommitteeFormDialog
+        <AddCommitteeDialog
           open={addCommitteeOpen}
           onClose={() => setAddCommitteeOpen(false)}
-          institutions={[]}
-          isSuperAdmin={isSuperAdmin}
-          defaultInstitutionsId={composition.institutions_id}
           compositionId={compositionId}
+          institutionIdsCsv={institutionIdsCsv}
         />
       )}
     </div>

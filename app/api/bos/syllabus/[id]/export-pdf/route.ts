@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, applyInstitutionScope, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBosBoardScope, applyInstitutionScope, readableInstitutionIds, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 import { courseDisplayFor } from '@/lib/utils/bos/coe-course-display';
 import { generateV35SyllabusHtml } from '@/lib/utils/bos/course-syllabus-html';
 import { BosCourseSyllabus } from '@/types/bos';
@@ -33,7 +33,10 @@ export async function GET(
     }
 
     // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
 
     // Step 3: Parse query parameters
     const { searchParams } = new URL(request.url);
@@ -43,12 +46,14 @@ export async function GET(
     const includePedagogy = searchParams.get('include_pedagogy') !== 'false';
 
     // Step 4: Fetch syllabus (CAS-aware filter — see syllabus/[id]/route.ts)
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', params.id);
 
-    const allowedIds = readableInstitutionIds(scope);
+    const allowedIds = readableInstitutionIds(scope, canReadAllBos);
     if (allowedIds !== null) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });

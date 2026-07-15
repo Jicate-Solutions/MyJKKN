@@ -135,7 +135,15 @@ export function SyllabusPdfDownloadButton({
         ? `${coursePartLabel}-${liveName}`
         : liveName;
 
+      // Engineering (Anna University / CET) courses use the CET syllabus wording;
+      // every other stream keeps the default A&S layout. Keyed on the syllabus's
+      // OWN `stream` field — engineering courses are managed under the A&S
+      // autonomous college's BoS, so the institution is NOT a reliable signal.
+      const variant: 'default' | 'engineering' =
+        /engineering/i.test(syllabus.stream ?? '') ? 'engineering' : 'default';
+
       generateCourseSyllabusPDF({
+        variant,
         institution_name: header.institution_name,
         institution_address: header.institution_address,
         institution_accreditation: header.institution_accreditation,

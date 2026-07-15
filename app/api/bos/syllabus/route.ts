@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosAccess,
   resolveBosBoardScope,
@@ -8,6 +8,8 @@ import {
   guardInstitutionWrite,
   resolveCoeInstitutionId,
   readableCounsellingCodes,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
@@ -63,7 +65,13 @@ export async function GET(request: NextRequest) {
     // Syllabi have board_id but no composition_id, so members are filtered by
     // boardsOf (the union of board_ids across their active compositions).
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    // Read-only observer: a view-only role (no board membership, not a principal)
+    // holding academic.bos-syllabus.view reads every institution's syllabi
+    // (view-only). Never gates a write below.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
 
     if (scopeFilter.kind === 'none') {
       return NextResponse.json({
@@ -90,9 +98,11 @@ export async function GET(request: NextRequest) {
     // Step 4: Apply institution scope.
     // Super-admin with no institutionsId = "All institutions" cross-institution view — allowed.
     // Non-admin without an institution association = still rejected (403).
-    const scopedInstitutionsId = applyInstitutionScope(scope, institutionsId);
+    // Observer reads across all institutions, so an unscoped request is fine —
+    // treat like super-admin for the "no institution" allowance.
+    const scopedInstitutionsId = seeAll ? (institutionsId ?? null) : applyInstitutionScope(scope, institutionsId);
 
-    if (!scopedInstitutionsId && !scope.isSuperAdmin) {
+    if (!scopedInstitutionsId && !seeAll) {
       return NextResponse.json(
         {
           error: 'Your account is not associated with an institution. Contact your administrator to assign an institution to your profile.'
@@ -110,25 +120,27 @@ export async function GET(request: NextRequest) {
     //  - super-admin scoped to a specific institution: that institution's code.
     //  - super-admin with no institution: no filter (all institutions).
     let filterCode: string | null = null;
-    if (!scope.isSuperAdmin) {
-      const codes = await readableCounsellingCodes(scope);
+    if (!seeAll) {
+      const codes = await readableCounsellingCodes(scope, canReadAllBos);
       filterCode = codes && codes.length > 0 ? codes[0] : null;
     } else if (scopedInstitutionsId) {
       filterCode = await counsellingCodeFor(supabase, scopedInstitutionsId);
     }
 
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_course_syllabi')
       .select('*', { count: 'exact' });
 
     if (filterCode) {
       query = query.eq('counselling_code', filterCode);
-    } else if (!scope.isSuperAdmin) {
+    } else if (!seeAll) {
       // Non-admin whose code didn't resolve — never run unfiltered; fall back to
       // the single institution UUID so we still scope (and don't leak).
       query = query.eq('institutions_id', scopedInstitutionsId!);
     }
-    // super-admin with no filterCode → "All institutions" (no institution filter)
+    // super-admin / read-all observer with no filterCode → "All institutions" (no institution filter)
 
     // Board-membership scope (after the institution filter).
     //  - 'all'           : super-admin — no extra filter
