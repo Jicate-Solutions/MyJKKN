@@ -31,13 +31,63 @@ import {
   resolveChatModel,
   recordChatCall,
 } from '@/lib/services/platform/ai-clients/chat';
+import { enqueueJobsLane, awaitJobsLaneResults } from '@/lib/services/platform/ai-jobs-lane';
 
 // Model comes from ai_model_config (admin-governed) — resolved once per run via
 // resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
 // config failure).
 const FEATURE_KEY = 'session_feedback.escalation';
 
+// ₹0 Max-lane migration (§B): the ai_job_types row (seeded 20260713180000) + the
+// flip-back switch. This digest is SYNCHRONOUS (aggregate-then-apply), so lane=
+// 'jobs' enqueues each briefing and BOUNDED-POLLS the drain, falling back to the
+// per-class template for any not ready by the deadline (byte-parity with a no-AI run).
+const JOB_TYPE = FEATURE_KEY;
+const GENERATION_LANE_KEY = 'loops.session_feedback_escalation.generation_lane';
+// Poll budget for the jobs lane — comfortably below maxDuration (300s).
+const JOBS_POLL_DEADLINE_MS = 240_000;
+
+/** Read the generation-lane switch as a cron (fn_get_policy at global scope, no
+ *  auth.uid). Fail-safe to 'direct' (the proven inline path) on any read error. */
+async function readGenerationLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'direct'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', { p_key: GENERATION_LANE_KEY, p_scope_id: null });
+    if (error) return 'direct';
+    return data === 'jobs' ? 'jobs' : 'direct';
+  } catch {
+    return 'direct';
+  }
+}
+
 const SUMMARY_SYSTEM = `You write a 2-3 sentence briefing for a department head or principal about ONE class whose students gave anonymous post-class feedback indicating low understanding. You receive ONLY aggregate numbers and anonymized comment themes — never any student identity. Speak only in aggregate themes; NEVER quote a comment verbatim and NEVER refer to an individual student. Be concrete, India higher-education context aware, and end with the single most useful next step for the teacher. Return PLAIN TEXT only (2-3 sentences, no markdown, no preamble).`;
+
+// The per-class fallback briefing (used when AI is unavailable, has no comments,
+// or — on the jobs lane — has not drained by the deadline). Kept identical to the
+// inline path's template so a timeout is byte-parity with a no-AI run.
+function escalationTemplate(e: Escalation): string {
+  const avg = e.avg_understood ?? 'n/a';
+  return `Average understanding ${avg}/5 across ${e.responses} learners — below the escalation threshold. Review recent ${e.course_name || e.course_code} sessions and pace/clarity with the Senior Learner.`;
+}
+
+// The per-class user prompt — shared by the inline path and the jobs-lane enqueue.
+function escalationUserPrompt(e: Escalation, texts: string[]): string {
+  const avg = e.avg_understood ?? 'n/a';
+  return `Course: ${e.course_name || e.course_code} (${e.course_code})
+Responses: ${e.responses}
+Average understanding (1-5): ${avg}
+
+Anonymized student comment themes:
+${texts.map((t) => `- ${String(t).trim()}`).join('\n')}
+
+Write the 2-3 sentence leadership briefing now.`;
+}
+
+/** A stable per-escalation key (matches the summaries map key the digest expects). */
+function escalationKey(e: Escalation): string {
+  return `${e.faculty_email}|${e.course_code}`;
+}
 
 // Monday of last week (UTC), as YYYY-MM-DD — the window the digest covers.
 function lastWeekMondayUTC(now: Date): string {
@@ -64,19 +114,11 @@ async function summarize(
   modelId: string,
   e: Escalation
 ): Promise<string> {
-  const avg = e.avg_understood ?? 'n/a';
-  const template = `Average understanding ${avg}/5 across ${e.responses} learners — below the escalation threshold. Review recent ${e.course_name || e.course_code} sessions and pace/clarity with the teacher.`;
+  const template = escalationTemplate(e);
   const texts = Array.isArray(e.free_texts) ? e.free_texts.filter(Boolean) : [];
   if (!anthropic || texts.length === 0) return template;
   try {
-    const userPrompt = `Course: ${e.course_name || e.course_code} (${e.course_code})
-Responses: ${e.responses}
-Average understanding (1-5): ${avg}
-
-Anonymized student comment themes:
-${texts.map((t) => `- ${String(t).trim()}`).join('\n')}
-
-Write the 2-3 sentence leadership briefing now.`;
+    const userPrompt = escalationUserPrompt(e, texts);
     const t0 = Date.now();
     let resp: Anthropic.Message;
     try {
@@ -120,18 +162,26 @@ export async function GET(request: NextRequest) {
   // Fail-open: any schedules-read problem and the cloud digest runs normally.
   // Harmless either way (the digest is idempotent per recipient per week), but
   // deferring keeps the twin the primary lane.
-  if (await shouldDeferToMaxLane('session-feedback-escalation')) {
-    console.log('[cron/session-feedback-escalation] deferred to Max lane');
+  const started = Date.now();
+  const supabase = createServiceRoleClient();
+
+  // ₹0 Max-lane migration (§B): 'jobs' (default after PR) = enqueue each briefing
+  // onto the #1998 ai_jobs registry (₹0) and bounded-poll; 'direct' = the legacy
+  // inline Anthropic fan-out. Flip-back switch.
+  const lane = await readGenerationLane(supabase);
+
+  // Manifest-twin deferral applies ONLY on 'direct'. On 'jobs' the cron feeds
+  // ai_jobs itself. Overlap-safe: the digest is idempotent per recipient per week.
+  if (lane === 'direct' && (await shouldDeferToMaxLane('session-feedback-escalation'))) {
+    console.log('[cron/session-feedback-escalation] deferred to Max manifest twin (direct lane)');
     return NextResponse.json({
       ok: true,
+      generation_lane: lane,
       classes_flagged: 0,
       recipients_notified: 0,
       deferred_to_max_lane: true,
     });
   }
-
-  const started = Date.now();
-  const supabase = createServiceRoleClient();
 
   // Allow an explicit ?week_start=YYYY-MM-DD for manual/backfill runs.
   const wkParam = request.nextUrl.searchParams.get('week_start');
@@ -164,19 +214,59 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 2) Generate a per-class AI summary (graceful template fallback).
+  // 2) Generate a per-class AI briefing (graceful template fallback).
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   const anthropic = apiKey ? new Anthropic({ apiKey }) : null;
   // Resolve the model from ai_model_config ONCE per run (never throws — hardcoded
-  // fallback on any config failure), before the parallel summarize fan-out.
+  // fallback on any config failure), before the fan-out.
   const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
   const summaries: Record<string, string> = {};
-  await Promise.all(
-    escalations.map(async (e) => {
-      const key = `${e.faculty_email}|${e.course_code}`;
-      summaries[key] = await summarize(anthropic, modelId, e);
-    })
-  );
+  let enqueued = 0;
+  let aiFilled = 0;
+
+  if (lane === 'jobs') {
+    // ₹0 Max lane: enqueue a briefing per class that HAS comments (classes with
+    // none use the template directly, exactly as the inline path). Then bounded-
+    // poll the drain and fill the AI briefing where ready, template otherwise —
+    // so a slow/absent drain degrades to a template-only digest (no worse than a
+    // no-AI run), and the digest still applies synchronously this run.
+    const jobKeyById = new Map<string, string>(); // jobId → escalation key
+    for (const e of escalations) {
+      const key = escalationKey(e);
+      const texts = Array.isArray(e.free_texts) ? e.free_texts.filter(Boolean) : [];
+      if (texts.length === 0) {
+        summaries[key] = escalationTemplate(e);
+        continue;
+      }
+      const res = await enqueueJobsLane(supabase, {
+        jobType: JOB_TYPE,
+        prompt: `${SUMMARY_SYSTEM}\n\n${escalationUserPrompt(e, texts)}`,
+        context: { key },
+        dedupeKey: `${FEATURE_KEY}|${weekStart}|${key}`,
+      });
+      if (res.ok) {
+        jobKeyById.set(res.jobId, key);
+        enqueued++;
+      } else {
+        summaries[key] = escalationTemplate(e); // in_flight / error → template
+      }
+    }
+    const results = await awaitJobsLaneResults(supabase, [...jobKeyById.keys()], {
+      deadlineMs: JOBS_POLL_DEADLINE_MS,
+    });
+    for (const [jobId, key] of jobKeyById) {
+      const text = results.get(jobId);
+      const e = escalations.find((x) => escalationKey(x) === key)!;
+      summaries[key] = text ?? escalationTemplate(e);
+      if (text) aiFilled++;
+    }
+  } else {
+    await Promise.all(
+      escalations.map(async (e) => {
+        summaries[escalationKey(e)] = await summarize(anthropic, modelId, e);
+      })
+    );
+  }
 
   // 3) Apply the digest (idempotent per recipient per week).
   const { data: applyData, error: applyErr } = await supabase.rpc(
@@ -194,10 +284,12 @@ export async function GET(request: NextRequest) {
   const summary = Array.isArray(applyData) ? applyData[0] : applyData;
   return NextResponse.json({
     ok: true,
+    generation_lane: lane,
     week_start: weekStart,
     classes_flagged: summary?.classes_flagged ?? escalations.length,
     recipients_notified: summary?.recipients_notified ?? 0,
-    ai_used: Boolean(anthropic),
+    enqueued,
+    ai_used: lane === 'jobs' ? aiFilled > 0 : Boolean(anthropic),
     elapsed_ms: Date.now() - started,
   });
 }
