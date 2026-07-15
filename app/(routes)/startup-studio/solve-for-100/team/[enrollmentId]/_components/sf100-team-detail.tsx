@@ -14,6 +14,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Sf100TrainingNeedsPanel } from '../../../_components/sf100-training-needs-panel';
+import { Sf100OurMentorsPanel } from '../../../_components/sf100-our-mentors-panel';
+import { Sf100RequestMeetingPanel } from '../../../_components/sf100-request-meeting-panel';
 import {
   AlertCircle,
   ExternalLink,
@@ -747,6 +749,14 @@ export function SF100TeamDetail({
           <HeartHandshake className="h-3 w-3 mr-1.5" aria-hidden="true" />
           Training Needs
         </TabsTrigger>
+        <TabsTrigger value="our-mentors" className="text-xs sm:text-sm">
+          <Users className="h-3 w-3 mr-1.5" aria-hidden="true" />
+          Our Mentors
+        </TabsTrigger>
+        <TabsTrigger value="request-meeting" className="text-xs sm:text-sm">
+          <Calendar className="h-3 w-3 mr-1.5" aria-hidden="true" />
+          Request Meeting
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="overview" className="mt-0">
@@ -771,6 +781,14 @@ export function SF100TeamDetail({
 
       <TabsContent value="needs" className="mt-0">
         <Sf100TrainingNeedsPanel enrollmentId={enrollmentId} canEdit={canEdit} />
+      </TabsContent>
+
+      <TabsContent value="our-mentors" className="mt-0">
+        <Sf100OurMentorsPanel enrollmentId={enrollmentId} />
+      </TabsContent>
+
+      <TabsContent value="request-meeting" className="mt-0">
+        <Sf100RequestMeetingPanel enrollmentId={enrollmentId} canEdit={canEdit} />
       </TabsContent>
     </Tabs>
   );
