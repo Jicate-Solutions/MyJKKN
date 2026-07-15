@@ -5,12 +5,7 @@
 // so this service does NOT touch Supabase directly.
 // Created: 2026-06-22 (Sports Tournament PR2).
 
-import type {
-  TournamentEntry,
-  CreateEntryDto,
-  RegisterEntryResult,
-  UpdateEntryDto,
-} from '@/types/tournament';
+import type { TournamentEntry, UpdateEntryDto } from '@/types/tournament';
 
 async function asJson<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -26,16 +21,6 @@ export class TournamentRegistrationService {
     const res = await fetch(`/api/events/tournament/${eventId}/entries`, { cache: 'no-store' });
     const data = await asJson<{ entries: TournamentEntry[] }>(res);
     return data.entries ?? [];
-  }
-
-  /** Register a team or individual into a division. */
-  static async register(eventId: string, dto: CreateEntryDto): Promise<RegisterEntryResult> {
-    const res = await fetch(`/api/events/tournament/${eventId}/entries`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dto),
-    });
-    return asJson<RegisterEntryResult>(res);
   }
 
   /** Update an entry (seed/status/name/notes). */
