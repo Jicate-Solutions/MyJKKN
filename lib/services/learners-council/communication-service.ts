@@ -268,6 +268,48 @@ export class LCCommunicationService {
   }
 
   /**
+   * Send a draft announcement back to its author with a reason.
+   *
+   * Office bearers only -- enforced by fn_lc_announcement_guard_publish(), which also stamps
+   * returned_by / returned_at. The author is notified so they can fix and resubmit.
+   */
+  static async returnAnnouncement(id: string, reason: string): Promise<LCAnnouncement> {
+    const { data, error } = await this.supabase
+      .from('lc_announcements')
+      .update({ status: 'returned' as AnnouncementStatus, return_reason: reason })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error returning announcement:', error);
+      throw new Error(`Failed to return announcement: ${error.message}`);
+    }
+
+    // Notify the author that their draft came back, with the reason.
+    try {
+      const a = data as LCAnnouncement;
+      if (a.created_by) {
+        await LCNotificationService.bulkCreateNotifications([
+          {
+            user_id: a.created_by,
+            type: 'announcement' as const,
+            title: 'Announcement sent back',
+            message: `"${a.title}" was returned: ${reason}`,
+            link: '/learners-council/communication',
+            reference_id: a.id,
+            reference_type: 'announcement',
+          },
+        ]);
+      }
+    } catch (notifErr) {
+      console.warn('[lc/communication] Failed to notify author of return:', notifErr);
+    }
+
+    return data as LCAnnouncement;
+  }
+
+  /**
    * Mark an announcement as read by a user.
    * Inserts into lc_announcement_reads (ON CONFLICT DO NOTHING),
    * then updates the announcement's read_count from actual row count.
