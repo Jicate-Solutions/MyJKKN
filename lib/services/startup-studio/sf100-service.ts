@@ -1498,6 +1498,105 @@ export class SF100Service extends BaseService {
     return result;
   }
 
+  /**
+   * Weekly reminder: notify the leader of every active team that has NOT checked
+   * in within the last 7 days. Fired by the Sunday cron (/api/cron/sf100-weekly-reminder).
+   * Recipient = team owner (registration.owner_id), matching runStallCheck.
+   * Roster + thresholds resolved from the cohort spine with a sf100_programs fallback.
+   */
+  static async runWeeklyReminders(
+    programId: string
+  ): Promise<{ total_checked: number; reminded: number }> {
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let q = this.supabase
+      .from('sf100_enrollments')
+      .select('id, last_check_in_at, enrolled_at, registration:event_registrations(team_name, owner_id)')
+      .in('status', ['active', 'warning', 'probation']);
+    q = rosterIds ? q.in('id', rosterIds) : q.eq('program_id', programId);
+    const { data: enrollments, error } = await q;
+    if (error) throw new Error('Failed to fetch enrollments for weekly reminder: ' + error.message);
+
+    const now = Date.now();
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    let reminded = 0;
+    for (const e of enrollments || []) {
+      const last = e.last_check_in_at ? new Date(e.last_check_in_at).getTime() : null;
+      // Skip teams that already checked in this week — the reminder is a nudge for
+      // the silent, not noise for the active.
+      if (last != null && now - last < WEEK_MS) continue;
+      const ownerId = (e.registration as any)?.owner_id;
+      if (!ownerId) continue;
+      await this.createNotification({
+        enrollment_id: e.id,
+        recipient_id: ownerId,
+        type: 'weekly_reminder',
+        title: 'Weekly check-in due',
+        body: "Your team hasn't checked in this week. Submit a quick check-in to keep your momentum and stay active.",
+        metadata: { last_check_in_at: e.last_check_in_at ?? null },
+      });
+      reminded += 1;
+    }
+    return { total_checked: enrollments?.length ?? 0, reminded };
+  }
+
+  /**
+   * Deadline warning: at exactly 30 and 7 days before the program hard deadline,
+   * notify every active team's leader. Fired by the daily cron
+   * (/api/cron/sf100-accountability). The exact-day match sends each warning once.
+   */
+  static async runDeadlineWarnings(
+    programId: string
+  ): Promise<{ total_checked: number; warned: number; days_until: number | null }> {
+    // hard_deadline: cohort config (canonical) → sf100_programs fallback.
+    const cohortRow = await this.resolveCohortRow(programId);
+    let hardDeadline: string | null =
+      (cohortRow?.config?.hard_deadline as string | undefined) ?? null;
+    if (!hardDeadline) {
+      const { data: program } = await this.supabase
+        .from('sf100_programs')
+        .select('hard_deadline')
+        .eq('id', programId)
+        .maybeSingle();
+      hardDeadline = program?.hard_deadline ?? null;
+    }
+    if (!hardDeadline) return { total_checked: 0, warned: 0, days_until: null };
+
+    const now = new Date();
+    const deadline = new Date(`${hardDeadline}T00:00:00Z`);
+    const daysUntil = Math.ceil(
+      (deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    // Only fire on the two milestone days (spec §10). Other days: no-op.
+    if (daysUntil !== 30 && daysUntil !== 7) {
+      return { total_checked: 0, warned: 0, days_until: daysUntil };
+    }
+
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let q = this.supabase
+      .from('sf100_enrollments')
+      .select('id, registration:event_registrations(team_name, owner_id)')
+      .in('status', ['active', 'warning', 'probation']);
+    q = rosterIds ? q.in('id', rosterIds) : q.eq('program_id', programId);
+    const { data: enrollments, error } = await q;
+    if (error) throw new Error('Failed to fetch enrollments for deadline warning: ' + error.message);
+
+    let warned = 0;
+    for (const e of enrollments || []) {
+      const ownerId = (e.registration as any)?.owner_id;
+      if (!ownerId) continue;
+      await this.createNotification({
+        enrollment_id: e.id,
+        recipient_id: ownerId,
+        type: 'deadline_warning',
+        title: `Deadline in ${daysUntil} days`,
+        body: `Solve for 100 ends in ${daysUntil} days. Keep logging your paid users and check-ins to finish strong.`,
+        metadata: { days_until: daysUntil, hard_deadline: hardDeadline },
+      });
+      warned += 1;
+    }
+    return { total_checked: enrollments?.length ?? 0, warned, days_until: daysUntil };
+  }
+
   // =========================================================================
   // Group 7 — Leaderboard
   // =========================================================================
