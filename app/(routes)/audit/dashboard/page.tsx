@@ -107,7 +107,10 @@ const PHASE_PRIORITY: Record<string, number> = {
 
 function pickActiveCycle(cycles: AuditCycle[] | undefined): AuditCycle | null {
   if (!cycles || cycles.length === 0) return null;
-  const open = cycles.filter((c) => c.phase !== 'closed');
+  // The standing "Whole Institution" audit never closes and always sorts first,
+  // so it would permanently win this pick and strand every real cycle. It has
+  // its own always-on row on this page; exclude it here.
+  const open = cycles.filter((c) => c.phase !== 'closed' && !c.is_standing);
   if (open.length === 0) return null;
   return [...open].sort((a, b) => {
     // Compliance cycles first.

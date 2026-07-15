@@ -19,7 +19,11 @@ export type AttestationLevel =
   | 'partial'
   | 'non-compliant';
 
-export type ParameterGroup = 1 | 2 | 3 | 4;
+// Group 5 arrived with CARRE v2.0 (migration 20260705120000_carre_audit_v2),
+// which widened the catalog CHECK and seeded CARRE-E1..E5 into it
+// (pillar map: C=1 A=2 R=3 RS=4 E=5). This type was never widened to match, so
+// every group-5 row was silently dropped by the UI's group buckets.
+export type ParameterGroup = 1 | 2 | 3 | 4 | 5;
 
 export type FindingSeverity = 'red' | 'yellow' | 'green';
 

@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -35,8 +35,10 @@ import {
   ArrowRight,
   RefreshCw,
   LayoutGrid,
+  Building2,
 } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { AuditCycleService } from '@/lib/services/audit';
 import { CyclePhaseBadge } from '../_components/cycle-phase-badge';
 import type { AuditCycle } from '@/lib/types/audit';
@@ -52,6 +54,16 @@ function formatDate(iso: string | null | undefined) {
   } catch {
     return iso;
   }
+}
+
+/**
+ * Date range for a cycle row. The standing audit never ends and carries a
+ * far-future sentinel end_date from fn_ensure_standing_institution_audit —
+ * showing "31 Dec 2099" reads as a real deadline, so say what it means.
+ */
+function formatCycleRange(cycle: AuditCycle) {
+  if (cycle.is_standing) return `${formatDate(cycle.start_date)} — ongoing`;
+  return `${formatDate(cycle.start_date)} — ${formatDate(cycle.end_date)}`;
 }
 
 // Engagement audits (CARE/CARRE) and compliance audits (NAAC/NBA/…) both live
@@ -81,6 +93,28 @@ export default function AuditCyclesPage() {
     error,
     refetch,
   } = useAuditCycles({ includeClosed });
+
+  // Cycle names repeat across colleges and quarters ("Q2 FY26-27 Institutional
+  // Audit" twice over), so the name alone can't tell two rows apart. Resolve the
+  // college each cycle covers and show it beside the name.
+  const { institutions } = useInstitutionsWithAccess();
+  const institutionNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of institutions) m.set(i.id, i.name);
+    return m;
+  }, [institutions]);
+
+  const scopeLabel = useCallback(
+    (cycle: AuditCycle): string | null => {
+      const ids = cycle.institution_ids;
+      if (!ids || ids.length === 0) return 'All institutions';
+      const names = ids.map((id) => institutionNameById.get(id)).filter(Boolean);
+      if (names.length === 0) return null; // names still loading
+      if (names.length === 1) return names[0]!;
+      return `${names.length} institutions`;
+    },
+    [institutionNameById]
+  );
 
   // Self-heal: guarantee the standing "Whole Institution — Ongoing" audit exists
   // (it holds the org-wide checks — loop health, exam integrity). Runs once on
@@ -290,6 +324,12 @@ export default function AuditCyclesPage() {
                             </Badge>
                           )}
                         </div>
+                        {!c.is_standing && scopeLabel(c) && (
+                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Building2 className="h-3 w-3 shrink-0" />
+                            {scopeLabel(c)}
+                          </div>
+                        )}
                         {c.description && (
                           <div className="text-xs text-muted-foreground line-clamp-1 max-w-md">
                             {c.description}
@@ -325,7 +365,7 @@ export default function AuditCyclesPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {formatDate(c.start_date)} — {formatDate(c.end_date)}
+                        {formatCycleRange(c)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Link href={auditHref(c)}>
