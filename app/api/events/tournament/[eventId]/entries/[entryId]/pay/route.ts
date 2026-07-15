@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { canManageTournament } from '@/lib/services/events/tournament/organizer-access';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 
 export async function POST(
@@ -19,9 +20,8 @@ export async function POST(
     const auth = await createClient();
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    const { data: canManage } = await auth.rpc('user_has_permission', {
-      permission_name: 'sports.tournaments.manage',
-    });
+    // manage permission OR per-event in-charge (Tournament In-charge, 2026-07)
+    const canManage = await canManageTournament(auth, eventId);
     if (canManage !== true) {
       return NextResponse.json({ error: 'Forbidden — sports.tournaments.manage required' }, { status: 403 });
     }
@@ -57,6 +57,12 @@ export async function POST(
     const fee = Number((division?.config as any)?.entry_fee ?? reg?.payment_amount ?? 0) || 0;
     if (fee <= 0) return NextResponse.json({ error: 'This division has no entry fee' }, { status: 400 });
 
+    const { data: hostEvent } = await (svc as any)
+      .from('events')
+      .select('institution_id')
+      .eq('id', eventId)
+      .single();
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const res = await EventPaymentService.initiatePayment({
       registrationId: entry.registration_id,
@@ -67,9 +73,17 @@ export async function POST(
       payerPhone: reg?.participant_phone || '',
       returnUrl: `${appUrl}/events/tournament/${eventId}`,
       callbackUrl: `${appUrl}/api/events/tournament/${eventId}/payment/callback`,
+      institutionIdOverride: hostEvent?.institution_id ?? null,
+      feeHead: 'tuition',
     });
 
-    return NextResponse.json({ payment_url: res.payment_url, transaction_id: res.transaction_id });
+    return NextResponse.json({
+      transaction_id: res.transaction_id,
+      razorpay_order_id: res.razorpay_order_id ?? null,
+      razorpay_key_id: res.razorpay_key_id ?? null,
+      amount_paise: res.amount_paise ?? null,
+      customer: res.customer ?? null,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to create payment link' },

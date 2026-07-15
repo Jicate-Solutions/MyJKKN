@@ -21505,3 +21505,630 @@ GRANT EXECUTE ON FUNCTION public.fn_school_master_districts(text) TO authenticat
 -- then called once PER ROW (54ms -> 55,847ms on 56k rows). The allowed institutions
 -- are hoisted once into v_insts uuid[]. See the migration header for the full receipt.
 -- ---------------------------------------------------------------------------
+
+-- ── Tournament In-charge access helpers (2026-07-10, tournament_incharge_access) ──
+-- In-charges live in events.config->'incharges' [{member_id, name}]. Both helpers
+-- are SECURITY DEFINER booleans about the CALLER only (safe for authenticated).
+
+CREATE OR REPLACE FUNCTION public.fn_is_event_incharge(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.events e,
+         jsonb_array_elements(COALESCE(e.config->'incharges', '[]'::jsonb)) AS inc
+    WHERE e.id = p_event_id
+      AND inc->>'member_id' = auth.uid()::text
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_is_event_committee_member(p_event_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.event_committees mc
+    WHERE mc.event_id = p_event_id
+      AND (
+        mc.lead_id = auth.uid()
+        OR auth.uid() = ANY(mc.member_ids)
+        OR EXISTS (
+          SELECT 1 FROM public.profiles p
+          WHERE p.id = auth.uid()
+            AND p.full_name IS NOT NULL
+            AND (p.full_name = mc.lead_name OR p.full_name = ANY(mc.member_names))
+        )
+      )
+  );
+$$;
+
+-- ── events privileged-field guard (2026-07-10) ──
+CREATE OR REPLACE FUNCTION public.fn_guard_event_privileged_fields()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_super       boolean;
+  v_tmanage     boolean;
+  v_admin_role  boolean;
+BEGIN
+  -- Trusted backend paths (service_role / migrations / cron) have no auth.uid().
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- ── tier 1: the in-charge roster ──
+  IF COALESCE(NEW.config->'incharges', '[]'::jsonb)
+       IS DISTINCT FROM COALESCE(OLD.config->'incharges', '[]'::jsonb)
+  THEN
+    v_super   := COALESCE(public.is_super_admin(), false);
+    v_tmanage := COALESCE(public.user_has_permission('sports.tournaments.manage'), false);
+    IF NOT (v_super OR v_tmanage) THEN
+      RAISE EXCEPTION
+        'Only sports.tournaments.manage holders may appoint or remove tournament in-charges (event %)', OLD.id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- ── tier 2: tenancy / ownership columns ──
+  IF NEW.institution_id IS DISTINCT FROM OLD.institution_id
+     OR NEW.event_type  IS DISTINCT FROM OLD.event_type
+     OR NEW.created_by  IS DISTINCT FROM OLD.created_by
+  THEN
+    v_super      := COALESCE(v_super, public.is_super_admin(), false);
+    v_admin_role := public.get_current_user_role() = ANY (
+                      ARRAY['super_admin','admin','administrator','event_coordinator']
+                    );
+    v_tmanage    := COALESCE(v_tmanage,
+                             public.user_has_permission('sports.tournaments.manage'), false);
+    IF NOT (COALESCE(v_super, false) OR COALESCE(v_admin_role, false) OR COALESCE(v_tmanage, false)) THEN
+      RAISE EXCEPTION
+        'You may not change the institution, event type or owner of event %', OLD.id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_event_privileged_fields() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_guard_event_privileged_fields() IS
+  'BEFORE UPDATE guard on events. Tier 1: only super admin / sports.tournaments.manage may change config->incharges (blocks per-event in-charges — and any same-institution user reachable via events_auth_update — from escalating privileges). Tier 2: only super admin / admin-coordinator roles / tournament managers may change institution_id, event_type or created_by. service_role (auth.uid() IS NULL) bypasses.';
+
+-- ── Tournament role-access helpers + student browse feed (2026-07-10) ──
+CREATE OR REPLACE FUNCTION public.fn_is_event_volunteer(p_event_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.event_volunteer_checkins v
+    WHERE v.event_id = p_event_id AND v.member_id = auth.uid()
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_is_event_volunteer(uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_is_event_volunteer(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_is_event_volunteer(uuid) IS
+  'True when auth.uid() is a volunteer (event_volunteer_checkins.member_id) of the given event. Self-authorizing: only reveals the caller''s own membership.';
+
+-- Backs RoutePermissionGuard.fallbackCheck for /events/tournament. Entering the
+-- module leaks nothing: every page/API still authorizes per event.
+CREATE OR REPLACE FUNCTION public.fn_has_any_tournament_role()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.events e
+    WHERE e.event_type = 'sports_tournament'
+      AND (
+        EXISTS (
+          SELECT 1 FROM jsonb_array_elements(COALESCE(e.config->'incharges', '[]'::jsonb)) AS inc
+          WHERE inc->>'member_id' = auth.uid()::text
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.event_committees mc
+          WHERE mc.event_id = e.id
+            AND (
+              mc.lead_id = auth.uid()
+              OR auth.uid() = ANY(mc.member_ids)
+              OR EXISTS (
+                SELECT 1 FROM public.profiles p
+                WHERE p.id = auth.uid() AND p.full_name IS NOT NULL
+                  AND (p.full_name = mc.lead_name OR p.full_name = ANY(mc.member_names))
+              )
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.event_volunteer_checkins v
+          WHERE v.event_id = e.id AND v.member_id = auth.uid()
+        )
+      )
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_has_any_tournament_role() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_has_any_tournament_role() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_has_any_tournament_role() IS
+  'True when auth.uid() is an in-charge, committee lead/member, or checked-in volunteer of ANY sports_tournament event. Backs RoutePermissionGuard.fallbackCheck so those users can enter the module UI without a sports.tournaments.* key; per-event authorization still applies on every page and API.';
+
+CREATE OR REPLACE FUNCTION public.fn_open_tournaments()
+RETURNS TABLE (
+  id uuid, name text, description text, venue text,
+  start_date date, end_date date,
+  registration_open_date date, registration_close_date date,
+  status text, scope text, is_registration_open boolean, divisions jsonb
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT
+    e.id, e.name, e.description,
+    COALESCE(NULLIF(e.venue, ''), e.venue_text) AS venue,
+    e.start_date, e.end_date,
+    e.registration_open_date, e.registration_close_date,
+    e.status, e.scope,
+    (
+      (e.registration_open_date  IS NULL OR CURRENT_DATE >= e.registration_open_date)
+      AND (e.registration_close_date IS NULL OR CURRENT_DATE <= e.registration_close_date)
+    ) AS is_registration_open,
+    COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'id', d.id, 'sport', d.sport, 'gender', d.gender,
+               'age_band', d.age_band, 'format', d.format, 'level', d.level,
+               'max_teams', d.max_teams,
+               'entry_fee', COALESCE((d.config->>'entry_fee')::numeric, 0)
+             ) ORDER BY d.sort_order)
+        FROM public.tournament_divisions d
+       WHERE d.event_id = e.id AND d.is_active
+    ), '[]'::jsonb) AS divisions
+  FROM public.events e
+  WHERE auth.uid() IS NOT NULL
+    AND e.event_type = 'sports_tournament'
+    AND e.status NOT IN ('draft', 'cancelled', 'archived')
+    AND (
+      e.scope = 'all_jkkn'
+      OR e.institution_id IN (
+        SELECT p.institution_id FROM public.profiles p
+        WHERE p.id = auth.uid() AND p.institution_id IS NOT NULL
+      )
+    )
+  ORDER BY e.start_date NULLS LAST, e.name;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_open_tournaments() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_open_tournaments() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_open_tournaments() IS
+  'PII-free feed of non-draft/cancelled/archived sports tournaments visible to the caller (own institution or all-JKKN), with active divisions and an is_registration_open flag. Backs the student-facing /events/tournaments page. Returns no entries, payments, budget or sponsor data.';
+
+-- BILLING REFUND WORKFLOW RPCs (2026-07-11) — see migration 20260711110000
+
+CREATE OR REPLACE FUNCTION public.fn_refund_assignee_match(p_roles jsonb, p_users jsonb, p_user uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE(p_users ? p_user::text, false)
+      OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = p_user AND COALESCE(p_roles ? ur.role_id::text, false));
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_resolve_refund_flow_config(p_institution_id uuid)
+RETURNS billing_refund_flow_configs LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT * FROM billing_refund_flow_configs
+  WHERE is_active AND (institution_id = p_institution_id OR institution_id IS NULL)
+  ORDER BY institution_id NULLS LAST LIMIT 1;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_my_refund_capabilities(p_institution_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_cfg billing_refund_flow_configs; v_can boolean := false;
+BEGIN
+  v_cfg := fn_resolve_refund_flow_config(p_institution_id);
+  IF v_cfg.id IS NULL THEN RETURN jsonb_build_object('configured', false, 'can_initiate', false); END IF;
+  v_can := is_super_admin()
+        OR auth.uid() = ANY(v_cfg.initiator_users)
+        OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = auth.uid() AND ur.role_id = ANY(v_cfg.initiator_roles));
+  RETURN jsonb_build_object('configured', true, 'can_initiate', v_can);
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_initiate_refund_request(
+  p_student_id uuid, p_refund_type text, p_bills jsonb, p_notes text, p_attachments jsonb DEFAULT '[]'
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_student learners_profiles; v_cfg billing_refund_flow_configs;
+  v_bill record; v_line jsonb; v_paid numeric; v_held numeric; v_amt numeric;
+  v_total numeric := 0; v_request_id uuid; v_number text; v_snapshot jsonb;
+  v_actor_role text;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF p_refund_type NOT IN ('withdrawal','adjustment') THEN RAISE EXCEPTION 'invalid_refund_type'; END IF;
+  IF COALESCE(btrim(p_notes),'') = '' THEN RAISE EXCEPTION 'notes_required'; END IF;
+  IF jsonb_typeof(p_bills) <> 'array' OR jsonb_array_length(p_bills) = 0 THEN RAISE EXCEPTION 'no_bills_selected'; END IF;
+
+  SELECT * INTO v_student FROM learners_profiles WHERE id = p_student_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'student_not_found'; END IF;
+
+  v_cfg := fn_resolve_refund_flow_config(v_student.institution_id);
+  IF v_cfg.id IS NULL THEN RAISE EXCEPTION 'no_flow_configured'; END IF;
+  IF jsonb_array_length(v_cfg.stages) = 0 THEN RAISE EXCEPTION 'flow_has_no_stages'; END IF;
+  IF NOT (is_super_admin() OR v_user = ANY(v_cfg.initiator_users)
+          OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = v_user AND ur.role_id = ANY(v_cfg.initiator_roles))) THEN
+    RAISE EXCEPTION 'not_authorized_to_initiate';
+  END IF;
+
+  -- Freeze the chain. uuids as strings so jsonb ? works in RLS/gating.
+  v_snapshot := jsonb_build_object(
+    'config_id', v_cfg.id::text,
+    'initiator', jsonb_build_object('assignee_roles', to_jsonb(v_cfg.initiator_roles::text[]), 'assignee_users', to_jsonb(v_cfg.initiator_users::text[])),
+    'stages', v_cfg.stages,
+    'disburser', jsonb_build_object('assignee_roles', to_jsonb(v_cfg.disburser_roles::text[]), 'assignee_users', to_jsonb(v_cfg.disburser_users::text[])));
+
+  v_number := 'RFND-' || to_char(now(),'YYYY') || '-' || lpad(nextval('billing_refund_request_number_seq')::text, 5, '0');
+  SELECT cr.role_name INTO v_actor_role FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_user ORDER BY ur.is_primary DESC NULLS LAST LIMIT 1;
+
+  INSERT INTO billing_refund_requests
+    (request_number, institution_id, student_id, refund_type, status, current_stage_index,
+     flow_snapshot, total_refund_amount, previous_lifecycle_status, initiated_by)
+  VALUES (v_number, v_student.institution_id, p_student_id, p_refund_type, 'pending_review', 0,
+     v_snapshot, 0, CASE WHEN p_refund_type='withdrawal' THEN v_student.lifecycle_status::text END, v_user)
+  RETURNING id INTO v_request_id;
+
+  FOR v_line IN SELECT * FROM jsonb_array_elements(p_bills) LOOP
+    v_amt := (v_line->>'refund_amount')::numeric;
+    SELECT * INTO v_bill FROM billing_student_bills
+      WHERE id = (v_line->>'bill_id')::uuid AND student_id = p_student_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'bill_not_found_for_student: %', v_line->>'bill_id'; END IF;
+
+    SELECT COALESCE(SUM(bri.amount_paid),0) INTO v_paid FROM billing_receipt_items bri WHERE bri.bill_id = v_bill.id;
+    SELECT COALESCE(SUM(rb.refund_amount),0) INTO v_held
+      FROM billing_refund_request_bills rb
+      JOIN billing_refund_requests r ON r.id = rb.request_id
+      WHERE rb.bill_id = v_bill.id AND r.status IN ('pending_review','pending_disbursement');
+
+    IF v_amt IS NULL OR v_amt <= 0 THEN RAISE EXCEPTION 'invalid_refund_amount'; END IF;
+    IF v_amt > v_paid - v_bill.refunded_amount - v_held THEN
+      RAISE EXCEPTION 'amount_exceeds_refundable: bill % headroom %', v_bill.id, v_paid - v_bill.refunded_amount - v_held;
+    END IF;
+
+    INSERT INTO billing_refund_request_bills (request_id, bill_id, paid_amount_snapshot, refund_amount)
+    VALUES (v_request_id, v_bill.id, v_paid, v_amt);
+    v_total := v_total + v_amt;
+  END LOOP;
+
+  UPDATE billing_refund_requests SET total_refund_amount = v_total WHERE id = v_request_id;
+  INSERT INTO billing_refund_request_actions (request_id, action_type, stage_index, stage_name, actor_id, actor_role_name, notes, attachments)
+  VALUES (v_request_id, 'initiated', NULL, 'Initiation', v_user, v_actor_role, p_notes, COALESCE(p_attachments,'[]'));
+
+  IF p_refund_type = 'withdrawal' THEN
+    UPDATE learners_profiles SET lifecycle_status = 'withdrawal_pending', updated_at = now()
+    WHERE id = p_student_id;  -- seat freed NOW (seat RPCs count by status)
+  END IF;
+  RETURN v_request_id;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_act_on_refund_request(
+  p_request_id uuid, p_action text, p_notes text DEFAULT NULL,
+  p_attachments jsonb DEFAULT '[]', p_reason text DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_user uuid := auth.uid(); v_req billing_refund_requests; v_stage jsonb;
+  v_stage_count int; v_actor_role text;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF p_action NOT IN ('approve','decline') THEN RAISE EXCEPTION 'invalid_action'; END IF;
+
+  SELECT * INTO v_req FROM billing_refund_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'request_not_found'; END IF;
+  IF v_req.status <> 'pending_review' THEN RAISE EXCEPTION 'invalid_status: %', v_req.status; END IF;
+
+  v_stage := v_req.flow_snapshot->'stages'->v_req.current_stage_index;
+  v_stage_count := jsonb_array_length(v_req.flow_snapshot->'stages');
+  IF NOT (is_super_admin()
+          OR fn_refund_assignee_match(v_stage->'assignee_roles', v_stage->'assignee_users', v_user)) THEN
+    RAISE EXCEPTION 'not_current_stage_assignee';
+  END IF;
+
+  SELECT cr.role_name INTO v_actor_role FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_user ORDER BY ur.is_primary DESC NULLS LAST LIMIT 1;
+
+  IF p_action = 'approve' THEN
+    IF COALESCE(btrim(p_notes),'') = '' THEN RAISE EXCEPTION 'notes_required'; END IF;
+    INSERT INTO billing_refund_request_actions (request_id, action_type, stage_index, stage_name, actor_id, actor_role_name, notes, attachments)
+    VALUES (p_request_id, 'approved', v_req.current_stage_index, v_stage->>'name', v_user, v_actor_role, p_notes, COALESCE(p_attachments,'[]'));
+    IF v_req.current_stage_index + 1 >= v_stage_count THEN
+      UPDATE billing_refund_requests SET status = 'pending_disbursement' WHERE id = p_request_id;
+    ELSE
+      UPDATE billing_refund_requests SET current_stage_index = current_stage_index + 1 WHERE id = p_request_id;
+    END IF;
+  ELSE  -- decline: terminal; withdrawal learner restored
+    IF COALESCE(btrim(p_reason),'') = '' THEN RAISE EXCEPTION 'reason_required'; END IF;
+    INSERT INTO billing_refund_request_actions (request_id, action_type, stage_index, stage_name, actor_id, actor_role_name, notes, attachments)
+    VALUES (p_request_id, 'declined', v_req.current_stage_index, v_stage->>'name', v_user, v_actor_role,
+            COALESCE(p_notes, p_reason), COALESCE(p_attachments,'[]'));
+    UPDATE billing_refund_requests
+      SET status='declined', declined_by=v_user, declined_at=now(),
+          decline_reason=p_reason, declined_stage_name=v_stage->>'name'
+      WHERE id = p_request_id;
+    IF v_req.refund_type = 'withdrawal' AND v_req.previous_lifecycle_status IS NOT NULL THEN
+      UPDATE learners_profiles SET lifecycle_status = v_req.previous_lifecycle_status::lifecycle_status, updated_at = now()
+      WHERE id = v_req.student_id AND lifecycle_status = 'withdrawal_pending';  -- guard: don't clobber external changes
+    END IF;
+  END IF;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.fn_disburse_refund_request(
+  p_request_id uuid, p_payment_mode text, p_payment_details jsonb DEFAULT '{}',
+  p_notes text DEFAULT NULL, p_attachments jsonb DEFAULT '[]'
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_user uuid := auth.uid(); v_req billing_refund_requests; v_line record;
+  v_paid numeric; v_actor_role text;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF p_payment_mode NOT IN ('cash','online','bank_transfer','dd','cheque') THEN RAISE EXCEPTION 'invalid_payment_mode'; END IF;
+  IF COALESCE(btrim(p_notes),'') = '' THEN RAISE EXCEPTION 'notes_required'; END IF;
+
+  SELECT * INTO v_req FROM billing_refund_requests WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'request_not_found'; END IF;
+  IF v_req.status <> 'pending_disbursement' THEN RAISE EXCEPTION 'invalid_status: %', v_req.status; END IF;
+  IF NOT (is_super_admin() OR fn_refund_assignee_match(
+            v_req.flow_snapshot->'disburser'->'assignee_roles',
+            v_req.flow_snapshot->'disburser'->'assignee_users', v_user)) THEN
+    RAISE EXCEPTION 'not_disburser';
+  END IF;
+
+  FOR v_line IN SELECT rb.*, b.id AS b_id FROM billing_refund_request_bills rb
+                JOIN billing_student_bills b ON b.id = rb.bill_id
+                WHERE rb.request_id = p_request_id FOR UPDATE OF b LOOP
+    SELECT COALESCE(SUM(bri.amount_paid),0) INTO v_paid FROM billing_receipt_items bri WHERE bri.bill_id = v_line.bill_id;
+    UPDATE billing_student_bills
+      SET refunded_amount = refunded_amount + v_line.refund_amount,
+          refund_status = CASE WHEN refunded_amount + v_line.refund_amount >= v_paid
+                               THEN 'refunded' ELSE 'partially_refunded' END,
+          updated_at = now()
+      WHERE id = v_line.bill_id;
+  END LOOP;
+
+  SELECT cr.role_name INTO v_actor_role FROM user_roles ur JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = v_user ORDER BY ur.is_primary DESC NULLS LAST LIMIT 1;
+  INSERT INTO billing_refund_request_actions (request_id, action_type, stage_index, stage_name, actor_id, actor_role_name, notes, attachments)
+  VALUES (p_request_id, 'disbursed', NULL, 'Disbursement', v_user, v_actor_role, p_notes, COALESCE(p_attachments,'[]'));
+
+  UPDATE billing_refund_requests
+    SET status='disbursed', payment_mode=p_payment_mode, payment_details=p_payment_details,
+        disbursed_by=v_user, disbursed_at=now()
+    WHERE id = p_request_id;
+
+  IF v_req.refund_type = 'withdrawal' THEN
+    UPDATE learners_profiles SET lifecycle_status = 'exited', updated_at = now() WHERE id = v_req.student_id;
+  END IF;
+  PERFORM refresh_student_billing_summary(v_req.student_id);
+END; $$;
+
+-- Revoke from BOTH anon and PUBLIC: anon holds a direct default grant on top of
+-- the PUBLIC one, so either alone leaves the RPC callable. Self-auth remains the
+-- primary gate.
+REVOKE EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION fn_refund_assignee_match(jsonb,jsonb,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_resolve_refund_flow_config(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_my_refund_capabilities(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_initiate_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_act_on_refund_request(uuid,text,text,jsonb,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_disburse_refund_request(uuid,text,jsonb,text,jsonb) TO authenticated;
+
+-- Role→member pairs for active roles (settings user-picker role filter). See
+-- migration 20260711130000. Self-authorizing DEFINER (config authors only).
+CREATE OR REPLACE FUNCTION public.fn_refund_role_members()
+RETURNS TABLE(role_id uuid, user_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT ur.role_id, ur.user_id
+  FROM user_roles ur
+  JOIN custom_roles cr ON cr.id = ur.role_id
+  WHERE cr.is_active
+    AND (is_super_admin() OR is_admin() OR user_has_permission('billing.refunds.configure'));
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_refund_role_members() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_refund_role_members() TO authenticated;
+
+-- Atomic save/swap for refund flow configs. See migrations
+-- 20260714120000_refund_flow_config_save_swap_rpc and
+-- 20260714130000_refund_flow_scope_exclusivity. A Global flow and any
+-- institution-specific flow must never both be active at once (product
+-- decision 2026-07-14) -- on top of the partial unique indexes
+-- uq_refund_flow_global_active / uq_refund_flow_institution_active (at most
+-- one active config per scope), this RPC also treats Global vs
+-- institution-specific as mutually exclusive. It collects every active row
+-- that must be deactivated for the target to become active (same-scope
+-- duplicate + opposing scope-mode) and, on confirmation via
+-- p_replace_active, deactivates all of them atomically before writing.
+CREATE OR REPLACE FUNCTION public.fn_save_refund_flow_config(
+  p_id uuid, p_institution_id uuid, p_name text,
+  p_initiator_roles uuid[], p_initiator_users uuid[], p_stages jsonb,
+  p_disburser_roles uuid[], p_disburser_users uuid[],
+  p_is_active boolean DEFAULT true, p_replace_active boolean DEFAULT false
+) RETURNS billing_refund_flow_configs LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_user uuid := auth.uid();
+  v_conflicts jsonb;
+  v_conflict_ids uuid[];
+  v_result billing_refund_flow_configs;
+BEGIN
+  IF v_user IS NULL THEN RAISE EXCEPTION 'not_authenticated'; END IF;
+  IF NOT (is_super_admin() OR user_has_permission('billing.refunds.configure')) THEN
+    RAISE EXCEPTION 'not_authorized';
+  END IF;
+  IF COALESCE(btrim(p_name), '') = '' THEN RAISE EXCEPTION 'name_required'; END IF;
+  IF jsonb_typeof(p_stages) <> 'array' OR jsonb_array_length(p_stages) = 0 THEN RAISE EXCEPTION 'no_stages'; END IF;
+
+  IF p_is_active THEN
+    -- Every active row that must be deactivated for this one to become
+    -- active: same scope (mirrors uq_refund_flow_global_active /
+    -- uq_refund_flow_institution_active) OR the opposing scope-mode
+    -- (global XOR institution-specific).
+    SELECT jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) ORDER BY c.institution_id NULLS FIRST),
+           array_agg(c.id)
+      INTO v_conflicts, v_conflict_ids
+    FROM billing_refund_flow_configs c
+    WHERE c.is_active
+      AND (p_id IS NULL OR c.id <> p_id)
+      AND (
+        c.institution_id IS NOT DISTINCT FROM p_institution_id
+        OR (p_institution_id IS NULL) <> (c.institution_id IS NULL)
+      );
+
+    IF v_conflicts IS NOT NULL THEN
+      IF NOT p_replace_active THEN
+        RAISE EXCEPTION 'active_flow_exists|%', v_conflicts::text;
+      END IF;
+      UPDATE billing_refund_flow_configs SET is_active = false WHERE id = ANY(v_conflict_ids);
+    END IF;
+  END IF;
+
+  IF p_id IS NULL THEN
+    INSERT INTO billing_refund_flow_configs
+      (institution_id, name, initiator_roles, initiator_users, stages,
+       disburser_roles, disburser_users, is_active, created_by)
+    VALUES (p_institution_id, btrim(p_name), p_initiator_roles, p_initiator_users, p_stages,
+            p_disburser_roles, p_disburser_users, p_is_active, v_user)
+    RETURNING * INTO v_result;
+  ELSE
+    UPDATE billing_refund_flow_configs SET
+      institution_id = p_institution_id, name = btrim(p_name),
+      initiator_roles = p_initiator_roles, initiator_users = p_initiator_users,
+      stages = p_stages, disburser_roles = p_disburser_roles, disburser_users = p_disburser_users,
+      is_active = p_is_active
+    WHERE id = p_id
+    RETURNING * INTO v_result;
+    IF NOT FOUND THEN RAISE EXCEPTION 'config_not_found'; END IF;
+  END IF;
+
+  RETURN v_result;
+END; $$;
+
+REVOKE EXECUTE ON FUNCTION fn_save_refund_flow_config(uuid,uuid,text,uuid[],uuid[],jsonb,uuid[],uuid[],boolean,boolean) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION fn_save_refund_flow_config(uuid,uuid,text,uuid[],uuid[],jsonb,uuid[],uuid[],boolean,boolean) TO authenticated;
+
+-- Backstop for the same rule, unconditional regardless of write path (the
+-- RPC above is the guided/friendly path with a confirm-and-swap UX; this
+-- trigger blocks any INSERT/UPDATE -- including a future direct table write
+-- -- that would leave a Global flow and an institution-specific flow both
+-- active). The same-scope half of the invariant is already covered by
+-- uq_refund_flow_global_active / uq_refund_flow_institution_active, so this
+-- only needs to check the opposing scope-mode.
+CREATE OR REPLACE FUNCTION public.fn_enforce_refund_flow_scope_exclusivity()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF NEW.is_active AND EXISTS (
+    SELECT 1 FROM billing_refund_flow_configs c
+    WHERE c.is_active AND c.id <> NEW.id
+      AND (NEW.institution_id IS NULL) <> (c.institution_id IS NULL)
+  ) THEN
+    RAISE EXCEPTION 'refund_flow_scope_conflict: cannot activate a % flow while a % flow is active -- deactivate it first',
+      CASE WHEN NEW.institution_id IS NULL THEN 'global' ELSE 'institution-specific' END,
+      CASE WHEN NEW.institution_id IS NULL THEN 'institution-specific' ELSE 'global' END;
+  END IF;
+  RETURN NEW;
+END; $$;
+-- CREATE TRIGGER trigger_refund_flow_scope_exclusivity lives in 04_triggers.sql
+
+-- ── Tournament registration form event_id sync (2026-07-14,
+--    event_registration_form_event_id_sync_triggers) ──
+-- Derives (not just validates) event_id on sections/fields from their parent
+-- chain. BEFORE ROW triggers run before RLS WITH CHECK evaluation, so a
+-- caller who submits a mismatched event_id gets it silently corrected to the
+-- TRUE owning tournament before RLS checks permissions against it — closes
+-- the structural-drift gap the plain FK/UNIQUE columns alone don't prevent.
+CREATE OR REPLACE FUNCTION sync_event_registration_form_section_event_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT event_id INTO NEW.event_id FROM event_registration_forms WHERE id = NEW.form_id;
+  IF NEW.event_id IS NULL THEN
+    RAISE EXCEPTION 'event_registration_form_sections.form_id % does not reference a valid form', NEW.form_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+CREATE OR REPLACE FUNCTION sync_event_registration_form_field_event_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT event_id INTO NEW.event_id FROM event_registration_form_sections WHERE id = NEW.section_id;
+  IF NEW.event_id IS NULL THEN
+    RAISE EXCEPTION 'event_registration_form_fields.section_id % does not reference a valid section', NEW.section_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- ============================================================================
+-- 2026-07-11: fn_scf_admin_college_summary — "Low sessions" second lens
+-- (Director request). Two ADDITIVE trailing columns: low_flag_responses
+-- (responses rating understanding <= 2 in window) + low_flag_sessions
+-- (sessions containing >= 1 such response). Pure aggregates; the k>=3 floor
+-- on low_sessions / avg_understood and the authz body are UNCHANGED.
+-- RETURNS TABLE changed => DROP + CREATE; grants re-applied (authenticated +
+-- service_role, anon/PUBLIC revoked). Canonical body:
+--   supabase/migrations/20260711070000_scf_admin_college_summary_low_flags.sql
+-- (applied to prod 2026-07-11 after a rolled-back impersonated validation).
+-- ============================================================================
+
+-- ============================================================================
+-- 2026-07-14: get_markable_resident_photos — expose learner photos to the
+-- Hostel Mark Attendance roster. Student photos live in
+-- learners_profiles.student_photo_url (public-bucket URL), NOT profiles.avatar_url
+-- (NULL for ~all students). learners_profiles SELECT RLS blocks block-scoped
+-- wardens from reading their own cross-college residents, so this SECURITY DEFINER
+-- fn bypasses that RLS but SELF-AUTHORIZES on the caller's block/institution access
+-- (mirrors the hostel_attendance authority model), returning ONLY {profile_id,
+-- student_photo_url}. authenticated-only; anon/PUBLIC revoked. Canonical body:
+--   supabase/migrations/20260714170000_hostel_markable_resident_photos_rpc.sql
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.get_markable_resident_photos(p_block_id uuid DEFAULT NULL)
+RETURNS TABLE(profile_id uuid, student_photo_url text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT DISTINCT lp.profile_id, lp.student_photo_url
+  FROM learners_profiles lp
+  JOIN hostel_allocations a
+    ON a.learner_id = lp.profile_id AND a.status = 'active'
+  WHERE lp.student_photo_url IS NOT NULL
+    AND lp.student_photo_url <> ''
+    AND (p_block_id IS NULL OR a.block_id = p_block_id)
+    AND (
+      is_super_admin()
+      OR is_admin()
+      OR (
+        (
+          user_has_permission('campus_living.attendance.view')
+          OR user_has_permission('campus_living.attendance.mark')
+        )
+        AND (
+          role_has_institution_access(lp.institution_id)
+          OR role_has_block_access(a.block_id)
+        )
+      )
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.get_markable_resident_photos(uuid) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.get_markable_resident_photos(uuid) TO authenticated;

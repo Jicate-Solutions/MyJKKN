@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,12 +35,13 @@ export default function GrnListPage() {
   const { profile } = useAuth();
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounceValue(search, 300);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
 
   const filters: GrnFilters = {
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as GrnStatus) : undefined,
     institution_id: effectiveInstitution,
   };

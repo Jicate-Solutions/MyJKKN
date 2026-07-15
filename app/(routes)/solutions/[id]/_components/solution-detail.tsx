@@ -12,6 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { SolutionReposCard } from './solution-repos-card';
+import { SolutionBuildActivityCard } from './solution-build-activity-card';
 import {
   Select,
   SelectContent,
@@ -336,8 +338,12 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   const phases = phasesData?.data || [];
   const sessions = sessionsData?.data || sessionsData || [];
   const deliverables = deliverablesData?.data || deliverablesData || [];
-  const paymentsList = payments || [];
-  const commsList = communications || [];
+  // Same dual-shape guard as sessions/deliverables above: the payments and
+  // communications APIs return paginatedResponse ({ data: [...] }), so the raw
+  // object must never reach .filter/.map — that crash took down every
+  // solution-detail page in production (eQ.filter is not a function).
+  const paymentsList = (payments as any)?.data || (Array.isArray(payments) ? payments : []);
+  const commsList = (communications as any)?.data || (Array.isArray(communications) ? communications : []);
 
   const totalPaymentsReceived = paymentsList
     .filter((p: any) => p.status === 'completed')
@@ -709,6 +715,8 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                 )}
               </CardContent>
             </Card>
+            <SolutionReposCard solutionId={solutionId} />
+            <SolutionBuildActivityCard solutionId={solutionId} />
           </TabsContent>
         )}
 

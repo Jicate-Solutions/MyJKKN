@@ -13,6 +13,50 @@ import type {
   ComparisonRow,
 } from '@/types/procurement';
 
+/**
+ * Pure builder for the item-wise comparison — one row per RFQ item with every
+ * vendor's quote + the lowest price. Extracted so the client can compute it from
+ * already-loaded RFQ items + quotations WITHOUT a second server round-trip (the
+ * quotations page already holds both), and so the service can reuse it on the server.
+ */
+export function buildComparisonRows(
+  rfqItems: Array<{
+    id: string;
+    item_name: string;
+    item_spec: string | null;
+    quantity: number;
+    unit_label: string | null;
+  }>,
+  quotations: QuotationWithItems[]
+): ComparisonRow[] {
+  return rfqItems.map((ri): ComparisonRow => {
+    const quotes = quotations
+      .flatMap((q) =>
+        q.items
+          .filter((qi) => qi.rfq_item_id === ri.id)
+          .map((qi) => ({
+            quotation_id: q.id,
+            quotation_item_id: qi.id,
+            supplier_id: q.supplier_id,
+            supplier_name: q.supplier?.name ?? q.supplier_id,
+            unit_price: qi.unit_price,
+            delivery_time_days: qi.delivery_time_days,
+            awarded: qi.awarded,
+          }))
+      )
+      .sort((a, b) => a.unit_price - b.unit_price);
+    return {
+      rfq_item_id: ri.id,
+      item_name: ri.item_name,
+      item_spec: ri.item_spec,
+      quantity: ri.quantity,
+      unit_label: ri.unit_label,
+      quotes,
+      lowest_price: quotes.length ? quotes[0].unit_price : null,
+    };
+  });
+}
+
 export class ProcurementQuotationService {
   private static get supabase() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,32 +214,7 @@ export class ProcurementQuotationService {
       ]);
       if (riErr) throw riErr;
 
-      return (rfqItems || []).map((ri: any): ComparisonRow => {
-        const quotes = quotations
-          .flatMap((q) =>
-            q.items
-              .filter((qi) => qi.rfq_item_id === ri.id)
-              .map((qi) => ({
-                quotation_id: q.id,
-                quotation_item_id: qi.id,
-                supplier_id: q.supplier_id,
-                supplier_name: q.supplier?.name ?? q.supplier_id,
-                unit_price: qi.unit_price,
-                delivery_time_days: qi.delivery_time_days,
-                awarded: qi.awarded,
-              }))
-          )
-          .sort((a, b) => a.unit_price - b.unit_price);
-        return {
-          rfq_item_id: ri.id,
-          item_name: ri.item_name,
-          item_spec: ri.item_spec,
-          quantity: ri.quantity,
-          unit_label: ri.unit_label,
-          quotes,
-          lowest_price: quotes.length ? quotes[0].unit_price : null,
-        };
-      });
+      return buildComparisonRows(rfqItems || [], quotations);
     } catch (error) {
       console.error('[ProcurementQuotationService] getComparison:', error);
       throw error;

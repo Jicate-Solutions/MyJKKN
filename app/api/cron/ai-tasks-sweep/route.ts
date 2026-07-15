@@ -20,8 +20,32 @@ import {
 } from '@/lib/services/platform/ai-clients/batch';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
+import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
+import { resend } from '@/lib/resend';
 
 const CLAIM_CAP = 50;
+// Loop-lane outage pager threshold (Director-ratified 2026-07-13 §B.5, "page
+// immediately", 30 min "filters Windows-update reboots"). Distinct from the
+// 10-min RUNNER_STALE_MS runner-down check below (Director-only, business-hours):
+// this pages ALL super-admins, 24/7, when LOOP-generation jobs (schedulable job
+// types migrated onto the #1998 ai_jobs registry) stall with no drain activity.
+const LOOP_OUTAGE_STALE_MS = 30 * 60 * 1000;
+
+// ── Runner-down alert (fail-safe, P1) ─────────────────────────────────────────
+// The Max-lane AI runner has NO API fallback now (Director-approved). If it dies,
+// queued AI work silently stalls. This */15 sweep already runs on the cloud, so
+// we piggy-back a health check on its tail (a 67th Vercel cron would risk the
+// cron-ceiling that blocks ALL deploys). Copies the drift-check cron's
+// resend + DIRECTOR_EMAIL + FROM_EMAIL structure.
+const HEARTBEAT_ROW_ID = 'maxlane:poller-heartbeat'; // stamped ~every 2 min by a live runner
+const RUNNER_STALE_MS = 10 * 60 * 1000; // matches the /admin/ai-routines liveness strip
+const DIRECTOR_EMAIL = 'director@jkkn.ac.in';
+const DIRECTOR_UID = 'b2bcb548-6b4c-4c75-a6b3-72dd5e9a94f1';
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev';
+// Non-terminal statuses: a job in any of these that predates the cutoff is stuck.
+// Superset of the ai_jobs status enum ('pending','claimed','running',…) so it
+// stays correct if sibling queues add 'cancelled'/'failed'/'delivered'.
+const TERMINAL_STATUSES = '(done,error,canceled,cancelled,failed,delivered)';
 
 // P2: notify the requester on EVERY terminal outcome — not just success — so a
 // click never dead-ends silently (Director decision 2026-07-05). Best-effort +
@@ -64,6 +88,227 @@ async function notifyOutcome(
   } catch (notifyErr) {
     console.error('[ai-tasks-sweep] notify failed:', notifyErr);
   }
+}
+
+// Fail-safe runner-down check. Alerts the Director (in-app + email) at most once
+// per UTC hour, ONLY during 08:00–20:00 IST, when EITHER the runner heartbeat is
+// stale (>10 min) OR a non-terminal ai_job has been queued >10 min. Returns a
+// small summary; the caller wraps it in its own try/catch so it can NEVER throw
+// into the host cron.
+async function runnerDownHealthCheck(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const now = Date.now();
+
+  // 1) Heartbeat freshness. The table is RPC-only for anon/authenticated (RLS
+  // deny-all), so this read MUST use the service-role client.
+  const { data: hb } = await admin
+    .from('ai_routine_schedules')
+    .select('last_fired_at')
+    .eq('routine_id', HEARTBEAT_ROW_ID)
+    .maybeSingle();
+  const lastFiredMs = hb?.last_fired_at ? new Date(hb.last_fired_at).getTime() : NaN;
+  const heartbeatAgeMs = now - lastFiredMs; // NaN when the row is missing/null/unparseable
+  // Fail-safe: a NaN/absent age is NOT < threshold → treated as STALE → we alert.
+  // A live runner stamps this every ~2 min, so a missing pulse means it is down.
+  const heartbeatStale = !(heartbeatAgeMs < RUNNER_STALE_MS);
+
+  // 2) Oldest non-terminal ai_job stuck past the cutoff.
+  const staleCutoffIso = new Date(now - RUNNER_STALE_MS).toISOString();
+  const { data: stuckRows } = await admin
+    .from('ai_jobs')
+    .select('id, job_type, status, requested_at')
+    .not('status', 'in', TERMINAL_STATUSES)
+    .lt('requested_at', staleCutoffIso)
+    .order('requested_at', { ascending: true })
+    .limit(1);
+  const stuckJob = Array.isArray(stuckRows) && stuckRows.length > 0 ? stuckRows[0] : null;
+
+  const runnerDown = heartbeatStale || stuckJob !== null;
+
+  // 3) Business-hours gate: 08:00–20:00 IST (UTC+5:30). Shift the epoch by the
+  // offset, then read UTC fields to get the IST wall-clock hour.
+  const istHour = new Date(now + (5 * 60 + 30) * 60 * 1000).getUTCHours();
+  const withinBusinessHours = istHour >= 8 && istHour < 20;
+
+  const summary = {
+    checked: true,
+    runnerDown,
+    heartbeatStale,
+    heartbeatAgeMin: Number.isFinite(heartbeatAgeMs) ? Math.round(heartbeatAgeMs / 60000) : null,
+    stuckJob: Boolean(stuckJob),
+    withinBusinessHours,
+  };
+
+  if (!runnerDown || !withinBusinessHours) {
+    return { ...summary, alerted: false };
+  }
+
+  // 4) Alert — deduped to at most once per UTC hour per outage.
+  const nowDate = new Date(now);
+  const idempotencyKey = `maxlane-runner-down:${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}`;
+
+  const heartbeatAgeLabel = Number.isFinite(heartbeatAgeMs)
+    ? `${Math.round(heartbeatAgeMs / 60000)} min`
+    : 'never fired / no heartbeat row';
+  const stuckLabel = stuckJob
+    ? `job ${stuckJob.id} (${stuckJob.job_type}, status=${stuckJob.status}, queued ${new Date(stuckJob.requested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)`
+    : 'none';
+  const nowIst = nowDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+  // 4a) In-app notification. Its idempotency_key UNIQUE index is the single
+  // source of truth for "already alerted this hour" — we gate the email on its
+  // result so the two channels can't diverge (one fires without the other).
+  const fanout = await fanoutNotification(admin, {
+    title: 'AI runner appears down',
+    body:
+      `The MyJKKN Max-lane AI runner looks down — it has no API fallback, so queued AI work will stall until it is back. ` +
+      `Heartbeat age: ${heartbeatAgeLabel}. Oldest stuck job: ${stuckLabel}.`,
+    userIds: [DIRECTOR_UID],
+    createdBy: DIRECTOR_UID,
+    category: 'general', // free-text; 'general' guarantees the bell renders it
+    kind: 'work_item',
+    priority: 'urgent',
+    idempotencyKey,
+    url: '/admin/ai-routines',
+    source: 'ai-tasks-sweep:runner-down',
+  });
+
+  if (fanout.skipped === 'idempotent') {
+    // A prior sweep this hour already alerted → do not re-send the email.
+    return { ...summary, alerted: false, idempotent: true, idempotencyKey };
+  }
+
+  // 4b) Email the Director. Best-effort — the resend Idempotency-Key header is a
+  // provider-side backstop (24h window) on top of the notification-row gate.
+  let emailed = false;
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await resend.emails.send(
+        {
+          from: FROM_EMAIL,
+          to: DIRECTOR_EMAIL,
+          subject: '⚠️ MyJKKN AI runner appears down',
+          html: `<h2 style="color:#b91c1c">AI runner appears down</h2>
+<p>The MyJKKN Max-lane AI runner has stopped responding. <strong>The Max lane has no API fallback</strong> — queued AI work will not complete until the runner is back online.</p>
+<table style="border-collapse:collapse;margin-top:8px">
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Detected</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${nowIst} IST</td></tr>
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Heartbeat age</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${heartbeatAgeLabel}${heartbeatStale ? ' — STALE (&gt;10 min)' : ''}</td></tr>
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Oldest stuck job</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${stuckLabel}</td></tr>
+</table>
+<p style="margin-top:16px">Check the runner box (Windows poller) and the <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/admin/ai-routines">AI routines liveness strip</a>.</p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">Automated alert from /api/cron/ai-tasks-sweep runner-down health check. Fires at most once per hour, only 08:00–20:00 IST.</p>`,
+        },
+        { headers: { 'Idempotency-Key': idempotencyKey } },
+      );
+      emailed = true;
+    } catch (emailErr) {
+      console.error('[ai-tasks-sweep] runner-down email failed:', emailErr);
+    }
+  }
+
+  return { ...summary, alerted: true, notified: fanout.notified, emailed, idempotencyKey };
+}
+
+// ── Loop-lane outage pager (fail-safe, Director-ratified §B.5) ───────────────
+// Pages ALL super-admins (in-app, high priority), 24/7, when LOOP-generation
+// jobs on the #1998 ai_jobs registry (schedulable job types — the loops this
+// migration moves onto the Max lane) sit non-terminal past 30 min AND the drain
+// shows no recent claim activity (ai_jobs.claimed_at — the #1998 schema's own
+// last-claim signal). Idempotent per finding-set per hour so a persistent outage
+// pages once, but a NEW stalled loop still pages. Runs LAST in its own try/catch
+// so it can never break the host sweep. Distinct from runnerDownHealthCheck
+// (10 min, Director-only email, business-hours) — overlap noted in the PR.
+async function loopLaneOutagePager(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const now = Date.now();
+  const cutoffIso = new Date(now - LOOP_OUTAGE_STALE_MS).toISOString();
+
+  // Scope: only schedulable (loop-generator) job types. Interactive chat/cdc/
+  // translate are covered by the requester's own long-poll + the runner-down
+  // check. Self-maintaining: each migrated loop seeds schedulable=true.
+  const { data: loopTypes } = await admin
+    .from('ai_job_types')
+    .select('job_type')
+    .eq('schedulable', true);
+  const loopJobTypes = (loopTypes ?? []).map((t: { job_type: string }) => t.job_type);
+  if (loopJobTypes.length === 0) return { checked: true, loop_types: 0, stuck: 0, alerted: false };
+
+  // Loop jobs stuck: non-terminal, requested before the 30-min cutoff.
+  const { data: stuckRows } = await admin
+    .from('ai_jobs')
+    .select('id, job_type, requested_at')
+    .in('job_type', loopJobTypes)
+    .not('status', 'in', TERMINAL_STATUSES)
+    .lt('requested_at', cutoffIso)
+    .order('requested_at', { ascending: true })
+    .limit(200);
+  const stuck = (stuckRows ?? []) as { id: string; job_type: string; requested_at: string }[];
+  if (stuck.length === 0) return { checked: true, loop_types: loopJobTypes.length, stuck: 0, alerted: false };
+
+  // "No drain activity" — the drain has not CLAIMED any job in the last 30 min.
+  // A live drain claims within seconds. NaN/absent age → no activity (fail-safe).
+  const { data: lastClaim } = await admin
+    .from('ai_jobs')
+    .select('claimed_at')
+    .not('claimed_at', 'is', null)
+    .order('claimed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const lastClaimMs = lastClaim?.claimed_at ? new Date(lastClaim.claimed_at).getTime() : NaN;
+  const drainActive = now - lastClaimMs < LOOP_OUTAGE_STALE_MS;
+  if (drainActive) {
+    // Old jobs but the drain IS claiming — a large/slow backlog, not an outage.
+    return { checked: true, loop_types: loopJobTypes.length, stuck: stuck.length, drain_active: true, alerted: false };
+  }
+
+  // OUTAGE: loop jobs stuck > 30 min AND no drain claim in 30 min → page supers.
+  const { data: supers, error: supersErr } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('is_super_admin', true);
+  if (supersErr || !supers?.length) {
+    return {
+      checked: true, stuck: stuck.length, alerted: false,
+      error: `super-admin lookup failed: ${supersErr?.message ?? 'no recipients'}`,
+    };
+  }
+  const userIds = supers.map((s: { id: string }) => s.id);
+
+  const byType = new Map<string, number>();
+  for (const j of stuck) byType.set(j.job_type, (byType.get(j.job_type) ?? 0) + 1);
+  const findings = [...byType.entries()].map(([t, n]) => `${t} (${n} stuck)`);
+  const oldestMin = Math.round((now - new Date(stuck[0].requested_at).getTime()) / 60000);
+
+  // Hour + finding-set fingerprint: a persistent outage pages once/hour; a NEW
+  // stalled loop the same hour still pages (mirrors loop-watchdog's key shape).
+  const nowDate = new Date(now);
+  const idempotencyKey = `loop-lane-outage:${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}:${findingsFingerprint(findings)}`;
+  const outcome = await fanoutNotification(admin, {
+    title: `🔴 Loop lane outage: ${stuck.length} job${stuck.length === 1 ? '' : 's'} stalled >30 min, no drain activity`,
+    body:
+      `The ₹0 Max-lane drain has not claimed a job in over 30 min while loop generation is queued: ` +
+      findings.join(' · ') +
+      `. Oldest queued ${oldestMin} min ago. Loop generation is stalled until the Windows seat drain is back — flip a loop's generation_lane to 'direct' to fall back to the paid lane if urgent.`,
+    userIds,
+    priority: 'high',
+    category: 'loops',
+    url: '/admin/ai-models',
+    idempotencyKey,
+    source: 'ai-tasks-sweep:loop-lane-outage',
+  });
+
+  return {
+    checked: true,
+    loop_types: loopJobTypes.length,
+    stuck: stuck.length,
+    oldest_min: oldestMin,
+    drain_active: false,
+    alerted: outcome.skipped !== 'idempotent',
+    notified: outcome.notified,
+    idempotencyKey,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -200,5 +445,27 @@ export async function GET(request: NextRequest) {
     features[featureKey] = stat;
   }
 
-  return NextResponse.json({ ok: true, features, elapsed_ms: Date.now() - started });
+  // ── 3) FAIL-SAFE runner-down health check ─────────────────────────────────
+  // Runs LAST, in its own try/catch, so a failure here can NEVER break the host
+  // sweep above. Additive `health` field in the response — existing callers are
+  // unaffected.
+  let health: Record<string, unknown> = { checked: false };
+  try {
+    health = await runnerDownHealthCheck(admin);
+  } catch (healthErr) {
+    console.error('[ai-tasks-sweep] runner-down health check failed:', healthErr);
+    health = { checked: false, error: healthErr instanceof Error ? healthErr.message : 'health check failed' };
+  }
+
+  // ── 4) LOOP-LANE OUTAGE PAGER (Director-ratified §B.5) ────────────────────
+  // Same fail-safe discipline: own try/catch, additive `loop_lane` field.
+  let loopLane: Record<string, unknown> = { checked: false };
+  try {
+    loopLane = await loopLaneOutagePager(admin);
+  } catch (pagerErr) {
+    console.error('[ai-tasks-sweep] loop-lane outage pager failed:', pagerErr);
+    loopLane = { checked: false, error: pagerErr instanceof Error ? pagerErr.message : 'pager failed' };
+  }
+
+  return NextResponse.json({ ok: true, features, health, loop_lane: loopLane, elapsed_ms: Date.now() - started });
 }

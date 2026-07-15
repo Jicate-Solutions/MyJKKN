@@ -199,11 +199,13 @@ export function useAdminTrend(
   });
 }
 
-/** All-college per-learning-facilitator FEEDBACK coverage (drivers first, 0% last). */
-export function useFacilitatorFeedbackCoverage(from: string, to: string) {
+/** Per-learning-facilitator FEEDBACK coverage (drivers first, 0% last).
+ *  College narrowing is server-side: institutionId is passed to the RPC
+ *  (undefined = all colleges in the caller's scope). */
+export function useFacilitatorFeedbackCoverage(from: string, to: string, institutionId?: string) {
   return useQuery({
-    queryKey: scfQueryKeys.facilitatorCoverage(from, to),
-    queryFn: () => SessionFeedbackService.getFacilitatorFeedbackCoverage(from, to),
+    queryKey: [...scfQueryKeys.facilitatorCoverage(from, to), institutionId ?? 'all'],
+    queryFn: () => SessionFeedbackService.getFacilitatorFeedbackCoverage(from, to, institutionId),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });

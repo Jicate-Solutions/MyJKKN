@@ -217,12 +217,15 @@ export function DivisionFixtures({
   matches,
   entryCount,
   divisionFormat,
+  canManage = true,
 }: {
   eventId: string;
   divisionId: string;
   matches: TournamentMatch[];
   entryCount: number;
   divisionFormat?: string;
+  /** false → read-only bracket (committee members / view-only roles). */
+  canManage?: boolean;
 }) {
   const generate = useGenerateFixtures(eventId);
   const award = useAwardAchievements(eventId);
@@ -255,21 +258,25 @@ export function DivisionFixtures({
         <p className="mb-2 text-xs text-muted-foreground">
           No fixtures yet ({entryCount} {entryCount === 1 ? 'entry' : 'entries'}).
         </p>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={generate.isPending || entryCount < 2}
-          onClick={() => generate.mutate({ divisionId })}
-        >
-          {generate.isPending ? (
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <GitBranch className="mr-1 h-3.5 w-3.5" />
-          )}
-          Generate Fixtures
-        </Button>
-        {entryCount < 2 && (
-          <p className="mt-1 text-[11px] text-muted-foreground">Need at least 2 entries.</p>
+        {canManage && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={generate.isPending || entryCount < 2}
+              onClick={() => generate.mutate({ divisionId })}
+            >
+              {generate.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <GitBranch className="mr-1 h-3.5 w-3.5" />
+              )}
+              Generate Fixtures
+            </Button>
+            {entryCount < 2 && (
+              <p className="mt-1 text-[11px] text-muted-foreground">Need at least 2 entries.</p>
+            )}
+          </>
         )}
       </div>
     );
@@ -282,7 +289,7 @@ export function DivisionFixtures({
           <Swords className="h-3.5 w-3.5" /> Fixtures
         </span>
         <div className="flex items-center gap-1">
-          {poolsDone && (
+          {canManage && poolsDone && (
             <Button
               size="sm"
               variant="outline"
@@ -299,7 +306,7 @@ export function DivisionFixtures({
               Generate knockout
             </Button>
           )}
-          {hasCompleted && (
+          {canManage && hasCompleted && (
             <Button
               size="sm"
               variant="outline"
@@ -320,19 +327,21 @@ export function DivisionFixtures({
               Finalize &amp; Award
             </Button>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs"
-            disabled={generate.isPending}
-            onClick={() => {
-              if (confirm('Regenerate fixtures? This deletes existing matches for this division.')) {
-                generate.mutate({ divisionId, regenerate: true });
-              }
-            }}
-          >
-            <RefreshCw className="mr-1 h-3 w-3" /> Regenerate
-          </Button>
+          {canManage && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              disabled={generate.isPending}
+              onClick={() => {
+                if (confirm('Regenerate fixtures? This deletes existing matches for this division.')) {
+                  generate.mutate({ divisionId, regenerate: true });
+                }
+              }}
+            >
+              <RefreshCw className="mr-1 h-3 w-3" /> Regenerate
+            </Button>
+          )}
         </div>
       </div>
 
@@ -362,7 +371,7 @@ export function DivisionFixtures({
                     </span>
                   )}
                   <MatchStatusBadge status={m.status} />
-                  {m.status !== 'bye' && (
+                  {canManage && m.status !== 'bye' && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -374,7 +383,7 @@ export function DivisionFixtures({
                     </Button>
                   )}
                   {/* Record result — only once both sides are known and not a bye */}
-                  {m.status !== 'bye' && m.side_a_entry_id && m.side_b_entry_id && (
+                  {canManage && m.status !== 'bye' && m.side_a_entry_id && m.side_b_entry_id && (
                     <Button
                       size="sm"
                       variant={m.status === 'completed' ? 'ghost' : 'outline'}

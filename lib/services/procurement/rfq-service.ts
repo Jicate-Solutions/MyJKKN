@@ -190,7 +190,81 @@ export class ProcurementRfqService {
     if (error) throw error;
   }
 
-  /** draft -> sent: stamp sent_at on the RFQ and its vendor rows. */
+  /**
+   * draft|rejected -> pending_review: the creator submits the RFQ for Super-Admin
+   * review. Guarded so only an editable RFQ can enter review.
+   */
+  static async submitForReview(rfqId: string): Promise<ProcurementRfq> {
+    try {
+      const { data, error } = await this.supabase
+        .from('procurement_rfqs')
+        .update({ status: 'pending_review', updated_at: new Date().toISOString() })
+        .eq('id', rfqId)
+        .in('status', ['draft', 'rejected'])
+        .select()
+        .single();
+      if (error) throw error;
+      if (!data) throw new Error('RFQ is not in a draft/rejected state; refresh and retry.');
+      return data as ProcurementRfq;
+    } catch (error) {
+      console.error('[ProcurementRfqService] submitForReview:', error);
+      throw error;
+    }
+  }
+
+  /** pending_review -> approved: reviewer clears the RFQ to be sent to vendors. */
+  static async approveRfq(rfqId: string, reviewerId: string): Promise<ProcurementRfq> {
+    try {
+      const now = new Date().toISOString();
+      const { data, error } = await this.supabase
+        .from('procurement_rfqs')
+        .update({
+          status: 'approved',
+          reviewed_by: reviewerId,
+          reviewed_at: now,
+          review_notes: null,
+          updated_at: now,
+        })
+        .eq('id', rfqId)
+        .eq('status', 'pending_review')
+        .select()
+        .single();
+      if (error) throw error;
+      if (!data) throw new Error('RFQ is not awaiting review; refresh and retry.');
+      return data as ProcurementRfq;
+    } catch (error) {
+      console.error('[ProcurementRfqService] approveRfq:', error);
+      throw error;
+    }
+  }
+
+  /** pending_review -> rejected: reviewer returns the RFQ to the creator with a reason. */
+  static async rejectRfq(rfqId: string, reviewerId: string, notes: string): Promise<ProcurementRfq> {
+    try {
+      const now = new Date().toISOString();
+      const { data, error } = await this.supabase
+        .from('procurement_rfqs')
+        .update({
+          status: 'rejected',
+          reviewed_by: reviewerId,
+          reviewed_at: now,
+          review_notes: notes?.trim() || null,
+          updated_at: now,
+        })
+        .eq('id', rfqId)
+        .eq('status', 'pending_review')
+        .select()
+        .single();
+      if (error) throw error;
+      if (!data) throw new Error('RFQ is not awaiting review; refresh and retry.');
+      return data as ProcurementRfq;
+    } catch (error) {
+      console.error('[ProcurementRfqService] rejectRfq:', error);
+      throw error;
+    }
+  }
+
+  /** approved -> sent: stamp sent_at on the RFQ and its vendor rows. */
   static async markSent(rfqId: string): Promise<ProcurementRfq> {
     try {
       const now = new Date().toISOString();
@@ -198,11 +272,11 @@ export class ProcurementRfqService {
         .from('procurement_rfqs')
         .update({ status: 'sent', sent_at: now, updated_at: now })
         .eq('id', rfqId)
-        .eq('status', 'draft')
+        .eq('status', 'approved')
         .select()
         .single();
       if (error) throw error;
-      if (!data) throw new Error('RFQ is not in draft state; refresh and retry.');
+      if (!data) throw new Error('RFQ must be approved before it can be sent; refresh and retry.');
 
       await this.supabase
         .from('procurement_rfq_vendors')

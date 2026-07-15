@@ -13,8 +13,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  canManageTournament,
+  canViewTournament,
+} from '@/lib/services/events/tournament/organizer-access';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { checkEligibility, type EligibilitySubject } from '@/lib/services/events/tournament/eligibility';
+import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
 import type { CreateEntryDto, EligibilityRules } from '@/types/tournament';
 
 // ---------------------------------------------------------------------------
@@ -31,9 +36,8 @@ export async function GET(
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { data: canView } = await auth.rpc('user_has_permission', {
-      permission_name: 'sports.tournaments.view',
-    });
+    // view permission OR in-charge OR committee member (Tournament In-charge, 2026-07)
+    const canView = await canViewTournament(auth, eventId);
     if (canView !== true) {
       return NextResponse.json({ error: 'Forbidden — sports tournament access only' }, { status: 403 });
     }
@@ -87,9 +91,8 @@ export async function POST(
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-    const { data: canManage } = await auth.rpc('user_has_permission', {
-      permission_name: 'sports.tournaments.manage',
-    });
+    // manage permission OR per-event in-charge (Tournament In-charge, 2026-07)
+    const canManage = await canManageTournament(auth, eventId);
     if (canManage !== true) {
       return NextResponse.json(
         { error: 'Forbidden — sports.tournaments.manage required to register entries' },
@@ -125,6 +128,12 @@ export async function POST(
     }
 
     const rules = (division.eligibility ?? {}) as EligibilityRules;
+
+    const { data: hostEvent } = await (svc as any)
+      .from('events')
+      .select('institution_id')
+      .eq('id', eventId)
+      .single();
 
     // ---- eligibility ----
     // Helper: resolve a learner's gender + DOB for age/gender checks.
@@ -170,6 +179,26 @@ export async function POST(
       }
     }
 
+    // ---- custom registration fields (Dynamic Form Builder) ----
+    // Skip validation entirely when the form exists but is explicitly disabled —
+    // matches the Add Entry dialog (Task 11), which renders no custom fields in
+    // that case, so an organizer should never be 422'd for a field never shown.
+    const { data: formRow } = await (svc as any)
+      .from('event_registration_forms')
+      .select('is_enabled')
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (!formRow || formRow.is_enabled !== false) {
+      const { data: customFieldDefs } = await (svc as any)
+        .from('event_registration_form_fields')
+        .select('*')
+        .eq('event_id', eventId);
+      const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+      if (customFieldsError) {
+        return NextResponse.json({ error: customFieldsError }, { status: 422 });
+      }
+    }
+
     // ---- entry fee + payment intent ----
     const fee = Number((division.config as any)?.entry_fee ?? 0) || 0;
     const wantsOnline = fee > 0 && dto.payment_mode === 'online';
@@ -198,6 +227,7 @@ export async function POST(
         source: 'tournament',
         custom_data: { division_id: dto.division_id, entry_type: dto.entry_type },
         registered_by: user.id,
+        custom_fields: dto.custom_fields ?? null,
       })
       .select('id')
       .single();
@@ -248,13 +278,12 @@ export async function POST(
       }
     }
 
-    // ---- 4. payment (online link) ----
-    let payment_url: string | null = null;
-    let transaction_id: string | null = null;
+    // ---- 4. payment (Razorpay order) ----
+    let paymentResult: Awaited<ReturnType<typeof EventPaymentService.initiatePayment>> | null = null;
     if (wantsOnline) {
       try {
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        const res = await EventPaymentService.initiatePayment({
+        paymentResult = await EventPaymentService.initiatePayment({
           registrationId: reg.id,
           eventId,
           amount: fee,
@@ -263,9 +292,9 @@ export async function POST(
           payerPhone: dto.participant_phone || '',
           returnUrl: `${appUrl}/events/tournament/${eventId}`,
           callbackUrl: `${appUrl}/api/events/tournament/${eventId}/payment/callback`,
+          institutionIdOverride: hostEvent?.institution_id ?? null,
+          feeHead: 'tuition',
         });
-        payment_url = res.payment_url || null;
-        transaction_id = res.transaction_id || null;
       } catch (payErr) {
         // The entry exists (unpaid); the organizer can retry the payment link later.
         return NextResponse.json(
@@ -278,7 +307,18 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ entry, payment_url, transaction_id }, { status: 201 });
+    return NextResponse.json(
+      {
+        entry,
+        payment_url: null,
+        transaction_id: paymentResult?.transaction_id ?? null,
+        razorpay_order_id: paymentResult?.razorpay_order_id ?? null,
+        razorpay_key_id: paymentResult?.razorpay_key_id ?? null,
+        amount_paise: paymentResult?.amount_paise ?? null,
+        customer: paymentResult?.customer ?? null,
+      },
+      { status: 201 }
+    );
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to register entry' },

@@ -683,6 +683,9 @@ export function StudentBillForm({
                               {`${student.first_name} ${student.last_name}`}
                             </div>
                             <div className='text-sm text-muted-foreground'>
+                              {student.institution?.name || 'N/A'}
+                            </div>
+                            <div className='text-sm text-muted-foreground'>
                               {student.roll_number} • Outstanding: ₹
                               {student.outstanding_amount}
                             </div>

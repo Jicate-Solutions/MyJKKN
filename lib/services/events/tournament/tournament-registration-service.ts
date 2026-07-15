@@ -75,14 +75,20 @@ export class TournamentRegistrationService {
     return { refund: data.refund, reason: data.reason };
   }
 
-  /** Generate (or re-generate) an online payment link for an unpaid entry. */
+  /** Generate (or re-generate) a Razorpay payment order for an unpaid entry. */
   static async generatePaymentLink(
     eventId: string,
     entryId: string
-  ): Promise<{ payment_url: string | null; transaction_id: string | null }> {
+  ): Promise<{
+    transaction_id: string | null;
+    razorpay_order_id: string | null;
+    razorpay_key_id: string | null;
+    amount_paise: number | null;
+    customer: { name?: string; email?: string; phone?: string } | null;
+  }> {
     const res = await fetch(`/api/events/tournament/${eventId}/entries/${entryId}/pay`, {
       method: 'POST',
     });
-    return asJson<{ payment_url: string | null; transaction_id: string | null }>(res);
+    return asJson(res);
   }
 }

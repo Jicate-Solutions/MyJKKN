@@ -2,6 +2,7 @@
 // Spec: specs/myjkkn-audit-workflow-sprint-01-plan.md (decisions #1-20 + thrash T6-T8)
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { AuditParameterResultsService } from './audit-parameter-results-service';
 import type {
   AuditCycle,
   AuditCyclePhase,
@@ -28,6 +29,20 @@ export class AuditCycleService {
     const { data, error } = await query;
     if (error) throw error;
     return (data ?? []) as AuditCycle[];
+  }
+
+  /**
+   * Idempotently ensure the single standing "Whole Institution — Ongoing" audit
+   * exists (creating it if missing) and return its id. Backs the cycles list +
+   * dashboard self-heal so the org-wide checks (loop health, exam integrity)
+   * always have a home. Wraps public.fn_ensure_standing_institution_audit().
+   */
+  static async ensureStandingAudit(): Promise<string> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_ensure_standing_institution_audit',
+    );
+    if (error) throw error;
+    return data as string;
   }
 
   static async get(id: string): Promise<AuditCycle | null> {
@@ -75,9 +90,14 @@ export class AuditCycleService {
 
     if (current.phase === 'draft' && next === 'in-progress') {
       // Thrash: freeze catalog snapshot at transition
+      // Capture the display + grouping columns too — the parameter sheet and
+      // attestations grid group by `parameter_group` and render `name`/`default_owner_role`.
+      // Omitting them froze a snapshot the UI couldn't group, so every group rendered empty.
       const { data: params, error: paramsErr } = await (this.supabase as any)
         .from('audit_parameter_catalog')
-        .select('code, framework_mapping, evidence_required, p1_sla_days, p2_sla_days')
+        .select(
+          'code, name, parameter_group, default_owner_role, framework_mapping, evidence_required, p1_sla_days, p2_sla_days'
+        )
         .eq('is_active', true);
       if (paramsErr) throw paramsErr;
       updates.parameter_catalog_snapshot = {
@@ -97,6 +117,19 @@ export class AuditCycleService {
       .select('*')
       .single();
     if (error) throw error;
+
+    // Gate ③ capture — snapshot per-parameter results as the cycle closes, so the
+    // audit keeps cross-cycle memory (recurrence, deltas). Best-effort: a capture
+    // failure must NEVER fail the close; results are recomputable via
+    // fn_audit_capture_cycle_results (AuditParameterResultsService.capture is idempotent).
+    if (next === 'closed') {
+      try {
+        await AuditParameterResultsService.capture(id);
+      } catch (captureErr) {
+        console.error('[audit/cycles] Gate ③ result capture failed on close:', captureErr);
+      }
+    }
+
     return data as AuditCycle;
   }
 

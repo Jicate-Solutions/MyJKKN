@@ -18,6 +18,9 @@ import {
 } from '@/components/ui/select';
 import { Loader2, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { TEAM_SPORTS } from '@/types/health-sports';
+import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
+import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
+import type { EventRegistrationFormField } from '@/types/tournament';
 
 interface DivisionLite {
   id: string;
@@ -27,6 +30,12 @@ interface DivisionLite {
   format: string;
   config: Record<string, unknown>;
   eligibility: Record<string, unknown>;
+}
+
+interface SectionLite {
+  id: string;
+  title: string;
+  fields: EventRegistrationFormField[];
 }
 
 function divLabel(d: DivisionLite) {
@@ -41,11 +50,13 @@ export function RegisterForm({
   divisions,
   signedInName,
   isLearner,
+  sections,
 }: {
   eventId: string;
   divisions: DivisionLite[];
   signedInName: string | null;
   isLearner: boolean;
+  sections: SectionLite[];
 }) {
   const [divisionId, setDivisionId] = useState(divisions[0]?.id ?? '');
   const [entryName, setEntryName] = useState('');
@@ -56,9 +67,16 @@ export function RegisterForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [members, setMembers] = useState<{ member_name: string; jersey_no?: string }[]>([{ member_name: '' }]);
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [rzp, setRzp] = useState<{
+    orderId: string;
+    keyId: string;
+    amountPaise: number;
+    customer: { name?: string; email?: string; phone?: string };
+  } | null>(null);
 
   const division = useMemo(() => divisions.find((d) => d.id === divisionId), [divisions, divisionId]);
   const isTeam = division ? (TEAM_SPORTS as readonly string[]).includes(division.sport) : false;
@@ -90,12 +108,18 @@ export function RegisterForm({
           participant_phone: phone.trim() || null,
           participant_email: email.trim() || null,
           members: isTeam ? members.filter((m) => m.member_name.trim()) : undefined,
+          custom_fields: customFields,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok && res.status !== 207) throw new Error(body.error || `Failed (${res.status})`);
-      if (body.payment_url) {
-        window.location.href = body.payment_url; // go pay
+      if (body.razorpay_order_id && body.razorpay_key_id) {
+        setRzp({
+          orderId: body.razorpay_order_id,
+          keyId: body.razorpay_key_id,
+          amountPaise: body.amount_paise ?? 0,
+          customer: body.customer ?? {},
+        });
         return;
       }
       setDone(true);
@@ -106,13 +130,31 @@ export function RegisterForm({
     }
   }
 
+  if (rzp) {
+    return (
+      <EventRazorpayHostedRedirect
+        eventId={eventId}
+        razorpayKeyId={rzp.keyId}
+        razorpayOrderId={rzp.orderId}
+        amountPaise={rzp.amountPaise}
+        currency="INR"
+        customer={rzp.customer}
+        description="Tournament entry fee"
+        cancelPath={`/p/tournament/${eventId}/register`}
+      />
+    );
+  }
+
   if (done) {
     return (
       <div className="rounded-xl border bg-white p-6 text-center shadow-sm">
         <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-600" />
         <h2 className="text-lg font-semibold">You&apos;re registered!</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {fee > 0 ? 'Your payment is confirmed.' : 'No entry fee for this division.'} See you at the tournament.
+          {fee > 0
+            ? 'Your registration is recorded — your payment is being confirmed.'
+            : 'No entry fee for this division.'}{' '}
+          See you at the tournament.
         </p>
       </div>
     );
@@ -219,6 +261,22 @@ export function RegisterForm({
           </div>
         </div>
       )}
+
+      {sections.map((section) => (
+        <div key={section.id} className="space-y-3 border-t pt-4">
+          <p className="text-sm font-semibold">{section.title}</p>
+          {section.fields
+            .filter((f) => isFieldVisible(f, customFields))
+            .map((f) => (
+              <DynamicFieldInput
+                key={f.id}
+                field={f}
+                value={customFields[f.field_key]}
+                onChange={(v) => setCustomFields((prev) => ({ ...prev, [f.field_key]: v }))}
+              />
+            ))}
+        </div>
+      ))}
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 

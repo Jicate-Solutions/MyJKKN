@@ -33,7 +33,8 @@ DO $$ BEGIN
         'inactive',     -- Temporarily inactive (leave, suspension, etc.)
         'exited',       -- Left institution (dropout, transfer)
         'graduated',    -- Successfully completed program
-        'alumni'        -- Post-graduation status
+        'alumni',       -- Post-graduation status
+        'withdrawal_pending' -- Refund initiated for withdrawal; seat released, awaiting refund completion
     );
 EXCEPTION
     WHEN duplicate_object THEN null;
@@ -964,6 +965,101 @@ CREATE TABLE IF NOT EXISTS public.billing_refunds (
     updated_at TIMESTAMPTZ DEFAULT now(),
     approved_by UUID
 );
+
+-- =====================================================
+-- BILLING REFUND WORKFLOW (2026-07-11)
+-- =====================================================
+-- Refund approval workflow: config + request + bills + actions tables,
+-- billing_student_bills refund columns, withdrawal_pending learner status.
+-- Writes happen ONLY via SECURITY DEFINER RPCs; RLS grants SELECT only.
+
+CREATE TABLE IF NOT EXISTS public.billing_refund_flow_configs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NULL REFERENCES institutions(id),  -- NULL = global default
+    name TEXT NOT NULL,
+    initiator_roles UUID[] NOT NULL DEFAULT '{}',
+    initiator_users UUID[] NOT NULL DEFAULT '{}',
+    stages JSONB NOT NULL DEFAULT '[]',  -- [{key,name,assignee_roles:[],assignee_users:[]}]
+    disburser_roles UUID[] NOT NULL DEFAULT '{}',
+    disburser_users UUID[] NOT NULL DEFAULT '{}',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_by UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_refund_flow_global_active
+    ON billing_refund_flow_configs ((1)) WHERE institution_id IS NULL AND is_active;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_refund_flow_institution_active
+    ON billing_refund_flow_configs (institution_id) WHERE institution_id IS NOT NULL AND is_active;
+
+CREATE SEQUENCE IF NOT EXISTS billing_refund_request_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.billing_refund_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_number TEXT NOT NULL UNIQUE,
+    institution_id UUID NOT NULL REFERENCES institutions(id),
+    student_id UUID NOT NULL REFERENCES learners_profiles(id),
+    refund_type TEXT NOT NULL CHECK (refund_type IN ('withdrawal','adjustment')),
+    status TEXT NOT NULL DEFAULT 'pending_review'
+        CHECK (status IN ('pending_review','pending_disbursement','disbursed','declined')),
+    current_stage_index INT NOT NULL DEFAULT 0,
+    flow_snapshot JSONB NOT NULL,
+    total_refund_amount NUMERIC(15,2) NOT NULL,
+    previous_lifecycle_status TEXT NULL,
+    initiated_by UUID NOT NULL REFERENCES profiles(id),
+    initiated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    declined_by UUID NULL REFERENCES profiles(id),
+    declined_at TIMESTAMPTZ NULL,
+    decline_reason TEXT NULL,
+    declined_stage_name TEXT NULL,
+    payment_mode TEXT NULL CHECK (payment_mode IS NULL OR payment_mode IN ('cash','online','bank_transfer','dd','cheque')),
+    payment_details JSONB NULL,
+    disbursed_by UUID NULL REFERENCES profiles(id),
+    disbursed_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_refund_requests_student ON billing_refund_requests (student_id);
+CREATE INDEX IF NOT EXISTS idx_refund_requests_institution_status ON billing_refund_requests (institution_id, status);
+
+CREATE TABLE IF NOT EXISTS public.billing_refund_request_bills (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_id UUID NOT NULL REFERENCES billing_refund_requests(id) ON DELETE CASCADE,
+    bill_id UUID NOT NULL REFERENCES billing_student_bills(id),
+    paid_amount_snapshot NUMERIC(15,2) NOT NULL,
+    refund_amount NUMERIC(15,2) NOT NULL,
+    CONSTRAINT chk_refund_amount CHECK (refund_amount > 0 AND refund_amount <= paid_amount_snapshot),
+    CONSTRAINT uq_request_bill UNIQUE (request_id, bill_id)
+);
+CREATE INDEX IF NOT EXISTS idx_refund_request_bills_bill ON billing_refund_request_bills (bill_id);
+
+CREATE TABLE IF NOT EXISTS public.billing_refund_request_actions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_id UUID NOT NULL REFERENCES billing_refund_requests(id) ON DELETE CASCADE,
+    action_type TEXT NOT NULL CHECK (action_type IN ('initiated','approved','declined','disbursed')),
+    stage_index INT NULL,
+    stage_name TEXT NOT NULL,
+    actor_id UUID NOT NULL REFERENCES profiles(id),
+    actor_role_name TEXT NULL,
+    notes TEXT NULL,
+    attachments JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_refund_actions_request ON billing_refund_request_actions (request_id, created_at);
+
+ALTER TABLE billing_student_bills
+  ADD COLUMN IF NOT EXISTS refunded_amount NUMERIC(15,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS refund_status TEXT NULL
+      CHECK (refund_status IS NULL OR refund_status IN ('partially_refunded','refunded'));
+
+-- withdrawal_pending learner status: frees the seat (not in any seat-RPC counted
+-- list), non-terminal, does not gate login. Idempotent insert.
+INSERT INTO admission_statuses (scope, code, label, description, color, sort_order,
+       is_active, is_terminal, is_seat_filled, gates_login, auto_promote_when_universal_paid)
+SELECT 'learner', 'withdrawal_pending', 'Withdrawal Pending',
+       'Refund initiated for withdrawal; seat released, awaiting refund completion',
+       '#f97316', 11, true, false, false, false, false
+WHERE NOT EXISTS (SELECT 1 FROM admission_statuses WHERE scope='learner' AND code='withdrawal_pending');
 
 -- =====================================================
 -- SECTION 9: APPLICATION MANAGEMENT
@@ -3423,6 +3519,7 @@ CREATE TABLE IF NOT EXISTS public.events_registrations (
 
   -- Event-specific custom data
   custom_data JSONB DEFAULT '{}',  -- tshirt_size, emergency_contact, dietary_pref, etc.
+  custom_fields JSONB,  -- tournament dynamic registration form answers, keyed by field_key (event_registration_form_fields.is_required validated server-side)
 
   -- Source tracking
   source TEXT DEFAULT 'internal',  -- 'internal', 'external_app', 'bulk_upload', 'admin'
@@ -3442,6 +3539,59 @@ CREATE INDEX IF NOT EXISTS idx_events_registrations_bib ON public.events_registr
 CREATE INDEX IF NOT EXISTS idx_events_registrations_status ON public.events_registrations(status);
 CREATE INDEX IF NOT EXISTS idx_events_registrations_institution ON public.events_registrations(institution_id);
 
+-- ── Tournament dynamic registration form builder (2026-07-14, event_registration_form_builder) ──
+-- Per-tournament custom fields layered on top of the fixed core registration
+-- fields above. event_id is denormalized onto every table (not just
+-- event_registration_forms) so RLS policies stay single-join, mirroring
+-- tournament_divisions' pattern rather than requiring a 3-way join through
+-- form_id/section_id on every check. Submitted answers land in
+-- events_registrations.custom_fields, keyed by field_key.
+CREATE TABLE IF NOT EXISTS event_registration_forms (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id uuid NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+  is_enabled boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS event_registration_form_sections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES event_registration_forms(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  display_order int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS event_registration_form_fields (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  section_id uuid NOT NULL REFERENCES event_registration_form_sections(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  field_key text NOT NULL,
+  field_label text NOT NULL,
+  field_type text NOT NULL CHECK (field_type IN (
+    'text','number','phone','email','select','multi_select','date','textarea','file','checkbox','radio'
+  )),
+  is_required boolean NOT NULL DEFAULT false,
+  display_order int NOT NULL DEFAULT 0,
+  placeholder text,
+  help_text text,
+  min_length int,
+  max_length int,
+  min_value numeric,
+  max_value numeric,
+  pattern text,
+  options jsonb,
+  condition jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (event_id, field_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_registration_form_sections_form ON event_registration_form_sections(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_section ON event_registration_form_fields(section_id);
+
 -- Payment transactions for events (separate from billing payment_transactions)
 CREATE TABLE IF NOT EXISTS public.event_payment_transactions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -3458,6 +3608,8 @@ CREATE TABLE IF NOT EXISTS public.event_payment_transactions (
   gateway_session_id TEXT UNIQUE,
   gateway_transaction_id TEXT,
   gateway_response JSONB,
+
+  return_url TEXT,
 
   payer_name TEXT,
   payer_phone TEXT,
@@ -6055,3 +6207,28 @@ ALTER TABLE public.learners_profiles
 CREATE INDEX IF NOT EXISTS learners_profiles_post_office_id_idx
   ON public.learners_profiles (post_office_id)
   WHERE post_office_id IS NOT NULL;
+
+-- ── event_volunteer_checkins: MyJKKN volunteer link (2026-07-10) ─────────────
+-- member_id = staff.profile_id (auth uid) or learners_profiles.id; NULL for guests.
+ALTER TABLE public.event_volunteer_checkins
+  ADD COLUMN IF NOT EXISTS member_id    uuid,
+  ADD COLUMN IF NOT EXISTS member_role  text,
+  ADD COLUMN IF NOT EXISTS member_email text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'event_volunteer_checkins_member_role_check') THEN
+    ALTER TABLE public.event_volunteer_checkins
+      ADD CONSTRAINT event_volunteer_checkins_member_role_check
+      CHECK (member_role IS NULL OR member_role IN ('staff', 'student'));
+  END IF;
+END $$;
+
+-- One active (not checked-out) check-in per JKKN person per event.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_event_volunteers_member_active
+  ON public.event_volunteer_checkins (event_id, member_id)
+  WHERE member_id IS NOT NULL AND checked_out_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_event_volunteers_member
+  ON public.event_volunteer_checkins (member_id)
+  WHERE member_id IS NOT NULL;

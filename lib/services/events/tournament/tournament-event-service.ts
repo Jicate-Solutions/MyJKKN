@@ -7,7 +7,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import { logger } from '@/lib/utils/enhanced-logger';
-import type { Event, CreateEventDto, UpdateEventDto } from '@/types/events';
+import type { Event, CreateEventDto, UpdateEventDto, EventStatus } from '@/types/events';
+import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 import type {
   Tournament,
   TournamentDivision,
@@ -110,6 +111,20 @@ export class TournamentEventService {
         }
       }
 
+      // Auto-create an empty registration form row (best-effort — the read
+      // path lazy-creates one anyway if this fails, per getOrCreateForm).
+      try {
+        const { EventRegistrationFormService } = await import(
+          '@/lib/services/events/tournament/event-registration-form-service'
+        );
+        await EventRegistrationFormService.getOrCreateForm(event.id);
+      } catch (formError) {
+        logger.warn('events/tournament', 'Failed to seed registration form', {
+          eventId: event.id,
+          error: formError,
+        });
+      }
+
       logger.info('events/tournament', 'Tournament created', {
         eventId: event.id,
         name: event.name,
@@ -135,6 +150,38 @@ export class TournamentEventService {
       return updated;
     } catch (error) {
       logger.error('events/tournament', 'Failed to update tournament', { id, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Validate and update tournament status with transition check
+   * (mirror of MarathonEventService.updateStatus).
+   */
+  static async updateStatus(id: string, newStatus: EventStatus): Promise<Event> {
+    try {
+      const event = await EventBaseService.getEvent(id);
+      if (!event) {
+        throw new Error(`Tournament not found: ${id}`);
+      }
+
+      const allowedTransitions = EVENT_STATUS_TRANSITIONS[event.status] ?? [];
+      if (!allowedTransitions.includes(newStatus)) {
+        throw new Error(
+          `Invalid status transition: ${event.status} -> ${newStatus}. Allowed: ${allowedTransitions.join(', ') || 'none'}`
+        );
+      }
+
+      const updated = await EventBaseService.updateEvent(id, { status: newStatus });
+      logger.info('events/tournament', 'Status updated', {
+        eventId: id,
+        from: event.status,
+        to: newStatus,
+      });
+
+      return updated;
+    } catch (error) {
+      logger.error('events/tournament', 'Failed to update tournament status', { id, newStatus, error });
       throw error;
     }
   }

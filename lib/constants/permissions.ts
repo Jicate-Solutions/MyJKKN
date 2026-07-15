@@ -144,6 +144,24 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Reference Data',
+    key: 'reference',
+    permissions: [
+      { key: 'reference.catalogs.view', label: 'View Reference Catalogs' },
+      { key: 'reference.catalogs.manage', label: 'Add/Edit Reference Catalog Entries' },
+    ]
+  },
+  {
+    // Projects module never had a permission category — its sidebar entry
+    // was hidden for every non-super-admin (menu-visibility gap fix
+    // 2026-07-12). Grant projects.view to roles in Role Management.
+    name: 'Projects',
+    key: 'projects',
+    permissions: [
+      { key: 'projects.view', label: 'View Projects Module' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [
@@ -298,6 +316,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
 
       // Learner Portal Features (Student Self-Service)
+      { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
       { key: 'learners.my-timetable.view', label: 'View My Timetable (Students)' },
       { key: 'learners.my-attendance.view', label: 'View My Attendance (Students)' },
       { key: 'learners.my-profile.view', label: 'View My Profile (Students)' },
@@ -467,6 +486,34 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.session_feedback.learner_detail.view',
         label: 'View Learner-Level Feedback Panels (trajectory, struggling notes)'
       },
+      // 2026-07-10: the last hardcoded leader-role arrays in the SCF lane moved
+      // onto Role Management switches (Director interview R2). The verdict-report
+      // panels get their OWN read key (narrower than leadership.view — no HoD by
+      // default); the three write keys gate the leadership OVERRIDE branches only:
+      // assigned-faculty / teaching-evidence paths stay role-independent.
+      {
+        key: 'academic.session_feedback.verdict_report.view',
+        label: 'View Verdict Report Panels (contradictions, track record)'
+      },
+      {
+        key: 'academic.session_feedback.verdict.write',
+        label: 'Set Loop-Note Verdicts (leadership override)'
+      },
+      {
+        key: 'academic.curriculum.lesson.manage',
+        label: 'Manage Curriculum Lessons (leadership override: edit, approve/reject AI drafts)'
+      },
+      {
+        key: 'academic.live_poll.manage',
+        label: 'Manage Live Polls & Pulses (leadership override)'
+      },
+      // 2026-07-13: Exam IA Audit — the Registrar's in-person audit sheet.
+      // Joins COE university-bound records (CIA provenance + registrations)
+      // against MyJKKN's continuous day-one attendance, program-wise per exam.
+      {
+        key: 'academic.internal_marks.exam_audit.view',
+        label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'
@@ -578,6 +625,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.refunds.delete', label: 'Delete Refunds' },
       { key: 'billing.refunds.approve', label: 'Approve Refunds' },
       { key: 'billing.refunds.process', label: 'Process Refunds' },
+      { key: 'billing.refunds.configure', label: 'Configure Refund Approval Flows' },
       { key: 'billing.apportionment.view', label: 'View Revenue Apportionment' },
       { key: 'billing.apportionment.create', label: 'Create Revenue Apportionment' },
       { key: 'billing.apportionment.edit', label: 'Edit Revenue Apportionment' },
@@ -1818,7 +1866,11 @@ export const PERMISSION_CATEGORIES = [
     name: 'Sports Tournaments',
     key: 'sports',
     permissions: [
-      { key: 'sports.tournaments.view', label: 'View Sports Tournaments' },
+      // browse = student-facing read-only page (/events/tournaments): open tournaments
+      // + divisions + Register link. Never exposes entries, payments, budget or sponsors.
+      // Granted to the student role; `view` gates the ADMIN subtree instead.
+      { key: 'sports.tournaments.browse', label: 'Browse Open Tournaments (Students)' },
+      { key: 'sports.tournaments.view', label: 'View Sports Tournaments (Admin)' },
       { key: 'sports.tournaments.create', label: 'Create Sports Tournaments' },
       { key: 'sports.tournaments.edit', label: 'Edit Sports Tournaments' },
       { key: 'sports.tournaments.manage', label: 'Manage Sports Tournaments (Divisions, Lifecycle)' }
@@ -1881,7 +1933,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.view', label: 'View IMS Settings' },
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
-      { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' }
+      { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' },
+
+      // Store Kits (PR-K2, 2026-07-12) — per-group item kits at the central
+      // store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
+      // Grant NOTHING until the grn_verify rollout (feature ships dark).
+      { key: 'ims.kits.view', label: 'View Kit Rules & Entitlements' },
+      { key: 'ims.kits.manage', label: 'Manage Kit Rules (central store team)' },
+      { key: 'ims.kits.handover', label: 'Record Kit Handovers (counter)' },
+      { key: 'ims.kits.billing_flags.view', label: 'View Kit Billing Flags (accounts)' },
+      { key: 'ims.kits.my.view', label: 'See My Kit (learners & staff self view)' }
     ]
   },
   {
@@ -1905,6 +1966,7 @@ export const PERMISSION_CATEGORIES = [
 
       // RFQ + Vendor Quotations
       { key: 'procurement.rfq_manage', label: 'Manage RFQs & Requirement Lists' },
+      { key: 'procurement.rfq_approve', label: 'Review & Approve RFQs (before sending to vendors)' },
       { key: 'procurement.quotation_manage', label: 'Upload & Compare Vendor Quotations' },
 
       // Purchase Orders (create vs approve are separate)

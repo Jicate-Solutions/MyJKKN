@@ -134,6 +134,13 @@ export function getAllAuditModuleNames(): string[] {
  * `/admin/bug-reports`) MUST come before broader ones (e.g. `/admin`).
  */
 export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = [
+  // Reference / Masters hub (registry-driven catalogs, 2026-07-11)
+  ['/reference', 'Reference'],
+  // Projects module (menu-visibility gap fix 2026-07-12 — first
+  // MENU_PERMISSIONS entry for /projects needed a module mapping too)
+  ['/projects', 'Projects'],
+  // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
+  ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
   // /admin/notifications relocated to /notifications/admin (2026-06-11
@@ -201,6 +208,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/solutions', 'System'],
   ['/learners', 'Learners'],
   ['/moments', 'Learners'], // Family Moments — parent engagement (Father's Day 2026)
+  ['/my-proof', 'Learners'], // Verified Skills Record — learner self view (learners.proof.view)
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
   ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)

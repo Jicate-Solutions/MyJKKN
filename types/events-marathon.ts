@@ -222,6 +222,10 @@ export interface MarathonVolunteerCheckin {
   // External (non-JKKN) guest volunteer markers — decision #8 (Events Platform Promotion PR4).
   external_name?: string | null;
   external_phone?: string | null;
+  // MyJKKN volunteer link (2026-07). NULL for guests.
+  member_id?: string | null;
+  member_role?: 'staff' | 'student' | null;
+  member_email?: string | null;
 }
 
 export interface MarathonRaceTrack {
@@ -371,6 +375,10 @@ export interface CreateEventVolunteerDto {
   is_external?: boolean;
   external_name?: string;
   external_phone?: string;
+  /** MyJKKN volunteer: auth uid (staff) / learners_profiles.id (student). */
+  member_id?: string | null;
+  member_role?: 'staff' | 'student' | null;
+  member_email?: string | null;
 }
 
 export interface GPSSyncPayload {

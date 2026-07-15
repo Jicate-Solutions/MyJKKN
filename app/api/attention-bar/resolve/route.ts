@@ -21,6 +21,14 @@ import type { Layer } from '@/lib/attention-bar/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Layer 4 (AI fallback) now enqueues an attention_bar.assistant Max-lane job
+// and long-polls fn_ai_job_status for the pick (see lib/attention-bar/
+// anthropic-client.ts). Give that rare path room to complete within the
+// request; it kept just under this in the wrapper's TOTAL_DEADLINE_MS. Layer 4
+// only fires when L0/L2/L3/L1 all returned nothing (< 2% of resolves), and any
+// timeout fails open to the Layer 1 static default — so the common path is
+// unaffected.
+export const maxDuration = 180;
 
 const VALID_LAYERS: ReadonlySet<Layer> = new Set([0, 1, 2, 3, 4] as Layer[]);
 

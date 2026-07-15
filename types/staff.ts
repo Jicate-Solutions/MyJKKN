@@ -293,6 +293,7 @@ export interface StaffOverviewStats {
   averageTenure: number; // Average years of service
   staffWithProfiles: number;
   staffWithoutProfiles: number;
+  inactiveProfiles: number;
 }
 
 export interface StaffRegistrationTrend {

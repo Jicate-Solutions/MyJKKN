@@ -109,6 +109,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/internal-marks/exam-audit",
+            "label": "Exam Audit",
+            "iconName": "Star",
+            "children": []
+          },
+          {
             "path": "/academic/internal-marks/monitor",
             "label": "IA Monitor",
             "iconName": "Star",
@@ -603,6 +609,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/proof-disputes",
+        "label": "Proof Disputes",
         "iconName": "FileText",
         "children": []
       },
@@ -1844,17 +1856,16 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/refund-approvals",
+        "label": "Refund Approvals",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/refunds",
         "label": "Refunds",
         "iconName": "Wallet",
-        "children": [
-          {
-            "path": "/billing/refunds/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
+        "children": []
       },
       {
         "path": "/billing/reports",
@@ -3249,6 +3260,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/events/tournaments",
+        "label": "Tournaments",
+        "iconName": "CalendarHeart",
+        "children": []
       }
     ]
   },
@@ -4258,6 +4275,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/ims/kits",
+        "label": "Kits",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/ims/kits/billing-flags",
+            "label": "Billing Flags",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/ims/kits/counter",
+            "label": "Counter",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/ims/reports",
         "label": "Reports",
         "iconName": "FileBarChart",
@@ -4993,6 +5029,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-induction-sessions",
     "label": "My Induction Sessions",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-kit",
+    "label": "My Kit",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-proof",
+    "label": "My Proof",
     "iconName": "FileText",
     "children": []
   },
@@ -5776,6 +5824,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       }
     ]
+  },
+  {
+    "path": "/reference",
+    "label": "Reference",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/resource-management",

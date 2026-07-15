@@ -3,6 +3,9 @@ import type { ProcurementDomain } from '@/lib/services/procurement/domain-adapte
 
 export type RfqStatus =
   | 'draft'
+  | 'pending_review'
+  | 'approved'
+  | 'rejected'
   | 'sent'
   | 'quotations_received'
   | 'compared'
@@ -21,6 +24,10 @@ export interface ProcurementRfq {
   requirement_pdf_url: string | null;
   created_by: string;
   sent_at: string | null;
+  // Super-Admin review gate (before an RFQ can be sent to vendors).
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -71,6 +78,9 @@ export interface RfqFilters {
 
 export const RFQ_STATUS_CONFIG: Record<RfqStatus, { label: string; color: string }> = {
   draft: { label: 'Draft', color: 'gray' },
+  pending_review: { label: 'Pending Review', color: 'amber' },
+  approved: { label: 'Approved', color: 'green' },
+  rejected: { label: 'Rejected', color: 'red' },
   sent: { label: 'Sent to Vendors', color: 'blue' },
   quotations_received: { label: 'Quotations Received', color: 'indigo' },
   compared: { label: 'Compared', color: 'purple' },

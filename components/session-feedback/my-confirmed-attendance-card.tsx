@@ -44,7 +44,7 @@ export function MyConfirmedAttendanceCard() {
         <CardContent className="flex items-start gap-3 py-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" style={{ color: BRAND }} />
           <div className="text-sm">
-            <p className="font-medium">Your confirmed attendance starts fresh from {fmtDate(enforcement_start)}.</p>
+            <p className="font-medium">Confirming your classes with feedback starts fresh from {fmtDate(enforcement_start)}.</p>
             <p className="text-muted-foreground">
               From now on, a class counts as <strong>confirmed</strong> once you give the
               quick 10-second feedback <strong>within {CONFIRM_WINDOW_HOURS} hours</strong> of it.
@@ -63,10 +63,10 @@ export function MyConfirmedAttendanceCard() {
         <CardContent className="flex items-start gap-3 py-4">
           <TrendingUp className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div className="text-sm">
-            <p className="font-medium">Building your confirmed attendance…</p>
+            <p className="font-medium">Building your feedback confirmations…</p>
             <p className="text-muted-foreground">
-              {confirmed_present} of your {total_marks} classes so far are confirmed with feedback.
-              Your confirmed % starts counting toward the {pass_line}% line after {min_marks} classes —
+              {confirmed_present} of your {total_marks} attended classes so far are confirmed with feedback.
+              Your confirmed-with-feedback % starts counting toward the {pass_line}% line after {min_marks} classes —
               keep giving feedback within {CONFIRM_WINDOW_HOURS} hours of each class.
             </p>
           </div>
@@ -82,16 +82,21 @@ export function MyConfirmedAttendanceCard() {
   const accent = atRisk ? '#dc2626' : close ? '#d97706' : BRAND;
   const bg = atRisk ? 'bg-red-50 border-red-200' : close ? 'bg-amber-50 border-amber-200' : 'border-[#0b6d41]/25 bg-[#0b6d41]/5';
   const Icon = atRisk ? AlertTriangle : close ? Info : ShieldCheck;
+  // Headlines always name the number as FEEDBACK confirmation, never bare
+  // "attendance" — a learner who attended 100% must not read the smaller
+  // feedback-confirmation % as their attendance (root cause of the BUG-004638
+  // "portal shows 82.5%" cluster). Attendance (official_pct) is stated first,
+  // reassuringly, then the feedback gap is explained.
   const headline = atRisk
-    ? `Your confirmed attendance is ${confirmed_pct}% — below the ${pass_line}% line.`
+    ? `${confirmed_pct}% of your classes are confirmed with feedback — below the ${pass_line}% line.`
     : close
-      ? `Your confirmed attendance is ${confirmed_pct}% — just above the ${pass_line}% line.`
-      : `You're at ${confirmed_pct}% confirmed attendance — above the ${pass_line}% line.`;
+      ? `${confirmed_pct}% of your classes are confirmed with feedback — just above the ${pass_line}% line.`
+      : `${confirmed_pct}% of your classes are confirmed with feedback — above the ${pass_line}% line.`;
   const sub = atRisk
-    ? `You attended ${official_pct}% of classes, but only ${confirmed_pct}% are confirmed with feedback. Give feedback within ${CONFIRM_WINDOW_HOURS} hours of each class to raise it back above ${pass_line}%.`
+    ? `Your attendance is ${official_pct}% and that's fine — you're never counted absent for missing feedback. What's below the line is feedback: only ${confirmed_pct}% of your attended classes have feedback given within ${CONFIRM_WINDOW_HOURS} hours. Give feedback on each class to raise it back above ${pass_line}%.`
     : close
-      ? `You attended ${official_pct}% of classes. Give feedback within ${CONFIRM_WINDOW_HOURS} hours of every class so you don't slip below ${pass_line}%.`
-      : `You attended ${official_pct}% and confirmed ${confirmed_pct}% with feedback. Keep it up.`;
+      ? `Your attendance is ${official_pct}%. To keep your confirmed-with-feedback % above the ${pass_line}% line, give feedback within ${CONFIRM_WINDOW_HOURS} hours of every class.`
+      : `Your attendance is ${official_pct}% and ${confirmed_pct}% of those classes are confirmed with feedback. Keep it up.`;
 
   return (
     <Card className={bg}>
@@ -99,14 +104,25 @@ export function MyConfirmedAttendanceCard() {
         <div className="flex items-start gap-3">
           <Icon className="mt-0.5 h-5 w-5 shrink-0" style={{ color: accent }} />
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <p className="text-sm font-medium">Confirmed attendance</p>
-              <span className="text-2xl font-semibold tabular-nums" style={{ color: accent }}>
-                {confirmed_pct}%
-              </span>
+            {/* Two distinct numbers so the feedback-confirmation % is never misread
+                as attendance: your ATTENDANCE (present, unaffected by feedback) sits
+                beside the smaller CONFIRMED-WITH-FEEDBACK % that the gate acts on. */}
+            <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Your attendance</p>
+                <span className="text-2xl font-semibold tabular-nums text-foreground">
+                  {official_pct}%
+                </span>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Confirmed with feedback</p>
+                <span className="text-2xl font-semibold tabular-nums" style={{ color: accent }}>
+                  {confirmed_pct}%
+                </span>
+              </div>
             </div>
-            {/* Track: official (attended) vs confirmed (attended AND feedback). */}
-            <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-muted" title={`Attended ${official_pct}% · Confirmed ${confirmed_pct}%`}>
+            {/* Track: how much of your attendance is confirmed with feedback. */}
+            <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-muted" title={`Attendance ${official_pct}% · Confirmed with feedback ${confirmed_pct}%`}>
               <div className="h-full rounded-full" style={{ width: `${Math.min(100, confirmed_pct)}%`, backgroundColor: accent }} />
             </div>
             <p className="mt-2 text-sm font-medium" style={{ color: accent }}>{headline}</p>

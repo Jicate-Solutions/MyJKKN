@@ -11,6 +11,10 @@ import {
   SCHOOL_PORTAL_SESSION_COOKIE,
   verifySchoolPortalSession,
 } from './lib/auth/school-portal-jwt';
+import {
+  EXTERNAL_SESSION_COOKIE,
+  verifyExternalSession,
+} from './lib/auth/external-jwt';
 
 // Parent Portal pages that are reachable WITHOUT a parent_session (the auth
 // funnel). Everything else under /parent/* requires a valid parent_session JWT.
@@ -98,6 +102,36 @@ async function handleSchoolsPortal(request: NextRequest, currentPath: string) {
   return res;
 }
 
+// SF100 External Mentor/Investor Portal — same isolated dual-auth shape as the
+// parent portal. External mentors/investors are NOT in auth.users, so /external/*
+// must be reachable without a Supabase session. The login page is unauthenticated;
+// everything else under /external/* requires an sf100_external_session JWT.
+// API auth for /api/startup-studio/external/* is enforced in-route via
+// getExternalSession(); /api/* short-circuits isPublicPath() and needs no gate here.
+const EXTERNAL_PORTAL_PUBLIC_PATHS = new Set(['/external', '/external/login']);
+const EXTERNAL_PORTAL_REDIRECT_WHEN_AUTHED = new Set(['/external/login']);
+
+async function handleExternalPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(EXTERNAL_SESSION_COOKIE)?.value;
+  const claims = await verifyExternalSession(token);
+
+  if (claims && EXTERNAL_PORTAL_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(new URL('/external', request.url));
+  }
+
+  if (!claims && !EXTERNAL_PORTAL_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/external/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
+
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
@@ -141,6 +175,7 @@ const PUBLIC_PATH_PREFIXES = [
   '/api/public/health-programs/', // Wellness Programs public view tracking — token-keyed, no login
   '/api/calendar/feed/', // ICS calendar feed — token-keyed bearer secret, no login (Google Calendar polls this)
   '/verify/', // Public certificate verification (/verify/[number]) — QR-scanned by recruiters, no login. Also the LinkedIn "See credential" target. Page under app/verify/ is public-by-design but was never allowlisted (307→login bug); pde_certificates was empty so it stayed latent.
+  '/proof/', // Verified Skills Record verify-links (/proof/[token]) — employer-facing, no login; token-validated server-side (fn_vsr_shared_record), learner-revocable.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -225,6 +260,13 @@ export async function proxy(request: NextRequest) {
       currentPath.startsWith('/schools-portal/')
     ) {
       return handleSchoolsPortal(request, currentPath);
+    }
+
+    // SF100 External Mentor/Investor Portal — same isolated dual-auth shape.
+    // External mentors/investors have no Supabase session; gate /external/* with
+    // the sf100_external_session JWT before the staff Supabase flow runs.
+    if (currentPath === '/external' || currentPath.startsWith('/external/')) {
+      return handleExternalPortal(request, currentPath);
     }
 
     // NOTE: /api/parent/* (and every other /api/*) is handled by the

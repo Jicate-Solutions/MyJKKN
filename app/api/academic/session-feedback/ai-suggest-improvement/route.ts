@@ -2,34 +2,69 @@
 // Session-feedback AI assist — the loop's IMPROVE step.
 //
 // POST { course_code, from?, to? } → for a course whose recent post-class
-// feedback scored LOW on student understanding, call Claude to return concrete
-// teaching adjustments (likely causes, suggested changes, a quick win, and what
-// to watch in the next session's understanding score).
+// feedback scored LOW on student understanding, get concrete teaching
+// adjustments (likely causes, suggested changes, a quick win, and what to watch
+// in the next session's understanding score).
+//
+// REGISTRY CONVERSION (2026-07-13): this route no longer calls Anthropic
+// directly. It enqueues a `session_feedback.suggest_improvement` job on the
+// #1998 generic AI-jobs registry (fn_ai_enqueue) whose prompt_template +
+// tool_set live in ai_job_types (seeded by 20260713000300_seed_staff_ai_job_types.sql),
+// then long-polls fn_ai_job_status for the drain's result — mirroring the
+// proven real-feature conversion app/api/work-pulse/translate/route.ts. The
+// route STILL assembles exactly the data the prompt needs; only WHERE it goes
+// changed: instead of a direct model call, it ships the placeholder variables
+// as the job payload. The seed template runs with NO tools (tool_set set to
+// none by the orchestrator at merge), so the answer is fast + deterministic and
+// never fetches anything. Usage recording happens runner-side (Claude Max, ₹0).
 //
 // ANONYMITY (load-bearing invariant): the raw anonymized comment text
 // (free_texts) is read via the SERVICE-ROLE-ONLY fn_scf_ai_signal and sent ONLY
-// to the model. It is NEVER returned in the HTTP response — staff receive only
-// the synthesized suggestion plus numeric meta. The scope logic below is the
-// authorization boundary (the read bypasses RLS).
-//
-// Cloned from app/api/cdc/career-guidance/route.ts (auth shape, model call,
-// fence-strip + JSON.parse, error handling).
+// into the job payload. It is NEVER returned in the HTTP response — staff
+// receive only the synthesized suggestion plus numeric meta. The scope logic
+// below is the authorization boundary (the read bypasses RLS).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+// Long-poll the ai_jobs Max lane (the generic seat/Windows drain claims ~every
+// minute). Kept < maxDuration so the poll window finishes before a hard-kill.
+export const maxDuration = 300;
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import Anthropic from '@anthropic-ai/sdk';
-import {
-  resolveChatModel,
-  recordChatCall,
-} from '@/lib/services/platform/ai-clients/chat';
 
-// Model resolves at runtime from ai_model_config (feature_key below);
-// resolveChatModel never throws — hardcoded fallback on any config failure.
-const FEATURE_KEY = 'session_feedback.suggest_improvement';
+// The registry job_type — its prompt_template + input_schema + tool_set live in
+// ai_job_types. We send ONLY the placeholder variables it expects (below).
+const JOB_TYPE = 'session_feedback.suggest_improvement';
 
+// Poll cadence — mirrors app/api/work-pulse/translate/route.ts (the proven
+// ai_jobs consumer).
+const POLL_MS = 2_500;
+const UNCLAIMED_DEADLINE_MS = 120_000; // give up if never claimed (drain offline)
+const TOTAL_DEADLINE_MS = 285_000; // kept < maxDuration (300s) so we respond first
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// Read the model's answer text out of the drain's result jsonb. The generic
+// runner returns { answer } (same contract ai-query / translate read); we also
+// tolerate a few plausible shapes — and an already-structured suggestion object
+// — so a completed result never falls silently to null.
+function extractAnswerText(result: unknown): string | null {
+  if (typeof result === 'string') return result.trim() || null;
+  if (result && typeof result === 'object') {
+    const o = result as Record<string, unknown>;
+    for (const key of ['answer', 'text', 'result', 'output']) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+    }
+    // Already a parsed suggestion object → re-serialize so the shared JSON.parse
+    // path below handles it uniformly.
+    if (typeof o.summary === 'string' && Array.isArray(o.suggestedAdjustments)) {
+      return JSON.stringify(o);
+    }
+  }
+  return null;
+}
 
 // Roles that may see institution-wide signals (non-super leadership). A plain
 // faculty/staff caller falls through to the self-scoped (own-email) path.
@@ -41,14 +76,6 @@ const LEADERSHIP_ROLES = new Set([
   'principal',
   'coordinator',
 ]);
-
-const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
-Use ONLY the data provided; ground every suggestion in it. Be concrete and India-context aware. NEVER quote a comment verbatim and NEVER refer to an individual student — speak only in aggregate themes so no student can be identified.
-NEVER state counts, sample sizes, response numbers, averages, percentages, rating scales, or trigger thresholds in your output — describe group size ONLY in the words given (e.g. a few learners, a small group) and understanding ONLY in the qualitative band words given. Printed numbers teach students and staff how to game the loop.
-Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
-{ "summary": "...", "likelyCauses": ["..."], "suggestedAdjustments": [{"title":"...","how":"..."}], "quickWin": "...", "whatToWatchNext": "..." }
-Give 2-4 likelyCauses and 3-5 suggestedAdjustments. whatToWatchNext must describe, in words only, whether understanding holds or improves in the next session — never cite a number, score, average, or target.
-CRITICAL: Never express understanding as a number, score, average, rating out of 5, or percentage, and never state a numeric target or threshold to reach. Describe understanding and its trend in words only (e.g. "understanding was strong", "a small cluster still struggled"). You may state how many students responded.`;
 
 // YYYY-MM-DD validator — reject malformed dates rather than passing junk to the RPC.
 function isoDate(v: unknown): string | null {
@@ -82,6 +109,8 @@ function understandingBandWord(avg: number | null | undefined): string {
 
 export async function POST(req: NextRequest) {
   try {
+    await connection();
+
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
     const courseCode =
       typeof body.course_code === 'string' ? body.course_code.trim() : '';
@@ -101,7 +130,8 @@ export async function POST(req: NextRequest) {
     const from = isoDate(body.from) ?? defaultFrom;
     const to = isoDate(body.to) ?? defaultTo;
 
-    // 1) Authn — session client.
+    // 1) Authn — session client. fn_ai_enqueue / fn_ai_job_status are
+    //    auth.uid()-gated, so the same session client drives enqueue + poll.
     const supabase = await createClient();
     const {
       data: { user },
@@ -182,7 +212,7 @@ export async function POST(req: NextRequest) {
       row?.avg_understood !== null && row?.avg_understood !== undefined
         ? Number(row.avg_understood)
         : null;
-    // free_texts stays server-side ONLY — fed to the model, never returned.
+    // free_texts stays server-side ONLY — fed into the job payload, never returned.
     const freeTexts: string[] = Array.isArray(row?.free_texts) ? row.free_texts : [];
     // Contributing session dates (closed-window only — two-sided 48h window):
     // stamped onto the recorded suggestion so every note cites its evidence base.
@@ -233,16 +263,24 @@ export async function POST(req: NextRequest) {
           liftLine = `The outcome of that advice is not measured yet.`;
         } else if (outcomeN !== null && outcomeN >= 5) {
           // Strong-enough evidence: assert the direction (qualitative — no score).
-          liftLine = `After that advice, in the next class ${lift >= 0.5 ? 'understanding improved — it helped somewhat, build on it.' : 'understanding did NOT meaningfully improve — change the approach; do not repeat the same advice.'}`;
+          // Three-zone rule (Director 2026-07-10, decision 1): < 0 dropped ·
+          // 0–0.5 about the same · >= 0.5 helped. LOCKSTEP with the cron
+          // route's buildTrackRecordBlock and the verdict-integrity fns.
+          liftLine =
+            lift >= 0.5
+              ? `After that advice, in the next class understanding improved — it helped, build on it.`
+              : lift < 0
+                ? `After that advice, in the next class understanding DROPPED — change the approach; do not repeat the same advice.`
+                : `After that advice, understanding stayed about the same — no clear gain; propose a sharper, DIFFERENT adjustment.`;
         } else if (outcomeN !== null && outcomeN >= 3) {
           // Weak evidence: give direction but caveat it; do not let the model treat it as proof.
-          liftLine = `After that advice, understanding in the next class ${lift >= 0.5 ? 'appeared to improve' : 'did not clearly improve'} — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
+          liftLine = `After that advice, understanding in the next class ${lift >= 0.5 ? 'appeared to improve' : lift < 0 ? 'appeared to drop' : 'stayed about the same'} — but this is WEAK EVIDENCE: only ${outcomeN} learners answered the next session, so treat it as a hint, not proof. Do not conclude the advice did or didn't work from this alone.`;
         } else {
           // Below the floor (or unknown N): explicitly low-confidence.
           liftLine = `An outcome was recorded for that advice${outcomeN !== null ? ` but only ${outcomeN} learner${outcomeN === 1 ? '' : 's'} answered the next session` : ''}, so it is LOW-CONFIDENCE — do not treat it as evidence the advice worked or failed.`;
         }
         const verdictLine = prior.human_verdict
-          ? ` The teacher marked it: ${String(prior.human_verdict)}.`
+          ? ` The facilitator marked it: ${String(prior.human_verdict)}.`
           : '';
         trackRecordBlock = `\n\nYOUR PREVIOUS ADVICE FOR THIS CLASS (${String(prior.generated_at).slice(0, 10)}): ${priorSummary}\n${liftLine}${verdictLine}\nUse this track record: keep what worked, and propose a DIFFERENT, more specific adjustment for anything that did not move.`;
       }
@@ -250,62 +288,137 @@ export async function POST(req: NextRequest) {
       console.error('[academic/ai-suggest-improvement] prior fetch failed:', priorErr);
     }
 
-    // 6) Build the prompt + call Claude.
+    // 5c) Cross-peek (Director 2026-07-10, decision 8): the same class keeps
+    //     two loop notebooks — teacher lane (faculty_email set) and leadership
+    //     lane (faculty_email NULL). They stay separate (privacy design), but
+    //     new advice glances at the OTHER lane's latest note so the two never
+    //     contradict each other unknowingly. Read-only; best-effort.
+    try {
+      let peek = admin
+        .from('scf_ai_suggestions')
+        .select('suggestion, generated_at')
+        .eq('domain', 'session_feedback')
+        .eq('course_code', courseCode)
+        .order('generated_at', { ascending: false })
+        .limit(1);
+      peek = pFacultyEmail
+        ? peek.is('faculty_email', null)
+        : peek.not('faculty_email', 'is', null);
+      // STRICT same-tenant scope (skeptic review 2026-07-10): course_code is
+      // not globally unique, and NULL-institution (super course-level) rows are
+      // not tenant-attributable — this query runs on the service-role client,
+      // so an `is.null` disjunct would bypass the RLS that hides those rows and
+      // could inject ANOTHER institution's advice into this prompt (and shadow
+      // the own-tenant note, being newest). NULL-institution callers (super
+      // course-level) peek only NULL rows: conservative, no cross-tenant flow.
+      peek = loopInstitutionId
+        ? peek.eq('institution_id', loopInstitutionId)
+        : peek.is('institution_id', null);
+      const { data: peekData, error: peekErr } = await peek;
+      if (!peekErr && peekData?.length) {
+        const other = peekData[0] as { suggestion: unknown; generated_at: string };
+        const otherSummary =
+          other.suggestion && typeof other.suggestion === 'object'
+            ? String((other.suggestion as Record<string, unknown>).summary ?? '').slice(0, 300)
+            : String(other.suggestion ?? '').slice(0, 300);
+        if (otherSummary) {
+          trackRecordBlock += `\nFYI — the ${pFacultyEmail ? 'leadership' : 'facilitator'}-side notebook's latest advice for this class (${String(other.generated_at).slice(0, 10)}): ${otherSummary}\nDo not contradict that advice; complement it or build on it.`;
+        }
+      }
+    } catch (peekErr) {
+      console.error('[academic/ai-suggest-improvement] cross-peek fetch failed:', peekErr);
+    }
+
+    // 6) Assemble the anonymized comment block (feeds the {{comments}}
+    //    placeholder) and enqueue the registry job. We send ONLY the seven
+    //    placeholder variables the seeded prompt_template expects — the prompt
+    //    itself lives in ai_job_types, so no prompt text leaves this route.
     const commentBlock =
       freeTexts.length > 0
         ? freeTexts.map((t) => `- ${String(t).trim()}`).join('\n')
         : '- (no written comments — use the aggregate signals)';
-    const userPrompt = `Course: ${courseCode}
-Window: ${from} to ${to}
-Group size (words only — never repeat numbers): ${groupSizeWord(responses)}
-Understanding level (qualitative): ${understandingBandWord(avgUnderstood)}
 
-Anonymized student comments:
-${commentBlock}${trackRecordBlock}
+    // EXACT placeholder keys the seeded prompt_template uses:
+    // comments, course_code, from, group_size_word, to, track_record, understanding_band
+    const payload = {
+      course_code: courseCode,
+      from,
+      to,
+      group_size_word: groupSizeWord(responses),
+      understanding_band: understandingBandWord(avgUnderstood),
+      comments: commentBlock,
+      track_record: trackRecordBlock,
+    };
 
-Generate the teaching-improvement JSON now.`;
-
-    const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+      p_job_type: JOB_TYPE,
+      p_payload: payload,
+    });
+    if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+      const errText = typeof enq?.error === 'string' ? enq.error : '';
+      // Seed not applied / feature disabled by the orchestrator → "unavailable".
+      if (errText === 'unknown or disabled job_type') {
+        return NextResponse.json(
+          { ok: false, error: 'AI suggestions are not available right now. Please try again later.' },
+          { status: 503 }
+        );
+      }
+      if (errText === 'too many in-flight jobs of this type') {
+        return NextResponse.json(
+          { ok: false, error: 'A suggestion is already being generated. Please wait for it to finish.' },
+          { status: 429 }
+        );
+      }
+      if (errText === 'not allowed for this job_type') {
+        return NextResponse.json(
+          { ok: false, error: 'You do not have access to this feature.' },
+          { status: 403 }
+        );
+      }
+      console.error('[academic/ai-suggest-improvement] enqueue failed:', enqError ?? enq);
       return NextResponse.json(
-        { ok: false, error: 'AI is not configured (missing API key).' },
+        { ok: false, error: 'Could not start the suggestion. Please try again.' },
+        { status: 500 }
+      );
+    }
+
+    // Long-poll the Max lane for the answer (mirrors the translate reference).
+    const jobId = enq.job_id;
+    const startedAt = Date.now();
+    let answerText: string | null = null;
+    let modelUsed = 'max-lane';
+    while (Date.now() - startedAt < TOTAL_DEADLINE_MS) {
+      await sleep(POLL_MS);
+      const { data: st, error: stError } = await supabase.rpc('fn_ai_job_status', {
+        p_job_id: jobId,
+      });
+      if (stError || !st || typeof st.status !== 'string') continue;
+      if (st.status === 'done') {
+        const r = (st as { result?: unknown }).result;
+        answerText = extractAnswerText(r);
+        const m =
+          r && typeof r === 'object' ? (r as Record<string, unknown>).model : null;
+        if (typeof m === 'string' && m.trim()) modelUsed = m.trim();
+        break;
+      }
+      if (st.status === 'error' || st.status === 'canceled' || st.status === 'not_found') {
+        break;
+      }
+      // Never claimed within the unclaimed window → the drain is offline.
+      if (st.status === 'pending' && Date.now() - startedAt > UNCLAIMED_DEADLINE_MS) {
+        break;
+      }
+    }
+
+    if (answerText === null) {
+      return NextResponse.json(
+        { ok: false, error: 'The suggestion did not finish in time. Please try again in a moment.' },
         { status: 503 }
       );
     }
 
-    // Resolved AFTER the cheap-exit paths (small-n floor, 503-on-missing-key)
-    // so config resolution never runs for requests that skip the LLM.
-    const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
-
-    const anthropic = new Anthropic({ apiKey });
-    const aiStartedAt = Date.now();
-    let resp: Anthropic.Message;
-    try {
-      resp = await anthropic.messages.create({
-        model: modelId,
-        // 2048 (was 1024): a comment-rich class produces summary + 3-5
-        // adjustments that overflow 1024 → truncated JSON → JSON.parse throws →
-        // 500 for the user. Verified on MR3691 (16 comments → 1232 output tokens).
-        max_tokens: 2048,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
-      });
-    } catch (aiErr) {
-      // Record the failed invocation (recordChatCall is internally
-      // non-throwing), then rethrow — the outer catch keeps the existing 500.
-      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, null, aiErr);
-      throw aiErr;
-    }
-    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, resp);
-
-    const text = resp.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-      .trim();
-
     // Strip ```json fences (the model occasionally wraps despite instructions).
-    const jsonStr = text
+    const jsonStr = answerText
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
@@ -332,7 +445,7 @@ Generate the teaching-improvement JSON now.`;
         p_input_avg: avgUnderstood,
         p_suggestion:
           sessionDates.length > 0 ? { ...suggestion, contributing_dates: sessionDates } : suggestion,
-        p_model: resp.model,
+        p_model: modelUsed,
       });
       // RETURNS uuid → the new scf_ai_suggestions row id.
       suggestionId = typeof recordedId === 'string' ? recordedId : null;
@@ -350,7 +463,7 @@ Generate the teaching-improvement JSON now.`;
         responses,
         low_responses: lowResponses,
         avg_understood: avgUnderstood,
-        model: resp.model,
+        model: modelUsed,
       },
     });
   } catch (e) {

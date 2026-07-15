@@ -231,13 +231,20 @@ export interface CreateEntryDto {
   // (organizer collects cash and marks paid later); omitted for free divisions.
   payment_mode?: 'online' | 'offline';
   notes?: string | null;
+
+  // Answers to this tournament's custom registration fields (Dynamic Form Builder).
+  custom_fields?: Record<string, unknown> | null;
 }
 
-/** Result of a register call: the created entry, plus a payment link when online. */
+/** Result of a register call: the created entry, plus Razorpay order details when a payment was initiated. */
 export interface RegisterEntryResult {
   entry: TournamentEntry;
   payment_url?: string | null;
   transaction_id?: string | null;
+  razorpay_order_id?: string | null;
+  razorpay_key_id?: string | null;
+  amount_paise?: number | null;
+  customer?: { name?: string; email?: string; phone?: string } | null;
 }
 
 export interface UpdateEntryDto {
@@ -246,6 +253,140 @@ export interface UpdateEntryDto {
   status?: EntryStatus;
   final_rank?: number | null;
   notes?: string | null;
+}
+
+// ============================================================================
+// Dynamic Registration Form Builder
+// ============================================================================
+
+/** A registration form field's input type. Independent of Admission's own
+ * FormFieldType union by design (decision #6: independent schema, not a
+ * shared cross-module table) — kept as an identical value set for consistency. */
+export type FormFieldType =
+  | 'text'
+  | 'number'
+  | 'phone'
+  | 'email'
+  | 'select'
+  | 'multi_select'
+  | 'date'
+  | 'textarea'
+  | 'file'
+  | 'checkbox'
+  | 'radio';
+
+export const FORM_FIELD_TYPES: { value: FormFieldType; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'email', label: 'Email' },
+  { value: 'select', label: 'Dropdown (single choice)' },
+  { value: 'multi_select', label: 'Dropdown (multiple choice)' },
+  { value: 'date', label: 'Date' },
+  { value: 'textarea', label: 'Long text' },
+  { value: 'file', label: 'File upload' },
+  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'radio', label: 'Radio (single choice)' },
+];
+
+export interface FormFieldOption {
+  label: string;
+  value: string;
+}
+
+/** Conditional visibility: show this field only when `field` (another field_key
+ * on the same form) satisfies `op` against `value`. */
+export interface FormFieldCondition {
+  field: string;
+  op: 'eq' | 'neq' | 'contains' | 'not_empty' | 'empty';
+  value: string;
+}
+
+export interface EventRegistrationFormField {
+  id: string;
+  section_id: string;
+  event_id: string;
+  field_key: string;
+  field_label: string;
+  field_type: FormFieldType;
+  is_required: boolean;
+  display_order: number;
+  placeholder: string | null;
+  help_text: string | null;
+  min_length: number | null;
+  max_length: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  pattern: string | null;
+  options: FormFieldOption[] | null;
+  condition: FormFieldCondition | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventRegistrationFormSection {
+  id: string;
+  form_id: string;
+  event_id: string;
+  title: string;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+  fields?: EventRegistrationFormField[];
+}
+
+export interface EventRegistrationForm {
+  id: string;
+  event_id: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  sections?: EventRegistrationFormSection[];
+}
+
+export interface CreateFormSectionDto {
+  title: string;
+  display_order?: number;
+}
+
+export interface UpdateFormSectionDto {
+  title?: string;
+  display_order?: number;
+}
+
+export interface CreateFormFieldDto {
+  section_id: string;
+  field_key: string;
+  field_label: string;
+  field_type: FormFieldType;
+  is_required?: boolean;
+  display_order?: number;
+  placeholder?: string | null;
+  help_text?: string | null;
+  min_length?: number | null;
+  max_length?: number | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  pattern?: string | null;
+  options?: FormFieldOption[] | null;
+  condition?: FormFieldCondition | null;
+}
+
+export interface UpdateFormFieldDto {
+  field_key?: string;
+  field_label?: string;
+  field_type?: FormFieldType;
+  is_required?: boolean;
+  display_order?: number;
+  placeholder?: string | null;
+  help_text?: string | null;
+  min_length?: number | null;
+  max_length?: number | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  pattern?: string | null;
+  options?: FormFieldOption[] | null;
+  condition?: FormFieldCondition | null;
 }
 
 // ============================================================================

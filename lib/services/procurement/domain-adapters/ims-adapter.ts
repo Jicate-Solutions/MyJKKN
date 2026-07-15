@@ -91,7 +91,21 @@ export const imsAdapter: ProcurementDomainAdapter = {
   async postReceipt(line: AcceptedReceiptLine, ctx: DomainCtx): Promise<void> {
     const supabase = db();
     const totalValue = line.totalValue ?? line.costPrice * line.acceptedQuantity;
-    const storeCols = ctx.storeId ? { store_id: ctx.storeId } : {};
+    // Procurement is institution-scoped and passes no IMS store, but every IMS
+    // stock view filters batches by store_id (getBatchesForItem, stock lists) —
+    // a store-less batch is silently hidden (store_id = NULL never matches an
+    // .eq filter). Attribute the receipt to the item's own store; fall back to
+    // institution-level only when the item itself is store-less.
+    let storeId: string | null = ctx.storeId ?? null;
+    if (!storeId) {
+      const { data: itemRow } = await supabase
+        .from('ims_items')
+        .select('store_id')
+        .eq('id', line.domainItemId)
+        .maybeSingle();
+      storeId = itemRow?.store_id ?? null;
+    }
+    const storeCols = storeId ? { store_id: storeId } : {};
     const entryDate = new Date().toISOString().slice(0, 10); // ims_stock_batches.entry_date is NOT NULL
 
     // 1) Create stock batch (batch-wise inventory). quantity_available is NOT NULL
@@ -118,8 +132,8 @@ export const imsAdapter: ProcurementDomainAdapter = {
       .from('ims_stock_summary')
       .select('id, current_quantity, available_quantity, total_value')
       .eq('item_id', line.domainItemId);
-    stockQuery = ctx.storeId
-      ? stockQuery.eq('store_id', ctx.storeId)
+    stockQuery = storeId
+      ? stockQuery.eq('store_id', storeId)
       : stockQuery.eq('institution_id', ctx.institutionId);
     const { data: existing } = await stockQuery.maybeSingle();
 

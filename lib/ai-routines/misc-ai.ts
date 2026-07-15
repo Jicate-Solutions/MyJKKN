@@ -63,6 +63,7 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "work-pulse-translate",
+    "maxLane": true,
     "name": "Work Pulse Tamil→English Translate",
     "category": "misc-ai",
     "type": "endpoint",
@@ -74,22 +75,23 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-haiku-4-5-20251001 (config row 'work_pulse.translate' — /admin/ai-models), max_tokens=1024, TAMIL_THRESHOLD=0.3 (>30% Tamil chars), allowed persist fields=[talent_waste_description_en, repetition_description_en]",
     "sideEffects": "Optionally updates the given _en column on wp_pulse_entries when { pulse_entry_id, field } are supplied; otherwise read-only. No outbound human messages.",
     "safeToManualTrigger": true,
-    "notes": "Any authenticated user may call it. POST body needs { text }; add { pulse_entry_id, field } to persist. Non-Tamil text returns translated:false and does nothing. Idempotent — re-running overwrites the same _en field. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing)."
+    "notes": "Any authenticated user may call it. POST body needs { text }; add { pulse_entry_id, field } to persist. Non-Tamil text returns translated:false and does nothing. Idempotent — re-running overwrites the same _en field. Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY (503 if missing). Max lane: backlog drain rides the Max lane (⚡ = translate all pending Tamil entries — wp_pulse_entries rows whose source text is Tamil-detected but _en column is NULL — via a runner brain on the seat, ₹0 API; brain pending next iteration); the live per-click path in the work-pulse page stays on the API. Backlog measured 2026-07-12: 0 pending (18 pulse rows total, none Tamil) — a ⚡ run is honest-empty until Tamil pulses arrive."
   },
   {
     "id": "attention-bar-anthropic-client",
-    "name": "Attention Bar Layer-4 LLM Client (service)",
+    "maxLane": true,
+    "name": "Attention Bar Layer-4 Action Picker (service)",
     "category": "misc-ai",
     "type": "service",
     "schedule": "On demand — invoked internally per Attention Bar Layer-4 evaluation",
     "triggerPath": "lib/attention-bar/anthropic-client.ts (internal library — no HTTP endpoint)",
     "callsClaude": true,
     "featureKey": "attention_bar.assistant",
-    "whatItDoes": "A thin singleton wrapper around Claude Haiku used by the Attention Bar's Layer 4. Given a user's context and an allowlist of quick actions, it forces Claude to pick exactly one action (via strict tool-use) and returns { action_id, reason, usage, model }.",
-    "configKnobs": "LAYER_4_MODEL=claude-haiku-4-5-20251001 (config row 'attention_bar.assistant' — /admin/ai-models; fallback stays LAYER_4_MODEL), max_tokens=256, default timeoutMs=8000, tool_choice forced to 'pick_action', system+tools cache_control=ephemeral (5-min prompt cache)",
-    "sideEffects": "read-only — makes one LLM call and returns a normalized result; writes no DB rows and sends no messages itself.",
+    "whatItDoes": "The Attention Bar's Layer 4 action picker. Given the on-screen context and an allowlist of quick actions, it enqueues an attention_bar.assistant registry job (Max lane) carrying exactly { actions, context } and long-polls fn_ai_job_status for the pick, returning { action_id, reason, usage, model }. Page-context feature — the model is handed all its data, so the job runs with tool_set=none.",
+    "configKnobs": "Registry-governed: prompt_template + tool_set (none) + input_schema live in ai_job_types row 'attention_bar.assistant' (set by orchestrator). Payload keys: actions, context. Poll: 2s cadence, 90s unclaimed deadline, 170s total (< resolve route maxDuration 180). No in-process model/token knobs — usage is ₹0 (Max subscription, recorded runner-side).",
+    "sideEffects": "read-only — enqueues one job and returns a normalized pick; writes no feature DB rows and sends no messages itself.",
     "safeToManualTrigger": false,
-    "notes": "Not an HTTP route — it is a library module called by the Layer-4 resolver, so there is no operator URL to hit directly. Requires ANTHROPIC_API_KEY (throws/fails fast if unset; Layer 4 then falls through to Layer 1). Enforces allowlist enum on the tool spec as first-line defense; the evaluator double-checks the returned action_id. Has test seams (_setLLMStub, _resetAnthropicClient) that production never calls."
+    "notes": "Not an HTTP route — it is a library module called by the Layer-4 resolver via /api/attention-bar/resolve, so there is no operator URL to hit directly. Converted 2026-07-13 off direct Anthropic onto the #1998 AI-jobs registry (fn_ai_enqueue + fn_ai_job_status), mirroring app/api/work-pulse/translate/route.ts. Any enqueue/poll failure throws and Layer 4 falls open to the Layer 1 static default — that built-in cascade is the 'if slow' path (no separate inbox for an ephemeral pill). Layer 4 only fires when L0/L2/L3/L1 all returned nothing (< 2% of resolves). Has test seams (_setLLMStub, _resetAnthropicClient) that production never calls."
   },
   {
     "id": "cohort-moat-autopropose",

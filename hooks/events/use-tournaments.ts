@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentEventService } from '@/lib/services/events/tournament/tournament-event-service';
-import type { UpdateEventDto } from '@/types/events';
+import type { UpdateEventDto, EventStatus } from '@/types/events';
 import type {
   CreateTournamentDto,
   CreateDivisionDto,
@@ -81,6 +81,24 @@ export function useUpdateTournament() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update tournament');
+    },
+  });
+}
+
+/** Change tournament status (validated against EVENT_STATUS_TRANSITIONS). */
+export function useUpdateTournamentStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: EventStatus }) =>
+      TournamentEventService.updateStatus(id, status),
+    onSuccess: (event) => {
+      queryClient.invalidateQueries({ queryKey: KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: KEYS.detail(event.id) });
+      toast.success(`Status changed to "${event.status}"`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update status');
     },
   });
 }

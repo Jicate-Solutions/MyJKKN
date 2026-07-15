@@ -134,6 +134,14 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
         outputPer1KTokensInr: 6.375,
         modality: 'chat',
       },
+      {
+        id: 'claude-opus-4-8',
+        label: 'Claude Opus 4.8 (highest quality)',
+        inputPer1KTokensInr: 0.425,
+        outputPer1KTokensInr: 2.125,
+        modality: 'chat',
+        notes: 'Anthropic list $5/$25 per MTok at ₹85/USD. Used by procurement PDF extraction.',
+      },
     ],
   },
   {

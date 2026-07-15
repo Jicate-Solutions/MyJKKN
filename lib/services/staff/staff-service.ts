@@ -1255,16 +1255,26 @@ export class StaffService {
     // Get staff with/without profiles
     const { data: profiles, error: profileError } = await supabase
       .from('profiles')
-      .select('email');
+      .select('email, is_active');
 
     if (profileError) throw profileError;
 
-    const profileEmails = new Set(profiles?.map((p: any) => p.email) || []);
+    const profileActiveByEmail = new Map(
+      (profiles || []).map((p: any) => [p.email, p.is_active])
+    );
     const staffWithProfiles =
       staff?.filter(
-        (s: any) => s.institution_email && profileEmails.has(s.institution_email)
+        (s: any) => s.institution_email && profileActiveByEmail.has(s.institution_email)
       ).length || 0;
     const staffWithoutProfiles = totalStaff - staffWithProfiles;
+    // Profiles the staff-sync trigger deactivated (e.g. view-only/no-login
+    // staff), distinct from inactiveStaff which tracks staff.is_active.
+    const inactiveProfiles =
+      staff?.filter(
+        (s: any) =>
+          s.institution_email &&
+          profileActiveByEmail.get(s.institution_email) === false
+      ).length || 0;
 
     return {
       totalStaff,
@@ -1274,7 +1284,8 @@ export class StaffService {
       profileCompletionRate,
       averageTenure,
       staffWithProfiles,
-      staffWithoutProfiles
+      staffWithoutProfiles,
+      inactiveProfiles
     };
   }
 

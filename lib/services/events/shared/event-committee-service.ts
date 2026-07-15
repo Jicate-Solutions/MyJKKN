@@ -109,6 +109,55 @@ export class EventCommitteeService {
     }
   }
 
+  // --- Internal (JKKN) members ----------------------------------------------
+
+  /**
+   * Add MyJKKN users (picked from the member directory) to a committee.
+   * Appends member_names and — when the arrays are index-aligned — member_ids
+   * (staff profile_id / learner id), so the RLS membership checks
+   * (auth.uid() = ANY(member_ids) OR full_name = ANY(member_names)) both work.
+   * Committees with legacy free-text names (ids shorter than names) keep their
+   * misaligned ids untouched and rely on the name match.
+   */
+  static addInternalMembers(
+    committee: MarathonCommittee,
+    people: { member_id: string; name: string }[]
+  ) {
+    const names = committee.member_names ?? [];
+    const ids = committee.member_ids ?? [];
+    const nameSet = new Set(names.map((n) => n.toLowerCase()));
+    const idSet = new Set(ids);
+    const fresh = people.filter(
+      (p) => p.name.trim() && !nameSet.has(p.name.trim().toLowerCase()) && !idSet.has(p.member_id)
+    );
+    if (fresh.length === 0) return Promise.resolve(committee);
+
+    const payload: Partial<MarathonCommittee> = {
+      event_id: committee.event_id,
+      member_names: [...names, ...fresh.map((p) => p.name.trim())],
+    };
+    if (ids.length === names.length) {
+      payload.member_ids = [...ids, ...fresh.map((p) => p.member_id)];
+    }
+    return this.updateCommittee(committee.id, payload);
+  }
+
+  /** Remove the internal member at the given index (keeps member_ids aligned when parallel). */
+  static removeInternalMember(committee: MarathonCommittee, index: number) {
+    const names = (committee.member_names ?? []).filter((_, i) => i !== index);
+    const payload: Record<string, unknown> = {
+      event_id: committee.event_id,
+      member_names: names,
+    };
+    // member_ids is a parallel array when members were picked from the directory —
+    // drop the same slot so the two arrays stay index-aligned.
+    const ids = committee.member_ids ?? [];
+    if (ids.length === (committee.member_names ?? []).length) {
+      payload.member_ids = ids.filter((_, i) => i !== index);
+    }
+    return this.updateCommittee(committee.id, payload as Partial<MarathonCommittee>);
+  }
+
   // --- External (non-JKKN) members — decision #8 ---------------------------
 
   /** Add a guest member (name + optional phone) to a committee's external_members list. */

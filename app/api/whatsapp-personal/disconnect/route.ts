@@ -4,6 +4,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { personalDisconnectAPI } from '@/lib/whatsapp/personal-api-client';
+import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -15,14 +16,23 @@ export async function POST(request: NextRequest) {
   const departmentId = body.department_id;
   if (!departmentId) return NextResponse.json({ error: 'department_id required' }, { status: 400 });
 
+  const access = await checkByowDeptAccess(user.id, departmentId);
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: 'You do not have access to this department’s WhatsApp connection' },
+      { status: byowAccessHttpStatus(access) }
+    );
+  }
+
   const whatsappConnection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
   const clientId = whatsappConnection?.client_id || `dept-${departmentId}`;
   const serviceUrl = whatsappConnection?.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
 
   try {
     await personalDisconnectAPI({
-      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      serviceUrl,
       apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      departmentId: clientId,
     });
   } catch {
     // Service may already be down — proceed with DB cleanup

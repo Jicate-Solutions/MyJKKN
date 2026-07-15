@@ -44,6 +44,7 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 import Anthropic from '@anthropic-ai/sdk';
 import { resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
 import {
@@ -55,8 +56,32 @@ import {
   type SubmitBatchRequest,
   type SubmitBatchResult,
 } from '@/lib/services/platform/ai-clients/batch';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 
 const FEATURE_KEY = 'curriculum.lesson_spine_generate';
+// ₹0 Max-lane migration (work order 2026-07-13 §B): the ai_job_types row
+// (seeded 20260713140000) and the flip-back switch key. 'jobs' → enqueue on the
+// #1998 registry (₹0); 'direct' → the legacy paid Anthropic fallback verbatim.
+const JOB_TYPE = FEATURE_KEY;
+const GENERATION_LANE_KEY = 'loops.curriculum_lesson_spine_generate.generation_lane';
+
+/** Read the generation-lane switch (config-table pattern) as a cron: fn_get_policy
+ *  at global scope resolves with no auth.uid(). Fail-safe to 'direct' (the proven
+ *  paid path) on any read error, so a policy hiccup never silently drops work. */
+async function readGenerationLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'direct'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', {
+      p_key: GENERATION_LANE_KEY,
+      p_scope_id: null,
+    });
+    if (error) return 'direct';
+    return data === 'jobs' ? 'jobs' : 'direct';
+  } catch {
+    return 'direct';
+  }
+}
 const DEFAULT_BATCH_CAP = 25;
 const DEFAULT_EMIT_BRIEFS = true;
 // Sized so a full multi-unit lesson spine fits without truncation → unparseable output.
@@ -310,6 +335,32 @@ export async function GET(request: NextRequest) {
   const mode = request.nextUrl.searchParams.get('mode');
   const isCollectOnly = mode === 'collect';
 
+  // ₹0 Max-lane migration (work order 2026-07-13 §B). Which lane generates this
+  // run's spines. 'jobs' (default after this PR) = the cron ITSELF enqueues each
+  // candidate on the #1998 ai_jobs registry; the generic Windows seat drain runs
+  // it on the Max subscription (₹0). 'direct' = the legacy behaviour: defer to
+  // the per-routine Max MANIFEST TWIN (a separate Windows brain), with a paid
+  // Anthropic sub-fallback only when the twin's heartbeat is stale. Flip-back.
+  const lane = await readGenerationLane(admin);
+
+  // Manifest-twin deferral applies ONLY on the legacy 'direct' lane. On 'jobs'
+  // the cron feeds ai_jobs itself, so it must NOT stand down for the twin — that
+  // would leave the queue unfed. Overlap with a still-running manifest twin is
+  // idempotency-safe: recordSpine is initial-mint-only (fn_curriculum_lesson_ai_
+  // draft_upsert), so whichever lane mints a course's spine first wins and the
+  // other no-ops. Retiring the twin is the ratified 2-week cleanup, not this PR.
+  if (lane === 'direct' && (await shouldDeferToMaxLane('curriculum-lesson-spine-generate'))) {
+    console.log('[cron/curriculum-lesson-spine-generate] deferred to Max manifest twin (direct lane)');
+    return NextResponse.json({
+      ok: true,
+      generation_lane: lane,
+      generated: 0,
+      briefs_generated: 0,
+      skipped: 0,
+      deferred_to_max_lane: true,
+    });
+  }
+
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   const aiAvailable = Boolean(apiKey);
   const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
@@ -339,6 +390,7 @@ export async function GET(request: NextRequest) {
   let skipped = 0;
   let collectedJobs = 0;
   let recorded = 0;
+  let enqueued = 0; // jobs-lane: candidates enqueued on the ₹0 Max lane this run
 
   // =====================================================================
   // COLLECT PHASE — drains ENDED batches, records each course's spine.
@@ -433,6 +485,48 @@ export async function GET(request: NextRequest) {
         );
       }
     }
+  }
+
+  // =====================================================================
+  // JOBS-LANE COLLECT — drain done ai_jobs (₹0 Max lane) and record the SAME
+  // way as the paid path (recordSpine → fn_curriculum_lesson_ai_draft_upsert),
+  // so the drafts written are byte-identical. Runs ALWAYS (no Anthropic key
+  // needed) — also drains anything left queued when the switch is 'direct',
+  // so a flip back never orphans in-flight Max work. fn_ai_collect_claim stamps
+  // delivered_at, so each result is recorded at most once; a record failure is
+  // logged and the daily run regenerates the candidate (idempotent upsert).
+  // =====================================================================
+  try {
+    const jobItems = await collectJobsLane(admin, [JOB_TYPE], batchCap);
+    for (const item of jobItems) {
+      collectedJobs++;
+      const ctx = item.context as unknown as GenContext;
+      if (!ctx?.course_id) continue;
+      const spine = parseSpineMessage(item.message);
+      if (spine === null) {
+        skipped++;
+        continue;
+      }
+      // ai_batch_key = the ai_jobs id that minted these drafts (same role as the
+      // batch job id on the paid path: scopes the partial-write cleanup).
+      const { lessonsRecorded, briefsRecorded, failed } = await recordSpine(
+        admin,
+        ctx.course_id,
+        ctx.bos_syllabus_id,
+        item.jobId,
+        spine,
+      );
+      generated += lessonsRecorded;
+      briefsGenerated += briefsRecorded;
+      recorded++;
+      if (failed > 0) {
+        console.error(
+          `[cron/curriculum-lesson-spine-generate] jobs-lane course ${ctx.course_id}: ${failed} draft write(s) failed (idempotent upsert re-mints next run)`,
+        );
+      }
+    }
+  } catch (e) {
+    console.error('[cron/curriculum-lesson-spine-generate] jobs-lane collect failed:', e);
   }
 
   // =====================================================================
@@ -562,7 +656,35 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    if (aiAvailable && requests.length > 0) {
+    if (lane === 'jobs' && requests.length > 0) {
+      // ₹0 Max lane: enqueue each candidate as an ai_job. The seeded job type's
+      // glue prompt_template is {{prompt}}, so we pass the SAME assembled prompt
+      // buildGenParams produced (system + user), extracted from the request, so
+      // the model sees identical instructions. fn_ai_enqueue_system's in-flight
+      // guard replaces partitionInFlight (a candidate already queued → skipped).
+      // No Anthropic key needed — the Max seat runs it.
+      for (const req of requests) {
+        const system = typeof req.params.system === 'string' ? req.params.system : '';
+        const userContent = req.params.messages?.[0]?.content;
+        const user = typeof userContent === 'string' ? userContent : JSON.stringify(userContent);
+        const prompt = `${system}\n\n${user}`;
+        const gctx = req.context as unknown as GenContext;
+        const r = await enqueueJobsLane(admin, {
+          jobType: JOB_TYPE,
+          prompt,
+          context: req.context,
+          dedupeKey: req.dedupeKey ?? dedupeKey(gctx.course_id),
+        });
+        if (r.ok) enqueued++;
+        else if (r.reason === 'in_flight') skipped++;
+        else {
+          console.warn(
+            `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${r.reason}): ${r.error ?? ''}`,
+          );
+          skipped++;
+        }
+      }
+    } else if (aiAvailable && requests.length > 0) {
       const keys = requests.map((r) => r.dedupeKey).filter((k): k is string => !!k);
       const inflight = await partitionInFlight(FEATURE_KEY, keys);
       const fresh = requests.filter((r) => !(r.dedupeKey && inflight.has(r.dedupeKey)));
@@ -584,10 +706,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     mode: isCollectOnly ? 'collect' : 'submit',
+    generation_lane: lane,
     courses: coursesCount,
     capped: cappedCount,
     generated,
     briefs_generated: briefsGenerated,
+    enqueued,
     skipped,
     ai_available: aiAvailable,
     submitted,

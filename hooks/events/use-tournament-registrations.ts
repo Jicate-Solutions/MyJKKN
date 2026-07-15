@@ -83,10 +83,8 @@ export function useGeneratePaymentLink(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (entryId: string) => TournamentRegistrationService.generatePaymentLink(eventId, entryId),
-    onSuccess: (res) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEYS.entries(eventId) });
-      if (res.payment_url) window.open(res.payment_url, '_blank', 'noopener');
-      else toast.error('No payment link returned');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to create payment link'),
   });

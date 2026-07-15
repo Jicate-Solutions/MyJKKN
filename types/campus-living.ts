@@ -825,19 +825,41 @@ export interface MarkableResidentAllocation {
   room_id: string | null;
   bed_id: string | null;
   block: { id: string; name: string | null; code: string | null } | null;
-  room: { id: string; room_number: string | null; floor: number | null } | null;
+  room: {
+    id: string;
+    room_number: string | null;
+    floor: number | null;
+    category_id: string | null;
+    category: { id: string; name: string; sort_order: number | null } | null;
+  } | null;
   bed: { id: string; bed_number: string | null } | null;
   /** Joined learner profile — used to synthesise rows for allocated
    *  learners that have no hostel_residents record yet. */
-  learner?: { id: string; full_name: string | null; email: string | null } | null;
+  learner?: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    institution_id: string | null;
+    avatar_url: string | null;
+  } | null;
 }
 
 export interface MarkableResident {
   id: string;
   profile_id: string;
   id_proof_number: string | null;
-  profile: { id: string; full_name: string | null; email: string | null } | null;
+  profile: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    institution_id: string | null;
+    avatar_url: string | null;
+  } | null;
   allocation: MarkableResidentAllocation | null;
+  /** Learner photo from learners_profiles.student_photo_url, merged in via the
+   *  get_markable_resident_photos RPC (profiles.avatar_url is NULL for ~all
+   *  students). Falls back to initials when absent. */
+  student_photo_url: string | null;
 }
 
 export interface CreateHostelAttendanceDTO {

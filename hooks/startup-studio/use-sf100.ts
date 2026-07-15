@@ -317,6 +317,31 @@ export function useUpdateSF100Program(programId: string) {
 }
 
 /**
+ * Update an SF100 team's editable details — team name + problem statement.
+ * Both fields live on the enrollment's event_registrations row; the PATCH is
+ * authorized by that table's RLS (team owner OR admin). Invalidates the
+ * enrollment detail + the enrollments list so the edited row re-renders.
+ */
+export function useUpdateSF100TeamDetails(enrollmentId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { team_name?: string; problem_idea?: string }) =>
+      apiClient.patch(`${BASE}/enrollments/${enrollmentId}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: startupStudioKeys.sf100.enrollments.detail(enrollmentId),
+      });
+      // `.enrollments.all` is a prefix of every program's list key, so this
+      // refreshes the admin enrollments table the edit was launched from.
+      queryClient.invalidateQueries({
+        queryKey: startupStudioKeys.sf100.enrollments.all,
+      });
+    },
+  });
+}
+
+/**
  * Enroll a team in a specific SF100 program
  */
 export function useEnrollSF100Team(programId: string) {

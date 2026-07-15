@@ -1637,6 +1637,51 @@ CREATE POLICY "billing_categories_delete" ON billing_categories
             AND role_has_institution_access(institution_id))
     );
 
+-- BILLING REFUND WORKFLOW (2026-07-11) — SELECT only; ALL writes via SECURITY DEFINER RPCs
+ALTER TABLE billing_refund_flow_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_refund_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_refund_request_bills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE billing_refund_request_actions ENABLE ROW LEVEL SECURITY;
+
+-- Configs: readable by all authenticated (capability resolution); writable with configure perm.
+CREATE POLICY refund_flow_configs_select ON billing_refund_flow_configs
+    FOR SELECT TO authenticated USING (true);
+CREATE POLICY refund_flow_configs_write ON billing_refund_flow_configs
+    FOR ALL TO authenticated
+    USING (is_super_admin() OR user_has_permission('billing.refunds.configure'))
+    WITH CHECK (is_super_admin() OR user_has_permission('billing.refunds.configure'));
+
+-- Requests: staff with view perm + institution access; snapshot participants; the learner.
+CREATE POLICY refund_requests_select ON billing_refund_requests
+    FOR SELECT TO authenticated USING (
+        is_super_admin()
+        OR (user_has_permission('billing.refunds.view')
+            AND role_has_institution_access(billing_refund_requests.institution_id))
+        OR billing_refund_requests.initiated_by = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(billing_refund_requests.flow_snapshot->'stages') s
+            WHERE s->'assignee_users' ? auth.uid()::text
+               OR EXISTS (SELECT 1 FROM user_roles ur
+                          WHERE ur.user_id = auth.uid() AND s->'assignee_roles' ? ur.role_id::text))
+        OR (billing_refund_requests.flow_snapshot->'disburser'->'assignee_users' ? auth.uid()::text)
+        OR EXISTS (SELECT 1 FROM user_roles ur
+                   WHERE ur.user_id = auth.uid()
+                     AND billing_refund_requests.flow_snapshot->'disburser'->'assignee_roles' ? ur.role_id::text)
+        OR EXISTS (  -- learner self-view (mirrors existing billing_refunds student policy)
+            SELECT 1 FROM learners_profiles lp
+            JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+            WHERE lp.id = billing_refund_requests.student_id
+              AND p.id = auth.uid() AND p.role = 'student')
+    );
+
+-- Child tables inherit visibility through the parent (subquery runs under caller RLS).
+CREATE POLICY refund_request_bills_select ON billing_refund_request_bills
+    FOR SELECT TO authenticated USING (
+        EXISTS (SELECT 1 FROM billing_refund_requests r WHERE r.id = billing_refund_request_bills.request_id));
+CREATE POLICY refund_request_actions_select ON billing_refund_request_actions
+    FOR SELECT TO authenticated USING (
+        EXISTS (SELECT 1 FROM billing_refund_requests r WHERE r.id = billing_refund_request_actions.request_id));
+
 -- ================================================================================
 -- SECTION 10: BUG REPORT MODULE TABLES
 -- ================================================================================
@@ -7813,3 +7858,219 @@ CREATE POLICY postal_codes_update ON public.postal_codes
 CREATE POLICY postal_codes_delete ON public.postal_codes
   FOR DELETE TO authenticated
   USING (public.user_has_permission('learners.postal_codes.delete'));
+
+-- ── Tournament In-charge access (2026-07-10, tournament_incharge_access) ──────
+-- Additive: in-charges (events.config->'incharges') get full event-row update +
+-- division CRUD; committee members get division read.
+
+CREATE POLICY "events_incharge_update" ON public.events
+  FOR UPDATE TO authenticated
+  USING (public.fn_is_event_incharge(id))
+  WITH CHECK (public.fn_is_event_incharge(id));
+
+CREATE POLICY "tournament_divisions_incharge_all" ON public.tournament_divisions
+  FOR ALL TO authenticated
+  USING (public.fn_is_event_incharge(event_id))
+  WITH CHECK (public.fn_is_event_incharge(event_id));
+
+CREATE POLICY "tournament_divisions_committee_read" ON public.tournament_divisions
+  FOR SELECT TO authenticated
+  USING (public.fn_is_event_committee_member(event_id));
+
+-- ── Tournament dynamic registration form builder (2026-07-14, event_registration_form_builder) ──
+-- Mirrors tournament_divisions_select/_insert/_update/_delete (sports_tournament_pr1)
+-- + the in-charge FOR ALL policy (tournament_incharge_access) above. event_id is
+-- denormalized onto all 3 tables so each policy stays a single-join EXISTS.
+
+ALTER TABLE event_registration_forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registration_form_sections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registration_form_fields ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "event_registration_forms_select" ON event_registration_forms
+  FOR SELECT USING (
+    is_super_admin() OR is_admin() OR (
+      user_has_permission('sports.tournaments.view')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_forms.event_id
+          AND (
+            e.scope = 'all_jkkn'
+            OR e.visibility IN ('all_jkkn', 'public')
+            OR role_has_institution_access(e.institution_id)
+          )
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_forms_manage" ON event_registration_forms
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_forms.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  ) WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_forms.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_sections_select" ON event_registration_form_sections
+  FOR SELECT USING (
+    is_super_admin() OR is_admin() OR (
+      user_has_permission('sports.tournaments.view')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_sections.event_id
+          AND (
+            e.scope = 'all_jkkn'
+            OR e.visibility IN ('all_jkkn', 'public')
+            OR role_has_institution_access(e.institution_id)
+          )
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_sections_manage" ON event_registration_form_sections
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_sections.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  ) WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_sections.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_fields_select" ON event_registration_form_fields
+  FOR SELECT USING (
+    is_super_admin() OR is_admin() OR (
+      user_has_permission('sports.tournaments.view')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_fields.event_id
+          AND (
+            e.scope = 'all_jkkn'
+            OR e.visibility IN ('all_jkkn', 'public')
+            OR role_has_institution_access(e.institution_id)
+          )
+      )
+    )
+  );
+
+CREATE POLICY "event_registration_form_fields_manage" ON event_registration_form_fields
+  FOR ALL USING (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_fields.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  ) WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR fn_is_event_incharge(event_id)
+    OR (
+      user_has_permission('sports.tournaments.manage')
+      AND EXISTS (
+        SELECT 1 FROM events e
+        WHERE e.id = event_registration_form_fields.event_id
+          AND (e.scope = 'all_jkkn' OR role_has_institution_access(e.institution_id))
+      )
+    )
+  );
+
+-- ── hostel_attendance: BLOCK-scoped RLS (multi-college hostel) ───────────
+-- Added: 2026-07-14 (migration: 20260714160000_hostel_attendance_block_scoped_rls,
+-- superseding 20260714153000_hostel_attendance_update_allow_marker).
+--
+-- The row's institution_id is the RESIDENT's home college and block_id is the
+-- physical block. In the hostel-rooms-v2 model one block houses residents from
+-- several affiliated colleges, so a block-scoped warden (chief_warden, granted
+-- the block via user_block_access) has BLOCK access but NO institution access to
+-- the residents' home colleges. The generated policies used
+--   role_has_institution_access(institution_id) AND role_has_block_access(block_id)
+-- which fails on the institution dimension for every resident such a warden can
+-- mark -> 42501 on bulkMarkAttendance. The two helpers encode two DIFFERENT
+-- authority models (institution-scoped staff vs block-scoped wardens); the correct
+-- rule is OR, not AND. role_has_block_access still precisely scopes a warden to
+-- THEIR granted blocks (block_id is NOT NULL, app-stamped from the resident's
+-- allocation), so this only enables legitimate actors the AND wrongly excluded.
+-- Also: the upsert-on-conflict (re-mark) path is an UPDATE, so it needs a
+-- mark-keyed UPDATE policy alongside the edit-keyed one (chief_warden has .mark,
+-- not .edit). DELETE left unchanged (its key is admin-only / not in the catalog).
+DROP POLICY IF EXISTS hostel_attendance_insert_permission ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_insert_permission ON public.hostel_attendance
+    FOR INSERT TO public
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.mark')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
+
+DROP POLICY IF EXISTS hostel_attendance_update_permission ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_update_permission ON public.hostel_attendance
+    FOR UPDATE TO public
+    USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.edit')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.edit')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
+
+-- mark-keyed UPDATE for the upsert-on-conflict (re-mark) path
+DROP POLICY IF EXISTS hostel_attendance_update_marker ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_update_marker ON public.hostel_attendance
+    FOR UPDATE TO authenticated
+    USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.mark')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.mark')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );
+
+DROP POLICY IF EXISTS hostel_attendance_select_permission ON public.hostel_attendance;
+CREATE POLICY hostel_attendance_select_permission ON public.hostel_attendance
+    FOR SELECT TO public
+    USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('campus_living.attendance.view')
+            AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
+    );

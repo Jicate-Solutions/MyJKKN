@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { checkEligibility, type EligibilitySubject } from '@/lib/services/events/tournament/eligibility';
+import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
 import type { EligibilityRules, CreateTeamMemberDto } from '@/types/tournament';
 
 interface PublicRegisterBody {
@@ -28,6 +29,7 @@ interface PublicRegisterBody {
   participant_gender?: string | null;
   participant_age?: number | null;
   members?: CreateTeamMemberDto[];
+  custom_fields?: Record<string, unknown> | null;
 }
 
 export async function POST(
@@ -49,7 +51,7 @@ export async function POST(
     // ---- tournament must exist, be a non-draft tournament, and have an OPEN window ----
     const { data: ev } = await (svc as any)
       .from('events')
-      .select('id, event_type, status, registration_open_date, registration_close_date')
+      .select('id, event_type, status, registration_open_date, registration_close_date, institution_id')
       .eq('id', eventId)
       .eq('event_type', 'sports_tournament')
       .maybeSingle();
@@ -129,6 +131,26 @@ export async function POST(
       if (!elig.ok) return NextResponse.json({ error: elig.reason }, { status: 422 });
     }
 
+    // ---- custom registration fields (Dynamic Form Builder) ----
+    // Skip validation entirely when the form exists but is explicitly disabled —
+    // matches the guest page (Task 9), which renders no custom fields in that case,
+    // so a registrant should never be 422'd for a field they were never shown.
+    const { data: formRow } = await (svc as any)
+      .from('event_registration_forms')
+      .select('is_enabled')
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (!formRow || formRow.is_enabled !== false) {
+      const { data: customFieldDefs } = await (svc as any)
+        .from('event_registration_form_fields')
+        .select('*')
+        .eq('event_id', eventId);
+      const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+      if (customFieldsError) {
+        return NextResponse.json({ error: customFieldsError }, { status: 422 });
+      }
+    }
+
     // ---- fee + payment intent ----
     const fee = Number((division.config as any)?.entry_fee ?? 0) || 0;
     const paymentStatus = fee > 0 ? 'pending' : 'not_required';
@@ -153,6 +175,7 @@ export async function POST(
         payment_status: paymentStatus,
         payment_amount: fee,
         source: 'tournament_self',
+        custom_fields: dto.custom_fields ?? null,
       })
       .select('id')
       .single();
@@ -196,12 +219,12 @@ export async function POST(
       if (rows.length) await (svc as any).from('tournament_team_members').insert(rows);
     }
 
-    // ---- payment (online link for paid divisions) ----
-    let payment_url: string | null = null;
+    // ---- payment (Razorpay order for paid divisions) ----
+    let paymentResult: Awaited<ReturnType<typeof EventPaymentService.initiatePayment>> | null = null;
     if (fee > 0) {
       try {
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
-        const res = await EventPaymentService.initiatePayment({
+        paymentResult = await EventPaymentService.initiatePayment({
           registrationId: reg.id,
           eventId,
           amount: fee,
@@ -210,8 +233,9 @@ export async function POST(
           payerPhone: dto.participant_phone || '',
           returnUrl: `${appUrl}/p/tournament/${eventId}`,
           callbackUrl: `${appUrl}/api/events/tournament/${eventId}/payment/callback`,
+          institutionIdOverride: ev.institution_id ?? null,
+          feeHead: 'tuition',
         });
-        payment_url = res.payment_url || null;
       } catch {
         return NextResponse.json(
           { entry_id: entry.id, warning: 'Registered (unpaid) — payment link could not be created, please retry.' },
@@ -220,7 +244,17 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ entry_id: entry.id, payment_url, paid_required: fee > 0 }, { status: 201 });
+    return NextResponse.json(
+      {
+        entry_id: entry.id,
+        paid_required: fee > 0,
+        razorpay_order_id: paymentResult?.razorpay_order_id ?? null,
+        razorpay_key_id: paymentResult?.razorpay_key_id ?? null,
+        amount_paise: paymentResult?.amount_paise ?? null,
+        customer: paymentResult?.customer ?? null,
+      },
+      { status: 201 }
+    );
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to register' },

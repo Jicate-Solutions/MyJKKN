@@ -185,6 +185,12 @@ export interface AdminCollegeSummaryRow {
   students: number;
   avg_understood: number | null;
   low_sessions: number;
+  /** Responses rating understanding <= 2 in window — the individual-learner
+   *  lens (a struggling voice in an otherwise-fine class never moves
+   *  low_sessions). Optional: absent from cached pre-2026-07-11 responses. */
+  low_flag_responses?: number;
+  /** Sessions containing >= 1 such response. */
+  low_flag_sessions?: number;
 }
 
 /** Per-faculty admin summary (worst understanding first). fn_scf_admin_faculty_summary.
@@ -378,7 +384,14 @@ export interface MyLoopNote {
   generated_at: string;
   input_avg_understood: number | null;
   outcome_avg_understood: number | null;
+  /** Measured change vs the RECOMPUTED window baseline (not input_avg_understood
+   *  — the two use different estimators). The card derives the displayed
+   *  "before" as outcome_avg_understood − outcome_lift so the story adds up. */
+  outcome_lift: number | null;
   outcome_measured_at: string | null;
+  /** Stamped when the note waited 30+ days with no qualifying next session
+   *  (course likely ended) — reads as "could not be measured", not "waiting". */
+  outcome_unmeasurable_at: string | null;
   human_verdict: 'tried_helped' | 'tried_no_change' | 'not_tried' | null;
   human_verdict_at: string | null;
 }

@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import {
   PR_STATUS_CONFIG,
@@ -41,12 +42,13 @@ export default function PurchaseRequestsPage() {
   const canCreate = isSuperAdmin || canAccess('procurement', 'request_create');
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounceValue(search, 300);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
 
   const filters: PurchaseRequestFilters = {
-    search: search || undefined,
+    search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as PurchaseRequestStatus) : undefined,
     institution_id: effectiveInstitution,
   };

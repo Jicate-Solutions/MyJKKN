@@ -140,6 +140,19 @@ CREATE TRIGGER trigger_receipts_refresh_summary AFTER INSERT OR UPDATE OR DELETE
 CREATE TRIGGER trigger_refunds_refresh_summary AFTER INSERT OR UPDATE OR DELETE ON billing_refunds
     FOR EACH ROW EXECUTE FUNCTION trigger_refresh_student_billing_summary();
 
+-- BILLING REFUND WORKFLOW (2026-07-11) updated_at triggers
+CREATE TRIGGER trigger_refund_flow_configs_updated_at BEFORE UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+CREATE TRIGGER trigger_refund_requests_updated_at BEFORE UPDATE ON billing_refund_requests
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+-- Global XOR institution-specific scope exclusivity backstop (2026-07-14,
+-- refund_flow_scope_exclusivity). See fn_enforce_refund_flow_scope_exclusivity
+-- in 02_functions.sql.
+CREATE TRIGGER trigger_refund_flow_scope_exclusivity BEFORE INSERT OR UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION fn_enforce_refund_flow_scope_exclusivity();
+
 -- ================================================================================
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
 -- ================================================================================
@@ -1501,3 +1514,35 @@ DROP TRIGGER IF EXISTS postal_codes_touch_updated_at ON public.postal_codes;
 CREATE TRIGGER postal_codes_touch_updated_at
   BEFORE UPDATE ON public.postal_codes
   FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+-- ── events privileged-field guard (2026-07-10, tournament_incharge_privilege_guard) ──
+-- Tier 1: only super admin / sports.tournaments.manage may change config->incharges.
+-- Tier 2: only super admin / admin-coordinator roles / tournament managers may change
+-- institution_id, event_type, created_by. service_role (auth.uid() IS NULL) bypasses.
+-- Function body lives in 02_functions.sql (fn_guard_event_privileged_fields).
+
+DROP TRIGGER IF EXISTS trg_events_guard_privileged_fields ON public.events;
+CREATE TRIGGER trg_events_guard_privileged_fields
+  BEFORE UPDATE ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_event_privileged_fields();
+
+-- ── Tournament registration form event_id sync (2026-07-14,
+--    event_registration_form_event_id_sync_triggers,
+--    event_registration_form_sync_triggers_unconditional) ──
+-- Corrects the denormalized event_id from the parent chain before RLS
+-- WITH CHECK evaluation. Function bodies live in 02_functions.sql
+-- (sync_event_registration_form_section_event_id / _field_event_id).
+-- Fires on EVERY insert/update (not just OF form_id / OF section_id) — a bare
+-- UPDATE ... SET event_id = X touching neither FK column must still be
+-- corrected, otherwise it bypasses the sync entirely.
+
+DROP TRIGGER IF EXISTS trg_sync_event_registration_form_section_event_id ON public.event_registration_form_sections;
+CREATE TRIGGER trg_sync_event_registration_form_section_event_id
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_sections
+  FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_section_event_id();
+
+DROP TRIGGER IF EXISTS trg_sync_event_registration_form_field_event_id ON public.event_registration_form_fields;
+CREATE TRIGGER trg_sync_event_registration_form_field_event_id
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_fields
+  FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_field_event_id();

@@ -71,6 +71,7 @@ export default function NewGrnPage() {
         received_quantity: remaining,
         accepted_quantity: remaining,
         rejected_quantity: 0,
+        missing_quantity: 0,
         rejection_reason: null,
         replacement_required: false,
         batch_number: null,
@@ -187,6 +188,7 @@ export default function NewGrnPage() {
         received_quantity: Number(l.received_quantity),
         accepted_quantity: Number(l.accepted_quantity),
         rejected_quantity: Number(l.rejected_quantity),
+        missing_quantity: Number(l.missing_quantity ?? 0),
         rejection_reason: l.rejection_reason,
         replacement_required: l.replacement_required,
         batch_number: l.batch_number,
@@ -197,6 +199,17 @@ export default function NewGrnPage() {
 
     if (payload.length === 0) {
       toast.error('Enter a received quantity for at least one line.');
+      return;
+    }
+
+    // Supplier invoice is mandatory — the GRN records goods received against a billed
+    // invoice, and the three-way match needs it to compare against.
+    if (!invoiceNumber.trim()) {
+      toast.error('Invoice number is required.');
+      return;
+    }
+    if (!invoiceDate) {
+      toast.error('Invoice date is required.');
       return;
     }
 
@@ -283,12 +296,23 @@ export default function NewGrnPage() {
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1">
-                <Label>Invoice number</Label>
-                <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+                <Label>Invoice number <span className="text-destructive">*</span></Label>
+                <Input
+                  required
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  aria-invalid={!invoiceNumber.trim()}
+                />
               </div>
               <div className="space-y-1">
-                <Label>Invoice date</Label>
-                <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+                <Label>Invoice date <span className="text-destructive">*</span></Label>
+                <Input
+                  type="date"
+                  required
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  aria-invalid={!invoiceDate}
+                />
               </div>
               <div className="space-y-1">
                 <Label>Invoice amount (₹)</Label>
@@ -332,7 +356,7 @@ export default function NewGrnPage() {
                     <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>{cfg.label}</Badge>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-5">
                     <div className="space-y-1">
                       <Label className="text-xs">Invoice qty</Label>
                       <Input
@@ -363,6 +387,14 @@ export default function NewGrnPage() {
                         type="number"
                         value={l.rejected_quantity}
                         onChange={(e) => update(idx, { rejected_quantity: num(e.target.value) })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Missing</Label>
+                      <Input
+                        type="number"
+                        value={l.missing_quantity ?? ''}
+                        onChange={(e) => update(idx, { missing_quantity: num(e.target.value) })}
                       />
                     </div>
                   </div>

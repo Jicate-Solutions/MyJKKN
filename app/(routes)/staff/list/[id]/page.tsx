@@ -43,6 +43,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   const {
     canAccess,
     isSuperAdmin,
+    userProfile,
     isLoading: permissionsLoading
   } = usePermissions([], { waitForLoad: true });
 
@@ -111,7 +112,14 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   // We hide the button entirely (instead of rendering it disabled) for
   // users without `staff.edit`, so an `own_records` user viewing their own
   // row without edit perm doesn't see a button that would 403 on click.
-  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // Self-edit mirrors the API's isSelfEdit allowance (app/api/staff/[id]/route.ts)
+  // — a user viewing their own staff record can edit it even without the
+  // blanket `staff.edit` permission (BUG-002565: button never appeared for
+  // own-record users whose role doesn't grant staff.edit).
+  const isSelfEdit =
+    (!!staff.institution_email && staff.institution_email === userProfile?.email) ||
+    (!!(staff as any).profile_id && (staff as any).profile_id === userProfile?.id);
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || isSelfEdit;
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
 

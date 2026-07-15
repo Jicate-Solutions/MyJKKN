@@ -256,6 +256,11 @@ export default function GrnDetailPage() {
                         {it.replacement_required && (
                           <span className="block text-xs text-orange-600">Replacement requested</span>
                         )}
+                        {Number(it.missing_quantity) > 0 && (
+                          <span className="block text-xs text-muted-foreground">
+                            Missing: {Number(it.missing_quantity)}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">{Number(it.ordered_quantity)}</TableCell>
                       <TableCell className="text-right">

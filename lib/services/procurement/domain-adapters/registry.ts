@@ -6,10 +6,11 @@
 
 import type { ProcurementDomain, ProcurementDomainAdapter } from './types';
 import { imsAdapter } from './ims-adapter';
+import { resourceMgmtAdapter } from './resource-mgmt-adapter';
 
 const ADAPTERS: Partial<Record<ProcurementDomain, ProcurementDomainAdapter>> = {
   ims: imsAdapter,
-  // resource_mgmt: resourceMgmtAdapter,  // <- Phase 5: register here to plug RM in.
+  resource_mgmt: resourceMgmtAdapter, // Phase 5 — registered 2026-07-11.
 };
 
 /**

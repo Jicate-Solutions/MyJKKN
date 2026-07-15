@@ -110,6 +110,36 @@ export interface UnassignedFresher {
   fresher_register: string | null;
 }
 
+/** One scheduled monthly Senior Peer Mentor check-in the fresher can rate
+ *  ("did your mentor help you this month?"). Only appears once the check-in
+ *  has actually come due; rating/comment are null until the fresher answers. */
+export interface MentorCheckin {
+  session_id: string;
+  month_label: string;
+  start_at: string | null;
+  mentor_name: string | null;
+  rating: number | null;
+  comment: string | null;
+}
+
+/** Admin/coordinator honesty cross-check row: one mentor's group, one check-in
+ *  month — the freshers' average helpfulness rating alongside whether that
+ *  mentor actually performed the check-in. flagged = a good rating (avg >= 4)
+ *  despite no recorded mentor activity that month — a fresher politely rating
+ *  an absent mentor highly, surfaced instead of trusted. */
+export interface MentorHelpfulnessCrosscheckRow {
+  volunteer_id: string;
+  mentor_name: string;
+  session_id: string;
+  month_label: string;
+  start_at: string | null;
+  group_size: number;
+  rating_count: number;
+  avg_rating: number | null;
+  mentor_checked_in: boolean;
+  flagged: boolean;
+}
+
 export class InductionVolunteerService {
   // ── Manage (Induction Lead / college coordinator) ──────────────────────────
 
@@ -349,5 +379,42 @@ export class InductionVolunteerService {
       p_fresher_learner_id: fresherLearnerId,
     });
     if (error) throw error;
+  }
+
+  // ── Fresher: monthly mentor-helpfulness rating (self-report + honesty cross-check) ──
+
+  /** My own scheduled monthly check-ins that have come due, with my current
+   *  mentor's name and my existing rating (pre-fill). Empty until I have a
+   *  mentor group assignment AND at least one check-in's date has passed. */
+  static async myMentorCheckins(eventId: string): Promise<MentorCheckin[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_my_mentor_checkins', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as MentorCheckin[]) ?? [];
+  }
+
+  /** Rate how much my mentor helped me THIS month (1-5 + optional comment),
+   *  tied to one scheduled check-in session. Upsert — I can revise it later. */
+  static async submitMentorMonthFeedback(sessionId: string, rating: number, comment?: string | null): Promise<string> {
+    const { data, error } = await getSupabase().rpc('fn_induction_submit_mentor_month_feedback', {
+      p_session_id: sessionId,
+      p_rating: rating,
+      p_comment: comment ?? null,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  /** Admin/coordinator: the honesty cross-check — per mentor, per check-in
+   *  month, the average fresher rating alongside whether that mentor actually
+   *  performed the check-in (marked attendance for their group that session).
+   *  flagged rows (good rating, no recorded mentor activity) sort first. */
+  static async mentorHelpfulnessCrosscheck(eventId: string): Promise<MentorHelpfulnessCrosscheckRow[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_mentor_helpfulness_crosscheck', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return (data as MentorHelpfulnessCrosscheckRow[]) ?? [];
   }
 }

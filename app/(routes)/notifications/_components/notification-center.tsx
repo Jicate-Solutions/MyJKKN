@@ -22,7 +22,8 @@ import {
   AlertTriangle,
   XCircle,
   Info,
-  ExternalLink
+  ExternalLink,
+  Layers
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -188,9 +189,14 @@ export function NotificationCenter() {
     const id = item.id || item.notification_id;
     setExpandedId((prev) => (prev === id ? null : id));
 
-    // Mark as read on expand
-    if (!item.read_at && item.notification_id) {
-      markAsRead(item.notification_id);
+    // Mark as read on expand. A collapsed stack marks EVERY occurrence it
+    // represents — marking only the representative would strand the others as
+    // permanently unread, since the user can no longer click them individually.
+    const targets: any[] = item.__stackItems || [item];
+    for (const target of targets) {
+      if (!target.read_at && target.notification_id) {
+        markAsRead(target.notification_id);
+      }
     }
   }, [markAsRead]);
 
@@ -206,8 +212,12 @@ export function NotificationCenter() {
 
       {/* ─── Chronological log (below the fold) ───────────────
           Full notification history in standard inbox layout.
-          The briefing is curation; this is comprehensiveness. */}
-      <div className="max-w-2xl mx-auto">
+          The briefing is curation; this is comprehensiveness.
+
+          Width MUST match the briefing wrapper above. Both are mx-auto, so a
+          mismatch centres them on different axes and the page left edge
+          stair-steps (896px→672px = a visible 112px jog). */}
+      <div className="max-w-4xl mx-auto">
       {/* ─── Header ──────────────────────────── */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -358,10 +368,20 @@ export function NotificationCenter() {
             {label}
           </h3>
           <div className="space-y-2">
-            {items.map((item: any) => {
+            {collapseDuplicates(items).map((item: any) => {
               const notif = item.notification || item;
               const isExpanded = expandedId === (item.id || item.notification_id);
-              const isRead = !!item.read_at;
+
+              // Collapsed-stack state (__stackCount is 1/absent for normal mail)
+              const stackCount: number = item.__stackCount || 1;
+              const stackItems: any[] = item.__stackItems || [];
+              const isStack = stackCount > 1;
+
+              // A stack counts as read only when every occurrence is read —
+              // otherwise unread mail could hide behind a read-looking card.
+              const isRead = isStack
+                ? stackItems.every((s: any) => !!s.read_at)
+                : !!item.read_at;
               const isAcknowledged = !!item.acknowledged_at;
               const requiresAck = notif.requires_acknowledgment && !isAcknowledged;
               const priority = notif.priority || 'normal';
@@ -407,14 +427,26 @@ export function NotificationCenter() {
                             'text-sm leading-tight line-clamp-2',
                             !isRead ? 'font-semibold' : 'font-medium text-muted-foreground'
                           )}>
-                            {notif.title}
+                            {isStack ? item.__stackPattern : notif.title}
                           </h4>
+                          {/* Repeat count — the collapsed stack's affordance */}
+                          {isStack && (
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0 h-5 px-1.5 text-[10px] font-semibold gap-1"
+                            >
+                              <Layers className="h-3 w-3" />
+                              {stackCount}
+                            </Badge>
+                          )}
                         </div>
 
                         {/* Body preview */}
                         {!isExpanded && (
                           <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                            {stripHtml(notif.body || '')}
+                            {isStack
+                              ? `Repeated ${stackCount} times · tap to see each`
+                              : stripHtml(notif.body || '')}
                           </p>
                         )}
 
@@ -457,6 +489,34 @@ export function NotificationCenter() {
                     {/* ─── Expanded Content ────────── */}
                     {isExpanded && (
                       <div className="mt-3 pt-3 border-t animate-in fade-in slide-in-from-top-1 duration-200">
+                        {/* Occurrence list — a collapsed stack expands into its
+                            individual notifications so nothing is hidden, only
+                            folded. Each row keeps its own title + timestamp. */}
+                        {isStack && (
+                          <div className="mb-3 space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                              <Layers className="h-3 w-3" />
+                              {stackCount} occurrences
+                            </p>
+                            {stackItems.map((s: any) => {
+                              const sn = s.notification || s;
+                              return (
+                                <div
+                                  key={s.id || s.notification_id}
+                                  className="flex items-start justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5"
+                                >
+                                  <span className="text-xs leading-snug">{sn.title}</span>
+                                  <span className="text-[11px] text-muted-foreground shrink-0">
+                                    {formatTimestamp(
+                                      sn.sent_at || sn.created_at || s.created_at
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
                         {/* Full body */}
                         <div className="prose prose-sm max-w-none dark:prose-invert mb-3">
                           <RichTextDisplay content={notif.body} />
@@ -521,7 +581,7 @@ export function NotificationCenter() {
                   </div>
 
                   {/* Expand indicator */}
-                  {!isExpanded && (notif.body?.length > 100 || attachments.length > 0 || requiresAck) && (
+                  {!isExpanded && (isStack || notif.body?.length > 100 || attachments.length > 0 || requiresAck) && (
                     <div className="px-4 pb-2 flex justify-center">
                       <ChevronDown className="h-4 w-4 text-muted-foreground/40" />
                     </div>
@@ -550,6 +610,70 @@ export function NotificationCenter() {
       </div>
     </div>
   );
+}
+
+// ─── Near-duplicate collapsing ──────────────────────────────
+// Cron-generated notifications repeat verbatim (e.g. "AI runner appears down"
+// fired 10× in one day), burying real mail. The admin grid already solves this
+// with NotificationStack, but that component's props are admin-shaped
+// (onEdit/onReuse/onDelete) and can't be reused on the read-only inbox — so the
+// inbox re-uses its *grouping key* rather than its UI.
+
+/** Minimum repeats before a group collapses. Below this, showing the cards
+ *  individually is clearer than showing a stack of 2. Matches the admin grid. */
+const MIN_STACK = 3;
+
+/** Strip digit sequences to derive a stable grouping key, so
+ *  "HR brief — 4 active recruitment" and "HR brief — 2 active recruitment"
+ *  collapse together. Mirrors the admin grid's stripDigits exactly. */
+function stripDigits(title: string): string {
+  return title.replace(/\d+/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** Prettified pattern for a collapsed stack: digits become "#". */
+function prettifyPattern(title: string): string {
+  return title.replace(/\d+/g, '#');
+}
+
+/**
+ * Collapse runs of near-duplicates (same category + digit-stripped title) into
+ * a single representative item carrying __stackCount/__stackItems. Groups
+ * smaller than MIN_STACK pass through untouched, so normal mail is unaffected.
+ *
+ * Input order is preserved (feed is already newest-first), and the newest item
+ * of each group becomes the representative.
+ */
+function collapseDuplicates(items: any[]): any[] {
+  const map = new Map<string, any[]>();
+  const order: string[] = [];
+
+  for (const item of items) {
+    const notif = item.notification || item;
+    const key = `${(notif.category || 'uncategorized').toLowerCase()}|${stripDigits(
+      notif.title || ''
+    )}`;
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key)!.push(item);
+  }
+
+  const out: any[] = [];
+  for (const key of order) {
+    const group = map.get(key)!;
+    if (group.length >= MIN_STACK) {
+      out.push({
+        ...group[0],
+        __stackCount: group.length,
+        __stackItems: group,
+        __stackPattern: prettifyPattern((group[0].notification || group[0]).title || '')
+      });
+    } else {
+      out.push(...group);
+    }
+  }
+  return out;
 }
 
 // ─── Group notifications by date ────────────────────────────

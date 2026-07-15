@@ -280,37 +280,58 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // Separate useEffect for initial data loading
   useEffect(() => {
     async function loadInitialData() {
-      try {
-        // Always use the direct query (RLS handles per-role visibility).
-        // We apply a client-side filter below for own-scoped roles instead of
-        // going through the get_user_accessible_institutions RPC, which avoids
-        // a timing issue where the RPC round-trip completes after the user has
-        // already attempted to submit the form.
-        const [rawInstitutions, categoriesData, rolesData] = await Promise.all([
-          OrganizationService.getInstitutionNames(true, undefined, 'all'),
-          // Fixed: 2026-04-16 — CategoryService.getCategories defaults to limit=10,
-          // which silently truncated the dropdown when active categories grew past 10.
-          // Pass a generous limit so every active category appears in the select.
-          CategoryService.getCategories({ isActive: true, limit: 100 }),
-          RoleService.getStaffAssignableRoles()
-        ]);
+      // Always use the direct query (RLS handles per-role visibility).
+      // We apply a client-side filter below for own-scoped roles instead of
+      // going through the get_user_accessible_institutions RPC, which avoids
+      // a timing issue where the RPC round-trip completes after the user has
+      // already attempted to submit the form.
+      //
+      // Fixed: 2026-07-12 — these 3 fetches were run via Promise.all, which
+      // fails atomically: if any single one rejected (e.g. a transient roles
+      // query error), the catch block swallowed it into one toast and NONE
+      // of institutions/categories/roles got set — even the ones that had
+      // already resolved successfully. That made the Institution dropdown
+      // (and, since it depends on a loaded category, the Department field)
+      // appear to "vanish" whenever an unrelated fetch failed. Promise.allSettled
+      // lets each list populate independently of the others' outcome.
+      const [institutionsResult, categoriesResult, rolesResult] = await Promise.allSettled([
+        OrganizationService.getInstitutionNames(true, undefined, 'all'),
+        // Fixed: 2026-04-16 — CategoryService.getCategories defaults to limit=10,
+        // which silently truncated the dropdown when active categories grew past 10.
+        // Pass a generous limit so every active category appears in the select.
+        CategoryService.getCategories({ isActive: true, limit: 100 }),
+        RoleService.getStaffAssignableRoles()
+      ]);
 
+      if (institutionsResult.status === 'fulfilled') {
         // For own-scoped roles (HOD, etc.) restrict to the user's primary institution.
         // The direct SELECT may return extra institutions via legacy RLS policies
         // (institutions_select_faculty_hod_principal), so we filter client-side.
+        const rawInstitutions = institutionsResult.value;
         const institutionsData = isInstitutionScoped && profile?.institution_id
           ? rawInstitutions.filter((i) => i.id === profile.institution_id)
           : rawInstitutions;
-
         setInstitutions(institutionsData);
-        setCategories(categoriesData.data as any);
-        setRoles(rolesData);
-
-        setIsInitialLoad(false);
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-        toast.error('Failed to load initial data');
+      } else {
+        console.error('Error loading institutions:', institutionsResult.reason);
+        toast.error('Failed to load institutions');
       }
+
+      if (categoriesResult.status === 'fulfilled') {
+        setCategories(categoriesResult.value.data as any);
+      } else {
+        console.error('Error loading employment categories:', categoriesResult.reason);
+        toast.error('Failed to load employment categories');
+      }
+
+      if (rolesResult.status === 'fulfilled') {
+        setRoles(rolesResult.value);
+      } else {
+        console.error('Error loading staff-assignable roles:', rolesResult.reason);
+        toast.error('Failed to load roles');
+      }
+
+      setIsInitialLoad(false);
     }
 
     // isInstitutionScoped in deps: usePermissions() fetches roles async, so on first

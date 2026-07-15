@@ -44,12 +44,24 @@ interface Props {
   className?: string;
   /** Open the result popover on mount (P2 deep-link to the exact class). */
   autoOpen?: boolean;
+  /** Ready-state button text. Defaults to the pilot's copy. */
+  readyLabel?: string;
+  /** Popover heading. Defaults to the pilot's copy. */
+  popoverTitle?: string;
 }
 
 const OUTSTANDING: TaskStatus[] = ['queued', 'submitting', 'submitted'];
 const POLL_MS = 20000;
 
-export function AiTaskButton({ taskType, entityId, label = 'Summarise with AI', className, autoOpen = false }: Props) {
+export function AiTaskButton({
+  taskType,
+  entityId,
+  label = 'Summarise with AI',
+  className,
+  autoOpen = false,
+  readyLabel = 'AI summary ready',
+  popoverTitle = "AI summary of this class's feedback",
+}: Props) {
   const [phase, setPhase] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [taskId, setTaskId] = useState<string | null>(null);
   const [eta, setEta] = useState<string>('');
@@ -176,13 +188,13 @@ export function AiTaskButton({ taskType, entityId, label = 'Summarise with AI', 
               size="sm"
               className="border-primary/40 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
             >
-              <Sparkles className="mr-1.5 h-4 w-4" /> AI summary ready
+              <Sparkles className="mr-1.5 h-4 w-4" /> {readyLabel}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-96 max-h-[70vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-medium">
-                <Sparkles className="h-4 w-4 text-primary" /> AI summary of this class&apos;s feedback
+                <Sparkles className="h-4 w-4 text-primary" /> {popoverTitle}
               </div>
               <Button variant="ghost" size="sm" className="h-7 px-2" onClick={enqueue} title="Regenerate">
                 <RefreshCw className="h-3.5 w-3.5" />

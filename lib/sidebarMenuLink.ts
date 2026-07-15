@@ -31,6 +31,7 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
+  LibraryBig,
   FolderKanban,
   Lightbulb,
   Building,
@@ -102,6 +103,7 @@ import {
   HeadphonesIcon,
   UserCog,
   SearchCheck,
+  BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -134,6 +136,8 @@ export interface MenuItem {
   icon: LucideIcon;
   active: boolean;
   submenus: Submenu[];
+  /** Force a plain link even when submenus exist (read by Navbar/menu.tsx). */
+  noSubmenus?: boolean;
 }
 
 interface MenuGroup {
@@ -227,6 +231,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
   '/learners/counseling': 'learners.counseling.view',
 
+  // Reference / Masters hub — registry-driven master-data catalogs
+  '/reference': 'reference.catalogs.view',
+
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
@@ -252,7 +259,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/class-incharges': 'staff.class_incharges.view',
 
   // HR Management (Sprints 1-6) — keys match permissions.ts HR block and hr_* RLS policies
-  '/hr': 'hr.dashboard.view',
+  // ('/hr' itself is mapped once, later in this object: 'hr.view' — the value
+  // that already won under JS last-key-wins before the duplicate was removed.)
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/new': 'hr.employees.create',
   '/hr/employees/[id]': 'hr.employees.view',
@@ -315,6 +323,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/induction': 'induction.view',
   '/events/induction/new': 'induction.manage',
   '/events/induction/catalog': 'induction.view',
+  // Events landing + Projects module entry (menu-visibility gap fix
+  // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
+  // Role Management to reveal the Projects sidebar entry.
+  '/events': 'events.view',
+  '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -371,6 +384,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
+  // Admin lane of session feedback (D2 gate) — leadership-view key
+  // (menu-visibility gap fix 2026-07-12)
+  '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -382,6 +398,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/monitor': 'academic.internal-marks.view',
   '/academic/internal-marks/attendance-insight': 'academic.internal-marks.view',
+  // Exam IA Audit has its OWN narrower key (registrar/leadership audit sheet)
+  '/academic/internal-marks/exam-audit': 'academic.internal_marks.exam_audit.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
 
   // Regulations Management
@@ -520,9 +538,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/discounts/[id]': 'billing.discounts.view',
   '/billing/discounts/[id]/edit': 'billing.discounts.edit',
   '/billing/refunds': 'billing.refunds.view',
-  '/billing/refunds/new': 'billing.refunds.create',
   '/billing/refunds/[id]': 'billing.refunds.view',
-  '/billing/refunds/[id]/edit': 'billing.refunds.edit',
+  '/billing/refund-approvals': 'billing.refunds.configure',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -641,6 +658,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
   '/admission/marketing/campaigns/roi': 'admission.marketing.view',
   '/admission/marketing/campaigns/segments': 'admission.marketing.view',
+  // Menu-visibility gap fix 2026-07-12: these sidebar hrefs had no
+  // MENU_PERMISSIONS entry, so the filter hid them for every
+  // non-super-admin role (caught by check:menu-coverage).
+  '/admission/marketing/campaigns': 'admission.marketing.view',
+  '/admission/marketing/automations/monitoring': 'admission.marketing.view',
+  '/admission/marketing/automations/roi': 'admission.marketing.view',
+  '/admission/marketing/automations/segments': 'admission.marketing.view',
+  '/admission/marketing/database': 'admission.marketing.view',
+  '/admission/marketing/whatsapp-broadcast': 'admission.marketing.view',
   '/admission/marketing/chat': 'admission.marketing.chat.view',
   '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
   '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',
@@ -924,7 +950,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Billing — Payment chip (originally patched by PR #511, included here so
   // this PR's gate exits 0 regardless of merge order between the two PRs.
   // Trivial conflict-resolve if both land: identical entry on either side.)
-  '/billing/payment': 'billing.payment.view',
 
   // Tier-2 chip-leak sweep (2026-04-27, PR follow-up to #511).
   // The audit `comm -23 <find-pages> <sidebar-keys>` surfaced 23 routes that
@@ -1044,6 +1069,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon/new': 'events.marathon.create',
 
   // Events — Sports Tournament submenu (Sports Tournament PR1, 2026-06-22)
+  // '/events/tournaments' (plural) is the STUDENT read-only browse page — a separate
+  // subtree so it never inherits the admin detail page's logistics boards.
+  '/events/tournaments': 'sports.tournaments.browse',
   '/events/tournament': 'sports.tournaments.view',
   '/events/tournament/new': 'sports.tournaments.create',
 
@@ -1240,6 +1268,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
   '/ims/settings/units': 'ims.settings.units.manage',
   '/ims/settings/unit-conversions': 'ims.settings.units.manage',
+  // Store Kits (PR-K2, 2026-07-12) — per-group item kits handed over at the
+  // central store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
+  // Keys ship UNGRANTED (dark) until the grn_verify rollout.
+  '/ims/kits': 'ims.kits.manage',
+  '/ims/kits/counter': 'ims.kits.handover',
+  '/ims/kits/billing-flags': 'ims.kits.billing_flags.view',
+  // Learner/staff self view — top-level route; grant ims.kits.my.view to
+  // student/staff roles at rollout to reveal it.
+  '/my-kit': 'ims.kits.my.view',
+  // Verified Skills Record — learner self view (granted to student role in the
+  // VSR migration) + the admin correction queue.
+  '/my-proof': 'learners.proof.view',
+  '/admin/proof-disputes': 'super_admin',
   // Stock (visibility + adjustments + GRN lifecycle)
   '/ims/stock': 'ims.stock.view',
   '/ims/stock/adjustments': 'ims.stock.adjust',
@@ -1310,6 +1351,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Guide',
           active: pathname === '/guide' || pathname.startsWith('/guide/'),
           icon: BookOpen,
+          submenus: []
+        },
+        {
+          // Store Kits self view (PR-K2) — entitled vs collected vs owed.
+          // Hidden until ims.kits.my.view is granted to student/staff roles.
+          href: '/my-kit',
+          label: 'My Kit',
+          active: pathname === '/my-kit',
+          icon: Package,
+          submenus: []
+        },
+        {
+          // Verified Skills Record self view (spec 2026-07-14) — visible to
+          // learners only (learners.proof.view, granted to the student role).
+          href: '/my-proof',
+          label: 'My Proof',
+          active: pathname === '/my-proof',
+          icon: BadgeCheck,
           submenus: []
         }
       ]
@@ -1382,6 +1441,15 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/courses', label: 'Courses', active: pathname.startsWith('/organizations/courses') },
             { href: '/organizations/courses/mappings', label: 'Course Mappings', active: pathname === '/organizations/courses/mappings' },
           ]
+        },
+        {
+          // Reference / Masters hub — every master-data catalog with live
+          // counts; generic catalogs editable inline, complex ones link out.
+          href: '/reference',
+          label: 'Reference / Masters',
+          active: pathname === '/reference' || pathname.startsWith('/reference/'),
+          icon: LibraryBig,
+          submenus: []
         }
       ]
     },
@@ -2126,6 +2194,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
+            { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
@@ -2170,6 +2239,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
             { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
             { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
+            // Store Kits (PR-K2) — visibility gated per-entry via MENU_PERMISSIONS
+            { href: '/ims/kits', label: 'Kits · Rules', active: pathname === '/ims/kits' },
+            { href: '/ims/kits/counter', label: 'Kits · Counter', active: pathname === '/ims/kits/counter' },
+            { href: '/ims/kits/billing-flags', label: 'Kits · Billing Flags', active: pathname === '/ims/kits/billing-flags' },
           ]
         }
       ]
@@ -2456,6 +2529,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             // (each link's visibility is gated by its own MENU_PERMISSIONS entry).
             { href: '/events/marathon', label: 'Sports Marathon', active: pathname === '/events/marathon' || pathname.startsWith('/events/marathon/') },
             { href: '/events/tournament', label: 'Sports Tournaments', active: pathname === '/events/tournament' || pathname.startsWith('/events/tournament/') },
+            // Student-facing browse page (sports.tournaments.browse) — the only
+            // tournament surface a learner can open; admin pages need .view.
+            { href: '/events/tournaments', label: 'Tournaments · Register', active: pathname === '/events/tournaments' },
           ]
         }
       ]
@@ -2778,6 +2854,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/system' ||
             pathname.startsWith('/system/') ||
             pathname.startsWith('/admin/bug-reports') ||
+            pathname.startsWith('/admin/proof-disputes') ||
             pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
@@ -2786,6 +2863,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/my-bug-reports', label: 'My Bug Reports', active: pathname === '/my-bug-reports' },
             { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
+            { href: '/admin/proof-disputes', label: 'Record Corrections', active: pathname === '/admin/proof-disputes' },
             { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }

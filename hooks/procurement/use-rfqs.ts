@@ -84,6 +84,38 @@ export function useMarkRfqSent() {
   });
 }
 
+/** Invalidate both the RFQ list and the single-RFQ detail after a review transition. */
+function invalidateRfq(queryClient: ReturnType<typeof useQueryClient>, rfqId: string) {
+  queryClient.invalidateQueries({ queryKey: ['procurement-rfqs'] });
+  queryClient.invalidateQueries({ queryKey: ['procurement-rfq', rfqId] });
+}
+
+export function useSubmitRfqForReview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rfqId: string) => ProcurementRfqService.submitForReview(rfqId),
+    onSuccess: (_r, rfqId) => invalidateRfq(queryClient, rfqId),
+  });
+}
+
+export function useApproveRfq() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rfqId, reviewerId }: { rfqId: string; reviewerId: string }) =>
+      ProcurementRfqService.approveRfq(rfqId, reviewerId),
+    onSuccess: (_r, { rfqId }) => invalidateRfq(queryClient, rfqId),
+  });
+}
+
+export function useRejectRfq() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rfqId, reviewerId, notes }: { rfqId: string; reviewerId: string; notes: string }) =>
+      ProcurementRfqService.rejectRfq(rfqId, reviewerId, notes),
+    onSuccess: (_r, { rfqId }) => invalidateRfq(queryClient, rfqId),
+  });
+}
+
 export function useCancelRfq() {
   const queryClient = useQueryClient();
   return useMutation({
