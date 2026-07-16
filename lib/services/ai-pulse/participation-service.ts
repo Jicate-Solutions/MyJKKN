@@ -124,3 +124,113 @@ export function useCycleParticipation(
     enabled: !!cycleId,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Named roster — "who joined" (Champion Console, per-cycle)
+// ---------------------------------------------------------------------------
+
+/**
+ * One learner who has an attendance row for the cycle's live session, WITH
+ * identity resolved. Unlike the anonymous learner-feedback read, the Champion
+ * needs names to know who did (and did not) show up.
+ */
+export interface JoinedLearner {
+  profile_id: string;
+  full_name: string;
+  /** College (institutions.name via profiles.institution_id). */
+  college: string | null;
+  /** Department (departments.department_name via learners_profiles). */
+  department: string | null;
+  /** When they joined the live room; null = async make-up (quiz only, no live join). */
+  joined_at: string | null;
+  /** Hit the on-time gate (joined_within_5min). */
+  on_time: boolean;
+  /** Submitted a quiz (engagement_signals.quiz_score is a number). */
+  quiz_submitted: boolean;
+  /** Quiz passed (engagement_signals.quiz_passed === true). */
+  quiz_passed: boolean;
+}
+
+/** Embedded-row shape returned by the identity join. */
+interface JoinedLearnerRow {
+  profile_id: string;
+  joined_at: string | null;
+  engagement_signals: EngagementSignals | null;
+  profiles: {
+    full_name: string | null;
+    role: string | null;
+    institutions: { name: string | null } | null;
+    learners_profiles: {
+      departments: { department_name: string | null } | null;
+    } | null;
+  } | null;
+}
+
+/**
+ * Read the named roster of learners who attended a cycle's live session.
+ *
+ * Same canonical source as getCycleParticipation (`ai_pulse_live_attendance`
+ * filtered by event_id + day_type), extended with the identity graph. Two
+ * `profiles` foreign keys are ambiguous to PostgREST and MUST be named
+ * explicitly, or the embed 400s (PGRST201):
+ *   - institutions   → `profiles_institution_id_fkey` (not the accreditation FK)
+ *   - learners_profiles → `profiles_learner_id_fkey` (the 1:1 learner anchor,
+ *     not the created_by / updated_by / verified_by back-references)
+ *
+ * `profiles!inner` + `profiles.role = 'student'` drops the handful of staff /
+ * super-admin rows so the roster is learners only. RLS still applies — the
+ * Champion role can read these rows and profiles (verified).
+ */
+export async function getCycleJoinedLearners(
+  cycleId: string,
+): Promise<JoinedLearner[]> {
+  // Cast to any: ai_pulse_live_attendance is not in the generated types
+  // (matches getCycleParticipation + learner-feedback-card convention).
+  const supabase = createClientSupabaseClient() as any;
+
+  const { data, error } = await supabase
+    .from('ai_pulse_live_attendance')
+    .select(
+      'profile_id, joined_at, engagement_signals, ' +
+        'profiles!inner(full_name, role, ' +
+        'institutions!profiles_institution_id_fkey(name), ' +
+        'learners_profiles!profiles_learner_id_fkey(departments(department_name)))',
+    )
+    .eq('event_id', cycleId)
+    .eq('day_type', 'live_session')
+    .eq('profiles.role', 'student');
+
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as JoinedLearnerRow[];
+
+  return rows
+    .map((row): JoinedLearner => {
+      const signals = row.engagement_signals ?? ({} as EngagementSignals);
+      return {
+        profile_id: row.profile_id,
+        full_name: row.profiles?.full_name ?? '(unknown)',
+        college: row.profiles?.institutions?.name ?? null,
+        department:
+          row.profiles?.learners_profiles?.departments?.department_name ?? null,
+        joined_at: row.joined_at,
+        on_time: signals.joined_within_5min === true,
+        quiz_submitted: typeof signals.quiz_score === 'number',
+        quiz_passed: signals.quiz_passed === true,
+      };
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
+/**
+ * Hook wrapping getCycleJoinedLearners. Enabled only when cycleId is truthy.
+ */
+export function useCycleJoinedLearners(
+  cycleId: string | undefined,
+): UseQueryResult<JoinedLearner[], Error> {
+  return useQuery<JoinedLearner[], Error>({
+    queryKey: ['ai-pulse', 'cycle-joined-learners', cycleId],
+    queryFn: () => getCycleJoinedLearners(cycleId as string),
+    enabled: !!cycleId,
+  });
+}

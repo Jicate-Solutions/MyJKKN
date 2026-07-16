@@ -12,6 +12,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { CycleEditForm } from '../_components/cycle-edit-form';
 import { PublicationMetricsCard } from './_components/publication-metrics-card';
 import { ParticipationCard } from './_components/participation-card';
+import { JoinedLearnersCard } from './_components/joined-learners-card';
 import { LearnerFeedbackCard } from './_components/learner-feedback-card';
 
 interface Props {
@@ -37,6 +38,8 @@ export default function AIPulseCycleEditPage({ params }: Props) {
         <PublicationMetricsCard cycleId={id} />
         {/* Participation — observable raw turnout, independent of engaged-rate (2026-06-18) */}
         <ParticipationCard cycleId={id} />
+        {/* Who joined — named roster behind the turnout counts (2026-07-16) */}
+        <JoinedLearnersCard cycleId={id} />
         {/* Learner feedback — CARE E-move voice channel (2026-06-12) */}
         <LearnerFeedbackCard cycleId={id} />
       </div>
