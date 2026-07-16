@@ -146,7 +146,12 @@ async function runnerDownHealthCheck(
 
   // 4) Alert — deduped to at most once per UTC hour per outage.
   const nowDate = new Date(now);
-  const idempotencyKey = `maxlane-runner-down:${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}`;
+  // UTC hour-stamp — this outage's dedup granularity (one alert per hour). Reused
+  // verbatim as the rollup's `alert_hour` entity so the inbox can fold hourly
+  // repeats into one line and count them ("alerted N times") from the SAME value
+  // that dedupes them. Extracted to a var so the two can never drift.
+  const alertHour = `${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}`;
+  const idempotencyKey = `maxlane-runner-down:${alertHour}`;
 
   const heartbeatAgeLabel = Number.isFinite(heartbeatAgeMs)
     ? `${Math.round(heartbeatAgeMs / 60000)} min`
@@ -172,6 +177,14 @@ async function runnerDownHealthCheck(
     idempotencyKey,
     url: '/admin/ai-routines',
     source: 'ai-tasks-sweep:runner-down',
+    // Roll hourly repeats of ONE outage into a single inbox line. The inbox
+    // groups by metadata.event; `alert_hour` is the distinct entity it counts,
+    // so "alerted N times" == N distinct alert hours. Registered in
+    // notification-service.ts EVENT_ENTITY_KEYS['ai_runner_down'] = 'alert_hour'.
+    metadata: {
+      event: 'ai_runner_down',
+      alert_hour: alertHour,
+    },
   });
 
   if (fanout.skipped === 'idempotent') {
@@ -305,6 +318,76 @@ async function loopLaneOutagePager(
     stuck: stuck.length,
     oldest_min: oldestMin,
     drain_active: false,
+    alerted: outcome.skipped !== 'idempotent',
+    notified: outcome.notified,
+    idempotencyKey,
+  };
+}
+
+// ── Learner-note drafts reminder (Director-approved 2026-07-16) ──────────────
+// scf_learner_notes is a HUMAN gate: the ₹0 loop writes status='draft' rows
+// that no learner sees until a super-admin approves them on /admin/learner-notes.
+// A gate nobody is reminded about starves silently — 934 drafts (oldest 7 days)
+// had accumulated by 16 Jul with zero notifications. Once per IST day, while any
+// drafts wait, nudge every super-admin (in-app, normal priority — a standing
+// backlog, not an outage). Piggybacked on this sweep like the pager above; the
+// GET tail wraps it in its own try/catch so it can never break the host sweep.
+async function learnerNoteDraftsReminder(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const { count, error: countErr } = await admin
+    .from('scf_learner_notes')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'draft');
+  if (countErr) return { checked: false, error: countErr.message };
+  const waiting = count ?? 0;
+  if (waiting === 0) return { checked: true, waiting: 0, alerted: false };
+
+  const { data: oldestRow } = await admin
+    .from('scf_learner_notes')
+    .select('created_at')
+    .eq('status', 'draft')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const oldestDays = oldestRow?.created_at
+    ? Math.floor((Date.now() - new Date(oldestRow.created_at).getTime()) / 86_400_000)
+    : null;
+
+  const { data: supers, error: supersErr } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('is_super_admin', true);
+  if (supersErr || !supers?.length) {
+    return {
+      checked: true, waiting, alerted: false,
+      error: `super-admin lookup failed: ${supersErr?.message ?? 'no recipients'}`,
+    };
+  }
+
+  // One nudge per IST day while drafts wait (IST = UTC+5:30).
+  const istDay = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
+  const idempotencyKey = `learner-note-drafts:${istDay}`;
+  const outcome = await fanoutNotification(admin, {
+    title: `Learner support-note drafts awaiting review: ${waiting}`,
+    body:
+      `${waiting} AI-drafted support note${waiting === 1 ? '' : 's'} for learners ` +
+      `are waiting for review — no learner sees a note until a super-admin approves it. ` +
+      (oldestDays !== null && oldestDays > 0
+        ? `The oldest has waited ${oldestDays} day${oldestDays === 1 ? '' : 's'}. `
+        : '') +
+      `Open the approval queue to review them.`,
+    userIds: supers.map((s: { id: string }) => s.id),
+    priority: 'normal',
+    category: 'loops',
+    url: '/admin/learner-notes',
+    idempotencyKey,
+    source: 'ai-tasks-sweep:learner-note-drafts',
+  });
+  return {
+    checked: true,
+    waiting,
+    oldest_days: oldestDays,
     alerted: outcome.skipped !== 'idempotent',
     notified: outcome.notified,
     idempotencyKey,
@@ -467,5 +550,15 @@ export async function GET(request: NextRequest) {
     loopLane = { checked: false, error: pagerErr instanceof Error ? pagerErr.message : 'pager failed' };
   }
 
-  return NextResponse.json({ ok: true, features, health, loop_lane: loopLane, elapsed_ms: Date.now() - started });
+  // ── 5) LEARNER-NOTE DRAFTS REMINDER (Director-approved 2026-07-16) ────────
+  // Same fail-safe discipline: own try/catch, additive `learner_note_drafts`.
+  let learnerNoteDrafts: Record<string, unknown> = { checked: false };
+  try {
+    learnerNoteDrafts = await learnerNoteDraftsReminder(admin);
+  } catch (draftsErr) {
+    console.error('[ai-tasks-sweep] learner-note drafts reminder failed:', draftsErr);
+    learnerNoteDrafts = { checked: false, error: draftsErr instanceof Error ? draftsErr.message : 'reminder failed' };
+  }
+
+  return NextResponse.json({ ok: true, features, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, elapsed_ms: Date.now() - started });
 }

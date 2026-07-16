@@ -656,6 +656,10 @@ export const PERMISSION_CATEGORIES = [
     name: 'HR Management',
     key: 'hr',
     permissions: [
+      // Module gate — value behind '/hr' in lib/sidebarMenuLink.ts. Declared
+      // here (2026-07-16) so Role Management can toggle it; previously a
+      // reserved key only hr_admin held.
+      { key: 'hr.view', label: 'Access HR Module' },
       // Recruitment (Phase 1A+1B shipped 2026-04-15) —
       // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
       { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
@@ -663,6 +667,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.edit', label: 'Edit Recruitment Candidates' },
       { key: 'hr.recruitment.delete', label: 'Delete Recruitment Candidates' },
       { key: 'hr.recruitment.approve', label: 'Approve Recruitment Candidates' },
+      // Override: act as any approver on a candidate's approval chain step
+      // (hr_head / hr_admin / coo). Enforced in RecruitmentService.approveCandidate.
+      { key: 'hr.recruitment.approve.override', label: 'Override Recruitment Approval Step' },
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },

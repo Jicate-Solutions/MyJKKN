@@ -8,6 +8,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import { PO_STATUS_CONFIG, type PoStatus, type PurchaseOrderFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -135,7 +136,7 @@ export default function PurchaseOrdersPage() {
                   {pos.map((po) => (
                     <TableRow key={po.id}>
                       <TableCell className="font-medium">{po.po_number}</TableCell>
-                      <TableCell>{new Date(po.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDateDMY(po.created_at)}</TableCell>
                       <TableCell>{po.supplier?.name || '-'}</TableCell>
                       <TableCell>{po.item_count ?? '-'}</TableCell>
                       <TableCell className="text-right">

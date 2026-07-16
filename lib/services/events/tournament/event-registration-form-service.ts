@@ -12,7 +12,35 @@ import type {
   UpdateFormSectionDto,
   CreateFormFieldDto,
   UpdateFormFieldDto,
+  FormFieldType,
+  FormFieldOption,
+  FormFieldCondition,
 } from '@/types/tournament';
+
+/** One field in a bulk-save payload. Carries no row id — the RPC reinserts fresh. */
+export interface SaveFormFieldPayload {
+  field_key: string;
+  field_label: string;
+  field_type: FormFieldType;
+  is_required: boolean;
+  display_order: number;
+  placeholder: string | null;
+  help_text: string | null;
+  min_length: number | null;
+  max_length: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  pattern: string | null;
+  options: FormFieldOption[] | null;
+  condition: FormFieldCondition | null;
+}
+
+/** One section in a bulk-save payload. */
+export interface SaveFormSectionPayload {
+  title: string;
+  display_order: number;
+  fields: SaveFormFieldPayload[];
+}
 
 export class EventRegistrationFormService {
   // ─── Form ───────────────────────────────────────────────────
@@ -83,6 +111,26 @@ export class EventRegistrationFormService {
       .single();
     if (error) throw error;
     return data as EventRegistrationForm;
+  }
+
+  /**
+   * Atomically replace the whole form (sections + fields) with the desired
+   * state. One RPC = one transaction, so a partial failure rolls back.
+   * Authorization is the tables' _manage RLS policies (the RPC is SECURITY
+   * INVOKER) — the same gate the granular CRUD above already relies on.
+   */
+  static async saveForm(
+    eventId: string,
+    isEnabled: boolean,
+    sections: SaveFormSectionPayload[]
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error } = await (supabase as any).rpc('save_event_registration_form', {
+      p_event_id: eventId,
+      p_is_enabled: isEnabled,
+      p_sections: sections,
+    });
+    if (error) throw error;
   }
 
   // ─── Sections ───────────────────────────────────────────────

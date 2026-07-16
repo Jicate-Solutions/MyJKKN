@@ -8,6 +8,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import {
   PR_STATUS_CONFIG,
   type PurchaseRequestStatus,
@@ -138,7 +139,7 @@ export default function PurchaseRequestsPage() {
                     return (
                       <TableRow key={req.id}>
                         <TableCell className="font-medium">{req.request_number}</TableCell>
-                        <TableCell>{new Date(req.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell>{formatDateDMY(req.created_at)}</TableCell>
                         <TableCell className="capitalize">
                           {req.request_type.replace('_', ' ')}
                         </TableCell>

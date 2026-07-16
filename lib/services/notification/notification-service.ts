@@ -112,8 +112,170 @@ export async function getNotificationCounts(
   };
 }
 
+/**
+ * Events whose rows collapse into ONE rollup row in the inbox, mapped to the
+ * metadata key naming the distinct real-world entity behind each row.
+ *
+ * Deliberately a flat lookup of what actually exists in production, not a
+ * plugin surface. Today exactly one event rolls up: the Instagram silence
+ * cron emits one row per silent department per alert day, so the entity is the
+ * department's IG account (metadata.ig_user_id).
+ *
+ * Events absent from this map are NOT rollups and are never aggregated — as of
+ * 2026-07-15 that is 170 of the director's 311 rows, which carry no
+ * metadata.event at all, plus ig_ownership_flipped (a genuine one-off).
+ */
+const EVENT_ENTITY_KEYS: Record<string, string> = {
+  ig_silence_alert: 'ig_user_id',
+  // The runner-down alert is ONE incident re-fired hourly during an outage,
+  // not N distinct entities. Its entity is the alert HOUR (metadata.alert_hour,
+  // written by ai-tasks-sweep), so distinct_entities == "number of times we
+  // alerted" — the inbox renders that as "alerted N times", never "N runners".
+  ai_runner_down: 'alert_hour'
+};
+
+/** Rows read per page while tallying one event. Kept well under PostgREST's
+ *  max-rows ceiling, which TRUNCATES SILENTLY rather than erroring. */
+const ROLLUP_PAGE_SIZE = 1000;
+
+/** Hard stop on the paging loop. 20k rows for ONE event for ONE user is orders
+ *  of magnitude beyond any real cadence (35 departments x weekly re-alert is
+ *  ~1.8k/year); hitting it means something is wrong, so we drop the rollup
+ *  rather than report a half-scanned number. */
+const ROLLUP_MAX_PAGES = 20;
+
+/** A group of notification rows that the inbox renders as ONE row. */
+export interface NotificationEventRollup {
+  /** metadata.event value, e.g. 'ig_silence_alert'. */
+  event: string;
+  /** GLOBAL row count for this event across the whole inbox — NOT page-scoped. */
+  rows: number;
+  /** GLOBAL count of DISTINCT entities behind those rows. This is the number
+   *  the rollup label must show. */
+  distinct_entities: number;
+  /** metadata key the distinct count was taken on, e.g. 'ig_user_id'. */
+  entity_key: string;
+}
+
+/**
+ * Tally per-event rollups for a user's inbox GLOBALLY.
+ *
+ * Why this exists: the inbox must say "35 departments are silent". 35 is
+ * COUNT(DISTINCT metadata.ig_user_id) across 140 rows — but the client loads 20
+ * rows per page, so it CANNOT know the number is 35. Counting the loaded rows
+ * yields "20 departments" on page 1 and "140 departments" once fully scrolled;
+ * both are wrong, and both have shipped. The number is only correct if the
+ * server computes it, exactly as unread_count is (see getNotificationCounts).
+ *
+ * PostgREST has no GROUP BY and no COUNT(DISTINCT), so the distinct tally has
+ * to happen in memory. Two traps that make a naive tally lie:
+ *
+ *  1. A bare .limit()/.select() is capped by PostgREST's max-rows and truncates
+ *     SILENTLY — the tally is simply wrong with no error. So we page with
+ *     explicit .range() and only trust the result once a SHORT page proves we
+ *     reached the end.
+ *  2. .range() without an ORDER BY is not stable across queries — Postgres may
+ *     return rows in any order, so pages could skip rows and undercount. We
+ *     order by user_notifications.id, which is unique.
+ *
+ * `rows` and `distinct_entities` come from the SAME scan, so they cannot
+ * disagree even though the IG crons are inserting live.
+ *
+ * Mirrors getNotificationCounts()/getNotifications()' `!inner` join so the
+ * rollup and the list agree on which rows exist, and takes the caller's
+ * cookie-scoped client so RLS runs as `authenticated` — a service-role client
+ * would bypass RLS and tally OTHER users' inboxes into this user's count.
+ */
+export async function getNotificationEventRollups(
+  userId: string,
+  client?: SupabaseClient
+): Promise<NotificationEventRollup[]> {
+  const db = client ?? supabase;
+  const rollups: NotificationEventRollup[] = [];
+
+  for (const [event, entityKey] of Object.entries(EVENT_ENTITY_KEYS)) {
+    const entities = new Set<string>();
+    let rows = 0;
+    let complete = false;
+
+    for (let page = 0; page < ROLLUP_MAX_PAGES; page++) {
+      const start = page * ROLLUP_PAGE_SIZE;
+      const { data, error } = await db
+        .from('user_notifications')
+        .select(
+          'id, notification:notifications!user_notifications_notification_id_fkey!inner(metadata)'
+        )
+        .eq('user_id', userId)
+        .eq('notification.metadata->>event', event)
+        .order('id', { ascending: true })
+        .range(start, start + ROLLUP_PAGE_SIZE - 1);
+
+      if (error) throw error;
+
+      const batch = (data || []) as any[];
+      rows += batch.length;
+
+      for (const row of batch) {
+        // Supabase types an embedded to-one join as an array; it is an object
+        // at runtime. Handle both rather than trusting either.
+        const embedded = Array.isArray(row.notification)
+          ? row.notification[0]
+          : row.notification;
+        const value = embedded?.metadata?.[entityKey];
+        // jsonb round-trips ids as string or number depending on the writer.
+        if (value !== null && value !== undefined && value !== '') {
+          entities.add(String(value));
+        }
+      }
+
+      if (batch.length < ROLLUP_PAGE_SIZE) {
+        complete = true;
+        break;
+      }
+    }
+
+    if (!complete) {
+      // We never proved we read every row, so any number here would be a guess.
+      // Omitting the rollup makes the inbox fall back to rendering the rows
+      // themselves — visibly noisy, but never a wrong count.
+      console.error(
+        `[notifications] rollup for "${event}" exceeded ${
+          ROLLUP_MAX_PAGES * ROLLUP_PAGE_SIZE
+        } rows for user ${userId}; omitting rather than reporting a truncated count`
+      );
+      continue;
+    }
+
+    if (rows === 0) continue;
+
+    rollups.push({
+      event,
+      rows,
+      distinct_entities: entities.size,
+      entity_key: entityKey
+    });
+  }
+
+  return rollups;
+}
+
+/**
+ * getNotifications' filters, plus `event`.
+ *
+ * Declared here rather than widening NotificationFilters in types/notification.ts
+ * because `event` is a filter this service implements against a jsonb key, not
+ * part of the shared Notification DTO vocabulary. NotificationFilters remains
+ * assignable to this, so every existing caller is unaffected.
+ */
+export type NotificationListFilters = NotificationFilters & {
+  /** Exact match on notifications.metadata->>'event'. Lets the inbox fetch one
+   *  rollup's rows on expand without loading the whole inbox. Omitted =>
+   *  behaviour is identical to before this filter existed. */
+  event?: string;
+};
+
 export async function getNotifications(
-  filters: NotificationFilters = {},
+  filters: NotificationListFilters = {},
   client?: SupabaseClient
 ): Promise<Notification[]> {
   // When called from a Next.js API route, the route passes its cookie-scoped
@@ -187,6 +349,14 @@ export async function getNotifications(
 
   if (filters.priority) {
     query = query.eq('notification.priority', filters.priority);
+  }
+
+  // Fetch exactly one rollup's rows (e.g. the 140 ig_silence_alert rows) so
+  // expanding a rollup doesn't require paging the entire inbox. Exact match on
+  // the jsonb key — unlike category, metadata.event values are machine-written
+  // by the crons and consistently cased, so no ilike is warranted here.
+  if (filters.event) {
+    query = query.eq('notification.metadata->>event', filters.event);
   }
 
   if (filters.search) {

@@ -5,7 +5,11 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { EventRegistrationFormService } from '@/lib/services/events/tournament/event-registration-form-service';
+import {
+  EventRegistrationFormService,
+  type SaveFormSectionPayload,
+} from '@/lib/services/events/tournament/event-registration-form-service';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   CreateFormSectionDto,
   UpdateFormSectionDto,
@@ -33,6 +37,25 @@ export function useUpdateRegistrationForm(eventId: string) {
       EventRegistrationFormService.updateForm(formId, updates),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.form(eventId) }),
     onError: (e: Error) => toast.error(e.message || 'Failed to update form'),
+  });
+}
+
+/** Save the entire form in one atomic RPC (the builder page's only write). */
+export function useSaveRegistrationForm(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      isEnabled,
+      sections,
+    }: {
+      isEnabled: boolean;
+      sections: SaveFormSectionPayload[];
+    }) => EventRegistrationFormService.saveForm(eventId, isEnabled, sections),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.form(eventId) });
+      toast.success('Registration form saved');
+    },
+    onError: (e: Error) => toast.error(getErrorMessage(e) || 'Failed to save the form'),
   });
 }
 

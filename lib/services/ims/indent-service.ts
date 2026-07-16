@@ -460,7 +460,7 @@ export class ImsIndentService {
         .eq('id', item.indent_id)
         .single();
 
-      if (!indent || indent.status !== 'approved') {
+      if (!indent || !['approved', 'partially_issued'].includes(indent.status)) {
         throw new Error('Cannot issue items: indent is not in approved status');
       }
 
@@ -478,6 +478,28 @@ export class ImsIndentService {
         .eq('id', indentItemId);
 
       if (error) throw error;
+
+      // Roll the header status up from the items' fulfillment state — the UI's
+      // isApproved check already expects a 'partially_issued' status mid-flow.
+      const { data: siblings, error: siblingsErr } = await this.supabase
+        .from('ims_indent_request_items')
+        .select('quantity, issued_quantity')
+        .eq('indent_id', item.indent_id);
+      if (siblingsErr) throw siblingsErr;
+
+      const allIssued = (siblings || []).every(
+        (i: any) => Number(i.issued_quantity || 0) >= Number(i.quantity)
+      );
+      const anyIssued = (siblings || []).some((i: any) => Number(i.issued_quantity || 0) > 0);
+      const newStatus = allIssued ? 'issued' : anyIssued ? 'partially_issued' : indent.status;
+
+      if (newStatus !== indent.status) {
+        const { error: statusErr } = await this.supabase
+          .from('ims_indent_requests')
+          .update({ status: newStatus, updated_at: new Date().toISOString() })
+          .eq('id', item.indent_id);
+        if (statusErr) throw statusErr;
+      }
     } catch (error) {
       const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
       console.error('[ImsIndentService] Error in issueItem:', errDetail, error);

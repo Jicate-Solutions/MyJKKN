@@ -30,9 +30,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import type { Event, EventStatus } from '@/types/events';
-import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
+import { TOURNAMENT_STATUS_TRANSITIONS, tournamentStatusLabel } from '@/types/tournament';
 import { useDeleteTournament } from '@/hooks/events/use-tournaments';
-import { STATUS_CONFIG } from './status-config';
 
 interface DataTableRowActionsProps {
   row: Row<Event>;
@@ -57,7 +56,8 @@ export function DataTableRowActions({
   const tournament = row.original;
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const deleteTournament = useDeleteTournament();
-  const allowedTransitions = EVENT_STATUS_TRANSITIONS[tournament.status] ?? [];
+  // Tournaments are Draft <-> Active only — never the shared 8-state lifecycle.
+  const allowedTransitions = TOURNAMENT_STATUS_TRANSITIONS[tournament.status] ?? [];
 
   const handleDelete = () => {
     deleteTournament.mutate(tournament.id, {
@@ -98,7 +98,7 @@ export function DataTableRowActions({
               <DropdownMenuSubContent>
                 {allowedTransitions.map((s) => (
                   <DropdownMenuItem key={s} onClick={() => onStatusChange(tournament.id, s)}>
-                    → {STATUS_CONFIG[s]?.label ?? s}
+                    → {tournamentStatusLabel(s)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>

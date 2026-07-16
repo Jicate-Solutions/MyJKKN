@@ -214,6 +214,32 @@ export class DeptHeatmapService {
     );
     const cycleIds = cycles.map((c) => c.id);
 
+    // 1b. Per-cycle publication window (Director rule, 2026-07-16): a post
+    //     counts for cycle i when it was posted AFTER cycle i's live session
+    //     and BEFORE the next cycle's session. Session instant = demo_date at
+    //     config.session_end_time, interpreted IST. `cycles` is oldest→newest,
+    //     so window i runs [session_i, session_{i+1}); the newest cycle's
+    //     window stays open (posts after its session, up to the next one).
+    const cycleWindows = cycles
+      .map((c) => {
+        if (!c.demo_date) return null;
+        const hhmm = endHHMMByCycle.get(c.id) ?? '19:30';
+        const startMs = new Date(`${c.demo_date}T${hhmm}:00+05:30`).getTime();
+        return Number.isFinite(startMs) ? { cycleId: c.id, startMs } : null;
+      })
+      .filter((w): w is { cycleId: string; startMs: number } => w !== null)
+      .sort((a, b) => a.startMs - b.startMs);
+
+    /** Which cycle's window contains this posted_at? null = before the grid. */
+    const cycleForPostedAt = (postedAtMs: number): string | null => {
+      let match: string | null = null;
+      for (const w of cycleWindows) {
+        if (postedAtMs >= w.startMs) match = w.cycleId;
+        else break;
+      }
+      return match;
+    };
+
     // 2. Active departments (grid rows). A dept with zero activity still
     //    appears — a complete no-show is exactly what governance must see.
     const { data: deptsRaw, error: deptsErr } = await sb
@@ -398,11 +424,50 @@ export class DeptHeatmapService {
       const a = bump(deptId, s.event_id);
       if (!a) continue;
       a.domain_sync_submitted = true;
-      const urls: string[] = Array.isArray(s.proof_urls)
-        ? (s.proof_urls as string[])
-        : [];
-      if (urls.some((u) => typeof u === 'string' && u.includes('instagram.com'))) {
-        a.ig_published = true;
+      // IG publication is NO LONGER inferred from proof_urls here — that source
+      // is empty for every AI Pulse cycle (0 rows in prod). See step 7b.
+    }
+
+    // 7b. IG publications — the REAL source, windowed by cycle.
+    //     The publication column historically read event_submissions.proof_urls,
+    //     but no AI Pulse cycle has such rows (verified 0 in prod) — the column
+    //     was always empty. Pull the actual Instagram posts (ig_posts), map each
+    //     to a department via ig_accounts.department_id, and attribute it to the
+    //     cycle whose window it was posted in (cycleForPostedAt). A department's
+    //     cell is "published" when it posted at least once in that cycle's
+    //     window. (Director rule, 2026-07-16.)
+    if (cycleWindows.length > 0) {
+      const { data: igAccRaw, error: igAccErr } = await sb
+        .from('ig_accounts')
+        .select('id, department_id');
+      if (igAccErr) {
+        logger.warn('ai-pulse/dept-heatmap', 'ig_accounts read failed', igAccErr);
+      }
+      const deptByIgAccount = new Map<string, string | null>();
+      for (const acc of (igAccRaw ?? []) as any[]) {
+        deptByIgAccount.set(acc.id, acc.department_id ?? null);
+      }
+
+      // Only posts on/after the earliest displayed cycle's session matter.
+      const earliestStartISO = new Date(cycleWindows[0].startMs).toISOString();
+      const { data: igPostsRaw, error: igPostsErr } = await sb
+        .from('ig_posts')
+        .select('account_id, posted_at')
+        .gte('posted_at', earliestStartISO);
+      if (igPostsErr) {
+        logger.warn('ai-pulse/dept-heatmap', 'ig_posts read failed', igPostsErr);
+      }
+
+      for (const p of (igPostsRaw ?? []) as any[]) {
+        if (!p.posted_at) continue;
+        const deptId = deptByIgAccount.get(p.account_id) ?? null;
+        if (!deptId) continue; // account not tied to a department row
+        const t = new Date(p.posted_at).getTime();
+        if (!Number.isFinite(t)) continue;
+        const cycleId = cycleForPostedAt(t);
+        if (!cycleId) continue; // posted before the earliest displayed window
+        const a = bump(deptId, cycleId);
+        if (a) a.ig_published = true;
       }
     }
 

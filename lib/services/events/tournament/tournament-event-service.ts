@@ -8,7 +8,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { Event, CreateEventDto, UpdateEventDto, EventStatus } from '@/types/events';
-import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
+import { TOURNAMENT_STATUS_TRANSITIONS } from '@/types/tournament';
 import type {
   Tournament,
   TournamentDivision,
@@ -165,7 +165,11 @@ export class TournamentEventService {
         throw new Error(`Tournament not found: ${id}`);
       }
 
-      const allowedTransitions = EVENT_STATUS_TRANSITIONS[event.status] ?? [];
+      // Tournaments run a 2-state model (Draft <-> Active), so they are gated on
+      // TOURNAMENT_STATUS_TRANSITIONS, not the shared EVENT_STATUS_TRANSITIONS —
+      // the latter's draft entry is ['planning','cancelled'] and would reject
+      // draft->live outright. The shared map still governs every other event type.
+      const allowedTransitions = TOURNAMENT_STATUS_TRANSITIONS[event.status] ?? [];
       if (!allowedTransitions.includes(newStatus)) {
         throw new Error(
           `Invalid status transition: ${event.status} -> ${newStatus}. Allowed: ${allowedTransitions.join(', ') || 'none'}`
