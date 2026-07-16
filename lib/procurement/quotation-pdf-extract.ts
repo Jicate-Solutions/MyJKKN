@@ -21,11 +21,24 @@ export interface ExtractedLine {
   rfq_item_id: string | null;
   item_name: string;
   unit_price: number;
+  manufacturer: string | null;
+  quality_grade: string | null;
+  concentration: string | null;
+  other_specs: string | null;
+}
+
+export interface ExtractedSpec {
+  manufacturer: string | null;
+  quality_grade: string | null;
+  concentration: string | null;
+  other_specs: string | null;
 }
 
 export interface PdfExtractResult {
   /** rfq_item_id -> unit_price (only confidently-matched lines) */
   prices: Record<string, number>;
+  /** rfq_item_id -> spec fields read off the PDF (only confidently-matched lines) */
+  specs: Record<string, ExtractedSpec>;
   /** every line the model returned, for preview */
   lines: ExtractedLine[];
   matched: number;
@@ -70,6 +83,22 @@ const RECORD_TOOL: Anthropic.Tool = {
               description:
                 'The UNIT price as a plain number (no currency symbol/commas). If only a line total is shown, divide by the quantity.',
             },
+            manufacturer: {
+              type: 'string',
+              description: 'Manufacturer/brand offered for this line, if stated on the quotation. Omit if not shown.',
+            },
+            quality_grade: {
+              type: 'string',
+              description: 'Quality/grade offered for this line, if stated. Omit if not shown.',
+            },
+            concentration: {
+              type: 'string',
+              description: 'Concentration/purity offered for this line (chemical items), if stated. Omit if not shown.',
+            },
+            other_specs: {
+              type: 'string',
+              description: 'Any other product-specific detail printed for this line that does not fit the fields above. Omit if none.',
+            },
           },
           required: ['rfq_item_id', 'item_name', 'unit_price'],
         },
@@ -110,7 +139,9 @@ export async function extractQuotationFromPdf(
               'Extract each line item and its UNIT price from this vendor quotation. ' +
               'For each line, set rfq_item_id to the id of the requested item it matches ' +
               '(match by meaning, not exact spelling), or "" if it matches none. ' +
-              'Return unit_price as a plain number.\n\nRequested items (id — name):\n' +
+              'Return unit_price as a plain number. Also capture manufacturer, quality_grade, ' +
+              'concentration, and other_specs when the quotation states them for that line — ' +
+              'leave them out when not shown, do not guess.\n\nRequested items (id — name):\n' +
               itemList,
           },
         ],
@@ -126,8 +157,14 @@ export async function extractQuotationFromPdf(
 
   const validIds = new Set(items.map((i) => i.id));
   const prices: Record<string, number> = {};
+  const specs: Record<string, ExtractedSpec> = {};
   const lines: ExtractedLine[] = [];
   const unmatched: string[] = [];
+
+  const asSpecString = (v: unknown): string | null => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    return s || null;
+  };
 
   for (const row of arr as Array<Record<string, unknown>>) {
     const price = Number(row?.unit_price);
@@ -135,11 +172,21 @@ export async function extractQuotationFromPdf(
     const name = String(row?.item_name ?? '').trim();
     const idRaw = String(row?.rfq_item_id ?? '').trim();
     const id = validIds.has(idRaw) ? idRaw : null; // validate model output against what we sent
+    const spec: ExtractedSpec = {
+      manufacturer: asSpecString(row?.manufacturer),
+      quality_grade: asSpecString(row?.quality_grade),
+      concentration: asSpecString(row?.concentration),
+      other_specs: asSpecString(row?.other_specs),
+    };
 
-    if (id) prices[id] = price;
-    else if (name) unmatched.push(name);
-    lines.push({ rfq_item_id: id, item_name: name, unit_price: price });
+    if (id) {
+      prices[id] = price;
+      specs[id] = spec;
+    } else if (name) {
+      unmatched.push(name);
+    }
+    lines.push({ rfq_item_id: id, item_name: name, unit_price: price, ...spec });
   }
 
-  return { prices, lines, matched: Object.keys(prices).length, unmatched };
+  return { prices, specs, lines, matched: Object.keys(prices).length, unmatched };
 }
