@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { useAuth } from '@/hooks/use-auth';
+import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 import {
   useImsIndent,
   useApproveImsIndent,
@@ -322,15 +323,13 @@ function IndentDetailPageInner() {
                 <p className="text-sm text-muted-foreground">Required Date</p>
                 <p className="flex items-center gap-2 font-medium">
                   <Calendar className="h-4 w-4" />
-                  {indent.required_date
-                    ? new Date(indent.required_date).toLocaleDateString()
-                    : 'Not specified'}
+                  {indent.required_date ? formatDateDMY(indent.required_date) : 'Not specified'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Created At</p>
                 <p className="font-medium">
-                  {new Date(indent.created_at).toLocaleString()}
+                  {formatDateTimeDMY(indent.created_at)}
                 </p>
               </div>
             </div>
@@ -357,7 +356,7 @@ function IndentDetailPageInner() {
                   {indent.approved_by_profile.full_name}
                   {indent.approved_at && (
                     <span className="text-muted-foreground ml-2">
-                      on {new Date(indent.approved_at).toLocaleString()}
+                      on {formatDateTimeDMY(indent.approved_at)}
                     </span>
                   )}
                 </p>

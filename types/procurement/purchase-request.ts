@@ -1,7 +1,7 @@
 // types/procurement/purchase-request.ts
 import type { ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 
-export type PurchaseRequestType = 'restock' | 'new_item';
+export type PurchaseRequestType = 'restock' | 'new_item' | 'mixed';
 
 export type PurchaseRequestStatus =
   | 'draft'
@@ -74,8 +74,8 @@ export interface CreatePurchaseRequestDto {
   institution_id: string;
   store_id?: string | null;
   domain?: ProcurementDomain; // defaults to 'ims'
-  request_type: PurchaseRequestType;
   notes?: string | null;
+  /** Per item: domain_item_id set = restock, null = new item — request_type is derived from these, not client-supplied. */
   items: CreatePurchaseRequestItemDto[];
 }
 

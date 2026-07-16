@@ -10,6 +10,7 @@ import {
   useApproveImsIndent,
   useRejectImsIndent,
 } from '@/hooks/ims/use-ims-indents';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import {
   INDENT_URGENCY_CONFIG,
   type ImsIndentFilters,
@@ -197,7 +198,7 @@ function PendingIndentsPageInner() {
                           {indent.indent_number}
                         </TableCell>
                         <TableCell>
-                          {new Date(indent.created_at).toLocaleDateString()}
+                          {formatDateDMY(indent.created_at)}
                         </TableCell>
                         <TableCell>
                           {indent.department?.department_name || '-'}

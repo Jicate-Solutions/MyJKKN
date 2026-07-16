@@ -80,6 +80,35 @@ export class ProcurementRfqService {
     }
   }
 
+  /**
+   * Resolve each item's effective is_chemical flag (item override, else category) so the
+   * Quotations page can gate the Concentration spec field to chemical items only. Live UI
+   * hint, not persisted — mirrors the COALESCE(item, category, false) logic domain adapters
+   * apply at GRN time (lib/services/procurement/domain-adapters/ims-adapter.ts mapItem()).
+   * IMS-specific for now since it's the only registered procurement domain.
+   */
+  private static async attachChemicalFlags<T extends { domain_item_id: string | null }>(
+    items: T[]
+  ): Promise<(T & { is_chemical: boolean })[]> {
+    const domainItemIds = [...new Set(items.map((i) => i.domain_item_id).filter(Boolean))] as string[];
+    if (!domainItemIds.length) {
+      return items.map((i) => ({ ...i, is_chemical: false }));
+    }
+    const { data, error } = await this.supabase
+      .from('ims_items')
+      .select('id, is_chemical, category:ims_item_categories(is_chemical)')
+      .in('id', domainItemIds);
+    if (error) throw error;
+    const chemicalById = new Map<string, boolean>();
+    for (const row of (data || []) as any[]) {
+      chemicalById.set(row.id, row.is_chemical ?? row.category?.is_chemical ?? false);
+    }
+    return items.map((i) => ({
+      ...i,
+      is_chemical: i.domain_item_id ? chemicalById.get(i.domain_item_id) ?? false : false,
+    }));
+  }
+
   static async getRfq(id: string): Promise<RfqWithDetails> {
     try {
       const { data: header, error: headerError } = await this.supabase
@@ -109,7 +138,9 @@ export class ProcurementRfqService {
       if (itemsErr) throw itemsErr;
       if (vendorsErr) throw vendorsErr;
 
-      return { ...header, items: items || [], vendors: vendors || [] } as RfqWithDetails;
+      const itemsWithChemicalFlag = await this.attachChemicalFlags(items || []);
+
+      return { ...header, items: itemsWithChemicalFlag, vendors: vendors || [] } as RfqWithDetails;
     } catch (error) {
       console.error('[ProcurementRfqService] getRfq:', error);
       throw error;

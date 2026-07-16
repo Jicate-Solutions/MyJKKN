@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsIndents, useCancelImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import {
   INDENT_STATUS_CONFIG,
   INDENT_URGENCY_CONFIG,
@@ -205,7 +206,7 @@ function IndentsPageInner() {
                           {indent.indent_number}
                         </TableCell>
                         <TableCell>
-                          {new Date(indent.created_at).toLocaleDateString()}
+                          {formatDateDMY(indent.created_at)}
                         </TableCell>
                         <TableCell>
                           {indent.department?.department_name || '-'}
