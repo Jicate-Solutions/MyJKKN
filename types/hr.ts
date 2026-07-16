@@ -228,6 +228,20 @@ export interface LeaveApprovalStep {
   interview_required?: boolean;
   /** hr_recruitment_interviews.id linked to this step (re-pointed on reschedule). */
   interview_id?: string | null;
+  // ----- Override audit (2026-07-16) --------------------------------------
+  // Set when a step is actioned by an authorized OVERRIDE (super-admin or a
+  // holder of hr.recruitment.approve.override) instead of the step's own
+  // pinned user / role. Optional → legacy and leave chains untouched.
+  /** True when this step was approved via override, not by its intended approver. */
+  overridden?: boolean;
+  /** profiles.id of the user who performed the override. */
+  overridden_by?: string | null;
+  /** ISO timestamp of the override. */
+  overridden_at?: string | null;
+  /** The pinned user this step was originally routed to (null if role-only). */
+  intended_approver_user_id?: string | null;
+  /** The role this step was originally routed to. */
+  intended_approver_role?: string | null;
 }
 
 export interface LeaveDocument {
