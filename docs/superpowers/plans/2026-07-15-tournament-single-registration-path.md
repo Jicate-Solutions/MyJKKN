@@ -1,8 +1,8 @@
 # Tournament Single Registration Path + Form Builder Page — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agents:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make student self-registration the only way a tournament entry is created (admins can no longer register anyone), and move the registration-form builder onto its own page where editing is local-state with an explicit Save.
+**Goal:** Make learner self-registration the only way a tournament entry is created (admins can no longer register anyone), and move the registration-form builder onto its own page where editing is local-state with an explicit Save.
 
 **Architecture:** The builder stops writing on every keystroke. A new page loads the form once into local React state; **Save** sends the whole desired form to a new `save_event_registration_form` Postgres RPC that deletes and re-inserts sections+fields in one transaction. Admin registration is removed at both ends: the Add Entry UI is deleted and `POST /entries` is dropped, leaving `public-register` as the sole entry-creation path.
 
@@ -777,7 +777,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Add custom questions students answer when they register, on top of the standard
+        Add custom questions learners answer when they register, on top of the standard
         division / name / roster / contact fields every tournament already collects. These apply
         to all divisions in this tournament.
       </p>
@@ -845,7 +845,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
           </p>
           {!isEnabled && (
             <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-              Custom fields are turned off — students will only see the standard fields.
+              Custom fields are turned off — learners will only see the standard fields.
             </p>
           )}
           {isEnabled && previewSections.length === 0 && (
@@ -1006,7 +1006,7 @@ Create `app/(routes)/events/tournament/[id]/_components/registration-form-card.t
 'use client';
 
 // Compact Registration card on the tournament detail page. Replaces the old
-// inline builder: the builder now lives on its own page. Students register
+// inline builder: the builder now lives on its own page. Learners register
 // only through the public link — organizers configure the questions here.
 
 import Link from 'next/link';
@@ -1033,7 +1033,7 @@ export function RegistrationFormCard({
   const summary = !enabled
     ? 'Custom fields are turned off.'
     : fieldCount === 0
-      ? 'No custom fields yet — students only answer the standard fields.'
+      ? 'No custom fields yet — learners only answer the standard fields.'
       : `${fieldCount} custom ${fieldCount === 1 ? 'field' : 'fields'} across ${sections.length} ${
           sections.length === 1 ? 'section' : 'sections'
         }.`;
@@ -1050,7 +1050,7 @@ export function RegistrationFormCard({
       </CardHeader>
       <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-0">
         <p className="text-sm text-muted-foreground">
-          Configure the questions students answer when they register. {summary}
+          Configure the questions learners answer when they register. {summary}
         </p>
         <Button asChild size="sm" variant="outline">
           <Link href={`/events/tournament/${eventId}/registration-form`}>
@@ -1146,7 +1146,7 @@ grep -n "Plus" "app/(routes)/events/tournament/[id]/page.tsx"
 If the only hit is the import line, delete `Plus,` from it. Also update the empty-divisions copy (~616) which tells organizers to "register entries here":
 
 ```tsx
-            No divisions yet. Add divisions from the tournament edit screen. Students then register
+            No divisions yet. Add divisions from the tournament edit screen. Learners then register
             themselves through the public registration link.
 ```
 
@@ -1179,7 +1179,7 @@ In the browser, open a tournament detail page and verify:
 git add -A "app/(routes)/events/tournament/[id]"
 git commit -m "feat(tournament): replace inline builder with Registration card, remove Add Entry UI
 
-Students self-register via the public link; organizers only configure the
+Learners self-register via the public link; organizers only configure the
 questions. Deletes add-entry-dialog and the old inline builder.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1208,7 +1208,7 @@ Then update the file's header comment (lines 3–12) to:
 //   GET — organizer list of entries for a tournament (joined with payment + roster).
 //
 // There is deliberately NO POST here. Tournament entries are created ONLY by
-// students self-registering through /api/events/tournament/[eventId]/public-register
+// learners self-registering through /api/events/tournament/[eventId]/public-register
 // (single registration path, 2026-07); organizers configure the form and manage
 // existing entries, but cannot register anyone. Removing the handler makes POST
 // return 405.

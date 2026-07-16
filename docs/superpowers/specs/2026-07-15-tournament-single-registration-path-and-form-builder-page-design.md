@@ -12,11 +12,11 @@ The tournament detail page (`app/(routes)/events/tournament/[id]/page.tsx`) curr
 1. **"Registration Form" section** — actually a *builder* that configures custom questions; users mistake it for a place to register.
 2. **"Add Entry" dialog** — an organizer tool that registers a participant/team *on behalf of* someone.
 
-Separately, students self-register through the public link `/p/tournament/[id]/register`.
+Separately, learners self-register through the public link `/p/tournament/[id]/register`.
 
 Two problems to fix:
 
-- **We want a single registration path.** Only students self-register (public link). Admins must **not** be able to register anyone — not via UI and not via the server.
+- **We want a single registration path.** Only learners self-register (public link). Admins must **not** be able to register anyone — not via UI and not via the server.
 - **The "Registration Form" builder is broken and cramped.** Every keystroke fires a server mutation whose `onSuccess` invalidates and refetches the whole form, overwriting the input mid-typing (lost characters, cursor jumps, reverts, races). The two-pane builder is also squeezed into the detail page.
 
 ### Root cause of the builder bug
@@ -51,7 +51,7 @@ Two problems to fix:
 - Authenticated route (under `(routes)`), guarded by `useTournamentAccess(...).canManage`. Non-managers are redirected to the detail page (or shown an unauthorized state) — mirrors the old `if (!canManage) return null` gate, but page-level.
 - Loads the current form **once** via `useRegistrationForm(eventId)` and seeds local React state. All editing (add/rename/reorder/delete sections & fields, toggle required, edit options/help text, toggle "Collect custom fields" = `is_enabled`) mutates **local state only** — zero network calls while editing.
 - **Sticky action bar:** "Unsaved changes" indicator + **Save** (disabled when clean, spinner while saving) + **Back** to the detail page. Warn on navigate-away with unsaved changes.
-- **Layout:** roomy full-width, two columns — editor (left) and **live student preview** (right) rendered with the existing `DynamicFieldInput` (identical to what students see). This replaces the cramped inline card.
+- **Layout:** roomy full-width, two columns — editor (left) and **live learner preview** (right) rendered with the existing `DynamicFieldInput` (identical to what learners see). This replaces the cramped inline card.
 - Reuses the field-editing primitives from the current `registration-form-builder.tsx` (FieldRow, section controls, `slugifyKey`, `FORM_FIELD_TYPES` minus `file`), refactored to call local-state setters instead of mutations.
 
 ### 2. Bulk save (atomic, RLS-enforced) + data integrity
@@ -67,7 +67,7 @@ Two problems to fix:
 
 **Client wiring:** new `EventRegistrationFormService.saveForm(eventId, isEnabled, sections)` calls `supabase.rpc('save_event_registration_form', …)`; new hook `useSaveRegistrationForm(eventId)` wraps it and invalidates `['tournament-registration-form', eventId]` on success. The payload carries no row ids (the RPC reinserts fresh) — only `{ is_enabled, sections: [{ title, display_order, fields: [{ field_key, field_label, field_type, is_required, display_order, placeholder, help_text, min_length, max_length, min_value, max_value, pattern, options, condition }] }] }`.
 
-**`field_key` stability (critical):** student answers persist in `custom_fields` keyed by `field_key`, not by field `id`. The editor carries `field_key` in local state:
+**`field_key` stability (critical):** learner answers persist in `custom_fields` keyed by `field_key`, not by field `id`. The editor carries `field_key` in local state:
 
 - **Loaded** fields keep their existing DB `field_key` — even when the label is later edited — so previously submitted answers never orphan.
 - **New** fields have no key until Save; at serialize time each keyless field gets a readable key derived from its label via `slugifyKey`, de-duplicated against all keys already assigned in the payload (e.g. `t_shirt_size`, `t_shirt_size_2`) — replacing today's `field_${Date.now()}`. After the post-save refetch the field reloads with that key, so it is stable from then on.

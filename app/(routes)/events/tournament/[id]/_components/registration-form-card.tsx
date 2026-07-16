@@ -28,7 +28,7 @@ export function RegistrationFormCard({
   const summary = !enabled
     ? 'Custom fields are turned off.'
     : fieldCount === 0
-      ? 'No custom fields yet — students only answer the standard fields.'
+      ? 'No custom fields yet — learners only answer the standard fields.'
       : `${fieldCount} custom ${fieldCount === 1 ? 'field' : 'fields'} across ${sections.length} ${
           sections.length === 1 ? 'section' : 'sections'
         }.`;

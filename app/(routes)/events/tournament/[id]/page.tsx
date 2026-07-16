@@ -144,7 +144,7 @@ function TournamentStatusControl({
           onClick={() => updateStatus.mutate({ id: eventId, status: target })}
           title={
             active
-              ? 'Close public registration and hide this tournament from students'
+              ? 'Close public registration and hide this tournament from learners'
               : 'Open this tournament for public registration'
           }
         >
@@ -621,7 +621,7 @@ export default function TournamentManagePage() {
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
             No divisions yet. Divisions are set up when a tournament is created; use Edit above to
-            change one. Students then register themselves through the public registration link.
+            change one. Learners then register themselves through the public registration link.
           </CardContent>
         </Card>
       ) : (

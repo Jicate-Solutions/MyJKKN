@@ -487,7 +487,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Add custom questions students answer when they register, on top of the standard
+        Add custom questions learners answer when they register, on top of the standard
         division / name / roster / contact fields every tournament already collects. These apply
         to all divisions in this tournament.
       </p>
@@ -561,7 +561,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
           </p>
           {!isEnabled && (
             <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-              Custom fields are turned off — students will only see the standard fields.
+              Custom fields are turned off — learners will only see the standard fields.
             </p>
           )}
           {isEnabled && previewSections.length === 0 && (
