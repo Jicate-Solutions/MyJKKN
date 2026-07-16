@@ -30,6 +30,7 @@ import {
   useRejectCandidate,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -121,6 +122,11 @@ export default function CandidateDetailPage() {
   const approve = useApproveCandidate();
   const rejectCand = useRejectCandidate();
   const { permissions, isSuperAdmin, userRoles } = usePermissions();
+  const { institutions } = useInstitutionsWithAccess();
+  const institutionName = useMemo(
+    () => institutions.find((i) => i.id === candidate?.institution_id)?.name,
+    [institutions, candidate?.institution_id],
+  );
 
   // ζ FINDING #5 (PR #943) — Onboarding read-side rendering + (this PR, κ) toggle wiring.
   // role_specific_details.onboarding_steps is populated by
@@ -494,7 +500,12 @@ export default function CandidateDetailPage() {
                   <div className="flex items-center gap-2">
                     <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="text-muted-foreground text-xs">Institution</span>
-                    <span className="ml-auto font-mono text-[10px] truncate max-w-[150px]" title={candidate.institution_id}>{candidate.institution_id}</span>
+                    <span
+                      className="ml-auto font-medium truncate max-w-[170px] text-right"
+                      title={institutionName ?? candidate.institution_id}
+                    >
+                      {institutionName ?? '—'}
+                    </span>
                   </div>
                 )}
               </dl>

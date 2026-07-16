@@ -317,7 +317,16 @@ function CandidateRow({
           {/* Identity + profile */}
           <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">{row.name}</span>
+            {candidate ? (
+              <Link
+                href={`/hr/recruitment/candidates/${candidate.id}`}
+                className="text-sm font-semibold text-foreground hover:text-primary hover:underline"
+              >
+                {row.name}
+              </Link>
+            ) : (
+              <span className="text-sm font-semibold text-foreground">{row.name}</span>
+            )}
             <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${meta.badge}`}>
               {meta.label}
             </Badge>
