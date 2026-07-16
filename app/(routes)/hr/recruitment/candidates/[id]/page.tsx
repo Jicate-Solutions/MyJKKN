@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck, Mail, Phone, Clock, IndianRupee, Building2, AlertCircle, Loader2 } from 'lucide-react';
+import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck, Mail, Phone, Clock, IndianRupee, Building2, AlertCircle, Loader2, Pencil } from 'lucide-react';
 import {
   useCandidate,
   usePackages,
@@ -28,6 +28,7 @@ import {
   useUpdateCandidateStatus,
   useApproveCandidate,
   useRejectCandidate,
+  useUpdateStepComment,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -161,6 +162,10 @@ export default function CandidateDetailPage() {
   const [stepApproveComment, setStepApproveComment] = useState('');
   const [stepRejectOpen, setStepRejectOpen] = useState(false);
   const [stepRejectReason, setStepRejectReason] = useState('');
+  // Edit a decided step's review comment.
+  const updateStepComment = useUpdateStepComment();
+  const [editStepIndex, setEditStepIndex] = useState<number | null>(null);
+  const [editStepComment, setEditStepComment] = useState('');
 
   // POST the toggle, then invalidate the candidate cache so the section re-renders.
   const toggleOnboardingStep = async (stepIndex: number, nextCompleted: boolean) => {
@@ -395,6 +400,35 @@ export default function CandidateDetailPage() {
       toast.success('Candidate rejected');
       setStepRejectOpen(false);
       setStepRejectReason('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
+  // A decided step's comment is editable by its author, super-admin, or an
+  // override-key holder (server re-checks the same rule).
+  const canEditStepComment = (step: (typeof approvalChain)[number]) =>
+    (step.status === 'approved' || step.status === 'rejected') &&
+    (step.decided_by === profile?.id ||
+      isSuperAdmin ||
+      permissions['hr.recruitment.approve.override'] === true);
+
+  const openEditStepComment = (idx: number, current: string) => {
+    setEditStepIndex(idx);
+    setEditStepComment(current);
+  };
+
+  const handleSaveStepComment = async () => {
+    if (editStepIndex === null) return;
+    try {
+      await updateStepComment.mutateAsync({
+        id,
+        stepIndex: editStepIndex,
+        comment: editStepComment.trim(),
+      });
+      toast.success('Comment updated');
+      setEditStepIndex(null);
+      setEditStepComment('');
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -704,10 +738,36 @@ export default function CandidateDetailPage() {
                             {new Date(step.decided_at).toLocaleString()}
                           </p>
                         )}
-                        {(step as any).comment && (
-                          <p className="text-xs text-muted-foreground mt-0.5 italic">
-                            &ldquo;{(step as any).comment}&rdquo;
-                          </p>
+                        {(step as any).comment ? (
+                          <div className="mt-0.5 flex items-start gap-1.5">
+                            <p className="flex-1 text-xs text-muted-foreground italic">
+                              &ldquo;{(step as any).comment}&rdquo;
+                              {(step as any).edited_at && (
+                                <span className="ml-1 not-italic opacity-60">(edited)</span>
+                              )}
+                            </p>
+                            {canEditStepComment(step) && (
+                              <button
+                                type="button"
+                                onClick={() => openEditStepComment(idx, (step as any).comment ?? '')}
+                                className="shrink-0 text-muted-foreground hover:text-foreground"
+                                aria-label="Edit comment"
+                                title="Edit comment"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          canEditStepComment(step) && (
+                            <button
+                              type="button"
+                              onClick={() => openEditStepComment(idx, '')}
+                              className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="h-3 w-3" /> Add note
+                            </button>
+                          )
                         )}
                         {/* Actions on the current pending step */}
                         {isActive && step.status === 'pending' && isPendingApproval && (
@@ -1195,6 +1255,34 @@ export default function CandidateDetailPage() {
               onClick={handleStepReject}
             >
               {rejectCand.isPending ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit step comment dialog */}
+      <Dialog open={editStepIndex !== null} onOpenChange={(o) => { if (!o) setEditStepIndex(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit review comment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="edit-step-comment">Comment</Label>
+            <Textarea
+              id="edit-step-comment"
+              value={editStepComment}
+              onChange={(e) => setEditStepComment(e.target.value)}
+              rows={3}
+              placeholder="Update this step's review comment…"
+            />
+            <p className="text-xs text-muted-foreground">
+              The change is recorded (edited by / at) on the approval step.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditStepIndex(null)}>Cancel</Button>
+            <Button disabled={updateStepComment.isPending} onClick={handleSaveStepComment}>
+              {updateStepComment.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>
