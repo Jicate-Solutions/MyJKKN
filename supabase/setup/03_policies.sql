@@ -7767,10 +7767,27 @@ FOR SELECT USING (
   AND staff_is_visiting_in_accessible_institution(staff.id)
 );
 
--- Visiting teachers can read the academic structure of institutions they teach in
+-- Visiting teachers can read the academic structure of institutions they teach in.
+-- courses is large (~3790 rows); the per-row staff_teaches_in_institution(institution_id)
+-- caused a full-scan statement timeout (57014). Use a once-evaluated hashed sublink instead.
+-- (sections/semesters/degrees stay on the per-row form — those tables are small.)
 DROP POLICY IF EXISTS "courses_select_visiting_teacher" ON public.courses;
 CREATE POLICY "courses_select_visiting_teacher" ON public.courses
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
+
+-- Permission-based read. Var-free checks are hoisted to one-time evaluation
+-- (scalar sub-selects for booleans, hashed sublink for the institution set) so the
+-- unbounded courses scan no longer re-runs role_has_institution_access() per row (57014).
+DROP POLICY IF EXISTS "courses_select_permission" ON public.courses;
+CREATE POLICY "courses_select_permission" ON public.courses
+FOR SELECT USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('organizations.courses.view'::text))
+    AND institution_id IN (SELECT unnest(public._user_accessible_institutions()))
+  )
+);
 
 DROP POLICY IF EXISTS "sections_select_visiting_teacher" ON public.sections;
 CREATE POLICY "sections_select_visiting_teacher" ON public.sections

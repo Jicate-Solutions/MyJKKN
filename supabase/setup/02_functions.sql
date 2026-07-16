@@ -21458,6 +21458,13 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 --   SECURITY DEFINER. True when the given staff teaches in an institution the
 --   current user can access (role_has_institution_access). Powers the
 --   staff_select_visiting_teacher policy.
+-- staff_teaching_institution_ids() RETURNS uuid[]  (migration
+--   optimize_courses_select_rls_statement_timeout, 2026-07-16)
+--   STABLE SECURITY DEFINER, parameterless SET form of staff_teaches_in_institution:
+--   the DISTINCT set of institution_ids the CURRENT USER teaches in. Used by
+--   courses_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is
+--   evaluated ONCE (hashed subplan) instead of a per-row function call — the
+--   per-row form full-scanned courses and hit the 8s statement_timeout (57014).
 -- fn_attendance_roster (UPDATED 20260706): institution gate is now
 --   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
 --   permission — visiting staff can load the roster where they teach.
