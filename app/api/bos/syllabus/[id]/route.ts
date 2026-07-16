@@ -177,12 +177,15 @@ export async function PUT(
       return NextResponse.json({ error: institutionDeny }, { status: 403 });
     }
 
-    // Step 4b: Creator / chairman / super-admin gate (spec: only the author or
-    // the board chairman can edit a published syllabus â€” members are view-only).
+    // Step 4b: Creator / chairman / board-member / super-admin gate. Edit is the
+    // authoring tier, so `allowBoardMembers` lets any ACTIVE member of the
+    // syllabus's board edit (matching the widened UI in row-actions.tsx). Delete
+    // below intentionally omits the flag → creator/chairman/super-admin only.
     const editDeny = guardSyllabusEdit(
       scope,
       { board_id: existingSyllabus.board_id, created_by: existingSyllabus.created_by },
       user.id,
+      { allowBoardMembers: true },
     );
     if (editDeny) return NextResponse.json({ error: editDeny }, { status: 403 });
 

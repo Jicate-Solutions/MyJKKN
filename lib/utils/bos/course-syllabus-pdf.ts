@@ -483,6 +483,53 @@ const BLOOMS_DEFAULT: Record<string, string> = {
 	K6: 'Create',
 }
 
+// ── Arts-&-Science (CAS) paragraph builder for a unit's content ───────────────
+// Collapses one unit's chapters into { heading, body } for the flowing-paragraph
+// layout. Reconciles the two shapes the importer produces:
+//   A) unit_title set + several chapters, each a bare topic (no subtopics)
+//   B) unit_title empty + ONE chapter whose title IS the heading + subtopics=topics
+// Topics are joined by " - "; a chapter's own sub-items join by ", ". Stray
+// trailing separators ("-", ",", ";") baked into imported text are stripped.
+function cleanUnitItem(s: string | undefined | null): string {
+	return sanitize(s || '').trim().replace(/[\s\-–—,;:]+$/, '').trim()
+}
+
+function buildParagraphUnit(unit: BosUnit): { heading: string; body: string } {
+	const unitTitle = cleanUnitItem(unit.unit_title)
+	const chaps = (unit.chapters ?? [])
+		.map(ch => ({
+			title: cleanUnitItem(ch.title),
+			subs: (ch.subtopics ?? []).map(s => cleanUnitItem(s.title)).filter(Boolean),
+		}))
+		.filter(c => c.title || c.subs.length > 0)
+
+	// One topic-string per chapter: a bare title, or "title sub, sub" when the
+	// chapter carries its own sub-items (sections join with ", ").
+	const chapterToTopic = (c: { title: string; subs: string[] }): string =>
+		c.subs.length > 0
+			? (c.title ? `${c.title} ${c.subs.join(', ')}` : c.subs.join(', '))
+			: c.title
+
+	let heading = ''
+	let topics: string[] = []
+
+	if (unitTitle) {
+		heading = unitTitle
+		topics = chaps.map(chapterToTopic).filter(Boolean)
+	} else if (chaps.length === 1 && chaps[0].subs.length > 0) {
+		// Shape B: the lone chapter title is the unit heading; its subs are the topics.
+		heading = chaps[0].title
+		topics = chaps[0].subs
+	} else {
+		// No unit_title and not the single-chapter shape — flatten chapter titles.
+		topics = chaps.map(chapterToTopic).filter(Boolean)
+	}
+
+	// Join topics, then normalise to exactly one trailing period.
+	const body = topics.length > 0 ? `${topics.join(' - ').replace(/[.\s]+$/, '')}.` : ''
+	return { heading, body }
+}
+
 // ── PO/PSO key extractor (exported so button components can reuse) ─────────────
 /**
  * Extracts ordered PO/PSO keys from a taxonomy pos/psos field.
@@ -554,6 +601,16 @@ export interface CourseSyllabusPDFData {
 	/** K-code → description map from regulation taxonomy; falls back to Bloom's defaults */
 	k_values?: Record<string, string>
 	units?: BosUnit[]
+	/**
+	 * How to render each unit's `chapters`:
+	 *   - 'stacked'  (default): unit_title as a bold heading, then each chapter on
+	 *     its own line ("Title: subs") — the engineering / Anna-Univ layout.
+	 *   - 'paragraph': the Arts-&-Science (CAS) layout — a single flowing paragraph
+	 *     "**HEADING:** topic - topic - topic." with topics joined by " - " and a
+	 *     chapter's sub-items joined by ", ". Reconciles the two ways units are
+	 *     imported (unit_title+chapters vs. empty unit_title+chapter-as-heading).
+	 */
+	unitLayout?: 'stacked' | 'paragraph'
 	/**
 	 * Numbered list of practical-paper topics — set instead of `units` for
 	 * practical/lab papers. Each topic is a heading (e.g. "MAJOR PRACTICALS")
@@ -826,6 +883,33 @@ export function renderCourseSyllabusPDF(
 		]
 
 		for (const unit of data.units) {
+			// CAS / Arts-&-Science layout: one flowing paragraph per unit —
+			// "**HEADING:** topic - topic - …." — instead of the stacked heading +
+			// per-chapter lines below. Reconciles both importer shapes (see
+			// buildParagraphUnit).
+			if (data.unitLayout === 'paragraph') {
+				const { heading, body } = buildParagraphUnit(unit)
+				const allLines: BosMixedLine[] = []
+				if (heading && body) {
+					allLines.push(...wrapBoldPrefixRest(doc, `${heading}: `, body, contentMaxTextW))
+				} else if (heading) {
+					allLines.push(...wrapBoldPrefixRest(doc, heading, '', contentMaxTextW))
+				} else if (body) {
+					doc.setFont('times', 'normal')
+					doc.setFontSize(FONT_SIZE)
+					const wrapped = doc.splitTextToSize(body, contentMaxTextW) as string[]
+					wrapped.forEach((l, idx) =>
+						allLines.push({ text: l, prefixEnd: 0, justify: idx < wrapped.length - 1 }),
+					)
+				}
+				if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
+				rows.push([
+					{ content: unit.unit_id, styles: { fontStyle: 'bold', halign: 'center', valign: 'top' } },
+					{ content: allLines.map(l => l.text).join('\n'), _bosMixed: { lines: allLines } },
+				])
+				continue
+			}
+
 			const unitTitle = sanitize(unit.unit_title || '').trim()
 
 			const chapterEntries = unit.chapters

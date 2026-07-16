@@ -94,9 +94,12 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
 export function SyllabusPdfDownloadButton({
   syllabus,
   institutionName,
+  isCas = false,
 }: {
   syllabus: BosCourseSyllabus;
   institutionName?: string;
+  /** Arts-&-Science (CAS) institution → render unit content as a flowing paragraph. */
+  isCas?: boolean;
 }) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
@@ -199,6 +202,9 @@ export function SyllabusPdfDownloadButton({
 
       generateCourseSyllabusPDF({
         variant,
+        // CAS (Arts & Science) prints unit content as one flowing paragraph per
+        // unit; engineering/other keep the stacked heading + per-chapter lines.
+        unitLayout: isCas && variant !== 'engineering' ? 'paragraph' : 'stacked',
         ltpc,
         total_periods,
         institution_name: header.institution_name,
@@ -448,9 +454,10 @@ export function SyllabusDocxDownloadButton({
  * Clone the syllabus into a fresh draft. Navigates to the clone page, which
  * opens the full Course Information form pre-filled from this source and lets
  * the user pick a new course code (and target regulation/board) before saving
- * a new v1 row. Gated identically to the Edit/Revise actions — only the board
- * owner / creator / chairman (or super-admin) on the latest, non-archived row
- * may create a clone (the server re-enforces this on insert).
+ * a new v1 row. Gated identically to the Edit/Revise actions — any active
+ * member of the syllabus's board (creator / chairman included, or super-admin)
+ * on the latest, non-archived row may create a clone (the clone route
+ * re-enforces institution write access on insert).
  */
 export function SyllabusCloneButton({ syllabus }: { syllabus: BosCourseSyllabus }) {
   const router = useRouter();
@@ -465,6 +472,7 @@ export function SyllabusCloneButton({ syllabus }: { syllabus: BosCourseSyllabus 
       boardScope,
       { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
       profile?.id ?? null,
+      { allowBoardMembers: true },
     );
 
   if (!canClone) return null;
@@ -518,19 +526,22 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
   const syllabus = row.original as BosCourseSyllabus;
   const deleteBosSyllabus = useDeleteBosSyllabus();
 
-  // Why: BoS write-action UI must be gated on board ownership (creator /
-  // chairman / super-admin) only — NOT additionally on the flat
-  // `academic.bos-syllabus.edit` role-permission key. Custom-role grants drift
-  // out of sync with composition membership, which previously caused syllabus
-  // creators to lose the Edit button. The server still enforces the same
-  // creator/chairman rule via guardSyllabusEdit, so this is safe.
-  const boardOwnership = canEditSyllabus(
-    boardScope,
-    { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
-    profile?.id ?? null,
-  );
-  const canEdit = boardOwnership;
-  const canDelete = boardOwnership;
+  // Why: BoS write-action UI is gated on board relationship, NOT on the flat
+  // `academic.bos-syllabus.edit` role-permission key (custom-role grants drift
+  // out of sync with composition membership). Two tiers:
+  //   • Edit / Create Revision — any ACTIVE member of the syllabus's board
+  //     (allowBoardMembers), matching guardSyllabusEdit({ allowBoardMembers })
+  //     on the PUT route.
+  //   • Delete — creator / chairman / super-admin only (destructive; the DELETE
+  //     route keeps the stricter guard + RLS).
+  const syllabusRef = {
+    board_id: syllabus.board_id ?? null,
+    created_by: syllabus.created_by ?? null,
+  };
+  const canEdit = canEditSyllabus(boardScope, syllabusRef, profile?.id ?? null, {
+    allowBoardMembers: true,
+  });
+  const canDelete = canEditSyllabus(boardScope, syllabusRef, profile?.id ?? null);
 
   const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
