@@ -126,7 +126,12 @@ export async function getNotificationCounts(
  * metadata.event at all, plus ig_ownership_flipped (a genuine one-off).
  */
 const EVENT_ENTITY_KEYS: Record<string, string> = {
-  ig_silence_alert: 'ig_user_id'
+  ig_silence_alert: 'ig_user_id',
+  // The runner-down alert is ONE incident re-fired hourly during an outage,
+  // not N distinct entities. Its entity is the alert HOUR (metadata.alert_hour,
+  // written by ai-tasks-sweep), so distinct_entities == "number of times we
+  // alerted" — the inbox renders that as "alerted N times", never "N runners".
+  ai_runner_down: 'alert_hour'
 };
 
 /** Rows read per page while tallying one event. Kept well under PostgREST's

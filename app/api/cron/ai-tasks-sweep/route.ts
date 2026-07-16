@@ -146,7 +146,12 @@ async function runnerDownHealthCheck(
 
   // 4) Alert — deduped to at most once per UTC hour per outage.
   const nowDate = new Date(now);
-  const idempotencyKey = `maxlane-runner-down:${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}`;
+  // UTC hour-stamp — this outage's dedup granularity (one alert per hour). Reused
+  // verbatim as the rollup's `alert_hour` entity so the inbox can fold hourly
+  // repeats into one line and count them ("alerted N times") from the SAME value
+  // that dedupes them. Extracted to a var so the two can never drift.
+  const alertHour = `${nowDate.toISOString().slice(0, 10)}:${nowDate.getUTCHours()}`;
+  const idempotencyKey = `maxlane-runner-down:${alertHour}`;
 
   const heartbeatAgeLabel = Number.isFinite(heartbeatAgeMs)
     ? `${Math.round(heartbeatAgeMs / 60000)} min`
@@ -172,6 +177,14 @@ async function runnerDownHealthCheck(
     idempotencyKey,
     url: '/admin/ai-routines',
     source: 'ai-tasks-sweep:runner-down',
+    // Roll hourly repeats of ONE outage into a single inbox line. The inbox
+    // groups by metadata.event; `alert_hour` is the distinct entity it counts,
+    // so "alerted N times" == N distinct alert hours. Registered in
+    // notification-service.ts EVENT_ENTITY_KEYS['ai_runner_down'] = 'alert_hour'.
+    metadata: {
+      event: 'ai_runner_down',
+      alert_hour: alertHour,
+    },
   });
 
   if (fanout.skipped === 'idempotent') {

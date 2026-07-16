@@ -989,23 +989,33 @@ function collapseDuplicates(items: any[]): any[] {
 /** metadata field identifying the entity an event is about. Consulted only when
  *  the API does not supply `entity_key`. */
 const FALLBACK_ENTITY_KEYS: Record<string, string> = {
-  ig_silence_alert: 'ig_user_id'
+  ig_silence_alert: 'ig_user_id',
+  // One outage re-fired hourly. The distinct entity is the alert hour, so the
+  // count is "how many times we alerted", not "how many runners are down".
+  ai_runner_down: 'alert_hour'
 };
 
 /** Headline when the distinct-entity count IS known. */
 const ROLLUP_TITLE: Record<string, (n: number) => string> = {
   ig_silence_alert: (n) =>
-    `${n} ${n === 1 ? 'department is' : 'departments are'} silent`
+    `${n} ${n === 1 ? 'department is' : 'departments are'} silent`,
+  // Count is alert-hours, so phrase it as repetition of ONE incident — never
+  // "N runners are down" (there is only one runner).
+  ai_runner_down: (n) =>
+    `AI runner appears down — alerted ${n} time${n === 1 ? '' : 's'}`
 };
 
 /** Headline when it is NOT known — same sentence, no fabricated count. */
 const ROLLUP_TITLE_UNCOUNTED: Record<string, string> = {
-  ig_silence_alert: 'Instagram accounts are silent'
+  ig_silence_alert: 'Instagram accounts are silent',
+  ai_runner_down: 'AI runner appears down'
 };
 
 /** Plural noun for the entities inside a rollup. */
 const ROLLUP_ENTITY_NOUN: Record<string, string> = {
-  ig_silence_alert: 'departments'
+  ig_silence_alert: 'departments',
+  // "10 alerts" / "Tap to see the alerts" — each row is one hourly check.
+  ai_runner_down: 'alerts'
 };
 
 function rollupTitle(
