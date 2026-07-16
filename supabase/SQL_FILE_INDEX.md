@@ -1998,3 +1998,11 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Permission: `learners.proof.view` granted to the `student` role_key (sidebar gate).
 - APPLIED LIVE 2026-07-15 after a 20/20-probe BEGIN…aborted-txn dry-run on prod (BHARATH A render + IDOR + anon + revoke + dial-off + dispute-block + grants matrix). Spec: `specs/verified-learner-transcript-spec-2026-07-14.md`.
 - Location: `supabase/migrations/20260715070000_verified_skills_record.sql`.
+
+### 2026-07-16 — External AI door (₹0 Max lane for outside apps)
+- 2 columns: `ai_jobs.app_id` (text, null = internal job, partial index) + `ai_job_types.external_allowed` (boolean NOT NULL DEFAULT false — the external "set menu" flag; only 3 bug.* recipes carry it).
+- 2 fns: `fn_ai_enqueue_external(text,jsonb,text,text)` (SECDEF; only enabled+external_allowed recipes; wraps fn_ai_enqueue_system then stamps app_id + priority 500 in the same txn — MyJKKN's 100s always claim first; passes dedupe/in_flight through) + `fn_ai_external_result(uuid,text)` (SECDEF STABLE; returns NULL unless job_id AND app_id match — cross-app reads indistinguishable from nonexistent). Both: REVOKE anon+PUBLIC, GRANT service_role ONLY (server-side b2a route is the sole caller).
+- 3 `ai_job_types` recipes seeded: `bug.summarize`, `bug.suggest_fix`, `bug.categorize` (lane max, max_inflight 2, ON CONFLICT DO UPDATE so this seed wins).
+- 1 pg_cron job: `ai-external-jobs-retention` (daily 03:38) purges external rows (app_id IS NOT NULL) older than 90 days — Director-confirmed retention policy 2026-07-16.
+- Columns+fns+recipes APPLIED LIVE 2026-07-16 after 7-assertion BEGIN…ROLLBACK validation on prod (unknown-task refusal, internal-task-leak refusal, null-app_id refusal, priority-500 stamp, cross-app result isolation, anon lockout, dedupe). Consumer: `app/api/b2a/ai/run` (module `ai`).
+- Location: `supabase/migrations/20260716064500_ai_external_door.sql`.
