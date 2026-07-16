@@ -299,6 +299,60 @@ export class ProcurementPurchaseOrderService {
     }
   }
 
+  /** Corrects a line item's unit_price on a Draft PO; recomputes line_total and PO totals. */
+  static async updateItemPrice(
+    poId: string,
+    itemId: string,
+    unitPrice: number
+  ): Promise<ProcurementPurchaseOrderItem> {
+    try {
+      const { data: po, error: poErr } = await this.supabase
+        .from('procurement_purchase_orders')
+        .select('status, tax_amount')
+        .eq('id', poId)
+        .single();
+      if (poErr) throw poErr;
+      if (po.status !== 'draft') throw new Error('Only Draft purchase orders can be edited.');
+
+      const { data: item, error: itemErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .select('ordered_quantity')
+        .eq('id', itemId)
+        .single();
+      if (itemErr) throw itemErr;
+
+      const lineTotal = Number(item.ordered_quantity) * unitPrice;
+      const { data: updated, error: updErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .update({ unit_price: unitPrice, line_total: lineTotal })
+        .eq('id', itemId)
+        .select()
+        .single();
+      if (updErr) throw updErr;
+
+      const { data: allItems, error: allErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .select('line_total')
+        .eq('po_id', poId);
+      if (allErr) throw allErr;
+
+      const subtotal = (allItems || []).reduce((s: number, l: any) => s + Number(l.line_total), 0);
+      await this.supabase
+        .from('procurement_purchase_orders')
+        .update({
+          subtotal,
+          total_amount: subtotal + Number(po.tax_amount || 0),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', poId);
+
+      return updated as ProcurementPurchaseOrderItem;
+    } catch (error) {
+      console.error('[ProcurementPurchaseOrderService] updateItemPrice:', error);
+      throw error;
+    }
+  }
+
   private static async transition(
     id: string,
     fromStatus: string,

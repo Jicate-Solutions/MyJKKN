@@ -41,10 +41,18 @@ export function buildComparisonRows(
             supplier_name: q.supplier?.name ?? q.supplier_id,
             unit_price: qi.unit_price,
             delivery_time_days: qi.delivery_time_days,
+            offered_spec: qi.offered_spec,
             awarded: qi.awarded,
           }))
       )
-      .sort((a, b) => a.unit_price - b.unit_price);
+      // Not-quoted (unit_price null) sorts last — plain `a - b` would coerce null to 0
+      // and put "didn't quote this" ahead of every real price.
+      .sort((a, b) => {
+        if (a.unit_price === null) return b.unit_price === null ? 0 : 1;
+        if (b.unit_price === null) return -1;
+        return a.unit_price - b.unit_price;
+      });
+    const lowestQuote = quotes.find((q) => q.unit_price !== null);
     return {
       rfq_item_id: ri.id,
       item_name: ri.item_name,
@@ -52,7 +60,7 @@ export function buildComparisonRows(
       quantity: ri.quantity,
       unit_label: ri.unit_label,
       quotes,
-      lowest_price: quotes.length ? quotes[0].unit_price : null,
+      lowest_price: lowestQuote ? lowestQuote.unit_price : null,
     };
   });
 }
@@ -138,6 +146,9 @@ export class ProcurementQuotationService {
   ): Promise<ProcurementQuotation> {
     try {
       if (!dto.items?.length) throw new Error('A quotation must price at least one item.');
+      if (!dto.items.some((i) => i.unit_price !== null)) {
+        throw new Error('At least one item must have a quoted price — mark the rest "Not quoted".');
+      }
 
       const total = dto.items.reduce(
         (sum, i) => sum + Number(i.unit_price || 0) * Number(i.quantity ?? 0),
@@ -173,6 +184,7 @@ export class ProcurementQuotationService {
         quantity: i.quantity ?? null,
         delivery_time_days: i.delivery_time_days ?? null,
         remarks: i.remarks ?? null,
+        offered_spec: i.offered_spec ?? null,
       }));
       const { error: itemsErr } = await this.supabase
         .from('procurement_quotation_items')
@@ -228,6 +240,16 @@ export class ProcurementQuotationService {
    */
   static async awardLine(rfqItemId: string, quotationItemId: string): Promise<void> {
     try {
+      const { data: target, error: fetchErr } = await this.supabase
+        .from('procurement_quotation_items')
+        .select('unit_price')
+        .eq('id', quotationItemId)
+        .single();
+      if (fetchErr) throw fetchErr;
+      if (target?.unit_price === null) {
+        throw new Error('This vendor did not quote a price for this item — it cannot be awarded.');
+      }
+
       await this.supabase
         .from('procurement_quotation_items')
         .update({ awarded: false })

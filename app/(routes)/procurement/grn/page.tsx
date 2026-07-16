@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -124,7 +125,7 @@ export default function GrnListPage() {
                   {grns.map((grn) => (
                     <TableRow key={grn.id}>
                       <TableCell className="font-medium">{grn.grn_number}</TableCell>
-                      <TableCell>{new Date(grn.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDateDMY(grn.created_at)}</TableCell>
                       <TableCell>{grn.purchase_order?.po_number || '-'}</TableCell>
                       <TableCell>{grn.supplier?.name || '-'}</TableCell>
                       <TableCell>{grn.invoice_number || '-'}</TableCell>

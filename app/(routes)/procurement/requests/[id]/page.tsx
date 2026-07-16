@@ -9,6 +9,7 @@ import {
   usePurchaseRequest,
   useSubmitPurchaseRequest,
   useApprovePurchaseRequest,
+  useApproveWithModifications,
   useRejectPurchaseRequest,
   useCancelPurchaseRequest,
 } from '@/hooks/procurement/use-purchase-requests';
@@ -16,6 +17,7 @@ import { PR_STATUS_CONFIG } from '@/types/procurement';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -33,7 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Check, X } from 'lucide-react';
+import { ArrowLeft, Send, Check, X, Pencil } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 
@@ -47,11 +49,14 @@ export default function PurchaseRequestDetailPage() {
   const { data: pr, isLoading } = usePurchaseRequest(id);
   const submitPR = useSubmitPurchaseRequest();
   const approvePR = useApprovePurchaseRequest();
+  const approveWithMods = useApproveWithModifications();
   const rejectPR = useRejectPurchaseRequest();
   const cancelPR = useCancelPurchaseRequest();
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [editingQty, setEditingQty] = useState(false);
+  const [qtyEdits, setQtyEdits] = useState<Record<string, string>>({});
 
   const canApprove = isSuperAdmin || canAccess('procurement', 'request_approve');
   const isOwner = pr?.requested_by === profile?.id;
@@ -112,24 +117,61 @@ export default function PurchaseRequestDetailPage() {
               Submit for approval
             </Button>
           )}
-          {pr.status === 'submitted' && canApprove && (
+          {editingQty ? (
             <>
               <Button
+                disabled={pr.items.some((it) => !(Number(qtyEdits[it.id]) > 0))}
                 onClick={() =>
-                  run(
-                    () => approvePR.mutateAsync({ id, userId: profile!.id }),
-                    'Request approved'
-                  )
+                  run(async () => {
+                    const itemUpdates = pr.items
+                      .filter((it) => Number(qtyEdits[it.id]) !== Number(it.required_quantity))
+                      .map((it) => ({ itemId: it.id, required_quantity: Number(qtyEdits[it.id]) }));
+                    await approveWithMods.mutateAsync({ id, userId: profile!.id, itemUpdates });
+                    setEditingQty(false);
+                  }, 'Request approved with updated quantities')
                 }
               >
                 <Check className="mr-2 h-4 w-4" />
-                Approve
+                Save &amp; Approve
               </Button>
-              <Button variant="outline" onClick={() => setRejectOpen(true)}>
-                <X className="mr-2 h-4 w-4" />
-                Reject
+              <Button variant="ghost" onClick={() => setEditingQty(false)}>
+                Cancel edit
               </Button>
             </>
+          ) : (
+            pr.status === 'submitted' && canApprove && (
+              <>
+                <Button
+                  onClick={() =>
+                    run(
+                      () => approvePR.mutateAsync({ id, userId: profile!.id }),
+                      'Request approved'
+                    )
+                  }
+                >
+                  <Check className="mr-2 h-4 w-4" />
+                  Approve
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setQtyEdits(
+                      Object.fromEntries(
+                        pr.items.map((it) => [it.id, String(Number(it.required_quantity))])
+                      )
+                    );
+                    setEditingQty(true);
+                  }}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Modify &amp; Approve
+                </Button>
+                <Button variant="outline" onClick={() => setRejectOpen(true)}>
+                  <X className="mr-2 h-4 w-4" />
+                  Reject
+                </Button>
+              </>
+            )
           )}
           {(pr.status === 'draft' || pr.status === 'submitted') && isOwner && (
             <Button
@@ -180,7 +222,37 @@ export default function PurchaseRequestDetailPage() {
                   <TableRow key={it.id}>
                     <TableCell className="font-medium">{it.item_name}</TableCell>
                     <TableCell>{it.item_spec || '—'}</TableCell>
-                    <TableCell className="text-right">{it.required_quantity}</TableCell>
+                    <TableCell className="text-right">
+                      {editingQty ? (
+                        <>
+                          <Input
+                            type="number"
+                            min={0.01}
+                            step="any"
+                            value={qtyEdits[it.id] ?? ''}
+                            onChange={(e) =>
+                              setQtyEdits((p) => ({ ...p, [it.id]: e.target.value }))
+                            }
+                            className="h-8 w-24 ml-auto text-right"
+                          />
+                          {Number(qtyEdits[it.id]) !== Number(it.required_quantity) && (
+                            <span className="block text-[11px] text-muted-foreground">
+                              was {it.required_quantity}
+                            </span>
+                          )}
+                        </>
+                      ) : it.original_quantity != null &&
+                        it.original_quantity !== it.required_quantity ? (
+                        <>
+                          {it.required_quantity}
+                          <span className="block text-[11px] text-muted-foreground">
+                            was {it.original_quantity}
+                          </span>
+                        </>
+                      ) : (
+                        it.required_quantity
+                      )}
+                    </TableCell>
                     <TableCell>{it.unit_label || '—'}</TableCell>
                     {pr.request_type === 'new_item' && (
                       <TableCell className="max-w-[240px] truncate">{it.reason || '—'}</TableCell>

@@ -106,6 +106,7 @@ export function useIssueImsIndentItem() {
     mutationFn: ({ itemId, quantity }: { itemId: string; quantity: number }) =>
       ImsIndentService.issueItem(itemId, quantity),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
       queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
       queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
     },

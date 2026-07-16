@@ -33,7 +33,20 @@ export class ProcurementRfqService {
           { count: 'exact' }
         );
 
-      if (filters.search) query = query.ilike('rfq_number', `%${filters.search}%`);
+      if (filters.search) {
+        // Match either the RFQ's own number or the source purchase request's
+        // number, since users often search by the PR they're looking to convert.
+        const { data: matchingPRs } = await this.supabase
+          .from('procurement_purchase_requests')
+          .select('id')
+          .ilike('request_number', `%${filters.search}%`);
+        const prIds = (matchingPRs || []).map((r: { id: string }) => r.id);
+
+        const orClause = prIds.length
+          ? `rfq_number.ilike.%${filters.search}%,source_request_id.in.(${prIds.join(',')})`
+          : `rfq_number.ilike.%${filters.search}%`;
+        query = query.or(orClause);
+      }
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.store_id) query = query.eq('store_id', filters.store_id);
       else if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);

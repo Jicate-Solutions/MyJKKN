@@ -15,6 +15,7 @@ import type {
   PoItemColumnDef,
   PoFooterColumnDef,
 } from '@/types/procurement';
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 export interface ResolvedField {
   key: string;
@@ -84,7 +85,7 @@ function formatValue(raw: unknown, format?: PoFieldFormat): string {
   if (raw === null || raw === undefined || raw === '') return format ? '-' : '';
   switch (format) {
     case 'date':
-      return new Date(String(raw)).toLocaleDateString();
+      return formatDateDMY(String(raw));
     case 'currency':
       return Number(raw).toLocaleString();
     case 'percent':

@@ -12,6 +12,7 @@ import {
 } from '@/hooks/procurement/use-rfqs';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import { RFQ_STATUS_CONFIG, type RfqStatus, type RfqFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -106,7 +107,7 @@ export default function RfqsPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by RFQ number..."
+                  placeholder="Search by RFQ or PR number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -162,7 +163,7 @@ export default function RfqsPage() {
                   {rfqs.map((rfq) => (
                     <TableRow key={rfq.id}>
                       <TableCell className="font-medium">{rfq.rfq_number}</TableCell>
-                      <TableCell>{new Date(rfq.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDateDMY(rfq.created_at)}</TableCell>
                       <TableCell>{rfq.source_request?.request_number || '-'}</TableCell>
                       <TableCell>{rfq.item_count ?? '-'}</TableCell>
                       <TableCell>{rfq.vendor_count ?? '-'}</TableCell>
