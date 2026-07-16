@@ -37,15 +37,11 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const statuses = url.searchParams.getAll('status') as CandidateStatus[];
     const pendingForMe = url.searchParams.get('pending_for_me') === 'true';
-    const approverId = url.searchParams.get('approver_id') ?? undefined;
-
-    // Validate: pending_for_me requires approver_id (clean 400 before hitting service layer).
-    if (pendingForMe && !approverId) {
-      return NextResponse.json(
-        { error: 'approver_id is required when pending_for_me=true' },
-        { status: 400 }
-      );
-    }
+    // SECURITY: fn_list_my_pending_recruitment is SECURITY DEFINER (bypasses RLS),
+    // so whose queue we read must come from the authenticated session — NOT a
+    // client-supplied id, which would let any user read another approver's
+    // pending candidates (IDOR). The query param is ignored on purpose.
+    const approverId = pendingForMe ? user.id : undefined;
 
     const result = await RecruitmentService.listCandidates(supabase, {
       hr_organization_id: url.searchParams.get('hr_organization_id') ?? undefined,
