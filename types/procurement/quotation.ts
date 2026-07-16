@@ -32,8 +32,12 @@ export interface ProcurementQuotationItem {
   quantity: number | null;
   delivery_time_days: number | null;
   remarks: string | null;
-  /** What this vendor is actually offering (brand, concentration, pack size) — distinct from the RFQ's own item_spec (what was requested). */
-  offered_spec: string | null;
+  /** Structured "what this vendor is actually offering" — distinct from the RFQ's own item_spec (what was requested). */
+  manufacturer: string | null;
+  quality_grade: string | null;
+  /** Purity/strength offered — relevant for chemical items (see ProcurementRfqItem.is_chemical). */
+  concentration: string | null;
+  other_specs: string | null;
   awarded: boolean;
   created_at: string;
 }
@@ -49,7 +53,10 @@ export interface CreateQuotationItemDto {
   quantity?: number | null;
   delivery_time_days?: number | null;
   remarks?: string | null;
-  offered_spec?: string | null;
+  manufacturer?: string | null;
+  quality_grade?: string | null;
+  concentration?: string | null;
+  other_specs?: string | null;
 }
 
 export interface CreateQuotationDto {
@@ -75,8 +82,13 @@ export interface ComparisonQuote {
   supplier_name: string;
   /** null means this vendor did not quote this item — excluded from the lowest-price calc, never awardable. */
   unit_price: number | null;
+  /** Quantity THIS vendor is offering — may differ from the RFQ item's requested quantity. */
+  quantity: number | null;
   delivery_time_days: number | null;
-  offered_spec: string | null;
+  manufacturer: string | null;
+  quality_grade: string | null;
+  concentration: string | null;
+  other_specs: string | null;
   awarded: boolean;
 }
 
@@ -87,6 +99,8 @@ export interface ComparisonRow {
   item_spec: string | null;
   quantity: number;
   unit_label: string | null;
+  /** Resolved live from the catalog (see ProcurementRfqItem.is_chemical) — gates the Concentration column. */
+  is_chemical: boolean;
   quotes: ComparisonQuote[];
   lowest_price: number | null;
 }

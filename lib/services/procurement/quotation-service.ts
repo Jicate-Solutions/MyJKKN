@@ -26,6 +26,7 @@ export function buildComparisonRows(
     item_spec: string | null;
     quantity: number;
     unit_label: string | null;
+    is_chemical?: boolean;
   }>,
   quotations: QuotationWithItems[]
 ): ComparisonRow[] {
@@ -40,8 +41,12 @@ export function buildComparisonRows(
             supplier_id: q.supplier_id,
             supplier_name: q.supplier?.name ?? q.supplier_id,
             unit_price: qi.unit_price,
+            quantity: qi.quantity,
             delivery_time_days: qi.delivery_time_days,
-            offered_spec: qi.offered_spec,
+            manufacturer: qi.manufacturer,
+            quality_grade: qi.quality_grade,
+            concentration: qi.concentration,
+            other_specs: qi.other_specs,
             awarded: qi.awarded,
           }))
       )
@@ -59,6 +64,7 @@ export function buildComparisonRows(
       item_spec: ri.item_spec,
       quantity: ri.quantity,
       unit_label: ri.unit_label,
+      is_chemical: ri.is_chemical ?? false,
       quotes,
       lowest_price: lowestQuote ? lowestQuote.unit_price : null,
     };
@@ -184,7 +190,10 @@ export class ProcurementQuotationService {
         quantity: i.quantity ?? null,
         delivery_time_days: i.delivery_time_days ?? null,
         remarks: i.remarks ?? null,
-        offered_spec: i.offered_spec ?? null,
+        manufacturer: i.manufacturer ?? null,
+        quality_grade: i.quality_grade ?? null,
+        concentration: i.concentration ?? null,
+        other_specs: i.other_specs ?? null,
       }));
       const { error: itemsErr } = await this.supabase
         .from('procurement_quotation_items')

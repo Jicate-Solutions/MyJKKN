@@ -79,6 +79,9 @@ export default function PurchaseRequestDetailPage() {
   }
 
   const statusConfig = PR_STATUS_CONFIG[pr.status];
+  // Show the Reason column whenever any line is a new item, regardless of the
+  // header's request_type summary (a 'mixed' request still has reasons to show).
+  const hasNewItemLine = pr.items.some((it) => !it.domain_item_id);
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
       await fn();
@@ -214,7 +217,7 @@ export default function PurchaseRequestDetailPage() {
                   <TableHead>Specification</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead>Unit</TableHead>
-                  {pr.request_type === 'new_item' && <TableHead>Reason</TableHead>}
+                  {hasNewItemLine && <TableHead>Reason</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -254,8 +257,10 @@ export default function PurchaseRequestDetailPage() {
                       )}
                     </TableCell>
                     <TableCell>{it.unit_label || '—'}</TableCell>
-                    {pr.request_type === 'new_item' && (
-                      <TableCell className="max-w-[240px] truncate">{it.reason || '—'}</TableCell>
+                    {hasNewItemLine && (
+                      <TableCell className="max-w-[240px] truncate">
+                        {it.domain_item_id ? '—' : it.reason || '—'}
+                      </TableCell>
                     )}
                   </TableRow>
                 ))}

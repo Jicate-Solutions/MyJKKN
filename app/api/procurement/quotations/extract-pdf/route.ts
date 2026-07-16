@@ -10,9 +10,10 @@ const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 /**
  * POST /api/procurement/quotations/extract-pdf  (multipart/form-data)
  * Fields: file (PDF), items (JSON array of { id, item_name })
- * Returns { prices, lines, matched, unmatched } — vendor unit prices read from the
- * PDF by Claude and matched to the RFQ's items. The client fills these into the
- * (editable) price fields for human review before saving — never auto-committed.
+ * Returns { prices, specs, lines, matched, unmatched } — vendor unit prices and
+ * structured specs (manufacturer/quality/concentration/other) read from the PDF by
+ * Claude and matched to the RFQ's items. The client fills these into the (editable)
+ * form fields for human review before saving — never auto-committed.
  */
 export async function POST(req: NextRequest) {
   const user = await requireStaff();

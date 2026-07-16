@@ -85,7 +85,6 @@ export function SendToProcurementDialog({
           institution_id: institutionId,
           store_id: storeId,
           domain: 'ims',
-          request_type: 'restock',
           notes: notes.trim() || null,
           items,
         },
