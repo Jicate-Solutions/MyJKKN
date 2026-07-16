@@ -9,10 +9,7 @@ import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker'
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
-import type {
-  PurchaseRequestType,
-  CreatePurchaseRequestItemDto,
-} from '@/types/procurement';
+import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +32,9 @@ import {
 import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
-type ItemRow = CreatePurchaseRequestItemDto;
+// is_new is local UI state only — never sent to the server. domain_item_id
+// (null = new item) is what the service actually derives request_type from.
+type ItemRow = CreatePurchaseRequestItemDto & { is_new: boolean };
 
 const emptyRow = (): ItemRow => ({
   domain_item_id: null,
@@ -48,6 +47,7 @@ const emptyRow = (): ItemRow => ({
   current_stock: null,
   reorder_level: null,
   estimated_cost: undefined,
+  is_new: false,
 });
 
 export default function NewPurchaseRequestPage() {
@@ -61,7 +61,6 @@ export default function NewPurchaseRequestPage() {
   const [domain, setDomain] = useState<ProcurementDomain>(
     () => domainOptions[0]?.value ?? 'ims'
   );
-  const [requestType, setRequestType] = useState<PurchaseRequestType>('restock');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -70,8 +69,6 @@ export default function NewPurchaseRequestPage() {
   // switch, which re-scopes the catalog search and the institution the PR is raised for.
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? '';
-
-  const isNewItem = requestType === 'new_item';
 
   // Ambient context handed to the domain adapter's catalog search.
   const ctx: DomainCtx = useMemo(
@@ -99,12 +96,12 @@ export default function NewPurchaseRequestPage() {
       toast.error('Add at least one item.');
       return;
     }
-    if (isNewItem && cleaned.some((i) => !i.reason?.trim())) {
-      toast.error('New-item requests require a reason for every item.');
+    if (cleaned.some((i) => i.is_new && !i.reason?.trim())) {
+      toast.error('Enter a reason for every new item.');
       return;
     }
-    if (!isNewItem && cleaned.some((i) => !i.domain_item_id)) {
-      toast.error('Restock lines must be picked from the inventory catalog. Use "New item" for items not yet in inventory.');
+    if (cleaned.some((i) => !i.is_new && !i.domain_item_id)) {
+      toast.error('Existing-item lines must be picked from the inventory catalog. Use "New item" for items not yet in inventory.');
       return;
     }
 
@@ -118,6 +115,16 @@ export default function NewPurchaseRequestPage() {
     [items]
   );
 
+  // Display-only summary of the request's composition — mirrors the derivation the
+  // server does from domain_item_id (see purchase-request-service.createPurchaseRequest).
+  const requestTypeSummary = useMemo(() => {
+    const hasRestock = cleanedItems.some((i) => !i.is_new);
+    const hasNewItem = cleanedItems.some((i) => i.is_new);
+    if (hasRestock && hasNewItem) return 'Mixed';
+    if (hasNewItem) return 'New item';
+    return 'Restock';
+  }, [cleanedItems]);
+
   const handleConfirmCreate = async () => {
     if (!profile?.id || !effectiveInstitution) {
       toast.error('No institution selected — pick one or contact an administrator.');
@@ -128,9 +135,8 @@ export default function NewPurchaseRequestPage() {
         data: {
           institution_id: effectiveInstitution,
           domain,
-          request_type: requestType,
           notes: notes || null,
-          items: cleanedItems.map((i) => ({
+          items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
             estimated_cost: i.estimated_cost != null ? Number(i.estimated_cost) : null,
@@ -155,7 +161,9 @@ export default function NewPurchaseRequestPage() {
           </Button>
           <div>
             <h2 className="text-2xl font-bold tracking-tight">New Purchase Request</h2>
-            <p className="text-muted-foreground">Restock existing items or request a new item.</p>
+            <p className="text-muted-foreground">
+              Mix restock and new-item lines freely — each item picks its own type.
+            </p>
           </div>
         </div>
 
@@ -173,60 +181,30 @@ export default function NewPurchaseRequestPage() {
               }}
               hint="Which institution’s inventory this request is raised against."
             />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Module (inventory)</Label>
-                <Select
-                  value={domain}
-                  onValueChange={(v) => {
-                    setDomain(v as ProcurementDomain);
-                    // Different module = different catalog; clear picked items.
-                    setItems([emptyRow()]);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {domainOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Which module’s inventory this request draws from.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Request type</Label>
-                <Select
-                  value={requestType}
-                  onValueChange={(v) => {
-                    setRequestType(v as PurchaseRequestType);
-                    // Switching types invalidates catalog linkage — reset name + link so
-                    // a restock pick can't leak into a new-item request (or vice versa).
-                    setItems((rows) =>
-                      rows.map((r) => ({
-                        ...r,
-                        item_name: '',
-                        domain_item_id: null,
-                        current_stock: null,
-                        reorder_level: null,
-                      }))
-                    );
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="restock">Restock (existing item)</SelectItem>
-                    <SelectItem value="new_item">New item</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2 max-w-sm">
+              <Label>Module (inventory)</Label>
+              <Select
+                value={domain}
+                onValueChange={(v) => {
+                  setDomain(v as ProcurementDomain);
+                  // Different module = different catalog; clear picked items.
+                  setItems([emptyRow()]);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {domainOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Which module’s inventory this request draws from.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
@@ -250,9 +228,36 @@ export default function NewPurchaseRequestPage() {
           <CardContent className="space-y-4">
             {items.map((item, idx) => (
               <div key={idx} className="grid gap-3 sm:grid-cols-12 items-start border-b pb-4 last:border-0">
-                <div className="sm:col-span-4 space-y-1">
+                <div className="sm:col-span-2 space-y-1">
+                  <Label className="text-xs">Type</Label>
+                  <Select
+                    value={item.is_new ? 'new_item' : 'restock'}
+                    onValueChange={(v) => {
+                      const isNew = v === 'new_item';
+                      // Switching a row's type invalidates its catalog linkage — reset
+                      // name + link so a restock pick can't leak into a new-item line
+                      // (or vice versa).
+                      updateItem(idx, {
+                        is_new: isNew,
+                        item_name: '',
+                        domain_item_id: null,
+                        current_stock: null,
+                        reorder_level: null,
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="restock">Existing item</SelectItem>
+                      <SelectItem value="new_item">New item</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2 space-y-1">
                   <Label className="text-xs">Item name</Label>
-                  {isNewItem ? (
+                  {item.is_new ? (
                     <Input
                       value={item.item_name}
                       onChange={(e) => updateItem(idx, { item_name: e.target.value })}
@@ -323,7 +328,7 @@ export default function NewPurchaseRequestPage() {
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
-                {isNewItem && (
+                {item.is_new && (
                   <div className="sm:col-span-12 space-y-1">
                     <Label className="text-xs">
                       Reason for new item <span className="text-destructive">*</span>
@@ -359,7 +364,7 @@ export default function NewPurchaseRequestPage() {
             <div className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <span className="text-muted-foreground">Request type: </span>
-                {requestType === 'new_item' ? 'New item' : 'Restock (existing item)'}
+                {requestTypeSummary}
               </div>
               <div>
                 <span className="text-muted-foreground">Items: </span>
@@ -395,9 +400,7 @@ export default function NewPurchaseRequestPage() {
                       </td>
                       <td className="px-3 py-2">{item.required_quantity}</td>
                       <td className="px-3 py-2">{item.unit_label?.trim() || '—'}</td>
-                      <td className="px-3 py-2">
-                        {requestType === 'new_item' ? 'new_item' : 'restock'}
-                      </td>
+                      <td className="px-3 py-2">{item.is_new ? 'New item' : 'Existing item'}</td>
                     </tr>
                   ))}
                 </tbody>

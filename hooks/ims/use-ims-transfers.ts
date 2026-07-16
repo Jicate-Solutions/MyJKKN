@@ -93,6 +93,10 @@ export function useDispatchImsShipment() {
       queryClient.invalidateQueries({ queryKey: ['ims-shipments-for-request'] });
       queryClient.invalidateQueries({ queryKey: ['ims-transfers'] });
       queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      // Dispatch flips the underlying request's status ('shipped') via a DB trigger —
+      // the Transfers detail page reads that status through useImsIndent, a separate
+      // query key, so it must be invalidated here too or its header badge goes stale.
+      queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
     },
   });
 }
@@ -120,6 +124,9 @@ export function useConfirmImsShipmentReceipt() {
       queryClient.invalidateQueries({ queryKey: ['ims-shipments-for-request'] });
       queryClient.invalidateQueries({ queryKey: ['ims-transfers'] });
       queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      // Receipt confirmation flips the request's status too ('received'/'received_with_variance') —
+      // same stale-badge risk as dispatch (see useDispatchImsShipment).
+      queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
     },
   });
 }

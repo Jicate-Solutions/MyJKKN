@@ -10,6 +10,7 @@ import type {
   PurchaseRequestWithItems,
   PurchaseRequestFilters,
   CreatePurchaseRequestDto,
+  PurchaseRequestType,
 } from '@/types/procurement';
 
 export class ProcurementPurchaseRequestService {
@@ -99,9 +100,13 @@ export class ProcurementPurchaseRequestService {
   }
 
   /**
-   * Create a PR (header + items) in 'draft'. For new-item requests, every line
-   * MUST carry a reason (PRD step 1 mandatory field) — enforced here because the
-   * rule is conditional on the header's request_type.
+   * Create a PR (header + items) in 'draft'. Each line independently is either a
+   * restock (domain_item_id set) or a new item (domain_item_id null) — a single PR
+   * can freely mix both, e.g. several Chemicals lines where some are catalogued and
+   * some aren't. New-item lines MUST carry a reason (PRD step 1 mandatory field),
+   * checked per line rather than gated by a request-wide type. The header
+   * request_type is a derived summary ('restock' | 'new_item' | 'mixed'), not
+   * something the caller chooses.
    */
   static async createPurchaseRequest(
     data: CreatePurchaseRequestDto,
@@ -111,14 +116,17 @@ export class ProcurementPurchaseRequestService {
       if (!data.items?.length) {
         throw new Error('A purchase request must have at least one item.');
       }
-      if (data.request_type === 'new_item') {
-        const missing = data.items.find((i) => !i.reason?.trim());
-        if (missing) {
-          throw new Error(
-            `New-item requests require a reason for every item (missing on "${missing.item_name}").`
-          );
-        }
+      const missingReason = data.items.find((i) => !i.domain_item_id && !i.reason?.trim());
+      if (missingReason) {
+        throw new Error(
+          `New-item lines require a reason (missing on "${missingReason.item_name}").`
+        );
       }
+
+      const hasRestock = data.items.some((i) => !!i.domain_item_id);
+      const hasNewItem = data.items.some((i) => !i.domain_item_id);
+      const requestType: PurchaseRequestType =
+        hasRestock && hasNewItem ? 'mixed' : hasNewItem ? 'new_item' : 'restock';
 
       const requestNumber = await this.generateRequestNumber(data.institution_id);
 
@@ -129,7 +137,7 @@ export class ProcurementPurchaseRequestService {
           store_id: data.store_id ?? null,
           request_number: requestNumber,
           domain: data.domain ?? 'ims',
-          request_type: data.request_type,
+          request_type: requestType,
           status: 'draft',
           requested_by: userId,
           notes: data.notes ?? null,
