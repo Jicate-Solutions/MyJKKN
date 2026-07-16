@@ -7,6 +7,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { RfqWithDetails } from '@/types/procurement';
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 /**
  * Build and trigger a browser download of the requirement-list PDF for an RFQ.
@@ -31,7 +32,7 @@ export function downloadRequirementListPdf(rfq: RfqWithDetails, orgName = 'JKKN'
     doc.text(`Source Request: ${rfq.source_request.request_number}`, marginX, y);
     y += 5;
   }
-  doc.text(`Date: ${new Date(rfq.created_at).toLocaleDateString()}`, marginX, y);
+  doc.text(`Date: ${formatDateDMY(rfq.created_at)}`, marginX, y);
   y += 4;
   doc.setTextColor(0);
 

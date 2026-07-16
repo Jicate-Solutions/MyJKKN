@@ -196,6 +196,76 @@ export class ProcurementPurchaseRequestService {
     });
   }
 
+  /**
+   * submitted -> approved, with optional quantity corrections. Persists any changed
+   * required_quantity values first (recording original_quantity/quantity_modified_by/at
+   * per item, plus a human-readable diff appended to `notes`), then approves via the
+   * normal guarded transition.
+   */
+  static async approveWithModifications(
+    id: string,
+    userId: string,
+    itemUpdates: { itemId: string; required_quantity: number }[]
+  ): Promise<ProcurementPurchaseRequest> {
+    try {
+      if (itemUpdates.length > 0) {
+        const { data: currentItems, error: itemsErr } = await this.supabase
+          .from('procurement_purchase_request_items')
+          .select('id, item_name, unit_label, required_quantity')
+          .in('id', itemUpdates.map((u) => u.itemId))
+          .eq('request_id', id);
+        if (itemsErr) throw itemsErr;
+
+        const changes: string[] = [];
+        for (const u of itemUpdates) {
+          if (!(u.required_quantity > 0)) throw new Error('Quantity must be greater than 0.');
+          const before = currentItems?.find((i: any) => i.id === u.itemId);
+          const isChanged = !!before && Number(before.required_quantity) !== u.required_quantity;
+          if (isChanged) {
+            changes.push(
+              `${before.item_name} ${before.required_quantity}${before.unit_label || ''} → ${u.required_quantity}${before.unit_label || ''}`
+            );
+          }
+          const update: Record<string, unknown> = { required_quantity: u.required_quantity };
+          if (isChanged) {
+            update.original_quantity = before.required_quantity;
+            update.quantity_modified_by = userId;
+            update.quantity_modified_at = new Date().toISOString();
+          }
+          const { error } = await this.supabase
+            .from('procurement_purchase_request_items')
+            .update(update)
+            .eq('id', u.itemId)
+            .eq('request_id', id);
+          if (error) throw error;
+        }
+
+        if (changes.length > 0) {
+          const { data: pr } = await this.supabase
+            .from('procurement_purchase_requests')
+            .select('notes')
+            .eq('id', id)
+            .single();
+          const note = `Qty modified at approval: ${changes.join('; ')}`;
+          await this.supabase
+            .from('procurement_purchase_requests')
+            .update({ notes: pr?.notes ? `${pr.notes}\n${note}` : note })
+            .eq('id', id);
+        }
+      }
+
+      return this.transition(id, 'submitted', {
+        status: 'approved',
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        rejection_reason: null,
+      });
+    } catch (error) {
+      console.error('[ProcurementPurchaseRequestService] approveWithModifications:', error);
+      throw error;
+    }
+  }
+
   static async cancelPurchaseRequest(id: string): Promise<ProcurementPurchaseRequest> {
     try {
       const { data, error } = await this.supabase

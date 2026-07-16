@@ -46,6 +46,10 @@ export interface ProcurementPurchaseRequestItem {
   current_stock: number | null;
   reorder_level: number | null;
   estimated_cost: number | null;
+  /** Snapshot of required_quantity before an approver's "Modify & Approve" edit — null if never modified. */
+  original_quantity: number | null;
+  quantity_modified_by: string | null;
+  quantity_modified_at: string | null;
   created_at: string;
 }
 

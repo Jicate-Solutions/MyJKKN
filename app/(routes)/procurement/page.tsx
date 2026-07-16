@@ -9,6 +9,7 @@ import { FileText, FileSearch, PackageCheck, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useRfqs } from '@/hooks/procurement/use-rfqs';
 import { RFQ_STATUS_CONFIG } from '@/types/procurement/rfq';
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 // Procurement pipeline stages (PRD): PR -> RFQ -> Quotation -> PO -> GRN.
 // Phase 1 ships Purchase Requests; later stages are previewed as disabled.
@@ -123,7 +124,7 @@ export default function ProcurementHome() {
                     <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
                       {rfq.item_count != null && <span>{rfq.item_count} items</span>}
                       {rfq.vendor_count != null && <span>{rfq.vendor_count} vendors</span>}
-                      <span>{new Date(rfq.created_at).toLocaleDateString()}</span>
+                      <span>{formatDateDMY(rfq.created_at)}</span>
                       <Button
                         variant="ghost"
                         size="sm"

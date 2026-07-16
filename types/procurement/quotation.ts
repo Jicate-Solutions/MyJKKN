@@ -27,10 +27,13 @@ export interface ProcurementQuotationItem {
   id: string;
   quotation_id: string;
   rfq_item_id: string;
-  unit_price: number;
+  /** null means this vendor did not quote this item at all — never a fake/placeholder price. */
+  unit_price: number | null;
   quantity: number | null;
   delivery_time_days: number | null;
   remarks: string | null;
+  /** What this vendor is actually offering (brand, concentration, pack size) — distinct from the RFQ's own item_spec (what was requested). */
+  offered_spec: string | null;
   awarded: boolean;
   created_at: string;
 }
@@ -41,10 +44,12 @@ export interface QuotationWithItems extends ProcurementQuotation {
 
 export interface CreateQuotationItemDto {
   rfq_item_id: string;
-  unit_price: number;
+  /** null means this vendor did not quote this item — do not substitute a placeholder price. */
+  unit_price: number | null;
   quantity?: number | null;
   delivery_time_days?: number | null;
   remarks?: string | null;
+  offered_spec?: string | null;
 }
 
 export interface CreateQuotationDto {
@@ -68,8 +73,10 @@ export interface ComparisonQuote {
   quotation_item_id: string;
   supplier_id: string;
   supplier_name: string;
-  unit_price: number;
+  /** null means this vendor did not quote this item — excluded from the lowest-price calc, never awardable. */
+  unit_price: number | null;
   delivery_time_days: number | null;
+  offered_spec: string | null;
   awarded: boolean;
 }
 

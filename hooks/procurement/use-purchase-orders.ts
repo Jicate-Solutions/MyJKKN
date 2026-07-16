@@ -96,3 +96,15 @@ export function useUpdatePoItemExtraFields() {
     },
   });
 }
+
+export function useUpdatePoItemPrice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, itemId, unitPrice }: { poId: string; itemId: string; unitPrice: number }) =>
+      ProcurementPurchaseOrderService.updateItemPrice(poId, itemId, unitPrice),
+    onSuccess: (_r, { poId }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', poId] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
+    },
+  });
+}

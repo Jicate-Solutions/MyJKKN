@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -91,6 +92,8 @@ export default function RfqQuotationsPage() {
   const [deliveryDays, setDeliveryDays] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [prices, setPrices] = useState<Record<string, string>>({});
+  const [notQuoted, setNotQuoted] = useState<Record<string, boolean>>({});
+  const [specs, setSpecs] = useState<Record<string, string>>({});
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -116,6 +119,8 @@ export default function RfqQuotationsPage() {
     setDeliveryDays('');
     setPaymentTerms('');
     setPrices({});
+    setNotQuoted({});
+    setSpecs({});
     setFile(null);
   };
 
@@ -132,11 +137,16 @@ export default function RfqQuotationsPage() {
     }
     const items: CreateQuotationItemDto[] = rfq.items.map((it) => ({
       rfq_item_id: it.id,
-      unit_price: Number(prices[it.id] || 0),
+      unit_price: notQuoted[it.id] ? null : Number(prices[it.id] || 0),
       quantity: it.quantity,
+      offered_spec: specs[it.id]?.trim() || null,
     }));
-    if (items.some((i) => !(i.unit_price >= 0) || i.unit_price === 0)) {
-      toast.error('Enter a unit price for every item.');
+    if (items.some((i) => i.unit_price !== null && !(i.unit_price > 0))) {
+      toast.error('Enter a unit price for every quoted item, or mark it “Not quoted”.');
+      return;
+    }
+    if (items.every((i) => i.unit_price === null)) {
+      toast.error('Mark at least one item as quoted.');
       return;
     }
 
@@ -409,7 +419,8 @@ export default function RfqQuotationsPage() {
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {row.quotes.map((qt) => {
-                          const isLowest = qt.unit_price === row.lowest_price;
+                          const isNotQuoted = qt.unit_price === null;
+                          const isLowest = !isNotQuoted && qt.unit_price === row.lowest_price;
                           return (
                             <div
                               key={qt.quotation_item_id}
@@ -422,7 +433,16 @@ export default function RfqQuotationsPage() {
                               }`}
                             >
                               <span className="font-medium">{qt.supplier_name}</span>
-                              <span>₹{Number(qt.unit_price).toLocaleString()}</span>
+                              {isNotQuoted ? (
+                                <span className="italic text-muted-foreground">Not quoted</span>
+                              ) : (
+                                <span>₹{Number(qt.unit_price).toLocaleString()}</span>
+                              )}
+                              {qt.offered_spec && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  · {qt.offered_spec}
+                                </span>
+                              )}
                               {qt.delivery_time_days != null && (
                                 <span className="text-[11px] text-muted-foreground">
                                   {qt.delivery_time_days}d
@@ -448,7 +468,8 @@ export default function RfqQuotationsPage() {
                                   )}
                                 </span>
                               ) : (
-                                canManage && (
+                                canManage &&
+                                !isNotQuoted && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -607,26 +628,58 @@ export default function RfqQuotationsPage() {
                 or type prices below. A vendor PDF can be attached as reference under
                 “Quotation document”.
               </p>
-              {rfq.items.map((it) => (
-                <div key={it.id} className="flex items-center gap-3">
-                  <div className="flex-1 text-sm">
-                    {it.item_name}
-                    <span className="text-muted-foreground">
-                      {' '}
-                      ({it.quantity} {it.unit_label || ''})
-                    </span>
+              {rfq.items.map((it) => {
+                const entered = Number(prices[it.id] || 0);
+                const isNotQuoted = !!notQuoted[it.id];
+                return (
+                  <div key={it.id} className="space-y-1.5 border-b pb-2 last:border-b-0">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 text-sm">
+                        {it.item_name}
+                        <span className="text-muted-foreground">
+                          {' '}
+                          ({it.quantity} {it.unit_label || ''})
+                        </span>
+                      </div>
+                      <div className="w-36">
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Unit price"
+                          disabled={isNotQuoted}
+                          value={isNotQuoted ? '' : prices[it.id] ?? ''}
+                          onChange={(e) => setPrices((p) => ({ ...p, [it.id]: e.target.value }))}
+                        />
+                        {entered > 0 && !isNotQuoted && (
+                          <p className="mt-0.5 text-right text-[11px] text-muted-foreground">
+                            = ₹{(entered * it.quantity).toLocaleString()} total
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 pl-0">
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={isNotQuoted}
+                          onCheckedChange={(v) => {
+                            const checked = !!v;
+                            setNotQuoted((p) => ({ ...p, [it.id]: checked }));
+                            if (checked) setPrices((p) => ({ ...p, [it.id]: '' }));
+                          }}
+                        />
+                        Not quoted by this vendor
+                      </label>
+                      <Input
+                        placeholder="Brand / concentration / pack size offered (optional)"
+                        className="h-7 flex-1 text-xs"
+                        disabled={isNotQuoted}
+                        value={isNotQuoted ? '' : specs[it.id] ?? ''}
+                        onChange={(e) => setSpecs((p) => ({ ...p, [it.id]: e.target.value }))}
+                      />
+                    </div>
                   </div>
-                  <div className="w-32">
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="Unit price"
-                      value={prices[it.id] ?? ''}
-                      onChange={(e) => setPrices((p) => ({ ...p, [it.id]: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="space-y-1">
