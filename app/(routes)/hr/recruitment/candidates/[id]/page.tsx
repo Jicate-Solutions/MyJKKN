@@ -26,10 +26,13 @@ import {
   useCounterPackage,
   useWithdrawCandidate,
   useUpdateCandidateStatus,
+  useApproveCandidate,
+  useRejectCandidate,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import { CandidateDiscussionThread } from '../../_components/candidate-discussion-thread';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -76,6 +79,9 @@ export default function CandidateDetailPage() {
   const counterPackage = useCounterPackage();
   const withdraw = useWithdrawCandidate();
   const updateStatus = useUpdateCandidateStatus();
+  const approve = useApproveCandidate();
+  const rejectCand = useRejectCandidate();
+  const { permissions, isSuperAdmin, userRoles } = usePermissions();
 
   // ζ FINDING #5 (PR #943) — Onboarding read-side rendering + (this PR, κ) toggle wiring.
   // role_specific_details.onboarding_steps is populated by
@@ -97,6 +103,19 @@ export default function CandidateDetailPage() {
   }, [profile]);
   // Index of the step currently being toggled (so we can disable that row only).
   const [togglingStepIndex, setTogglingStepIndex] = useState<number | null>(null);
+
+  // Approval-chain override context (mirrors the workspace + pending list):
+  // the current step is "mine" if pinned to me, or role-only and I hold that
+  // role_key. Anyone else who holds hr.recruitment.approve.override (or is
+  // super-admin) can act as an OVERRIDE.
+  const myRoleKeys = useMemo(
+    () => new Set((userRoles ?? []).map((r) => (r.role_key ?? '').toLowerCase())),
+    [userRoles],
+  );
+  const [stepApproveOpen, setStepApproveOpen] = useState(false);
+  const [stepApproveComment, setStepApproveComment] = useState('');
+  const [stepRejectOpen, setStepRejectOpen] = useState(false);
+  const [stepRejectReason, setStepRejectReason] = useState('');
 
   // POST the toggle, then invalidate the candidate cache so the section re-renders.
   const toggleOnboardingStep = async (stepIndex: number, nextCompleted: boolean) => {
@@ -283,6 +302,58 @@ export default function CandidateDetailPage() {
   const approvalChain = candidate.approval_chain ?? [];
   const canWithdraw = ['submitted', 'pending_approval'].includes(candidate.status);
   const canMarkJoined = ['offer_issued', 'approved'].includes(candidate.status);
+
+  // Current-step approval action context.
+  const currentStep = approvalChain[candidate.current_step];
+  const isPendingApproval = ['submitted', 'pending_approval'].includes(candidate.status);
+  const isMyStep =
+    !!currentStep &&
+    (currentStep.approver_user_id
+      ? currentStep.approver_user_id === profile?.id
+      : !!currentStep.approver_role &&
+        myRoleKeys.has(currentStep.approver_role.toLowerCase()));
+  const canOverrideStep =
+    isSuperAdmin || permissions['hr.recruitment.approve.override'] === true;
+  const isStepOverride = isPendingApproval && !isMyStep && canOverrideStep;
+  // Legacy chains have no step_type — the last step acts as final.
+  const isFinalStep =
+    currentStep?.step_type === 'final' ||
+    (currentStep?.step_type === undefined && candidate.current_step === approvalChain.length - 1);
+  const stepDecisionLabel = isFinalStep ? 'Final Approve' : 'Mark Reviewed';
+
+  const handleStepApprove = async () => {
+    if (isStepOverride && !stepApproveComment.trim()) {
+      toast.error("A comment is required to override another approver's step.");
+      return;
+    }
+    try {
+      await approve.mutateAsync({ id, comment: stepApproveComment.trim() || undefined });
+      toast.success(isFinalStep ? 'Candidate approved' : 'Step reviewed');
+      setStepApproveOpen(false);
+      setStepApproveComment('');
+    } catch (err) {
+      const m = (err as Error).message ?? '';
+      if (m.includes('already been fully approved') || m.includes('Approval chain exhausted')) {
+        toast.info('This candidate is no longer pending — refreshing.');
+        setStepApproveOpen(false);
+        setStepApproveComment('');
+        return;
+      }
+      toast.error(m);
+    }
+  };
+
+  const handleStepReject = async () => {
+    if (!stepRejectReason.trim()) return;
+    try {
+      await rejectCand.mutateAsync({ id, reason: stepRejectReason.trim() });
+      toast.success('Candidate rejected');
+      setStepRejectOpen(false);
+      setStepRejectReason('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   return (
     <ContentLayout title="Candidate Detail">
@@ -548,6 +619,23 @@ export default function CandidateDetailPage() {
                           <p className="text-xs text-muted-foreground mt-0.5 italic">
                             &ldquo;{(step as any).comment}&rdquo;
                           </p>
+                        )}
+                        {/* Actions on the current pending step */}
+                        {isActive && step.status === 'pending' && isPendingApproval && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <Button size="sm" onClick={() => setStepApproveOpen(true)}>
+                              {isStepOverride ? `Override — ${stepDecisionLabel}` : stepDecisionLabel}
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setStepRejectOpen(true)}>
+                              Reject
+                            </Button>
+                            {isStepOverride && (
+                              <span className="text-xs text-muted-foreground">
+                                Acting on {step.approver_role}&rsquo;s step
+                                {step.interview_required ? ' · interview skipped' : ''}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </li>
@@ -957,6 +1045,85 @@ export default function CandidateDetailPage() {
               disabled={withdraw.isPending}
             >
               {withdraw.isPending ? 'Withdrawing…' : 'Confirm Withdraw'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step approve / review / override dialog */}
+      <Dialog open={stepApproveOpen} onOpenChange={(o) => { if (!o) setStepApproveOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isStepOverride ? 'Override Approval' : isFinalStep ? 'Final Approval' : 'Mark as Reviewed'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {isStepOverride && (
+              <p className="text-sm text-muted-foreground">
+                You are acting on the {currentStep?.approver_role} step on behalf of the assigned approver.
+                This is recorded as an override
+                {currentStep?.interview_required ? ' and skips the interview requirement' : ''}.
+              </p>
+            )}
+            <Label htmlFor="step-approve-comment">
+              {isStepOverride
+                ? 'Reason for override (required)'
+                : isFinalStep ? 'Comment (optional)' : 'Review notes (optional)'}
+            </Label>
+            <Textarea
+              id="step-approve-comment"
+              value={stepApproveComment}
+              onChange={(e) => setStepApproveComment(e.target.value)}
+              rows={2}
+              placeholder={
+                isStepOverride
+                  ? 'Explain why you are approving on their behalf…'
+                  : isFinalStep ? 'Final remarks…' : 'Any notes for the next approver…'
+              }
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStepApproveOpen(false)}>Cancel</Button>
+            <Button
+              disabled={approve.isPending || (isStepOverride && !stepApproveComment.trim())}
+              onClick={handleStepApprove}
+            >
+              {approve.isPending
+                ? 'Saving…'
+                : isStepOverride ? 'Confirm Override' : isFinalStep ? 'Confirm Final Approval' : 'Confirm Review'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step reject dialog */}
+      <Dialog open={stepRejectOpen} onOpenChange={(o) => { if (!o) setStepRejectOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Candidate</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              This rejects the candidate and ends the approval chain.
+            </p>
+            <Label htmlFor="step-reject-reason">Reason (required)</Label>
+            <Textarea
+              id="step-reject-reason"
+              value={stepRejectReason}
+              onChange={(e) => setStepRejectReason(e.target.value)}
+              rows={2}
+              placeholder="Why is this candidate being rejected…"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStepRejectOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!stepRejectReason.trim() || rejectCand.isPending}
+              onClick={handleStepReject}
+            >
+              {rejectCand.isPending ? 'Rejecting…' : 'Confirm Reject'}
             </Button>
           </DialogFooter>
         </DialogContent>
