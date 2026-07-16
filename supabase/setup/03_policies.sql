@@ -7789,25 +7789,31 @@ FOR SELECT USING (
   )
 );
 
+-- Visiting-teacher policies: the per-row staff_teaches_in_institution(institution_id)
+-- full-scanned these tables (esp. student_attendance, which grows daily) and hit the
+-- 8s statement_timeout (57014) -> "attendance not loading". Replaced with the once-
+-- evaluated hashed sublink institution_id IN (SELECT unnest(staff_teaching_institution_ids())),
+-- and the Var-free permission check hoisted via (SELECT user_has_permission(...)).
+-- Migration: optimize_attendance_visiting_teacher_rls_perf.sql (2026-07-16).
 DROP POLICY IF EXISTS "sections_select_visiting_teacher" ON public.sections;
 CREATE POLICY "sections_select_visiting_teacher" ON public.sections
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "semesters_select_visiting_teacher" ON public.semesters;
 CREATE POLICY "semesters_select_visiting_teacher" ON public.semesters
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "degrees_select_visiting_teacher" ON public.degrees;
 CREATE POLICY "degrees_select_visiting_teacher" ON public.degrees
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "departments_select_visiting_teacher" ON public.departments;
 CREATE POLICY "departments_select_visiting_teacher" ON public.departments
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "programs_select_visiting_teacher" ON public.programs;
 CREATE POLICY "programs_select_visiting_teacher" ON public.programs
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 -- student_attendance: permission-gated visiting read/write (covers visiting
 -- staff whose profile role is hod / custom — the legacy faculty-role path
@@ -7815,25 +7821,25 @@ FOR SELECT USING (staff_teaches_in_institution(institution_id));
 DROP POLICY IF EXISTS "student_attendance_select_visiting_teacher" ON public.student_attendance;
 CREATE POLICY "student_attendance_select_visiting_teacher" ON public.student_attendance
 FOR SELECT USING (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 );
 
 DROP POLICY IF EXISTS "student_attendance_insert_visiting_teacher" ON public.student_attendance;
 CREATE POLICY "student_attendance_insert_visiting_teacher" ON public.student_attendance
 FOR INSERT WITH CHECK (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 );
 
 DROP POLICY IF EXISTS "student_attendance_update_visiting_teacher" ON public.student_attendance;
 CREATE POLICY "student_attendance_update_visiting_teacher" ON public.student_attendance
 FOR UPDATE USING (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 ) WITH CHECK (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 );
 
 -- ============================================================================
