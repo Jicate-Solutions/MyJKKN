@@ -306,14 +306,16 @@ function CandidateRow({
 
   return (
     <div className="p-4 space-y-2">
-      <div className="flex items-start gap-3">
-        {/* Avatar */}
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
-          {initials(row.name)}
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        {/* Avatar + identity stay together; actions drop below on mobile */}
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {/* Avatar */}
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
+            {initials(row.name)}
+          </div>
 
-        {/* Identity + profile */}
-        <div className="min-w-0 flex-1 space-y-1">
+          {/* Identity + profile */}
+          <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-foreground">{row.name}</span>
             <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${meta.badge}`}>
@@ -390,9 +392,10 @@ function CandidateRow({
               Screening note: &ldquo;{app.review_notes}&rdquo;
             </p>
           )}
+          </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions — full width on mobile, fixed column on sm+ */}
         <RowActions row={row} userId={userId} stepInterview={stepInterview} />
       </div>
     </div>
@@ -679,7 +682,7 @@ function RowActions({
   };
 
   return (
-    <div className="flex flex-col items-stretch gap-1 shrink-0 min-w-[110px]">
+    <div className="flex flex-col items-stretch gap-1 shrink-0 w-full sm:w-auto sm:min-w-[130px]">
       {/* Screening stage */}
       {canShortlist && (
         <Button
