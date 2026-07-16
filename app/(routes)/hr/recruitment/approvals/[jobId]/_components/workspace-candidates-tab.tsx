@@ -546,19 +546,15 @@ function RowActions({
       (currentStep?.step_type === undefined && candidate.current_step === chain.length - 1));
   const decisionLabel = isFinalStep ? 'Final Approve' : 'Mark Reviewed';
 
-  // Interview gate mirrors the server: interview_required steps need a
-  // COMPLETED sitting before the decision unlocks.
+  // Interview is OPTIONAL (2026-07-16): interview_required only drives the
+  // optional "Schedule Interview" / "Record Outcome" affordances below — it no
+  // longer blocks approval. The only hard gate left is a configured chain.
   const needsInterview = isPendingApproval && currentStep?.interview_required === true;
   const interviewCompleted = stepInterview?.status === 'completed';
   const interviewLive = stepInterview?.status === 'scheduled';
-  const decisionBlocked =
-    !chainConfigured || (needsInterview && !interviewCompleted);
+  const decisionBlocked = !chainConfigured;
   const decisionBlockedReason = !chainConfigured
     ? 'Approval chain not configured — backfill first'
-    : needsInterview && !stepInterview
-    ? 'Schedule and complete the interview first'
-    : needsInterview && !interviewCompleted
-    ? 'Record the interview outcome first'
     : undefined;
 
   // ---- Onboarding stage (finally approved → checklist → staff) ----
@@ -768,7 +764,7 @@ function RowActions({
           <Button
             size="sm"
             className="w-full"
-            variant={needsInterview && !interviewCompleted ? 'outline' : 'default'}
+            variant="default"
             disabled={decisionBlocked}
             title={decisionBlockedReason}
             onClick={() => setApproveOpen(true)}

@@ -436,32 +436,11 @@ export class RecruitmentService {
       throw new Error('Approval chain exhausted — no pending step found');
     }
 
-    // Interview gate (dynamic flows, 2026-07-06): a step flagged
-    // interview_required cannot be marked reviewed / finally approved until
-    // its linked interview sitting is completed.
-    // Override (2026-07-16): a full override (super-admin / approve.override
-    // holder) skips the interview requirement too — the whole point of an
-    // override is to push a stuck step through. Normal approvers still gated.
-    if (!isOverride && step.interview_required) {
-      if (!step.interview_id) {
-        throw new Error(
-          'This step requires an interview. Schedule the interview and record ' +
-          'its outcome before marking this step as reviewed.'
-        );
-      }
-      const { data: sitting, error: sittingErr } = await supabase
-        .from('hr_recruitment_interviews')
-        .select('id, status')
-        .eq('id', step.interview_id)
-        .maybeSingle();
-      if (sittingErr) throw sittingErr;
-      if (!sitting || sitting.status !== 'completed') {
-        throw new Error(
-          `The interview for this step is not completed yet ` +
-          `(status: ${sitting?.status ?? 'not found'}). Record its outcome first.`
-        );
-      }
-    }
+    // Interview is OPTIONAL (2026-07-16): an approver may schedule/record an
+    // interview for their step, but it never blocks approval. `interview_required`
+    // now only drives the optional "Schedule Interview" affordance in the UI —
+    // it is not a hard gate. (Previously it blocked approval until a completed
+    // sitting existed; the user made interviews optional for all approvers.)
 
     const nowIso = new Date().toISOString();
     step.status = 'approved';

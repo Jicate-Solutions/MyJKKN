@@ -632,7 +632,6 @@ export default function CandidateDetailPage() {
                             {isStepOverride && (
                               <span className="text-xs text-muted-foreground">
                                 Acting on {step.approver_role}&rsquo;s step
-                                {step.interview_required ? ' · interview skipped' : ''}
                               </span>
                             )}
                           </div>
@@ -1062,8 +1061,7 @@ export default function CandidateDetailPage() {
             {isStepOverride && (
               <p className="text-sm text-muted-foreground">
                 You are acting on the {currentStep?.approver_role} step on behalf of the assigned approver.
-                This is recorded as an override
-                {currentStep?.interview_required ? ' and skips the interview requirement' : ''}.
+                This is recorded as an override.
               </p>
             )}
             <Label htmlFor="step-approve-comment">

@@ -17,7 +17,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
-  AlertCircle, CalendarClock, CheckCircle2, ChevronRight, Inbox, XCircle,
+  AlertCircle, CheckCircle2, ChevronRight, Inbox, XCircle,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -129,7 +129,6 @@ function PendingRow({ candidate }: { candidate: HRRecruitmentCandidate }) {
   const isFinal =
     step?.step_type === 'final' ||
     (step?.step_type === undefined && candidate.current_step === chain.length - 1);
-  const needsInterview = step?.interview_required === true;
   const decisionLabel = isFinal ? 'Final Approve' : 'Mark Reviewed';
 
   const handleApprove = async () => {
@@ -184,27 +183,17 @@ function PendingRow({ candidate }: { candidate: HRRecruitmentCandidate }) {
         </div>
       </div>
 
-      {/* Actions — stack under identity on mobile, inline on sm+ */}
+      {/* Actions — stack under identity on mobile, inline on sm+.
+          Interview is optional; approval is never blocked by it. */}
       <div className="flex items-center gap-2 shrink-0">
-        {needsInterview ? (
-          <Button asChild size="sm" variant="outline" className="gap-1.5">
-            <Link href={jobLink(candidate)}>
-              <CalendarClock className="h-3.5 w-3.5" />
-              Interview needed
-            </Link>
-          </Button>
-        ) : (
-          <>
-            <Button size="sm" className="gap-1.5" onClick={() => setApproveOpen(true)}>
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {decisionLabel}
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setRejectOpen(true)}>
-              <XCircle className="h-3.5 w-3.5" />
-              Reject
-            </Button>
-          </>
-        )}
+        <Button size="sm" className="gap-1.5" onClick={() => setApproveOpen(true)}>
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {decisionLabel}
+        </Button>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setRejectOpen(true)}>
+          <XCircle className="h-3.5 w-3.5" />
+          Reject
+        </Button>
         <Button asChild size="sm" variant="ghost" className="px-2" aria-label="Open in workspace">
           <Link href={jobLink(candidate)}>
             <ChevronRight className="h-4 w-4" />
