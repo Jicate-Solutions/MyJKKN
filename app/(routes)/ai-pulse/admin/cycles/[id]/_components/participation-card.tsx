@@ -21,10 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  useCycleParticipation,
-  type ParticipationCounts,
-} from '@/lib/services/ai-pulse/participation-service';
+import { useCycleParticipation } from '@/lib/services/ai-pulse/participation-service';
 
 interface ParticipationCardProps {
   cycleId: string;
@@ -44,36 +41,6 @@ function Stat({ label, value }: StatProps) {
   );
 }
 
-/**
- * One population's turnout on its own line — the "own line" split so the student
- * cohort's signal stays legible and isn't blurred by senior-learner turnout.
- */
-function PopulationBlock({
-  label,
-  counts,
-}: {
-  label: string;
-  counts: ParticipationCounts;
-}) {
-  return (
-    <div>
-      <div className="mb-2 text-sm font-medium">
-        {label}{' '}
-        <span className="text-muted-foreground tabular-nums">
-          · {counts.total}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Stat label="Joined" value={counts.joined} />
-        <Stat label="On time" value={counts.joined_on_time} />
-        <Stat label="Quiz submitted" value={counts.quiz_submitted} />
-        <Stat label="Quiz passed" value={counts.quiz_passed} />
-        <Stat label="Feedback" value={counts.feedback_count} />
-      </div>
-    </div>
-  );
-}
-
 export function ParticipationCard({ cycleId }: ParticipationCardProps) {
   const { data, isLoading } = useCycleParticipation(cycleId);
 
@@ -87,7 +54,7 @@ export function ParticipationCard({ cycleId }: ParticipationCardProps) {
         <CardDescription>
           Raw turnout for this cycle&apos;s live session — each count is
           independent, so it stays visible even when the engaged-attendance rate
-          reads low. Learners and senior learners are counted on their own lines.
+          reads low.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -101,11 +68,12 @@ export function ParticipationCard({ cycleId }: ParticipationCardProps) {
             No attendance recorded for this cycle yet.
           </p>
         ) : (
-          <div className="space-y-5">
-            <PopulationBlock label="Learners" counts={data.student} />
-            {data.senior.total > 0 && (
-              <PopulationBlock label="Senior learners" counts={data.senior} />
-            )}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <Stat label="Joined" value={data.joined} />
+            <Stat label="On time" value={data.joined_on_time} />
+            <Stat label="Quiz submitted" value={data.quiz_submitted} />
+            <Stat label="Quiz passed" value={data.quiz_passed} />
+            <Stat label="Feedback" value={data.feedback_count} />
           </div>
         )}
       </CardContent>

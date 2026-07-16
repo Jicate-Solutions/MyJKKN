@@ -69,9 +69,6 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
   const { data, isLoading, error } = useCycleJoinedLearners(cycleId);
   const [query, setQuery] = useState('');
   const [college, setCollege] = useState<string>(ALL_COLLEGES);
-  const [population, setPopulation] = useState<'all' | 'student' | 'senior_learner'>(
-    'all',
-  );
 
   const colleges = useMemo(() => {
     const set = new Set<string>();
@@ -83,16 +80,10 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
     const q = query.trim().toLowerCase();
     return (data ?? []).filter((r) => {
       if (college !== ALL_COLLEGES && r.college !== college) return false;
-      if (population !== 'all' && r.population !== population) return false;
       if (q && !r.full_name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [data, query, college, population]);
-
-  const seniorCount = useMemo(
-    () => (data ?? []).filter((r) => r.population === 'senior_learner').length,
-    [data],
-  );
+  }, [data, query, college]);
 
   const total = data?.length ?? 0;
 
@@ -104,9 +95,8 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
           Who joined
         </CardTitle>
         <CardDescription>
-          Everyone who attended this cycle&apos;s live session — learners and
-          senior learners on their own lines. Search by name, or filter by
-          college or population.
+          Learners who attended this cycle&apos;s live session — search by name or
+          filter by college.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -121,7 +111,7 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
           </p>
         ) : total === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No one has attended this cycle yet.
+            No learners have attended this cycle yet.
           </p>
         ) : (
           <div className="space-y-3">
@@ -138,7 +128,7 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
                 />
               </div>
               <Select value={college} onValueChange={setCollege}>
-                <SelectTrigger className="sm:w-64" aria-label="Filter by college">
+                <SelectTrigger className="sm:w-72" aria-label="Filter by college">
                   <SelectValue placeholder="All colleges" />
                 </SelectTrigger>
                 <SelectContent>
@@ -150,35 +140,11 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
                   ))}
                 </SelectContent>
               </Select>
-              <Select
-                value={population}
-                onValueChange={(v) =>
-                  setPopulation(v as 'all' | 'student' | 'senior_learner')
-                }
-              >
-                <SelectTrigger
-                  className="sm:w-44"
-                  aria-label="Filter by population"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All people</SelectItem>
-                  <SelectItem value="student">Learners</SelectItem>
-                  <SelectItem value="senior_learner">Senior learners</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Showing {filtered.length} of {total}{' '}
-              {total === 1 ? 'person' : 'people'}
-              {seniorCount > 0 && (
-                <>
-                  {' '}
-                  · {seniorCount} senior learner{seniorCount === 1 ? '' : 's'}
-                </>
-              )}
+              Showing {filtered.length} of {total} learner
+              {total === 1 ? '' : 's'}
             </p>
 
             {/* Roster */}
@@ -196,16 +162,7 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
                 <TableBody>
                   {filtered.map((r: JoinedLearner) => (
                     <TableRow key={r.profile_id}>
-                      <TableCell className="font-medium">
-                        <span className="flex items-center gap-2">
-                          {r.full_name}
-                          {r.population === 'senior_learner' && (
-                            <Badge variant="outline" className="font-normal">
-                              Senior learner
-                            </Badge>
-                          )}
-                        </span>
-                      </TableCell>
+                      <TableCell className="font-medium">{r.full_name}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {r.college ?? '—'}
                       </TableCell>
@@ -243,7 +200,7 @@ export function JoinedLearnersCard({ cycleId }: JoinedLearnersCardProps) {
                         colSpan={5}
                         className="text-center text-sm text-muted-foreground"
                       >
-                        No one matches your filters.
+                        No learners match your search.
                       </TableCell>
                     </TableRow>
                   )}

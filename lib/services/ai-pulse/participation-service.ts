@@ -35,9 +35,8 @@ import type { EngagementSignals } from './live-session-service';
 // Types
 // ---------------------------------------------------------------------------
 
-/** Independent participation counts for one population (or the combined total). */
-export interface ParticipationCounts {
-  /** Total attendance rows. */
+export interface CycleParticipation {
+  /** Total attendance rows for this cycle's live session. */
   total: number;
   /** Rows with a `joined_at` timestamp set. */
   joined: number;
@@ -51,33 +50,9 @@ export interface ParticipationCounts {
   feedback_count: number;
 }
 
-/**
- * Per-cycle participation, split into the two populations that can now attend
- * AI Pulse (2026-07-16): the enrolled LEARNER cohort and the SENIOR LEARNERS
- * (facilitators / admin staff granted full participation). The flat top-level
- * fields remain the COMBINED totals (all attendees) for backward compatibility;
- * `student` and `senior` break them out so the student cohort's week-over-week
- * signal stays legible and isn't blurred by senior-learner turnout.
- */
-export interface CycleParticipation extends ParticipationCounts {
-  /** Enrolled learner cohort (student / cohort_member / production_learner). */
-  student: ParticipationCounts;
-  /** Senior learners — facilitators / admin staff (every other attending role). */
-  senior: ParticipationCounts;
-}
-
-/** Roles that make up the enrolled learner cohort (everyone else = senior learner). */
-export const STUDENT_COHORT_ROLES = [
-  'student',
-  'cohort_member',
-  'production_learner',
-] as const;
-
 interface AttendanceRow {
   joined_at: string | null;
   engagement_signals: EngagementSignals | null;
-  /** profiles.role via ai_pulse_live_attendance.profile_id (left-joined; may be null). */
-  profiles: { role: string | null } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +74,7 @@ export async function getCycleParticipation(
 
   const { data, error } = await supabase
     .from('ai_pulse_live_attendance')
-    .select('joined_at, engagement_signals, profiles(role)')
+    .select('joined_at, engagement_signals')
     .eq('event_id', cycleId)
     .eq('day_type', 'live_session');
 
@@ -107,53 +82,30 @@ export async function getCycleParticipation(
 
   const rows = (data ?? []) as AttendanceRow[];
 
-  const empty = (): ParticipationCounts => ({
-    total: 0,
+  const result: CycleParticipation = {
+    total: rows.length,
     joined: 0,
     joined_on_time: 0,
     quiz_submitted: 0,
     quiz_passed: 0,
     feedback_count: 0,
-  });
-
-  const student = empty();
-  const senior = empty();
+  };
 
   for (const row of rows) {
     const signals = row.engagement_signals ?? {};
-    const role = row.profiles?.role ?? null;
-    // Enrolled learner cohort vs senior learners (facilitators / admin staff).
-    // A null/unknown role is counted as a senior learner so it never inflates
-    // the student cohort's week-over-week baseline.
-    const bucket =
-      role && (STUDENT_COHORT_ROLES as readonly string[]).includes(role)
-        ? student
-        : senior;
 
-    bucket.total += 1;
-    if (row.joined_at) bucket.joined += 1;
-    if (signals.joined_within_5min === true) bucket.joined_on_time += 1;
-    if (typeof signals.quiz_score === 'number') bucket.quiz_submitted += 1;
-    if (signals.quiz_passed === true) bucket.quiz_passed += 1;
+    if (row.joined_at) result.joined += 1;
+    if (signals.joined_within_5min === true) result.joined_on_time += 1;
+    if (typeof signals.quiz_score === 'number') result.quiz_submitted += 1;
+    if (signals.quiz_passed === true) result.quiz_passed += 1;
 
     const feedback = signals.feedback_text;
     if (typeof feedback === 'string' && feedback.trim().length > 0) {
-      bucket.feedback_count += 1;
+      result.feedback_count += 1;
     }
   }
 
-  // Flat top-level fields = the COMBINED totals (all attendees), preserved for
-  // backward compatibility; `student` / `senior` carry the "own line" split.
-  return {
-    total: student.total + senior.total,
-    joined: student.joined + senior.joined,
-    joined_on_time: student.joined_on_time + senior.joined_on_time,
-    quiz_submitted: student.quiz_submitted + senior.quiz_submitted,
-    quiz_passed: student.quiz_passed + senior.quiz_passed,
-    feedback_count: student.feedback_count + senior.feedback_count,
-    student,
-    senior,
-  };
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +149,6 @@ export interface JoinedLearner {
   quiz_submitted: boolean;
   /** Quiz passed (engagement_signals.quiz_passed === true). */
   quiz_passed: boolean;
-  /** Which population this attendee belongs to (enrolled learner vs senior learner). */
-  population: 'student' | 'senior_learner';
 }
 
 /** Embedded-row shape returned by the identity join. */
@@ -227,10 +177,8 @@ interface JoinedLearnerRow {
  *   - learners_profiles → `profiles_learner_id_fkey` (the 1:1 learner anchor,
  *     not the created_by / updated_by / verified_by back-references)
  *
- * `profiles!inner` keeps only attendees whose profile row is present. Since the
- * 2026-07-16 senior-learner rollout the roster is NO LONGER filtered to students
- * — every attendee is returned and tagged with `population` (enrolled learner vs
- * senior learner) so both show up on their own line. RLS still applies — the
+ * `profiles!inner` + `profiles.role = 'student'` drops the handful of staff /
+ * super-admin rows so the roster is learners only. RLS still applies — the
  * Champion role can read these rows and profiles (verified).
  */
 export async function getCycleJoinedLearners(
@@ -249,7 +197,8 @@ export async function getCycleJoinedLearners(
         'learners_profiles!profiles_learner_id_fkey(departments(department_name)))',
     )
     .eq('event_id', cycleId)
-    .eq('day_type', 'live_session');
+    .eq('day_type', 'live_session')
+    .eq('profiles.role', 'student');
 
   if (error) throw new Error(error.message);
 
@@ -258,7 +207,6 @@ export async function getCycleJoinedLearners(
   return rows
     .map((row): JoinedLearner => {
       const signals = row.engagement_signals ?? ({} as EngagementSignals);
-      const role = row.profiles?.role ?? null;
       return {
         profile_id: row.profile_id,
         full_name: row.profiles?.full_name ?? '(unknown)',
@@ -269,10 +217,6 @@ export async function getCycleJoinedLearners(
         on_time: signals.joined_within_5min === true,
         quiz_submitted: typeof signals.quiz_score === 'number',
         quiz_passed: signals.quiz_passed === true,
-        population:
-          role && (STUDENT_COHORT_ROLES as readonly string[]).includes(role)
-            ? 'student'
-            : 'senior_learner',
       };
     })
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
