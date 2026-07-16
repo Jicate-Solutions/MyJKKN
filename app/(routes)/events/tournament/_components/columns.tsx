@@ -17,7 +17,7 @@ import { Building2, Globe } from 'lucide-react';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import type { Event, EventStatus } from '@/types/events';
 import { DataTableRowActions } from './row-actions';
-import { STATUS_CONFIG } from './status-config';
+import { tournamentStatusBadge } from './status-config';
 
 export interface TournamentColumnOptions {
   canEdit: boolean;
@@ -129,7 +129,7 @@ export const getColumns = (options: TournamentColumnOptions): ColumnDef<Event>[]
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       size: 110,
       cell: ({ row }) => {
-        const status = STATUS_CONFIG[row.original.status] ?? STATUS_CONFIG.draft;
+        const status = tournamentStatusBadge(row.original.status);
         return (
           <Badge
             variant="outline"

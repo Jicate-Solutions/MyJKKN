@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { TournamentRegistrationService } from '@/lib/services/events/tournament/tournament-registration-service';
-import type { CreateEntryDto, UpdateEntryDto } from '@/types/tournament';
+import type { UpdateEntryDto } from '@/types/tournament';
 
 const KEYS = {
   entries: (eventId: string) => ['tournament-entries', eventId] as const,
@@ -19,23 +19,6 @@ export function useTournamentEntries(eventId: string) {
     queryKey: KEYS.entries(eventId),
     queryFn: () => TournamentRegistrationService.listEntries(eventId),
     enabled: !!eventId,
-  });
-}
-
-/** Register a team/individual. Returns the result (incl. an online payment_url). */
-export function useRegisterEntry(eventId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (dto: CreateEntryDto) => TournamentRegistrationService.register(eventId, dto),
-    onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: KEYS.entries(eventId) });
-      if (result.payment_url) {
-        toast.success('Entry registered — opening payment link…');
-      } else {
-        toast.success('Entry registered');
-      }
-    },
-    onError: (e: Error) => toast.error(e.message || 'Failed to register entry'),
   });
 }
 
