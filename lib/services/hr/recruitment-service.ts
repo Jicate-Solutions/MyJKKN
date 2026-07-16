@@ -439,7 +439,10 @@ export class RecruitmentService {
     // Interview gate (dynamic flows, 2026-07-06): a step flagged
     // interview_required cannot be marked reviewed / finally approved until
     // its linked interview sitting is completed.
-    if (step.interview_required) {
+    // Override (2026-07-16): a full override (super-admin / approve.override
+    // holder) skips the interview requirement too — the whole point of an
+    // override is to push a stuck step through. Normal approvers still gated.
+    if (!isOverride && step.interview_required) {
       if (!step.interview_id) {
         throw new Error(
           'This step requires an interview. Schedule the interview and record ' +
