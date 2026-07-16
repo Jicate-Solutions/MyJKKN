@@ -35,6 +35,7 @@ export const WIDGET_IDS = [
   'decision_queue',
   'activity_feed',
   'leaderboards',
+  'ai_agency',
 ] as const;
 
 export type WidgetId = (typeof WIDGET_IDS)[number];
@@ -64,11 +65,12 @@ const HARDCODED_DEFAULT: RoleWidgetMap = {
     'counselor_staffing_alert',
     'whatsapp_health',
     'hero',
+    'ai_agency',
     'decision_queue',
     'activity_feed',
     'leaderboards',
   ],
-  hr_officer: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
+  hr_officer: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
   counselor: [
     'morning_brief',
     'counselor_staffing_alert',
@@ -78,12 +80,12 @@ const HARDCODED_DEFAULT: RoleWidgetMap = {
     'activity_feed',
     'leaderboards',
   ],
-  hod: ['morning_brief', 'whatsapp_health', 'hero', 'decision_queue', 'activity_feed'],
-  faculty: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
-  principal: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
-  accounts: ['morning_brief', 'hero', 'decision_queue', 'activity_feed'],
+  hod: ['morning_brief', 'whatsapp_health', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
+  faculty: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
+  principal: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
+  accounts: ['morning_brief', 'hero', 'ai_agency', 'decision_queue', 'activity_feed'],
   student: ['morning_brief', 'hero'],
-  _default: ['morning_brief', 'decision_queue'],
+  _default: ['morning_brief', 'decision_queue', 'ai_agency'],
 };
 
 /**
