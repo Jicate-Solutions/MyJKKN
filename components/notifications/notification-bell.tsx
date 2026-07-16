@@ -45,17 +45,22 @@ export function NotificationBell() {
   const notifications = data?.notifications ?? [];
   const unreadCount = data?.unreadCount ?? 0;
 
-  const handleNotificationClick = async (
+  const handleNotificationClick = (
     notificationId: string,
     actionUrl?: string
   ) => {
-    await markAsRead.mutateAsync(notificationId);
-    // Always navigate so a click never silently no-ops. Most notifications
-    // carry an action_url; dashboard:* digests have historically shipped with
-    // url=null, so the click would mark-as-read but go nowhere, making the
-    // dropdown feel broken. Fallback to /notifications (the full list) so the
-    // user always lands somewhere — never on a 404.
+    // Navigate FIRST — synchronously, on the tap — so the click always takes the
+    // user to the page. Previously this awaited markAsRead.mutateAsync() BEFORE
+    // navigating: on mobile that forced a network write + a query invalidation to
+    // finish before router.push ran (hundreds of ms of "tap does nothing"), and
+    // because useMarkAsRead has no onError, any failed mark-read REJECTED the
+    // await and the router.push never ran at all — the tap silently went nowhere.
+    // Most notifications carry an action_url; dashboard:* digests have historically
+    // shipped with url=null, so fall back to /notifications — never a 404.
     router.push(actionUrl || '/notifications');
+    // Mark-as-read is a best-effort side effect: fire-and-forget so a slow or
+    // failing write can never hold navigation hostage.
+    markAsRead.mutate(notificationId);
   };
 
   const handleMarkAllRead = () => {
