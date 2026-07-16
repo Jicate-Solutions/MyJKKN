@@ -343,14 +343,36 @@ export function NotificationCenter() {
     const id = item.id || item.notification_id;
     setExpandedId((prev) => (prev === id ? null : id));
 
-    // Mark as read on expand. A collapsed stack marks EVERY occurrence it
-    // represents — marking only the representative would strand the others as
-    // permanently unread, since the user can no longer click them individually.
+    // Mark-as-read on open applies ONLY to a single notification. A collapsed
+    // stack can cover many DISTINCT real items (e.g. 35 different departments,
+    // each needing its own attention), so merely peeking at the group must NOT
+    // silently clear them all — that would hide items the user never handled.
+    // Stack items are cleared per-row (click a row) or all at once via the
+    // explicit "Mark all read" control on the expanded group.
+    const isStack = (item.__stackCount || 1) > 1;
+    if (!isStack && !item.read_at && item.notification_id) {
+      markAsRead(item.notification_id);
+    }
+  }, [markAsRead]);
+
+  // Explicit bulk-clear for a stack: marks EVERY underlying occurrence read,
+  // not just the one-per-entity representatives shown in the expanded list —
+  // so the group's unread state (which is "unread if ANY child is unread")
+  // actually clears. This is the one-tap path for the AI-runner case, where a
+  // stack is one incident and marking each hourly row by hand would be tedious.
+  const markStackAllRead = useCallback((item: any) => {
     const targets: any[] = item.__stackItems || [item];
     for (const target of targets) {
       if (!target.read_at && target.notification_id) {
         markAsRead(target.notification_id);
       }
+    }
+  }, [markAsRead]);
+
+  // Clear a single row inside an expanded stack without collapsing the group.
+  const markRowRead = useCallback((row: any) => {
+    if (!row?.read_at && row?.notification_id) {
+      markAsRead(row.notification_id);
     }
   }, [markAsRead]);
 
@@ -673,25 +695,70 @@ export function NotificationCenter() {
                             is 35 rows here, not 140. Each row names itself. */}
                         {isStack && (
                           <div className="mb-3 space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                              <Layers className="h-3 w-3" />
-                              {stack!.listHeading}
-                            </p>
+                            {/* Heading + explicit bulk-clear. Opening the group
+                                marks nothing; this button is the deliberate
+                                "I'm done with all of these" action. */}
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                                <Layers className="h-3 w-3" />
+                                {stack!.listHeading}
+                              </p>
+                              {!isRead && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    markStackAllRead(item);
+                                  }}
+                                >
+                                  <CheckCheck className="h-3 w-3 mr-1" />
+                                  Mark all read
+                                </Button>
+                              )}
+                            </div>
                             {stack!.entityRows.map((s: any) => {
                               const sn = s.notification || s;
                               const detail = stripHtml(bodyOf(sn));
+                              const rowRead = !!s.read_at;
                               return (
                                 <div
                                   key={s.id || s.notification_id}
-                                  className="flex items-start justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    markRowRead(s);
+                                  }}
+                                  className={cn(
+                                    'flex items-start justify-between gap-2 rounded-md px-2 py-1.5 cursor-pointer transition-colors',
+                                    rowRead
+                                      ? 'bg-muted/20 hover:bg-muted/40'
+                                      : 'bg-muted/40 hover:bg-muted/70'
+                                  )}
                                 >
-                                  <span className="text-xs leading-snug min-w-0">
-                                    {sn.title}
-                                    {detail && (
-                                      <span className="block text-[11px] text-muted-foreground line-clamp-1">
-                                        {detail}
-                                      </span>
-                                    )}
+                                  <span className="flex items-start gap-1.5 min-w-0">
+                                    {/* Per-row unread dot — so the user sees
+                                        exactly which items they've cleared. */}
+                                    <span
+                                      className={cn(
+                                        'mt-1 h-1.5 w-1.5 rounded-full shrink-0',
+                                        rowRead ? 'bg-transparent' : 'bg-blue-500'
+                                      )}
+                                      aria-hidden
+                                    />
+                                    <span
+                                      className={cn(
+                                        'text-xs leading-snug min-w-0',
+                                        rowRead && 'text-muted-foreground'
+                                      )}
+                                    >
+                                      {sn.title}
+                                      {detail && (
+                                        <span className="block text-[11px] text-muted-foreground line-clamp-1">
+                                          {detail}
+                                        </span>
+                                      )}
+                                    </span>
                                   </span>
                                   <span className="text-[11px] text-muted-foreground shrink-0">
                                     {formatTimestamp(
