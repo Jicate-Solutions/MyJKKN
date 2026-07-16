@@ -17,6 +17,7 @@ import type {
   ClusterRankPrivate,
   Quartile
 } from '@/lib/services/dashboard/cluster-rank-service';
+import { AgencyRecognitionTile } from './agency-recognition-tile';
 
 type TileColor = FacultyBand | 'neutral';
 
@@ -292,10 +293,12 @@ export function FacultyHeroStrip({ metrics, cluster }: FacultyHeroStripProps) {
 
   return (
     <section aria-label='Faculty dashboard hero KPIs'>
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4'>
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3 sm:gap-4'>
         {tiles.map((tile) => (
           <HeroTile key={tile.label} {...tile} />
         ))}
+        {/* Own AI-agency recognition signal (self-only /api/pde/agency). */}
+        <AgencyRecognitionTile />
       </div>
     </section>
   );
