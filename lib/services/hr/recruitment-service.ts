@@ -1193,7 +1193,8 @@ export class RecruitmentService {
   /**
    * Schedule (or reschedule) the interview for the candidate's CURRENT chain
    * step and stamp its id onto that step. Only the step's approver (pinned
-   * user, role holder, or super-admin) may schedule.
+   * user, role holder, super-admin, or hr.recruitment.approve.override holder)
+   * may schedule.
    */
   static async scheduleStepInterview(
     supabase: SupabaseClient,
@@ -1217,7 +1218,10 @@ export class RecruitmentService {
     const step = chain[candidate.current_step];
     if (!step) throw new Error('No pending approval step found.');
 
-    // Authorization: pinned user, role holder, or super-admin.
+    // Authorization: pinned user, role holder, super-admin, or override-key
+    // holder (hr_head / hr_admin / coo). The override mirrors approveCandidate —
+    // someone allowed to act on any approver's step may also schedule that
+    // step's interview. Both RPCs resolve against auth.uid() = callerId.
     const pinned = step.approver_user_id ?? null;
     let authorized = pinned ? pinned === callerId : false;
     if (!authorized && !pinned) {
@@ -1232,7 +1236,10 @@ export class RecruitmentService {
     }
     if (!authorized) {
       const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
-      authorized = !!isSuperAdmin;
+      const { data: hasOverride } = await supabase.rpc('user_has_permission', {
+        permission_name: 'hr.recruitment.approve.override',
+      });
+      authorized = !!isSuperAdmin || !!hasOverride;
     }
     if (!authorized) {
       throw new Error('Only the current step’s approver can schedule this interview.');
