@@ -56,6 +56,7 @@ import type { CapabilityStatus, FinksDimension, PDEAtRiskLearner, RiskLevel } fr
 import { CapabilityHeatmap } from './_components/capability-heatmap';
 import { FinksRadar } from './_components/finks-radar';
 import { AgencyDistributionBar, AgencyTrendLine } from './_components/agency-distribution';
+import { AgencyRecognitionTile } from '@/components/dashboard/agency-recognition-tile';
 
 // ============================================
 // Helper: untyped supabase (PDE tables not in generated types)
@@ -848,8 +849,13 @@ export default function FacultyImpactDashboardPage() {
           {/* Tab: Agency Index */}
           {/* ============================================ */}
           <TabsContent value="agency">
-            <div className="grid gap-4 lg:grid-cols-2">
-              {/* Distribution */}
+            <div className="space-y-4">
+              {/* Facilitator's OWN AI agency (self-fetched, self-only) — a
+                  recognition signal for the "senior learner", kept clearly
+                  separate from and ABOVE the cohort distribution below. */}
+              <AgencyRecognitionTile variant="callout" />
+              <div className="grid gap-4 lg:grid-cols-2">
+                {/* Distribution */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -913,6 +919,7 @@ export default function FacultyImpactDashboardPage() {
                   />
                 </CardContent>
               </Card>
+              </div>
             </div>
           </TabsContent>
 
