@@ -186,7 +186,6 @@ export function canEditSyllabus(
   scope: BosBoardScopeClient,
   syllabus: { board_id: string | null; created_by: string | null },
   currentAuthUserId: string | null | undefined,
-  opts?: { allowBoardMembers?: boolean },
 ): boolean {
   if (scope.isLoading) return false;
   if (scope.isSuperAdmin) return true;
@@ -194,12 +193,7 @@ export function canEditSyllabus(
   if (syllabus.created_by && currentAuthUserId && syllabus.created_by === currentAuthUserId) {
     return true;
   }
-  if (scope.chairmanForBoards.has(syllabus.board_id)) return true;
-  // Edit tier: any active member of the syllabus's board may edit. Mirrors the
-  // server guardSyllabusEdit({ allowBoardMembers }). Callers that gate a
-  // destructive action (delete) omit the flag → creator/chairman only.
-  if (opts?.allowBoardMembers && scope.boardsOf.has(syllabus.board_id)) return true;
-  return false;
+  return scope.chairmanForBoards.has(syllabus.board_id);
 }
 
 /** Can the user write to records owned by the given composition (e.g. meetings, ta-da). */
