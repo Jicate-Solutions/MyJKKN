@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   getNotifications,
   getNotificationCounts,
+  getNotificationEventRollups,
   createNotification,
   bulkUpdateNotifications,
   markAllAsRead,
@@ -61,6 +62,10 @@ export async function GET(request: NextRequest) {
       search: searchParams.get('search') || undefined,
       from_date: searchParams.get('from_date') || undefined,
       to_date: searchParams.get('to_date') || undefined,
+      // Fetch only one rollup's rows (matched on notifications.metadata->>event)
+      // so the inbox can expand a rollup without paging the whole inbox.
+      // Absent => identical behaviour to before this param existed.
+      event: searchParams.get('event') || undefined,
       limit,
       offset
     };
@@ -71,9 +76,10 @@ export async function GET(request: NextRequest) {
     // when an RLS policy on user_notifications invokes that function.
     // Counts are GLOBAL and must not depend on this request's page/limit, so
     // they come from COUNT queries rather than from the page we just fetched.
-    const [notifications, counts] = await Promise.all([
+    const [notifications, counts, eventRollups] = await Promise.all([
       getNotifications(filters, supabase),
-      getNotificationCounts(user.id, supabase)
+      getNotificationCounts(user.id, supabase),
+      getNotificationEventRollups(user.id, supabase)
     ]);
 
     // Response keys cover both consumer shapes:
@@ -90,6 +96,14 @@ export async function GET(request: NextRequest) {
     // 2026-07-15 — unread within the RETURNED PAGE. The UI renders it as a
     // global "N unread", and with limit=20 it could never exceed 20: a
     // 258-unread inbox displayed "18 unread". It is now a real COUNT.
+    //
+    // event_rollups is GLOBAL for the same reason, and exists for the same
+    // class of bug one level down: the inbox stacks the 140 ig_silence_alert
+    // rows into one row labelled with a count of departments. That count is 35
+    // (distinct metadata.ig_user_id) and is NOT derivable from the 20 rows in
+    // this response — counting the returned group yields 20, and counting every
+    // row after full scroll yields 140. Both have shipped; both are wrong.
+    // The label must read event_rollups[].distinct_entities.
     const effectiveLimit = limit ?? 20;
     return NextResponse.json({
       data: notifications,
@@ -98,6 +112,7 @@ export async function GET(request: NextRequest) {
       unread_count: counts.unread,
       total_count: counts.total,
       category_counts: counts.byCategory,
+      event_rollups: eventRollups,
       has_more: notifications.length === effectiveLimit
     });
   } catch (error: any) {

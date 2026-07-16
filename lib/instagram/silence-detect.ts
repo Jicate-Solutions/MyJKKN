@@ -337,7 +337,10 @@ export async function runSilenceDetect(
     }
 
     const idempotencyKey = `ig-silence-${ig_user_id}-${dayKey}`;
-    const title = 'Instagram account is silent';
+    // Self-identifying title: the inbox rolls these rows up into ONE stacked
+    // entry (keyed on metadata.event = 'ig_silence_alert'), so each occurrence
+    // must name its own account or the expanded rollup is 35 identical lines.
+    const title = `Instagram @${username || ig_user_id} is silent`;
     const lastClause = last
       ? `Last post was ${daysSilent} day${daysSilent === 1 ? '' : 's'} ago`
       : 'No post has been recorded yet';
