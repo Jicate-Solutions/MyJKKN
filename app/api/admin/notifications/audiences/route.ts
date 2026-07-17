@@ -344,9 +344,7 @@ export async function POST(request: NextRequest) {
     // because the resolver is SECURITY DEFINER, granted to service_role only.
     if (isPreview) {
       const serviceClient = createServiceRoleClient();
-      const { data: resolveData, error: resolveError } = await (
-        serviceClient as any
-      ).rpc('resolve_audience_preview', {
+      const { data: resolveRaw, error: resolveError } = await serviceClient.rpc('resolve_audience_preview', {
         p_query_type: query_type,
         p_query_params: normalizedParams
       });
@@ -362,7 +360,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Authoritative shape from the DB function: { user_ids: string[], count: number }
+      // Authoritative shape from the DB function: { user_ids: string[], count: number }.
+      // Assert the jsonb payload shape so the typed client needs no `as any`.
+      const resolveData = resolveRaw as { user_ids?: string[]; count?: number } | null;
       let allUserIds: string[] = [];
       let totalCount = 0;
       if (resolveData && typeof resolveData === 'object') {
