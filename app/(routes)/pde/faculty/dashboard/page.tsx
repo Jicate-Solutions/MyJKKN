@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Select,
   SelectContent,
@@ -620,8 +621,17 @@ function riskBadge(level: RiskLevel) {
 // Main Page
 // ============================================
 
-export default function FacultyImpactDashboardPage() {
-  const [activeTab, setActiveTab] = useState('overview');
+const FACULTY_DASHBOARD_TABS = [
+  'overview',
+  'capabilities',
+  'agency',
+  'assessments',
+  'at-risk',
+  'impact',
+] as const;
+
+function FacultyImpactDashboardPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('overview', FACULTY_DASHBOARD_TABS);
 
   // Data hooks
   const { data: overview, isLoading: overviewLoading } = useFacultyOverviewStats();
@@ -1260,5 +1270,14 @@ export default function FacultyImpactDashboardPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function FacultyImpactDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <FacultyImpactDashboardPageInner />
+    </Suspense>
   );
 }

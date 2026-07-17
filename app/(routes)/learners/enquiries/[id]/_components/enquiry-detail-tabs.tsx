@@ -13,9 +13,12 @@ import { ActivitiesTab } from './activities-tab';
 import { ChecklistTab } from './checklist-tab';
 import { BillingTab } from './billing-tab';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import type { LearnerProfile } from '@/types/learner-profile';
 
 const BILLING_VISIBLE_STATUSES = new Set(['account', 'reserved', 'admitted']);
+
+const ENQUIRY_DETAIL_TABS = ['details', 'activities', 'checklist', 'billing'] as const;
 
 interface EnquiryDetailTabsProps {
   enquiry: LearnerProfile;
@@ -23,6 +26,7 @@ interface EnquiryDetailTabsProps {
 
 export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
+  const [activeTab, setActiveTab] = useTabParam('details', ENQUIRY_DETAIL_TABS);
   const canSeeActivities =
     isSuperAdmin || canAccess('admission.enquiries.activities', 'view');
   const canSeeChecklist =
@@ -42,7 +46,7 @@ export function EnquiryDetailTabs({ enquiry }: EnquiryDetailTabsProps) {
   }
 
   return (
-    <Tabs defaultValue="details" className="w-full">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
       <TabsList>
         <TabsTrigger value="details" className="gap-2">
           <FileText className="h-4 w-4" />

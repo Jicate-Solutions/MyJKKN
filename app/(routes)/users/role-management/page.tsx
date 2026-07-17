@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,8 +25,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScholarshipPermissionManager } from '@/app/(routes)/billing/discounts/_components/scholarship-permission-manager';
 import { UserInstitutionAccessManager } from './_components/user-institution-access-manager';
 import { useAuth } from '@/hooks/use-auth-provider';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function RoleManagementPage() {
+const ROLE_MANAGEMENT_TABS = ['roles', 'scholarships', 'institutions'] as const;
+
+function RoleManagementPageInner() {
   const router = useRouter();
   const { profile, isLoading: isAuthLoading } = useAuth();
   const [roles, setRoles] = useState<CustomRole[]>([]);
@@ -34,7 +37,7 @@ export default function RoleManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
-  const [activeTab, setActiveTab] = useState('roles');
+  const [activeTab, setActiveTab] = useTabParam('roles', ROLE_MANAGEMENT_TABS);
 
   const isSuperAdmin =
     !!profile &&
@@ -315,5 +318,14 @@ export default function RoleManagementPage() {
         onSubmit={handleCreateRole}
       />
     </ContentLayout>
+  );
+}
+
+export default function RoleManagementPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <RoleManagementPageInner />
+    </Suspense>
   );
 }

@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import B2AApiDocs from './_components/b2a-api-docs';
 import {
   Breadcrumb,
@@ -58,7 +59,9 @@ export default function B2AApiPage() {
           </p>
         </div>
         <ApiNav />
-        <B2AApiDocs />
+        <Suspense fallback={null}>
+          <B2AApiDocs />
+        </Suspense>
       </div>
     </ContentLayout>
   );

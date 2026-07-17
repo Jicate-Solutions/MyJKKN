@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 // Purpose: Display comprehensive enquiry details
 // ============================================
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -129,7 +130,9 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
           </div>
         </div>
 
-        <EnquiryDetailTabs enquiry={enquiry} />
+        <Suspense fallback={null}>
+          <EnquiryDetailTabs enquiry={enquiry} />
+        </Suspense>
       </div>
     </ContentLayout>
   );

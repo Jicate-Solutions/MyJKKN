@@ -17,6 +17,7 @@
  * due_date; receipts inherit the year of the bills they settled.
  */
 
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
@@ -273,15 +274,17 @@ export default async function MyBillsPage() {
         ]}
       />
       <div className='space-y-6 mt-6'>
-        <MyBillsClient
-          data={data}
-          learnerId={learnerId}
-          learnerName={learnerName}
-          rollNumber={learnerRow?.roll_number ?? ''}
-          collegeEmail={learnerRow?.college_email ?? ''}
-          institutionId={learnerRow?.institution_id ?? null}
-          institutionName={institutionName}
-        />
+        <Suspense fallback={null}>
+          <MyBillsClient
+            data={data}
+            learnerId={learnerId}
+            learnerName={learnerName}
+            rollNumber={learnerRow?.roll_number ?? ''}
+            collegeEmail={learnerRow?.college_email ?? ''}
+            institutionId={learnerRow?.institution_id ?? null}
+            institutionName={institutionName}
+          />
+        </Suspense>
       </div>
     </ContentLayout>
   );

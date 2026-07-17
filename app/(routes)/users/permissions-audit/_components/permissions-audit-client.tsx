@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -21,6 +21,7 @@ import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
 import { ModuleAccessTab } from './module-access-tab';
 import { ComplianceReportButton } from './compliance-report-button';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 /** All valid tab values — used to sanitize the ?tab= URL param. */
 const TAB_VALUES = [
@@ -39,40 +40,16 @@ const TAB_VALUES = [
 
 const DEFAULT_TAB = 'ask';
 
-function isValidTab(tab: string | null): tab is (typeof TAB_VALUES)[number] {
-  return !!tab && (TAB_VALUES as readonly string[]).includes(tab);
-}
-
 export function PermissionsAuditClient() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { profile, isLoading: isAuthLoading } = useAuth();
 
-  // Controlled tabs so children (e.g. SystemHealthTab health cards) can switch
-  // tabs. The active tab is mirrored to ?tab= so each tab is deep-linkable
-  // and favoritable (the Navbar star favorites path + tab).
-  const urlTab = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<string>(
-    isValidTab(urlTab) ? urlTab : DEFAULT_TAB
-  );
-
-  const handleTabChange = useCallback(
-    (tab: string) => {
-      setActiveTab(tab);
-      router.replace(`/users/permissions-audit?tab=${tab}`, { scroll: false });
-    },
-    [router]
-  );
-
-  // Follow ?tab= changes that happen without a remount — e.g. clicking a
-  // tab-scoped favorite in the sidebar while already on this page.
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (isValidTab(tab) && tab !== activeTab) {
-      setActiveTab(tab);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  // URL-synced tabs (system standard): active tab is mirrored to ?tab= so
+  // each tab is deep-linkable and favoritable, and the default tab is
+  // stamped into the URL on mount ("always show the tab"). handleTabChange
+  // is also passed to children (e.g. SystemHealthTab health cards) so their
+  // programmatic tab switches keep the URL in sync.
+  const [activeTab, handleTabChange] = useTabParam(DEFAULT_TAB, TAB_VALUES);
 
   const isSuperAdmin =
     !!profile &&
