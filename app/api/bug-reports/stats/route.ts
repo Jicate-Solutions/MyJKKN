@@ -23,6 +23,7 @@ export async function GET() {
       { count: newReports },
       { count: seen },
       { count: wontFix },
+      { count: duplicates },
       { count: recentReports },
       { count: previousReports }
     ] = await Promise.all([
@@ -32,6 +33,7 @@ export async function GET() {
       supabase.from('bug_reports').select('*', { count: 'exact', head: true }).eq('status', 'new'),
       supabase.from('bug_reports').select('*', { count: 'exact', head: true }).eq('status', 'seen'),
       supabase.from('bug_reports').select('*', { count: 'exact', head: true }).eq('status', 'wont_fix'),
+      supabase.from('bug_reports').select('*', { count: 'exact', head: true }).eq('status', 'duplicate'),
       supabase.from('bug_reports').select('*', { count: 'exact', head: true }).gte('created_at', last7Days.toISOString()),
       supabase
         .from('bug_reports')
@@ -62,6 +64,7 @@ export async function GET() {
       newReports: newReports ?? 0,
       seen: seen ?? 0,
       wontFix: wontFix ?? 0,
+      duplicates: duplicates ?? 0,
       resolutionRate,
       recentReports: recentCount,
       previousReports: previousCount,

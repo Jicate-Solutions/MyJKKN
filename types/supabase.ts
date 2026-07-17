@@ -15508,6 +15508,7 @@ export type Database = {
           department_id: string | null
           description: string
           display_id: string | null
+          duplicate_of: string | null
           id: string
           institution_id: string | null
           metadata: Json | null
@@ -15534,6 +15535,7 @@ export type Database = {
           department_id?: string | null
           description: string
           display_id?: string | null
+          duplicate_of?: string | null
           id?: string
           institution_id?: string | null
           metadata?: Json | null
@@ -15560,6 +15562,7 @@ export type Database = {
           department_id?: string | null
           description?: string
           display_id?: string | null
+          duplicate_of?: string | null
           id?: string
           institution_id?: string | null
           metadata?: Json | null
@@ -99145,6 +99148,9 @@ export type Database = {
           department_name: string | null
           description: string | null
           display_id: string | null
+          duplicate_count: number | null
+          duplicate_of: string | null
+          duplicate_of_display_id: string | null
           id: string | null
           institution_id: string | null
           institution_name: string | null

@@ -55,6 +55,7 @@ import { BugModuleBadge } from '@/components/bug-reporter/bug-module-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReporterAnalyticsTab } from './_components/reporter-analytics-tab';
 import { ExportBugsDialog } from './_components/export-bugs-dialog';
+import { MarkDuplicateDialog } from './_components/mark-duplicate-dialog';
 import {
   Users,
   Bug,
@@ -77,10 +78,16 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
     seen: 'secondary',
     in_progress: 'outline',
     resolved: 'default', // A 'success' variant would be better
-    wont_fix: 'destructive'
+    wont_fix: 'destructive',
+    duplicate: 'outline'
   }[status] as 'default' | 'secondary' | 'destructive' | 'outline';
 
-  const colorClass = status === 'resolved' ? 'bg-green-500 text-white' : '';
+  const colorClass =
+    status === 'resolved'
+      ? 'bg-green-500 text-white'
+      : status === 'duplicate'
+      ? 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200'
+      : '';
 
   return (
     <Badge
@@ -227,6 +234,8 @@ function AdminBugReportsContent() {
   const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] =
     useState<BugReportStatus>('seen');
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicateSource, setDuplicateSource] = useState<BugReport | null>(null);
   // Seed from URL so the input reflects an already-active search on mount
   const [searchInput, setSearchInput] = useState(filters.search ?? '');
   const { isSuperAdmin } = usePermissions();
@@ -500,7 +509,26 @@ function AdminBugReportsContent() {
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ row }) => <BugStatusBadge status={row.original.status} />
+        cell: ({ row }) => (
+          <div className='flex flex-col items-start gap-0.5'>
+            <BugStatusBadge status={row.original.status} />
+            {(row.original.duplicate_count ?? 0) > 0 && (
+              <Badge
+                variant='outline'
+                className='text-[10px] px-1 py-0 border-purple-300 text-purple-700 dark:text-purple-300'
+              >
+                {row.original.duplicate_count} dup
+                {(row.original.duplicate_count ?? 0) > 1 ? 's' : ''}
+              </Badge>
+            )}
+            {row.original.status === 'duplicate' &&
+              row.original.duplicate_of_display_id && (
+                <span className='text-[10px] text-muted-foreground'>
+                  → {row.original.duplicate_of_display_id}
+                </span>
+              )}
+          </div>
+        )
       },
       {
         id: 'actions',
@@ -545,6 +573,14 @@ function AdminBugReportsContent() {
                   }
                 >
                   {"Mark as Won't Fix"}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setDuplicateSource(row.original);
+                    setDuplicateDialogOpen(true);
+                  }}
+                >
+                  Mark as Duplicate…
                 </DropdownMenuItem>
                 {isSuperAdmin && (
                   <>
@@ -746,6 +782,7 @@ function AdminBugReportsContent() {
                       <SelectItem value='in_progress'>In Progress</SelectItem>
                       <SelectItem value='resolved'>Resolved</SelectItem>
                       <SelectItem value='wont_fix'>Won&apos;t Fix</SelectItem>
+                      <SelectItem value='duplicate'>Duplicate</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1041,6 +1078,17 @@ function AdminBugReportsContent() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mark-as-Duplicate Dialog */}
+      <MarkDuplicateDialog
+        open={duplicateDialogOpen}
+        onOpenChange={(open) => {
+          setDuplicateDialogOpen(open);
+          if (!open) setDuplicateSource(null);
+        }}
+        sourceBug={duplicateSource}
+        onMarked={() => refetchStats()}
+      />
     </AdminPermissionGuard>
   );
 }
