@@ -118,7 +118,7 @@ export function WorkSignalsCard({
           // Gentle empty state — a starting point, not a verdict.
           <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-sm text-muted-foreground">
             Nothing yet — your work signals appear here as you teach, mark
-            classes, and run pulses.
+            sessions, and run pulses.
           </p>
         ) : (
           <>
@@ -136,7 +136,7 @@ export function WorkSignalsCard({
               </div>
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              &ldquo;Marked&rdquo; shows your assigned classes that got marked; the
+              &ldquo;Marked&rdquo; shows your assigned sessions that got marked; the
               small &ldquo;you&rdquo; number is sessions you marked personally.
               Course marks are entered by the exam cell.
             </p>
