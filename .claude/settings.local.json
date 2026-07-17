@@ -262,7 +262,8 @@
       "Read(//tmp/**)",
       "Bash(:)",
       "Bash(break)",
-      "mcp__plugin_claude-mem_mcp-search__smart_outline"
+      "mcp__plugin_claude-mem_mcp-search__smart_outline",
+      "Bash(python3 scripts/ci/check-terminology-delta.py jicate/main HEAD)"
     ],
     "deny": [],
     "ask": []
