@@ -1,3 +1,32 @@
+## Session: 2026-07-17 (End) — Bug-triage epic: 3 PRs shipped in one day
+
+### Accomplished
+- FULL EPIC on /admin/bug-reports: #2136 duplicate machinery (MERGED+DEPLOYED+browser-verified),
+  #2137 AI briefing on ₹0 lane (MERGED+DEPLOYED+E2E-proven on BUG-005009, 145s HTTP 200),
+  #2140 cluster scan + Groups tab + loop registration (MERGED, NOT DEPLOYED — Director's explicit hold).
+- DB live: duplicate_of self-FK + status CHECK widened; bug.triage ai_job_type; bug_clusters +
+  fn_bug_cluster_scan/list; loop_registry 'bug-triage'; first scan = 66 groups / 1,036 open bugs.
+- Infra discovered: BOTH Max-lane drain planes silent ~10h (Windows box); Mac button-poller 'fetch failed'.
+
+### Current Status
+- **Branch**: main work in worktrees (bug-dup-pr1 / bug-ai-pr2 / bug-pr3) — all pushed+merged
+- **Build**: prod Ready; #2140 code NOT deployed (deliberate)
+- **Blocked**: AI briefing button times out until Windows drain revives
+
+### Lessons Learned
+- Live DB defs drift from repo migration files (fn_ai_claim p_interactive; pg_trgm in extensions
+  schema; status CHECK the explorer missed) -> pg_get_functiondef + BEGIN..ROLLBACK validation caught all.
+- Trigram clustering needs a TIME window (14d) or transitive chaining builds mega-clusters (140x observed).
+
+### Next Session — Tasks
+1. [P0] Deploy #2140 when Director says go (/deploy-myjkkn) + live-verify Groups tab, confirm ONE group with Director (small)
+2. [P0] Windows Max-lane drain revival — check box/scheduled task/lock dirs; then Mac poller 'fetch failed' (env creds?) (medium)
+3. [P1] Superseded-but-open: HR Recruitment Need Signal engine (TS + service + hooks) from archived brief ce3e05e7 (large)
+4. [P2] Bug-triage measure for the m gate: dup-confirmation rate + backlog shrink -> flip loop to self_improving (medium)
+5. [P2] Repoint overnight-bugfix at biggest confirmed clusters (Mac-side script) (small)
+
+---
+
 ### Session 2026-07-17 (favorite-tabs) — FROM a 1-line bug ("User Permission Resolver has no favourite button") → full system rollout, 7 PRs SHIPPED+LIVE+VERIFIED on jkkn.ai. #2129 tab-aware favorite star + permissions-audit tabs URL-synced. #2131/#2132/#2133 rolled favoritable/shareable ?tab= tabs to ~106 pages across 3 waves (16 parallel agents; useTabParam hook = the leverage point). #2135 unblocked 6 pages that carried PRE-EXISTING type debt (PR-scoped-TypeCheck gate fails on any error in a touched file → prove-pre-existing + exclude, don't fix unrelated debt) — fixing at ROOT surfaced 2+ REAL latent runtime bugs (badges rendering object-as-React-child; pde/analytics reading learner.id/.name that don't exist). #2138 discoverability: the favorite star was undiscoverable (unlabelled grey, a11y '(no name)') → labelled 'Favorite'/'Favorited' pill (browser-verified it WORKED first — was purely discoverability). #2139 role-management mobile fix: sub-tabs overlapped on phone (grid-cols-3 + whitespace-nowrap) → stacked on mobile; verified at 390px via persona-harness PERSONA_VP_W. Deliberate exclusions kept: dialog tabs, shared/repeated tab components, role-conditional/runtime tab sets. **NEXT-SESSION P0 (user verbatim): "Both — scroll style + the 7 pages" = switch mobile tabs from STACKED to HORIZONTAL-SCROLL and apply across role-management (re-do) + the ~7 other `grid w-full grid-cols-N` pages, verify each at phone width.** Memory: project_tab_aware_favorites + reference_myjkkn_tab_bars_nonresponsive_gridcols + feedback_mobile_viewport_testing_via_persona_harness. Continuation brief → .claude/continuation-prompt.<key>.md
 
 ### Next Session — Tasks
