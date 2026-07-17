@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -7,10 +8,14 @@ import { Activity, Calendar, TrendingUp } from 'lucide-react';
 import { format } from 'date-fns';
 import { useMatlabStats, useMatlabSnapshots } from '@/hooks/solutions/use-matlab-analytics';
 import { AdoptionKPICards } from './_components/adoption-kpi-cards';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function MatlabDashboardPage() {
+const MATLAB_TABS = ['overview', 'startup-studio', 'solution-hub', 'roi'] as const;
+
+function MatlabDashboardInner() {
   const { data: statsRaw, isLoading: statsLoading } = useMatlabStats();
   const { data: snapshotsRaw, isLoading: snapshotsLoading } = useMatlabSnapshots();
+  const [activeTab, setActiveTab] = useTabParam('overview', MATLAB_TABS);
 
   const stats = (statsRaw as any)?.data ?? statsRaw ?? null;
   const snapshots = (snapshotsRaw as any)?.data ?? snapshotsRaw ?? [];
@@ -37,7 +42,7 @@ export default function MatlabDashboardPage() {
       <AdoptionKPICards stats={stats} isLoading={statsLoading} />
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="startup-studio">Startup Studio</TabsTrigger>
@@ -166,5 +171,14 @@ export default function MatlabDashboardPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function MatlabDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MatlabDashboardInner />
+    </Suspense>
   );
 }

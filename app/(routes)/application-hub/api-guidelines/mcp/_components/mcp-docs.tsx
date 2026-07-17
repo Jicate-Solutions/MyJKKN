@@ -11,6 +11,7 @@ import {
   AccordionTrigger
 } from '@/components/ui/accordion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   AlertCircle,
   ArrowRight,
@@ -337,9 +338,13 @@ function ChatMessage({ role, children }: { role: 'user' | 'ai'; children: React.
 
 // ─── Main component ─────────────────────────────────────────────────────────
 
+const MCP_DOC_TABS = ['overview', 'connect', 'examples', 'reference', 'troubleshooting'] as const;
+
 export default function McpDocs() {
+  const [activeTab, setActiveTab] = useTabParam('overview', MCP_DOC_TABS);
+
   return (
-    <Tabs defaultValue='overview' className='w-full'>
+    <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
       <TabsList className='grid w-full grid-cols-5'>
         <TabsTrigger value='overview'>Overview</TabsTrigger>
         <TabsTrigger value='connect'>Connect AI Tools</TabsTrigger>

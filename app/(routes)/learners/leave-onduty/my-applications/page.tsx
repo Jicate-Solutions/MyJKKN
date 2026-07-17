@@ -12,11 +12,12 @@
  * @route /learners/leave-onduty/my-applications
  */
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   useMyLeaveOndutyApplications,
   useCancelLeaveOndutyApplication,
@@ -185,11 +186,13 @@ function ApplicationDetailsContent({
   );
 }
 
-export default function MyApplicationsPage() {
+const MY_APPLICATIONS_TABS = ['all', 'pending', 'approved', 'rejected', 'cancelled'] as const;
+
+function MyApplicationsPageInner() {
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();
   const { can, isLoading: permissionsLoading } = usePermissions();
-  const [selectedStatus, setSelectedStatus] = useState<ApplicationStatus | 'all'>('all');
+  const [selectedStatus, setSelectedStatus] = useTabParam('all', MY_APPLICATIONS_TABS);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     type: 'cancel' | 'delete';
@@ -612,5 +615,14 @@ export default function MyApplicationsPage() {
       </div>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function MyApplicationsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MyApplicationsPageInner />
+    </Suspense>
   );
 }

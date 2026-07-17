@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Card, CardContent } from '@/components/ui/card';
 import { useCreateFacultyCase } from '@/hooks/pde/use-faculty-cases';
 import { useVACCourses } from '@/hooks/vac/use-vac';
@@ -12,7 +13,9 @@ import { CaseFormBuilder } from '../_components/CaseFormBuilder';
 import { JsonImportTab } from '../_components/JsonImportTab';
 import type { CreateClinicalCaseInput } from '@/types/pde';
 
-export default function NewClinicalCasePage() {
+const NEW_CASE_TABS = ['builder', 'json'] as const;
+
+function NewClinicalCasePageInner() {
   const router = useRouter();
   const [imported, setImported] = useState<Partial<CreateClinicalCaseInput> | undefined>(undefined);
   // Bumped only when a JSON import is applied. The builder is force-mounted (so
@@ -20,7 +23,7 @@ export default function NewClinicalCasePage() {
   // initialValue prop alone won't re-seed it — so we key the builder on this
   // counter to deliberately remount + reseed ONLY on an actual import.
   const [importSeq, setImportSeq] = useState(0);
-  const [tab, setTab] = useState<'builder' | 'json'>('builder');
+  const [tab, setTab] = useTabParam('builder', NEW_CASE_TABS);
   const create = useCreateFacultyCase();
 
   const { data: coursesData } = useVACCourses();
@@ -101,5 +104,14 @@ export default function NewClinicalCasePage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function NewClinicalCasePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <NewClinicalCasePageInner />
+    </Suspense>
   );
 }

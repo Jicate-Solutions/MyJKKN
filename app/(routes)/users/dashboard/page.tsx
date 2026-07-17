@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Card,
@@ -81,8 +82,16 @@ const CHART_COLORS = [
   '#6366f1'
 ];
 
-export default function UserDashboardPage() {
-  const [activeTab, setActiveTab] = useState('overview');
+const USER_DASHBOARD_TABS = [
+  'overview',
+  'analytics',
+  'roles',
+  'institutions',
+  'activity',
+] as const;
+
+function UserDashboardInner() {
+  const [activeTab, setActiveTab] = useTabParam('overview', USER_DASHBOARD_TABS);
   const [showFilters, setShowFilters] = useState(false);
 
   const {
@@ -974,5 +983,14 @@ export default function UserDashboardPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function UserDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <UserDashboardInner />
+    </Suspense>
   );
 }

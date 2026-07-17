@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -72,13 +73,17 @@ function getDateRange(preset: string): { from: string; to: string } {
 export default function ConsumptionReportPage() {
   return (
     <ImsPageGuard module="ims.reports" action="view">
-      <ConsumptionReportPageInner />
+      <Suspense fallback={null}>
+        <ConsumptionReportPageInner />
+      </Suspense>
     </ImsPageGuard>
   );
 }
 
+const CONSUMPTION_TABS = ['department', 'item'] as const;
+
 function ConsumptionReportPageInner() {
-  const [activeTab, setActiveTab] = useState('department');
+  const [activeTab, setActiveTab] = useTabParam('department', CONSUMPTION_TABS);
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);
   const [dateTo, setDateTo] = useState(() => getDateRange('month').to);

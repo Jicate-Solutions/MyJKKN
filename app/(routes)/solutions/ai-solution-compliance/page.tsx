@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -32,8 +32,12 @@ import { ComplianceOverview } from './_components/compliance-overview';
 import { DepartmentBreakdown } from './_components/department-breakdown';
 import { LearnerComplianceTable } from './_components/learner-compliance-table';
 import { SolutionTeamsView } from './_components/solution-teams-view';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function ComplianceDashboardPage() {
+const COMPLIANCE_TABS = ['overview', 'departments', 'learners', 'solutions'] as const;
+
+function ComplianceDashboardPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('overview', COMPLIANCE_TABS);
   const [filters, setFilters] = useState<ComplianceFilters>({});
 
   // Filter options
@@ -244,7 +248,7 @@ export default function ComplianceDashboardPage() {
         </div>
 
         {/* Dashboard Content */}
-        <Tabs defaultValue='overview' className='space-y-6'>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-6'>
           <TabsList className='grid w-full grid-cols-2 lg:grid-cols-4'>
             <TabsTrigger value='overview'>Overview</TabsTrigger>
             <TabsTrigger value='departments'>Departments</TabsTrigger>
@@ -336,5 +340,14 @@ export default function ComplianceDashboardPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ComplianceDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ComplianceDashboardPageInner />
+    </Suspense>
   );
 }

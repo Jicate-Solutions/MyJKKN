@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { Suspense, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -34,6 +34,7 @@ import {
   useVACProgrammeStats,
 } from '@/hooks/vac/use-vac';
 import { useTrackCompletionStats } from '@/hooks/vac/use-case';
+import { useTabParam } from '@/hooks/use-tab-param';
 import type { VACOverviewStats, VACTrendDataPoint, VACProgrammeStats } from '@/types/vac';
 import type { TrackCompletionStats } from '@/types/case';
 import {
@@ -238,9 +239,13 @@ function EnrollmentFunnel({ stats }: { stats: VACOverviewStats }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function AnalyticsDashboardPage() {
+const VAC_ANALYTICS_TABS = ['overview', 'case-tracks', 'programmes', 'trends'] as const;
+
+function AnalyticsDashboardInner() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
+
+  const [activeTab, setActiveTab] = useTabParam('overview', VAC_ANALYTICS_TABS);
 
   const { data: overviewData, isLoading: overviewLoading } =
     useVACOverviewStats(institutionId);
@@ -291,7 +296,7 @@ export default function AnalyticsDashboardPage() {
           </p>
         </div>
 
-        <Tabs defaultValue="overview">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="case-tracks">CASE Tracks</TabsTrigger>
@@ -530,5 +535,14 @@ export default function AnalyticsDashboardPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function AnalyticsDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <AnalyticsDashboardInner />
+    </Suspense>
   );
 }
