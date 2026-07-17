@@ -15,6 +15,21 @@ export type BugReportCategory =
   | 'other'
   | 'question';
 
+/** AI-generated developer briefing stored at bug_reports.metadata.ai_triage
+ *  (written by POST /api/bug-reports/[id]/ai-triage, produced on the ₹0 Max lane). */
+export interface AiTriageBriefing {
+  summary: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category_verdict: string;
+  module_guess: string;
+  root_cause: string;
+  fix_steps: string[];
+  confidence: 'low' | 'medium' | 'high';
+  generated_at: string;
+  job_id: string;
+  lane: string;
+}
+
 export interface BugReport {
   id: string;
   display_id: string;
