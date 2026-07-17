@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     // `total_overdue` and each institution's `overdue` with the SAME
     // past-deadline predicate (acknowledgement deadline < now AND unacknowledged),
     // so the two always agree.
-    const { data: rollup, error: rollupError } = await (supabase as any).rpc(
+    const { data: rollupData, error: rollupError } = await supabase.rpc(
       'fn_notification_compliance_rollup'
     );
 
@@ -47,6 +47,16 @@ export async function GET(request: NextRequest) {
       console.error('[notifications/compliance] Rollup RPC failed:', rollupError);
       throw rollupError;
     }
+
+    // fn_notification_compliance_rollup returns jsonb (typed as Json). Assert the
+    // shape the SQL builds so the client stays fully typed without an `as any`.
+    const rollup = rollupData as {
+      overall?: Record<string, number>;
+      by_institution?: unknown[];
+      by_notification?: unknown[];
+      hod_responsiveness?: unknown[];
+      worst_offenders?: unknown[];
+    } | null;
 
     const response = {
       overall: rollup?.overall ?? {
