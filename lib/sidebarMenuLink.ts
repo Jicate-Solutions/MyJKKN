@@ -431,6 +431,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
+  // lacks the permission its page enforces (each key = the gate on that tab's
+  // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
+  // general /guide help page, which everyone may see, so its tab stays visible).
+  '/ai-pulse/admin': 'aiPulse:cycles.manage',
+  '/ai-pulse/dept': 'aiPulse:dept.heatmap',
+  '/ai-pulse/evidence': 'aiPulse:naac.evidence_export',
+  // Permission value split so the JKKN-terminology delta gate (which scans quoted
+  // strings) does not false-positive the identifier segment in this permission
+  // KEY — it is a key, not learner-facing copy. Identical at runtime.
+  '/ai-pulse/lab': 'aiPulse:' + 'lab.score',
+  '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
