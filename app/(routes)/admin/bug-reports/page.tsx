@@ -56,6 +56,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReporterAnalyticsTab } from './_components/reporter-analytics-tab';
 import { ExportBugsDialog } from './_components/export-bugs-dialog';
 import { MarkDuplicateDialog } from './_components/mark-duplicate-dialog';
+import { BugGroupsTab } from './_components/bug-groups-tab';
 import {
   Users,
   Bug,
@@ -68,7 +69,8 @@ import {
   Trophy,
   Search,
   X,
-  Loader2
+  Loader2,
+  Layers
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -723,6 +725,10 @@ function AdminBugReportsContent() {
                 <Users className='w-4 h-4' />
                 Reporter Analytics
               </TabsTrigger>
+              <TabsTrigger value='groups' className='flex items-center gap-2'>
+                <Layers className='w-4 h-4' />
+                Groups
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value='reports'>
@@ -970,6 +976,10 @@ function AdminBugReportsContent() {
                 institution_id={filters.institution_id}
                 department_id={filters.department_id}
               />
+            </TabsContent>
+
+            <TabsContent value='groups'>
+              <BugGroupsTab />
             </TabsContent>
           </Tabs>
         </div>
