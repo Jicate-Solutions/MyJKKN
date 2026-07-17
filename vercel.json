@@ -294,6 +294,10 @@
     {
       "path": "/api/cron/sf100-weekly-reminder?secret=${CRON_SECRET}",
       "schedule": "33 14 * * 0"
+    },
+    {
+      "path": "/api/cron/bug-cluster-scan?secret=${CRON_SECRET}",
+      "schedule": "19 21 * * *"
     }
   ]
 }

@@ -97,6 +97,46 @@ export async function POST(
       console_excerpt: consoleExcerpt
     };
 
+    // Orphan-result recovery: if a prior request timed out AFTER its job was
+    // enqueued (route 504s while the drain is slow/offline) and the job later
+    // completed, the briefing exists on the job row but was never copied to
+    // the bug. Reuse it instead of paying for a duplicate run. A normal
+    // "Regenerate" is unaffected: after a successful run the stored briefing's
+    // generated_at is later than that job's completed_at, so this misses and a
+    // fresh job is enqueued.
+    const storedGeneratedAt: string | null =
+      (bug.metadata as any)?.ai_triage?.generated_at ?? null;
+    const { data: orphan } = await (adminSupabase.from('ai_jobs') as any)
+      .select('id, result, completed_at')
+      .eq('job_type', 'bug.triage')
+      .eq('status', 'done')
+      .filter('payload->>_dedupe', 'eq', `bug-triage:${reportId}`)
+      .gte('completed_at', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (orphan && (!storedGeneratedAt || orphan.completed_at > storedGeneratedAt)) {
+      const recovered = parseBriefing(orphan.result);
+      if (recovered) {
+        const stored = {
+          ...recovered,
+          generated_at: new Date().toISOString(),
+          job_id: orphan.id,
+          lane: 'max'
+        };
+        const { error: saveError } = await (
+          adminSupabase.from('bug_reports') as any
+        )
+          .update({ metadata: { ...(bug.metadata ?? {}), ai_triage: stored } })
+          .eq('id', reportId);
+        if (saveError) {
+          logger.error('bug-reports/ai', 'Failed to persist recovered ai_triage', saveError);
+        }
+        return NextResponse.json({ ok: true, briefing: stored, recovered: true });
+      }
+    }
+
     const { data: enqueue, error: enqueueError } = await (adminSupabase as any).rpc(
       'fn_ai_enqueue_system',
       {
