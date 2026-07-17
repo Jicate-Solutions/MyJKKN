@@ -343,7 +343,7 @@ function DepartmentAdminPageInner() {
 
         {/* Tabs Section */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 lg:w-[600px]">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 lg:w-[600px] sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="tier2">TIER 2 OKRs</TabsTrigger>
             <TabsTrigger value="staff">Staff</TabsTrigger>

@@ -1247,7 +1247,7 @@ function MarathonSettingsPageInner() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="general" className="gap-1.5">
               <Settings className="h-3.5 w-3.5 hidden sm:inline-block" />
               General
