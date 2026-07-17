@@ -30,17 +30,31 @@ export class WorkSignalsService {
   ): Promise<WorkSignalsResult | null> {
     try {
       const supabase = getSupabase();
-      const { data, error } = await supabase.rpc('fn_work_signals_for', {
+      // Guard against a hung RPC: a decorative widget must never spin its
+      // skeleton forever. Race the call against a 10s timeout that resolves to
+      // a null result, so the card degrades to "not rendered" instead.
+      const rpc = supabase.rpc('fn_work_signals_for', {
         p_from: from ?? null,
         p_to: to ?? null,
       });
+      const timeout = new Promise<{ data: null; error: { message: string } }>(
+        (resolve) =>
+          setTimeout(
+            () => resolve({ data: null, error: { message: 'work-signals rpc timeout' } }),
+            10000,
+          ),
+      );
+      const { data, error } = (await Promise.race([rpc, timeout])) as {
+        data: unknown;
+        error: unknown;
+      };
       if (error) {
-        logger.warn('academic/session-feedback', 'work-signals load failed', error);
+        logger.warn('work-signals', 'work-signals load failed', error);
         return null;
       }
       return (data ?? null) as WorkSignalsResult | null;
     } catch (err) {
-      logger.warn('academic/session-feedback', 'work-signals load failed', err);
+      logger.warn('work-signals', 'work-signals load failed', err);
       return null;
     }
   }
