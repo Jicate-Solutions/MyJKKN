@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useMemo, useState } from 'react';
+import { Suspense, use, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -42,6 +42,7 @@ import { MembersTab } from './_components/members-tab';
 import { MinutesTab } from './_components/minutes-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -314,8 +315,20 @@ interface MeetingDetailPageProps {
   params: Promise<{ meetingId: string }>;
 }
 
-export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
+// Main tab group values (in TabsTrigger order). `minutes` is only rendered for
+// later statuses, but it's a valid deep-link target so it's included here.
+const MEETING_DETAIL_TABS = [
+  'agenda',
+  'attendance',
+  'members',
+  'documents',
+  'syllabus',
+  'minutes',
+] as const;
+
+function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
   const { meetingId } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('agenda', MEETING_DETAIL_TABS);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
@@ -718,7 +731,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
       {/* ── Agenda & Attendance Tabs ─────────────────────────────────────── */}
       <Card>
         <CardContent className='p-4'>
-          <Tabs defaultValue='agenda'>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className='mb-4'>
               <TabsTrigger value='agenda' className='gap-1.5'>
                 Agenda
@@ -859,5 +872,15 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// useTabParam() reads useSearchParams(), so the page body must sit under a
+// <Suspense> boundary.
+export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
+  return (
+    <Suspense fallback={null}>
+      <MeetingDetailPageInner params={params} />
+    </Suspense>
   );
 }

@@ -1102,6 +1102,16 @@ export interface BosMeeting {
    * 20260521_add_board_type_to_bos_compositions_meetings.sql.
    */
   board_type?: string | null;
+  /**
+   * Regulation the meeting's syllabi are scoped to. Optional: there is no
+   * regulation_id column on bos_meetings today, so this is undefined at runtime
+   * for every meeting. The Syllabus and Minutes tabs read it to narrow the
+   * syllabus picker and both guard against undefined (the filter is simply not
+   * applied when it's absent). Kept on the interface so those reads type-check
+   * and so the field is already correct if a regulation_id column is later
+   * added to bos_meetings (the detail GET selects `*`).
+   */
+  regulation_id?: string | null;
   composition_id: string;
   meeting_number: number;
   academic_year: string;
