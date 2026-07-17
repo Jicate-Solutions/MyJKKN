@@ -100,6 +100,7 @@ export function Navbar({ title }: NavbarProps) {
                   module={currentPage.module}
                   iconName={currentPage.iconName}
                   size='sm'
+                  showLabel
                 />
               }
             >
