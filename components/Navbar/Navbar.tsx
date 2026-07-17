@@ -52,6 +52,7 @@ function TabAwareFavoriteStar({ pathname }: { pathname: string }) {
       module={page.module}
       iconName={page.iconName}
       size='sm'
+      showLabel
     />
   );
 }
