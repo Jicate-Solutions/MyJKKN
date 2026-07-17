@@ -23,8 +23,14 @@ export const GET = withAuth(async (_request, auth) => {
     const uniqueUserIds = new Set(userIdRows?.map((row: { user_id: string }) => row.user_id));
     const uniqueUsersReached = uniqueUserIds.size;
 
-    // Get total row count for read percentage calculation
-    const totalNotificationRows = userIdRows?.length || 0;
+    // Get total delivered row count (exact) for the read-percentage denominator.
+    // Must be an exact count over the SAME population as totalRead. A bare
+    // .select() array (userIdRows above) is capped by PostgREST at db-max-rows
+    // (~1000), so using its length undercounts the denominator and can push the
+    // ratio above 100% (observed 278% on prod = 2780 read / 1000 capped).
+    const { count: totalDelivered } = await supabase
+      .from('user_notifications')
+      .select('*', { count: 'exact', head: true });
 
     // Get read notifications count
     const { count: totalRead } = await supabase
@@ -38,9 +44,11 @@ export const GET = withAuth(async (_request, auth) => {
       .select('*', { count: 'exact', head: true })
       .not('acknowledged_at', 'is', null);
 
-    // Calculate read percentage based on total notification rows (not unique users)
-    const readPercentage = totalNotificationRows
-      ? Math.round(((totalRead || 0) / totalNotificationRows) * 100)
+    // Calculate read percentage. Numerator and denominator are both exact counts
+    // over the same user_notifications population, so the ratio can never exceed
+    // 100%. Math.min is a defensive clamp.
+    const readPercentage = totalDelivered
+      ? Math.min(100, Math.round(((totalRead || 0) / totalDelivered) * 100))
       : 0;
 
     return NextResponse.json(
