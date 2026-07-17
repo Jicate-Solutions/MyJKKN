@@ -532,6 +532,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.batches.create', label: 'Create Batches' },
       { key: 'academic.batches.edit', label: 'Edit Batches' },
       { key: 'academic.batches.delete', label: 'Delete Batches' },
+      // IA Question Papers (CIA question-paper scaffolding + authoring; COE-backed)
+      { key: 'academic.ia_question_paper.view', label: 'View Question Papers' },
+      { key: 'academic.ia_question_paper.enter', label: 'Generate/Author Question Papers' },
+      { key: 'academic.ia_question_paper.approve', label: 'Submit/Approve/Lock Question Papers' },
+      { key: 'academic.ia_question_paper.export', label: 'Export Question Paper PDF' },
       // Internal Marks (CIA)
       { key: 'academic.internal-marks.view', label: 'View Internal Marks' },
       { key: 'academic.internal-marks.edit', label: 'Enter/Edit Internal Marks' },

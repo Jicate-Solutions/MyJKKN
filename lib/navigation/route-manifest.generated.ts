@@ -262,6 +262,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/question-papers",
+        "label": "Question Papers",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/academic/regulations",
         "label": "Regulations",
         "iconName": "Scale",
@@ -5684,7 +5690,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/procurement/purchase-orders",
         "label": "Purchase Orders",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/procurement/purchase-orders/formats",
+            "label": "Formats",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/procurement/purchase-orders/formats/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/procurement/requests",

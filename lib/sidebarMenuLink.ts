@@ -394,6 +394,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // page's RPCs re-authorize teaching-staff/HOD/admin server-side regardless.
   '/academic/curriculum-review': 'academic.attendance.view',
 
+  // IA Question Papers (proxied to COE /api/v1/ia/*)
+  '/academic/question-papers': 'academic.ia_question_paper.view',
+
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/monitor': 'academic.internal-marks.view',
