@@ -1449,6 +1449,16 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_metadata_ig_user_id
   ON public.bug_reports ((metadata->>'ig_user_id'))
   WHERE metadata ? 'ig_user_id';
 
+-- Updated: 2026-07-17 - Duplicate machinery (PR 1 of bug-triage epic).
+-- duplicate_of = canonical bug this report duplicates (set with status='duplicate').
+-- Resolving the canonical cascades resolution to all duplicates + emails reporters.
+-- Status CHECK widened with 'duplicate'. Applied live via migration
+-- 20260717061500_bug_reports_duplicate_machinery.sql.
+ALTER TABLE public.bug_reports
+  ADD COLUMN IF NOT EXISTS duplicate_of UUID NULL REFERENCES public.bug_reports(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_bug_reports_duplicate_of
+  ON public.bug_reports (duplicate_of) WHERE duplicate_of IS NOT NULL;
+
 -- Bug Report Messages
 CREATE TABLE IF NOT EXISTS public.bug_report_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

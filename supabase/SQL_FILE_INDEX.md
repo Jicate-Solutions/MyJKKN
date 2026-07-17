@@ -2006,3 +2006,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - 1 pg_cron job: `ai-external-jobs-retention` (daily 03:38) purges external rows (app_id IS NOT NULL) older than 90 days — Director-confirmed retention policy 2026-07-16.
 - Columns+fns+recipes APPLIED LIVE 2026-07-16 after 7-assertion BEGIN…ROLLBACK validation on prod (unknown-task refusal, internal-task-leak refusal, null-app_id refusal, priority-500 stamp, cross-app result isolation, anon lockout, dedupe). Consumer: `app/api/b2a/ai/run` (module `ai`).
 - Location: `supabase/migrations/20260716064500_ai_external_door.sql`.
+
+### 2026-07-17 — Bug reports duplicate machinery (PR 1 of bug-triage epic)
+- 1 column: `bug_reports.duplicate_of` (uuid self-FK → bug_reports.id, ON DELETE SET NULL; partial index `idx_bug_reports_duplicate_of`). Non-null iff the report is parked under a canonical bug.
+- 1 CHECK widened: `bug_reports_status_check` now also allows `'duplicate'` (was new/seen/in_progress/resolved/wont_fix). ⚠️ TS-union sweep done in the same PR: types/bugs.ts BugReportStatus + all 3 statusConfig Records + zod enums + filter/export selects (per feedback_db_check_widening_needs_ts_union_sweep).
+- View `bug_reports_with_details` recreated (columns APPENDED only): + `duplicate_of`, + `duplicate_of_display_id` (canonical's BUG-ID), + `duplicate_count` (reports pointing at this row).
+- Behavior (API layer, no new fns): resolving/wont_fixing a canonical cascades to its `status='duplicate'` children (resolved cascade emails each duplicate's reporter via the existing Resend service + bug_report_email_logs); reporter reopening a duplicate reopens the CANONICAL; chains flatten on write; a bug with children cannot itself become a duplicate (cycle-proof).
+- APPLIED LIVE 2026-07-17 after 4-assertion BEGIN…ROLLBACK validation on prod (view canonical-id + count, cascade shape, FK). Location: `supabase/migrations/20260717061500_bug_reports_duplicate_machinery.sql`.

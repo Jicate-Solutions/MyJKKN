@@ -27,7 +27,8 @@ import {
   XCircle,
   Eye,
   RefreshCw,
-  Download
+  Download,
+  Copy
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -73,6 +74,11 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
       colorClass:
         'bg-red-100 text-red-800 hover:bg-red-200 hover:text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
       icon: XCircle
+    },
+    duplicate: {
+      colorClass:
+        'bg-purple-100 text-purple-800 hover:bg-purple-200 hover:text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200',
+      icon: Copy
     }
   };
 

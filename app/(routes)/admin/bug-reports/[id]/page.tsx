@@ -9,8 +9,10 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   useBugReport,
   useUpdateBugReportStatus,
-  useDeleteBugReport
+  useDeleteBugReport,
+  useBugDuplicates
 } from '@/hooks/bug-reports/use-bug-reports';
+import { MarkDuplicateDialog } from '../_components/mark-duplicate-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -104,6 +106,12 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
       className:
         'bg-red-100 text-red-800 border-red-200 dark:bg-red-900 dark:text-red-200',
       icon: XCircle
+    },
+    duplicate: {
+      variant: 'outline' as const,
+      className:
+        'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900 dark:text-purple-200',
+      icon: Copy
     }
   } as const;
 
@@ -146,8 +154,13 @@ export default function BugReportDetailsPage() {
   const { isSuperAdmin } = usePermissions();
   const [isDownloading, setIsDownloading] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
 
   const { data: report, isLoading, error, refetch } = useBugReport(id);
+  const { data: duplicatesList } = useBugDuplicates(
+    id,
+    (report?.duplicate_count ?? 0) > 0
+  );
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const supabase = createClientSupabaseClient();
@@ -403,6 +416,32 @@ export default function BugReportDetailsPage() {
             </div>
           </div>
 
+          {/* Duplicate banner — this report is parked under a canonical bug */}
+          {report.status === 'duplicate' && report.duplicate_of && (
+            <div className='flex flex-wrap items-center gap-3 rounded-lg border border-purple-300 bg-purple-50 dark:bg-purple-950 dark:border-purple-800 p-4'>
+              <Copy className='w-5 h-5 text-purple-700 dark:text-purple-300 shrink-0' />
+              <div className='text-sm text-purple-900 dark:text-purple-100'>
+                This report is a duplicate of{' '}
+                <Link
+                  href={`/admin/bug-reports/${report.duplicate_of}`}
+                  className='font-semibold underline underline-offset-2'
+                >
+                  {report.duplicate_of_display_id ?? 'the original report'}
+                </Link>
+                . It resolves automatically when the original is resolved.
+              </div>
+              <Button
+                size='sm'
+                variant='outline'
+                className='ml-auto'
+                onClick={() => handleStatusChange('seen')}
+                disabled={updateStatusMutation.isPending}
+              >
+                Not a duplicate
+              </Button>
+            </div>
+          )}
+
           {/* Main Content Grid */}
           <div className='grid grid-cols-1 xl:grid-cols-3 gap-6'>
             {/* Report Content - Takes up more space on larger screens */}
@@ -645,8 +684,57 @@ export default function BugReportDetailsPage() {
                         <XCircle className='w-4 h-4 mr-2' />
                         Won&apos;t Fix
                       </Button>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => setDuplicateDialogOpen(true)}
+                        disabled={
+                          updateStatusMutation.isPending ||
+                          report.status === 'duplicate'
+                        }
+                        className='justify-start border-purple-300 text-purple-700 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-950'
+                      >
+                        <Copy className='w-4 h-4 mr-2' />
+                        Mark as Duplicate…
+                      </Button>
                     </div>
                   </div>
+
+                  {(report.duplicate_count ?? 0) > 0 && (
+                    <>
+                      <Separator />
+                      <div>
+                        <label className='text-sm font-medium text-muted-foreground mb-3 block'>
+                          Duplicates of this report ({report.duplicate_count})
+                        </label>
+                        <div className='space-y-2'>
+                          {(duplicatesList ?? []).map((dup) => (
+                            <Link
+                              key={dup.id}
+                              href={`/admin/bug-reports/${dup.id}`}
+                              className='block rounded-md border p-2 hover:bg-muted/60 transition-colors'
+                            >
+                              <div className='flex items-center justify-between gap-2'>
+                                <span className='font-mono text-xs font-semibold'>
+                                  {dup.display_id}
+                                </span>
+                                <span className='text-[10px] text-muted-foreground'>
+                                  {dup.reporter_name ?? 'Unknown reporter'}
+                                </span>
+                              </div>
+                              <p className='text-xs text-muted-foreground line-clamp-1 mt-0.5'>
+                                {dup.description}
+                              </p>
+                            </Link>
+                          ))}
+                        </div>
+                        <p className='text-[11px] text-muted-foreground mt-2'>
+                          Resolving this report resolves all duplicates and
+                          emails every reporter.
+                        </p>
+                      </div>
+                    </>
+                  )}
 
                   {isSuperAdmin && (
                     <>
@@ -840,6 +928,14 @@ export default function BugReportDetailsPage() {
             <BugReportChat reportId={id} reportStatus={report.status} />
           </div>
         </div>
+
+        {/* Mark-as-Duplicate Dialog */}
+        <MarkDuplicateDialog
+          open={duplicateDialogOpen}
+          onOpenChange={setDuplicateDialogOpen}
+          sourceBug={report}
+          onMarked={() => refetch()}
+        />
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog

@@ -3,7 +3,8 @@ export type BugReportStatus =
   | 'seen'
   | 'in_progress'
   | 'resolved'
-  | 'wont_fix';
+  | 'wont_fix'
+  | 'duplicate';
 
 export type BugReportCategory =
   | 'bug'
@@ -29,6 +30,12 @@ export interface BugReport {
   console_logs?: any[] | null;
   status: BugReportStatus;
   resolved_at?: string | null;
+  /** Canonical bug this report duplicates (self-FK). Non-null iff marked duplicate. */
+  duplicate_of?: string | null;
+  /** display_id (BUG-xxxxx) of the canonical bug, from bug_reports_with_details. */
+  duplicate_of_display_id?: string | null;
+  /** How many open/resolved reports point at THIS bug as their canonical. */
+  duplicate_count?: number;
   similar_count?: number;
   metadata?: {
     browser?: string;
