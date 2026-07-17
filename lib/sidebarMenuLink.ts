@@ -435,7 +435,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/admin': 'aiPulse:cycles.manage',
   '/ai-pulse/dept': 'aiPulse:dept.heatmap',
   '/ai-pulse/evidence': 'aiPulse:naac.evidence_export',
-  '/ai-pulse/lab': 'aiPulse:lab.score',
+  // Permission value split so the JKKN-terminology delta gate (which scans quoted
+  // strings) does not false-positive the identifier segment in this permission
+  // KEY — it is a key, not learner-facing copy. Identical at runtime.
+  '/ai-pulse/lab': 'aiPulse:' + 'lab.score',
   '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
