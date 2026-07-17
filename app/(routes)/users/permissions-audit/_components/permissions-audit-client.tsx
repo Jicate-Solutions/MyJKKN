@@ -99,7 +99,7 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
-          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-6 lg:grid-cols-11'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-11 lg:gap-0 lg:overflow-visible'>
             <TabsTrigger value='ask'>Ask</TabsTrigger>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
