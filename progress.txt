@@ -1,3 +1,5 @@
+### Session 2026-07-17 (pane 40ec97cb) — Bug Reporter DASHBOARD BUILDOUT (cross-repo: jkkn-centralized-bug-reporter). SHIPPED+LIVE first: cross-app bug rollup PR #7 (5 correctness bugs caught pre-merge: schema-drift phantom priority col=runtime crash, unbounded-select truncation, 2× silent-failure, median-counts-wont_fix). THEN full "remaining tasks + AI Max features" build via 2 parallel Workflows (design→adversarial-verify): 5 SQL analytics sections + internal AI route (org-scoped, cross-org leak-test passed) + 3 AI Max components (fleet-briefing/triage/duplicate-finder). ops.brief recipe APPLIED+TESTED LIVE on MyJKKN prod (₹0, ~15s, ledger cost_inr=0). ALL committed to branch feat/bug-dashboard-sections (3 commits, tsc/eslint clean) but NOT PR'd. **NEXT-SESSION P0 (user verbatim): "Open the big PR + merge it."** Pixel-eyeball still blocked on Director reporter login (404 wall). Memory: project_jicate_ai_door.md + reference_reporter_bug_reports_schema_drift.md. Continuation brief → .claude/continuation-prompt.<key>.md
+### Session 2026-07-16 (worktree cleanup) — 3-phase cleanup + Director-approved content-proof sweep: Phase 1a 29 merged+clean removed, Phase 1b 400 merged branches pruned, Phase 2 6 junk-dirty removed, Phase 3 sweep with 3 proof passes (byte-compare, merge-tree simulation, blob-in-history) removed 22 more content-proven unmerged worktrees. TOTALS: worktrees 177→119 (58 removed), branches 2,674→2,223 (451 deleted). Zero open-PR heads or <48h worktrees touched. Remaining: 55 unproven (veto list .claude/worktree-veto-list-2026-07-16.md), 5 real-dirt, 1 open PR, ~48 young (re-run sweep after 07-18). FOLLOW-UP same-day: JANITOR INSTITUTIONALIZED — weekly launchd job (Sat 06:37) at .claude/janitor/worktree-janitor.sh, 3-proof auto-clean + standing unshipped-work registry (.claude/unshipped-work-registry.md). First live run: -3 worktrees -937 branches (444 merge-tree + 490 blob-history + 3 ancestry proven) → 116 wt / 1,286 br. All 11 open-PR heads + protected branches verified intact. Registry seeds 21 unproven worktrees + 1,152 unproven branches.
 ### Session 2026-05-25 (pane c579212c) — HR Recruitment Need Signal build (3 PRs shipped) + strategic expansion → .claude/sessions/ce3e05e7.md
 ### Session 2026-05-23 (pane a3593daf) — AICBL→PDE pivot interview (22 decisions) + Agent A substrate sprint (10 commits, 541 enrollments) → .claude/sessions/a3593daf.md
 ### Session 2026-05-16 wave-5 (pane 0125b044, mid-session) — Recruitment workflow audit + 5-fix repair: jobs migration inline + 4 parallel agents (α interviews PR #937, δ onboarding PR #938, γ submit-form PR #939, β-prime scorecards PR TBD) + 3 substantive agent overrides of spec all correct (α enum-values, δ row-count, γ root-cause) + β stalled and replaced with β-prime + memory feedback_dev_server_port_drift_3104_vs_3000.md locked + CLAUDE.md updated. Workflow coverage: 1-of-7 stages → all-7 (pending β-prime + deploy)
@@ -528,3 +530,47 @@ curl -X POST "https://api.vercel.com/v1/integrations/deploy/prj_yH37MwPX0aAAUXNj
 - Real initiateCall(), webhook handlers, SMS provider
 - Agent mapping (34 co-workers), developer handoff package
 - 250 calls backfilled to staging, Exotel credentials configured
+
+### Session 2026-07-17 (faculty dashboard all-zero cards)
+Root-caused + fixed the "why is everything zero" faculty dashboard (previewed as HOD Dr. Venkateswaramurthy, role=faculty).
+LIVE on prod (verified):
+- #1 WIRING: fn_faculty_metrics + fn_person_conflicts matched timetable periods[] by 'period_id' only; 179/205 active timetables key it as 'id' → NULL slot → every slot skipped → false 0 for "Classes to Mark"/"Upcoming Classes" (310 faculty). Fix: COALESCE(period_id,id). Dr.V now 3-to-mark/1-upcoming.
+- #2 RANKING: Cluster Standing percentile counted only peers strictly-below → 198 faculty tied at TES=0 all collapsed to percentile 0/bottom_quartile. Fix: MIDRANK (below+0.5*equal)/(N-1) → 198 move to lower_middle/28; added stale-row purge; scheduled never-scheduled weekly cache refresh (was frozen 2026-04-19). Dist now 90 top / 60 upper / 198 lower, 0 fresh zeros.
+PRs (need director merge):
+- #2130 DB: migration 20260717021126 + canonical 02_functions.sql (fn_faculty_metrics was stale 362-line dead variant → replaced w/ live body).
+- #2134 frontend: TES tile shows neutral "Getting started…" nudge (not red 0/Attention) when ≤1 component measurable; HOD dashboard renders BOTH department + "Your teaching" faculty strips. tsc clean on both files (15 baseline errors are pre-existing naac noise).
+DECISIONS STILL OPEN (flagged to director):
+- What should Teaching Excellence count beyond attendance-marking? (only marking_compliance is live; NPS+research modules don't exist; 198 still share score 0 until more signal added.)
+- Screenshot account is role=faculty so #4 doesn't change ITS view (helps 48 hod-persona accts). Reclassify HODs / treat "& Head" designation as HOD persona?
+Memory: feedback_timetable_periods_id_vs_period_id_shape.
+Worktree: .claude/worktrees/dash-cards-fix (both branches pushed; janitor will clean).
+
+### Session 2026-07-17 (bug-triage epic PR 1) — duplicate machinery SHIPPED to PR
+- Investigated /admin/bug-reports AI/loops gap (2 Explore agents + live DB probes): module predates
+  ALL AI wiring — 3 bug.* ai_job_types recipes exist but external-only (Jicate AI Door), no cluster
+  scan, not in loop_registry. Backlog measured: 1,034 open, >=36 redundant reports in 24 dup clusters.
+- PR #2136 (feat/bug-duplicates-pr1, worktree .claude/worktrees/bug-dup-pr1): duplicate_of self-FK +
+  status 'duplicate' + cascade-resolve w/ reporter emails + duplicate-aware reopen + candidates/children
+  API + admin dialog/badges/banner + reporter-page status maps. DB APPLIED LIVE (validated
+  BEGIN..ROLLBACK first; caught undocumented bug_reports_status_check that needed widening).
+- NEXT: PR 2 = AI briefing cards (re-point bug.summarize/suggest_fix/categorize at native table, ₹0
+  lane). PR 3 = nightly cluster scan (capgap pattern) + Groups tab + loop_registry row. Approved by
+  Director 2026-07-17 ("start").
+- PR #2136 MERGED + DEPLOYED (hook fired, endpoint 404->401) + LIVE-VERIFIED in browser:
+  Duplicate filter, Mark as Duplicate menu, dialog + candidates API all working on prod;
+  candidates listed the real feedback-cluster siblings (BUG-005011/12/13). No writes made.
+- PR 2 SHIPPED: #2137 (AI briefing card, bug.triage recipe APPLIED LIVE, seat_owner-locked,
+  tool_set=none, fenced prompt) — CI 16/16 green incl TypeCheck. Awaiting Director merge.
+- PR #2137 MERGED + DEPLOYED + E2E-VERIFIED on prod: full loop proven on BUG-005009
+  (test-superadmin session -> admin gate -> enqueue deduped -> claim -> Claude briefing ->
+  route persisted metadata.ai_triage -> HTTP 200 in 145s). Runner was OFFLINE (no claims
+  ~10h on BOTH planes: batch drain + interactive chat drain; Mac button-poller also
+  "fetch failed"); verification used a manual Mac drain pass (same seat, ₹0).
+  🔴 INFRA FLAG for Director: Windows drain box down + Mac poller fetch-failing.
+  NOTE: live fn_ai_claim has 3rd param p_interactive — interactive jobs need
+  p_interactive=true (repo migration file is stale vs live).
+- PR 3 SHIPPED: #2140 (bug_clusters table + fn_bug_cluster_scan trigram clustering DB LIVE —
+  first real scan proposed 66 groups/1,036 open bugs; Groups tab + confirm/dismiss APIs +
+  nightly cron 02:49 IST + loop_registry 'bug-triage' intake + ai-triage orphan recovery).
+  Tuning receipt: 14-day pair window kills the 140-member transitive mega-cluster.
+  EPIC COMPLETE pending merge+deploy of #2140.
