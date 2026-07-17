@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -56,12 +57,15 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePhoneValidationStats, useInvalidPhones, usePhoneIssueBreakdown } from "@/hooks/admission/use-data-quality";
 
+const PHONE_VALIDATION_TABS = ["invalid", "breakdown"] as const;
+
 function PhoneValidationPageContent() {
   const [isValidating, setIsValidating] = useState(false);
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterIssue, setFilterIssue] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
+  const [activeTab, setActiveTab] = useTabParam("invalid", PHONE_VALIDATION_TABS);
 
   const { data: phoneStats, isLoading: statsLoading, refetch: refetchStats } = usePhoneValidationStats();
   const { data: invalidPhones, isLoading: phonesLoading, refetch: refetchPhones } = useInvalidPhones({ search: searchTerm, issueFilter: filterIssue });
@@ -258,7 +262,7 @@ function PhoneValidationPageContent() {
       </div>
 
       {/* Main Content */}
-      <Tabs defaultValue="invalid">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="invalid" className="gap-2">
             <PhoneOff className="h-4 w-4" />
@@ -490,9 +494,12 @@ function PhoneValidationPageContent() {
 }
 
 export default function PhoneValidationPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <PhoneValidationPageContent />
+      <Suspense fallback={null}>
+        <PhoneValidationPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

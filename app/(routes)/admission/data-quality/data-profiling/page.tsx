@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -42,11 +42,14 @@ import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useDataProfilingMetrics, useFieldAnalysis, useDataIssues } from "@/hooks/admission/use-data-quality";
+
+const DATA_PROFILING_TABS = ["overview", "issues"] as const;
 
 function DataProfilingPageContent() {
   const [isRunning, setIsRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useTabParam("overview", DATA_PROFILING_TABS);
   const [isExporting, setIsExporting] = useState(false);
 
   const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useDataProfilingMetrics();
@@ -424,7 +427,9 @@ function DataProfilingPageContent() {
 export default function DataProfilingPage() {
   return (
     <AdmissionErrorBoundary>
-      <DataProfilingPageContent />
+      <Suspense fallback={null}>
+        <DataProfilingPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

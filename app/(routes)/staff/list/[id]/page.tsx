@@ -3,7 +3,7 @@
 // app/(routes)/staff/[id]/page.tsx
 
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -24,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { StaffAvatar } from '@/components/staff/staff-avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -33,9 +34,19 @@ interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
+const STAFF_EXTENDED_PROFILE_TABS = [
+  'academic',
+  'experience',
+  'research',
+  'achievements',
+  'mentoring',
+  'faqs'
+] as const;
+
+function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   const { id } = use(params);
   const router = useRouter();
+  const [activeTab, setActiveTab] = useTabParam('academic', STAFF_EXTENDED_PROFILE_TABS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
@@ -336,7 +347,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
               <CardTitle>Extended Profile</CardTitle>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue='academic'>
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className='flex-wrap h-auto'>
                   <TabsTrigger value='academic'>Academic</TabsTrigger>
                   <TabsTrigger value='experience'>Experience</TabsTrigger>
@@ -504,6 +515,15 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function StaffDetailsPage(props: StaffDetailsPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <StaffDetailsPageInner {...props} />
+    </Suspense>
   );
 }
 

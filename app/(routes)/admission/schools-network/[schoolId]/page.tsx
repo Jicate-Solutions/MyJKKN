@@ -7,7 +7,7 @@
  * Mirrors `app/(routes)/admission/consultants/[id]/page.tsx` shape.
  */
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
@@ -58,6 +58,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 import {
   getSchoolDetail,
@@ -112,7 +113,17 @@ function formatDateTime(iso: string): string {
   });
 }
 
+const SCHOOL_DETAIL_TABS = [
+  'overview',
+  'sessions',
+  'contributions',
+  'contacts',
+  'owners',
+  'learners'
+] as const;
+
 function SchoolDetailContent({ schoolId }: { schoolId: string }) {
+  const [activeTab, setActiveTab] = useTabParam('overview', SCHOOL_DETAIL_TABS);
   const detailQuery = useQuery({
     queryKey: ['schools-network', 'detail', schoolId],
     queryFn: () => getSchoolDetail(schoolId),
@@ -281,7 +292,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
         </Card>
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="sessions">
@@ -795,7 +806,9 @@ export default function SchoolDetailPage() {
           </BreadcrumbList>
         </Breadcrumb>
         <div className="mt-6">
-          <SchoolDetailContent schoolId={schoolId} />
+          <Suspense fallback={null}>
+            <SchoolDetailContent schoolId={schoolId} />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

@@ -7,7 +7,7 @@
  * Admin users can create/upload templates; all HR users can browse/download.
  */
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import {
   FileText,
   FileSpreadsheet,
@@ -54,6 +54,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { useTemplates, useCreateTemplate, useIncrementDownload } from '@/hooks/hr/recruitment-need/use-templates';
 import type { HRTemplate, TemplateCategory, TemplateFileType } from '@/types/hr-templates';
 import { TEMPLATE_CATEGORIES } from '@/types/hr-templates';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+// Tab values: 'all' plus each template category value (from TEMPLATE_CATEGORIES).
+const HR_TEMPLATE_TABS = [
+  'all',
+  ...TEMPLATE_CATEGORIES.map((c) => c.value),
+] as const;
 
 // ─── File type icon mapping ─────────────────────────────────────────────────────
 
@@ -314,8 +321,8 @@ function CreateTemplateDialog() {
 
 // ─── Main Page ──────────────────────────────────────────────────────────────────
 
-export default function HRTemplatesPage() {
-  const [activeTab, setActiveTab] = useState<string>('all');
+function HRTemplatesPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('all', HR_TEMPLATE_TABS);
   const [search, setSearch] = useState('');
 
   const categoryFilter =
@@ -455,5 +462,14 @@ export default function HRTemplatesPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function HRTemplatesPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <HRTemplatesPageInner />
+    </Suspense>
   );
 }
