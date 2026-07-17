@@ -107,19 +107,19 @@ export default async function AiPulseLearnerPage() {
   const gold = await AiPulseLearnerService.getLatestGoldServer();
 
   return (
-    <ContentLayout title="My Pulse">
+    <ContentLayout title="My AI Pulse">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'AI Pulse', href: '/ai-pulse' },
-          { label: 'My Pulse' },
+          { label: 'My AI Pulse' },
         ]}
       />
 
       <div className="space-y-6 mt-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold py-1">My Pulse</h1>
+            <h1 className="text-2xl font-bold py-1">My AI Pulse</h1>
             <p className="text-sm text-muted-foreground">
               Your weekly AI Pulse cycle, team, attendance, and submissions.
             </p>
