@@ -72,6 +72,7 @@ import {
 } from 'lucide-react';
 import { BugReportChat } from '../_components/bug-report-chat';
 import { ConsoleOutput } from '../_components/console-output';
+import { AiBriefingCard } from '../_components/ai-briefing-card';
 import toast from 'react-hot-toast';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 
@@ -446,6 +447,9 @@ export default function BugReportDetailsPage() {
           <div className='grid grid-cols-1 xl:grid-cols-3 gap-6'>
             {/* Report Content - Takes up more space on larger screens */}
             <div className='xl:col-span-2 space-y-6'>
+              {/* AI Briefing Card — ₹0 Max-lane developer briefing */}
+              <AiBriefingCard report={report} onGenerated={() => refetch()} />
+
               {/* Description Card */}
               <Card>
                 <CardHeader>
