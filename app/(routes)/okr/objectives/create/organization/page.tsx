@@ -27,7 +27,8 @@
  * 11. Contingency - Plan B if things go off-track
  */
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -232,13 +233,15 @@ const getDefaultValues = (): OrganizationOKRFormValues => {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function OrganizationOKRCreatePage() {
+const ORGANIZATION_OKR_TABS = ['section1', 'section2', 'section3', 'section4', 'section5', 'section6'] as const;
+
+function OrganizationOKRCreatePageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const createObjective = useCreateObjective();
   const createKeyResult = useCreateKeyResult();
 
-  const [activeTab, setActiveTab] = useState('section1');
+  const [activeTab, setActiveTab] = useTabParam('section1', ORGANIZATION_OKR_TABS);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
 
@@ -1791,5 +1794,14 @@ export default function OrganizationOKRCreatePage() {
         </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function OrganizationOKRCreatePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <OrganizationOKRCreatePageInner />
+    </Suspense>
   );
 }

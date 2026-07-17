@@ -15,7 +15,7 @@
  *       integration PR, NOT here.
  */
 
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -30,17 +30,20 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckCircle2, GitBranch, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ApprovalRequestList } from '@/components/projects/approvals/approval-request-list';
 import { WorkflowConfigTable } from '@/components/projects/approvals/workflow-config-table';
 
 type ApprovalsTab = 'requests' | 'workflows';
 
-export default function ProjectApprovalsPage() {
+const APPROVALS_TABS = ['requests', 'workflows'] as const;
+
+function ProjectApprovalsPageInner() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id ?? '';
 
   const { data: project, isLoading } = useProject(projectId);
-  const [tab, setTab] = useState<ApprovalsTab>('requests');
+  const [tab, setTab] = useTabParam<ApprovalsTab>('requests', APPROVALS_TABS);
 
   const projectTitle = project?.title ?? 'Project';
 
@@ -109,5 +112,14 @@ export default function ProjectApprovalsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ProjectApprovalsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectApprovalsPageInner />
+    </Suspense>
   );
 }

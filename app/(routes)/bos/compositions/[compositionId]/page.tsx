@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, use, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, use, useEffect, useMemo, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -365,8 +366,11 @@ interface CompositionDetailPageProps {
   params: Promise<{ compositionId: string }>;
 }
 
-export default function CompositionDetailPage({ params }: CompositionDetailPageProps) {
+const COMPOSITION_DETAIL_TABS = ['members', 'programmes', 'outcomes'] as const;
+
+function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
   const { compositionId } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('members', COMPOSITION_DETAIL_TABS);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
   const boardScope = useBosBoardScope();
@@ -585,7 +589,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       </Card>
 
       {/* ── Tabbed sections ─────────────────────────────────────────────── */}
-      <Tabs defaultValue='members'>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value='members'>
             Members
@@ -761,5 +765,14 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
         />
       )}
     </div>
+  );
+}
+
+export default function CompositionDetailPage(props: CompositionDetailPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CompositionDetailPageInner {...props} />
+    </Suspense>
   );
 }
