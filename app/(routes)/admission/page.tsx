@@ -92,7 +92,7 @@ export default function AdmissionHubPage() {
           Container matches ContentLayout's inner padding so the strip lines
           up with the page content below. */}
       <div className='container px-4 sm:px-8 pt-4'>
-        <TabsList className='grid w-full grid-cols-4 sm:max-w-2xl'>
+        <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:max-w-2xl sm:gap-0 sm:overflow-visible'>
           <TabsTrigger value='overview'>Overview</TabsTrigger>
           <TabsTrigger value='group'>Group</TabsTrigger>
           <TabsTrigger value='funnel'>Funnel</TabsTrigger>

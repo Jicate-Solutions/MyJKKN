@@ -193,7 +193,7 @@ function EvaluatePageInner({ params }: { params: Promise<{ id: string }> }) {
             />
 
             <Tabs value={tab} onValueChange={v => setTab(v as TabValue)}>
-              <TabsList className="grid grid-cols-4 w-full">
+              <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
                 <TabsTrigger value="pending">Pending ({pendingTeams.length})</TabsTrigger>
                 <TabsTrigger value="verified">Done ({verifiedTeams.length})</TabsTrigger>
                 <TabsTrigger

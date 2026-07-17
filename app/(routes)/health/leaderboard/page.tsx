@@ -486,7 +486,7 @@ function HealthLeaderboardInner() {
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as LeaderboardType)}
         >
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible">
             {(Object.entries(tabMeta) as [LeaderboardType, typeof tabMeta[LeaderboardType]][]).map(
               ([key, meta]) => {
                 const Icon = meta.icon;

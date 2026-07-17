@@ -252,7 +252,7 @@ function AttendanceDashboardContent() {
 
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-4'>
-          <TabsList className='grid w-full grid-cols-3'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='statistics' className='flex items-center gap-2'>
               <TrendingUp className='h-4 w-4' />
               {isHistoricalData

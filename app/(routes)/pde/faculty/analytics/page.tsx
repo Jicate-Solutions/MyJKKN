@@ -122,7 +122,7 @@ function FacultyAnalyticsPageInner() {
 
         {/* Tab Navigation */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="overview">
               <BarChart3 className="h-4 w-4 mr-1" />
               Overview
