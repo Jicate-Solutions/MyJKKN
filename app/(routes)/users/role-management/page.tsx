@@ -244,7 +244,7 @@ function RoleManagementPageInner() {
         </Alert>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-          <TabsList className='grid w-full grid-cols-3'>
+          <TabsList className='grid h-auto w-full grid-cols-1 gap-1 sm:h-9 sm:grid-cols-3 sm:gap-0'>
             <TabsTrigger value='roles' className='flex items-center gap-2'>
               <Users className='h-4 w-4' />
               Role Management
