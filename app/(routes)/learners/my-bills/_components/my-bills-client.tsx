@@ -30,6 +30,7 @@ import type { MyBill, MyBillsData, MyReceipt } from '@/types/billing';
 import type { StudentBill } from '@/types/billing-schedule';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { FEE_HEAD_LABELS, fmtDate, groupByYear, inr, isOverdue } from './shared';
 import { ReceiptDialog, downloadMyReceiptPdf, type ReceiptPdfContext } from './receipt-dialog';
 
@@ -38,6 +39,8 @@ const MyBillsAnalytics = dynamic(
   () => import('./analytics-tab').then((m) => m.MyBillsAnalytics),
   { loading: () => <Skeleton className='h-[420px] w-full' /> }
 );
+
+const MY_BILLS_TABS = ['outstanding', 'paid', 'analytics'] as const;
 
 interface MyBillsClientProps {
   data: MyBillsData;
@@ -59,6 +62,7 @@ export function MyBillsClient({
   institutionName,
 }: MyBillsClientProps) {
   const { totalDue, totalBilled, totalPaid, bills, receipts } = data;
+  const [activeTab, setActiveTab] = useTabParam('outstanding', MY_BILLS_TABS);
   const [viewReceipt, setViewReceipt] = useState<MyReceipt | null>(null);
   // Bill the student clicked "Pay" on — the modal opens scoped to its category.
   const [payBill, setPayBill] = useState<MyBill | null>(null);
@@ -177,7 +181,7 @@ export function MyBillsClient({
       </Card>
 
       {/* ── Tabs ───────────────────────────────────────────────────────── */}
-      <Tabs defaultValue='outstanding' className='w-full'>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
         <TabsList className='grid h-11 w-full grid-cols-3 sm:inline-flex sm:h-10 sm:w-auto'>
           <TabsTrigger value='outstanding' className='gap-1.5 text-xs sm:text-sm'>
             <Wallet className='h-4 w-4 shrink-0' aria-hidden='true' />

@@ -31,6 +31,7 @@ import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-se
 import { getDashboardPersona, resolvePersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
+import { LiveAgencyCard } from '@/components/dashboard/live-agency-card';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
 import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
 import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
@@ -388,7 +389,21 @@ export default async function DashboardV2Page({
               {isDirector && <LiveHeroStrip />}
               {isCounselor && <LiveCounselorHero />}
               {isFaculty && <LiveFacultyHero />}
-              {isHod && <LiveHodHero />}
+              {/* HODs see BOTH: their department cards AND their own teaching
+                  cards (most HODs still teach). Department strip first — it is
+                  their primary lane. LiveFacultyHero degrades to empty tiles if
+                  the HOD has no staff timetable. */}
+              {isHod && (
+                <div className='space-y-4'>
+                  <LiveHodHero />
+                  <div className='space-y-2'>
+                    <h3 className='text-xs font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400'>
+                      Your teaching
+                    </h3>
+                    <LiveFacultyHero />
+                  </div>
+                </div>
+              )}
               {isPrincipal && <LivePrincipalHero />}
               {isAccounts && <LiveAccountsHero />}
               {isStudent && <LiveStudentHero />}
@@ -396,6 +411,35 @@ export default async function DashboardV2Page({
             </Suspense>
           </DashboardErrorBoundary>
         )}
+
+        {/* Personal AI Agency card (AI Agency Score, Part 5 · S2) — gives senior
+            staff (faculty / hod / principal / accounts) AND admin staff who
+            collapse to the 'limited' persona (staff / ceo / eao / coo / warden …)
+            a personal recognition card. Recognition/visibility only: no ranking,
+            no appraisal wording.
+
+            🛑 rule #27: this is its OWN showsWidget('ai_agency') block — it is
+            deliberately NOT nested under the 'hero' block above, because the
+            'limited' persona (the exact admin-staff population targeted here) has
+            NO 'hero' in its widget set. Nesting would make the card silently never
+            render for admin staff. The two gates are independent: the persona
+            gate (isFaculty || … || isLimited) prevents cross-scope surfaces, and
+            showsWidget('ai_agency') is the Director-controlled cosmetic trim.
+
+            Reuses the learn AgencyIndexCard unchanged; it renders an empty state
+            until the AI-Pulse → agency bridge policy is flipped — an absent score
+            is NOT a 0. Silent boundary: a non-essential recognition card must
+            never break the dashboard. */}
+        {(isFaculty || isHod || isPrincipal || isAccounts || isLimited) &&
+          showsWidget('ai_agency') && (
+            <DashboardErrorBoundary label='AI Agency' mode='silent'>
+              <div className='max-w-xl'>
+                <Suspense fallback={null}>
+                  <LiveAgencyCard />
+                </Suspense>
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
         {/* UDYOG application requirement — student self-service (BUG-004075, 4a).
             Client island; self-hides when the learner has no UDYOG obligation.

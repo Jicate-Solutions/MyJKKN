@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Dialog,
   DialogContent,
@@ -572,7 +573,10 @@ function KpiCard({
 
 // ─── Main Dashboard ─────────────────────────────────────────────────────────
 
+const FINANCE_TABS = ['grants', 'budgets', 'revenue', 'audits'] as const;
+
 export function FinanceDashboard() {
+  const [activeTab, setActiveTab] = useTabParam('grants', FINANCE_TABS);
   const [fiscalYearFilter, setFiscalYearFilter] = useState<string>('');
 
   const { data: grantsRaw, isLoading: grantsLoading } = useGrants();
@@ -660,7 +664,7 @@ export function FinanceDashboard() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="grants" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="grants">Grants</TabsTrigger>
           <TabsTrigger value="budgets">Budgets</TabsTrigger>

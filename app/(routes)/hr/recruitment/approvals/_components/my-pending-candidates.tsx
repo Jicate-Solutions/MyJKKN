@@ -166,7 +166,12 @@ function PendingRow({ candidate }: { candidate: HRRecruitmentCandidate }) {
       {/* Identity + step */}
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">{candidate.name}</span>
+          <Link
+            href={`/hr/recruitment/candidates/${candidate.id}`}
+            className="text-sm font-semibold text-foreground hover:text-primary hover:underline"
+          >
+            {candidate.name}
+          </Link>
           {candidate.is_emergency && (
             <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-300 text-[10px] px-1.5 py-0">
               Urgent

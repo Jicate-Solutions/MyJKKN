@@ -9,6 +9,7 @@
 // ============================================
 
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
@@ -23,6 +24,9 @@ import { ActivitiesTab } from '../_components/activities-tab';
 import { ChecklistTab } from '../_components/checklist-tab';
 import { Loader2, FileText, Activity as ActivityIcon, ClipboardCheck } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const EDIT_ENQUIRY_TABS = ['details', 'activities', 'checklist'] as const;
 
 /**
  * EditEnquiryPage Component
@@ -38,7 +42,7 @@ import { usePermissions } from '@/hooks/use-permissions';
  * Uses useParams() instead of use(params) to avoid Next.js DRP placeholders
  * that appear during client-side navigation with cacheComponents enabled.
  */
-export default function EditEnquiryPage() {
+function EditEnquiryPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -69,6 +73,7 @@ export default function EditEnquiryPage() {
   const canSeeChecklist =
     isSuperAdmin || canAccess('admission.enquiries.checklist', 'view');
   const showTabs = canSeeActivities || canSeeChecklist;
+  const [activeTab, setActiveTab] = useTabParam('details', EDIT_ENQUIRY_TABS);
 
   // Loading state — isPending covers both active fetching AND disabled query
   // (e.g., when id is a DRP placeholder like %%drp:id:xxx%%)
@@ -126,7 +131,7 @@ export default function EditEnquiryPage() {
             see both Details and Activities. Counselors / read-only viewers
             see only Details (no tab UI rendered). */}
         {showTabs ? (
-          <Tabs defaultValue="details" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList>
               <TabsTrigger value="details" className="gap-2">
                 <FileText className="h-4 w-4" />
@@ -180,5 +185,14 @@ export default function EditEnquiryPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function EditEnquiryPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <EditEnquiryPageInner />
+    </Suspense>
   );
 }

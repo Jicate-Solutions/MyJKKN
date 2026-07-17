@@ -11,7 +11,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md (F1, F13).
  */
 
-import { use, useState } from 'react';
+import { Suspense, use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Pencil } from 'lucide-react';
 
@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { BoardView } from '@/components/projects/board/board-view';
 import { ProjectFormDialog } from '../_components/project-form-dialog';
 import { ProjectDetailNav } from './_components/project-detail-nav';
@@ -49,13 +50,16 @@ function formatDate(value: string | null): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function ProjectDetailPage({
+const PROJECT_DETAIL_TABS = ['tasks', 'overview'] as const;
+
+function ProjectDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
   const { data: project, isLoading, isError, error } = useProject(id);
+  const [activeTab, setActiveTab] = useTabParam('tasks', PROJECT_DETAIL_TABS);
   const [editOpen, setEditOpen] = useState(false);
 
   return (
@@ -152,7 +156,7 @@ export default function ProjectDetailPage({
 
           {/* Tabs */}
           <div className="mt-6">
-            <Tabs defaultValue="tasks">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="tasks">Tasks</TabsTrigger>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -202,5 +206,16 @@ export default function ProjectDetailPage({
         </>
       )}
     </ContentLayout>
+  );
+}
+
+export default function ProjectDetailPage(props: {
+  params: Promise<{ id: string }>;
+}) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectDetailPageInner {...props} />
+    </Suspense>
   );
 }

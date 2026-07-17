@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { BosViewGuard } from '@/components/auth/bos-view-guard';
 import { PoPsoPageClient } from './_components/po-pso-page-client';
@@ -14,7 +15,10 @@ export default function PoPsoPage() {
     <BosViewGuard module='academic.bos-compositions'>
       <Card>
         <CardContent className='p-6'>
-          <PoPsoPageClient />
+          {/* Suspense boundary required: PoPsoPageClient's tabs use useTabParam() → useSearchParams(). */}
+          <Suspense fallback={null}>
+            <PoPsoPageClient />
+          </Suspense>
         </CardContent>
       </Card>
     </BosViewGuard>

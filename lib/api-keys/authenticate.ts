@@ -17,6 +17,9 @@ export const VALID_MODULES = [
   'morning-brief',
   // ── Instasolver substrate (B.1) — service_request split from grievance + new requirement
   'service_request', 'requirement',
+  // ── External AI door (2026-07-16) — ₹0 Max-lane access for trusted first-party
+  // callers (the centralized bug reporter). See app/api/b2a/ai/run.
+  'ai',
 ] as const;
 
 export type ApiModule = typeof VALID_MODULES[number];

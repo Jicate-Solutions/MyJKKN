@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -21,12 +21,35 @@ import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
 import { ModuleAccessTab } from './module-access-tab';
 import { ComplianceReportButton } from './compliance-report-button';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+/** All valid tab values — used to sanitize the ?tab= URL param. */
+const TAB_VALUES = [
+  'ask',
+  'activity',
+  'unified',
+  'module-access',
+  'rls',
+  'health',
+  'resolver',
+  'matrix',
+  'comparison',
+  'export',
+  'ai-debug',
+] as const;
+
+const DEFAULT_TAB = 'ask';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
   const { profile, isLoading: isAuthLoading } = useAuth();
-  // Controlled tabs so children (e.g. SystemHealthTab health cards) can switch tabs
-  const [activeTab, setActiveTab] = useState('ask');
+
+  // URL-synced tabs (system standard): active tab is mirrored to ?tab= so
+  // each tab is deep-linkable and favoritable, and the default tab is
+  // stamped into the URL on mount ("always show the tab"). handleTabChange
+  // is also passed to children (e.g. SystemHealthTab health cards) so their
+  // programmatic tab switches keep the URL in sync.
+  const [activeTab, handleTabChange] = useTabParam(DEFAULT_TAB, TAB_VALUES);
 
   const isSuperAdmin =
     !!profile &&
@@ -75,7 +98,7 @@ export function PermissionsAuditClient() {
           <ComplianceReportButton />
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
+        <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
           <TabsList className='grid w-full grid-cols-2 sm:grid-cols-6 lg:grid-cols-11'>
             <TabsTrigger value='ask'>Ask</TabsTrigger>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
@@ -111,7 +134,7 @@ export function PermissionsAuditClient() {
           </TabsContent>
 
           <TabsContent value='health'>
-            <SystemHealthTab onSwitchTab={setActiveTab} />
+            <SystemHealthTab onSwitchTab={handleTabChange} />
           </TabsContent>
 
           <TabsContent value='resolver'>

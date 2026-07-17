@@ -523,6 +523,30 @@ export class RecruitmentService {
     return data as HRRecruitmentCandidate;
   }
 
+  // ----- Edit a decided step's review comment -----
+
+  /**
+   * Edit the review comment on an already-decided approval step. Delegates to
+   * the SECURITY DEFINER RPC fn_update_recruitment_step_comment, which
+   * self-authorizes (author / super-admin / hr.recruitment.approve.override)
+   * and bypasses the candidate UPDATE RLS — the author may be an approver role
+   * (e.g. hod) that can approve but not edit the candidate row.
+   */
+  static async updateStepComment(
+    supabase: SupabaseClient,
+    candidateId: string,
+    stepIndex: number,
+    comment: string
+  ): Promise<HRRecruitmentCandidate> {
+    const { data, error } = await supabase.rpc('fn_update_recruitment_step_comment', {
+      p_candidate_id: candidateId,
+      p_step_index: stepIndex,
+      p_comment: comment,
+    });
+    if (error) throw error;
+    return data as HRRecruitmentCandidate;
+  }
+
   // ----- Withdraw (R2.1 — soft-status, pre-offer only) -----
 
   static async withdrawCandidate(

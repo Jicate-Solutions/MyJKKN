@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { Suspense, useState, useMemo, useCallback } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -57,7 +58,9 @@ type Alloc = any;
 const getJoined = (row: any, relation: string, field: string): string => row?.[relation]?.[field] ?? '';
 const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 
-export default function AllocationsPage() {
+const ALLOCATIONS_TABS = ['allocated', 'not-allocated'] as const;
+
+function AllocationsPageInner() {
   const { profile } = useAuth();
   const { isSuperAdmin, permissions } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
@@ -70,7 +73,7 @@ export default function AllocationsPage() {
   // keys are mass-granted to every role, so we gate on upgrades.manage.
   const canTransfer = isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
 
-  const [activeTab, setActiveTab] = useState<'allocated' | 'not-allocated'>('allocated');
+  const [activeTab, setActiveTab] = useTabParam('allocated', ALLOCATIONS_TABS);
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [hostelTypeFilter, setHostelTypeFilter] = useState<string>('all');
   const [blockFilter, setBlockFilter] = useState<string>('all');
@@ -472,6 +475,15 @@ export default function AllocationsPage() {
         />
       )}
     </ContentLayout>
+  );
+}
+
+export default function AllocationsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <AllocationsPageInner />
+    </Suspense>
   );
 }
 

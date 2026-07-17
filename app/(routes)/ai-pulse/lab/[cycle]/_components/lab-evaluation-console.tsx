@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   deriveDeptRankings,
   useLabCycleEvaluation,
@@ -41,12 +42,15 @@ function emptySelection(): DeptGoldSelection {
   return { submission_ids: [], selected_by: null, selected_at: null, scores: {} };
 }
 
+const LAB_EVAL_TABS = ['evaluate', 'ranking'] as const;
+
 export function LabEvaluationConsole({
   cycleId,
   canSelectGold,
 }: LabEvaluationConsoleProps) {
   const { data: evaluation, isLoading, error } = useLabCycleEvaluation(cycleId);
   const { data: policies } = useLabPolicies();
+  const [activeTab, setActiveTab] = useTabParam('evaluate', LAB_EVAL_TABS);
 
   const goldCap = policies?.gold_standard_count ?? 2;
   const labDay = policies?.lab_presentation_day ?? 'Monday';
@@ -170,7 +174,7 @@ export function LabEvaluationConsole({
           </CardContent>
         </Card>
       ) : (
-        <Tabs defaultValue="evaluate" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="evaluate" className="gap-1.5">
               <Medal className="h-3.5 w-3.5" />

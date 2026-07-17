@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -649,7 +650,10 @@ function NewAssessmentDialog() {
 
 // ─── Main Dashboard ─────────────────────────────────────────────────────────
 
+const GOVERNANCE_TABS = ['board', 'compliance', 'readiness'] as const;
+
 export function GovernanceDashboard() {
+  const [activeTab, setActiveTab] = useTabParam('board', GOVERNANCE_TABS);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [selectedCompliance, setSelectedCompliance] = useState<any>(null);
 
@@ -722,7 +726,7 @@ export function GovernanceDashboard() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="board" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="board">Board & Committees</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>

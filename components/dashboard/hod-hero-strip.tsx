@@ -10,6 +10,7 @@ import type {
   ClusterRankHodsPublic
 } from '@/lib/services/dashboard/cluster-rank-service';
 import { Users, ClipboardCheck, AlertTriangle, CalendarClock, Trophy, Medal } from 'lucide-react';
+import { AgencyRecognitionTile } from './agency-recognition-tile';
 
 // ── Tile colour classes (duplicated per spec; do NOT import from hero-strip) ──
 const TILE_COLORS = {
@@ -73,8 +74,8 @@ export default function HodHeroStrip() {
 
   if (loading) {
     return (
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'>
-        {[0, 1, 2, 3, 4, 5].map((i) => (
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 sm:gap-4'>
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
           <TileSkeleton key={i} />
         ))}
       </div>
@@ -180,7 +181,7 @@ export default function HodHeroStrip() {
           : 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100';
 
   return (
-    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'>
+    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 sm:gap-4'>
       {/* Tile 1 — Department Health Score (DHS) */}
       <div
         className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${dhsBandClass}`}
@@ -305,6 +306,9 @@ export default function HodHeroStrip() {
           </div>
         )}
       </div>
+
+      {/* Tile 7 — Own AI-agency recognition signal (self-only /api/pde/agency). */}
+      <AgencyRecognitionTile />
     </div>
   );
 }

@@ -6,7 +6,7 @@
  * programs (multi) → sections (multi) → learners (multi), all optional. Each
  * form fans out one row per selected target. Labels adapt via school-label-adapter.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,12 +29,21 @@ import { AchievementForm } from './_components/achievement-form';
 import { EventForm } from './_components/event-form';
 import { RecentList } from './_components/recent-list';
 import { ParentUsersPanel } from './_components/parent-users-panel';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 // Consumed by scripts/generate-route-manifest.ts so the sidebar, tab nav, and
 // command palette all show the same Megaphone icon (was inferring 'FileText').
 export const navMeta = { label: 'Parent Portal', icon: 'Megaphone' };
 
-export default function ParentPortalAdminPage() {
+const PARENT_PORTAL_TABS = [
+  'announcements',
+  'homework',
+  'achievements',
+  'events',
+  'users',
+] as const;
+
+function ParentPortalAdminPageInner() {
   const [institutions, setInstitutions] = useState<PPInstitution[]>([]);
   const [programs, setPrograms] = useState<PPProgram[]>([]);
   const [sections, setSections] = useState<PPSection[]>([]);
@@ -42,6 +51,7 @@ export default function ParentPortalAdminPage() {
   const [target, setTarget] = useState<PPTarget>({ institutionId: '', programIds: [], sectionIds: [], learnerIds: [] });
   const [lists, setLists] = useState<{ ann: any[]; hw: any[]; ach: any[]; ev: any[] }>({ ann: [], hw: [], ach: [], ev: [] });
   const [forbidden, setForbidden] = useState(false);
+  const [activeTab, setActiveTab] = useTabParam('announcements', PARENT_PORTAL_TABS);
   const { canAccess } = usePermissions();
   const canUserData = canAccess('academic', 'parent_portal.user_data.manage');
 
@@ -189,7 +199,7 @@ export default function ParentPortalAdminPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="announcements">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className={`grid w-full ${canUserData ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <TabsTrigger value="announcements" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><Megaphone className="h-4 w-4" /> Announcements</TabsTrigger>
             <TabsTrigger value="homework" className="gap-1.5 data-[state=active]:text-[#0b6d41]"><BookOpenCheck className="h-4 w-4" /> Homework</TabsTrigger>
@@ -226,5 +236,14 @@ export default function ParentPortalAdminPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ParentPortalAdminPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ParentPortalAdminPageInner />
+    </Suspense>
   );
 }

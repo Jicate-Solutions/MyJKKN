@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -109,13 +110,17 @@ function getTransactionTypeBadge(type: ImsTransactionType) {
 export default function FinancialOverviewPage() {
   return (
     <ImsPageGuard module="ims.financial" action="view">
-      <FinancialOverviewPageInner />
+      <Suspense fallback={null}>
+        <FinancialOverviewPageInner />
+      </Suspense>
     </ImsPageGuard>
   );
 }
 
+const FINANCIAL_TABS = ['transactions', 'department-costs', 'item-profit'] as const;
+
 function FinancialOverviewPageInner() {
-  const [activeTab, setActiveTab] = useState('transactions');
+  const [activeTab, setActiveTab] = useTabParam('transactions', FINANCIAL_TABS);
   const [activePreset, setActivePreset] = useState('month');
   const [dateFrom, setDateFrom] = useState(() => getDateRange('month').from);
   const [dateTo, setDateTo] = useState(() => getDateRange('month').to);

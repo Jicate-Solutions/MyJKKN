@@ -1,8 +1,9 @@
 'use client';
 
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -706,11 +707,21 @@ function AddMemberDialog({ open, onOpenChange, onAdd, isPending, institutionId }
 
 // ─── Main content ──────────────────────────────────────────────────────────
 
+const EXPO_DETAIL_TABS = [
+  'overview',
+  'team',
+  'stalls',
+  'reports',
+  'leads',
+  'analytics'
+] as const;
+
 function ExpoEventDetailContent() {
   const params = useParams();
   const router = useRouter();
   const { profile } = useAuth();
   const eventId = params.id as string;
+  const [activeTab, setActiveTab] = useTabParam('overview', EXPO_DETAIL_TABS);
 
   const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId);
 
@@ -879,7 +890,7 @@ function ExpoEventDetailContent() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="team">
@@ -1482,7 +1493,9 @@ function ExpoDetailLayout({ eventId }: { eventId: string }) {
       </Breadcrumb>
       <div className="mt-6">
         <AdmissionErrorBoundary>
-          <ExpoEventDetailContent />
+          <Suspense fallback={null}>
+            <ExpoEventDetailContent />
+          </Suspense>
         </AdmissionErrorBoundary>
       </div>
     </ContentLayout>

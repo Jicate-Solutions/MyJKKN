@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -30,8 +30,16 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import type { FacultyCalendarFilters } from '@/types/faculty-calendar';
 import { FacultyCalendarFilters as FiltersComponent } from '../_components/faculty-calendar-filters';
 import { FacultyCalendar } from '../_components/faculty-calendar';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function AdminFacultyCalendarPage() {
+const FACULTY_CALENDAR_ADMIN_TABS = [
+  'calendar',
+  'availability',
+  'workload',
+  'conflicts'
+] as const;
+
+function AdminFacultyCalendarPageInner() {
   const router = useRouter();
   const { isSuperAdmin } = usePermissions();
 
@@ -44,7 +52,10 @@ export default function AdminFacultyCalendarPage() {
     include_break_slots: false
   });
 
-  const [activeTab, setActiveTab] = useState('calendar');
+  const [activeTab, setActiveTab] = useTabParam(
+    'calendar',
+    FACULTY_CALENDAR_ADMIN_TABS
+  );
   const [showFilters, setShowFilters] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
 
@@ -315,6 +326,15 @@ export default function AdminFacultyCalendarPage() {
         </div>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+export default function AdminFacultyCalendarPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <AdminFacultyCalendarPageInner />
+    </Suspense>
   );
 }
 

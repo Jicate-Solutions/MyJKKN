@@ -18,7 +18,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F8.
  */
 
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -33,17 +33,20 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Users, FileText, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { StakeholderList } from '@/components/projects/stakeholders/stakeholder-list';
 import { StatusReportList } from '@/components/projects/stakeholders/status-report-list';
 
 type StakeholderTab = 'stakeholders' | 'status-reports';
 
-export default function ProjectStakeholdersPage() {
+const STAKEHOLDER_TABS = ['stakeholders', 'status-reports'] as const;
+
+function ProjectStakeholdersPageInner() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id ?? '';
 
   const { data: project, isLoading } = useProject(projectId);
-  const [tab, setTab] = useState<StakeholderTab>('stakeholders');
+  const [tab, setTab] = useTabParam<StakeholderTab>('stakeholders', STAKEHOLDER_TABS);
 
   const projectTitle = project?.title ?? 'Project';
 
@@ -123,5 +126,14 @@ export default function ProjectStakeholdersPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ProjectStakeholdersPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectStakeholdersPageInner />
+    </Suspense>
   );
 }

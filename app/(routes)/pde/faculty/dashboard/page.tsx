@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Select,
   SelectContent,
@@ -56,6 +57,7 @@ import type { CapabilityStatus, FinksDimension, PDEAtRiskLearner, RiskLevel } fr
 import { CapabilityHeatmap } from './_components/capability-heatmap';
 import { FinksRadar } from './_components/finks-radar';
 import { AgencyDistributionBar, AgencyTrendLine } from './_components/agency-distribution';
+import { AgencyRecognitionTile } from '@/components/dashboard/agency-recognition-tile';
 
 // ============================================
 // Helper: untyped supabase (PDE tables not in generated types)
@@ -619,8 +621,17 @@ function riskBadge(level: RiskLevel) {
 // Main Page
 // ============================================
 
-export default function FacultyImpactDashboardPage() {
-  const [activeTab, setActiveTab] = useState('overview');
+const FACULTY_DASHBOARD_TABS = [
+  'overview',
+  'capabilities',
+  'agency',
+  'assessments',
+  'at-risk',
+  'impact',
+] as const;
+
+function FacultyImpactDashboardPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('overview', FACULTY_DASHBOARD_TABS);
 
   // Data hooks
   const { data: overview, isLoading: overviewLoading } = useFacultyOverviewStats();
@@ -848,8 +859,13 @@ export default function FacultyImpactDashboardPage() {
           {/* Tab: Agency Index */}
           {/* ============================================ */}
           <TabsContent value="agency">
-            <div className="grid gap-4 lg:grid-cols-2">
-              {/* Distribution */}
+            <div className="space-y-4">
+              {/* Facilitator's OWN AI agency (self-fetched, self-only) — a
+                  recognition signal for the "senior learner", kept clearly
+                  separate from and ABOVE the cohort distribution below. */}
+              <AgencyRecognitionTile variant="callout" />
+              <div className="grid gap-4 lg:grid-cols-2">
+                {/* Distribution */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -913,6 +929,7 @@ export default function FacultyImpactDashboardPage() {
                   />
                 </CardContent>
               </Card>
+              </div>
             </div>
           </TabsContent>
 
@@ -1253,5 +1270,14 @@ export default function FacultyImpactDashboardPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function FacultyImpactDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <FacultyImpactDashboardPageInner />
+    </Suspense>
   );
 }

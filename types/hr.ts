@@ -242,6 +242,11 @@ export interface LeaveApprovalStep {
   intended_approver_user_id?: string | null;
   /** The role this step was originally routed to. */
   intended_approver_role?: string | null;
+  // ----- Comment edit audit (2026-07-16) -----
+  /** profiles.id of who last edited this step's review comment. */
+  edited_by?: string | null;
+  /** ISO timestamp of the last comment edit. */
+  edited_at?: string | null;
 }
 
 export interface LeaveDocument {

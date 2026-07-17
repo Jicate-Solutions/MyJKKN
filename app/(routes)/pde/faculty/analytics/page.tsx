@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { useVACCourses } from '@/hooks/vac/use-vac';
 import { useAtRiskLearners, useEngagementSummary } from '@/hooks/pde/use-pde';
+import type { PDEAtRiskLearner } from '@/types/pde';
 import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -43,10 +45,14 @@ const FINK_DIMENSIONS = [
   { key: 'learning_how_to_learn', label: 'Learning How to Learn', color: '#ffde59' },
 ];
 
-export default function FacultyAnalyticsPage() {
+// Tab values (order matches TabsList). Used for URL-synced tabs so each tab is
+// deep-linkable / favoritable via ?tab=.
+const ANALYTICS_TABS = ['overview', 'time', 'finks', 'performers'] as const;
+
+function FacultyAnalyticsPageInner() {
   const { profile: user } = useAuth();
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useTabParam('overview', ANALYTICS_TABS);
 
   const { data: coursesData, isLoading: loadingCourses } = useVACCourses();
   const { data: atRiskLearners, isLoading: loadingAtRisk } = useAtRiskLearners(
@@ -318,9 +324,9 @@ export default function FacultyAnalyticsPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {atRiskLearners.slice(0, 5).map((learner: { id: string; name?: string; risk_score?: number }, idx: number) => (
-                        <div key={learner.id || idx} className="flex items-center justify-between p-2 rounded bg-amber-50 dark:bg-amber-950/20">
-                          <span className="text-sm font-medium">{learner.name || `Learner ${idx + 1}`}</span>
+                      {atRiskLearners.slice(0, 5).map((learner: PDEAtRiskLearner, idx: number) => (
+                        <div key={learner.learner_id || idx} className="flex items-center justify-between p-2 rounded bg-amber-50 dark:bg-amber-950/20">
+                          <span className="text-sm font-medium">{learner.full_name || `Learner ${idx + 1}`}</span>
                           <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700">
                             At Risk
                           </Badge>
@@ -346,5 +352,14 @@ export default function FacultyAnalyticsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function FacultyAnalyticsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <FacultyAnalyticsPageInner />
+    </Suspense>
   );
 }

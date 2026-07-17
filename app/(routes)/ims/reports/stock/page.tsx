@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -65,13 +66,17 @@ const formatCurrency = (value: number) =>
 export default function StockReportPage() {
   return (
     <ImsPageGuard module="ims.reports" action="view">
-      <StockReportPageInner />
+      <Suspense fallback={null}>
+        <StockReportPageInner />
+      </Suspense>
     </ImsPageGuard>
   );
 }
 
+const STOCK_TABS = ['levels', 'expiring', 'valuation'] as const;
+
 function StockReportPageInner() {
-  const [activeTab, setActiveTab] = useState('levels');
+  const [activeTab, setActiveTab] = useTabParam('levels', STOCK_TABS);
   const [expiryDays, setExpiryDays] = useState(60);
 
   const { isLoading: permissionsLoading } = usePermissions();
