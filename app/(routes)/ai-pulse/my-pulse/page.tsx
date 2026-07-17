@@ -32,6 +32,11 @@ import { QuickActionsCard } from '../_components/quick-actions-card';
 import { PulseImpactCard } from './_components/pulse-impact-card';
 import { PdeProgressCard } from './_components/pde-progress-card';
 
+// In-module tab label (AutoTabNav / route manifest): show "My AI Pulse" instead of
+// the folder-derived "My Pulse", matching the page heading, sidebar link, and
+// breadcrumb. The URL stays /ai-pulse/my-pulse.
+export const navMeta = { label: 'My AI Pulse' };
+
 export const dynamic = 'force-dynamic';
 
 async function checkPermission(key: string): Promise<boolean> {

@@ -1560,7 +1560,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/ai-pulse/my-pulse",
-        "label": "My Pulse",
+        "label": "My AI Pulse",
         "iconName": "FileText",
         "children": []
       },
@@ -5684,7 +5684,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/procurement/purchase-orders",
         "label": "Purchase Orders",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/procurement/purchase-orders/formats",
+            "label": "Formats",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/procurement/purchase-orders/formats/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/procurement/requests",
