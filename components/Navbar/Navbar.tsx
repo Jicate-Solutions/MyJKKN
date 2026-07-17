@@ -52,6 +52,7 @@ function TabAwareFavoriteStar({ pathname }: { pathname: string }) {
       module={page.module}
       iconName={page.iconName}
       size='sm'
+      showLabel
     />
   );
 }
@@ -99,6 +100,7 @@ export function Navbar({ title }: NavbarProps) {
                   module={currentPage.module}
                   iconName={currentPage.iconName}
                   size='sm'
+                  showLabel
                 />
               }
             >
