@@ -389,7 +389,21 @@ export default async function DashboardV2Page({
               {isDirector && <LiveHeroStrip />}
               {isCounselor && <LiveCounselorHero />}
               {isFaculty && <LiveFacultyHero />}
-              {isHod && <LiveHodHero />}
+              {/* HODs see BOTH: their department cards AND their own teaching
+                  cards (most HODs still teach). Department strip first — it is
+                  their primary lane. LiveFacultyHero degrades to empty tiles if
+                  the HOD has no staff timetable. */}
+              {isHod && (
+                <div className='space-y-4'>
+                  <LiveHodHero />
+                  <div className='space-y-2'>
+                    <h3 className='text-xs font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400'>
+                      Your teaching
+                    </h3>
+                    <LiveFacultyHero />
+                  </div>
+                </div>
+              )}
               {isPrincipal && <LivePrincipalHero />}
               {isAccounts && <LiveAccountsHero />}
               {isStudent && <LiveStudentHero />}
