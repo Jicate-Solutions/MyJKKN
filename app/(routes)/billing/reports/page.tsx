@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   BarChart3,
   FileText,
@@ -27,8 +28,17 @@ import { InvoiceReportTab } from './_components/invoice-report-tab';
 import { DiscountReportTab } from './_components/discount-report-tab';
 import { RefundReportTab } from './_components/refund-report-tab';
 
-export default function BillingReportsPage() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+const BILLING_REPORTS_TABS = [
+  'dashboard',
+  'outstanding',
+  'collection',
+  'invoices',
+  'discounts',
+  'refunds'
+] as const;
+
+function BillingReportsPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('dashboard', BILLING_REPORTS_TABS);
   const [filters, setFilters] = useState<BillingReportFilters>({});
 
   const {
@@ -210,5 +220,14 @@ export default function BillingReportsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function BillingReportsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <BillingReportsPageInner />
+    </Suspense>
   );
 }

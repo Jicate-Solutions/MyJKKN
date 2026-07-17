@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { Suspense, useState, useRef, useEffect } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -193,6 +194,8 @@ function TestChatInterface({ chatbotId }: { chatbotId: string }) {
 // MAIN PAGE CONTENT
 // ═══════════════════════════════════════════════════════════════════════════
 
+const CHATBOT_TABS = ['settings', 'test', 'sessions'] as const;
+
 function ChatbotPageContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
@@ -217,6 +220,7 @@ function ChatbotPageContent() {
   const [welcomeMessage, setWelcomeMessage] = useState('');
   const [chatbotName, setChatbotName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useTabParam('settings', CHATBOT_TABS);
 
   // Sync form state when config loads
   useEffect(() => {
@@ -350,7 +354,7 @@ function ChatbotPageContent() {
         </div>
 
         {/* Main Tabs */}
-        <Tabs defaultValue="settings" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="settings">
               <Settings className="h-4 w-4 mr-2" /> Settings
@@ -558,10 +562,13 @@ function ChatbotPageContent() {
 }
 
 export default function ChatbotPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <PermissionGuard module="admission" action="view">
       <AdmissionErrorBoundary>
-        <ChatbotPageContent />
+        <Suspense fallback={null}>
+          <ChatbotPageContent />
+        </Suspense>
       </AdmissionErrorBoundary>
     </PermissionGuard>
   );

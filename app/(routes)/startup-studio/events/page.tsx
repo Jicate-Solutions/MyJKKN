@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Input } from '@/components/ui/input';
@@ -13,14 +13,17 @@ import { CreateEventDialog } from './_components/create-event-dialog';
 import { PendingInvitationsCard } from './_components/pending-invitations-card';
 import { Loader2, Plus, Search } from 'lucide-react';
 import type { EventStatus } from '@/types/startup-studio';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 const ACTIVE_STATUSES: EventStatus[] = ['registration_open', 'build_day', 'demo_day'];
 
-export default function StartupStudioEventsPage() {
+const EVENT_FILTER_TABS = ['all', 'active', 'inactive'] as const;
+
+function StartupStudioEventsPageInner() {
   const { data: events, isLoading, error } = useEvents();
   const { profile } = useAuth();
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [filter, setFilter] = useTabParam('all', EVENT_FILTER_TABS);
   const [createOpen, setCreateOpen] = useState(false);
 
   const isAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
@@ -113,5 +116,14 @@ export default function StartupStudioEventsPage() {
         />
       )}
     </ContentLayout>
+  );
+}
+
+export default function StartupStudioEventsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <StartupStudioEventsPageInner />
+    </Suspense>
   );
 }

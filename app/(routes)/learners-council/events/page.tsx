@@ -3,6 +3,7 @@
  * Shows upcoming, past, and user's events in a tabbed view
  */
 
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { EventListClient } from './event-list-client';
 import Link from 'next/link';
@@ -96,15 +97,17 @@ export default async function EventsPage({
         </div>
       </div>
 
-      <EventListClient
-        initialUpcoming={upcomingEvents || []}
-        upcomingCount={upcomingCount || 0}
-        initialPast={pastEvents || []}
-        pastCount={pastCount || 0}
-        initialMyEvents={myEvents || []}
-        myCount={myCount || 0}
-        userId={profile.id}
-      />
+      <Suspense fallback={null}>
+        <EventListClient
+          initialUpcoming={upcomingEvents || []}
+          upcomingCount={upcomingCount || 0}
+          initialPast={pastEvents || []}
+          pastCount={pastCount || 0}
+          initialMyEvents={myEvents || []}
+          myCount={myCount || 0}
+          userId={profile.id}
+        />
+      </Suspense>
     </div>
   );
 }

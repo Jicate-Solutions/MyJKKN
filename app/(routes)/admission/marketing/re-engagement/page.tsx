@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -823,9 +824,18 @@ function WhatsAppSequencesTab({
   );
 }
 
+const REENGAGEMENT_TABS = [
+  'leads',
+  'campaigns',
+  'wa-sequences',
+  'form-abandons',
+  'analytics',
+] as const;
+
 function ColdLeadReengagementPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
   const institutionId = profile?.institution_id || '';
+  const [activeTab, setActiveTab] = useTabParam('leads', REENGAGEMENT_TABS);
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [daysFilter, setDaysFilter] = useState<string>('all');
@@ -1027,7 +1037,7 @@ function ColdLeadReengagementPageContent() {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="leads" className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList>
               <TabsTrigger value="leads">Cold Leads</TabsTrigger>
               <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
@@ -1326,9 +1336,12 @@ function ColdLeadReengagementPageContent() {
 }
 
 export default function ColdLeadReengagementPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <ColdLeadReengagementPageContent />
+      <Suspense fallback={null}>
+        <ColdLeadReengagementPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

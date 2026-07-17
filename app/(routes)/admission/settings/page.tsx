@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -250,7 +251,10 @@ function ChannelConfig({
   );
 }
 
+const SETTINGS_TABS = ['channels', 'global', 'protection'] as const;
+
 function AdmissionSettingsPageContent() {
+  const [activeTab, setActiveTab] = useTabParam('channels', SETTINGS_TABS);
   const { profile, isLoading: accessLoading } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const { canAccess } = usePermissions();
@@ -463,7 +467,7 @@ function AdmissionSettingsPageContent() {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="channels" className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList>
               <TabsTrigger value="channels">Channel Settings</TabsTrigger>
               <TabsTrigger value="global">Global Rules</TabsTrigger>
@@ -796,7 +800,9 @@ function AdmissionSettingsPageContent() {
 export default function AdmissionSettingsPage() {
   return (
     <AdmissionErrorBoundary>
-      <AdmissionSettingsPageContent />
+      <Suspense fallback={null}>
+        <AdmissionSettingsPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

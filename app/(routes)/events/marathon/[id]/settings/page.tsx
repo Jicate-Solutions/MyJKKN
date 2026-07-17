@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import {
@@ -1177,12 +1178,15 @@ function RegistrationTab({ event }: { event: any }) {
 // Main Settings Page
 // ============================================================================
 
-export default function MarathonSettingsPage() {
+const MARATHON_SETTINGS_TABS = ['general', 'categories', 'route', 'registration'] as const;
+
+function MarathonSettingsPageInner() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
   const { data: event, isLoading, error } = useMarathonEvent(id);
   const access = useMarathonAccess();
+  const [activeTab, setActiveTab] = useTabParam('general', MARATHON_SETTINGS_TABS);
 
   // Block non-admin users from settings page
   if (!access.isLoading && !access.canManage) {
@@ -1242,7 +1246,7 @@ export default function MarathonSettingsPage() {
           </Badge>
         </div>
 
-        <Tabs defaultValue="general" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="general" className="gap-1.5">
               <Settings className="h-3.5 w-3.5 hidden sm:inline-block" />
@@ -1283,5 +1287,14 @@ export default function MarathonSettingsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function MarathonSettingsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MarathonSettingsPageInner />
+    </Suspense>
   );
 }

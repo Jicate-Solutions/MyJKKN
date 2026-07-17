@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Building2,
   Users,
@@ -44,10 +45,13 @@ interface NotificationAnalyticsProps {
   notificationId: string;
 }
 
+const NOTIFICATION_ANALYTICS_TABS = ['institution', 'role', 'people', 'responses'] as const;
+
 export function NotificationAnalytics({ notificationId }: NotificationAnalyticsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedInstitution, setExpandedInstitution] = useState<string | null>(null);
   const [showAllUnread, setShowAllUnread] = useState(false);
+  const [activeTab, setActiveTab] = useTabParam('institution', NOTIFICATION_ANALYTICS_TABS);
 
   const { data: analytics, isLoading } = useQuery({
     queryKey: ['notification-analytics', notificationId],
@@ -127,7 +131,7 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
       </Card>
 
       {/* ─── Tabs: Institution / Role / People ── */}
-      <Tabs defaultValue="institution" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="institution" className="text-xs sm:text-sm">
             <Building2 className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" />

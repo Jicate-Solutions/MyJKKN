@@ -8,6 +8,8 @@
 // Gated with <PermissionGuard module="meetings" action="routing.view">. Explicit
 // not-found state when the id is unknown (rule #27 — never silent-redirect).
 
+import { Suspense } from 'react';
+
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -52,7 +54,10 @@ export default async function RoutingFormBuilderPage({ params }: BuilderPageProp
 
         <div className="mt-4">
           {result.success && result.data ? (
-            <RoutingFormBuilder form={result.data} />
+            // Suspense boundary required: the builder's useTabParam() reads useSearchParams().
+            <Suspense fallback={null}>
+              <RoutingFormBuilder form={result.data} />
+            </Suspense>
           ) : (
             <Card className="border-destructive/40">
               <CardContent className="py-10 text-center text-sm text-muted-foreground">

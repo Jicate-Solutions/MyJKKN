@@ -2,7 +2,8 @@
 
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useAuth } from '@/hooks/use-auth';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -168,6 +169,8 @@ function LeadDetailSkeleton() {
   );
 }
 
+const LEAD_DETAIL_TABS = ['activity', 'calls', 'communication', 'details', 'journey'] as const;
+
 function LeadDetailPageContent() {
   const { options: leadSources } = useActiveLeadSources();
   // Dynamic stage list from admission_statuses — used for the stage selector
@@ -178,26 +181,14 @@ function LeadDetailPageContent() {
   const router = useRouter();
   const leadId = params.id as string;
 
-  // Active detail tab — controlled + persisted to ?tab= so (a) inactive tabs are
-  // NOT mounted: Radix mounts every TabsContent's children eagerly, firing each
-  // tab's data hooks on load (Calls + Journey both call useLeadCallLogs, plus the
-  // heavy VoiceMemoPanel / journey aggregation), and (b) the chosen tab survives
-  // a tab-refocus / back-navigation instead of snapping back to Activity.
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'activity';
-    const t = new URLSearchParams(window.location.search).get('tab');
-    return t && ['activity', 'calls', 'communication', 'details', 'journey'].includes(t)
-      ? t
-      : 'activity';
-  });
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', value);
-      window.history.replaceState(null, '', url.toString());
-    }
-  };
+  // Active detail tab — URL-synced via ?tab= through the shared useTabParam hook
+  // so (a) inactive tabs are NOT mounted: Radix mounts every TabsContent's
+  // children eagerly, firing each tab's data hooks on load (Calls + Journey both
+  // call useLeadCallLogs, plus the heavy VoiceMemoPanel / journey aggregation),
+  // (b) the chosen tab survives a tab-refocus / back-navigation instead of
+  // snapping back to Activity, and (c) each tab is deep-linkable and favoritable
+  // (the global navbar star reads ?tab=).
+  const [activeTab, handleTabChange] = useTabParam('activity', LEAD_DETAIL_TABS);
 
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
@@ -2675,9 +2666,12 @@ function LeadDetailPageContent() {
 }
 
 export default function LeadDetailPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <LeadDetailPageContent />
+      <Suspense fallback={null}>
+        <LeadDetailPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

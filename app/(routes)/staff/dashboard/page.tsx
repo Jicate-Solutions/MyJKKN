@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { RefreshCw, BarChart3, Loader2 } from 'lucide-react';
@@ -35,8 +35,18 @@ import { GeographicDistribution } from './_components/geographic-distribution';
 import { DemographicAnalytics } from './_components/demographic-analytics';
 import { TenureAnalytics } from './_components/tenure-analytics';
 import { ProfileAnalytics } from './_components/profile-analytics';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function StaffDashboardPage() {
+const STAFF_DASHBOARD_TABS = [
+  'overview',
+  'organizational',
+  'demographics',
+  'geographic',
+  'tenure',
+  'profiles'
+] as const;
+
+function StaffDashboardPageInner() {
   const router = useRouter();
   const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions(
     [],
@@ -51,6 +61,7 @@ export default function StaffDashboardPage() {
     }
   }, [permsLoading, canViewDashboard, router]);
 
+  const [activeTab, setActiveTab] = useTabParam('overview', STAFF_DASHBOARD_TABS);
   const [filters, setFilters] = useState<StaffDashboardFilters>({});
 
   // State for filter options
@@ -249,7 +260,7 @@ export default function StaffDashboardPage() {
         />
 
         {/* Dashboard Content */}
-        <Tabs defaultValue='overview' className='space-y-6'>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-6'>
           <TabsList className='grid w-full grid-cols-2 lg:grid-cols-6'>
             <TabsTrigger value='overview'>Overview</TabsTrigger>
             <TabsTrigger value='organizational'>Organizational</TabsTrigger>
@@ -415,5 +426,14 @@ export default function StaffDashboardPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function StaffDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <StaffDashboardPageInner />
+    </Suspense>
   );
 }
