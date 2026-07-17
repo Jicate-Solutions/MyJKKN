@@ -141,8 +141,19 @@ function teachingExcellenceTile(metrics: FacultyMetrics): HeroTileProps {
       ? `Pending modules: ${missing_components.map((m) => labelMap[m] || m).join(', ')}`
       : undefined;
 
-  const subtitle =
-    band === 'green'
+  // How many of the four components are actually measurable right now.
+  // When ≤1 is present (e.g. only marking-compliance exists; NPS + research
+  // modules aren't built yet), a low score reflects modules still coming
+  // online — NOT weak teaching. Frame it as a starting point, not a verdict,
+  // and drop the alarming red band for a calm neutral one.
+  const presentCount = (
+    ['student_attendance', 'marking_compliance', 'feedback_nps', 'research_mentorship'] as const
+  ).filter((k) => components[k] !== null && components[k] !== undefined).length;
+  const stillWarmingUp = presentCount <= 1;
+
+  const subtitle = stillWarmingUp
+    ? 'Getting started — grows as you mark classes and more modules come online'
+    : band === 'green'
       ? 'Strong teaching trajectory'
       : band === 'amber'
         ? 'On track — a component needs attention'
@@ -150,10 +161,10 @@ function teachingExcellenceTile(metrics: FacultyMetrics): HeroTileProps {
 
   return {
     label: 'Teaching Excellence',
-    value: score,
+    value: stillWarmingUp ? '—' : score,
     subtitle,
     hint: missingNote,
-    color: band,
+    color: stillWarmingUp ? 'neutral' : band,
     footer: <div className='line-clamp-2'>{footerLabel}</div>
   };
 }
