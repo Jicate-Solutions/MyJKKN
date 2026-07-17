@@ -252,15 +252,16 @@ export function AudienceForm() {
     return { ...base, query_params: { name: builtIn } };
   }
 
-  // Save-then-preview flow:
-  //   1) POST /audiences          → creates the audience row (super_admin only)
-  //   2) GET  /audiences/:id/preview → returns count + preview_users
+  // Ephemeral preview flow:
+  //   POST /audiences  with { ...payload, preview: true }
+  //     → resolves membership WITHOUT persisting an audience row and WITHOUT
+  //       navigating away. Returns { count, preview_users } directly.
   //
-  // Rationale: there is no collection-level /preview endpoint, and an older
-  // implementation that POSTed `{ preview_only: true }` to the create route
-  // silently created real rows on every click (the server never read the
-  // flag). The save-first approach is the simplest path that avoids DB
-  // pollution and respects the existing permission model.
+  // Rationale: the previous save-then-preview implementation created a real
+  // notification_audiences row on EVERY Preview click (DB pollution) and then
+  // pushed the user to the list, so a preview behaved like a save. The server
+  // now honours a `preview: true` flag and resolves via a transient-row
+  // wrapper (resolve_audience_preview) that leaves no committed row behind.
   async function handlePreview() {
     // Clear any previous result BEFORE validation so a stale error banner
     // doesn't hang around if validation now fails.
@@ -274,49 +275,28 @@ export function AudienceForm() {
     setIsPreviewing(true);
 
     try {
-      // Step 1: create the audience
-      const createRes = await fetch('/api/admin/notifications/audiences', {
+      const res = await fetch('/api/admin/notifications/audiences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify(buildPayload(data))
+        body: JSON.stringify({ ...buildPayload(data), preview: true })
       });
 
-      if (!createRes.ok) {
-        const body = await createRes.json().catch(() => ({}));
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
         throw new Error(body.error || 'Preview failed');
       }
 
-      const createBody = await createRes.json();
-      const audienceId = createBody?.audience?.id;
-      if (!audienceId) {
-        throw new Error('Preview failed: audience id missing in response');
-      }
-
-      // Step 2: fetch preview for the newly created audience
-      const previewRes = await fetch(
-        `/api/admin/notifications/audiences/${audienceId}/preview`,
-        { cache: 'no-store' }
-      );
-
-      if (!previewRes.ok) {
-        const body = await previewRes.json().catch(() => ({}));
-        throw new Error(body.error || 'Preview failed');
-      }
-
-      const previewBody = await previewRes.json();
+      const previewBody = await res.json();
       const users: PreviewUser[] = Array.isArray(previewBody.preview_users)
         ? previewBody.preview_users
         : [];
       const count: number =
         typeof previewBody.count === 'number' ? previewBody.count : users.length;
 
+      // Ephemeral: show the result in-place. No save, no navigation.
       setPreviewResult({ count, users: users.slice(0, 20) });
-      toast.success(`Audience saved — matched ${count} users`);
-      // Once the audience exists, the form should navigate to the list so
-      // the user sees their creation and doesn't double-create on re-click.
-      router.push('/notifications/admin/audiences');
-      router.refresh();
+      toast.success(`Matched ${count} users`);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Preview failed';
