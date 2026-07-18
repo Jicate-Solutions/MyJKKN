@@ -89,6 +89,23 @@ export interface LoopTowerStats {
   jobsDone7d: number | null;
   jobsError7d: number | null;
   jobsTotal7d: number | null;
+  // ── "Engine health today" strip (Director-approved 2026-07-18) ─────────────
+  // ONE derived line answering "is the machine side healthy right now?" — all
+  // IST-today, all from live tables. null legs = that read failed → the strip
+  // renders amber-unreadable, never a fake green. loopsMissed / errorTypes feed
+  // the plain-language amber sentence (read by every super-admin, not only
+  // engineers — copy stays jargon-free).
+  engineToday: {
+    loopsDue: number | null;
+    loopsRan: number | null;
+    loopsMissed: string[];
+    jobsDoneToday: number | null;
+    jobsStuck: number | null;
+    errorsToday: number | null;
+    errorTypes: string[];
+    paidCallsToday: number | null;
+    paidInrToday: number | null;
+  } | null;
   // ── Management strip — 30-day executive summary at the top of the tower ────
   // Every field is hollow-not-fabricated: null renders as an explicit no-data
   // cell, never a healthy-looking number. See the page for how each is derived
@@ -390,6 +407,92 @@ function Ring({ num, name, exit, tone, kind = 'loop', blurb, chips, children }: 
       <p className='mb-2 max-w-4xl text-[13px] leading-snug text-muted-foreground'>{blurb}</p>
       {chips && <div className='mb-3 flex flex-wrap gap-1.5'>{chips}</div>}
       {children}
+    </div>
+  );
+}
+
+// ── Engine health today ──────────────────────────────────────────────────────
+// The one-line answer to "is the machine side healthy right now?" (Director-
+// approved 2026-07-18, mockup artifact 3c6b7b76). Green ONLY when every cell
+// reads clean; any failed read renders amber-unreadable — "couldn't read" must
+// never look like "healthy". Deliberately says nothing about the HUMAN side of
+// the loops (verdicts, approvals) — that story belongs to the management strip.
+function EngineHealthStrip({ e }: { e: LoopTowerStats['engineToday'] }) {
+  const unreadable =
+    !e ||
+    e.loopsDue === null ||
+    e.jobsDoneToday === null ||
+    e.jobsStuck === null ||
+    e.errorsToday === null ||
+    e.paidCallsToday === null;
+  const missedLoops = !!e && e.loopsDue !== null && (e.loopsRan ?? 0) < e.loopsDue;
+  const stuck = (e?.jobsStuck ?? 0) > 0;
+  const failed = (e?.errorsToday ?? 0) > 0;
+  const paid = (e?.paidCallsToday ?? 0) > 0;
+  const healthy = !unreadable && !missedLoops && !stuck && !failed && !paid;
+
+  // The amber sentence: name every failing item in plain words, worst first.
+  const problems: string[] = [];
+  if (unreadable) problems.push("couldn't read part of today's health — showing amber, never a fake green");
+  if (stuck)
+    problems.push(
+      `${e?.jobsStuck} job${e?.jobsStuck === 1 ? '' : 's'} waiting >30 min — the campus runner may have stopped (super-admins are paged automatically)`,
+    );
+  if (missedLoops) problems.push(`did not run: ${(e?.loopsMissed ?? []).join(', ') || 'a scheduled loop'}`);
+  if (failed)
+    problems.push(
+      `failed today: ${e?.errorTypes.length ? e.errorTypes.join(', ') : `${e?.errorsToday} job(s)`}`,
+    );
+  if (paid)
+    problems.push(
+      `₹${(e?.paidInrToday ?? 0).toFixed(2)} spent on the paid lane (${e?.paidCallsToday} call${e?.paidCallsToday === 1 ? '' : 's'}) — the free lane should be ₹0`,
+    );
+
+  const n2 = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v));
+  const cell = (label: string, value: string, bad: boolean) => (
+    <span className='flex items-center gap-1.5 font-mono text-[11px]'>
+      <span className={`h-1.5 w-1.5 rounded-full ${bad ? 'bg-amber-500' : 'bg-emerald-500'}`} aria-hidden='true' />
+      <span className='text-muted-foreground'>{label}</span>
+      <b className={bad ? 'font-bold text-amber-700 dark:text-amber-400' : 'font-bold text-foreground'}>{value}</b>
+    </span>
+  );
+
+  return (
+    <div
+      className={`rounded-lg border-[1.5px] px-3 py-2 ${
+        healthy
+          ? 'border-emerald-400/70 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30'
+          : 'border-amber-400/70 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30'
+      }`}
+      role={healthy ? 'status' : 'alert'}
+      aria-label={`engine health today: ${healthy ? 'healthy' : 'needs attention'}`}
+    >
+      <div className='flex flex-wrap items-center gap-x-4 gap-y-1'>
+        <span
+          className={`font-mono text-[10px] font-bold uppercase tracking-widest ${
+            healthy ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-400'
+          }`}
+        >
+          engine today · {unreadable ? 'unreadable' : healthy ? 'healthy' : 'attention'}
+        </span>
+        {cell('loops due · ran', `${n2(e?.loopsDue)} / ${n2(e?.loopsRan)}`, missedLoops)}
+        {cell('work finished · waiting', `${n2(e?.jobsDoneToday)} / ${n2(e?.jobsStuck)}`, stuck)}
+        {cell('failures today', n2(e?.errorsToday), failed)}
+        {cell(
+          'money spent today',
+          e?.paidCallsToday === null || e?.paidCallsToday === undefined
+            ? '—'
+            : paid
+              ? `₹${(e?.paidInrToday ?? 0).toFixed(2)}`
+              : '₹0',
+          paid,
+        )}
+      </div>
+      {problems.length > 0 && (
+        <p className='mt-1 font-mono text-[10.5px] leading-snug text-amber-700 dark:text-amber-400'>
+          ⚠ {problems.join(' · ')}
+        </p>
+      )}
     </div>
   );
 }
@@ -721,6 +824,11 @@ export function LoopTower({
                 blurb="Iteration without gates — the loops ride it; it decides nothing. Four lanes share the window: the Max night lane (max_lane_requests, fully counted); the typed async job queue (ai_jobs — currently dispatches only max-lane jobs, so it overlaps the Max lane today); the editable dispatcher, now writing a true run log (ai_routine_run_log — logging since 13 Jul, sparse until it accumulates; the older 'routines fired' chips still count routines-whose-latest-fire-is-in-window, not runs); and static vercel crons (still not instrumented)."
                 chips={
                   <>
+                    {/* Full-width first row of the chips container — the
+                        "engine health today" strip renders above the pills. */}
+                    <div className='w-full'>
+                      <EngineHealthStrip e={s.engineToday} />
+                    </div>
                     <Chip
                       label='Max-lane runs 7d / today'
                       value={`${n(s.maxlaneDone7d)} / ${n(s.maxlaneDoneToday)}`}
