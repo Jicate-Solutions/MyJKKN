@@ -347,3 +347,19 @@ BEGIN
   );
 END;
 $function$;
+
+-- ---------------------------------------------------------------------
+-- 3) Anon lockdown (CI-gated). CREATE OR REPLACE re-triggers Supabase's default
+--    anon EXECUTE grant path; the existing ACL is preserved on replace (verified
+--    live: anon=false for both), but the guard requires an explicit in-migration
+--    REVOKE and it is correct hygiene either way.
+-- ---------------------------------------------------------------------
+-- fn_faculty_metrics: authenticated-callable dashboard RPC → revoke anon, keep auth.
+REVOKE EXECUTE ON FUNCTION public.fn_faculty_metrics() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_faculty_metrics() TO authenticated;
+
+-- fn_compute_tes_for_user: INTERNAL ONLY — called by fn_precompute_percentile_cache
+-- (SECDEF) and the sunday-wrap cron (service role). It returns ANY user's TES for an
+-- arbitrary p_user_id, so it must NOT be authenticated-callable (cross-user leak).
+-- Lock to definer/service: revoke anon + PUBLIC, withhold the authenticated grant.
+REVOKE EXECUTE ON FUNCTION public.fn_compute_tes_for_user(uuid) FROM anon, PUBLIC;
