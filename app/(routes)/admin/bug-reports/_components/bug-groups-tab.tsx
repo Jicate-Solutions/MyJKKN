@@ -714,6 +714,14 @@ function LoopStepper({
   const analyzing = fx?.status === 'requested' || fx?.status === 'running';
   const singleFix = verdict?.single_fix_feasible === true;
   const fix = fx?.fix ?? null;
+  // Human path (walk-2 lesson): single_fix_feasible=false only means the fix
+  // was not machine-writable. When the verdict still traces ONE shared cause
+  // (at most 1 subgroup) and a human-written fix PR is recorded, reporters
+  // are eligible per E3 — mirror of fn_bug_feedback_prepare's gate.
+  const oneCauseVerdict = !!verdict && (verdict.subgroups?.length ?? 0) <= 1;
+  const oneCauseHumanFix =
+    !singleFix && oneCauseVerdict && fix?.status === 'pr_opened';
+  const feedbackEligible = singleFix || oneCauseHumanFix;
 
   // ── verify: poll the aggregator while a run is active (each GET advances
   // the tally server-side and returns fresh state).
@@ -748,7 +756,7 @@ function LoopStepper({
       const json = await response.json();
       return json.feedback ?? null;
     },
-    enabled: singleFix,
+    enabled: feedbackEligible,
     staleTime: 30 * 1000,
     refetchInterval: (query) => {
       const s = query.state.data as FeedbackState | null;
@@ -815,7 +823,9 @@ function LoopStepper({
     s1 !== 'done'
       ? 'Run the diagnosis first.'
       : !singleFix
-        ? 'Diagnosis found separate causes — there is no single fix to write.'
+        ? oneCauseVerdict
+          ? 'One shared cause, but not machine-fixable — a person writes this fix (a fix PR on step 3 unlocks the rest).'
+          : 'Diagnosis found separate causes — there is no single fix to write.'
         : undefined;
 
   const s3: StepState = fix?.status === 'pr_opened' ? 'human' : 'locked';
@@ -832,7 +842,7 @@ function LoopStepper({
       : 'locked';
 
   const anySent = !!fb && fb.sent + fb.delivered + fb.answered > 0;
-  const s5: StepState = !singleFix
+  const s5: StepState = !feedbackEligible
     ? 'locked'
     : !fixLive && !(fb && fb.total > 0)
       ? 'locked'
@@ -841,7 +851,7 @@ function LoopStepper({
         : fb.pending_send > 0
           ? 'human'
           : 'done';
-  const s5Reason = !singleFix
+  const s5Reason = !feedbackEligible
     ? 'Needs a one-fix diagnosis.'
     : 'Waiting for the fix to go live.';
 
