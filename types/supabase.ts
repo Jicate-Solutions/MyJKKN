@@ -15508,6 +15508,7 @@ export type Database = {
           department_id: string | null
           description: string
           display_id: string | null
+          duplicate_of: string | null
           id: string
           institution_id: string | null
           metadata: Json | null
@@ -15534,6 +15535,7 @@ export type Database = {
           department_id?: string | null
           description: string
           display_id?: string | null
+          duplicate_of?: string | null
           id?: string
           institution_id?: string | null
           metadata?: Json | null
@@ -15560,6 +15562,7 @@ export type Database = {
           department_id?: string | null
           description?: string
           display_id?: string | null
+          duplicate_of?: string | null
           id?: string
           institution_id?: string | null
           metadata?: Json | null
@@ -95192,6 +95195,7 @@ export type Database = {
       user_notifications: {
         Row: {
           acknowledged_at: string | null
+          archived_at: string | null
           created_at: string
           escalated_at: string | null
           escalation_level: number | null
@@ -95202,6 +95206,7 @@ export type Database = {
         }
         Insert: {
           acknowledged_at?: string | null
+          archived_at?: string | null
           created_at?: string
           escalated_at?: string | null
           escalation_level?: number | null
@@ -95212,6 +95217,7 @@ export type Database = {
         }
         Update: {
           acknowledged_at?: string | null
+          archived_at?: string | null
           created_at?: string
           escalated_at?: string | null
           escalation_level?: number | null
@@ -99145,6 +99151,9 @@ export type Database = {
           department_name: string | null
           description: string | null
           display_id: string | null
+          duplicate_count: number | null
+          duplicate_of: string | null
+          duplicate_of_display_id: string | null
           id: string | null
           institution_id: string | null
           institution_name: string | null
@@ -101582,6 +101591,18 @@ export type Database = {
       }
     }
     Functions: {
+      fn_notifications_unique_users_reached: {
+        Args: never
+        Returns: number
+      }
+      fn_notification_compliance_rollup: {
+        Args: never
+        Returns: Json
+      }
+      resolve_audience_preview: {
+        Args: { p_query_type: string; p_query_params: Json }
+        Returns: Json
+      }
       fn_vsr_create_share_token: {
         Args: { p_label?: string }
         Returns: Json

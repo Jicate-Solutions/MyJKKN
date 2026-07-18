@@ -91,7 +91,7 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
 
         {/* Tier tabs — defaultValue follows ?tier= URL param */}
         <Tabs defaultValue={activeTier} className="w-full">
-          <TabsList className="grid grid-cols-2 sm:grid-cols-4 w-full sm:w-auto">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:w-auto sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="all">All Incomplete</TabsTrigger>
             <TabsTrigger value="critical" className="text-red-600 data-[state=active]:text-red-700">
               Critical

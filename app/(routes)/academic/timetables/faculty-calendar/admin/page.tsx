@@ -204,7 +204,7 @@ function AdminFacultyCalendarPageInner() {
             onValueChange={setActiveTab}
             className='space-y-4'
           >
-            <TabsList className='grid w-full grid-cols-4'>
+            <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible'>
               <TabsTrigger value='calendar'>
                 <Calendar className='h-4 w-4 mr-2' />
                 Calendar View

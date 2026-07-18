@@ -514,7 +514,7 @@ function ApprovalsPageInner() {
 
       {/* Status Tabs */}
       <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
-        <TabsList className="grid w-full grid-cols-4 max-w-md">
+        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:max-w-md sm:gap-0 sm:overflow-visible">
           <TabsTrigger value="pending">Pending</TabsTrigger>
           <TabsTrigger value="approved">Approved</TabsTrigger>
           <TabsTrigger value="rejected">Rejected</TabsTrigger>

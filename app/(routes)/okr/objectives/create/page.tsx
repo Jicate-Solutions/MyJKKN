@@ -592,7 +592,7 @@ function CreateObjectivePageInner() {
 
         {/* Main Form Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-5 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="basics" className="gap-1">
               <FileText className="h-3 w-3" />
               Basics

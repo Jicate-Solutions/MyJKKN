@@ -132,7 +132,7 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
 
       {/* ─── Tabs: Institution / Role / People ── */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="w-full grid grid-cols-4">
+        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
           <TabsTrigger value="institution" className="text-xs sm:text-sm">
             <Building2 className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" />
             By Institution

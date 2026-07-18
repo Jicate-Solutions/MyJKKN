@@ -49,39 +49,46 @@ function getCategoryStyle(category: string): {
   pill: string;
   icon: React.ReactNode;
 } {
-  switch (category) {
-    case 'announcements':
-      return {
-        bar: 'bg-blue-500',
-        pill: 'bg-blue-50 text-blue-700 border-blue-200',
-        icon: <Megaphone className='h-3 w-3' />
-      };
-    case 'reminders':
-      return {
-        bar: 'bg-amber-500',
-        pill: 'bg-amber-50 text-amber-700 border-amber-200',
-        icon: <Clock className='h-3 w-3' />
-      };
-    case 'events':
-      return {
-        bar: 'bg-green-500',
-        pill: 'bg-green-50 text-green-700 border-green-200',
-        icon: <Calendar className='h-3 w-3' />
-      };
-    case 'alerts':
-      return {
-        bar: 'bg-red-500',
-        pill: 'bg-red-50 text-red-700 border-red-200',
-        icon: <AlertTriangle className='h-3 w-3' />
-      };
-    case 'general':
-    default:
-      return {
-        bar: 'bg-gray-400',
-        pill: 'bg-gray-50 text-gray-700 border-gray-200',
-        icon: <Info className='h-3 w-3' />
-      };
+  // Stored categories are capitalized-singular ('Announcement', 'Event', ...)
+  // per lib/constants/notification-categories.ts, and organic modules emit
+  // free-form values ('Dashboard:Rescue'). Normalize to lowercase and
+  // substring-match so canonical AND organic categories color correctly
+  // (mirrors notification-stack.tsx getCategoryColor).
+  const key = (category || '').toLowerCase();
+
+  if (key.includes('alert') || key.includes('rescue') || key.includes('warning')) {
+    return {
+      bar: 'bg-red-500',
+      pill: 'bg-red-50 text-red-700 border-red-200',
+      icon: <AlertTriangle className='h-3 w-3' />
+    };
   }
+  if (key.includes('announcement')) {
+    return {
+      bar: 'bg-blue-500',
+      pill: 'bg-blue-50 text-blue-700 border-blue-200',
+      icon: <Megaphone className='h-3 w-3' />
+    };
+  }
+  if (key.includes('reminder')) {
+    return {
+      bar: 'bg-amber-500',
+      pill: 'bg-amber-50 text-amber-700 border-amber-200',
+      icon: <Clock className='h-3 w-3' />
+    };
+  }
+  if (key.includes('event')) {
+    return {
+      bar: 'bg-green-500',
+      pill: 'bg-green-50 text-green-700 border-green-200',
+      icon: <Calendar className='h-3 w-3' />
+    };
+  }
+  return {
+    bar: 'bg-gray-400',
+    pill: 'bg-gray-50 text-gray-700 border-gray-200',
+    icon: <Info className='h-3 w-3' />
+  };
 }
 
 // ---- Props ----

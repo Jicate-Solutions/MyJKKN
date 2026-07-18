@@ -1449,6 +1449,16 @@ CREATE INDEX IF NOT EXISTS idx_bug_reports_metadata_ig_user_id
   ON public.bug_reports ((metadata->>'ig_user_id'))
   WHERE metadata ? 'ig_user_id';
 
+-- Updated: 2026-07-17 - Duplicate machinery (PR 1 of bug-triage epic).
+-- duplicate_of = canonical bug this report duplicates (set with status='duplicate').
+-- Resolving the canonical cascades resolution to all duplicates + emails reporters.
+-- Status CHECK widened with 'duplicate'. Applied live via migration
+-- 20260717061500_bug_reports_duplicate_machinery.sql.
+ALTER TABLE public.bug_reports
+  ADD COLUMN IF NOT EXISTS duplicate_of UUID NULL REFERENCES public.bug_reports(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_bug_reports_duplicate_of
+  ON public.bug_reports (duplicate_of) WHERE duplicate_of IS NOT NULL;
+
 -- Bug Report Messages
 CREATE TABLE IF NOT EXISTS public.bug_report_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -6232,3 +6242,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_event_volunteers_member_active
 CREATE INDEX IF NOT EXISTS idx_event_volunteers_member
   ON public.event_volunteer_checkins (member_id)
   WHERE member_id IS NOT NULL;
+
+-- Updated: 2026-07-17 - Bug duplicate-cluster proposals (PR 3 of bug-triage epic).
+-- Nightly trigram scan groups similar open bug_reports; admin confirms via the
+-- Groups tab, which stamps duplicate_of (PR-1 machinery then owns the group).
+-- RLS-enabled with NO policies: SECURITY DEFINER fns + service role only.
+-- Applied live via migration 20260717150000_bug_clusters_scan_loop.sql.
+CREATE TABLE IF NOT EXISTS public.bug_clusters (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    seed_bug_id        UUID NOT NULL UNIQUE REFERENCES public.bug_reports(id) ON DELETE CASCADE,
+    member_ids         UUID[] NOT NULL,
+    member_count       INT NOT NULL,
+    sample_description TEXT,
+    module_names       TEXT[] NOT NULL DEFAULT '{}',
+    status             TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','confirmed','dismissed')),
+    decided_by         UUID NULL,
+    decided_at         TIMESTAMPTZ NULL,
+    first_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_scan_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);

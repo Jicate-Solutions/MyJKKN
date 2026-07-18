@@ -226,7 +226,7 @@ export function CaseFormBuilder({
       <Card>
         <CardContent className="p-4">
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList className="grid grid-cols-4 mb-4">
+            <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible mb-4">
               <TabsTrigger value="patient">Patient Details</TabsTrigger>
               <TabsTrigger value="questions">Questions ({questions.length})</TabsTrigger>
               <TabsTrigger value="weights">

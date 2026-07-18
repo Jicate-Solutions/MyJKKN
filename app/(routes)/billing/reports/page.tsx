@@ -137,7 +137,7 @@ function BillingReportsPageInner() {
           onValueChange={setActiveTab}
           className='space-y-4'
         >
-          <TabsList className='grid w-full grid-cols-6'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-6 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='dashboard' className='flex items-center gap-2'>
               <BarChart3 className='h-4 w-4' />
               Dashboard

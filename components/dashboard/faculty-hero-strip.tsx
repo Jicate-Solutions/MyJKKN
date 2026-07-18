@@ -123,7 +123,7 @@ function teachingExcellenceTile(metrics: FacultyMetrics): HeroTileProps {
     };
   }
 
-  const { score, band, components, missing_components } = tes;
+  const { score, band, components, missing_components, marking_detail } = tes;
   const labelMap: Record<string, string> = {
     student_attendance: 'StuAtt',
     marking_compliance: 'Mark',
@@ -159,13 +159,30 @@ function teachingExcellenceTile(metrics: FacultyMetrics): HeroTileProps {
         ? 'On track — a component needs attention'
         : 'Attention needed on multiple components';
 
+  // "Track both" (Phase 2): show the two marking numbers so a delegating faculty
+  // sees their assigned classes ARE credited, distinct from what they marked
+  // personally. `assigned_days` drives the score; `personal_days` is transparency.
+  const markingLine =
+    marking_detail !== undefined ? (
+      <div className='text-[10px] opacity-75'>
+        Marking: {marking_detail.assigned_days} assigned{' '}
+        {marking_detail.assigned_days === 1 ? 'day' : 'days'} · you{' '}
+        {marking_detail.personal_days} personally
+      </div>
+    ) : null;
+
   return {
     label: 'Teaching Excellence',
     value: stillWarmingUp ? '—' : score,
     subtitle,
     hint: missingNote,
     color: stillWarmingUp ? 'neutral' : band,
-    footer: <div className='line-clamp-2'>{footerLabel}</div>
+    footer: (
+      <div className='space-y-1'>
+        <div className='line-clamp-2'>{footerLabel}</div>
+        {markingLine}
+      </div>
+    )
   };
 }
 

@@ -7510,6 +7510,9 @@ GRANT EXECUTE ON FUNCTION fn_dashboard_metrics_as(UUID) TO service_role;
 -- 362-line variant that matched no deployed function). Fixes the
 -- period_id/id slot-key mismatch that made Classes-to-Mark read 0.
 -- See migration 20260717021126.
+-- Updated 2026-07-18 (Phase 2): marking_compliance credits ASSIGNED-and-marked
+-- days (not personal marker_id) + returns marking_detail. See migration
+-- faculty_metrics_marking_assigned_reconciliation.sql.
 CREATE OR REPLACE FUNCTION public.fn_faculty_metrics()
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -7518,6 +7521,7 @@ CREATE OR REPLACE FUNCTION public.fn_faculty_metrics()
 AS $function$
 DECLARE
   v_user_id uuid := auth.uid();
+  v_email text;
   v_institution_id uuid; v_staff_id uuid;
   v_today date; v_day_name text; v_now_ist timestamptz; v_now_time time;
   v_week_start date; v_week_end date;
@@ -7531,7 +7535,8 @@ DECLARE
   v_30d_start date; v_tes_stu_att numeric; v_tes_marking numeric;
   v_tes_nps numeric; v_tes_research numeric;
   v_tes_stu_present int := 0; v_tes_stu_total int := 0;
-  v_tes_marked_rows int := 0; v_tes_assigned_rows int := 0;
+  v_tes_marked_assigned int := 0; v_tes_marked_personal int := 0;
+  v_tes_assigned_rows int := 0;
   v_tes_composite jsonb;
 BEGIN
   v_now_ist := now() AT TIME ZONE 'Asia/Kolkata';
@@ -7542,6 +7547,7 @@ BEGIN
   v_week_end := v_week_start + 4;
   v_30d_start := v_today - interval '30 days';
   SELECT institution_id INTO v_institution_id FROM profiles WHERE id = v_user_id;
+  SELECT lower(email) INTO v_email FROM profiles WHERE id = v_user_id;
   SELECT s.id INTO v_staff_id FROM staff s WHERE s.profile_id = v_user_id LIMIT 1;
   IF v_staff_id IS NULL THEN
     RETURN jsonb_build_object(
@@ -7607,7 +7613,8 @@ BEGIN
     v_week_pct := ROUND((v_week_days_marked::numeric / v_week_days_total) * 100, 1);
   END IF;
 
-  -- TES components
+  -- TES component 1: student_attendance (unchanged) — % Present in this
+  -- faculty's PERSONALLY-marked classes (marker attribution).
   BEGIN
     SELECT
       COALESCE(SUM((SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS pkv,
@@ -7625,15 +7632,36 @@ BEGIN
     END IF;
   EXCEPTION WHEN OTHERS THEN v_tes_stu_att := NULL; END;
 
+  -- TES component 2: marking_compliance (Phase 2, 2026-07-18) — now credits
+  -- ASSIGNED-and-marked days (a day where a session assigned to this faculty was
+  -- marked by anyone), mirroring fn_work_signals_for.v_assigned_marked. Reads
+  -- assigned_faculty off the marked attendance row (no timetable slot lookup) so
+  -- the period_id/id timetable-shape trap does not apply. Personal count kept for
+  -- the "track both" tile. Score uses ASSIGNED / 22 target days.
   BEGIN
-    SELECT COUNT(DISTINCT sa.attendance_date) INTO v_tes_marked_rows
+    SELECT COUNT(DISTINCT sa.attendance_date) INTO v_tes_marked_assigned
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pkv(period_key, period_val),
+         LATERAL jsonb_array_elements(
+           CASE
+             WHEN jsonb_typeof(pkv.period_val -> 'assigned_faculty') = 'array'  THEN pkv.period_val -> 'assigned_faculty'
+             WHEN jsonb_typeof(pkv.period_val -> 'assigned_faculty') = 'object' THEN jsonb_build_array(pkv.period_val -> 'assigned_faculty')
+             ELSE '[]'::jsonb
+           END) AS af(el)
+    WHERE sa.attendance_date >= v_30d_start AND sa.attendance_date <= v_today
+      AND sa.institution_id = v_institution_id
+      AND v_email IS NOT NULL
+      AND lower(COALESCE(af.el ->> 'faculty_email', '')) = v_email;
+
+    SELECT COUNT(DISTINCT sa.attendance_date) INTO v_tes_marked_personal
     FROM student_attendance sa, jsonb_each(sa.attendance_data) AS pkv(period_key, period_val)
     WHERE sa.attendance_date >= v_30d_start AND sa.attendance_date <= v_today
       AND sa.institution_id = v_institution_id
-      AND period_val->'marked_by_details'->>'marker_id' = v_user_id::text;
+      AND pkv.period_val->'marked_by_details'->>'marker_id' = v_user_id::text;
+
     v_tes_assigned_rows := 22;
     IF v_tes_assigned_rows > 0 THEN
-      v_tes_marking := LEAST(100, GREATEST(0, ROUND((v_tes_marked_rows::numeric / v_tes_assigned_rows::numeric) * 100)));
+      v_tes_marking := LEAST(100, GREATEST(0, ROUND((v_tes_marked_assigned::numeric / v_tes_assigned_rows::numeric) * 100)));
     END IF;
   EXCEPTION WHEN OTHERS THEN v_tes_marking := NULL; END;
 
@@ -7651,12 +7679,15 @@ BEGIN
     'week_attendance', jsonb_build_object('pct', v_week_pct, 'days_marked', v_week_days_marked, 'days_total', v_week_days_total),
     'teaching_excellence_score', v_tes_composite || jsonb_build_object(
       'components', jsonb_build_object('student_attendance', v_tes_stu_att, 'marking_compliance', v_tes_marking, 'feedback_nps', v_tes_nps, 'research_mentorship', v_tes_research),
+      'marking_detail', jsonb_build_object(
+        'assigned_days', v_tes_marked_assigned,
+        'personal_days', v_tes_marked_personal,
+        'target_days', v_tes_assigned_rows),
       'window', 'trailing_30_days'),
     'scope', jsonb_build_object('user_id', v_user_id, 'institution_id', v_institution_id, 'computed_at', now())
   );
 END;
-$function$
-;
+$function$;
 -- END Dashboard v2 Faculty metrics
 
 GRANT EXECUTE ON FUNCTION public.fn_student_metrics() TO authenticated;
