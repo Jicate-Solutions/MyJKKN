@@ -75,6 +75,10 @@ const NAV_EXCLUDE = new Set<string>([
   '/admin/whatsapp-byow/secret-rotation',
   '/system',
 
+  // Internal design tool — the Element Gallery (Phase 1). Not a permissioned
+  // module; reached by direct URL / a link we add later, so it has no chip surface.
+  '/design-gallery',
+
   // Module root landings — redirect-to-first-child pages
   '/academic',
   '/admin',
