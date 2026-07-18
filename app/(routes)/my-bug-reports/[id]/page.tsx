@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/accordion';
 import toast from 'react-hot-toast';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
+import { FixedForYouPrompts } from '../_components/fixed-for-you-prompts';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const statusConfig: Record<
@@ -212,6 +213,9 @@ export default function BugReportDetailPage() {
   return (
     <ContentLayout title={`Bug Report - ${bugReport.display_id}`}>
       <div className='space-y-6'>
+        {/* "Is this fixed for you?" prompt for THIS report (nothing when none) */}
+        <FixedForYouPrompts bugId={bugReport.id} />
+
         {/* Header */}
         <div className='flex items-center justify-between'>
           <div className='flex items-center gap-3'>
