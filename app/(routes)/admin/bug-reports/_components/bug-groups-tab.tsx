@@ -370,28 +370,22 @@ export function BugGroupsTab() {
                   )}
                 </div>
 
-                <FixabilityPanel
+                <LoopStepper
                   cluster={cluster}
                   onAnalyze={() => fixabilityMutation.mutate(cluster.id)}
-                  isQueuing={
+                  analyzeQueuing={
                     fixabilityMutation.isPending &&
                     fixabilityMutation.variables === cluster.id
                   }
                   onFix={() => fixMutation.mutate(cluster.id)}
-                  isFixing={
+                  fixQueuing={
                     fixMutation.isPending && fixMutation.variables === cluster.id
                   }
-                />
-
-                <VerifyPanel
-                  cluster={cluster}
                   onVerify={() => verifyMutation.mutate(cluster.id)}
-                  isQueuing={
+                  verifyQueuing={
                     verifyMutation.isPending && verifyMutation.variables === cluster.id
                   }
                 />
-
-                <FeedbackSection cluster={cluster} />
 
                 <Separator className='my-3' />
 
