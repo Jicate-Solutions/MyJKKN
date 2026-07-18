@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,8 @@ import {
   GitBranch,
   GitPullRequest,
   ExternalLink,
-  CircleAlert
+  CircleAlert,
+  ScanSearch
 } from 'lucide-react';
 
 interface ClusterMember {
@@ -70,6 +71,31 @@ interface Fixability {
   fix?: FixState | null;
 }
 
+interface VerifyPerBug {
+  display_id: string | null;
+  verdict?: 'likely_fixed' | 'still_broken' | 'inconclusive';
+  confidence?: string;
+  reproducible?: string;
+  failed?: boolean;
+  error?: string;
+}
+
+interface VerifyState {
+  status: 'running' | 'done' | 'error';
+  requested_at: string;
+  completed_at?: string;
+  total: number;
+  per_bug: Record<string, VerifyPerBug>;
+  tally: {
+    likely_fixed: number;
+    still_broken: number;
+    inconclusive: number;
+    failed: number;
+    pending: number;
+  };
+  error?: string;
+}
+
 interface BugCluster {
   id: string;
   seed_bug_id: string;
@@ -81,6 +107,7 @@ interface BugCluster {
   last_scan_at: string;
   members: ClusterMember[] | null;
   fixability?: Fixability | null;
+  verify?: VerifyState | null;
 }
 
 const fetchClusters = async (status: string): Promise<BugCluster[]> => {
@@ -201,6 +228,30 @@ export function BugGroupsTab() {
       queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
     },
     onError: (err: any) => toast.error(err?.message || 'Could not queue the fix')
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: async (clusterId: string) => {
+      const response = await fetch(`/api/bug-reports/clusters/${clusterId}/verify`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'Could not start the re-check');
+      return { clusterId, ...json };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        `Re-checking ${data.enqueued ?? 0} report(s) as their reporters (AI Max, ₹0) — the tally fills in below.`
+      );
+      if (data.verify) {
+        queryClient.setQueryData(
+          [...queryKeys.bugReports.all, 'cluster-verify', data.clusterId],
+          data.verify
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not start the re-check')
   });
 
   return (
@@ -327,6 +378,14 @@ export function BugGroupsTab() {
                   onFix={() => fixMutation.mutate(cluster.id)}
                   isFixing={
                     fixMutation.isPending && fixMutation.variables === cluster.id
+                  }
+                />
+
+                <VerifyPanel
+                  cluster={cluster}
+                  onVerify={() => verifyMutation.mutate(cluster.id)}
+                  isQueuing={
+                    verifyMutation.isPending && verifyMutation.variables === cluster.id
                   }
                 />
 
@@ -675,6 +734,195 @@ function FixSection({
         AI writes the one fix as a draft PR for you to review and merge. It never
         merges or emails on its own.
       </span>
+    </div>
+  );
+}
+
+const VERIFY_CHIP_CLS: Record<string, string> = {
+  likely_fixed:
+    'bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200',
+  still_broken: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200',
+  inconclusive:
+    'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200',
+  failed: 'bg-muted text-muted-foreground border-border'
+};
+
+const VERIFY_CHIP_LABEL: Record<string, string> = {
+  likely_fixed: 'likely fixed',
+  still_broken: 'still broken',
+  inconclusive: 'inconclusive',
+  failed: 'check failed'
+};
+
+/**
+ * Verify-group strip — increment #1 of the self-improving loop. After a fix
+ * for this group deploys, fan the live per-bug re-check across every member:
+ * each report's symptom is re-checked AS ITS REPORTER (read-only) and judged.
+ *
+ * MOAT HONESTY: this is the AI re-checking its own fix — a weak signal, so the
+ * card always says "AI re-check — not reporter-confirmed". The real ground
+ * truth is increment #2 (the reporter 👍/👎). RECOMMENDATION ONLY — it never
+ * resolves the group and never emails anyone.
+ */
+function VerifyPanel({
+  cluster,
+  onVerify,
+  isQueuing
+}: {
+  cluster: BugCluster;
+  onVerify: () => void;
+  isQueuing: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const listState = cluster.verify ?? null;
+
+  // While a run is active, poll the aggregator: each GET advances the tally
+  // server-side (collects finished member verdicts) and returns fresh state.
+  const { data: polled } = useQuery<VerifyState | null>({
+    queryKey: [...queryKeys.bugReports.all, 'cluster-verify', cluster.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/verify`);
+      if (!response.ok) throw new Error('Failed to read the re-check');
+      const json = await response.json();
+      return json.verify ?? null;
+    },
+    enabled: listState?.status === 'running',
+    refetchInterval: (query) =>
+      (query.state.data as VerifyState | null)?.status === 'running' ? 8000 : false
+  });
+
+  // When the poll sees the run finish, refresh the list so the completed tally
+  // also lives in the clusters fetch (and survives revisits without polling).
+  useEffect(() => {
+    if (listState?.status === 'running' && polled && polled.status !== 'running') {
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.bugReports.all, 'clusters']
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polled?.status]);
+
+  if (cluster.status === 'dismissed') return null;
+
+  const v = polled ?? listState;
+
+  if (!v) {
+    return (
+      <div className='mt-2 flex flex-wrap items-center gap-2'>
+        <Button size='sm' variant='outline' onClick={onVerify} disabled={isQueuing}>
+          {isQueuing ? (
+            <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+          ) : (
+            <ScanSearch className='w-4 h-4 mr-1.5' />
+          )}
+          Verify group (AI re-check, ₹0)
+        </Button>
+        <span className='text-[11px] text-muted-foreground'>
+          After a fix goes live: re-checks every report as its reporter
+          (read-only) and tallies how many look fixed.
+        </span>
+      </div>
+    );
+  }
+
+  if (v.status === 'running') {
+    const done = v.total - v.tally.pending;
+    return (
+      <div className='mt-2 flex items-center gap-2 rounded-md border border-sky-300 bg-sky-50 dark:bg-sky-950/40 px-3 py-2'>
+        <Loader2 className='w-4 h-4 animate-spin text-sky-600 shrink-0' />
+        <span className='text-xs text-sky-800 dark:text-sky-200'>
+          Re-checking each report as its reporter (AI Max · ₹0) — {done} of {v.total} done.
+          The tally fills in as members finish.
+        </span>
+      </div>
+    );
+  }
+
+  if (v.status === 'error') {
+    return (
+      <div className='mt-2 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 px-3 py-2'>
+        <CircleAlert className='w-4 h-4 text-red-600 shrink-0' />
+        <span className='text-xs text-red-800 dark:text-red-200'>
+          Group re-check couldn&apos;t start{v.error ? `: ${v.error}` : '.'}
+        </span>
+        <Button size='sm' variant='ghost' onClick={onVerify} disabled={isQueuing} className='ml-auto'>
+          <RefreshCw className='w-3.5 h-3.5 mr-1' />
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  // done
+  const entries = Object.entries(v.per_bug ?? {});
+  return (
+    <div className='mt-2 rounded-md border border-sky-300 bg-sky-50 dark:bg-sky-950/40 px-3 py-2.5'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <Badge variant='outline' className={VERIFY_CHIP_CLS.likely_fixed}>
+          {v.tally.likely_fixed} likely fixed
+        </Badge>
+        <Badge variant='outline' className={VERIFY_CHIP_CLS.still_broken}>
+          {v.tally.still_broken} still broken
+        </Badge>
+        <Badge variant='outline' className={VERIFY_CHIP_CLS.inconclusive}>
+          {v.tally.inconclusive} inconclusive
+        </Badge>
+        {v.tally.failed > 0 && (
+          <Badge variant='outline' className={VERIFY_CHIP_CLS.failed}>
+            {v.tally.failed} check failed
+          </Badge>
+        )}
+        {v.completed_at && (
+          <span className='text-[11px] text-muted-foreground ml-auto'>
+            {new Date(v.completed_at).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      <p className='text-[11px] font-medium text-sky-800 dark:text-sky-200 mt-1.5'>
+        AI re-check — not reporter-confirmed. Reporter answers (👍/👎) are the
+        ground truth and arrive separately.
+      </p>
+
+      {entries.length > 0 && (
+        <div className='mt-2 flex flex-wrap gap-1.5'>
+          {entries.map(([bugId, e]) => {
+            const kind = e.failed ? 'failed' : (e.verdict ?? 'inconclusive');
+            return (
+              <Link
+                key={bugId}
+                href={`/admin/bug-reports/${bugId}`}
+                title={e.error ?? (e.reproducible === 'write' ? 'write symptom — cannot be read-verified' : undefined)}
+                className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono hover:opacity-80 transition-opacity ${VERIFY_CHIP_CLS[kind]}`}
+              >
+                {e.display_id ?? bugId.slice(0, 8)}
+                <span className='font-sans'>· {VERIFY_CHIP_LABEL[kind]}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      <div className='flex items-center gap-2 mt-2.5 pt-2 border-t border-border/60'>
+        <p className='text-[11px] text-muted-foreground'>
+          AI recommendation only — it never resolves this group or emails
+          reporters. A human decides.
+        </p>
+        <Button
+          size='sm'
+          variant='ghost'
+          onClick={onVerify}
+          disabled={isQueuing}
+          className='ml-auto text-muted-foreground'
+        >
+          {isQueuing ? (
+            <Loader2 className='w-3.5 h-3.5 mr-1 animate-spin' />
+          ) : (
+            <RefreshCw className='w-3.5 h-3.5 mr-1' />
+          )}
+          Re-run
+        </Button>
+      </div>
     </div>
   );
 }
