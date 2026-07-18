@@ -43,7 +43,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCdcAdmin } from '@/hooks/cdc/use-cdc-admin';
 import {
   useCdcDashboardKpis,
   useCdcDrivesByStatus,
@@ -280,7 +280,7 @@ function IdpByInstitutionCard() {
 // =====================================================================================
 
 export default function CdcDashboardPage() {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
+  const { isCdcAdmin, isLoading: permsLoading } = useCdcAdmin();
   const kpis = useCdcDashboardKpis();
 
   if (permsLoading) {
@@ -295,7 +295,7 @@ export default function CdcDashboardPage() {
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!isCdcAdmin) {
     return (
       <ContentLayout title="CDC Dashboard">
         <Alert variant="destructive">
