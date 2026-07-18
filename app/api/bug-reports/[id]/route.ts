@@ -111,7 +111,7 @@ export async function PATCH(
     // Check if user is admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
@@ -122,7 +122,7 @@ export async function PATCH(
       );
     }
 
-    if (!['super_admin', 'administrator', 'ceo'].includes(profile.role)) {
+    if ((!(profile as any).is_super_admin && !['super_admin', 'administrator', 'ceo'].includes(profile.role))) {
       return NextResponse.json(
         { error: 'Only administrators can update bug report status' },
         { status: 403 }
@@ -441,11 +441,11 @@ export async function DELETE(
     // Check if user is super admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile || profile.role !== 'super_admin') {
+    if (profileError || !profile || (!(profile as any).is_super_admin && profile.role !== 'super_admin')) {
       return NextResponse.json(
         { error: 'Only super administrators can delete bug reports' },
         { status: 403 }
