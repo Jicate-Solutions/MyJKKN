@@ -37,6 +37,7 @@ import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
 import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
 import { DeptMomentumCard } from '@/components/dashboard/dept-momentum-card';
 import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
+import { WorkSignalsCard } from '@/components/work-signals/work-signals-card';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -410,6 +411,16 @@ export default async function DashboardV2Page({
               {isLimited && <LimitedHero />}
             </Suspense>
           </DashboardErrorBoundary>
+        )}
+
+        {/* Work-signals spine (Phase 1): the facilitator's own canonical
+            work-signals, same engine + component as the My Pulse page. Faculty
+            and HODs (who also teach) see their evidenced work here on the
+            dashboard — self-scoped, presence-only, never ranked. */}
+        {showsWidget('hero') && (isFaculty || isHod) && (
+          <div className='mt-6'>
+            <WorkSignalsCard />
+          </div>
         )}
 
         {/* Personal AI Agency card (AI Agency Score, Part 5 · S2) — gives senior
