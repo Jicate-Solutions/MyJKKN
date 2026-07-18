@@ -1,3 +1,57 @@
+## Session: 2026-07-18 (cnext) — Cluster Fixability SHIPPED+LIVE, AUTO-FIX built (Step 2.7-gated), self-improving LOOP is next
+
+### Accomplished
+- **Cluster FIXABILITY v1 SHIPPED + LIVE + eyeballed on prod**: Groups-tab "Analyze fixability (AI Max, ₹0)" → Mac worktree runner reads REAL code READ-ONLY → "one fix resolves all N" vs "N distinct-root-cause subgroups". PR #2160 MERGED+DEPLOYED; card confirmed rendering the 33-member "2 distinct root causes" verdict live. #2157(gate)+#2158(probe) merged same deploy.
+- **AUTO-FIX sequel BUILT (Director asked "add a Fix button + re-verify")** — human-gated model (Director chose): AI proposes (draft PR), human approves the 2 irreversible steps (merge/deploy, resolve/email-N).
+  · Migration 20260718140000 (APPLIED LIVE): 3 anon-locked SECDEF RPCs on metadata.fixability.fix (request gated on single_fix_feasible=true).
+  · Mac WRITE runner bug-cluster-fix.mjs (SEEDED by verdict; forbidden-paths 2× incl post-diff-abort; DB-fn cause→needs_migration; DRAFT PR only) + ai.jkkn.maxlane.clusterfix.plist (LOADED). Route + "Fix this group" button + fix-state card.
+  · PROVEN ₹0: cluster fb6eacfe → real minimal fix in lib/services/staff/staff-service.ts (self-filter email→profile_id) as DRAFT PR #2162.
+  · PR #2163 (feature) OPEN, CI green.
+- **Step 2.7 Build Depth Gate ADDED to the runner (Director caught the gap)**: 3 static gates delta + scoped-tsconfig tsc (3s, no OOM) + JKKN terminology-delta + repair round, before push. Because CI SKIPS TypeCheck/terminology/reachability on DRAFT PRs. Fixed #2162 (terminology "faculty" log string) + marked ready → MERGEABLE/CLEAN.
+
+### Current Status
+- Feature: fixability LIVE; autofix CODE-COMPLETE (PR #2163 green + PR #2162 mergeable, both awaiting Director merge). Runners + 2 launchd lanes (fixability, clusterfix) LOADED. Migrations applied live.
+- Build: all green. Branch (local): feat/campus-living-fee-compute-engine (docs only; code ships via worktree PRs off jicate/main).
+
+### Lessons (in memory)
+- CI SKIPS gates on DRAFT PRs → AI-fixer must self-gate (Step 2.7 incl terminology). [[feedback_ci_skips_gates_on_draft_prs_ai_fixer_must_self_gate]]
+- Terminology delta flags a legacy term on any line the AI TOUCHED (even a log string it didn't author); scoped tsconfig dodges the full-tsc OOM.
+
+### Next Session — Tasks (Director P0 = "1, 2 and 3" = build the FULL self-improving loop, spec-first)
+1. [P0] SPEC the 3-increment loop (Analyze→Fix→Verify→Reporter-feedback→Learn) with the moat-vs-echo checkpoints marked. (medium)
+2. [P0] Build #1 Verify group: fan-out live bug.reverify across a fixed cluster's members after deploy + tally. (medium)
+3. [P0] Build #2 Reporter feedback (THE KEYSTONE — ground truth): gated 👍/👎 "is this fixed for you?" to each reporter; collect replies. Without it #3 = AI grading own homework. (large)
+4. [P0] Build #3 Learn: outcome ledger {root-cause type, files, fix pattern, verify verdict, reporter-confirmed y/n} → retrieve matching past outcomes into next fix. Prove with moat-loop 2-cycle test (next fix changes BECAUSE a measured outcome). (large)
+5. [P1] Merge #2163 + #2162 → deploy → verify Fix button + gate report live. Optional runner tweak: open PR non-draft when local gates green (so CI runs full suite).
+- HARD RULES carried: 2 human gates stay (merge-to-live, resolve-that-emails-N). Never auto-merge. Recommendation/human-gated only.
+
+---
+
+### Session 2026-07-18 (registry review) — Reviewed all 8 unshipped-work clusters vs prod: ALL 8 SUPERSEDED (features shipped under evolved SHAs — housekeeping/referral/induction-kiosk/SCF-lanes/schools-network/live-poll/attendance-marks/loop-tower all live in main; proofs failed only on post-landing file drift). Genuinely unshipped = 4 dirt items: cdc-admin-fix (RESCUED → PR #2161: cdc_head gate via is_cdc_head_or_super RPC + config_key auto-derive), 2 RLS migrations pending live-DB check (cdc-trainer-semester 212L, persona-design-pr4 672L), voice-memos tweak 76L (minor). Director-approved cleanup: -32 worktrees -35 branches → 75 wt / 1,250 br (from Tue's 177/2,674 = 58%/53% total reduction). Janitor Sat run fired on schedule (-32 wt -38 br).
+## Session: 2026-07-18 — Cluster Fixability SHIPPED+LIVE, then AUTO-FIX sequel BUILT (PR #2163)
+
+### Accomplished
+- FIXABILITY (from earlier this session): #2160 MERGED + DEPLOYED + card eyeballed LIVE on prod (Groups tab 33-member cluster shows "2 distinct root causes"). #2157 (gate) + #2158 (probe) also merged same deploy.
+- AUTO-FIX sequel (Director asked for a "Fix button + re-verify"): chose the HUMAN-GATED model (Director picked it).
+  · Loop: Analyze ✓ → "Fix this group" (AI writes fix → DRAFT PR, ₹0) → 🚦human merge+deploy → Verify group (reuses live bug.reverify, DEFERRED) → 🚦human Resolve (#2136 cascade+emails N). The 2 irreversible steps stay human.
+  · Migration 20260718140000 (APPLIED LIVE): 3 anon-locked SECDEF RPCs on metadata.fixability.fix (request gated on single_fix_feasible=true; claim/complete service-role).
+  · Mac-local: bug-cluster-fix.mjs WRITE runner (SEEDED by verdict, forbidden-paths enforced 2× incl hard post-diff abort, DB-fn cause→needs_migration, DRAFT PR only) + ai.jkkn.maxlane.clusterfix.plist (LOADED).
+  · Route POST /api/bug-reports/clusters/[id]/fix + UI "Fix this group" button + fix-state card.
+  · PROVEN ₹0: cluster fb6eacfe → real minimal fix in lib/services/staff/staff-service.ts (self-filter email→profile_id) as DRAFT PR #2162. Nothing merged/resolved.
+- PR #2163 OPEN (feature). #2162 = the AI's demo fix (real bug, draft, Director can review/merge).
+
+### Lessons (also in memory)
+- JKKN terminology gate flags PROSE faculty/staff/student even in docs/ specs, but EXEMPTS backtick-wrapped code paths (`hooks/staff/...`). Reword prose, keep code paths in backticks. [[project_bug_cluster_fixability]]
+- Fixability verdict SEEDS the fix runner (root_cause+files) → tight 4-min fix vs from-scratch rediscovery.
+- Write runner inherits overnight-v2.sh safety rails; DB-function root causes can't be auto-PR'd (migrations forbidden+immutable) → needs_migration flag, human writes it.
+
+### Next
+1. [P0] CI green on #2163 → Director merge → deploy → verify Fix button live.
+2. [P1] Verify-group fast-follow (fan-out bug.reverify across members after deploy + tally).
+3. [P2] Multi-subgroup/dominant-subgroup fixing (e.g. fix the 32-share-cause subgroup of the 33-member cluster).
+
+---
+
 ## Session: 2026-07-18 (cnext) — Casesheet→PDE teaching-case bridge BUILT + verified (2 PRs open, ₹0 AI proven)
 
 ### Accomplished
