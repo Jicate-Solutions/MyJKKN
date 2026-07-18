@@ -1,3 +1,33 @@
+## Session: 2026-07-18 (cnext) — Bug Re-verify built+live, v1.1 probe + gate PRs open, fixability feature approved
+
+### Accomplished (one long session, many threads)
+- AI runners "P0 revive" = NON-ISSUE: all 3 planes probe-proven alive ₹0 (state had drifted from brief).
+- Groups tab (#2140) LIVE-VERIFIED with Director; first cluster confirmed (feedback e715fc79, 19 parked under BUG-004660).
+- AI Briefing button FIXED: bug.triage was interactive=true → chat-drain-only-and-refused → flipped interactive=false; proven E2E on BUG-004957 (11s, real briefing). LIVE.
+- Tier 2 Bug Re-verify BUILT → #2153 MERGED + DEPLOYED + LIVE-VERIFIED (Director screenshot on BUG-004204 showed write-clamp + reachability + recurrence all working). bug.reverify recipe live; reverify route + evidence lib + AiReverifyCard.
+- SUPABASE_JWT_SECRET added to Vercel PROD (was missing; JWT_SECRET is a different secret that fails sig). Verified correct (mint+read HTTP 200), hash-confirmed stored value, redeployed. Impersonation/reachability now LIVE (proven by Director's screenshot). Also unblocks preview-session.ts see-as-user.
+- is_super_admin gate-widening across all 8 bug-reports admin gates → PR #2157 OPEN, CI GREEN.
+- First v1.1 data-presence probe (learner-in-scope) → PR #2158 OPEN, CI GREEN. Proven E2E: BUG-005009 flipped inconclusive/low → likely_fixed/medium (probe re-ran HOD reporter query, matched "Lakshmi Priya R"→"R.LAKSHMI PRIYA", 102 learners in scope).
+
+### Current Status
+- Branch (local): feat/campus-living-fee-compute-engine (docs only here; all code shipped via worktree PRs).
+- Open green PRs awaiting Director merge: #2157 (gate), #2158 (probe). #2153 (Tier 2) already merged+live.
+- Build: all 3 PRs CI-green. No local uncommitted code (worktree-based).
+
+### Lessons Learned (also in memory)
+- interactive=true job type is chat-drain-only and refused for non-chat → any interactive non-chat recipe fails 100%; use interactive=false (batch drain). [[feedback_interactive_job_type_only_served_by_chat_drain]]
+- A "do not deploy" hold on a MERGED PR is void at the next deploy of anything (hook builds latest main). [[feedback_merged_pr_hold_does_not_survive_next_deploy]]
+- Supabase legacy JWT secret is dashboard-ONLY (not Mgmt API / DB settings / vault); this project uses legacy HS256 so impersonate.ts is valid. reporter_user_id on 99.8% of open bugs.
+- Reverify honesty gradient PROVEN: generic signals floor at inconclusive; data-presence probe earns likely_fixed. Never auto-resolve (emails N learners).
+
+### Next Session — Tasks (user P0 verbatim: "Build fixability v1")
+1. [P0] Build cluster-fixability v1: Groups-tab "Analyze fixability (AI Max, ₹0)" → Mac-side worktree runner (reuse /Users/omm/overnight/v2/overnight-v2.sh pattern: worktree off jicate/main + claude -p agentic with repo cwd, READ-ONLY no PR) → reads the code paths the cluster's bugs describe → verdict {shared_root_cause, root_cause, files[], single_fix_feasible, confidence, subgroups[]} → persist bug_clusters.metadata.fixability → result card. RECOMMENDATION-ONLY, never auto-resolve. Feeds the #2136 duplicate-cascade (one fix → resolve all + email). Prove on a real cluster (27-report attendance or 20-report feedback). (large)
+2. [P1] Merge #2157 (gate) + #2158 (probe) → /deploy-myjkkn → live-verify learner-in-scope earns likely_fixed on prod + super-admins can use Re-verify. (medium)
+3. [P2] v2 = re-group ALL open bugs by shared codebase root cause (not just within text-clusters) — bigger compute, after v1 proves quality. (large)
+4. [P2] More data-presence probes: attendance-visibility, billing-list (framework proven). Cluster-level "Re-verify group". (medium)
+
+---
+
 ## Session: 2026-07-18 (early AM) — Tier 2 AI bug re-verification BUILT → PR #2153 (OPEN, not merged)
 
 ### What shipped to the PR (worktree .claude/worktrees/bug-reverify-t2, branch feat/bug-reverify-tier2)
