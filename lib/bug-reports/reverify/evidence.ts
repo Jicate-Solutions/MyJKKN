@@ -16,7 +16,7 @@
 //        fixed; long quiet = likely fixed/worked-around).
 //
 // The `ReverifyProbe` registry is the extension point for per-surface
-// data-presence probes (v1.1): e.g. "does student X now appear in Semester
+// data-presence probes (v1.1): e.g. "does learner X now appear in Semester
 // Search for the reporter's scope?" Unmapped surfaces degrade gracefully to the
 // three generic signals above — never a false "fixed".
 

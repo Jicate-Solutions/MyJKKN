@@ -13,11 +13,11 @@ The Groups tab clusters near-identical open bug reports (e.g. 27× "unable to ma
 
 ## The non-negotiable safety rule (applies to every tier)
 
-**The AI produces a RECOMMENDATION, never an action.** A verdict of `likely_fixed` surfaces a suggestion on the group; a human still clicks Confirm/Resolve. No tier is ever allowed to auto-resolve a bug or email a reporter on an AI verdict alone. Rationale: resolving a cluster tells N real students "your issue is handled" — a false positive damages trust at scale. We measure the AI's hit-rate against human decisions before trusting it further.
+**The AI produces a RECOMMENDATION, never an action.** A verdict of `likely_fixed` surfaces a suggestion on the group; a human still clicks Confirm/Resolve. No tier is ever allowed to auto-resolve a bug or email a reporter on an AI verdict alone. Rationale: resolving a cluster tells N real learners "your issue is handled" — a false positive damages trust at scale. We measure the AI's hit-rate against human decisions before trusting it further.
 
 ## The core trap this design defends against
 
-**"Works for me" false positives.** Bugs like "unable to mark attendance for third-year PharmD" are data-, role-, and time-specific (a section, a subject, a faculty assignment, a date). Reproducing a *generic* success proves nothing about *this reporter's* slice. Two defenses run through the whole design:
+**"Works for me" false positives.** Bugs like "unable to mark attendance for third-year PharmD" are data-, role-, and time-specific (a section, a subject, a staff assignment, a date). Reproducing a *generic* success proves nothing about *this reporter's* slice. Two defenses run through the whole design:
 1. **Impersonate the actual reporter** (`reporter_user_id`, present on 99.8% of open bugs) so every check runs at the reporter's real RLS scope — not an admin's, not a random user's.
 2. **Reads only, never writes.** Re-checking a "not showing" symptom is a safe read. Re-checking a "can't submit" symptom would be a write and must never be executed against production data — those are `inconclusive` in Tier 2 and only reproducible in Tier 3 under a dry-run/rollback.
 
@@ -70,7 +70,7 @@ The AI **only judges** the evidence the route gathered — it does not pick acti
 ### The probe registry (`lib/bug-reports/reverify/probes.ts`)
 Each probe is `{ id, match(bug), extract(bug), run(reporterClient, params), describe(observed) }`. v1 ships:
 - **`reporter-scope`** (generic, always runs): re-evaluates the reporter's role + institution scope + a bounded read of the module's primary table under their RLS. Catches "I lost access" regressions.
-- **ONE concrete data-presence probe** proven end-to-end on a real read bug (target: BUG-005009, "student not appearing in Semester Search" — page_url carries institution/degree/department/program/semester ids; the probe re-runs the semester-search read as the reporter and checks whether the named student now appears).
+- **ONE concrete data-presence probe** proven end-to-end on a real read bug (target: BUG-005009, "learner not appearing in Semester Search" — page_url carries institution/degree/department/program/semester ids; the probe re-runs the semester-search read as the reporter and checks whether the named learner now appears).
 
 Adding a probe = one file entry. Unmapped surfaces degrade gracefully to reachability + recurrence evidence (never a false "fixed").
 
