@@ -55,13 +55,114 @@ export interface ReverifyProbe {
   run: (reporterClient: any, bug: ReverifyBug) => Promise<string>;
 }
 
-// v1.1 extension point — register concrete data-presence probes here.
-// Example (semester search, BUG-005009 shape):
-//   { id: 'learner-in-semester-search',
-//     match: b => b.module_name === 'learners' && /not (showing|appearing|visible)/i.test(b.description ?? ''),
-//     run: async (client, bug) => { /* re-run the semester-search read as the
-//        reporter using ids parsed from bug.page_url; report present/absent */ } }
-export const REVERIFY_PROBES: ReverifyProbe[] = [];
+// Scope columns on learners_profiles that the /learners/profiles list filters by
+// (mirrors app/(routes)/learners/profiles/_data/get-learner-profiles.ts). Parsed
+// from the report's page_url so the probe re-runs the reporter's exact query.
+const LEARNER_SCOPE_KEYS = [
+  'institution_id',
+  'degree_id',
+  'department_id',
+  'program_id',
+  'semester_id',
+  'section_id',
+] as const;
+
+// Common non-name words to strip when pulling a person-name out of free text.
+const NAME_STOPWORDS = new Set([
+  'learner', 'learners', 'profile', 'profiles', 'search', 'semester', 'support',
+  'team', 'dear', 'subject', 'issue', 'kindly', 'thank', 'student', 'section',
+  'department', 'program', 'degree', 'institution', 'myjkkn', 'the', 'however',
+]);
+
+/** Pull candidate person-names (Title-case runs) from a report, dropping common
+ *  non-name phrases. Heuristic by design — the probe reports what it matched, so
+ *  a miss degrades to a scope-count signal rather than a false verdict. */
+export function extractCandidateNames(text: string): string[] {
+  const out: string[] = [];
+  const re = /\b([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]*){1,3})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text ?? '')) !== null) {
+    const words = m[1].trim().split(/\s+/);
+    const meaningful = words.filter((w) => !NAME_STOPWORDS.has(w.toLowerCase().replace(/\./g, '')));
+    if (meaningful.length >= 2) out.push(meaningful.join(' '));
+  }
+  return [...new Set(out)].slice(0, 4);
+}
+
+/** Significant name tokens for fuzzy matching — drops single-letter initials so
+ *  "Lakshmi Priya R" matches a DB record stored as "R.LAKSHMI PRIYA". */
+function nameTokens(name: string): string[] {
+  return name.toLowerCase().replace(/\./g, ' ').split(/\s+/).filter((t) => t.length > 1);
+}
+
+// v1.1 data-presence probes. Each re-runs the reporter's real read AS THE
+// REPORTER (RLS-scoped) and reports whether the expected data is now present.
+export const REVERIFY_PROBES: ReverifyProbe[] = [
+  {
+    // Learner-visibility: "a specific learner is not showing / not appearing in
+    // the list or semester search". Re-runs the /learners/profiles list as the
+    // reporter for the exact scope in page_url and checks whether the named
+    // learner is now present. Because it runs under the reporter's RLS, a
+    // permission regression surfaces as an error/empty (still-broken), and a
+    // data fix (learner now tagged to the scope) surfaces as present (fixed).
+    id: 'learner-in-scope',
+    match: (bug) => {
+      const url = bug.page_url ?? '';
+      const desc = (bug.description ?? '').toLowerCase();
+      return (
+        /\/learners\//.test(url) &&
+        /[?&](department_id|program_id|semester_id|section_id)=/.test(url) &&
+        /(not (showing|appear|visible|found|listed)|missing|can'?t (see|find)|does ?n'?t (show|appear)|unable to (see|find|view))/.test(
+          desc
+        )
+      );
+    },
+    run: async (client, bug) => {
+      let scope: Array<[string, string]>;
+      try {
+        const u = new URL(bug.page_url!);
+        scope = LEARNER_SCOPE_KEYS.map(
+          (k) => [k, u.searchParams.get(k)] as [string, string | null]
+        ).filter((e): e is [string, string] => !!e[1]);
+      } catch {
+        return 'Could not parse the scope from the report page URL.';
+      }
+      if (scope.length === 0) return 'The report page URL carries no learner scope to re-query.';
+
+      let q = client
+        .from('learners_profiles')
+        .select('first_name, last_name', { count: 'exact' });
+      for (const [k, v] of scope) q = q.eq(k, v);
+      const { data, count, error } = await q.limit(300);
+      if (error) {
+        return `Re-running the learners list AS THE REPORTER failed under their access (${String(
+          error.message
+        ).slice(0, 100)}) — the reporter may still be unable to see this data.`;
+      }
+      const total = count ?? data?.length ?? 0;
+      const scopeLabel = scope.map(([k]) => k.replace('_id', '')).join('+');
+
+      const names = extractCandidateNames(bug.description ?? '');
+      if (names.length === 0) {
+        return `Re-ran the learners list as the reporter for their ${scopeLabel} scope: ${total} learner(s) now visible to them. (No specific learner name found in the report to check individually.)`;
+      }
+      for (const name of names) {
+        const toks = nameTokens(name);
+        if (toks.length === 0) continue;
+        const hit = (data ?? []).find((r: any) => {
+          const full = `${r.first_name ?? ''} ${r.last_name ?? ''}`.toLowerCase();
+          return toks.every((t) => full.includes(t));
+        });
+        if (hit) {
+          return `Re-ran the learners list as the reporter (${total} visible in their ${scopeLabel} scope): a learner matching "${name}" IS now present (${hit.first_name} ${hit.last_name}) — the reported item appears fixed.`;
+        }
+      }
+      return `Re-ran the learners list as the reporter (${total} visible in their ${scopeLabel} scope): NO learner matching ${names
+        .map((n) => `"${n}"`)
+        .join(' / ')} was found — the reported item still appears missing.`;
+    },
+  },
+];
 
 /** Cheap "is this a read symptom" heuristic. Write symptoms cannot be safely
  *  re-checked read-only, so they are flagged for the judge to return
