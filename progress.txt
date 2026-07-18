@@ -1,3 +1,55 @@
+## Session: 2026-07-18 (cnext) — Casesheet→PDE teaching-case bridge BUILT + verified (2 PRs open, ₹0 AI proven)
+
+### Accomplished
+- Built the "ORION casesheet → PDE clinical_case" bridge across TWO repos (server-to-server pull + AI-assisted authoring). Both PRs OPEN + green:
+  · **PR1 `jkkn-pms-frontend#1`** (branch feat/pde-casesheet-export) — de-identified, bearer-authed, READ-ONLY export: `GET /api/pde-export/casesheet/[id]` + `/search`. De-ID reads patient's OWN name/phone/email SOLELY to redact them from free-text; emits pseudonym ("Patient A") + age/gender only. `proxy.ts` exempts the path (still behind IP allowlist). Reuses the proven `childOf` casesheet read.
+  · **PR2 `MyJKKN#2156`** (branch feat/pde-import-from-pms) — `pde.case_author` recipe (APPLIED LIVE to prod Supabase) + import route `app/api/pde/cases/import-from-pms` (GET search proxy + POST) + "Import from PMS" tab on `/pde/faculty/cases/new`. Review-before-write: AI draft seeds the form builder; faculty clicks Save. No auto-create.
+- **₹0 AI half PROVEN on prod**: a real `pde.case_author` job returned valid strict-JSON (7 Qs, weights=100, caught the Amlodipine lichenoid-reaction nuance) via the `windows` batch drain in ~25s.
+- **VERIFY pass**: de-ID leak test · bearer-guard unit test (10 cases incl unset→503 fail-safe) · parser test on REAL drain output (12) · booted the PMS server + curled every export path (401/400/500-past-auth/200; non-exempt `/app/patients` still 307→login = exemption is SCOPED) · schema audit (all 6 child tables have name/parentType/parentId). Scoped `tsc` + eslint clean both repos. CI: PR2 18/18, PR1 no blocking.
+
+### Current Status
+- **Feature**: casesheet→PDE bridge — CODE COMPLETE; both PRs OPEN + green; recipe LIVE on prod but DORMANT (only runs when deployed routes call it + env set).
+- **Build**: passing (both repos).
+- **Branch**: `feat/campus-living-fee-compute-engine` (local omm-dev); work shipped via PR branches, not this branch.
+
+### Lessons (also in memory)
+- MyJKKN full `tsc --noEmit` OOMs (SIGABRT 134) = **vacuous green** → verify changed files with a scoped tsconfig. [[feedback_myjkkn_full_tsc_ooms_use_scoped_tsconfig]]
+- `server-only` modules can't be unit-tested via plain tsx (throws) → `NODE_OPTIONS=--conditions=react-server` (PMS loop-script convention).
+- De-ID of free-text needs KNOWN-identifier redaction (read the patient's own name/phone/email solely to strip them) — a poisoned-field test caught that structural-pattern scrubbing alone leaks names. [[project_pms_casesheet_to_pde_case_bridge]]
+- force-push blocked by guard-git-push → fast-forward follow-up commit (re-confirmed).
+
+### Next Session — Tasks
+1. [P0] Director review + **merge both PRs** (`jkkn-pms-frontend#1`, `MyJKKN#2156`), then deploy.
+2. [P0] Set env to activate: `PMS_EXPORT_TOKEN` (both apps, same value) + `PMS_EXPORT_URL` (MyJKKN) → then run the FULL E2E: import a real casesheet → verify the draft renders in the builder → save → publish.
+3. [P1] Still open from prior sessions: #2160 (fixability), #2157, #2158, #2153.
+4. [P2] De-ID residual: third-party names in narrative aren't auto-redacted (faculty-review + practice-record flag mitigate) — revisit only if governance requires.
+
+---
+
+## Session: 2026-07-18 — Cluster Fixability v1 BUILT + PROVEN ₹0 (PR #2160 open)
+
+### Accomplished (P0 from last brief — DONE)
+- Built cluster-fixability v1: Groups-tab "Analyze fixability (AI Max, ₹0)" → Mac drainer reads REAL code READ-ONLY → verdict "one fix resolves all N" vs "N distinct-root-cause subgroups". RECOMMENDATION-ONLY (never resolves/emails).
+- Architecture: self-claiming drainer keyed on bug_clusters.metadata.fixability (NOT the poller — max_lane_requests has no payload col; NOT the Windows batch drain — it can't read code). Zero shared-infra changes. Async+poll (agentic run is minutes).
+- DB (migration 20260718120000, APPLIED LIVE): bug_clusters.metadata JSONB + 3 anon-locked SECDEF RPCs (request/claim/complete) + fn_bug_cluster_list surfaces fixability.
+- Mac-local (not in repo): bug-cluster-fixability.mjs runner (read-only 3 ways: allowedTools Read/Glob/Grep + disallowedTools Bash/Write/Edit + throwaway detached worktree) + ai.jkkn.maxlane.fixability.plist (LOADED, 2-min tick).
+- PROVEN on prod ₹0, nothing auto-resolved:
+  · 2-member academic (84edad35) full request→claim→complete: split 2 causes (mis-filed vs Academic Years; AttendanceService.getAvailablePeriodsForDate). Real files.
+  · 33-member "practical attendance" (82273574, 4 modules): split 32-share-one-cause (2026-07-09 48h feedback-window migration) + 1 mistagged hr outlier. Did NOT false-consolidate. Every cited file real.
+- PR #2160 OPEN (migration + route + Groups-tab button/card). CI: anon-lock/terminology/visual-proof PASS; TypeCheck pending.
+
+### Lessons (also in memory)
+- Verdict extractor non-greedy regex grabbed inner subgroup obj before outer verdict → "no valid verdict" (wasted a 6-min run, raw not saved). Fix = balanced-brace scan + ALWAYS persist raw model output. [[project_bug_cluster_fixability]]
+- CI anon-lock gate scans the migration DIFF: CREATE OR REPLACE of an EXISTING SECDEF fn still needs an explicit REVOKE anon,PUBLIC line (no-op re-assert).
+- force-push to a feature branch is blocked by guard-git-push hook → add a 2nd commit + fast-forward push instead.
+
+### Next
+1. [P0] CI fully green (TypeCheck) → Director merge #2160 → /deploy-myjkkn → pixel-eyeball the card on prod.
+2. [P1] Also merge #2157 (gate) + #2158 (probe) — still open from last session.
+3. [P2] v2 = re-group ALL open bugs by shared codebase root cause (DEFERRED, bigger compute).
+
+---
+
 ## Session: 2026-07-18 (cnext) — Bug Re-verify built+live, v1.1 probe + gate PRs open, fixability feature approved
 
 ### Accomplished (one long session, many threads)
