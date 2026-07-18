@@ -40,7 +40,7 @@ Only the **Fix → draft PR** half. The Verify half reuses the already-live `bug
 
 ## Proof
 
-Proven on `fb6eacfe` (staff, 2 reports "faculty list name not showing"), whose verdict was `single_fix_feasible=true`: the runner applied the fix to `hooks/staff/use-staff.ts` (repointing the legacy client-side filter at the scope-aware `/api/staff` logic) and opened DRAFT PR **#\_\_\_\_** — no forbidden paths touched, nothing merged or resolved.
+Proven on cluster `fb6eacfe` (2 reports about a person's own record missing from a list they should appear in), whose verdict was `single_fix_feasible=true`: the runner applied the fix to `hooks/staff/use-staff.ts` (repointing the legacy client-side filter at the scope-aware `/api/staff` logic) and opened DRAFT PR **#2162** — no forbidden paths touched, nothing merged or resolved.
 
 ## Deferred
 
