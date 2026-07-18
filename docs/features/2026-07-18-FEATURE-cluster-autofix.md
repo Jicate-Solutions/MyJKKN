@@ -11,7 +11,7 @@ Fixability tells an admin *whether* one fix resolves a whole cluster and *where*
 
 ```
 [Analyze ✓] → "Fix this group"
-   → AI writes the minimal fix in a worktree, runs eslint, opens a DRAFT PR   ← AI, ₹0
+   → AI writes the fix in a worktree, runs the Build Depth Gate, opens a DRAFT PR  ← AI, ₹0
    →  🚦 human reviews + merges + deploys                                       ← gate 1
    → "Verify group": re-check each report as its reporter (bug.reverify)       ← AI, ₹0  (fast-follow, reuses #2153)
    →  🚦 human clicks "Resolve group" → cascade + emails all N reporters        ← gate 2 (#2136, already live)
@@ -35,6 +35,7 @@ Only the **Fix → draft PR** half. The Verify half reuses the already-live `bug
 - **Seeded** by the fixability verdict (`root_cause` + `files`), so the fix agent starts with a strong, code-grounded prior.
 - **Forbidden paths** (`auth`, `middleware`, `supabase/migrations`, `rls`, `policies`, `billing`, `payment`, `checkout`, `.env`, `vercel.json`, `CLAUDE.md`, `app/(routes)/admin`) — enforced **twice**: in the prompt, and by a hard post-diff check that **aborts the push** if any forbidden file changed.
 - **DB-function root causes** (the 33-member cluster's cause was `fn_scf_submit_feedback` in a migration) can't be auto-edited — migrations are immutable + forbidden. The agent makes no change and reports `needs_migration` with the precise change a human must write. The human gate does real work here.
+- **Build Depth Gate (Step 2.7 of `/myjkkn-chain`)** — before pushing, the runner runs the three hard static gates (nav-config, radix-empty-value, permissions-catalog) locally on the worktree, **delta vs a clean-`main` baseline** (only NEW failures block), plus a PR-scoped `tsc` mirror, with **one repair round** if the fix regressed a gate or scoped types. This is not optional: **CI *skips* these gates AND TypeCheck on draft PRs**, so the runner is the only pre-merge signal the reviewer gets. A regression that survives the repair round tags the PR title `[GATES-RED]` and is called out in the body.
 - **Draft PR only** — the runner shell owns push + `gh pr create --draft`; it has no merge path.
 - ₹0 (Max subscription); one `ai_model_usage` row (`feature_key='bug.cluster_fix'`).
 
