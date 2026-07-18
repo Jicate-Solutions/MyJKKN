@@ -2051,3 +2051,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - 1 REPLACED fn: `fn_bug_feedback_answer(uuid,text)` — now refreshes the outcome row after each answer (failure never breaks the answer write); anon lock re-asserted.
 - MOAT: loop gate f for `bug-triage` NOT flipped — only real reporter-measured outcomes + a passing 2-cycle falsification test justify it (later migration).
 - APPLIED LIVE 2026-07-18 after BEGIN…ROLLBACK probe on prod proving the moat rule end-to-end: record with 0 answers → 'none' → match returns [] (unmeasured invisible) → simulated 👎 → 'negative' → match returns the measured row; grants anon+authenticated locked on record/match. Location: `supabase/migrations/20260718190000_bug_fix_outcomes.sql`.
+
+### 2026-07-18 — SCF: block-course pending consolidation (loop-walk fix, cluster 904b8d2f)
+- `fn_scf_pending_for_learner(integer)` REPLACED: feedback for ANY period of the same (course_id, attendance_date) now satisfies its sibling periods — block-scheduled courses (e.g. PROJECT WORK, 2-4 periods/day) no longer re-show "pending" after the learner submits once (live data showed reporters grinding 4 identical submissions/day). Single-period courses unchanged; NULL-course periods keep exact-period matching. anon REVOKE re-asserted.
+- Origin: the self-improving loop — fixability verdict on cluster 904b8d2f traced the cause; the write runner correctly REFUSED (DB-fn = human-written migration). Fixes BUG-004641/BUG-004647.
+- Validated 2026-07-18 in a rolled-back prod experiment as the real reporter (partial-submission simulated: old fn 3 pending → new fn 0; control surfaces 0→0 unchanged; grants preserved). APPLY AFTER PR MERGE. Location: `supabase/migrations/20260718200000_scf_pending_block_course_consolidation.sql`.
