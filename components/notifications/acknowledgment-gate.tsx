@@ -118,6 +118,12 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
     }
   }, [notifications, currentIndex, acknowledgeMutation]);
 
+  // Never decide the gate until permissions resolve. Until then isSuperAdmin
+  // defaults to false, and rendering here would flash the blocking modal at an
+  // exempt super admin (and anyone else) for the split second before their role
+  // is known — the "modal pops up now and then on load" bug.
+  if (permissionsLoading) return <>{children}</>;
+
   // Super admin bypass — never gate the platform operator
   if (isSuperAdmin) return <>{children}</>;
 
