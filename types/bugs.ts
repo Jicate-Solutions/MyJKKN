@@ -30,6 +30,21 @@ export interface AiTriageBriefing {
   lane: string;
 }
 
+/**
+ * Tier 2 AI re-verification verdict (bug.reverify recipe). Recommendation only —
+ * never resolves the bug or emails anyone. Persisted in
+ * bug_reports.metadata.ai_reverify.
+ */
+export interface AiReverifyVerdict {
+  verdict: 'likely_fixed' | 'still_broken' | 'inconclusive';
+  confidence: 'low' | 'medium' | 'high';
+  reasoning: string;
+  what_would_confirm: string;
+  reproducible: 'read' | 'write' | 'unknown';
+  generated_at: string;
+  job_id: string;
+}
+
 export interface BugReport {
   id: string;
   display_id: string;

@@ -73,6 +73,7 @@ import {
 import { BugReportChat } from '../_components/bug-report-chat';
 import { ConsoleOutput } from '../_components/console-output';
 import { AiBriefingCard } from '../_components/ai-briefing-card';
+import { AiReverifyCard } from '../_components/ai-reverify-card';
 import toast from 'react-hot-toast';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 
@@ -449,6 +450,9 @@ export default function BugReportDetailsPage() {
             <div className='xl:col-span-2 space-y-6'>
               {/* AI Briefing Card — ₹0 Max-lane developer briefing */}
               <AiBriefingCard report={report} onGenerated={() => refetch()} />
+
+              {/* Tier 2 read re-check — is this bug fixed now? (recommendation only) */}
+              <AiReverifyCard report={report} onGenerated={() => refetch()} />
 
               {/* Description Card */}
               <Card>
