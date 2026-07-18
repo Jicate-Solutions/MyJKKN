@@ -210,7 +210,6 @@ export function BugGroupsTab() {
     onError: (err: any) => toast.error(err?.message || 'Could not queue analysis')
   });
 
-<<<<<<< HEAD
   const verifyMutation = useMutation({
     mutationFn: async (clusterId: string) => {
       const response = await fetch(`/api/bug-reports/clusters/${clusterId}/verify`, {
@@ -233,7 +232,8 @@ export function BugGroupsTab() {
       queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
     },
     onError: (err: any) => toast.error(err?.message || 'Could not start the re-check')
-=======
+  });
+
   const fixMutation = useMutation({
     mutationFn: async (clusterId: string) => {
       const response = await fetch(`/api/bug-reports/clusters/${clusterId}/fix`, {
@@ -252,7 +252,6 @@ export function BugGroupsTab() {
       queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
     },
     onError: (err: any) => toast.error(err?.message || 'Could not queue the fix')
->>>>>>> jicate/main
   });
 
   return (
