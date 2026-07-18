@@ -17,7 +17,7 @@ The Groups tab clusters near-identical open bug reports (e.g. 27× "unable to ma
 
 ## The core trap this design defends against
 
-**"Works for me" false positives.** Bugs like "unable to mark attendance for third-year PharmD" are data-, role-, and time-specific (a section, a subject, a staff assignment, a date). Reproducing a *generic* success proves nothing about *this reporter's* slice. Two defenses run through the whole design:
+**"Works for me" false positives.** Bugs like "unable to mark attendance for third-year PharmD" are data-, role-, and time-specific (a section, a subject, an assignment, a date). Reproducing a *generic* success proves nothing about *this reporter's* slice. Two defenses run through the whole design:
 1. **Impersonate the actual reporter** (`reporter_user_id`, present on 99.8% of open bugs) so every check runs at the reporter's real RLS scope — not an admin's, not a random user's.
 2. **Reads only, never writes.** Re-checking a "not showing" symptom is a safe read. Re-checking a "can't submit" symptom would be a write and must never be executed against production data — those are `inconclusive` in Tier 2 and only reproducible in Tier 3 under a dry-run/rollback.
 
