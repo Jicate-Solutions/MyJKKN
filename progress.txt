@@ -27,6 +27,78 @@
 4. [P1] learn/notify phantom-schema fix (same bug class as #2168) — separate small PR. (small)
 5. [P2] Analyze-side retrieval (fixability runner) v1.1; multi-subgroup fixing; feedback-send queue release cron for the 3-cap. (large)
 
+
+### Continuation Prompt
+(saved to .claude/continuation-prompt.30f296b4.md — full text below)
+
+TASK: Finish all three threads of the self-improving bug-fix loop, fully. (1) Finish both walks: PRs #2169 (SCF fix) and #2170 (loop stepper) are ALREADY MERGED as of brief-write time — get a fresh explicit Director "deploy", deploy (also carries #2168 notifications fix), apply the SCF migration 20260718200000 via Mgmt API (show-SQL-first, BEGIN..ROLLBACK-validated), eyeball the 6-step stepper on prod as test.superadmin, then run walk-2 on cluster 904b8d2f: Verify (reporters' phantom pendings should collapse) then Prepare+Send to its 2 reporters (name them to the Director at the click). (2) Watch walk-1 (cluster fb6eacfe) for Dr. Karthika J (BUG-003881) / Dr. Revanth R (BUG-003882) 👍/👎 answers (expire 2026-08-01), prove bug_fix_outcomes auto-fills via fn_bug_fix_outcome_record, bring the Director the Resolve decision. (3) Once ≥1 real measured outcome exists: run the behavioral 2-cycle on REAL data, and only then propose the gate-flip migration (loop_registry 'bug-triage' m:on, f:on) + loop_class intake→self_improving. Nothing dropped — carry it all (incl. P1 learn/notify phantom-schema fix as its own small PR).
+
+PROJECT: /Users/omm/PROJECTS/MyJKKN
+DATABASE: Supabase prod ref kvizhngldtiuufknvehv; env at /Users/omm/PROJECTS/MyJKKN/.env.production.local (values may carry literal \n — strip; never echo secrets); Mgmt API via Bearer token at /Users/omm/.supabase/access-token with curl (python-urllib gets 403)
+SPEC: on jicate/main — read via `git -C /Users/omm/PROJECTS/MyJKKN show jicate/main:docs/features/2026-07-18-FEATURE-cluster-selfimproving-loop.md`
+PROGRESS: /Users/omm/PROJECTS/MyJKKN/progress.txt (top entry = this feature's session)
+
+CURRENT STATE (as of brief-write time):
+- Loop LIVE end-to-end: Verify-group (#2164), Reporter 👍/👎 (#2165), Outcome ledger+retrieval (#2166, re-landed via #2167 after stacked-PR trap). All 3 migrations applied live.
+- Walk 1 (cluster fb6eacfe): fix live (#2162/#2163), Verify tally real (1 likely_fixed · 1 inconclusive), Send clicked with Director approval → 2 reporters hold 👍/👎 prompts; ledger fills on answer. Bell-nudge phantom-columns bug found → fix PR #2168 MERGED, rides next deploy; app/api/learn/notify has the same phantom {type,message} shape (untouched, P1).
+- Walk 2 (cluster 904b8d2f "feedback showing pending for Project Work"): runner correctly refused (single_fix_feasible=FALSE, DB-fn cause). Human path: premise proven on live data; fix = fn_scf_pending_for_learner course+date consolidation; rolled-back prod experiment as the real reporter (old fn 3 pending → new fn 0, controls unchanged). PR #2169 MERGED (checked at brief-write). Migration supabase/migrations/20260718200000_scf_pending_block_course_consolidation.sql NOT YET APPLIED — apply was deliberately gated on merge; merge has now happened, so apply is unblocked. Cluster metadata.fixability.fix = pr_opened/needs_migration → #2169.
+- Stepper UI: PR #2170 MERGED (checked at brief-write). bug-groups-tab.tsx re-skinned into one 6-step pipeline (① diagnose ② fix ③ 👤merge+deploy ④ did-it-work ⑤ ask-reporters ⑥ 👤resolve), amber person-circles + dashed connectors at human gates, presentation-only (FixSection reused; FixabilityPanel/VerifyPanel/FeedbackSection folded into LoopStepper). NOT yet deployed or eyeballed.
+- Gates WITHHELD: loop_registry 'bug-triage' m/f flips + loop_class graduation wait for real reporter-measured outcomes AND a passing behavioral 2-cycle on them. Mechanics falsification already passed (--print-prompt with/without synthetic measured row differs by exactly the retrieval injection).
+- Worktree in use: /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/loop-spec (branch feat/loop-stepper). Local repo-root branch feat/campus-living-fee-compute-engine is docs-only; never ship from it.
+
+VERIFY CURRENT STATE (run BEFORE any work — state may have drifted):
+- `gh pr view 2169 --repo Jicate-Solutions/MyJKKN --json state,baseRefName,mergeCommit` and same for 2170 and 2168 — all should be MERGED with baseRefName=main; also `git -C /Users/omm/PROJECTS/MyJKKN fetch jicate main && git -C /Users/omm/PROJECTS/MyJKKN ls-tree jicate/main -r --name-only | grep -E "20260718200000|LoopStepper"` plus `git -C /Users/omm/PROJECTS/MyJKKN grep -c "LoopStepper" jicate/main -- "app/(routes)/admin/bug-reports/_components/bug-groups-tab.tsx"` (files actually ON main, per the stacked-PR lesson).
+- Deploy state: `vercel ls my-jkkn --scope jicate-solutions 2>&1 | head -3` — is the latest production deployment NEWER than the #2170 merge? If yes, stepper may already be live; skip the deploy ask and go eyeball.
+- Migration applied? Mgmt API curl pg_get_functiondef('public.fn_scf_pending_for_learner(integer)'::regprocedure) — grep for the course+date consolidation clause (`f.course_id`). If present, migration already applied; skip apply.
+- Walk-1 answers: Mgmt API `select status, count(*) from bug_fix_feedback_requests where cluster_id='fb6eacfe-8ee8-4ac8-a95e-ba4549459246' group by status` and `select count(*) from bug_fix_outcomes`. Any status='answered' → jump to thread 2 verification immediately.
+- If reality differs from this brief → STOP, report, do NOT execute the stale plan.
+
+WHAT NEEDS TO HAPPEN:
+1. Verify-state block above. Then read the two merged PR diffs (`gh pr diff 2169 --repo Jicate-Solutions/MyJKKN`, `gh pr diff 2170 --repo Jicate-Solutions/MyJKKN`) before touching anything — user-mandated.
+2. Ask the Director for a fresh explicit "deploy" (audit `vercel ls` first). On the word: /deploy-myjkkn skill (carries #2170 stepper + #2168 bell-nudge fix). Deploy ships CODE not migrations.
+3. Apply migration supabase/migrations/20260718200000_scf_pending_block_course_consolidation.sql (read it off jicate/main) via Mgmt API curl: show the SQL first, validate in one BEGIN..ROLLBACK batch (incl. re-running fn as reporter via jwt-claims trick), then apply. The migration already carries the explicit REVOKE EXECUTE FROM anon, PUBLIC re-assert.
+4. Eyeball the stepper on prod /admin/bug-reports Groups tab via persona-harness puppeteer mint as test.superadmin (scripts/persona-harness pattern from the walk screenshots; the claude-in-chrome Chrome profile is NOT logged in — do not use it). Check: one clickable step at a time, amber person-circles + dashed connectors at steps ③ and ⑥, walk-1 cluster shows step ⑤ state, walk-2 cluster shows step ③→④ transition post-deploy.
+5. Walk-2 Verify: click "Did the fix work?" on cluster 904b8d2f; probe that the reporters' phantom pendings collapsed (fn_scf_pending_for_learner as reporters via jwt-claims in a rolled-back txn, or enrich verify evidence like walk 1).
+6. Walk-2 Send: Prepare, then NAME the 2 reporters to the Director at the click — send = human-approved outbound messaging. Confirm the notifications insert now uses the REAL schema (title/body/url/category/kind/priority/targeting/created_by NOT NULL) — #2168 fixed the route; verify post-deploy a real notification row lands.
+7. Walk-1 watch: poll bug_fix_feedback_requests for status='answered' on fb6eacfe (background watcher via Mgmt API, 60s+ interval). On first answer: verify bug_fix_outcomes row filled (reporter_confirmed derivation D5: any 👎 = negative), then surface the Resolve decision to the Director (Resolve emails all reporters — human gate).
+8. Thread 3, only after ≥1 real measured outcome: behavioral 2-cycle on real data — /Users/omm/jkkn-max-lane/bug-cluster-fix.mjs --print-prompt with vs without the REAL outcome row (category rule = first 3 path segments of primary file, kept in sync with fn_bug_fix_outcome_record); the fix output must differ BECAUSE of the measured row. If it passes: write (show-SQL-first) the gate-flip migration (loop_registry 'bug-triage' m:on f:on + loop_class intake→self_improving) and present to Director — do not apply without approval.
+9. P1 carried: app/api/learn/notify phantom-schema fix as its own small PR (same bug class as #2168). P2 carried: analyze-side retrieval v1.1, multi-subgroup fixing, feedback-send queue release cron for the max-3-open cap.
+
+CONSTRAINTS & RULES:
+- NEVER auto-merge MyJKKN PRs. Deploys ONLY via /deploy-myjkkn on a fresh explicit Director "deploy" this session (audit vercel ls first; a prior session's approval doesn't carry).
+- Migrations don't ship with deploys — apply via Mgmt API curl with show-SQL-first + BEGIN..ROLLBACK validation. Every new/replaced SECDEF fn needs explicit REVOKE EXECUTE FROM anon, PUBLIC.
+- NEVER render REPORTER views (falsely stamps delivered_at); reporter-POV probes = jwt-claims SQL in rolled-back txns only. Never let AI resolve or email; Resolve and Send are human gates.
+- Full tsc OOMs (vacuous green) — scoped tsconfig with include:[next-env.d.ts, types/**, changed files] from inside the worktree; worktree needs `ln -sfn ../../../node_modules node_modules`.
+- JKKN terminology gate = delta + blocking; flags prose student/faculty/staff even in SQL comments; single-quoted paths NOT exempt, backticked are.
+- Auto-save hook makes wip commits in worktrees — `git reset --soft` to your named commit before push; if it commits a mid-merge conflicted state, rebuild from clean commits.
+- Ship only via worktrees off jicate/main (Step 0: `git fetch jicate main && git checkout -B <branch> jicate/main`). CI SKIPS TypeCheck/terminology/reachability on DRAFT PRs — self-gate locally (Step 2.7).
+- Stacked-PR lesson: after any merge, verify baseRefName=main AND ls-tree jicate/main for the files — state:MERGED means merged into its base, not necessarily main.
+- Mgmt API: curl only (python-urllib UA gets 403). env values may carry literal \n. GitHub PR state can be stale — `git merge-base --is-ancestor` is truth.
+- Gates m/f + graduation stay WITHHELD until real measured outcomes + passing behavioral 2-cycle. Nothing auto-registers in the Loop Control Tower — gate flips are hand-written migrations.
+
+KEY FILES TO READ FIRST:
+- /Users/omm/PROJECTS/MyJKKN/progress.txt (top entry) — session narrative + task list
+- `git show jicate/main:docs/features/2026-07-18-FEATURE-cluster-selfimproving-loop.md` — the spec: loop diagram, moat-vs-echo checkpoints, 9 locked decisions, gate map
+- /Users/omm/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/project_selfimproving_bugfix_loop.md — increment details, RPC names, gotchas
+- /Users/omm/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_stacked_prs_merge_into_base_branch_not_main.md — verification recipe used above
+- `gh pr diff 2169 --repo Jicate-Solutions/MyJKKN` and `gh pr diff 2170 --repo Jicate-Solutions/MyJKKN` — user-mandated pre-work reads
+- /Users/omm/jkkn-max-lane/bug-cluster-fix.mjs — retrieval + --print-prompt mode (for the 2-cycle)
+
+KEY DECISIONS MADE THIS SESSION (with rationale):
+- Stacked-PR breakage re-landed as ONE composite PR #2167 (merge main first, verify diff = intended files only) rather than re-merging children — children's content never reached main.
+- Walk-2 human path (write the DB fix ourselves) instead of picking another cluster — the runner's refusal WAS the designed boundary working, and we could verify the premise it couldn't.
+- #2169's migration apply gated on the Director's merge (unlike earlier same-day migrations) — keeps the merge a REAL human gate, not theater.
+- Stepper built presentation-only (fold-in of existing panels, FixSection reused) — zero behavior change, so merge risk stays UI-only.
+- probe_verdict: healthy.
+
+APPROACH: Sequential through steps 1-6; background watcher for walk-1 answers (step 7) can run alongside; step 8 only unlocks on a real answer. All prod UI walks via persona-harness puppeteer mint as test.superadmin. All DB probes rolled-back unless explicitly applying. Every Director-facing click (deploy, Send, Resolve, gate-flip) gets a plain-English ask with the concrete blast radius named.
+
+QUALITY BAR: Stepper eyeballed on prod (screenshot + human-readable check of gate styling, not HTTP 200). Migration proven by re-running fn_scf_pending_for_learner as the actual reporter pre/post (3→0, controls unchanged). Walk-2 Send confirmed by rows in bug_fix_feedback_requests + a real notification row with the correct schema. Outcome ledger proven by an actual bug_fix_outcomes row tied to a reporter answer. 2-cycle passes only if the fix prompt/output demonstrably differs because of the measured row.
+
+DO NOT: auto-merge anything; deploy without a fresh explicit "deploy"; apply 20260718200000 before confirming #2169 is truly on main (it is MERGED at brief-write — still run the ls-tree check); render reporter views; let AI resolve or send emails; flip m/f gates or graduate loop_class before real measured outcomes + passing behavioral 2-cycle; touch app/api/learn/notify beyond its own dedicated future PR; ship from the local omm-dev checkout; trust MERGED state without the base-branch check.
+
+VERIFY BY (post-execution): (1) prod stepper screenshot as test.superadmin showing 6 steps + amber human gates on both walk clusters; (2) pg_get_functiondef(fn_scf_pending_for_learner) contains the consolidation clause + anon has no EXECUTE; (3) reporter-POV rolled-back probe shows 0 phantom pendings for 904b8d2f reporters; (4) bug_fix_feedback_requests has 2 sent rows for cluster 904b8d2f, reporters named to Director at send; (5) bug_fix_outcomes row exists for fb6eacfe after first answer with correct reporter_confirmed; (6) if gate-flip proposed: --print-prompt diff artifact attached showing the real-outcome-driven change; loop_registry row unchanged until Director approves.
+
 ---
 
 ## Session: 2026-07-18 (cnext) — Cluster Fixability SHIPPED+LIVE, AUTO-FIX built (Step 2.7-gated), self-improving LOOP is next FOLLOW-UP 12:53: Director interview (AskUserQuestion, 4 edge cases) → all recommended: deleted 3 stale-draft worktrees (RLS drafts CONFIRMED applied+committed via live pg_policy/pg_proc checks; hostel_office holds 153 campus_living keys) → 73 wt / 1,249 br; janitor upgraded: exact-copy-dirt auto-clear + 90-day bare-branch age-out + Monday 06:37 backup slot with 60h skip-guard (guard tested live: correctly skipped). 16:04: #2161 MERGED (deploy DEFERRED by Director — will ride the next routine deploy unless reverted).
