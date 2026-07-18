@@ -108,20 +108,29 @@ export async function POST(
 
       // In-app nudge (locked D1: both surfaces) for each newly-sent reporter.
       // Best-effort: a notification failure must not undo the send.
+      // Schema per the live notifications table (title/body/url/category/kind/
+      // priority/targeting/created_by — there is NO type/message column; the
+      // first ship used those and failed silently inside this try/catch).
+      // created_by = the admin whose click approved the send (gate #3).
       const reporterIds: string[] = (data.sent_reporter_ids ?? []).filter(Boolean);
       if (reporterIds.length > 0) {
         try {
-          const { data: notification } = await admin
+          const { data: notification, error: notifError } = await admin
             .from('notifications')
             .insert({
-              type: 'bug_fix_feedback',
               title: 'One of your reports may be fixed',
-              message:
-                'A problem you reported looks fixed. Open My Bug Reports and tap Fixed or Still broken — your answer keeps the fixes honest.',
-              metadata: { source: 'bug_fix_feedback', cluster_id: clusterId, url: '/my-bug-reports' }
+              body: 'A problem you reported looks fixed. Open My Bug Reports and tap Fixed or Still broken — your answer keeps the fixes honest.',
+              url: '/my-bug-reports',
+              category: 'bug_reports:fix_feedback',
+              kind: 'work_item',
+              priority: 'normal',
+              targeting: { type: 'user', user_ids: reporterIds },
+              metadata: { source: 'bug_fix_feedback', cluster_id: clusterId },
+              created_by: user!.id
             })
             .select('id')
             .single();
+          if (notifError) throw notifError;
           if (notification?.id) {
             await admin.from('user_notifications').insert(
               reporterIds.map((uid) => ({ notification_id: notification.id, user_id: uid }))
