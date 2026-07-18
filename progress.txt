@@ -1,4 +1,35 @@
-## Session: 2026-07-18 (cnext) — Cluster Fixability SHIPPED+LIVE, AUTO-FIX built (Step 2.7-gated), self-improving LOOP is next
+## Session: 2026-07-18 (cnext) — SELF-IMPROVING LOOP: spec→built→SHIPPED→LIVE→WALKED TWICE; stepper UI built
+
+### Accomplished (one very long session)
+- **SPEC** written + Director-interviewed (9 locked decisions D1-D5/E1-E4) → docs/features/2026-07-18-FEATURE-cluster-selfimproving-loop.md. Loop gates map: #2 earns m, #3 earns f, both+2-cycle → intake→self_improving. Loop Control Tower wiring documented (3 registries, nothing auto-registers).
+- **ALL 3 INCREMENTS BUILT + MERGED + DEPLOYED LIVE**: #1 Verify-group (#2164), #2 Reporter 👍/👎 feedback (#2165), #3 Outcome ledger+retrieval (#2166) — via stacked PRs; ⚠️ STACKED-PR TRAP hit: children merged into their BASE BRANCHES not main → re-landed as #2167 (memory: feedback_stacked_prs_merge_into_base_branch_not_main). 3 migrations applied live (rolled-back-probed first, incl. denied cross-user answer + measured-only retrieval proof).
+- **Autofix pair merged+deployed** (#2163 feature + #2162 StaffService fix). Deploys: d5ikdpcy5, guhc3h69f, 2p1l6bs13.
+- **WALK 1 (cluster fb6eacfe, CFT)**: fix live → Verify tally REAL (1 likely_fixed·1 inconclusive — honesty gradient: pre-deploy both inconclusive) → Prepare+SEND clicked in browser (Director-approved): 2 reporters (Dr. Karthika J BUG-003881, Dr. Revanth R BUG-003882) have 👍/👎 cards + bell nudge, expire 08-01. Outcome ledger fills on their answers.
+- **Caught real bug via the walk**: feedback-send bell nudge inserted phantom {type,message} cols → silent no-op → hand-completed the nudge + fix PR #2168 MERGED (rides next deploy). Flagged: app/api/learn/notify has the same phantom shape (untouched).
+- **WALK 2 (cluster 904b8d2f "feedback pending for Project Work")**: Analyze via CFT → verdict: ONE shared cause but single_fix=FALSE (DB-fn = human path — correct refusal). Human path executed: premise proven on live data (block courses 2-4 periods/day; learners grinding 4 identical feedbacks/day), fix written = fn_scf_pending_for_learner course+date consolidation → **PR #2169 OPEN (CLEAN)**, migration NOT applied (apply gated on merge). Rolled-back experiment as the real reporter: old fn 3 pending → new fn 0; controls unchanged.
+- **Loop STEPPER UI built** (Director UX feedback: two buttons confusing) → **PR #2170 OPEN (green)**: one 6-step pipeline (① diagnose ② fix ③ 👤merge+deploy ④ did-it-work ⑤ ask-reporters ⑥ 👤resolve); amber person-circles + DASHED connectors at human gates; one clickable step at a time; presentation-only.
+
+### Current Status
+- Feature: loop LIVE end-to-end; first ground-truth answers pending from 2 real reporters. m/f gate flips + class graduation WITHHELD until real answers + behavioral 2-cycle.
+- Open PRs awaiting Director: **#2169** (SCF fix — after merge I apply migration, DB-only) + **#2170** (stepper — needs deploy). Both CI-ready.
+- Branch (local): feat/campus-living-fee-compute-engine (docs only; all code via worktree branches).
+
+### Lessons (in memory)
+- 🔴 Stacked PRs merge into their BASE BRANCH not main; verify baseRefName=main + ls-tree after every stacked merge. [[feedback_stacked_prs_merge_into_base_branch_not_main]]
+- notifications table has NO type/message cols (title/body/url/category/kind/priority/targeting/created_by NOT NULL) — phantom-shape inserts die silently in try/catch; learn/notify likely broken too.
+- (client.from('x') as any) still type-errors on the from() ARG when the table is missing from types — cast the CLIENT. ai_jobs has no created_at; ai_model_usage keys are invoked_at/model_id.
+- Verify-walk honesty gradient proven: same bugs inconclusive pre-deploy → likely_fixed post-deploy WITH data-presence evidence.
+
+### Next Session — Tasks
+1. [P0] Merge-dependent finish: after Director merges #2169+#2170 → deploy (stepper) + APPLY the SCF migration (show-SQL'd, validated; DB-only) → eyeball stepper on prod → walk-2 Verify (pending list as reporters should collapse) → walk-2 Send (2 reporters, name at click). (medium)
+2. [P0] Watch for walk-1 reporter answers (Dr. Karthika/Dr. Revanth, expire 08-01) → verify outcome ledger auto-fills (fn_bug_fix_outcome_record on answer) → surface to Director for Resolve decision. (small)
+3. [P1] Once ≥1 measured outcome exists: behavioral 2-cycle test on REAL data (fix-runner output differs with/without the outcome row) → THEN gate-flip migration (m, f) + loop_class intake→self_improving. (medium)
+4. [P1] learn/notify phantom-schema fix (same bug class as #2168) — separate small PR. (small)
+5. [P2] Analyze-side retrieval (fixability runner) v1.1; multi-subgroup fixing; feedback-send queue release cron for the 3-cap. (large)
+
+---
+
+## Session: 2026-07-18 (cnext) — Cluster Fixability SHIPPED+LIVE, AUTO-FIX built (Step 2.7-gated), self-improving LOOP is next FOLLOW-UP 12:53: Director interview (AskUserQuestion, 4 edge cases) → all recommended: deleted 3 stale-draft worktrees (RLS drafts CONFIRMED applied+committed via live pg_policy/pg_proc checks; hostel_office holds 153 campus_living keys) → 73 wt / 1,249 br; janitor upgraded: exact-copy-dirt auto-clear + 90-day bare-branch age-out + Monday 06:37 backup slot with 60h skip-guard (guard tested live: correctly skipped). 16:04: #2161 MERGED (deploy DEFERRED by Director — will ride the next routine deploy unless reverted).
 
 ### Accomplished
 - **Cluster FIXABILITY v1 SHIPPED + LIVE + eyeballed on prod**: Groups-tab "Analyze fixability (AI Max, ₹0)" → Mac worktree runner reads REAL code READ-ONLY → "one fix resolves all N" vs "N distinct-root-cause subgroups". PR #2160 MERGED+DEPLOYED; card confirmed rendering the 33-member "2 distinct root causes" verdict live. #2157(gate)+#2158(probe) merged same deploy.
