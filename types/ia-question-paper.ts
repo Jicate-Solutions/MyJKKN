@@ -134,11 +134,17 @@ export interface IaQuestionPaper {
    *  theory/practical classifier ('Theory' | 'Practical' | 'Theory + Practical' |
    *  'Project' | 'Field Work'). The IA list endpoint does not return it. */
   course_category?: string;
-  ia_paper_questions?: IaPaperQuestion[];
+  /** Questions live in the `ia_question_papers.questions` JSONB column (the
+   *  ia_paper_questions table was dropped 2026-07-18). Present on detail; the list
+   *  endpoint omits the array and returns `authored` instead. */
+  questions?: IaPaperQuestion[];
+  /** List-only: does any question have text? Gates PDF export/download. */
+  authored?: boolean;
 }
 
 /** Full detail returned by GET /api/question-papers/[id] (paper + questions + template parts + CO master). */
 export interface IaQuestionPaperDetail extends IaQuestionPaper {
+  questions: IaPaperQuestion[];
   template_parts: IaTemplatePart[];
   course_outcomes: IaCourseOutcome[];
 }
@@ -209,6 +215,9 @@ export interface SavePaperDto {
   paper_setter_id?: string | null;
   regenerate?: boolean;
   force?: boolean;
+  /** Optimistic-concurrency guard: the updated_at the client last loaded. The COE
+   *  save 409s ("CONFLICT") if the paper changed since. */
+  base_updated_at?: string;
 }
 
 // ── K-level (Bloom) reference ───────────────────────────────────────────────

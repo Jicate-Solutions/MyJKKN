@@ -88,6 +88,7 @@ export default function QuestionPapersPage() {
               institutionId={institutionId}
               filters={filters}
               canExport={canExport}
+              canApprove={canApprove}
               onOpen={setOpenPaperId}
             />
           </>

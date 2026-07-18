@@ -28,16 +28,20 @@ export interface QpScope {
   courseCodes: string[];
 }
 
-// Roles that see everything in their institution.
-const ALL_ROLES = new Set([
-  'super_admin',
-  'coe',
-  'coe_office',
+// Leadership that ALWAYS sees everything, even if they also teach (principal &
+// friends). super_admin is handled by its flag before we get here.
+const VIEW_ALL_ROLES = new Set([
   'principal',
   'administrator',
   'registrar',
   'ceo',
+  'coo',
+  'cao',
+  'cbo',
 ]);
+// CoE-office roles: see everything ONLY if they don't teach; a teaching CoE-office
+// user is scoped to their own courses (like a faculty).
+const ADMIN_ROLES = new Set(['coe', 'coe_office']);
 
 /**
  * Resolve the caller's QP scope. `supabase` is a server client (service or RLS —
@@ -63,8 +67,14 @@ export async function resolveQpScope(
     // fall back to profiles.role only
   }
 
+  const isViewAll = [...roleKeys].some((k) => VIEW_ALL_ROLES.has(k));
   const isHod = roleKeys.has('hod');
-  const isAdmin = [...roleKeys].some((k) => ALL_ROLES.has(k));
+  const isAdmin = [...roleKeys].some((k) => ADMIN_ROLES.has(k));
+
+  // Tier priority: leadership (principal…) always all → HOD program → anyone who
+  // TEACHES their own courses → CoE-office (non-teaching) all → else course/none.
+  const pickLevel = (hasCourses: boolean): QpLevel =>
+    isViewAll ? 'all' : isHod ? 'program' : hasCourses ? 'course' : isAdmin ? 'all' : 'course';
 
   // Resolve the staff record + their active-plan programs/courses FIRST — the tier
   // depends on whether the user actually TEACHES (has course codes).
@@ -75,9 +85,7 @@ export async function resolveQpScope(
     .maybeSingle();
   const staffId: string | null = staff?.id ?? null;
   if (!staffId) {
-    // No staff record → pure role tier (admin sees all, HOD program, else none).
-    const level: QpLevel = isHod ? 'program' : isAdmin ? 'all' : 'course';
-    return { level, staffId: null, programCodes: [], courseCodes: [] };
+    return { level: pickLevel(false), staffId: null, programCodes: [], courseCodes: [] };
   }
 
   // Their course + plan ids from staff_plan_courses (keyed on staff.id).
@@ -128,16 +136,5 @@ export async function resolveQpScope(
     ...new Set((progsRes.data ?? []).map((p: any) => p.program_id).filter(Boolean)),
   ] as string[];
 
-  // Tier priority: HOD oversees their whole program; anyone who TEACHES is scoped
-  // to their own course codes (even CoE staff who also teach); a pure admin with
-  // no course allocations sees everything.
-  const level: QpLevel = isHod
-    ? 'program'
-    : courseCodes.length > 0
-      ? 'course'
-      : isAdmin
-        ? 'all'
-        : 'course';
-
-  return { level, staffId, programCodes, courseCodes };
+  return { level: pickLevel(courseCodes.length > 0), staffId, programCodes, courseCodes };
 }
