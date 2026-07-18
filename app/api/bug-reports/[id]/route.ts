@@ -217,6 +217,8 @@ export async function PATCH(
     if (status === 'resolved') {
       void sendResolutionEmailAndLog(adminSupabase, reportId, data);
       void cascadeStatusToDuplicates(adminSupabase, reportId, 'resolved');
+      // Learn (#3): snapshot the fixed cluster's outcome ledger row.
+      void recordClusterOutcome(adminSupabase, reportId);
     } else if (status === 'wont_fix') {
       // Duplicates of a won't-fix canonical are the same issue — close them
       // too, silently (no "resolved" email for a wont_fix outcome).
@@ -242,6 +244,26 @@ export async function PATCH(
 // the same Resend service + email log used for the canonical's reporter).
 // Runs after the response is returned — failures are logged, never thrown.
 // ---------------------------------------------------------------------------
+/**
+ * Learn (self-improving loop #3): when a bug that belongs to a duplicate
+ * cluster resolves, snapshot/refresh that cluster's outcome-ledger row
+ * (root-cause category, files, fix pattern, verify tally, reporter 👍/👎).
+ * Non-blocking; a failure never affects the resolve itself.
+ */
+async function recordClusterOutcome(adminSupabase: any, reportId: string) {
+  try {
+    const { data: cluster } = await adminSupabase
+      .from('bug_clusters')
+      .select('id')
+      .contains('member_ids', [reportId])
+      .maybeSingle();
+    if (!cluster?.id) return;
+    await adminSupabase.rpc('fn_bug_fix_outcome_record', { p_cluster_id: cluster.id });
+  } catch (e) {
+    logger.warn('bug-reports/api', `outcome record skipped for ${reportId}`, e);
+  }
+}
+
 async function cascadeStatusToDuplicates(
   adminSupabase: ReturnType<typeof createAdminClient>,
   canonicalId: string,
