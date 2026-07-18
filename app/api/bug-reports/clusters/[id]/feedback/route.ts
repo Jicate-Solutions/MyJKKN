@@ -76,7 +76,7 @@ export async function POST(
   const { id: clusterId } = await params;
 
   try {
-    const { response } = await requireBugAdmin();
+    const { user, response } = await requireBugAdmin();
     if (response) return response;
 
     const body = await request.json().catch(() => ({}));
