@@ -288,3 +288,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_bug_cluster_fixability_claim(text, int) TO 
 
 REVOKE EXECUTE ON FUNCTION public.fn_bug_cluster_fixability_complete(uuid, text, jsonb, text) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_bug_cluster_fixability_complete(uuid, text, jsonb, text) TO service_role;
+
+-- fn_bug_cluster_list is a pre-existing SECURITY DEFINER function (from the
+-- cluster-scan migration); CREATE OR REPLACE above preserves its grants. These
+-- lines re-assert its existing posture (anon already revoked; admins reach it
+-- via the service-role route, and authenticated callers are gated inside) so
+-- the anon-lock CI guard sees an explicit revoke for the replaced function.
+REVOKE EXECUTE ON FUNCTION public.fn_bug_cluster_list(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_bug_cluster_list(text) TO authenticated, service_role;
