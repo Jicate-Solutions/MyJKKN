@@ -137,10 +137,14 @@ function Chip({
   label,
   value,
   tone = 'default',
+  href,
 }: {
   label: string;
   value: string;
   tone?: 'default' | 'good' | 'bad' | 'warn';
+  /** Deep-link to the page where this count's underlying records live — the
+   *  chip becomes clickable evidence, not just a number (Director, 18 Jul). */
+  href?: string;
 }) {
   // A null count renders as an explicitly hollow chip ("no data", dashed) —
   // never as a healthy-looking number (thesis rule).
@@ -153,14 +157,13 @@ function Chip({
         : tone === 'warn'
           ? 'border-amber-400/60 bg-amber-50/60 text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-400'
           : 'border-border bg-background text-muted-foreground';
-  return (
-    <span
-      className={`inline-flex items-baseline gap-1.5 rounded-lg border px-2.5 py-1 text-xs shadow-sm ${
-        hollow
-          ? 'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70'
-          : toneCls
-      }`}
-    >
+  const cls = `inline-flex items-baseline gap-1.5 rounded-lg border px-2.5 py-1 text-xs shadow-sm ${
+    hollow
+      ? 'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70'
+      : toneCls
+  }`;
+  const inner = (
+    <>
       {label}
       <b
         className={`font-mono text-sm font-semibold tabular-nums ${
@@ -169,8 +172,23 @@ function Chip({
       >
         {hollow ? 'no data' : value}
       </b>
-    </span>
+    </>
   );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        title={`Open the records behind "${label}"`}
+        className={`${cls} transition-colors hover:border-foreground/40 hover:shadow focus-visible:outline-2 focus-visible:outline-offset-2`}
+      >
+        {inner}
+        <span aria-hidden='true' className='self-center text-[9px] opacity-50'>
+          ↗
+        </span>
+      </Link>
+    );
+  }
+  return <span className={cls}>{inner}</span>;
 }
 
 function fmtAuditDate(iso: string): string {
@@ -449,12 +467,18 @@ function EngineHealthStrip({ e }: { e: LoopTowerStats['engineToday'] }) {
     );
 
   const n2 = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v));
-  const cell = (label: string, value: string, bad: boolean) => (
-    <span className='flex items-center gap-1.5 font-mono text-[11px]'>
+  // Each cell deep-links to the page where its underlying records live
+  // (Director, 18 Jul): the number is evidence, so clicking opens the evidence.
+  const cell = (label: string, value: string, bad: boolean, href: string) => (
+    <Link
+      href={href}
+      title={`Open the records behind "${label}"`}
+      className='flex items-center gap-1.5 rounded font-mono text-[11px] transition-opacity hover:opacity-75 focus-visible:outline-2 focus-visible:outline-offset-2'
+    >
       <span className={`h-1.5 w-1.5 rounded-full ${bad ? 'bg-amber-500' : 'bg-emerald-500'}`} aria-hidden='true' />
-      <span className='text-muted-foreground'>{label}</span>
+      <span className='text-muted-foreground underline decoration-dotted decoration-muted-foreground/40 underline-offset-2'>{label}</span>
       <b className={bad ? 'font-bold text-amber-700 dark:text-amber-400' : 'font-bold text-foreground'}>{value}</b>
-    </span>
+    </Link>
   );
 
   return (
@@ -475,9 +499,9 @@ function EngineHealthStrip({ e }: { e: LoopTowerStats['engineToday'] }) {
         >
           engine today · {unreadable ? 'unreadable' : healthy ? 'healthy' : 'attention'}
         </span>
-        {cell('loops due · ran', `${n2(e?.loopsDue)} / ${n2(e?.loopsRan)}`, missedLoops)}
-        {cell('work finished · waiting', `${n2(e?.jobsDoneToday)} / ${n2(e?.jobsStuck)}`, stuck)}
-        {cell('failures today', n2(e?.errorsToday), failed)}
+        {cell('loops due · ran', `${n2(e?.loopsDue)} / ${n2(e?.loopsRan)}`, missedLoops, '/admin/ai-routines')}
+        {cell('work finished · waiting', `${n2(e?.jobsDoneToday)} / ${n2(e?.jobsStuck)}`, stuck, '/admin/ai-models')}
+        {cell('failures today', n2(e?.errorsToday), failed, '/admin/ai-models')}
         {cell(
           'money spent today',
           e?.paidCallsToday === null || e?.paidCallsToday === undefined
@@ -486,6 +510,7 @@ function EngineHealthStrip({ e }: { e: LoopTowerStats['engineToday'] }) {
               ? `₹${(e?.paidInrToday ?? 0).toFixed(2)}`
               : '₹0',
           paid,
+          '/admin/ai-models',
         )}
       </div>
       {problems.length > 0 && (
@@ -830,37 +855,38 @@ export function LoopTower({
                       <EngineHealthStrip e={s.engineToday} />
                     </div>
                     <Chip
-                      label='Max-lane runs 7d / today'
+                      label='Max-lane runs 7d / today' href='/admin/ai-models'
                       value={`${n(s.maxlaneDone7d)} / ${n(s.maxlaneDoneToday)}`}
                     />
                     <Chip
-                      label='Max-lane errors 7d / today'
+                      label='Max-lane errors 7d / today' href='/admin/ai-models'
                       value={`${n(s.maxlaneError7d)} / ${n(s.maxlaneErrorToday)}`}
                       tone={(s.maxlaneError7d ?? 0) > 0 ? 'warn' : 'default'}
                     />
                     <Chip
-                      label='Max-lane error rate 7d'
+                      label='Max-lane error rate 7d' href='/admin/ai-models'
                       value={errRate7d === null ? '—' : `${errRate7d}%`}
                       tone={errRate7d !== null && errRate7d > 0 ? 'warn' : 'default'}
                     />
                     <Chip
-                      label='async jobs 7d (done / err)'
+                      label='async jobs 7d (done / err)' href='/admin/ai-models'
                       value={`${n(s.jobsDone7d)} / ${n(s.jobsError7d)}`}
                       tone={(s.jobsError7d ?? 0) > 0 ? 'warn' : 'default'}
                     />
                     <Chip
                       label='dispatcher runs logged 7d / today · since 13 Jul'
+                      href='/admin/ai-routines'
                       value={`${n(s.dispatcherRuns7d)} / ${n(s.dispatcherRunsToday)}`}
                     />
                     <Chip
-                      label='routines fired within 7d'
+                      label='routines fired within 7d' href='/admin/ai-routines'
                       value={
                         s.routinesFired7d === null
                           ? '—'
                           : `${s.routinesFired7d} of ${n(s.routinesTotal)}`
                       }
                     />
-                    <Chip label='routines fired today' value={n(s.routinesFiredToday)} />
+                    <Chip label='routines fired today' href='/admin/ai-routines' value={n(s.routinesFiredToday)} />
                   </>
                 }
               >
@@ -882,11 +908,11 @@ export function LoopTower({
                   chips={
                     <>
                       <Chip
-                        label='Max calls 7d / today'
+                        label='Max calls 7d / today' href='/admin/ai-models'
                         value={`${n(s.maxCalls7d)} / ${n(s.maxCallsToday)}`}
                       />
                       <Chip
-                        label='API calls 7d / today'
+                        label='API calls 7d / today' href='/admin/ai-models'
                         value={`${n(s.apiCalls7d)} / ${n(s.apiCallsToday)}`}
                       />
                     </>
