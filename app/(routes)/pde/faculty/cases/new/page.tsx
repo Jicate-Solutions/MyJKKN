@@ -11,9 +11,10 @@ import { useCreateFacultyCase } from '@/hooks/pde/use-faculty-cases';
 import { useVACCourses } from '@/hooks/vac/use-vac';
 import { CaseFormBuilder } from '../_components/CaseFormBuilder';
 import { JsonImportTab } from '../_components/JsonImportTab';
+import { ImportFromPmsTab } from '../_components/ImportFromPmsTab';
 import type { CreateClinicalCaseInput } from '@/types/pde';
 
-const NEW_CASE_TABS = ['builder', 'json'] as const;
+const NEW_CASE_TABS = ['builder', 'json', 'pms'] as const;
 
 function NewClinicalCasePageInner() {
   const router = useRouter();
@@ -70,6 +71,7 @@ function NewClinicalCasePageInner() {
           <TabsList>
             <TabsTrigger value="builder">Form Builder</TabsTrigger>
             <TabsTrigger value="json">Paste JSON</TabsTrigger>
+            <TabsTrigger value="pms">Import from PMS</TabsTrigger>
           </TabsList>
 
           {/* forceMount keeps BOTH panels mounted across tab switches so the
@@ -98,6 +100,18 @@ function NewClinicalCasePageInner() {
             <Card>
               <CardContent className="p-4">
                 <JsonImportTab onApply={handleImport} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent
+            value="pms"
+            forceMount
+            className="mt-4 data-[state=inactive]:hidden"
+          >
+            <Card>
+              <CardContent className="p-4">
+                <ImportFromPmsTab onApply={handleImport} />
               </CardContent>
             </Card>
           </TabsContent>
