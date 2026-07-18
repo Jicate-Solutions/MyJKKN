@@ -55,6 +55,15 @@ export function filterByPermissions(
       return true;
     }
 
+    // Billing receipts — the payer lane (students viewing their own "My
+    // Receipts", relabelled by sidebarMenuLink.ts) is intentionally ungated:
+    // students hold no billing.* staff permission, and the page itself scopes
+    // data to the signed-in student via RLS. See lib/billing/guide/content.ts.
+    if (page.permission === 'billing.receipts.view' &&
+        ['student', 'graduated_student'].includes(userRole)) {
+      return true;
+    }
+
     // Check specific permission from merged role permissions
     if (permissions[page.permission]) return true;
 
@@ -78,5 +87,9 @@ export function isPageAccessible(
   // Marathon ops & committees — page-level guards handle committee membership
   if (permission === 'events.marathon.live_ops.manage' ||
       permission === 'events.marathon.committees.manage') return true;
+  // Billing receipts — students view their own receipts (payer lane, RLS-scoped,
+  // relabelled "My Receipts"); see the matching carve-out in filterByPermissions.
+  if (permission === 'billing.receipts.view' &&
+      ['student', 'graduated_student'].includes(userRole)) return true;
   return !!permissions[permission];
 }
