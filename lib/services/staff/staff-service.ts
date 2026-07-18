@@ -646,7 +646,7 @@ export class StaffService {
       // Faculty users can only view their own staff record
       if (userProfile?.role === 'faculty' && userProfile.id) {
         console.log(
-          '[staff-service] Applied faculty self-only filter for profile:',
+          '[staff-service] Applied self-only record filter for profile:',
           userProfile.id
         );
         return await this.getStaffForFacultyUser(
