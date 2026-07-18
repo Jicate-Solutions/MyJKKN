@@ -358,8 +358,6 @@ type RingProps = {
    *  badge — visually distinct from the dashed loop rings (3–6). */
   kind?: 'loop' | 'engine';
   blurb: React.ReactNode;
-  /** Full-width row between the blurb and the chips — the engine-health strip. */
-  banner?: React.ReactNode;
   chips?: React.ReactNode;
   children?: React.ReactNode;
 };
@@ -391,7 +389,7 @@ const TONE: Record<RingProps['tone'], { box: string; head: string }> = {
   },
 };
 
-function Ring({ num, name, exit, tone, kind = 'loop', blurb, banner, chips, children }: RingProps) {
+function Ring({ num, name, exit, tone, kind = 'loop', blurb, chips, children }: RingProps) {
   const t = TONE[tone];
   const border = kind === 'engine' ? 'border-solid' : 'border-dashed';
   return (
@@ -407,7 +405,6 @@ function Ring({ num, name, exit, tone, kind = 'loop', blurb, banner, chips, chil
         <span className='ml-auto font-mono text-[11px] text-muted-foreground'>exit: {exit}</span>
       </div>
       <p className='mb-2 max-w-4xl text-[13px] leading-snug text-muted-foreground'>{blurb}</p>
-      {banner}
       {chips && <div className='mb-3 flex flex-wrap gap-1.5'>{chips}</div>}
       {children}
     </div>
@@ -462,7 +459,7 @@ function EngineHealthStrip({ e }: { e: LoopTowerStats['engineToday'] }) {
 
   return (
     <div
-      className={`mb-3 rounded-lg border-[1.5px] px-3 py-2 ${
+      className={`rounded-lg border-[1.5px] px-3 py-2 ${
         healthy
           ? 'border-emerald-400/70 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30'
           : 'border-amber-400/70 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30'
@@ -824,10 +821,14 @@ export function LoopTower({
                 exit='run completes'
                 tone='slate'
                 kind='engine'
-                banner={<EngineHealthStrip e={s.engineToday} />}
                 blurb="Iteration without gates — the loops ride it; it decides nothing. Four lanes share the window: the Max night lane (max_lane_requests, fully counted); the typed async job queue (ai_jobs — currently dispatches only max-lane jobs, so it overlaps the Max lane today); the editable dispatcher, now writing a true run log (ai_routine_run_log — logging since 13 Jul, sparse until it accumulates; the older 'routines fired' chips still count routines-whose-latest-fire-is-in-window, not runs); and static vercel crons (still not instrumented)."
                 chips={
                   <>
+                    {/* Full-width first row of the chips container — the
+                        "engine health today" strip renders above the pills. */}
+                    <div className='w-full'>
+                      <EngineHealthStrip e={s.engineToday} />
+                    </div>
                     <Chip
                       label='Max-lane runs 7d / today'
                       value={`${n(s.maxlaneDone7d)} / ${n(s.maxlaneDoneToday)}`}
