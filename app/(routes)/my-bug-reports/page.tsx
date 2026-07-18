@@ -20,6 +20,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
+import { FixedForYouPrompts } from './_components/fixed-for-you-prompts';
 import {
   Eye,
   Bug,
@@ -264,6 +265,9 @@ export default function MyBugReportsPage() {
   return (
     <ContentLayout title='My Bug Reports'>
       <div className='space-y-6'>
+        {/* "Is this fixed for you?" prompts — renders nothing when none open */}
+        <FixedForYouPrompts />
+
         {/* Header with Live Indicator */}
         <div className='flex items-center justify-between'>
           <div>

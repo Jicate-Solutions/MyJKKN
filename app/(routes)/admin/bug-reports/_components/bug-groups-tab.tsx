@@ -22,7 +22,9 @@ import {
   GitPullRequest,
   ExternalLink,
   CircleAlert,
-  ScanSearch
+  ScanSearch,
+  MessageCircleQuestion,
+  Send
 } from 'lucide-react';
 
 interface ClusterMember {
@@ -388,6 +390,8 @@ export function BugGroupsTab() {
                     verifyMutation.isPending && verifyMutation.variables === cluster.id
                   }
                 />
+
+                <FeedbackSection cluster={cluster} />
 
                 <Separator className='my-3' />
 
@@ -922,6 +926,145 @@ function VerifyPanel({
           )}
           Re-run
         </Button>
+      </div>
+    </div>
+  );
+}
+
+interface FeedbackState {
+  total: number;
+  pending_send: number;
+  sent: number;
+  delivered: number;
+  answered: number;
+  expired: number;
+  yes: number;
+  no: number;
+}
+
+/**
+ * Reporter-feedback strip — increment #2 of the self-improving loop.
+ * THE KEYSTONE: the reporters' 👍/👎 answers are the loop's GROUND TRUTH
+ * (this measurement — never any AI verdict — is what the loop learns from).
+ *
+ * ★ HUMAN GATE #3 ★ — the "Send" button here is outbound messaging to real
+ * learners. Nothing is ever sent by an AI verdict; the admin's click IS the
+ * approval. Prepared rows stay invisible to reporters until then.
+ */
+function FeedbackSection({ cluster }: { cluster: BugCluster }) {
+  const queryClient = useQueryClient();
+  // Only meaningful once a one-fix verdict exists (feedback follows a fix).
+  const singleFix = cluster.fixability?.verdict?.single_fix_feasible === true;
+
+  const feedbackKey = [...queryKeys.bugReports.all, 'cluster-feedback', cluster.id];
+  const { data: fb } = useQuery<FeedbackState | null>({
+    queryKey: feedbackKey,
+    queryFn: async () => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/feedback`);
+      if (!response.ok) return null;
+      const json = await response.json();
+      return json.feedback ?? null;
+    },
+    enabled: singleFix,
+    staleTime: 30 * 1000,
+    // Poll lightly while answers are still arriving.
+    refetchInterval: (query) => {
+      const s = query.state.data as FeedbackState | null;
+      return s && (s.sent > 0 || s.delivered > 0) ? 30000 : false;
+    }
+  });
+
+  const actionMutation = useMutation({
+    mutationFn: async (action: 'prepare' | 'send') => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || `${action} failed`);
+      return { action, ...json };
+    },
+    onSuccess: (data) => {
+      if (data.action === 'prepare') {
+        toast.success(
+          `${data.prepared ?? 0} reporter question(s) prepared (not sent — you approve the send).` +
+            (data.excluded_off_cause ? ` ${data.excluded_off_cause} different-cause report(s) excluded.` : '')
+        );
+      } else {
+        toast.success(
+          `Sent to ${data.sent ?? 0} reporter(s).` +
+            (data.queued_by_cap ? ` ${data.queued_by_cap} waiting (3-question cap per learner).` : '')
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: feedbackKey });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Action failed')
+  });
+
+  if (!singleFix || cluster.status === 'dismissed') return null;
+
+  const busy = actionMutation.isPending;
+
+  // No rows yet — offer prepare.
+  if (!fb || fb.total === 0) {
+    return (
+      <div className='mt-2 flex flex-wrap items-center gap-2'>
+        <Button size='sm' variant='outline' onClick={() => actionMutation.mutate('prepare')} disabled={busy}>
+          {busy ? <Loader2 className='w-4 h-4 mr-1.5 animate-spin' /> : <MessageCircleQuestion className='w-4 h-4 mr-1.5' />}
+          Prepare reporter questions
+        </Button>
+        <span className='text-[11px] text-muted-foreground'>
+          After the fix is live: ask each reporter &quot;is this fixed for you?&quot;
+          — their answers are the ground truth. Nothing sends until you approve.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className='mt-2 rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2.5'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <Badge variant='outline' className='bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900 dark:text-emerald-200'>
+          <MessageCircleQuestion className='w-3.5 h-3.5 mr-1' />
+          Reporter feedback (ground truth)
+        </Badge>
+        {fb.pending_send > 0 && (
+          <span className='text-[11px] text-muted-foreground'>{fb.pending_send} prepared, not sent</span>
+        )}
+        {fb.sent + fb.delivered > 0 && (
+          <span className='text-[11px] text-muted-foreground'>
+            {fb.sent + fb.delivered} awaiting answer
+          </span>
+        )}
+        {fb.answered > 0 && (
+          <>
+            <Badge variant='outline' className={VERIFY_CHIP_CLS.likely_fixed}>👍 {fb.yes}</Badge>
+            <Badge variant='outline' className={VERIFY_CHIP_CLS.still_broken}>👎 {fb.no}</Badge>
+          </>
+        )}
+        {fb.expired > 0 && (
+          <span className='text-[11px] text-muted-foreground'>{fb.expired} expired (no data)</span>
+        )}
+      </div>
+
+      {fb.no > 0 && (
+        <p className='text-[11px] font-medium text-red-700 dark:text-red-300 mt-1.5'>
+          A reporter says this is still broken — review before resolving this group.
+        </p>
+      )}
+
+      <div className='flex items-center gap-2 mt-2 pt-2 border-t border-border/60'>
+        <p className='text-[11px] text-muted-foreground'>
+          Sending messages real learners — your click is the approval. Answers
+          are written only by reporters, never by AI.
+        </p>
+        {fb.pending_send > 0 && (
+          <Button size='sm' onClick={() => actionMutation.mutate('send')} disabled={busy} className='ml-auto shrink-0'>
+            {busy ? <Loader2 className='w-3.5 h-3.5 mr-1 animate-spin' /> : <Send className='w-3.5 h-3.5 mr-1' />}
+            Send to {fb.pending_send} reporter{fb.pending_send === 1 ? '' : 's'}
+          </Button>
+        )}
       </div>
     </div>
   );
