@@ -1,3 +1,65 @@
+## Session: 2026-07-18 (early AM) — Tier 2 AI bug re-verification BUILT → PR #2153 (OPEN, not merged)
+
+### What shipped to the PR (worktree .claude/worktrees/bug-reverify-t2, branch feat/bug-reverify-tier2)
+- New recipe bug.reverify (migration 20260718010000, APPLIED LIVE to prod registry): interactive=false
+  (batch drain runs it), tool_set=none (AI only JUDGES gathered evidence, never picks actions).
+- lib/bug-reports/reverify/evidence.ts: gathers evidence AS THE REPORTER via createImpersonatedClient
+  (60s JWT, RLS-scoped, read-only) — reporter reachability + error-signature recurrence + duplicate-
+  cluster recurrence + ReverifyProbe registry (framework; concrete data-presence probes = v1.1).
+- route POST /api/bug-reports/[id]/ai-reverify: mirrors #2137 ai-triage (enqueue→long-poll→orphan-
+  recovery→persist metadata.ai_reverify). Safety clamp: a WRITE symptom can never be read-verified fixed.
+- AiReverifyCard on bug detail (green/amber/red verdict + reasoning + one human-confirm step);
+  AiReverifyVerdict type. Spec doc: docs/features/2026-07-18-FEATURE-bug-reverify-tiers.md (T2 detail + T3 outline).
+- HARD RULE baked in: recommendation ONLY — never resolves a bug or emails a reporter.
+
+### Proven E2E on prod (₹0 batch drain) BEFORE UI
+- BUG-004170 write bug ("unable to mark attendance") → inconclusive/reproducible=write (refused to read-
+  verify a write), cited the still-growing 27-cluster as independent still-broken signal.
+- BUG-005009 read bug ("student not in Semester Search") → LOW-confidence inconclusive: correctly
+  declined "fixed" without a data-presence probe; named the exact check the v1.1 probe should automate.
+- Scoped tsc on route+lib = 0 real type errors (only @/ alias misses, resolved by CI tsconfig).
+
+### Reporter-impersonation viability (why Tier 2 works)
+- reporter_user_id present on 1040/1042 open bugs (99.8%), all profile-resolvable. createImpersonatedClient
+  (lib/auth/impersonate.ts) mints a 60s JWT → RLS evaluates as the reporter. No browser/session mint needed.
+
+### Next
+- CI on #2153 (in flight) → human review → merge → deploy → browser-verify the Re-verify card on a real bug.
+- Tier 2 v1.1: add per-surface data-presence probes (start: semester-search / attendance-visibility),
+  one at a time — that's what flips honest inconclusive → earned likely_fixed.
+- Tier 3 (agentic UI re-drive for write bugs) = design outline only; gated on Tier 2 hit-rate.
+- DO NOT auto-merge (permanent MyJKKN rule). DO NOT deploy without explicit Director go.
+
+---
+
+## Session: 2026-07-18 (early AM) — AI briefing button FIXED (bug.triage lane routing)
+
+### The bug the Director hit ("AI briefing job failed. Try again shortly.")
+- ROOT CAUSE (not a dead runner): bug.triage was registered interactive=true. fn_ai_claim hard-partitions
+  by COALESCE(interactive,false)=p_interactive, so ONLY the chat drain (Biometric-chat-*, the sole runner
+  passing p_interactive=true) could claim it — and the chat drain REFUSES non-chat jobs
+  ("chat drain refused non-chat/non-interactive job type=bug.triage"). The batch drain (windows,
+  p_interactive=false) was excluded by the gate. Net: every real click errored. Lifetime bug.triage =
+  1 done (last session's hand-cranked mac-manual-verify) / 3 error / 1 canceled → button NEVER worked
+  in standing operation; the manual E2E masked the missing runner.
+- FIX (DB-only, reversible): UPDATE ai_job_types SET interactive=false WHERE job_type='bug.triage'.
+  Now the alive batch drain (windows, generic executor) claims + runs it.
+- PROVEN E2E on the Director's exact bug: re-enqueued BUG-004957 via fn_ai_enqueue_system → windows
+  claimed + completed in 11s → real structured briefing {summary,severity:medium,root_cause,fix_steps,
+  confidence}; ledger claude_code ₹0. dedupe guard only blocks non-terminal jobs so the 3 errored ones
+  don't block re-clicks.
+- CAVEAT (follow-up): batch drain does NOT honor global priority — a priority=1 bug.triage still waited
+  ~3 min behind a 50-deep scf.learner_notes flood. fn_ai_enqueue_system hardcodes priority=100.
+  User-facing briefing can queue behind bulk batch work → route may time out on first click, but the
+  completed result is cached (dedupe/orphan-recovery) so a re-click shows it. Durable fix = dedicated
+  fast lane for user-facing jobs OR broaden chat drain to run interactive non-chat recipes (Windows box).
+
+### Open idea from Director (not yet built)
+- "In grouping, can AI actually CHECK if the bug is rectified now by re-checking the same behaviour from
+  the user's POV after it was reported?" → assessed as a spectrum (telemetry/recurrence signal = buildable
+  now; read-only repro-as-user = harder; full agentic UI re-drive = trap-prone). HARD RULE: never
+  auto-resolve+email on an AI verdict alone (works-for-me false positives email N reporters wrongly).
+
 ## Session: 2026-07-18 (early AM) — Mobile tab sweep DONE (28 pages) + Element Gallery Phase 1 (PR #2151 OPEN)
 
 ### Accomplished
@@ -818,3 +880,31 @@ Phase 0 (#2145) MERGED. Built Phase 1: shared <WorkSignalsCard> + WorkSignalsSer
 CI: TypeCheck pass, JKKN terminology pass (fixed classes→sessions), 0 fails. Claude Review caught infinite-skeleton-on-hung-RPC + logger mis-tag → both fixed.
 GOTCHA: reused dash-cards-fix worktree drifted behind merged #2146 (23 files) and nearly swept them into the PR via autosave. Rebuilt in FRESH worktree (.claude/worktrees/spine-p1). Always verify diff==intended files after checkout in a reused worktree. Local full tsc = 46min/10.6GB near-OOM — use CI PR-scoped typecheck (1m30s) as the gate, not local.
 Next: P2 reconcile dashboard TES marking to spine; P3 fold AI/Work Pulse+PDE providers; P4 profile/accreditation/leadership-compare surfaces.
+
+## ========================================================================
+## Session END 2026-07-18 07:39 — Work-signals SPINE (Phases 0+1 LIVE, P1.1+P2 decided)
+## ========================================================================
+
+### Accomplished (this session)
+- FIXED faculty dashboard all-zero cards (LIVE): period_id/id timetable-shape bug (fn_faculty_metrics + fn_person_conflicts, 310 faculty) → Classes-to-Mark now real; midrank cluster ranking + stale-purge + weekly cron (198 faculty off false floor). PRs #2130(DB)+#2134(frontend) merged+deployed+verified live.
+- WORK-SIGNALS SPINE Phase 0 (registry work_signal_types + engine fn_work_signals_for, dual attribution) — merged #2145, live dark.
+- WORK-SIGNALS SPINE Phase 1 (shared <WorkSignalsCard> + My Pulse rewired + dashboard card for faculty/HOD) — merged #2147, DEPLOYED, VERIFIED LIVE (previewed as Dr.V: card renders "Sessions marked 52 · you:0" + 7 signals).
+
+### Current Status
+- Feature: work-signals spine — Phases 0+1 done/live; Phase 1.1 + Phase 2 DECIDED, not built.
+- Build: all merged PRs CI-green. Branch (main repo): feat/campus-living-fee-compute-engine (unrelated; spine work shipped via worktree PRs off jicate/main).
+- Worktrees: .claude/worktrees/spine-p1 (clean, Phase 1 branch); dash-cards-fix (contaminated/drifted — let janitor clean).
+
+### Lessons captured (memory)
+- feedback_timetable_periods_id_vs_period_id_shape (period_id vs id, 310 faculty false-0).
+- Reused worktree drifts behind newly-merged PRs → autosave nearly swept 23 unrelated files into PR; use FRESH worktree + verify diff==intended.
+- Local full tsc = 46min/10.6GB near-OOM → use CI PR-scoped typecheck (1m30s) as gate.
+- Merge-queue merges do NOT auto-fire Vercel build → must fire deploy hook manually.
+
+### Next Session — Tasks
+1. [P0] Phase 1.1 — deep-link empty states: add action_route to work_signal_types (8 rows) + WorkSignalsCard renders every zero + empty-state as a "start here" link (director: ALL zeros link somewhere). Routes: marked→/academic/attendance/mark; pulses/verdicts/witnessed/notes/votes→/academic/session-feedback/faculty; lessons→/academic/attendance/mark; marks_coverage→session-feedback. (medium)
+2. [P0] Phase 2 — marking reconciliation "DO BOTH": (a) change fn_faculty_metrics marking_compliance to credit ASSIGNED-and-marked days (not personal marker_id); (b) show "assigned vs you personally" on Teaching Excellence tile. ⚠️ RANKING IMPACT: re-run fn_precompute_percentile_cache + validate distribution; also patch fn_compute_tes_for_user (cluster-rank-private mirror) to stay consistent. Validate on prod rolled-back txn first. Finding: Dr.V 0 personal vs 20 assigned marking-days. (large, correctness-critical)
+3. [P1] Retire orphaned fn_scf_my_pulse + getMyPulse after confirming zero external callers (strangler follow-up). (small)
+4. [P2] Phase 3 (fold AI/Work Pulse + PDE as providers), Phase 4 (profile/accreditation/leadership-compare). (large)
+
+---
