@@ -31,6 +31,12 @@ export interface WorkSignal {
   /** Only present when `attribution === 'dual'`: the PERSONAL count (sessions
    *  you personally marked). `null` for single-attribution signals. */
   value_personal: number | null;
+  /** Phase 1.1 deep-links: the page where this kind of work begins. A ZERO
+   *  signal renders as a "start here" link to this route. `null` = no link. */
+  action_route: string | null;
+  /** Optional short CTA label for the deep-link (card falls back to "Start
+   *  here"). `null` when the registry row has no custom label. */
+  action_label: string | null;
 }
 
 /** Full engine response. `subject_matched === false` means the account could not
