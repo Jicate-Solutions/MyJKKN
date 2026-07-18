@@ -15,7 +15,11 @@ import {
   RefreshCw,
   Check,
   X,
-  Crown
+  Crown,
+  Wand2,
+  Wrench,
+  GitBranch,
+  CircleAlert
 } from 'lucide-react';
 
 interface ClusterMember {
@@ -28,6 +32,31 @@ interface ClusterMember {
   reporter_name: string | null;
 }
 
+interface FixabilitySubgroup {
+  root_cause: string;
+  bug_ids: string[];
+  files: string[];
+}
+
+interface FixabilityVerdict {
+  shared_root_cause: boolean;
+  root_cause: string;
+  files: string[];
+  single_fix_feasible: boolean;
+  confidence: 'low' | 'medium' | 'high';
+  subgroups: FixabilitySubgroup[];
+  summary: string;
+  model?: string;
+}
+
+interface Fixability {
+  status: 'requested' | 'running' | 'done' | 'error';
+  requested_at?: string;
+  ran_at?: string;
+  verdict?: FixabilityVerdict | null;
+  error?: string | null;
+}
+
 interface BugCluster {
   id: string;
   seed_bug_id: string;
@@ -38,6 +67,7 @@ interface BugCluster {
   first_seen_at: string;
   last_scan_at: string;
   members: ClusterMember[] | null;
+  fixability?: Fixability | null;
 }
 
 const fetchClusters = async (status: string): Promise<BugCluster[]> => {
@@ -61,7 +91,16 @@ export function BugGroupsTab() {
   const { data: clusters, isLoading, refetch, isFetching } = useQuery<BugCluster[]>({
     queryKey: clustersKey,
     queryFn: () => fetchClusters(statusFilter),
-    staleTime: 60 * 1000
+    staleTime: 60 * 1000,
+    // While any cluster is queued/running a fixability analysis, poll so the
+    // verdict appears when the Mac runner finishes (usually a few minutes).
+    refetchInterval: (query) => {
+      const rows = query.state.data as BugCluster[] | undefined;
+      const analyzing = rows?.some(
+        (c) => c.fixability?.status === 'requested' || c.fixability?.status === 'running'
+      );
+      return analyzing ? 8000 : false;
+    }
   });
 
   const scanMutation = useMutation({
@@ -105,6 +144,26 @@ export function BugGroupsTab() {
     },
     onError: (err: any) => toast.error(err?.message || 'Action failed'),
     onSettled: () => setActingOn(null)
+  });
+
+  const fixabilityMutation = useMutation({
+    mutationFn: async (clusterId: string) => {
+      const response = await fetch(`/api/bug-reports/clusters/${clusterId}/fixability`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'Could not queue analysis');
+      return json;
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.note === 'already_queued'
+          ? 'Analysis already running for this group.'
+          : 'Fixability analysis queued (AI Max, ₹0) — the verdict appears here in a few minutes.'
+      );
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not queue analysis')
   });
 
   return (
@@ -221,6 +280,15 @@ export function BugGroupsTab() {
                   )}
                 </div>
 
+                <FixabilityPanel
+                  cluster={cluster}
+                  onAnalyze={() => fixabilityMutation.mutate(cluster.id)}
+                  isQueuing={
+                    fixabilityMutation.isPending &&
+                    fixabilityMutation.variables === cluster.id
+                  }
+                />
+
                 <Separator className='my-3' />
 
                 <div className='grid gap-1.5'>
@@ -249,5 +317,192 @@ export function BugGroupsTab() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const CONFIDENCE_CLS: Record<FixabilityVerdict['confidence'], string> = {
+  high: 'text-green-700 dark:text-green-300',
+  medium: 'text-amber-700 dark:text-amber-300',
+  low: 'text-muted-foreground'
+};
+
+function FileList({ files }: { files: string[] }) {
+  if (!files || files.length === 0) return null;
+  return (
+    <div className='flex flex-wrap gap-1 mt-1'>
+      {files.map((f) => (
+        <code
+          key={f}
+          className='text-[11px] bg-muted rounded px-1.5 py-0.5 font-mono break-all'
+        >
+          {f}
+        </code>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Per-cluster fixability strip. Lets an admin queue a READ-ONLY, codebase-
+ * grounded analysis (a Mac runner reads the actual code behind the member
+ * reports on the Claude Max subscription, ₹0) and renders the verdict:
+ * one-fix-fixes-all vs N distinct-root-cause subgroups.
+ *
+ * RECOMMENDATION ONLY — the verdict never resolves the group or emails
+ * reporters. It only tells a human whether one fix would clear the whole group.
+ */
+function FixabilityPanel({
+  cluster,
+  onAnalyze,
+  isQueuing
+}: {
+  cluster: BugCluster;
+  onAnalyze: () => void;
+  isQueuing: boolean;
+}) {
+  const fx = cluster.fixability;
+  const analyzing = fx?.status === 'requested' || fx?.status === 'running';
+
+  // Never analyzed — offer the button.
+  if (!fx) {
+    return (
+      <div className='mt-3 flex flex-wrap items-center gap-2'>
+        <Button size='sm' variant='outline' onClick={onAnalyze} disabled={isQueuing}>
+          {isQueuing ? (
+            <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+          ) : (
+            <Wand2 className='w-4 h-4 mr-1.5' />
+          )}
+          Analyze fixability (AI Max, ₹0)
+        </Button>
+        <span className='text-[11px] text-muted-foreground'>
+          Reads the actual code behind these reports and says whether one fix
+          clears the whole group.
+        </span>
+      </div>
+    );
+  }
+
+  if (analyzing) {
+    return (
+      <div className='mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2'>
+        <Loader2 className='w-4 h-4 animate-spin text-amber-600 shrink-0' />
+        <span className='text-xs text-amber-800 dark:text-amber-200'>
+          Analyzing — reading the code behind these reports (AI Max · ₹0). The
+          verdict appears here in a few minutes.
+        </span>
+      </div>
+    );
+  }
+
+  if (fx.status === 'error' || !fx.verdict) {
+    return (
+      <div className='mt-3 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 px-3 py-2'>
+        <CircleAlert className='w-4 h-4 text-red-600 shrink-0' />
+        <span className='text-xs text-red-800 dark:text-red-200'>
+          Analysis couldn&apos;t complete{fx.error ? `: ${fx.error}` : '.'}
+        </span>
+        <Button size='sm' variant='ghost' onClick={onAnalyze} disabled={isQueuing} className='ml-auto'>
+          <RefreshCw className='w-3.5 h-3.5 mr-1' />
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  const v = fx.verdict;
+  const single = v.single_fix_feasible;
+
+  return (
+    <div
+      className={`mt-3 rounded-md border px-3 py-2.5 ${
+        single
+          ? 'border-green-300 bg-green-50 dark:bg-green-950/40'
+          : 'border-amber-300 bg-amber-50 dark:bg-amber-950/40'
+      }`}
+    >
+      <div className='flex flex-wrap items-center gap-2'>
+        {single ? (
+          <Badge
+            variant='outline'
+            className='bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200'
+          >
+            <Wrench className='w-3.5 h-3.5 mr-1' />
+            One fix can resolve all {cluster.member_count}
+          </Badge>
+        ) : (
+          <Badge
+            variant='outline'
+            className='bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200'
+          >
+            <GitBranch className='w-3.5 h-3.5 mr-1' />
+            {v.subgroups.length} distinct root cause
+            {v.subgroups.length === 1 ? '' : 's'} — separate fixes
+          </Badge>
+        )}
+        <span className={`text-[11px] ${CONFIDENCE_CLS[v.confidence]}`}>
+          confidence: {v.confidence}
+        </span>
+        {fx.ran_at && (
+          <span className='text-[11px] text-muted-foreground ml-auto'>
+            {new Date(fx.ran_at).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      {v.summary && <p className='text-sm mt-2 leading-relaxed'>{v.summary}</p>}
+
+      {single ? (
+        <div className='mt-2'>
+          {v.root_cause && (
+            <p className='text-xs text-muted-foreground'>
+              <span className='font-medium text-foreground'>Root cause: </span>
+              {v.root_cause}
+            </p>
+          )}
+          <FileList files={v.files} />
+        </div>
+      ) : (
+        <div className='mt-2 space-y-2'>
+          {v.subgroups.map((sg, i) => (
+            <div key={i} className='rounded border bg-background/60 px-2 py-1.5'>
+              <div className='flex flex-wrap items-center gap-1.5'>
+                <span className='text-[11px] font-semibold text-muted-foreground'>
+                  Cause {i + 1}
+                </span>
+                {sg.bug_ids.map((bid) => (
+                  <Badge key={bid} variant='outline' className='text-[10px] font-mono px-1'>
+                    {bid}
+                  </Badge>
+                ))}
+              </div>
+              {sg.root_cause && <p className='text-xs mt-1'>{sg.root_cause}</p>}
+              <FileList files={sg.files} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className='flex items-center gap-2 mt-2.5 pt-2 border-t border-border/60'>
+        <p className='text-[11px] text-muted-foreground'>
+          AI recommendation only — it never resolves this group or emails
+          reporters. A human decides.
+        </p>
+        <Button
+          size='sm'
+          variant='ghost'
+          onClick={onAnalyze}
+          disabled={isQueuing}
+          className='ml-auto text-muted-foreground'
+        >
+          {isQueuing ? (
+            <Loader2 className='w-3.5 h-3.5 mr-1 animate-spin' />
+          ) : (
+            <RefreshCw className='w-3.5 h-3.5 mr-1' />
+          )}
+          Re-analyze
+        </Button>
+      </div>
+    </div>
   );
 }
