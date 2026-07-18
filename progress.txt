@@ -1,4 +1,91 @@
-## Session: 2026-07-17 (End) — Mobile tab bars → horizontal-scroll (23 pages, SHIPPED+LIVE+VERIFIED)
+## Session: 2026-07-18 (early AM) — Mobile tab sweep DONE (28 pages) + Element Gallery Phase 1 (PR #2151 OPEN)
+
+### Accomplished
+- **Mobile tab bars → horizontal-scroll, COMPLETE across 28 pages, all LIVE+verified:**
+  #2146 (23 pages) + #2149 (permissions-audit, user-caught) + #2150 (4 hidden grid-cols-2 siblings).
+  All merged, deployed (azpv6j0i8 / 5o4gtmw3s / 3tb7ao1gh), 390px-verified via persona-harness + CFT.
+  Blind spots found: grid-cols-2 base NOT safe; "responsive cols" still vertically overflow a fixed h-9
+  bar (permissions-audit = 128px overlap). Restore grid where all tabs fit ONE row (lg: for 6-wide, sm: for 4).
+- **Element Gallery ("MyJKKN NameThatUI") Phase 1 built → PR #2151 OPEN (NOT merged):**
+  /design-gallery, 6 elements × 6 variants (current + 3 on-brand + 3 bold), search/browse/phone-toggle/vote,
+  theme-aware. Worktree .claude/worktrees/design-gallery off jicate/main. ESLint+reachability green; CI in-flight.
+  Prototype + 15-style dashboard study published as Artifacts (links in memory).
+
+### Current Status
+- **Branch**: design-gallery work in worktree (feat/design-gallery-phase1); tab PRs all merged to main.
+- **Build**: prod Ready (3tb7ao1gh). #2151 CI was UNSTABLE (resolving) at session end — NOT merged.
+- **CI monitor** for #2151 (bb63o9aek) will be wiped by /clear — next session re-checks `gh pr checks 2151`.
+
+### Lessons Learned
+- A human spot-check ("check this page") beat a green CI checklist — permissions-audit passed every gate but
+  was visibly broken on mobile. Grep by tab-COUNT vs cols, not just the class pattern.
+- Interview→prototype→phased-build worked well for a fuzzy feature; user approved the Artifact before prod cost.
+
+### Next Session — Tasks (user P0 verbatim: "check locally then EXPAND to ~30 before shipping")
+1. [P0] Run local dev from .claude/worktrees/design-gallery (jicate/main worktree pattern), eyeball /design-gallery (small)
+2. [P0] Expand gallery 6 → ~30 elements on SAME branch (add commits to PR #2151, DON'T merge as-is) (large)
+3. [P0] Then ship #2151: merge → deploy → verify /design-gallery at desktop + 390px (medium)
+4. [P1] Phase 2: shared voting (element_votes table + RLS + API) replacing in-memory vote; live data in examples (large)
+5. [P2] Fold the 15-style dashboard-study winners in as the "bold" variants (small)
+
+---
+
+## Session: 2026-07-17 (Night) — AI runners P0: VERIFIED ALIVE (all 3 planes), no revival needed
+
+### Findings (state had drifted from the continuation brief — runners self-revived / were revived box-side)
+- Windows BATCH drain: ALIVE. Probe demo.ping a7cc3d3a enqueued 18:10:34 UTC → claimed_by 'windows'
+  at 18:10:35 (1s), done 18:10:41, result {"answer":"OK."}; ledger provider=claude_code,
+  model=max-subscription, cost_inr=0, success=true. Also self-served ops.brief at 12:39 UTC (5s claim).
+- Windows INTERACTIVE-CHAT drain: ALIVE. Probe ai_query.chat 65c2b8bc (orphan conversation_id, never
+  renders in any UI) enqueued 18:12:09 UTC → claimed_by 'Biometric-chat-9180-pzal5' at 18:12:15 (6s),
+  done 18:12:22 with {"answer":"OK"}. New pid (9180) vs 01:10's claimer (4868) ⇒ drain was RESTARTED
+  box-side sometime today; root cause of the morning silence not diagnosable from the Mac.
+- Mac BUTTON-POLLER: ALIVE — was never dead. launchctl kickstart produced a clean silent poll (HTTP 200,
+  no pending). The 121 "fetch failed" lines are sparse transient blips (likely sleep/wake network gaps);
+  successful empty polls log NOTHING, so the log over-represents failures. max_lane_requests queue: zero
+  pending; newest button press (07-16 19:16 UTC) was claimed in 3s and completed. No orphaned .poller-lock.
+- Pending backlog: 0 across all planes. The 11:22 UTC stuck bug.triage was canceled+superseded last session.
+
+### #2140 deploy-hold drift (report, no action taken)
+- #2140 is ALREADY LIVE: the other session's #2146 deploy (my-jkkn-azpv6j0i8, 23:04 IST, aliased jkkn.ai)
+  built from latest main, which includes #2140 (merged 13:25 UTC). Deploy-hook model = a hold on a MERGED
+  PR does not survive the next deploy of anything else. This session fired no deploys.
+- Groups tab live-verification with the Director still outstanding (was gated on the hold).
+
+### Observations (out of scope, flagged only)
+- ai-chat-drain writes NO ai_model_usage ledger rows (never has — only retired natural_language path did).
+  Pre-existing observability gap on the chat plane.
+- 2× voice_memo.transcribe groq failures (success=false) at 18:10 UTC; registry has the type DISABLED —
+  something still invokes it.
+
+### Groups tab confirmed LIVE with Director (07-18 00:09 IST)
+- 3-layer verified on prod (jkkn.ai, logged in as director account): DB 66 clusters ↔ Groups-tab badge "66"
+  ↔ member composition matches. First confirm walked E2E: feedback cluster e715fc79 (20 "please enable
+  the feedback section" reports, BUG-004660→004758) → clicked Confirm group → DB proved cluster
+  proposed→confirmed, 19/20 flipped status='duplicate' + duplicate_of=BUG-004660 (the original stays
+  active — 19 parked not 20). Confirmed filter showed exactly 1 group; header New-Reports 1041→1022.
+  NO reporter emails on confirm (only on resolving the original). 32-member "practical attendance"
+  cluster also inspected = genuine cross-module dedup, not a transitive false-cluster.
+
+### Next session
+- (done) Confirm ONE cluster group on the Groups tab — feedback cluster confirmed 07-18.
+- P1 backlog: HR Recruitment Need Signal engine (archived brief .claude/continuation-prompt.ce3e05e7.superseded-20260717.md).
+- P2: bug-triage m-gate measure; overnight-bugfix repoint at confirmed clusters; ai-triage 504 reuse.
+
+---
+
+## Session: 2026-07-17/18 — Mobile tab bars → horizontal-scroll (28 pages total, SHIPPED+LIVE+VERIFIED)
+
+### Follow-up (07-18) — user "check this" on /users/permissions-audit surfaced a hidden bug class
+- #2149: permissions-audit 11-tab bar (grid-cols-2 sm:6 lg:11) — FIXED+LIVE+390px-verified. The
+  grid-cols-2 base was OUTSIDE the [3-9] grep AND "responsive cols" still overflow: 11 tabs wrap to
+  6 rows in a fixed h-9 bar → 128px VERTICAL overlap with content (measured). Restore grid at lg:.
+- #2150: 4 more grid-cols-2/N hidden offenders — staff/dashboard (6 tabs, lg:6), ai-solution-compliance
+  (4, lg:4), learners/onboarding (4, sm:4), pde/faculty/cases CaseFormBuilder (grid-cols-4 horizontal).
+  All FIXED+LIVE; CaseFormBuilder eyeballed scroll@390, other 3 confirmed via deployed-class + desktop probe.
+- LESSON (in memory): grid-cols-2 is NOT safe; "responsive prefix" ≠ safe — any grid TabsList with
+  tabs>cols at a breakpoint wraps+overflows a fixed h-9 bar. Restore grid at the breakpoint where all
+  tabs fit ONE row (lg: for 6/wide, sm: for 4-tab). Deploys: azpv6j0i8 (#2146), 5o4gtmw3s (#2149), 3tb7ao1gh (#2150).
 
 ### Accomplished
 - PR #2146 (Jicate-Solutions/MyJKKN, squash-merged 5643d1530, DEPLOYED my-jkkn-azpv6j0i8).
@@ -725,3 +812,9 @@ Director approved building ONE spine. Interview-locked decisions: provider patte
 PHASE 0 LIVE DARK (migration 20260717170852, PR #2145): work_signal_types registry (8 rows) + fn_work_signals_for(from,to) engine. Reproduces fn_scf_my_pulse EXACTLY for 4 faculty + adds personal-marking number. anon locked. Dual attribution differentiates delegation (Dr.V 53/0) / self-mark (17/17) / covering (prabhakaran 20/22).
 Next: P1 shared <WorkSignals> component + move My Pulse/board/dashboard-card onto engine + retire old SCF RPCs (find all callers). P2 reconcile dashboard marking. P3 fold in AI/Work Pulse + PDE providers. P4 profile/accreditation/leadership surfaces.
 Memory: project_work_signals_spine.
+
+### Session 2026-07-17 (cont) — WORK-SIGNALS SPINE Phase 1 (PR #2147, CI green, ready to merge)
+Phase 0 (#2145) MERGED. Built Phase 1: shared <WorkSignalsCard> + WorkSignalsService + types/work-signals.ts; My Pulse rewired to spine (thin wrapper); dashboard work-signals card for faculty+HODs (answers original "work signals don't show up"). Dual attribution (assigned/you:N), gentle empty, unmatched-account flag, 10s timeout race, never ranks. fn_scf_my_pulse now orphaned (retire after prod confirms zero external callers — strangler, NOT dropped in-PR).
+CI: TypeCheck pass, JKKN terminology pass (fixed classes→sessions), 0 fails. Claude Review caught infinite-skeleton-on-hung-RPC + logger mis-tag → both fixed.
+GOTCHA: reused dash-cards-fix worktree drifted behind merged #2146 (23 files) and nearly swept them into the PR via autosave. Rebuilt in FRESH worktree (.claude/worktrees/spine-p1). Always verify diff==intended files after checkout in a reused worktree. Local full tsc = 46min/10.6GB near-OOM — use CI PR-scoped typecheck (1m30s) as the gate, not local.
+Next: P2 reconcile dashboard TES marking to spine; P3 fold AI/Work Pulse+PDE providers; P4 profile/accreditation/leadership-compare surfaces.
