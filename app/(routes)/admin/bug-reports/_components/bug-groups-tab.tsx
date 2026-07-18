@@ -19,10 +19,10 @@ import {
   Wand2,
   Wrench,
   GitBranch,
-  CircleAlert,
-  ScanSearch,
   GitPullRequest,
-  ExternalLink
+  ExternalLink,
+  CircleAlert,
+  ScanSearch
 } from 'lucide-react';
 
 interface ClusterMember {
@@ -210,6 +210,26 @@ export function BugGroupsTab() {
     onError: (err: any) => toast.error(err?.message || 'Could not queue analysis')
   });
 
+  const fixMutation = useMutation({
+    mutationFn: async (clusterId: string) => {
+      const response = await fetch(`/api/bug-reports/clusters/${clusterId}/fix`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'Could not queue the fix');
+      return json;
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.note === 'already_queued'
+          ? 'A fix is already being prepared for this group.'
+          : 'Fix queued (AI Max, ₹0) — a draft PR will appear here for you to review and merge.'
+      );
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not queue the fix')
+  });
+
   const verifyMutation = useMutation({
     mutationFn: async (clusterId: string) => {
       const response = await fetch(`/api/bug-reports/clusters/${clusterId}/verify`, {
@@ -232,26 +252,6 @@ export function BugGroupsTab() {
       queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
     },
     onError: (err: any) => toast.error(err?.message || 'Could not start the re-check')
-  });
-
-  const fixMutation = useMutation({
-    mutationFn: async (clusterId: string) => {
-      const response = await fetch(`/api/bug-reports/clusters/${clusterId}/fix`, {
-        method: 'POST'
-      });
-      const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || 'Could not queue the fix');
-      return json;
-    },
-    onSuccess: (data) => {
-      toast.success(
-        data.note === 'already_queued'
-          ? 'A fix is already being prepared for this group.'
-          : 'Fix queued (AI Max, ₹0) — a draft PR will appear here for you to review and merge.'
-      );
-      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
-    },
-    onError: (err: any) => toast.error(err?.message || 'Could not queue the fix')
   });
 
   return (
@@ -620,7 +620,124 @@ function FixabilityPanel({
   );
 }
 
-<<<<<<< HEAD
+/**
+ * "Fix this group" — shown only when the verdict says one fix resolves the whole
+ * group. Queues a Mac-side write runner that applies the minimal fix and opens a
+ * DRAFT PR. Never merges, never resolves, never emails — a human reviews the PR,
+ * merges + deploys, then verifies + resolves.
+ */
+function FixSection({
+  fix,
+  onFix,
+  isFixing,
+  count
+}: {
+  fix: FixState | null;
+  onFix: () => void;
+  isFixing: boolean;
+  count: number;
+}) {
+  const status = fix?.status;
+
+  if (status === 'requested' || status === 'running') {
+    return (
+      <div className='mt-2 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 dark:bg-blue-950/40 px-3 py-2'>
+        <Loader2 className='w-4 h-4 animate-spin text-blue-600 shrink-0' />
+        <span className='text-xs text-blue-800 dark:text-blue-200'>
+          Preparing a fix — writing the change in a scratch copy and running
+          checks (AI Max · ₹0). A draft PR will appear here to review.
+        </span>
+      </div>
+    );
+  }
+
+  if (status === 'pr_opened' && fix?.pr_url) {
+    return (
+      <div className='mt-2 rounded-md border border-green-300 bg-green-50 dark:bg-green-950/40 px-3 py-2'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <GitPullRequest className='w-4 h-4 text-green-600 shrink-0' />
+          <span className='text-sm font-medium text-green-900 dark:text-green-100'>
+            Draft fix ready for review
+          </span>
+          <a
+            href={fix.pr_url}
+            target='_blank'
+            rel='noopener noreferrer'
+            className='inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 hover:underline'
+          >
+            PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
+          </a>
+        </div>
+        <p className='text-[11px] text-muted-foreground mt-1'>
+          Review + merge the PR, then deploy. After it&apos;s live, re-verify the
+          reports before resolving the group — resolving emails all {count}{' '}
+          reporters.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === 'no_change') {
+    return (
+      <div className='mt-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2'>
+        <div className='flex items-center gap-2'>
+          <CircleAlert className='w-4 h-4 text-amber-600 shrink-0' />
+          <span className='text-xs font-medium text-amber-900 dark:text-amber-100'>
+            {fix?.needs_migration
+              ? 'Needs a database change — a human must make this'
+              : 'AI made no code change'}
+          </span>
+        </div>
+        {(fix?.human_note || fix?.note) && (
+          <p className='text-[11px] text-muted-foreground mt-1'>
+            {fix.human_note || fix.note}
+          </p>
+        )}
+        <Button size='sm' variant='ghost' onClick={onFix} disabled={isFixing} className='mt-1 h-7 text-xs'>
+          <RefreshCw className='w-3.5 h-3.5 mr-1' /> Try the fix again
+        </Button>
+      </div>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <div className='mt-2 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 px-3 py-2'>
+        <CircleAlert className='w-4 h-4 text-red-600 shrink-0' />
+        <span className='text-xs text-red-800 dark:text-red-200'>
+          Fix attempt failed{fix?.note ? `: ${fix.note}` : '.'}
+        </span>
+        <Button size='sm' variant='ghost' onClick={onFix} disabled={isFixing} className='ml-auto h-7 text-xs'>
+          <RefreshCw className='w-3.5 h-3.5 mr-1' /> Try again
+        </Button>
+      </div>
+    );
+  }
+
+  // No fix attempted yet — offer the button.
+  return (
+    <div className='mt-2 flex flex-wrap items-center gap-2'>
+      <Button
+        size='sm'
+        onClick={onFix}
+        disabled={isFixing}
+        className='bg-green-600 hover:bg-green-700 text-white'
+      >
+        {isFixing ? (
+          <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+        ) : (
+          <Wrench className='w-4 h-4 mr-1.5' />
+        )}
+        Fix this group (AI Max, ₹0)
+      </Button>
+      <span className='text-[11px] text-muted-foreground'>
+        AI writes the one fix as a draft PR for you to review and merge. It never
+        merges or emails on its own.
+      </span>
+    </div>
+  );
+}
+
 const VERIFY_CHIP_CLS: Record<string, string> = {
   likely_fixed:
     'bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200',
@@ -704,89 +821,10 @@ function VerifyPanel({
           After a fix goes live: re-checks every report as its reporter
           (read-only) and tallies how many look fixed.
         </span>
-=======
-/**
- * "Fix this group" — shown only when the verdict says one fix resolves the whole
- * group. Queues a Mac-side write runner that applies the minimal fix and opens a
- * DRAFT PR. Never merges, never resolves, never emails — a human reviews the PR,
- * merges + deploys, then verifies + resolves.
- */
-function FixSection({
-  fix,
-  onFix,
-  isFixing,
-  count
-}: {
-  fix: FixState | null;
-  onFix: () => void;
-  isFixing: boolean;
-  count: number;
-}) {
-  const status = fix?.status;
-
-  if (status === 'requested' || status === 'running') {
-    return (
-      <div className='mt-2 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 dark:bg-blue-950/40 px-3 py-2'>
-        <Loader2 className='w-4 h-4 animate-spin text-blue-600 shrink-0' />
-        <span className='text-xs text-blue-800 dark:text-blue-200'>
-          Preparing a fix — writing the change in a scratch copy and running
-          checks (AI Max · ₹0). A draft PR will appear here to review.
-        </span>
       </div>
     );
   }
 
-  if (status === 'pr_opened' && fix?.pr_url) {
-    return (
-      <div className='mt-2 rounded-md border border-green-300 bg-green-50 dark:bg-green-950/40 px-3 py-2'>
-        <div className='flex flex-wrap items-center gap-2'>
-          <GitPullRequest className='w-4 h-4 text-green-600 shrink-0' />
-          <span className='text-sm font-medium text-green-900 dark:text-green-100'>
-            Draft fix ready for review
-          </span>
-          <a
-            href={fix.pr_url}
-            target='_blank'
-            rel='noopener noreferrer'
-            className='inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 hover:underline'
-          >
-            PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
-          </a>
-        </div>
-        <p className='text-[11px] text-muted-foreground mt-1'>
-          Review + merge the PR, then deploy. After it&apos;s live, re-verify the
-          reports before resolving the group — resolving emails all {count}{' '}
-          reporters.
-        </p>
-      </div>
-    );
-  }
-
-  if (status === 'no_change') {
-    return (
-      <div className='mt-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2'>
-        <div className='flex items-center gap-2'>
-          <CircleAlert className='w-4 h-4 text-amber-600 shrink-0' />
-          <span className='text-xs font-medium text-amber-900 dark:text-amber-100'>
-            {fix?.needs_migration
-              ? 'Needs a database change — a human must make this'
-              : 'AI made no code change'}
-          </span>
-        </div>
-        {(fix?.human_note || fix?.note) && (
-          <p className='text-[11px] text-muted-foreground mt-1'>
-            {fix.human_note || fix.note}
-          </p>
-        )}
-        <Button size='sm' variant='ghost' onClick={onFix} disabled={isFixing} className='mt-1 h-7 text-xs'>
-          <RefreshCw className='w-3.5 h-3.5 mr-1' /> Try the fix again
-        </Button>
->>>>>>> jicate/main
-      </div>
-    );
-  }
-
-<<<<<<< HEAD
   if (v.status === 'running') {
     const done = v.total - v.tally.pending;
     return (
@@ -801,31 +839,20 @@ function FixSection({
   }
 
   if (v.status === 'error') {
-=======
-  if (status === 'error') {
->>>>>>> jicate/main
     return (
       <div className='mt-2 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 px-3 py-2'>
         <CircleAlert className='w-4 h-4 text-red-600 shrink-0' />
         <span className='text-xs text-red-800 dark:text-red-200'>
-<<<<<<< HEAD
           Group re-check couldn&apos;t start{v.error ? `: ${v.error}` : '.'}
         </span>
         <Button size='sm' variant='ghost' onClick={onVerify} disabled={isQueuing} className='ml-auto'>
           <RefreshCw className='w-3.5 h-3.5 mr-1' />
           Try again
-=======
-          Fix attempt failed{fix?.note ? `: ${fix.note}` : '.'}
-        </span>
-        <Button size='sm' variant='ghost' onClick={onFix} disabled={isFixing} className='ml-auto h-7 text-xs'>
-          <RefreshCw className='w-3.5 h-3.5 mr-1' /> Try again
->>>>>>> jicate/main
         </Button>
       </div>
     );
   }
 
-<<<<<<< HEAD
   // done
   const entries = Object.entries(v.per_bug ?? {});
   return (
@@ -896,28 +923,6 @@ function FixSection({
           Re-run
         </Button>
       </div>
-=======
-  // No fix attempted yet — offer the button.
-  return (
-    <div className='mt-2 flex flex-wrap items-center gap-2'>
-      <Button
-        size='sm'
-        onClick={onFix}
-        disabled={isFixing}
-        className='bg-green-600 hover:bg-green-700 text-white'
-      >
-        {isFixing ? (
-          <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
-        ) : (
-          <Wrench className='w-4 h-4 mr-1.5' />
-        )}
-        Fix this group (AI Max, ₹0)
-      </Button>
-      <span className='text-[11px] text-muted-foreground'>
-        AI writes the one fix as a draft PR for you to review and merge. It never
-        merges or emails on its own.
-      </span>
->>>>>>> jicate/main
     </div>
   );
 }
