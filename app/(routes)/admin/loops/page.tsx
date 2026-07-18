@@ -1059,6 +1059,95 @@ export default async function LoopControlTowerPage({
     }
   })();
 
+  // ── "Engine health today" strip (Director-approved 2026-07-18) ─────────────
+  // Four IST-today reads for the one-line health answer at the top of Ring 2.
+  // Same swallow-to-null contract as every tower stat: a failed read renders
+  // the strip amber-unreadable, never a fake green. The stuck rule (non-
+  // terminal past 30 min) is IDENTICAL to the ai-tasks-sweep outage pager so
+  // the strip and the pager can never tell two different stories.
+  const thirtyMinAgoIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const [engineJobsDoneToday, engineJobsStuck, engineErrorsToday, enginePaidCallsToday] =
+    await Promise.all([
+      cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('completed_at', istDayStartUtc)),
+      cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).not('status', 'in', '(done,error,canceled,cancelled,failed,delivered)').lt('requested_at', thirtyMinAgoIso)),
+      cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('completed_at', istDayStartUtc)),
+      cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).not('provider', 'in', '(claude_code,groq)').gte('invoked_at', istDayStartUtc)),
+    ]);
+
+  // Failure/spend detail only when the count went amber — names for the plain-
+  // language sentence. Best-effort: a throw here leaves the count doing the
+  // alerting on its own.
+  const engineErrorTypes: string[] = [];
+  if ((engineErrorsToday ?? 0) > 0) {
+    try {
+      const { data } = await admin
+        .from('ai_jobs')
+        .select('job_type')
+        .eq('status', 'error')
+        .gte('completed_at', istDayStartUtc)
+        .limit(20);
+      for (const r of (data ?? []) as { job_type: string }[]) {
+        if (!engineErrorTypes.includes(r.job_type)) engineErrorTypes.push(r.job_type);
+      }
+    } catch {
+      /* count already renders amber */
+    }
+  }
+  let enginePaidInrToday: number | null = enginePaidCallsToday === 0 ? 0 : null;
+  if ((enginePaidCallsToday ?? 0) > 0) {
+    try {
+      const { data } = await admin
+        .from('ai_model_usage')
+        .select('cost_inr')
+        .not('provider', 'in', '(claude_code,groq)')
+        .gte('invoked_at', istDayStartUtc)
+        .limit(1000);
+      enginePaidInrToday = ((data ?? []) as { cost_inr: number | null }[]).reduce(
+        (a, r) => a + (r.cost_inr ?? 0),
+        0,
+      );
+    } catch {
+      /* count already renders amber */
+    }
+  }
+
+  // Loops due · ran — from the dispatcher timetable already loaded above.
+  // "Due" = enabled, weekday matches today (IST), and the slot passed 10+ min
+  // ago (grace so a routine due this minute can't false-alarm mid-dispatch).
+  // Weekly loops (curriculum=Sun, playbook+escalation=Mon) only count on their
+  // day, so a quiet weekday can't look broken. induction-session-effectiveness
+  // rides a static vercel cron (not dispatcher-managed) — its health surfaces
+  // through the queue/failure cells instead.
+  const LOOP_GENERATOR_ROUTINES = [
+    'scf-generate-suggestions',
+    'scf-learner-notes',
+    'curriculum-lesson-spine-generate',
+    'induction-generate-playbook',
+    'session-feedback-escalation',
+  ];
+  const istNowMs = Date.now() + 19_800_000;
+  const istWeekday = new Date(istNowMs).getUTCDay();
+  const istMinuteOfDay = new Date(istNowMs).getUTCHours() * 60 + new Date(istNowMs).getUTCMinutes();
+  let engineLoopsDue: number | null = null;
+  let engineLoopsRan: number | null = null;
+  const engineLoopsMissed: string[] = [];
+  if (schedById.size > 0) {
+    engineLoopsDue = 0;
+    engineLoopsRan = 0;
+    for (const rid of LOOP_GENERATOR_ROUTINES) {
+      const sRow = schedById.get(rid);
+      if (!sRow || !sRow.enabled) continue;
+      const days = sRow.days_of_week;
+      const dueToday =
+        (!days || days.length === 0 || days.includes(istWeekday)) &&
+        sRow.minute_of_day + 10 <= istMinuteOfDay;
+      if (!dueToday) continue;
+      engineLoopsDue += 1;
+      if (sRow.last_fired_at && sRow.last_fired_at >= istDayStartUtc) engineLoopsRan += 1;
+      else engineLoopsMissed.push(rid);
+    }
+  }
+
   const towerStats: LoopTowerStats = {
     maxCalls7d,
     maxCallsToday,
@@ -1132,6 +1221,18 @@ export default async function LoopControlTowerPage({
     jobsDone7d,
     jobsError7d,
     jobsTotal7d,
+    // ring 2 — "engine health today" one-line strip (2026-07-18)
+    engineToday: {
+      loopsDue: engineLoopsDue,
+      loopsRan: engineLoopsRan,
+      loopsMissed: engineLoopsMissed,
+      jobsDoneToday: engineJobsDoneToday,
+      jobsStuck: engineJobsStuck,
+      errorsToday: engineErrorsToday,
+      errorTypes: engineErrorTypes,
+      paidCallsToday: enginePaidCallsToday,
+      paidInrToday: enginePaidInrToday,
+    },
     // management strip (30d executive summary)
     strip: {
       cyclesClosed30d,
