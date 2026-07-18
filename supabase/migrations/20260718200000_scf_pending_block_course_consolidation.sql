@@ -11,7 +11,7 @@
 -- after the learner submits once — live data shows reporters grinding
 -- through 4 identical feedback submissions per day.
 --
--- FIX: one feedback row for the same (student, attendance_date,
+-- FIX: one feedback row for the same (student_id, attendance_date,
 -- course_id) satisfies every sibling period of that course that day.
 -- Single-period courses are unchanged (course match ≡ period match);
 -- periods with no course_id keep the exact-period behavior.
