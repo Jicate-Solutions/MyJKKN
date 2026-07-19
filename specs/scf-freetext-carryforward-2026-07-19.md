@@ -36,6 +36,11 @@ Senior Learners seeing only anonymous course-level counts.
 | 6 | Multiple concerns in one text | **One question per concern** (cap 3 per text) — precision over speed |
 | 7 | AI not ready / down | **Skip silently** — an AI line renders only when a real one exists; never a template, never a raw quote (learner-notes fallback precedent) |
 | 8 | Concern despite a 5/Clear rating | **Carry anyway** — words count on their own; rating and words are separate signals |
+| 9 | Checklist banner wording (re-interview) | **Fix the inverted copy** — the banner listed unmet items after "you flagged", reading as if they HAPPENED; now "you flagged these as missing: …" |
+
+> Re-interview 2026-07-19 ~09:45 IST (first submission was accidental): all 8
+> original decisions re-asked via AskUserQuestion and CONFIRMED unchanged;
+> decision 9 added from the Director's live screenshot of the inverted banner.
 
 ## Craft decisions (autonomous)
 

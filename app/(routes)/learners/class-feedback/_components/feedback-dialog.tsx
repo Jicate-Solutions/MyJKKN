@@ -348,8 +348,12 @@ export function FeedbackDialog({
                         </>
                       ) : null}
                       {carryItemLabels.length > 0 ? (
+                        // The unmet labels are positively-phrased statements the
+                        // learner did NOT tick — say "missing" or the banner
+                        // reads backwards (Director-confirmed fix, 2026-07-19,
+                        // off a live screenshot of the inverted reading).
                         <>
-                          {priorWord ? ' and flagged ' : ': you flagged '}
+                          {priorWord ? ' and flagged these as missing: ' : ': you flagged these as missing: '}
                           <span className="font-medium">{carryItemLabels.join(', ')}</span>
                         </>
                       ) : !priorWord ? (
