@@ -796,6 +796,33 @@ function LoopStepper({
   });
   const fbBusy = feedbackMutation.isPending;
 
+  // ★ HUMAN ACTION ★ — split a multi-cause group into per-cause groups
+  // (S1-S4 Director-locked): children born confirmed, unsorted members kept
+  // in a needs-another-look group, the split is final. The button appears
+  // only when the diagnosis found 2+ distinct causes.
+  const splitMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/split`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'split failed');
+      return json;
+    },
+    onSuccess: (data) => {
+      const kids = Array.isArray(data.children) ? data.children.length : 0;
+      toast.success(
+        `Split into ${kids} smaller group(s)` +
+          (data.leftover_id ? ' + 1 needs-another-look group' : '') +
+          (data.unparked ? `; ${data.unparked} report(s) returned to the open list` : '') +
+          '. Each new group starts its own pipeline.'
+      );
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Split failed')
+  });
+  const multiCause = !singleFix && (verdict?.subgroups?.length ?? 0) >= 2;
+
   if (cluster.status === 'dismissed') return null;
 
   // ── step states ─────────────────────────────────────────────────────
@@ -987,6 +1014,26 @@ function LoopStepper({
             isFixing={fixQueuing}
             count={cluster.member_count}
           />
+        ) : multiCause ? (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <Button
+              size='sm'
+              onClick={() => splitMutation.mutate()}
+              disabled={splitMutation.isPending}
+              className='bg-amber-500 hover:bg-amber-600 text-amber-950'
+            >
+              {splitMutation.isPending ? (
+                <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+              ) : (
+                <GitBranch className='w-4 h-4 mr-1.5' />
+              )}
+              Split into {verdict!.subgroups.length} groups
+            </Button>
+            <span className='text-[11px] text-amber-800 dark:text-amber-200'>
+              Re-sorts these reports by cause — each smaller group gets its own
+              pipeline. This is final.
+            </span>
+          </div>
         ) : null}
       </StepShell>
 

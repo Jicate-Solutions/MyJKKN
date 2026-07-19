@@ -81,3 +81,27 @@ trust boundary as the DB and code the runner already holds.
    eyeballing that the verdict cites the captured evidence (₹0 Max lane).
 3. Nothing auto-resolves, auto-emails, or auto-confirms anywhere in this feature — it
    sharpens proposals and diagnosis inputs only.
+
+## Follow-on: SPLIT for multi-cause groups (Director-interviewed 2026-07-19)
+
+A "distinct causes — separate fixes" verdict locks the automated lane by design.
+Split is the designed exit: one human click re-sorts the group by the verdict's
+causes; each new group runs its own full pipeline.
+
+| # | Decision | Locked answer |
+|---|---|---|
+| S1 | Already-confirmed groups | Splittable — members are re-filed from the old canonical under each cause's own oldest report |
+| S2 | How children are born | CONFIRMED — the split click IS the decision (parked members also leave the scan pool, giving S4 for free) |
+| S3 | Members the verdict didn't sort | Stay together in a needs-another-look child, flagged for re-diagnosis |
+| S4 | Can the nightly scan re-merge a split? | Never — a split is final (re-merge-on-new-evidence can be a future proposal feature) |
+| S5 | A cause with a single report | Not a group — that report returns to the ordinary open list (technical call) |
+| S6 | Split under an in-flight reporter-feedback thread | Refused; also refused when already split (technical call) |
+
+Children start FRESH at step ① (fixability not inherited; the parent's cause text
+is kept as `metadata.split_context` for display). **Seed-collision rule** (found by
+the rolled-back validation): when a cause's oldest report IS the old canonical,
+`seed_bug_id` uniqueness means the parent row is repurposed in place as that
+child (stays confirmed, audit as `split_siblings`); otherwise the parent is
+dismissed with `split_into`. Surface: `fn_bug_cluster_split` + POST
+`/clusters/[id]/split` + an amber Split button on stepper step ② for multi-cause
+verdicts.
