@@ -1,3 +1,36 @@
+## Session: 2026-07-15→19 (END /cnext) — ₹0 flip verified E2E + tower made glanceable & clickable (4 PRs live)
+
+### Accomplished (all merged + deployed + LIVE-verified)
+- Ring-2 "seam not instrumented" root-caused: NOT a dropped reader — a hardcoded `uninstrumented` prop on the ring-3→ring-2 Seam. Fix PR #2102; verified rendering via Director screenshot ("107 runs / 41 closed ≈ 2.6").
+- ₹0 flip journey: drain verify → HOLD (windows silent ~47h) → Director interview ×6 (flip protocol, learner-notes ToS hold LIFTED, pager keep, 12 stale test jobs canceled, restart checklist) → Windows session fixed root cause (orphaned lock dirs, now self-healing) → flip applied (sibling session, all 6 migrations + carrier reconciliation) → THIS session verified: all 8 job types drained by `windows`, 6 policies='jobs', ₹0.00 over 296 calls.
+- Manifest twins SWITCHED OFF (6 dispatcher rows) after verifying all 6 cron routes guard `lane==='direct' && shouldDeferToMaxLane` — route drives jobs-lane itself. First organic morning PASS (22 judge + 50 note jobs, 0 errors, ₹0). Weekly cadence documented (curriculum=Sun, playbook+escalation=Mon, effectiveness=static 4h cron).
+- DISCOVERY: 934→1,035 learner-note drafts silently waiting for approval since 9 Jul → PR #2115 daily super-admin reminder (ai-tasks-sweep tail, IST-day idempotent). Verified live: fired 3 consecutive days, targets all 12 supers (targeting.user_ids — row-per-key is the design).
+- "Engine health today" strip: artifact mockup (2 iterations, 12th-grade plain language) → PR #2152. First live render correctly AMBER: "failures today 3 · failed today: bug.triage" — caught a real misroute on day one. Every cell DB-cross-checked.
+- Chip deep-links (Director ask): PR #2155 — 9 engine chips + 4 strip cells → /admin/ai-models | /admin/ai-routines. DOM-verified live: 13 evidence anchors present.
+- FLAGGED not fixed (sibling lane): bug.triage jobs claimed by CHAT drain which refuses non-interactive → 3 errors/day until the bug-triage epic owner fixes routing.
+
+### Current Status
+- **₹0 loops**: LIVE on jobs lane, twins off, pager armed, strip green-capable (amber only on bug.triage)
+- **Build**: main deploys clean; 4 PRs this session all merged
+- **Branch**: feat/campus-living-fee-compute-engine (untouched — all work via jicate/main worktrees)
+
+### Lessons Learned (saved to memory)
+- ON CONFLICT DO NOTHING = first-APPLIED wins; later richer seed silently no-ops → verify post-apply ROW STATE
+- Local full tsc OOMs (134/124 @14GB) → first "clean" grep was VACUOUS; CI PR-scoped TypeCheck is the only type gate
+- Terminology gate flags React's `children` prop if a signature line enters the delta → keep signature lines out of diffs
+- Persona-harness beats dead browser-use: copy under repo root (ESM resolution), fullPage:true, sips-crop, page.evaluate for DOM proof
+- notifications has NO user_id col — one row fans out via targeting.user_ids (row-per-key ≠ recipient collapse)
+
+### Next Session — Tasks
+1. [P0] Quiet-period watch: "morning check" each session — loops due·ran clean, ₹0 holds, strip state (small)
+2. [P0] ~29-30 Jul: cleanup PR after 2 quiet weeks — retire pager + old-runner remnants (Director go required) (medium)
+3. [P1] bug.triage misroute: chat drain claims non-interactive jobs — coordinate with bug-triage lane owner (small)
+4. [P1] 1,035-draft approval backlog work-down strategy — Director decision (bulk vs triage vs widen approvers) (medium)
+5. [P2] Pre-filtered deep links: teach /admin/ai-models + /admin/ai-routines filter params (medium)
+6. [P2] SCF confound check at ~10 measured outcomes (currently ~4) (small)
+
+---
+
 ## Session: 2026-07-19 (evening) — Faculty appraisal metrics LIVE + SCF struggling-note self-improving SAFETY LOOP shadow-deployed & verified
 
 ### Accomplished
@@ -31,9 +64,10 @@
 - GRAIN (Director, informed, 2026-07-19): "course when available, else programme". Data reality: `programme_id` NULL on 100% of profiles but `learners_profiles.program_id` 100% populated (728/728); course resolves for only ~4% (29/728) via learner→section→`class_session_lesson` (`session_feedback` path = 0 today; `timetables.periods` JSONB = time-slots only, no subject). So HYBRID resolver: course if resolvable, else programme (24 active). Resolver retries course each cycle → learners auto-shift as timetable coverage grows.
 - PR-A (dark substrate) BUILT + VALIDATED + APPLIED to prod + #2185 OPEN: migration `20260719110000_ai_pulse_domain_starter_substrate.sql` (2 tables deny-all RLS, 6 anon-locked DEFINER RPCs, AI-Max `ai_pulse.domain_starter` job interactive=false, kill-switch `domain_starter_enabled`=false). Validated in rolled-back txn (caught 3 bugs: ambiguous col, uuid max(), OUT-param conflict → `#variable_conflict use_column`). Applied dark: 6/6 fns, anon-lock verified (no anon grant), 13 candidate topics on cycle 07-16 (f26e2732), 0 starter rows.
 - Worktree `.claude/worktrees/aipulse-domain-starter`, branch `feat/aipulse-subject-starter-substrate` (renamed off `-domain-` — pre-push hook naive-substring-blocks "main" inside "do**main**").
+- PACK EXTENSION (Director "include all 4", 2nd commit 65be4a18b, in #2185): migration `20260719113000` adds `prompt_pack jsonb` = {en,ta}×{build,skill,career} + `ta_review_status`. English auto-publishes; TAMIL generated but HELD pending + STRIPPED from learner read until approved (non-Latin safety #24/#25). `final_prompt`=en.build (primary/notification string). Added `fn_ai_pulse_domain_starter_ta_review` (admin gate) for a later review surface. Validated rolled-back (final=en.build, ta stored+strippable, 3 en modes) + applied dark. #2185 = 2 commits, BOTH migrations applied dark to prod.
 
-### Next (pre-authorized by Director)
-- PR-B: ₹0 AI-Max generation cron (flag-gated OFF) — candidates→prior-context→AI-Max job→record. Show the starter-prompt TEMPLATE to Director (learner-facing content) before generating real prompts.
+### Next (pre-authorized by Director) — PR-B is the next unit
+- PR-B: ₹0 AI-Max generation cron (flag-gated OFF). The generator must author, per subject/cycle, a PACK: {en,ta}×{build,skill,career}, seeded with prior_context (last cycle's final_prompt + copies + dept lift) → self-improve. Modes: build-and-publish, skill-drill, career/portfolio. Tamil generated but lands ta_review_status='pending'. Job type `ai_pulse.domain_starter` (interactive=false) already seeded. Cron: `fn_ai_pulse_domain_starter_candidates(cycle,3)` → assemble prompt → AI-Max job → `fn_ai_pulse_record_domain_starter(payload with prompt_pack)`.
 - PR-C: My AI Pulse card + copy + ONE per-learner notification. PR-D: measure+feed-forward cron, then flip flag + verify as real learner.
 - Governance: PR-A #2185 merge = separate Director go. Migration already applied to prod (dark), so merge is just the code record.
 
