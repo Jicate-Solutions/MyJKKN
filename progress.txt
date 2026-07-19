@@ -1,3 +1,33 @@
+## Quiet-Period Log (₹0 loop engine — clock started 16 Jul; cleanup PR earliest ~29–30 Jul after 14 clean days + Director go)
+- 2026-07-19 (Sun): CLEAN ✅ — curriculum ran (4 done, Sunday cadence ✓, the 4 known empty-BoS refusal courses); scf.judge_help_ask 18 + scf.learner_notes 50 done; sibling lanes riding jobs lane clean: scf.freetext_carry 214 (#2179 merged today), scf.note_safety_judge 369 (#2183 merged today), bug.reverify 2, scf.suggest_success 1 — ALL done. errors=0 · stuck=0 · spend=₹0.00 · paid_calls=0 · twins 6/6 off + others 8/8 on · policies 6/6 'jobs' · prod 200. bug.triage: ZERO jobs enqueued in window (misroute LATENT not fixed — last errors 07-18 ×3 claimed by Biometric-chat-* drain). Strip expected green today on data (0 failures) but GREEN milestone stays gated on sibling fix + eyeballed screenshot.
+- 2026-07-19 DECISION (Director, AskUserQuestion): 1,135-draft backlog → **"Fix the writer first"** — pause approvals, tighten note-writer prompt (no invented specifics / no naming people), archive stale drafts (CHECK-widening caution), regenerate for current strugglers, judge re-screens. Bulk approve REJECTED on judge evidence (319 judged: 0 auto_safe, 97% hallucinated_specifics, 74 pii_leak). Full block recorded in specs/scf-note-safety-review-loop-2026-07-19.md (the sibling lane's execution channel). Execution note: daily super-admin reminder (#2115) must park or go naturally quiet once drafts leave 'draft'.
+
+## Session: 2026-07-18→19 (END /cnext) — Jicate Control Tower: routines Ph2 + tabbed per-app surface Ph3 shipped (reporter repo, cross-repo)
+
+### Accomplished (repo = jkkn-centralized-bug-reporter; merged to jicate/main + auto-deployed LIVE, homepage 200)
+- **App Routines Ph2 UI (PR #12 `0627de9`)**: `/org/[slug]/routines` + run-now route. Survived 4 advisory rounds, 3 real MEDs fixed: orphaned-job/`runId:null` loop, missing request timeouts, and manual-run-eats-daily-scheduled-slot → needed prod migration `20260718_app_ai_routines_fix3.sql` (new `app_ai_routine_runs.trigger_source` col so dispatcher skips stamping `last_run_at` for manual runs). Migration applied via Supabase Mgmt API (curl — urllib UA gets WAF-403'd).
+- **Tabbed per-app control surface Ph3 (PR #13 `44d1f3c`)**: `apps/[appSlug]` → shared layout + route-based tab bar with 5 nested pages Overview·Bugs·AI·Routines·Uptime (all REUSE existing components app-scoped: AI=3 rollup cards, Bugs=BugReportsDataTable server-scoped, Uptime=probeApps, Routines=RoutinesManager+new `applicationId`). Routines added to org sidebar (was URL-only). 3 advisory rounds, all fixed, converged "no real findings".
+- **dupe-scan self-improving loop DEFERRED** (Director redirect): make it a moat like the cluster loop spec, not a one-shot ops.brief report. KEY discovery: reporter ALREADY has the substrate — `similarity_feedback` (ground truth) + `find_similar_bugs` (proposal) + `bug_reports.embedding`.
+
+### Current Status
+- **Reporter Control Tower**: Routines Ph1-2 LIVE, tabbed per-app surface LIVE. Homepage 200.
+- **Cluster self-improving loop** (the pattern dupe-scan adopts, OTHER session): BUILT + live (#2164-#2166, migrations applied), 4 reporter 👍/👎 prompts out (expire 08-01), awaiting first answer to flip m/f gates → then dupe-scan-as-moat is fully unblocked.
+- **Build**: reporter tsc/eslint green (only pre-existing `resend` err). MyJKKN `main` untouched this session.
+- **Branch**: feat/campus-living-fee-compute-engine (CWD, untouched — all work in the reporter repo via jicate remote).
+
+### Lessons Learned (saved to memory)
+- Advisory has 2 tiers: migration PR → DEEP panel DEGRADES in CI (no verdict → self-review); non-migration → skeptic tier works. Comment idempotent+eventual-consistent → check `updated_at` vs check-run `completed_at`. [[feedback_advisory_review_tier_split_and_stale_comment]]
+- Recurring bug species this session = "partial data presented as whole truth" (runId:null, manual-run slot, uptime false-empty, bugs false-empty) — green-CI-invisible, skeptic-visible; each deserves distinct loading/error/empty states.
+- Rule #26 pays off: the pre-build survey surfaced the dupe substrate (avoided reinventing) AND the reusable per-app AI cards + probeApps (reused across all tabs).
+
+### Next Session — Tasks (reporter Control Tower track)
+1. [P0-pending-Director] dupe-scan-as-moat: UNBLOCKED — adopt cluster loop's #2(ground-truth)/#3(feed-forward) over existing `similarity_feedback`+`find_similar_bugs` (propose=embeddings weak · truth=human confirm/dismiss · learn keys on MEASURED feedback) (medium-large)
+2. [P1] Phase 4 App Advisor (needs `applications.repo_url` + clone-and-analyze recipe) (large)
+3. [P2] org-level uptime page has the SAME unchecked-insert false-empty bug I fixed on the app tab (small)
+4. [note] pixel-eyeball the tabs (Director-login-gated): `/org/jicate-solution/apps/<app>` — 5-tab surface + Routines sidebar link
+
+---
+
 ## Session: 2026-07-15→19 (END /cnext) — ₹0 flip verified E2E + tower made glanceable & clickable (4 PRs live)
 
 ### Accomplished (all merged + deployed + LIVE-verified)
@@ -25,7 +55,7 @@
 1. [P0] Quiet-period watch: "morning check" each session — loops due·ran clean, ₹0 holds, strip state (small)
 2. [P0] ~29-30 Jul: cleanup PR after 2 quiet weeks — retire pager + old-runner remnants (Director go required) (medium)
 3. [P1] bug.triage misroute: chat drain claims non-interactive jobs — coordinate with bug-triage lane owner (small)
-4. [P1] 1,035-draft approval backlog work-down strategy — Director decision (bulk vs triage vs widen approvers) (medium)
+4. [P1] 1,035-draft backlog: ✅ DECIDED 07-19 ("Fix the writer first" — see spec + Quiet-Period Log). Remaining = execution on the SCF note-safety lane (writer prompt fix → archive stale → regenerate → judge re-screen) (medium)
 5. [P2] Pre-filtered deep links: teach /admin/ai-models + /admin/ai-routines filter params (medium)
 6. [P2] SCF confound check at ~10 measured outcomes (currently ~4) (small)
 
