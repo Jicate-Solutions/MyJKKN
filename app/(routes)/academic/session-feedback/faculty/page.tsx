@@ -80,6 +80,7 @@ import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
 import { MyLoopNotesCard } from '../_components/my-loop-notes-card';
 import { MyPulseCard } from '../_components/my-pulse-card';
+import { FreetextCarryCountsCard } from '../_components/freetext-carry-counts-card';
 import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
@@ -696,6 +697,11 @@ export default function FacultySessionInsightPage() {
       {/* Evidence — the caller's OWN 8 work-signals in one place (the board's
           self-scoped mirror; no scores, no comparisons — anti-gaming doctrine) */}
       <MyPulseCard />
+
+      {/* Written follow-ups — anonymous counts of learners' free-text concerns
+          being re-asked in this facilitator's courses (>=3-learner floor;
+          renders nothing below it). Spec: scf-freetext-carryforward-2026-07-19 */}
+      <FreetextCarryCountsCard />
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />
