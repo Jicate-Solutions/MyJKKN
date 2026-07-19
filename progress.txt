@@ -1,3 +1,120 @@
+## Session: 2026-07-19 (END /cnext ~10:10 IST) — FTC re-interview confirmed 8/8 + banner-copy fix + rebase; PRs #2179/#2178 await Director
+
+### Accomplished (since ~09:40 entry)
+- Director re-ran the interview (first submission accidental): ALL 8 decisions RE-CONFIRMED exactly as built; NEW decision 9 = fix the inverted checklist-banner copy ("you flagged X" → "you flagged these as missing: X") — caught from the Director's live screenshot; fixed + spec updated (decision 9 + re-interview note).
+- PR #2179 went CONFLICTING (SQL_FILE_INDEX/route-manifest race vs merged siblings) → rebased clean onto latest jicate/main → Director-confirmed force-update (manual-lease + refspec form) → PR recomputing to mergeable, CI re-running (monitored).
+
+### Current Status
+- **PR #2179** (free-text carry-forward): OPEN, rebased on latest main, awaiting Director merge. DB + job type + config LIVE on prod; ~130 classification jobs still draining (first deployed cron run collects them; leftovers harmless).
+- **PR #2178** (Help FAB off 5 public surfaces): OPEN, CI green, awaiting Director merge.
+- **Learner-notes queue**: still DARK (1,135 drafts, super-admin-only) — Director chose "both, in that order": deploy/verify lane FIRST, then this unblock (owner role still undecided — ask again next session).
+
+### Lessons Learned
+- Extending a live DB fn: fetch pg_get_functiondef IN FULL and paste verbatim — partial-sight rebuild caused 4 silent drifts (memory updated).
+- gh pr MERGEABLE goes stale fast on shared-append files; re-check right before ending a session, not just after opening the PR.
+
+### Next Session — Tasks
+1. [P0] Director merges #2179 + #2178 → /deploy-myjkkn → verify deploy live (curl /proof/<random> still dark; check first nightly scf-freetext-carry cron run collects the drained jobs) (small)
+2. [P0] MONDAY live-verify FTC: learner with an open concern hits their next session → re-ask renders in dialog, answer lands structured + marker, facilitator counts card at >=3 floor; screenshot eyeball (medium)
+3. [P1] Learner-notes queue unblock: ask Director for the owner role, then widen /admin/learner-notes gate + expire stale drafts (approve current-week only) + pending>3-days alert (medium)
+4. [P2] Weekly false-carry spot sample (20 items) once a week of data accrues; >10% misclassified → tighten prompt (small)
+
+---
+
+## Session: 2026-07-19 (~09:40 IST) — SCF FREE-TEXT CARRY-FORWARD built end-to-end (PR #2179 open, DB live, loop proven on real data)
+
+- Director asked "does the follow-up personalize on the learner's previous free text?" → answer was NO (only checklist gaps carried, #1624) → "spec it and build it" with an AskUserQuestion interview: 8 decisions (problems+praise carry; person-mentions treated like any concern; checklist-carry persistence; learner + anonymous Senior-Learner counts; >=3-learner floor; ONE question per concern <=3; AI-not-ready = skip silently; concern carries even off a 5/Clear check-in). Spec: specs/scf-freetext-carryforward-2026-07-19.md.
+- Population measured first: 56.5k check-ins/14d → 3,105 free texts → 724 substantive → ~10-25 real concerns/day. Junk list ("no","good","nil"…) pre-filtered in SQL.
+- **DB LIVE on prod** (20260719090000, aborted-txn-probed all-green then applied): scf_freetext_carry (deny-all RLS) + candidates/record/answer/counts fns + fn_scf_carryforward_for_learner rebuilt from the VERBATIM live prod def (caught 4 drifts in my first reconstruction — fetch-and-diff, never rebuild from partial sight) + prior_concerns/prior_praise jsonb + INNER→LEFT (decision 8). Job type scf.freetext_carry (interactive=false, ₹0). Kill switch scf.freetext_carry.enabled.
+- **Loop PROVEN pre-merge on real data**: local cron run enqueued 150 real texts → Max-lane drain classified → collect recorded 5 real items; eyeballed: one text split into TWO concerns ("pace of lessons too fast" + "students' mental health"), generic "very good" → none (correct), specific praise captured. ~130 jobs still draining — first deployed cron run collects them.
+- **PR #2179 open** (Director merge): cron /api/cron/scf-freetext-carry (22:07 UTC nightly) + dialog per-concern Yes/Partly/No + praise ack + [freetext-carry] markers + structured answers + facilitator counts card (floor >=3).
+- Next: Director merges → deploy → **Monday live-verify** (learners with open concerns hit their next sessions; check re-ask renders + answers land + counts card at floor). Weekly false-carry sample per spec (>10% → tighten prompt).
+- ALSO this session: learner-notes queue diagnosed DARK (1,135 drafts unapproved, 16 days, super-admin-only gate — awaiting Director's owner decision) and Help-FAB public-surface leak fixed (PR #2178, agent-built, 5 public prefixes).
+
+## Session: 2026-07-19 (early AM) — Appraisal→work-signals: canonical pattern FOUND + PROVEN (nothing applied); next = async-wire green metrics
+
+### Accomplished
+- Shipped+LIVE (DONE): work-signals spine P1.1 deep-links + P2 marking reconciliation — PR #2159 merged (main 33f20c7d2), deployed, LIVE-verified as Dr.V (Mark 0→91, 98th pct, deep-links render).
+- "Capture the 13-metric faculty appraisal rubric as work signals?" → found the CANONICAL mechanism: okr_metric_registry + OKRMetricEngine (wrapper-fn recipe). Extend THIS, don't reinvent. Proved Metric 4 (faculty_initiatives) rolled-back (calc_faculty_initiatives_count → meenapriya=6).
+- Metric 6 mentorship: canonical source = SEPARATE mentor.jkkn.ai Supabase (qcugpxml…, Mgmt token reaches it). Proved read-bridge rolled-back (mentor_signal_snapshot + calc_faculty_mentees_met → balakumaran 43→A++, 178/178 matched; 1 dup-email profile → sync DISTINCT ON email).
+- Decisions locked (Omm, informed): read-not-migrate; met-only mentees; anyone-who-mentors; grade EVERYWHERE (no-ranking doctrine DROPPED institution-wide).
+- NOTHING APPLIED to prod (all rolled-back). Verified prod clean.
+
+### Next Session — Tasks
+1. [P0] Async-agent: wire GREEN/live-in-MyJKKN metrics as canonical work signals via okr_metric_registry — start Metric 4 innovations/patents/publications from faculty_initiatives (wrapper fns + registry rows, proven recipe). Apply to prod, rolled-back-validated first. Agent prompt drafted; full brief in .claude/continuation-prompt.60d002de.md. (medium)
+2. [P1] Metric 6 mentorship foundation + COE-pattern nightly sync (store mentor read-creds) + UI/grade. (large)
+3. [P2] Other green metrics (student feedback scf_*, AI/PDE) + dormant hr_performance_reviews grading container. (large)
+
+### Lessons Learned
+- okr_metric_registry is THE canonical metric engine; metric = wrapper fn(p_profile_id,p_institution_id,p_start_date,p_end_date)→numeric + registry row (source_type=db_function). Templates: calc_staff_count_wrapper (live), competency_okr_metrics.sql.
+- ~30 JKKN apps are reachable via the same Mgmt token → federate (read), don't migrate. Mentor app = qcugpxmulslqrqrjycti.
+
+---
+
+## Session: 2026-07-19 (late morning) — SPLIT SHIPPED+WALKED: multi-cause groups get their designed exit
+
+- Director interviewed via AskUserQuestion (S1-S6 locked, 12th-grader phrasing, edge cases covered): confirmed groups splittable; sub-groups born confirmed; leftovers → needs-another-look; splits final; 1-report causes unparked; refused under feedback threads.
+- Built: fn_bug_cluster_split + POST /clusters/[id]/split + amber "Split into N groups" button on stepper step ② (#2180 merged 17/17, fn applied, deploy 39npx90hx).
+- Validation caught TWO real bugs pre-ship: (a) confirmed members are status='duplicate' — open-member filters must include it; (b) seed collision — when a cause's oldest report IS the old canonical, the parent row is repurposed in place (split_siblings audit) since seed_bug_id is UNIQUE.
+- WALKED LIVE: 22-member "Not to submit feedback" → 3 sub-groups (14/2/6), DB-verified + prod-eyeballed, each with a fresh step-① pipeline.
+- Scan count now 70 proposed groups (fingerprints + two-tier active); one new 38-member attendance group visible.
+
+## Session: 2026-07-19 (mid-morning) — EVIDENCE SIGNALS SHIPPED: captured errors group bugs; diagnosis sees logs + screenshots
+
+- Spec'd (docs/features/2026-07-19-FEATURE-cluster-evidence-signals.md, D1-D6 locked), then built all 3 increments Director approved:
+- A: scan error-fingerprints (#2177 merged, migration 20260719020000 applied): concentrated console-error signatures form groups — live scan 64→71 groups (attendance 'save result null' trio, enquiry 'isadmitted' pair, timetable-exists pair…). Simulation DECIDED the design (recruit-only would catch ~nothing; group-forming proven blob-free).
+- B: diagnosis prompt now carries each report's captured console entries (data-not-instructions framing; runner read-only lock is the backstop).
+- C: screenshots downloaded into the analysis worktree for ≤10-member clusters; the model literally looks at them.
+- B+C proven on the 'Details are mismatched' cluster: read the screenshot's UI text, grepped it, found that screen DELETED from the codebase (pre-v2 dashboard report); cross-verified a captured PG error against code and called it residual noise. Split verdict, no false consolidation, ₹0.
+- Runner changes are Mac-lane local (bug-cluster-fixability.mjs), documented in the spec (D6).
+
+## Session: 2026-07-19 (morning) — TWO-TIER GROUPING SHIPPED: scan recruits near-miss duplicates, never chains
+
+- Director asked "can grouping be better?" → measured: 1,242 same-submodule pairs sat just under the 0.55 trigram bar.
+- Simulation CAUGHT a regression before it shipped: lowering the edge threshold chains generic phrasing into 66-/155-member blobs the 40-cap discards (bugs grouped NET DROPS 263→233/195). Redesigned as ATTACH-ONLY tier-2 (≥0.45 + same sub-module, one hop, no transitivity, cap-aware).
+- Rolled-back prod validation matched simulation exactly (36 attached; BUG-004955 joins the attendance group). PR #2176 (17/17 CI) merged on Director word; migration 20260719003000 applied; REAL scan run: 64 groups, 263→299 bugs grouped, largest 38. Nightly 02:49 cron now runs the new rule.
+- Also answered: scan automation already exists (nightly), scans read report TEXT not the codebase, and re-scans never touch confirmed/dismissed decisions or resolved/parked bugs.
+
+## Session: 2026-07-19 (dawn) — BOTH WALKS CLOSED: 4/4 answerable reporters said 👍; everything shipped
+
+- Walk-2's both reporters answered 👍 within minutes of opening the app (23:53Z + 23:55Z) → ledger positive 2/0 (also proves the outcome recorder on HUMAN-PATH fixes).
+- Deploy buvq1ru2n (Director word): #2171 stepper UI half + #2172 notify fix live; corrected stepper eyeballed (⑤ shows 👍2·👎0, ⑥ human gate reads "resolve when ready").
+- Walk-2 confirmed + resolved (Director-approved): cascade, emails, ledger resolved_at.
+- Director Q "why not auto-resolve?" answered: permanent human gate per locked spec; upgrade path = config-gated auto-resolve-on-unanimous-👍 after human-approved track record (future spec if wanted).
+- NOTHING PENDING on the loop. Residual P2s: retrieval category key for DB-path fixes, analyze-side retrieval v1.1, multi-subgroup fixing, feedback queue-release cron, auto-resolve policy spec.
+
+## Session: 2026-07-18 (late) — 🏆 LOOP GRADUATED: first real 👍 → ledger → 2-cycle passed → gates flipped
+
+### Accomplished (after the walks were sent)
+- Dr. Karthika J answered 👍 "fixed" (BUG-003881, 17:23Z) → bug_fix_outcomes auto-filled reporter_confirmed='positive' (D5 exact). Dr. Revanth's account deactivated (Director) → his request expires as no-data (E2).
+- Behavioral 2-cycle on the REAL outcome PASSED: fix-runner prompt injects the measured 👍 ("prefer the same pattern"); rolled-back falsification: row hidden → retrieval 0, other category → 0, ledger untouched. (Probe gotcha: fn_bug_fix_outcomes_match returns one jsonb array — use jsonb_array_length, count(*) is always 1.)
+- Walk-1 RESOLVED (Director-approved): confirm parked BUG-003882 under canonical BUG-003881 → resolve → cascade both resolved + resolution emails + ledger resolved_at stamped.
+- Gate-flip PR #2175 (17/17 CI) merged + migration 20260718220000 APPLIED: loop_registry 'bug-triage' gates {a,g,m,f} ALL ON, loop_class intake→self_improving. The Loop Control Tower shows the first graduated self-improving loop.
+
+### Still open
+- Walk-2 answers (MADHUMITHA A + G.N, expire 08-01) — monitor armed; on answer: verify outcome auto-fill, bring Director the walk-2 Resolve.
+- #2171 UI half + #2172 ride the next deploy (nothing depends on them).
+- P2: analyze-side retrieval v1.1, multi-subgroup fixing, feedback queue-release cron.
+
+## Session: 2026-07-18 (cont.) — LOOP FINISH: both walks SENT; waiting only on reporter answers
+
+### Accomplished
+- Deploy p8uz1qohv (Director word) → stepper #2170 + bell-nudge #2168 live; stepper EYEBALLED on prod as test.superadmin (6 steps, amber 🟠 human circles at ③⑥, walk-1 at ⑤done/⑥human, walk-2 ④active).
+- SCF migration 20260718200000 APPLIED: validated first in one BEGIN..RAISE rollback batch staging the full defect on LIVE data (reporter's 4 PROJECT WORK pendings: 1 simulated submission → old fn 3 phantoms → new fn 0; LIBRARY+Renewable controls unchanged; grants locked).
+- Walk-2 Verify: 2 jobs drained ₹0 → both honestly inconclusive (reporter hasn't re-submitted; nothing to observe read-only).
+- ⑤ BLOCKER caught by the walk → FIXED properly (Director choice): fn_bug_feedback_prepare conflated "not machine-writable" with "no single fix". PR #2171 merged (fn: one-fix OR ≤1-subgroup+fix-PR; stepper mirrors) + migration 20260718211000 applied (proof: walk-2 prepared=2, multi-cause still refused, walk-1 idempotent).
+- Walk-2 Send (Director-approved, reporters named): MADHUMITHA A (BUG-004641) + MADHUMITHA G.N (BUG-004647) hold 👍/👎 cards, expire 08-01; bell nudge landed with REAL schema (2 targets/2 links) — live proof of #2168.
+- P1 cleared + widened: PR #2172 merged — learn/notify AND work-pulse/notify phantom {type,message} shape fixed (3rd instance; every notification they ever sent was a silent zero). Rides next deploy.
+
+### Current Status
+- 4 real 👍/👎 prompts out across 2 clusters; bug_fix_outcomes = 0 rows; monitor watching both clusters for answers/expiry.
+- WITHHELD (by design): m/f gate flips, loop_class graduation, behavioral 2-cycle — unlock on FIRST real answer.
+- Not yet deployed: #2171 UI half + #2172 (ride next deploy; nothing depends on them today).
+
+### Next Session
+1. [P0] On first reporter answer: verify bug_fix_outcomes auto-fills (fn_bug_fix_outcome_record, D5 any-👎=negative) → surface Resolve decision to Director (Resolve emails reporters — human gate).
+2. [P0] Then: behavioral 2-cycle on REAL outcome (bug-cluster-fix.mjs --print-prompt with/without row) → if pass, propose gate-flip migration (loop_registry bug-triage m:on f:on + intake→self_improving) — show-SQL-first, Director approves.
+3. [P2] Analyze-side retrieval v1.1; multi-subgroup fixing; feedback queue-release cron for 3-cap.
 ## Session: 2026-07-18 (cnext) — SELF-IMPROVING LOOP: spec→built→SHIPPED→LIVE→WALKED TWICE; stepper UI built
 
 ### Accomplished (one very long session)
@@ -1147,3 +1264,4 @@ Next: P2 reconcile dashboard TES marking to spine; P3 fold AI/Work Pulse+PDE pro
 4. [P2] Phase 3 (fold AI/Work Pulse + PDE as providers), Phase 4 (profile/accreditation/leadership-compare). (large)
 
 ---
+
