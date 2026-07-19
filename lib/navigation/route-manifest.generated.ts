@@ -3201,12 +3201,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
-    "path": "/design-gallery",
-    "label": "Design Gallery",
-    "iconName": "FileText",
-    "children": []
-  },
-  {
     "path": "/events",
     "label": "Events",
     "iconName": "CalendarHeart",

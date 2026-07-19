@@ -105,3 +105,18 @@ child (stays confirmed, audit as `split_siblings`); otherwise the parent is
 dismissed with `split_into`. Surface: `fn_bug_cluster_split` + POST
 `/clusters/[id]/split` + an amber Split button on stepper step ② for multi-cause
 verdicts.
+
+## Follow-on: AUTO-RESOLVE policy (Director-interviewed 2026-07-19, built DORMANT)
+
+| # | Decision | Locked answer |
+|---|---|---|
+| R1 | Trigger | Thread fully SETTLED (every question answered or expired; unsent questions block) + zero still-broken + at least one fixed. Silence never blocks forever, never counts as yes |
+| R2 | Earn-it gate | OFF until 10 CLEAN human-approved resolutions (ledger-measured: positive outcome, zero late still-broken, not auto-resolved themselves). Flipping enabled stays a human act |
+| R3 | Circuit breaker | First still-broken answer on an auto-resolved group suspends the feature everywhere until a human reviews |
+| R4 | Visibility | Bell notification per auto-resolve to the admin who enabled the policy |
+
+Surface: 3 policy rows (config-table pattern) + `fn_bug_auto_resolve_status/scan/mark`
++ breaker inside `fn_bug_feedback_answer` + nightly pass in the bug-cluster-scan cron
+(reusing the extracted `lib/bug-reports/resolve-cascade` — the SAME email/cascade/ledger
+path as a human resolve, never a second implementation) + a gate strip on the Groups tab
+("earned N/10 clean resolutions"). Built dormant by explicit Director choice.

@@ -33,7 +33,6 @@ import type {
   FacilitatorPulseRow,
   MyPulseRow,
   MarksCoverageResponse,
-  FreetextCarryCountsRow,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -127,35 +126,6 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load carry-forward: ${error.message}`);
     return (data || []) as CarryforwardItem[];
-  }
-
-  /** Course-level counts of learners' free-text follow-ups for the CALLER's own
-   *  sessions (Senior Learner view). Counts only — never words, never names —
-   *  and a course appears ONLY at/above the >=3-distinct-learners privacy floor
-   *  (fn_scf_freetext_carry_counts enforces both server-side). */
-  static async getFreetextCarryCounts(): Promise<FreetextCarryCountsRow[]> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.rpc('fn_scf_freetext_carry_counts');
-    if (error) throw new Error(`Failed to load follow-up counts: ${error.message}`);
-    return (data || []) as FreetextCarryCountsRow[];
-  }
-
-  /** Answer one free-text follow-up (Yes/Partly/No; 'Seen' acknowledges praise).
-   *  Self-scoped server-side — only the item's own learner can answer it. */
-  static async answerFreetextCarry(
-    id: string,
-    answer: 'Yes' | 'Partly' | 'No' | 'Seen',
-  ): Promise<void> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.rpc('fn_scf_answer_freetext_carry', {
-      p_id: id,
-      p_answer: answer,
-    });
-    if (error) throw new Error(`Could not save your answer: ${error.message}`);
-    const result = data as { success?: boolean; error?: string } | null;
-    if (result && result.success === false) {
-      throw new Error(result.error ?? 'Could not save your answer.');
-    }
   }
 
   /** Per-session confirmation state (present-pending vs confirmed) in a date range. */

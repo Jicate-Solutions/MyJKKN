@@ -306,6 +306,7 @@ export function BugGroupsTab() {
           every report under the original (oldest) one — resolving the original
           then resolves the whole group and emails every reporter.
         </p>
+        <AutoResolveStrip />
       </CardHeader>
       <CardContent>
         {isLoading || isFetching ? (
@@ -424,6 +425,50 @@ const CONFIDENCE_CLS: Record<FixabilityVerdict['confidence'], string> = {
   medium: 'text-amber-700 dark:text-amber-300',
   low: 'text-muted-foreground'
 };
+
+/**
+ * Auto-resolve gate strip (R1-R4, built dormant): shows whether the
+ * earn-it rule is met — how many CLEAN human-approved resolutions exist
+ * toward the required track record — and the circuit-breaker state.
+ * Display only; flipping the policy on is a human decision (a migration).
+ */
+function AutoResolveStrip() {
+  const { data } = useQuery<any>({
+    queryKey: [...queryKeys.bugReports.all, 'auto-resolve-status'],
+    queryFn: async () => {
+      const response = await fetch('/api/bug-reports/auto-resolve/status');
+      if (!response.ok) return null;
+      const json = await response.json();
+      return json.status ?? null;
+    },
+    staleTime: 5 * 60 * 1000
+  });
+  if (!data) return null;
+  const suspended = data.suspended && Object.keys(data.suspended).length > 0;
+  const earned = Number(data.clean ?? 0);
+  const required = Number(data.required ?? 10);
+  return (
+    <p className='text-[11px] text-muted-foreground mt-1'>
+      {suspended ? (
+        <span className='text-red-700 dark:text-red-300 font-medium'>
+          Auto-resolve SUSPENDED — a reporter said still-broken after an
+          automatic resolve; a person must review and re-enable.
+        </span>
+      ) : data.enabled ? (
+        <span className='text-green-700 dark:text-green-300'>
+          Auto-resolve ON — settled groups with zero still-broken and at least
+          one confirmed fix resolve nightly; you are notified each time.
+        </span>
+      ) : (
+        <>
+          Auto-resolve off — earned {Math.min(earned, required)}/{required}{' '}
+          clean human-approved resolutions. It can be switched on once the
+          track record is complete.
+        </>
+      )}
+    </p>
+  );
+}
 
 function FileList({ files }: { files: string[] }) {
   if (!files || files.length === 0) return null;
