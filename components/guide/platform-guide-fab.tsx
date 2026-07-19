@@ -76,6 +76,13 @@ const HIDDEN_PREFIXES: readonly string[] = [
   "/data-deletion",
   "/book",
   "/m",
+  // Remaining app/(public) pages — outsider-facing (employer verify links,
+  // booking embeds, polls, routing forms), so the signed-in Help FAB stays off.
+  "/proof",
+  "/employers",
+  "/embed",
+  "/poll",
+  "/r",
 ];
 
 function isHiddenRoute(pathname: string): boolean {
