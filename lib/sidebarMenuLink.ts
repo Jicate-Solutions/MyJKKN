@@ -2873,7 +2873,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname.startsWith('/system/') ||
             pathname.startsWith('/admin/bug-reports') ||
             pathname.startsWith('/admin/proof-disputes') ||
-            pathname.startsWith('/admin/learner-notes') ||
             pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
@@ -2883,7 +2882,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
             { href: '/admin/proof-disputes', label: 'Record Corrections', active: pathname === '/admin/proof-disputes' },
-            { href: '/admin/learner-notes', label: 'Learner Notes', active: pathname === '/admin/learner-notes' },
             { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }

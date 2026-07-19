@@ -21,7 +21,6 @@ import {
   useSubmitFeedback,
   useCarryforward,
 } from '@/hooks/use-session-feedback';
-import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
 import type { PendingSession } from '@/types/session-feedback';
 
 const BRAND = '#0b6d41';
@@ -105,10 +104,6 @@ export function FeedbackDialog({
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [freeText, setFreeText] = useState('');
   const [cfChoice, setCfChoice] = useState<CarryforwardChoice | null>(null);
-  // Free-text follow-ups (2026-07-19): per-concern Yes/Partly/No, keyed by
-  // scf_freetext_carry id. Answering is optional — unanswered items simply
-  // re-appear at the next check-in for this course (Director decision 3).
-  const [concernAnswers, setConcernAnswers] = useState<Record<string, CarryforwardChoice>>({});
 
   // Attention check: shuffled options for THIS open (null = no check rolled),
   // whether it's been passed, and the last wrong tap (gentle inline feedback).
@@ -136,7 +131,6 @@ export function FeedbackDialog({
       setChecklist({});
       setFreeText('');
       setCfChoice(null);
-      setConcernAnswers({});
 
       // Roll the occasional attention check for this open. Re-rolls on every
       // open by design — deliberately stateless (no storage, no punishment).
@@ -183,16 +177,8 @@ export function FeedbackDialog({
   }, [carry, items]);
 
   // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
-  const priorWord =
-    carry && carry.prior_understood !== null
-      ? (UNDERSTOOD_WORD[carry.prior_understood] ?? null)
-      : null;
+  const priorWord = carry ? UNDERSTOOD_WORD[carry.prior_understood] ?? null : null;
   const priorDate = formatPriorDate(carry?.prior_session_date);
-  // A concerns-only carry row (decision 8: words carry even from a happy
-  // check-in) has NO checklist/rating side — the legacy intro must not render
-  // its "you said you were lost" fallback for it.
-  const hasChecklistCarry = Boolean(carry && carry.prior_session_date !== null);
-  const openConcerns = carry?.prior_concerns ?? [];
 
   const open = session !== null;
 
@@ -211,19 +197,8 @@ export function FeedbackDialog({
     // keeps the fn_scf_submit_feedback signature unchanged.
     const trimmed = freeText.trim();
     let payloadText: string | null = trimmed ? trimmed : null;
-    const prefixes: string[] = [];
-    if (carry && hasChecklistCarry && cfChoice) {
-      prefixes.push(`[carry-forward: ${cfChoice}]`);
-    }
-    // Free-text follow-up answers ride the same way (track-both: the marker
-    // keeps the corpus readable, fn_scf_answer_freetext_carry below stores the
-    // structured answer the counts card reads).
-    const answeredConcerns = (carry?.prior_concerns ?? []).filter((c) => concernAnswers[c.id]);
-    for (const c of answeredConcerns) {
-      prefixes.push(`[freetext-carry "${c.summary.slice(0, 40)}": ${concernAnswers[c.id]}]`);
-    }
-    if (prefixes.length > 0) {
-      const prefix = `${prefixes.join(' ')} `;
+    if (carry && cfChoice) {
+      const prefix = `[carry-forward: ${cfChoice}] `;
       payloadText = trimmed ? `${prefix}${trimmed}` : prefix.trim();
     }
     try {
@@ -236,24 +211,6 @@ export function FeedbackDialog({
         freeText: payloadText,
         source,
       });
-      // Structured answers + praise ack — best-effort AFTER the main submit
-      // (a failed stamp must never cost the learner their confirmation; the
-      // item simply re-appears next time).
-      const stamps: Array<Promise<void>> = answeredConcerns.map((c) =>
-        SessionFeedbackService.answerFreetextCarry(c.id, concernAnswers[c.id]),
-      );
-      if (carry?.prior_praise) {
-        stamps.push(SessionFeedbackService.answerFreetextCarry(carry.prior_praise.id, 'Seen'));
-      }
-      if (stamps.length > 0) {
-        void Promise.allSettled(stamps).then((results) => {
-          results.forEach((r) => {
-            if (r.status === 'rejected') {
-              console.warn('[class-feedback] follow-up stamp failed:', r.reason);
-            }
-          });
-        });
-      }
       toast.success('Thanks! Your attendance for this class is now confirmed.');
       onOpenChange(false);
     } catch (err) {
@@ -330,102 +287,53 @@ export function FeedbackDialog({
           {/* Carry-forward re-ask: last time you took this course, you flagged X. */}
           {carry && (
             <div className="rounded-md border border-[#0b6d41]/30 bg-[#fbfbee]/60 dark:bg-muted/40 p-3 space-y-2.5">
-              {hasChecklistCarry && (
-                <>
-                  <div className="flex items-start gap-2">
-                    <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
-                    <p className="text-sm leading-snug">
-                      Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
-                      {priorDate ? (
-                        <> on <span className="font-medium">{priorDate}</span></>
-                      ) : null}
-                      {priorWord ? (
-                        <>
-                          , you rated it{' '}
-                          <span className="font-medium">
-                            {carry.prior_understood}/5 · {priorWord}
-                          </span>
-                        </>
-                      ) : null}
-                      {carryItemLabels.length > 0 ? (
-                        // The unmet labels are positively-phrased statements the
-                        // learner did NOT tick — say "missing" or the banner
-                        // reads backwards (Director-confirmed fix, 2026-07-19,
-                        // off a live screenshot of the inverted reading).
-                        <>
-                          {priorWord ? ' and flagged these as missing: ' : ': you flagged these as missing: '}
-                          <span className="font-medium">{carryItemLabels.join(', ')}</span>
-                        </>
-                      ) : !priorWord ? (
-                        <> you said you were lost</>
-                      ) : null}
-                      {' '}— clearer for you this time?
-                    </p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    {CARRYFORWARD_CHOICES.map((choice) => {
-                      const selected = cfChoice === choice;
-                      return (
-                        <button
-                          key={choice}
-                          type="button"
-                          onClick={() => setCfChoice(choice)}
-                          aria-pressed={selected}
-                          className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
-                            selected
-                              ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
-                              : 'border-input bg-background hover:bg-muted'
-                          }`}
-                        >
-                          {choice}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {/* Free-text follow-ups (2026-07-19): the learner's OWN prior words,
-                  AI-summarized, asked back privately — one 3-way answer each.
-                  Answering is optional; unanswered items return next check-in. */}
-              {openConcerns.map((concern) => (
-                <div key={concern.id} className="space-y-1.5">
-                  <p className="text-sm leading-snug">
-                    You mentioned: <span className="font-medium">&ldquo;{concern.summary}&rdquo;</span>
-                    {' '}— better this time?
-                  </p>
-                  <div className="flex gap-2">
-                    {CARRYFORWARD_CHOICES.map((choice) => {
-                      const selected = concernAnswers[concern.id] === choice;
-                      return (
-                        <button
-                          key={choice}
-                          type="button"
-                          onClick={() =>
-                            setConcernAnswers((prev) => ({ ...prev, [concern.id]: choice }))
-                          }
-                          aria-pressed={selected}
-                          className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
-                            selected
-                              ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
-                              : 'border-input bg-background hover:bg-muted'
-                          }`}
-                        >
-                          {choice}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-
-              {carry.prior_praise && (
-                <p className="text-sm leading-snug text-muted-foreground">
-                  Last time you said: <span className="font-medium">&ldquo;{carry.prior_praise.summary}&rdquo;</span>
-                  {' '}— glad that worked for you.
+              <div className="flex items-start gap-2">
+                <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
+                <p className="text-sm leading-snug">
+                  Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
+                  {priorDate ? (
+                    <> on <span className="font-medium">{priorDate}</span></>
+                  ) : null}
+                  {priorWord ? (
+                    <>
+                      , you rated it{' '}
+                      <span className="font-medium">
+                        {carry.prior_understood}/5 · {priorWord}
+                      </span>
+                    </>
+                  ) : null}
+                  {carryItemLabels.length > 0 ? (
+                    <>
+                      {priorWord ? ' and flagged ' : ': you flagged '}
+                      <span className="font-medium">{carryItemLabels.join(', ')}</span>
+                    </>
+                  ) : !priorWord ? (
+                    <> you said you were lost</>
+                  ) : null}
+                  {' '}— clearer for you this time?
                 </p>
-              )}
+              </div>
+
+              <div className="flex gap-2">
+                {CARRYFORWARD_CHOICES.map((choice) => {
+                  const selected = cfChoice === choice;
+                  return (
+                    <button
+                      key={choice}
+                      type="button"
+                      onClick={() => setCfChoice(choice)}
+                      aria-pressed={selected}
+                      className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
+                        selected
+                          ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
+                          : 'border-input bg-background hover:bg-muted'
+                      }`}
+                    >
+                      {choice}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

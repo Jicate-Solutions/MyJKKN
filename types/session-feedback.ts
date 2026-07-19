@@ -233,48 +233,18 @@ export interface FacilitatorCoverageRow {
   last_feedback: string | null;
 }
 
-/** One open free-text concern carried to the next same-course check-in
- *  ("you mentioned the lab pace — better this time?"). AI-summarized from the
- *  learner's OWN prior words; shown only to them. scf_freetext_carry. */
-export interface CarryforwardConcern {
-  id: string;
-  summary: string;
-  source_date: string;            // 'YYYY-MM-DD'
-}
-
-/** The learner's latest un-acknowledged praise item (one-line ack, no question). */
-export interface CarryforwardPraise {
-  id: string;
-  summary: string;
-}
-
-/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B;
- *  free-text extension 2026-07-19). Surfaced when the learner previously took the SAME
- *  course and flagged trouble (prior_understood <= 2 OR unchecked checklist items) —
- *  OR has open free-text items for it. On a concerns-only row the checklist fields
- *  are null/empty (decision 8: words count even from a happy 5/Clear check-in). */
+/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B).
+ *  Surfaced when the learner previously took the SAME course and flagged trouble
+ *  (prior_understood <= 2 OR left checklist items unchecked). prior_unmet_items are
+ *  the checklist item_keys that were false/missing in the prior row (UI maps to labels). */
 export interface CarryforwardItem {
   timetable_id: string;
   period_id: string;
   course_code: string;
   course_name: string | null;
-  prior_session_date: string | null; // 'YYYY-MM-DD'; null = concerns-only row
-  prior_understood: number | null;   // 1..5; null = concerns-only row
-  prior_unmet_items: string[];       // checklist item_keys that were false/missing
-  prior_concerns: CarryforwardConcern[];
-  prior_praise: CarryforwardPraise | null;
-}
-
-/** Course-level counts of free-text follow-ups for a Senior Learner's own
- *  sessions. Counts only, >=floor distinct learners (fn_scf_freetext_carry_counts). */
-export interface FreetextCarryCountsRow {
-  course_code: string;
-  course_name: string | null;
-  learners: number;
-  open_concerns: number;
-  resolved: number;
-  partly: number;
-  not_better: number;
+  prior_session_date: string;     // 'YYYY-MM-DD'
+  prior_understood: number;       // 1..5
+  prior_unmet_items: string[];    // checklist item_keys that were false/missing
 }
 
 /** A configured checklist item the learner ticks. session_feedback_checklist_config. */
