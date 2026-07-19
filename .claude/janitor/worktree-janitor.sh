@@ -52,6 +52,16 @@ log() { echo "[$(date +%H:%M:%S)] $*" >> "$LOG"; }
 say() { echo "$*"; log "$*"; }
 
 # ---------------------------------------------------------------- preflight
+# Monday-backup skip-guard (Director 2026-07-18): scheduled runs no-op if a run
+# happened within 60h (Sat 06:37 -> Mon 06:37 is 48h). Manual runs never skip.
+if [ "${JANITOR_SCHEDULED:-0}" = "1" ]; then
+  NEWEST=$(ls -t "$RUNS"/janitor-*.log 2>/dev/null | head -1)
+  if [ -n "$NEWEST" ]; then
+    AGE_S=$(( $(date +%s) - $(stat -f %m "$NEWEST") ))
+    if [ "$AGE_S" -lt 216000 ]; then echo "skip: last run $((AGE_S/3600))h ago (<60h)"; exit 0; fi
+  fi
+fi
+
 say "janitor run $STAMP  DRY_RUN=$DRY_RUN"
 cd "$REPO" || { say "FATAL cannot cd $REPO"; exit 1; }
 
@@ -173,7 +183,19 @@ while IFS=$'\t' read -r WT SHA BR; do
     echo "UNPROVEN	${AGE_H}h	$WT	$BR	${FIRSTFAIL:-?}" >> "$REG_WT"; continue
   fi
   if [ -n "$REALDIRT" ]; then
-    echo "REAL-DIRT	${AGE_H}h	$WT	$BR	$(echo "$REALDIRT" | head -2 | tr '\n' ' ')" >> "$REG_WT"; continue
+    # Exact-copy auto-clear (Director 2026-07-18): real dirt that is byte-for-byte
+    # already in main is discardable. Every dirt file must (a) exist in main's tree
+    # and (b) diff empty vs main — anything else stays Director-gated.
+    UNIQUE=0
+    while IFS= read -r F; do
+      F="${F%/}"
+      git rev-parse -q --verify "$MAIN:$F" >/dev/null 2>&1 || { UNIQUE=1; break; }
+      [ -n "$(git -C "$WT" diff "$MAIN" -- "$F" 2>/dev/null)" ] && { UNIQUE=1; break; }
+    done <<< "$REALDIRT"
+    if [ "$UNIQUE" = 1 ]; then
+      echo "REAL-DIRT	${AGE_H}h	$WT	$BR	$(echo "$REALDIRT" | head -2 | tr '\n' ' ')" >> "$REG_WT"; continue
+    fi
+    log "DIRT-EXACT-COPY-OF-MAIN (auto-clear) $WT"
   fi
 
   if [ "$REGISTRY_ONLY" = 1 ]; then
@@ -212,6 +234,13 @@ while IFS= read -r BR; do
   fi
   if proof_blobhistory "$SHA"; then
     delete_branch "$BR" blob-history; continue
+  fi
+  # 90-day age-out (Director 2026-07-18): unprovable bare branches older than 90
+  # days are deleted — the 07-18 review showed they are drafts of shipped work.
+  # Applies ONLY to bare branches (worktrees stay Director-gated); open-PR /
+  # checked-out / protected guards inside delete_branch still apply.
+  if [ "$AGE_H" -gt 2160 ]; then
+    delete_branch "$BR" "age-out-90d"; continue
   fi
   MB=$(git merge-base "$SHA" "$MAIN" 2>/dev/null || echo "")
   FIRSTFAIL=$(git diff --name-only "${MB:-$SHA}" "$SHA" 2>/dev/null | grep -Ev "$JUNK_RE" | head -1)
