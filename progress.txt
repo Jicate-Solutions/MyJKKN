@@ -1,3 +1,45 @@
+## Session: 2026-07-19 (evening) — Faculty appraisal metrics LIVE + SCF struggling-note self-improving SAFETY LOOP shadow-deployed & verified
+
+### Accomplished
+- **M4 + M12 appraisal metrics APPLIED + INDEPENDENTLY VERIFIED on prod** via the CANONICAL okr_metric_registry engine (6 `module=faculty_appraisal` rows). M4 = initiatives/publications/patents/innovations (from `faculty_initiatives`, INVOKER+STABLE, innovations=complement so total conserved; migration `20260719022731`). M12 = feedback understood-score + Δ-improvement (from `session_feedback` via the EMAIL bridge — ⚠️ `faculty_id` ≠ profiles.id, 0/80269; min-10 gate→NULL; migration `20260719033340`). Verified exact values (meenapriya, boobalan, kowsalya_p, shaanthanu, sharmilab).
+- **SCF struggling-note SELF-IMPROVING SAFETY LOOP** discovered, spec'd, and shadow-shipped. The notes are AI STUDENT-facing support messages gated by a super-admin safety review (1,135 stuck in draft). Real bottleneck was DISCOVERABILITY (queue had no sidebar entry), NOT permission (the 2 named reviewers are already super_admins). Spec: `specs/scf-note-safety-review-loop-2026-07-19.md` (4-PR graduated plan: unblock → shadow → measure → auto-approve).
+- **PR-2 shadow judge DEPLOYED + VERIFIED LIVE**: cron `/api/cron/scf-note-judge` (15,45) enqueues `scf.note_safety_judge` on ₹0 Max lane → records verdicts in `scf_note_judgements`. Verified on prod: recorded 19 verdicts, parseFailures 0, **shadow safety PROVEN** (statuses unchanged 1135 draft/3 approved, 0 auto_approved). ⭐ FIRST FINDING: all 19 → needs_human for `hallucinated_specifics` + `pii_leak` (notes invent dates/ratings + name mentors) — real upstream note-quality signal to chase.
+- Ships: **#2181** (sidebar entry) MERGED but silently OVERWRITTEN by #2182 (sidebarMenuLink.ts hotspot) → re-landed as **#2184 (OPEN)**. **#2183** (shadow judge) MERGED + deployed + verified. Fixed 3 CI/security issues on #2183: JKKN terminology gate (people-terms), over-granted RPCs (→ service_role-only, applied to prod), silent-failure (surface awaitErr).
+
+### Current Status
+- **Appraisal metrics (M4/M12)**: LIVE on prod, verified. **Notes safety loop**: shadow phase LIVE + verified. **Build**: green. **Deploy**: done + verified.
+- **Open PR needing merge: #2184** (sidebar re-land, +2 lines, mergeable).
+
+### Lessons Learned
+- Cron/system-only SECDEF RPCs → GRANT service_role, NOT authenticated (cross-tenant leak). Advisory deep-review catches real security bugs — don't skip them. [[feedback_cron_only_secdef_rpcs_service_role_not_authenticated]]
+- `sidebarMenuLink.ts` is a merge hotspot: a MERGED sidebar entry can be silently overwritten by a later PR branched off older main → ALWAYS re-verify `git show jicate/main:lib/sidebarMenuLink.ts | grep <entry>` after merge; recover by re-landing off current main.
+- JKKN terminology CI gate = people-terms only (student/teacher/faculty/facilitator→banned; facilitator→Senior Learner, differs from SKILL.md); in prompts use learner + mentor/support.
+- Verify-before-build caught 2 no-ops this session: faculty_id≠profile_id (would zero M12), and the "widen reviewer" fix was moot (reviewers already super_admins → real gap was discoverability).
+
+### Next Session — Tasks (user: "all 3 of them", carry everything, read all)
+1. [P0] Merge #2184 (sidebar re-land) → then build **PR-3**: measure judge-vs-human agreement (`scf_note_judgements.agreed`) + register the loop in `loop_registry` (loop_key `scf_note_safety_review`, class self_improving, 4 gates) (medium)
+2. [P0] Chase the judge's HALLUCINATION finding: all 19 notes flagged `hallucinated_specifics`+`pii_leak` — investigate whether the note-GENERATOR (scf-learner-notes cron) invents dates/ratings + names mentors; is it real or judge over-flagging? (medium)
+3. [P1] Metric 6 mentorship (LARGE): the federation build from mentor.jkkn.ai Supabase `qcugpxmulslqrqrjycti` — nightly sync + stored creds + `calc_faculty_mentees_met` + grade; proven rolled-back, nothing applied (large)
+- READ FIRST (user: "read all"): `specs/scf-note-safety-review-loop-2026-07-19.md` + memory `project_faculty_appraisal_work_signals` + `feedback_cron_only_secdef_rpcs_service_role_not_authenticated`
+
+---
+
+## Session: 2026-07-19 (late morning) — AI PULSE "DOMAIN STARTER" self-improving loop: PR-A dark substrate LIVE + #2185 open
+
+### Accomplished
+- RECONCILIATION (the real value — prevented 3 wrong builds): (1) `ss_prompts` is Solutions Hub (`ss_cycles` FK), NOT an AI-Pulse scaffold — untouched. (2) A per-DEPARTMENT AI-Pulse self-improving loop is ALREADY LIVE (`ai_pulse_cycle_outcomes` 40 rows + `fn_ai_pulse_measure_cycle_outcomes`/`_prior_dept_outcome`/`_set_verdict`, RTM-corrected) — the parked `specs/ai-pulse/aipulse-feedback-loop-spec.md` proposes a PARALLEL `aipulse_loop_playbook` = the two-loops trap. Design rides the LIVE spine; parked spec stays parked.
+- GRAIN (Director, informed, 2026-07-19): "course when available, else programme". Data reality: `programme_id` NULL on 100% of profiles but `learners_profiles.program_id` 100% populated (728/728); course resolves for only ~4% (29/728) via learner→section→`class_session_lesson` (`session_feedback` path = 0 today; `timetables.periods` JSONB = time-slots only, no subject). So HYBRID resolver: course if resolvable, else programme (24 active). Resolver retries course each cycle → learners auto-shift as timetable coverage grows.
+- PR-A (dark substrate) BUILT + VALIDATED + APPLIED to prod + #2185 OPEN: migration `20260719110000_ai_pulse_domain_starter_substrate.sql` (2 tables deny-all RLS, 6 anon-locked DEFINER RPCs, AI-Max `ai_pulse.domain_starter` job interactive=false, kill-switch `domain_starter_enabled`=false). Validated in rolled-back txn (caught 3 bugs: ambiguous col, uuid max(), OUT-param conflict → `#variable_conflict use_column`). Applied dark: 6/6 fns, anon-lock verified (no anon grant), 13 candidate topics on cycle 07-16 (f26e2732), 0 starter rows.
+- Worktree `.claude/worktrees/aipulse-domain-starter`, branch `feat/aipulse-subject-starter-substrate` (renamed off `-domain-` — pre-push hook naive-substring-blocks "main" inside "do**main**").
+
+### Next (pre-authorized by Director)
+- PR-B: ₹0 AI-Max generation cron (flag-gated OFF) — candidates→prior-context→AI-Max job→record. Show the starter-prompt TEMPLATE to Director (learner-facing content) before generating real prompts.
+- PR-C: My AI Pulse card + copy + ONE per-learner notification. PR-D: measure+feed-forward cron, then flip flag + verify as real learner.
+- Governance: PR-A #2185 merge = separate Director go. Migration already applied to prod (dark), so merge is just the code record.
+
+### Pending (NOT this build)
+- PR #2144 MERGED (ebba1c811) but deploy-state unconfirmed. 14 real HODs still lack `hod` role (20/35 unchanged 2 days).
+
 ## Session: 2026-07-19 (evening end) — AUTO-RESOLVE SHIPPED DORMANT: the loop's automation is now earn-gated machinery
 
 ### Accomplished (this final stretch)
