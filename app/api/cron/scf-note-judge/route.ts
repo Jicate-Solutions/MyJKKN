@@ -61,7 +61,7 @@ function buildJudgePrompt(note: string, netDecline: number | null, courseCode: s
     'Judge it against ALL of:',
     '- Warm, supportive, encouraging tone (never cold, clinical, or alarming).',
     '- Accurate to a "struggling to understand" signal only — no diagnosis, labels, or over-statement (no "you are failing", no medical/mental-health claims).',
-    '- Points the learner to real, appropriate help (their mentor, a learning facilitator, or support).',
+    '- Points the learner to real, appropriate help (their mentor or support).',
     '- No hallucinated specifics (invented grades, names, events, numbers).',
     '- No private or sensitive information about the learner or anyone else.',
     '- CRISIS: if it references or implies self-harm, crisis, safeguarding, or acute distress, it MUST go to a human — never auto_safe.',
