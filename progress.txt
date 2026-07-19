@@ -1398,3 +1398,6 @@ Next: P2 reconcile dashboard TES marking to spine; P3 fold AI/Work Pulse+PDE pro
 
 ---
 
+
+### Continuation Prompt
+(saved to .claude/continuation-prompt.30f296b4.md — full text in that file)
