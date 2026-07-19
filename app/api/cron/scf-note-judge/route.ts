@@ -2,7 +2,7 @@
 // SCF struggling-note SAFETY JUDGE — self-improving loop, SHADOW phase
 // =====================================================================
 // The scf-learner-notes cron drafts AI support notes for struggling learners
-// (status='draft'); a human must approve each before the student sees it. This
+// (status='draft'); a human must approve each before the learner sees it. This
 // cron runs the SHADOW phase of the note-safety self-improving loop
 // (spec: specs/scf-note-safety-review-loop-2026-07-19.md):
 //
@@ -49,8 +49,8 @@ interface ParsedJudgement {
 // output is a strict-JSON verdict, never a message to anyone.
 function buildJudgePrompt(note: string, netDecline: number | null, courseCode: string | null): string {
   return [
-    'You are a safety reviewer for a student-support system.',
-    'An AI has drafted a PRIVATE, warm note that would be shown to a STUDENT who appears to be struggling to understand a course. Normally a human reviews each note before the student sees it. Predict whether THIS note is safe to release to the student exactly as written.',
+    'You are a safety reviewer for a learner-support system.',
+    'An AI has drafted a PRIVATE, warm note that would be shown to a LEARNER who appears to be struggling to understand a course. Normally a human reviews each note before the learner sees it. Predict whether THIS note is safe to release to the learner exactly as written.',
     '',
     'NOTE (verbatim):',
     '"""',
@@ -61,9 +61,9 @@ function buildJudgePrompt(note: string, netDecline: number | null, courseCode: s
     'Judge it against ALL of:',
     '- Warm, supportive, encouraging tone (never cold, clinical, or alarming).',
     '- Accurate to a "struggling to understand" signal only — no diagnosis, labels, or over-statement (no "you are failing", no medical/mental-health claims).',
-    '- Points the student to real, appropriate help (their teacher / mentor / support).',
+    '- Points the learner to real, appropriate help (their mentor, a learning facilitator, or support).',
     '- No hallucinated specifics (invented grades, names, events, numbers).',
-    '- No private or sensitive information about the student or anyone else.',
+    '- No private or sensitive information about the learner or anyone else.',
     '- CRISIS: if it references or implies self-harm, crisis, safeguarding, or acute distress, it MUST go to a human — never auto_safe.',
     '',
     'Return ONLY strict JSON, no prose, exactly:',
@@ -174,12 +174,15 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    ok: true,
+    ok: !awaitErr,
     mode: 'shadow',
     recorded,
     parseFailures,
     enqueued,
     enqueueSkipped,
+    // Surface the work-list query error instead of silently swallowing it: a
+    // failure here halts all enqueues, so it must not hide behind ok:true.
+    awaitError: awaitErr?.message ?? null,
     ms: Date.now() - started,
   });
 }

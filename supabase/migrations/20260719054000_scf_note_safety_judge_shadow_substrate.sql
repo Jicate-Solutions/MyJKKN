@@ -55,8 +55,11 @@ BEGIN
   RETURNING id INTO v_id;
   RETURN v_id;
 END; $$;
-REVOKE EXECUTE ON FUNCTION public.fn_scf_record_note_judgement(uuid,text,numeric,jsonb,jsonb,text,text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_record_note_judgement(uuid,text,numeric,jsonb,jsonb,text,text) TO authenticated;
+-- service_role ONLY: this RPC is called solely by the scf-note-judge cron (service_role,
+-- which bypasses grants). Granting authenticated would let any user forge/overwrite a
+-- verdict for any note_id (poisoning the learning signal + suppressing the real judge).
+REVOKE EXECUTE ON FUNCTION public.fn_scf_record_note_judgement(uuid,text,numeric,jsonb,jsonb,text,text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_record_note_judgement(uuid,text,numeric,jsonb,jsonb,text,text) TO service_role;
 
 -- 3) Awaiting-judgement RPC — draft notes with no judgement yet (the cron's work list).
 CREATE OR REPLACE FUNCTION public.fn_scf_notes_awaiting_judgement(p_limit int DEFAULT 50)
@@ -75,8 +78,11 @@ BEGIN
     ORDER BY n.generated_at ASC
     LIMIT GREATEST(1, LEAST(500, p_limit));
 END; $$;
-REVOKE EXECUTE ON FUNCTION public.fn_scf_notes_awaiting_judgement(int) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_notes_awaiting_judgement(int) TO authenticated;
+-- service_role ONLY: called solely by the cron. This SECDEF fn bypasses RLS and returns
+-- verbatim draft support-note text (sensitive learner PII); granting authenticated would let
+-- any logged-in user of any tenant exfiltrate it system-wide.
+REVOKE EXECUTE ON FUNCTION public.fn_scf_notes_awaiting_judgement(int) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_notes_awaiting_judgement(int) TO service_role;
 
 -- 4) AI job type — the shadow judge, on the ₹0 Max lane (near-copy of scf.suggest_improvement config).
 INSERT INTO public.ai_job_types
