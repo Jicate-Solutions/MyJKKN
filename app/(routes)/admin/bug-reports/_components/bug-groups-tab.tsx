@@ -131,7 +131,7 @@ export function BugGroupsTab() {
   const [actingOn, setActingOn] = useState<string | null>(null);
 
   const clustersKey = [...queryKeys.bugReports.all, 'clusters', statusFilter];
-  const { data: clusters, isLoading, refetch, isFetching } = useQuery<BugCluster[]>({
+  const { data: clusters, isLoading, refetch } = useQuery<BugCluster[]>({
     queryKey: clustersKey,
     queryFn: () => fetchClusters(statusFilter),
     staleTime: 60 * 1000,
@@ -309,7 +309,13 @@ export function BugGroupsTab() {
         <AutoResolveStrip />
       </CardHeader>
       <CardContent>
-        {isLoading || isFetching ? (
+        {/* Initial load ONLY (isLoading = no cached data yet). Never gate on
+            isFetching here: while a diagnosis is queued the query polls every
+            8s, and swapping the whole list for this spinner on every tick
+            collapsed the page height — scroll jumped to top and the tab
+            jittered for minutes after clicking Diagnose. Background refetches
+            keep the list mounted; React Query serves cached rows meanwhile. */}
+        {isLoading ? (
           <div className='flex items-center justify-center h-32'>
             <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
           </div>
