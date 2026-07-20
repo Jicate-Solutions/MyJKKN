@@ -1,5 +1,46 @@
+## Session: 2026-07-20 (pane 40324ab9) — Notifications/Announcements epic: 20 bugs → 6 merged PRs
+
+### Accomplished
+- Origin: Director "what is wrong in the way [an announcement] is displayed?" → sender showed email-slug "Krishnaveni_A". DATA fix (2 rows, applied to prod 07-17): Krishnaveni_A→"Krishnaveni A", Sharmiladevi_M→"Sharmiladevi M". Admin detail now "Sent by Krishnaveni A".
+- "look at it all" → "implement all relentlessly" ×2 → exhaustive audit of the notifications/announcements admin surface via 2 ultracode Workflow swarms (28 candidates → 20 confirmed, adversarial-verified). ALL shipped across 6 MERGED PRs:
+  - #2114 stack open ≠ mass-mark-read; #2116 weekly IG-silence digest + fold runner-down; #2141 7 safe fixes incl **Read Rate 278%→21%** (capped .select().length denominator vs exact-count numerator); #2143 batch-2 (IDOR + unique-users RPC=6793 + compliance rollup + [id] route + audience builder 13-vs-3) w/ 4 migrations applied+verified on prod; #2148 types + drop as-any casts; #2154 ack-modal flash fix.
+- Verification caught real defects the swarms produced: undefined sanitizeSearch helper (would crash), ineffective client-side recipients gate (excluded), resolve_audience false-404 (arg-name mismatch, disproved). Recipients "leak" = false positive (RPC gates server-side).
+
+### Current Status
+- **Feature**: notifications/announcements admin — 20 bugs resolved. **Build**: passing (all merged). **Branch**: work shipped via worktree PRs to jicate/main.
+- **NOT YET DEPLOYED**: #2154 (ack-modal fix) — needs /deploy-myjkkn + verify. (#2141/#2143 deployed+verified 07-17: Read Rate 21%, Unique Users 6793 live.)
+
+### Lessons Learned
+- `?? false` on a value with a loading phase = lie-by-default: gate/exemption logic reads UNKNOWN as DENIED → intermittent-on-load flash. Branch on the loading flag FIRST. (feedback_default_false_hides_loading_state_race)
+- Relentless IMPLEMENTATION must mean relentless VERIFICATION — swarm output is ~85% reliable; blind-apply ships crashes + fake gates.
+
+### Next Session — Tasks (this pane)
+1. [P0] /deploy-myjkkn → verify ack-modal no longer flashes on load (test as super admin, hard-reload x3). Then check if AI Pulse announcement 54c4ace7 should be requires_acknowledgment (hard-gates non-super-admins) — ask Director before clearing. (small)
+   → Full brief: .claude/continuation-prompt.40324ab9.md
+
+---
+
+## Session: 2026-07-20 (early AM) — SCF note-safety judge GROUNDED: root cause proven (judge blindfolded, not writer hallucinating) → PR #2191
+
+### Accomplished
+- **Task 1 DONE+VERIFIED**: PR #2184 (sidebar re-land) merged; "Learner Notes" LINK now on jicate/main (line 2886), survived the merge. Queue discoverable for super-admin reviewers.
+- **Task 2 PROVEN (the session's core finding)**: the shadow judge's alarming verdicts (grew 319→**1185**: 0 auto_safe / needs_human / 11 likely_unsafe, ~97% "hallucinated_specifics") are **FALSE POSITIVES from context starvation, NOT real hallucination**. `buildJudgePrompt` fed the judge only note text + course + scalar net_decline; the generator builds each note from real records (ratings[]/dates[]/checklist/faculty_name) and is told "invent nothing". GROUND TRUTH: note 4e964bf0 (likely_unsafe@0.82, "invents ratings 3,3,1") — raw session_feedback = 6Jul=3,7Jul=3,8Jul=1, faculty hodmech@=Dr R. Sasikumar. Note was EXACTLY right. ⚠️ This SUPERSEDES the 07-19 "fix the writer first" decision (its premise was these false flags).
+- **Director choice (AskUserQuestion)**: Option B — persist the source signal & have the judge verify (not just "trust the numbers").
+- **PR-3 Step 1 APPLIED to prod (shadow-safe)**: migration 20260720060000 — `scf_learner_notes.source_signal jsonb` + backfill (1185/1185 from session_feedback, last-3 understood ≤generated_at reconstructs EXACTLY, marked backfilled:true, 77 genuinely-null faculty) + `fn_scf_notes_awaiting_judgement` widened to return it (DROP+CREATE, service_role-ONLY re-granted; anon/authed EXECUTE=false verified).
+- **PR-3 Step 2 = PR #2191 OPEN** (base main, green + mergeable): generator writes source_signal (both lanes); judge formatSignal() + corrected rubric (flag hallucinated_specifics only when a specific CONTRADICTS/exceeds the signal; own-mentor name ≠ pii_leak; faithful+warm+grounded SHOULD be auto_safe; backfilled=lenient, live=strict; crisis still hard-gates). Self-gated: terminology PASS, PR-scoped TypeCheck PASS, "New SECDEF fns lock anon" PASS.
+
+### Current Status
+- Appraisal M4/M12: LIVE. SCF note loop: judge grounding — DB live, code in PR #2191 awaiting Director merge → /deploy-myjkkn. Shadow safety still intact (statuses unchanged 1185 draft/3 approved, judge never writes status).
+
+### Next Session — Tasks
+1. [P0] Director merges #2191 → /deploy-myjkkn → then POST-DEPLOY: (a) reset scf_note_judgements (all 1185 human_action=NULL, safe DELETE) so drafts re-judge GROUNDED → verify a real distribution now shows auto_safe; (b) loop_registry — UPDATE existing `scf-note-safety` row (intake) with honest 4-gate jsonb (stays intake until a human walks the grounded queue; do NOT create new `scf_note_safety_review` key = parallel-mechanism trap); (c) wire scf_note_judgements.agreed on fn_scf_learner_notes_review approve/reject. (medium)
+2. [P1 LARGE] Metric 6 mentorship federation from mentor.jkkn.ai (qcugpxmulslqrqrjycti): snapshot table+RLS+DISTINCT ON(email) dedupe + calc_faculty_mentees_met + register faculty.mentees_met; proven rolled-back (balakumaran 43→A++, 178/178), nothing applied. (large)
+
+---
 ## Quiet-Period Log (₹0 loop engine — clock started 16 Jul; cleanup PR earliest ~29–30 Jul after 14 clean days + Director go)
 - 2026-07-19 (Sun): CLEAN ✅ — curriculum ran (4 done, Sunday cadence ✓, the 4 known empty-BoS refusal courses); scf.judge_help_ask 18 + scf.learner_notes 50 done; sibling lanes riding jobs lane clean: scf.freetext_carry 214 (#2179 merged today), scf.note_safety_judge 369 (#2183 merged today), bug.reverify 2, scf.suggest_success 1 — ALL done. errors=0 · stuck=0 · spend=₹0.00 · paid_calls=0 · twins 6/6 off + others 8/8 on · policies 6/6 'jobs' · prod 200. bug.triage: ZERO jobs enqueued in window (misroute LATENT not fixed — last errors 07-18 ×3 claimed by Biometric-chat-* drain). Strip expected green today on data (0 failures) but GREEN milestone stays gated on sibling fix + eyeballed screenshot.
+- 2026-07-19 LOOP-GRAPH EDGES v1 APPLIED (Director: "build all 3 now", rolled-back-validated → applied → verified): (1) loop_registry.counter_metric column + convention comment (m gate needs named+measured counter); paired bug-triage (reporter 👍 ledger) + scf (outcome delta vs baseline); 19 honestly NULL. (2) loop_conflicts table (RLS on, admin SELECT, governance-only writes) seeded C1-appraisal-feedback-wire (arbiter=Director, open). (3) Sensor-pipe checks ADDED to daily morning check — protocol file .claude/loop-morning-check.sql; DAY-ONE READINGS: M12 email bridge 180/187 distinct emails matched (96.3%, 7 people invisible to appraisal — WATCH), judge 419 judged-7d / 0 labels (paused by design) / 0 parse-fails. Applied SQL recorded at supabase/migrations/20260719_loop_graph_visibility_and_edges_v1.sql (ships with cleanup PR) + SQL_FILE_INDEX entry. ⚠️ CLAUDE.md drift found: supabase/setup/01_tables.sql does NOT exist locally. Hierarchy (recalibration) stays PLANNED — blocked on labels by writer-fix ruling, sibling PR-3/4. Artifact updated (3 of 4 edges live).
+- 2026-07-19 LOOP-GRAPH AUDIT (async agent, read-only) + FIRST MOVE APPLIED (Director go): report at .claude/scratch/loop-graph-audit-2026-07-19.md. Verified findings: 18 registered loops ALL owner_email=null; 3 biggest live loops unregistered; judge 369 predictions/0 human labels (cannot calibrate — no graduation); hr_performance_reviews=0 rows (grades ratified by no human). APPLIED (validated rolled-back → applied → row-state verified): registered faculty-appraisal (domain people) + scf-note-safety + scf-freetext-carry (intake, gates off) + owner_email='aieee@jkkn.ac.in' on ALL 21 rows. SQL kept at scratchpad loop-registry-visibility.sql. Spec §9 AMENDED: PR-3 must UPDATE scf-note-safety (kebab key), not INSERT scf_note_safety_review. STILL PROPOSED (not adopted): counter_metric gate column, weekly measurement-pipe audit, arbitration convention. SHARPEST OPEN CONFLICT (C1, no arbiter): appraisal grades careers on the SAME session_feedback wire 4 SCF loops trust as honest. SCF loop-graph artifact: https://claude.ai/code/artifact/8cda4c95-03b3-4315-9c4e-2d3ed8f4d729
 - 2026-07-19 DECISION (Director, AskUserQuestion): 1,135-draft backlog → **"Fix the writer first"** — pause approvals, tighten note-writer prompt (no invented specifics / no naming people), archive stale drafts (CHECK-widening caution), regenerate for current strugglers, judge re-screens. Bulk approve REJECTED on judge evidence (319 judged: 0 auto_safe, 97% hallucinated_specifics, 74 pii_leak). Full block recorded in specs/scf-note-safety-review-loop-2026-07-19.md (the sibling lane's execution channel). Execution note: daily super-admin reminder (#2115) must park or go naturally quiet once drafts leave 'draft'.
 
 ## Session: 2026-07-18→19 (END /cnext) — Jicate Control Tower: routines Ph2 + tabbed per-app surface Ph3 shipped (reporter repo, cross-repo)
@@ -180,8 +221,12 @@ VERIFY BY (post-execution):
 - PR-C: My AI Pulse card + copy + ONE per-learner notification. PR-D: measure+feed-forward cron, then flip flag + verify as real learner.
 - Governance: PR-A #2185 merge = separate Director go. Migration already applied to prod (dark), so merge is just the code record.
 
+### HOD roles — FIXED (2026-07-20, Director-approved, show-first+go)
+- Director supplied the HOD email list. Diagnosed 3-way: 13 already had hod, 11 existed-but-missing, 7 have NO account. Assigned hod(primary) to the 11 (incl. hodpharmacypractice = the original bug); rolled-back validated then applied (fixed=11, profiles.role→hod=11, global 20→31/35). Faculty demoted to secondary (kept via multi-role merge). role_id=d2ba2195-eafc-434e-a437-b148dc4dc4b6.
+- STILL OPEN: 7 HOD emails have NO account (can't grant role) — hodchildhealth, hodconservative, hodmaths, hodmentalhealth, hodperiodontics, hodtamil, hodtfd. Need accounts CREATED first (await names + go). Also 4 hod-prefix DB accounts not on Director's list remain roleless (35-31), likely junk/unlisted.
+
 ### Pending (NOT this build)
-- PR #2144 MERGED (ebba1c811) but deploy-state unconfirmed. 14 real HODs still lack `hod` role (20/35 unchanged 2 days).
+- PR #2144 MERGED (ebba1c811) but deploy-state unconfirmed.
 
 ## Session: 2026-07-19 (evening end) — AUTO-RESOLVE SHIPPED DORMANT: the loop's automation is now earn-gated machinery
 
