@@ -179,8 +179,15 @@ export default function LearnerSessionFeedbackPage() {
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <Sparkles className="h-12 w-12 mb-4" style={{ color: `${BRAND}66` }} />
                 <h3 className="text-lg font-medium mb-1">You&apos;re all caught up</h3>
+                {/* Honest timing copy (BUG-004739 group, 2026-07-19): a class can only
+                    appear here AFTER its attendance is marked, which is often hours
+                    after the class ends — "right after they happen" taught learners
+                    to expect the just-finished class and report the gap as a bug. */}
                 <p className="text-sm text-muted-foreground max-w-md">
-                  No class feedback pending. New classes will appear here right after they happen.
+                  No class feedback pending right now. A class appears here once its
+                  attendance has been marked — that can be a little while after the
+                  class ends, so check back if a class you just attended isn&apos;t
+                  listed yet.
                 </p>
               </div>
             ) : (
@@ -259,11 +266,15 @@ export default function LearnerSessionFeedbackPage() {
           </CardContent>
         </Card>
 
-        {pendingCount > 0 && (
-          <p className="text-xs text-muted-foreground text-center">
-            Tap a class to confirm — it only takes about 10 seconds.
-          </p>
-        )}
+        {/* Always-on timing hint: the 07-14 morning reporters had items pending yet
+            reported "can't submit" because the class they'd JUST attended wasn't
+            marked yet — so this line must show even when the list is non-empty. */}
+        <p className="text-xs text-muted-foreground text-center">
+          {pendingCount > 0 && (
+            <>Tap a class to confirm — it only takes about 10 seconds. </>
+          )}
+          A class you just attended appears here once its attendance is marked.
+        </p>
 
         {/* Your attended classes this month — EVERY Present session, each badged
             Confirmed (feedback given in time) or Not yet confirmed (attended, no
@@ -285,6 +296,8 @@ export default function LearnerSessionFeedbackPage() {
             <p className="border-t px-4 py-2 text-xs text-muted-foreground">
               Every class you attended this month. &ldquo;Confirmed&rdquo; means you also gave
               feedback within the window — you&apos;re never counted absent for missing feedback.
+              Once a class&apos;s window has closed it can no longer be confirmed — that&apos;s
+              normal and never counts against your attendance.
             </p>
             <ul className="divide-y border-t">
               {historyRows.map((r) => {
@@ -308,10 +321,23 @@ export default function LearnerSessionFeedbackPage() {
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Confirmed
                       </Badge>
-                    ) : (
+                    ) : withinFeedbackWindow(r.attendance_date, windowHours) ? (
                       <Badge variant="secondary" className="shrink-0 gap-1 text-muted-foreground">
                         <Clock className="h-3.5 w-3.5" />
                         Not yet confirmed
+                      </Badge>
+                    ) : (
+                      /* Window expired: "Not yet confirmed" reads as actionable, but
+                         nothing can clear it any more (submit RPC rejects past the
+                         window) — reporters carried 8–56 of these badges and filed
+                         them as "can't submit feedback". Say the true state instead. */
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 gap-1 text-muted-foreground"
+                        title={`The ${windowHours}-hour feedback window for this class has closed — it can no longer be confirmed. This never counts you absent.`}
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        Window closed
                       </Badge>
                     )}
                   </li>
