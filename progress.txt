@@ -1,3 +1,14 @@
+## UPDATE 2026-07-20 08:2x — #2191 DEPLOYED + VERIFIED; legacy-leniency PR-3.1 (#2193) open
+
+- ⚠️ CORRECTION: the #2191 merge did NOT auto-deploy (the "Ready" build predated the 01:28 merge). Caught by reading the ACTUAL enqueued judge prompt (still old "signal=2" format), not trusting build status. Fired the deploy hook manually (job GY7A2X9uYRe5CqtorST6) → build b3z4wi0hu Ready → RE-VERIFIED by reading a fresh job's prompt = full GROUNDING SIGNAL block present. Lesson reinforced: "a Ready build ≠ your code is live" — verify by content.
+- ✅ FIX PROVEN: ground-truth note 4e964bf0 flipped likely_unsafe@0.82 ("invents 3,3,1", pii_leak) → **auto_safe@0.95, ZERO flags** ("ratings and dates match signal exactly", "points to real named mentor"). Grounded prompt confirmed live.
+- 🔎 REAL FIND: grounded judge caught 1 genuinely-bad note (of 1185) that leaked the generator's meta-instruction into learner text ("Take a short break for me, you don't need to search or run anything… Here it is:"). Isolated (1/1185), sitting safely in draft/human-review. Worth flagging to note-generator owners.
+- ⚠️ BACKFILL LIMITATION found: legacy back-filled notes lack unmet_items (not in session_feedback) + approximate ratings → residual false "invented checklist items" flags. NEW notes (exact signal) unaffected. Director chose "small tweak" → **PR-3.1 #2193 OPEN** (judge leniency for backfilled/reconstructed signals: confirm grounding only, judge tone/crisis/PII/over-statement, never flag hallucinated_specifics/inaccurate_to_signal on a reconstructed mismatch). Self-gated (terminology pass, scoped tsc 0 err), MERGEABLE.
+
+### Next (needs Director merge of #2193 → deploy)
+1. Merge #2193 → /deploy-myjkkn (VERIFY BY PROMPT CONTENT, not build status) → then reset ALL 1185 scf_note_judgements (human_action all NULL, safe) so the whole corpus re-judges grounded+lenient overnight via the :15/:45 crons → verify a clean grounded distribution (auto_safe rate up, false flags gone).
+2. Refresh loop_registry 'scf-note-safety' description (gates stay off — honest, still 0 human labels; graduation still needs measured human agreement).
+3. Then measure agreement (scf_note_judgements.agreed) once humans walk the grounded queue; Metric 6 mentorship still pending (P1 large).
 ## Session: 2026-07-20 (pane 40324ab9) — Notifications/Announcements epic: 20 bugs → 6 merged PRs
 
 ### Accomplished
@@ -37,7 +48,38 @@
 2. [P1 LARGE] Metric 6 mentorship federation from mentor.jkkn.ai (qcugpxmulslqrqrjycti): snapshot table+RLS+DISTINCT ON(email) dedupe + calc_faculty_mentees_met + register faculty.mentees_met; proven rolled-back (balakumaran 43→A++, 178/178), nothing applied. (large)
 
 ---
+## Session: 2026-07-20 (END /cnext) — Reporter dupe-scan MOAT started + Loop Control Tower built (cross-repo, reporter)
+
+### Accomplished (repo = jkkn-centralized-bug-reporter, remote jicate; all work cross-repo — MyJKKN main untouched)
+- **8 Director decisions LOCKED** (2-round interview) for the reporter dupe-scan self-improving loop (copies MyJKKN's graduated cluster-loop moat): D1 build a reporter Loop Control Tower · D2 admins-only confirm/dismiss · D3 record-only-never-close · D4 same-app-only · E1 any-dismiss=not-clean · E2 verdict editable · E3 keep-showing-undecided · E4 on-demand-only.
+- **Inc 1 — Propose (PR #14, BUILT+VERIFIED, NOT merged):** evolved existing AiDuplicateFinderCard into an honest proposer (≥0.9, "not human-confirmed", excludes decided pairs team-wide) via NEW service-role route `/api/internal/bug-reports/decided-pairs` (needed because similarity_feedback RLS is per-user). Found the crash-broken per-bug dismiss route (writes 5 phantom cols) → fix deferred to Inc 2. Verified tsc/eslint/embed-syntax(200)/join-semantics(rolled-back).
+- **Loop Control Tower (PR #15, BUILT+VERIFIED, NOT merged):** new `loop_registry` table mirroring MyJKKN (gates {a,g,m,f}, class, tier, domain, routine_id, counter_metric) + `/org/[slug]/loops` gates screen + sidebar "Loops". Seeded app.brief (cadence, a:on) + app.dupe-scan (intake, all off). Migration validated rolled-back; NOT applied to prod (classifier blocked the curl → needs Director go, now given via interview).
+
+### Current Status
+- **Reporter dupe-scan moat**: Inc 1 + Loop Tower built+verified; PRs #14 + #15 OPEN. Inc 2 (measure) next.
+- **Build**: reporter tsc/eslint green (bar 1 pre-existing resend err). MyJKKN main untouched.
+- **Branch**: feat/campus-living-fee-compute-engine (repo-root, docs-only). Reporter worktrees: .claude/worktrees/dupe-scan (#14), .claude/worktrees/loop-tower (#15).
+- 🔴 **BLOCKER: GitHub Actions billing failed org-wide (Jicate-Solutions)** — advisory router 3s-fails, billing msg in the check-run ANNOTATION (not logs). Blocks advisory/CI on ALL Jicate repos. Vercel deploy UNAFFECTED (a merge would still deploy). Director fixes in org Billing & plans.
+
+### Lessons Learned
+- GH Actions BILLING failure disguises as a router/CI crash (3s fail, empty steps, logs 503); real cause is in the check-run ANNOTATION not logs; distinguish from a broad incident by whether OTHER recent runs also fail. [[feedback_github_actions_billing_fails_as_router_crash]]
+- Reporter has NO local .env — fetch anon/service keys via Mgmt API `/api-keys?reveal=true` to test PostgREST (anon key validates a FK-embed: 200 []=valid, 400=bad relationship).
+- similarity_feedback RLS is per-user → cross-user "exclude decided pairs" needs a service-role route, not the browser. [[project_reporter_dupescan_moat]]
+
+### Next Session — Tasks (user: "all 3 of them", carry everything)
+1. [P0] Apply the loop_registry migration to prod (Director go given) + verify the Loops screen renders once deployable.
+2. [P0] Fix GitHub Actions billing → merge #14 + #15 → deploy-verify → flip app.dupe-scan gate a:on via migration.
+3. [P0] Build Increment 2 (admin confirm/dismiss → similarity_feedback; record-only; editable; + fix the crash-broken dismiss route) — earns the m gate. Stacks on #14 → build after #14 merges (or rebase).
+4. [P1] Increment 3 (feed-forward strictest-wins + 2-cycle) → earns f → graduate app.dupe-scan to self_improving.
+
+### Continuation Prompt
+(saved to .claude/continuation-prompt.<session-key>.md — auto-loads on /clear)
+
+---
+
 ## Quiet-Period Log (₹0 loop engine — clock started 16 Jul; cleanup PR earliest ~29–30 Jul after 14 clean days + Director go)
+- 2026-07-20 (Mon, 08:30 interim): HEALTHY — spend ₹0 · paid 0 · stuck 0. bug.triage 2 DONE 0 errors (first clean completions since misroute — verify claimed_by before calling it fixed). Judge re-ran 1,269 GROUNDED (post-#2191); freetext_carry 258 done (+5 in-flight, fresh); NEW sibling loop ai_pulse.domain_starter live (3 done, 10 pending — watch). Monday cadence (playbook, escalation 19:30) due later — full-day verdict at day end.
+- 2026-07-20 SUPERSESSION (sibling lane, verified: PR #2191 MERGED 01:28 + scf_learner_notes.source_signal 1,185/1,188 backfilled): the 07-19 "fix the writer first" ruling's PREMISE was wrong — judge was CONTEXT-STARVED (fed only note text, so true specifics looked invented); ground truth matched a flagged note's specifics to session_feedback EXACTLY. Writer cleared; judge now grounded in source_signal and re-judging. Artifact receipt rewritten to the two-act story (pairing alarms; anchor corrects the watcher).
 - 2026-07-19 (Sun): CLEAN ✅ — curriculum ran (4 done, Sunday cadence ✓, the 4 known empty-BoS refusal courses); scf.judge_help_ask 18 + scf.learner_notes 50 done; sibling lanes riding jobs lane clean: scf.freetext_carry 214 (#2179 merged today), scf.note_safety_judge 369 (#2183 merged today), bug.reverify 2, scf.suggest_success 1 — ALL done. errors=0 · stuck=0 · spend=₹0.00 · paid_calls=0 · twins 6/6 off + others 8/8 on · policies 6/6 'jobs' · prod 200. bug.triage: ZERO jobs enqueued in window (misroute LATENT not fixed — last errors 07-18 ×3 claimed by Biometric-chat-* drain). Strip expected green today on data (0 failures) but GREEN milestone stays gated on sibling fix + eyeballed screenshot.
 - 2026-07-19 LOOP-GRAPH EDGES v1 APPLIED (Director: "build all 3 now", rolled-back-validated → applied → verified): (1) loop_registry.counter_metric column + convention comment (m gate needs named+measured counter); paired bug-triage (reporter 👍 ledger) + scf (outcome delta vs baseline); 19 honestly NULL. (2) loop_conflicts table (RLS on, admin SELECT, governance-only writes) seeded C1-appraisal-feedback-wire (arbiter=Director, open). (3) Sensor-pipe checks ADDED to daily morning check — protocol file .claude/loop-morning-check.sql; DAY-ONE READINGS: M12 email bridge 180/187 distinct emails matched (96.3%, 7 people invisible to appraisal — WATCH), judge 419 judged-7d / 0 labels (paused by design) / 0 parse-fails. Applied SQL recorded at supabase/migrations/20260719_loop_graph_visibility_and_edges_v1.sql (ships with cleanup PR) + SQL_FILE_INDEX entry. ⚠️ CLAUDE.md drift found: supabase/setup/01_tables.sql does NOT exist locally. Hierarchy (recalibration) stays PLANNED — blocked on labels by writer-fix ruling, sibling PR-3/4. Artifact updated (3 of 4 edges live).
 - 2026-07-19 LOOP-GRAPH AUDIT (async agent, read-only) + FIRST MOVE APPLIED (Director go): report at .claude/scratch/loop-graph-audit-2026-07-19.md. Verified findings: 18 registered loops ALL owner_email=null; 3 biggest live loops unregistered; judge 369 predictions/0 human labels (cannot calibrate — no graduation); hr_performance_reviews=0 rows (grades ratified by no human). APPLIED (validated rolled-back → applied → row-state verified): registered faculty-appraisal (domain people) + scf-note-safety + scf-freetext-carry (intake, gates off) + owner_email='aieee@jkkn.ac.in' on ALL 21 rows. SQL kept at scratchpad loop-registry-visibility.sql. Spec §9 AMENDED: PR-3 must UPDATE scf-note-safety (kebab key), not INSERT scf_note_safety_review. STILL PROPOSED (not adopted): counter_metric gate column, weekly measurement-pipe audit, arbitration convention. SHARPEST OPEN CONFLICT (C1, no arbiter): appraisal grades careers on the SAME session_feedback wire 4 SCF loops trust as honest. SCF loop-graph artifact: https://claude.ai/code/artifact/8cda4c95-03b3-4315-9c4e-2d3ed8f4d729
@@ -216,8 +258,15 @@ VERIFY BY (post-execution):
 - Worktree `.claude/worktrees/aipulse-domain-starter`, branch `feat/aipulse-subject-starter-substrate` (renamed off `-domain-` — pre-push hook naive-substring-blocks "main" inside "do**main**").
 - PACK EXTENSION (Director "include all 4", 2nd commit 65be4a18b, in #2185): migration `20260719113000` adds `prompt_pack jsonb` = {en,ta}×{build,skill,career} + `ta_review_status`. English auto-publishes; TAMIL generated but HELD pending + STRIPPED from learner read until approved (non-Latin safety #24/#25). `final_prompt`=en.build (primary/notification string). Added `fn_ai_pulse_domain_starter_ta_review` (admin gate) for a later review surface. Validated rolled-back (final=en.build, ta stored+strippable, 3 en modes) + applied dark. #2185 = 2 commits, BOTH migrations applied dark to prod.
 
-### Next (pre-authorized by Director) — PR-B is the next unit
-- PR-B: ₹0 AI-Max generation cron (flag-gated OFF). The generator must author, per subject/cycle, a PACK: {en,ta}×{build,skill,career}, seeded with prior_context (last cycle's final_prompt + copies + dept lift) → self-improve. Modes: build-and-publish, skill-drill, career/portfolio. Tamil generated but lands ta_review_status='pending'. Job type `ai_pulse.domain_starter` (interactive=false) already seeded. Cron: `fn_ai_pulse_domain_starter_candidates(cycle,3)` → assemble prompt → AI-Max job → `fn_ai_pulse_record_domain_starter(payload with prompt_pack)`.
+### PR-B — DONE (generation cron, commit 2afef7176 in #2185)
+- `app/api/cron/aipulse-domain-starter/route.ts`: ONE re-entrant route (submit+collect), pure ₹0 jobs-lane (`enqueueJobsLane`/`collectJobsLane` from `lib/services/platform/ai-jobs-lane.ts`). Submit: `fn_ai_pulse_domain_starter_candidates(cycle,min)` → assemble prompt (SYSTEM_PROMPT authors {en,ta}×{build,skill,career}, prior_context block = self-improve hinge) → enqueue (dedupe `aipulse_ds|cycle|type|id`). Collect: drain → parsePack → `fn_ai_pulse_record_domain_starter`. Kill-switch gated (returns early dark). Cycle = latest startup_events kind=ai_pulse (or ?cycle=).
+- Fixed prompt_template='{{prompt}}' on the job type (migration 20260720064000, applied dark) — PR-A seed missed it; drain needs the glue. Seat owner is GLOBAL (ai_model_config feature 'ai_query.natural_language' max_lane_user_ids[0]) — works for any job type, no per-type setup.
+- Verified: scoped typecheck CLEAN; parsePack unit-tested (clean/fenced/prose→record, garbage/missing-en.build→reject). NOT yet live-E2E'd (needs route deployed/run + drain).
+- ⚠️ TS quirk receipt: `JobsLaneEnqueueResult` discriminated union (`if(res.ok)…else res.reason`) does NOT narrow in the ISOLATED scoped-tsconfig compile (compiles fine in full build); dodged with `(res as {reason?:string}).reason`.
+
+### Next
+- PR-C: My AI Pulse card (reads `fn_ai_pulse_my_domain_starters`, copy button → `fn_ai_pulse_domain_starter_used`), ONE per-learner notification, Tamil native-review surface (`fn_ai_pulse_domain_starter_ta_review`). PR-D: schedule the cron (vercel.json) + measure/feed-forward, then FLIP `domain_starter_enabled`=true → live E2E (run cron → drain → verify records → persona-render a learner).
+- Merge order: #2185 carries substrate+pack+PR-B as ONE growing PR (avoids stacked-PR trap). Migrations already applied to prod dark, so merge = code record. Merge/deploy each = separate Director go.
 - PR-C: My AI Pulse card + copy + ONE per-learner notification. PR-D: measure+feed-forward cron, then flip flag + verify as real learner.
 - Governance: PR-A #2185 merge = separate Director go. Migration already applied to prod (dark), so merge is just the code record.
 
