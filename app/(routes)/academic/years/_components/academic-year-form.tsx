@@ -2,7 +2,7 @@
 // app/(routes)/academic/years/_components/academic-year-form.tsx
 
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -81,6 +81,7 @@ export function AcademicYearForm({
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
 
   const { isSuperAdmin, userProfile } = usePermissions();
+  const hasInitializedRef = useRef(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(academicYearSchema),
@@ -96,6 +97,12 @@ export function AcademicYearForm({
   // Set initial values when data is available
   useEffect(() => {
     if (isEditing && academicYear) {
+      // Skip re-initialization once already loaded for this year — otherwise a
+      // re-render that changes the userProfile reference (e.g. a background
+      // profile refetch) re-runs this effect and calls form.reset(), silently
+      // discarding any in-progress edits and making Save appear to do nothing.
+      if (hasInitializedRef.current) return;
+
       // Ensure dates are in proper YYYY-MM-DD format to avoid timezone issues
       const formatDateForForm = (dateString: string) => {
         if (!dateString) return '';
@@ -121,6 +128,7 @@ export function AcademicYearForm({
       };
 
       form.reset(formData);
+      hasInitializedRef.current = true;
     } else if (!isEditing) {
       // For new academic years, set institution from user profile
       const institutionId = userProfile?.institution_id || '';
