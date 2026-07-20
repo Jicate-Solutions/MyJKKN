@@ -306,6 +306,18 @@
     {
       "path": "/api/cron/bug-cluster-scan?secret=${CRON_SECRET}",
       "schedule": "19 21 * * *"
+    },
+    {
+      "path": "/api/cron/aipulse-domain-starter?secret=${CRON_SECRET}",
+      "schedule": "0 9 * * 4"
+    },
+    {
+      "path": "/api/cron/aipulse-domain-starter-notify?secret=${CRON_SECRET}",
+      "schedule": "25 13 * * 4"
+    },
+    {
+      "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",
+      "schedule": "0 6 * * 6"
     }
   ]
 }
