@@ -1158,7 +1158,14 @@ export default function AttendanceMarkPage() {
 
     // Updated: 2025-10-09 - Allow semester-level timetables to proceed without specific section
     // For multi-section periods, we'll use the first section from section_ids array
+    // Updated: 2026-07-20 - For practical periods the batch selection is the authoritative
+    // section source: the parent slot carries no section_id/section_ids, so mirror the
+    // student-load path (see loadStudents) and the section_ids save param below — otherwise
+    // saving a practical batch fails with "Missing section information".
     const effectiveSectionId =
+      (practicalSelection?.section_ids && practicalSelection.section_ids.length > 0
+        ? practicalSelection.section_ids[0]
+        : null) ||
       contextData?.section_id ||
       sectionId ||
       (contextData?.section_ids && contextData.section_ids.length > 0
@@ -1314,7 +1321,12 @@ export default function AttendanceMarkPage() {
 
       // Updated: 2025-10-09 - Allow semester-level timetables with multi-section support
       // Use first section from section_ids array for multi-section periods
+      // Updated: 2026-07-20 - Practical periods derive their section from the selected batch
+      // (practicalSelection), matching loadStudents and the section_ids save param below.
       const effectiveSectionId =
+        (practicalSelection?.section_ids && practicalSelection.section_ids.length > 0
+          ? practicalSelection.section_ids[0]
+          : null) ||
         contextData?.section_id ||
         sectionId ||
         (contextData?.section_ids && contextData.section_ids.length > 0
@@ -2603,7 +2615,8 @@ export default function AttendanceMarkPage() {
           students={students}
           attendanceData={attendanceData}
           contextData={contextData}
-          courseName={courseName || undefined}
+          courseName={practicalSelection?.course_name || courseName || undefined}
+          batchName={practicalSelection?.batch_name}
           periodName={periodName || undefined}
           date={date || undefined}
           startTime={startTime || undefined}
