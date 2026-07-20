@@ -22,6 +22,7 @@ import {
   GitPullRequest,
   ExternalLink,
   CircleAlert,
+  Info,
   ScanSearch,
   MessageCircleQuestion,
   Send,
@@ -92,7 +93,12 @@ interface VerifyPerBug {
  *  truth. */
 interface DeployedSurface {
   checked_at: string;
-  all_live: boolean;
+  // null when the check does not apply (see `applicable`).
+  all_live: boolean | null;
+  // false when the fix changed no user-facing wording, so there is nothing to
+  // look for on the deployed page. Absent on records written before this
+  // distinction existed — treat as applicable.
+  applicable?: boolean;
   prs?: number[];
   surfaces: { route: string; live: boolean; anchors_found: number; anchors_total: number }[];
   claim?: string;
@@ -1162,25 +1168,33 @@ function LoopStepper({
             {v.deployed_surface && (
               <div
                 className={`mb-2 rounded-md border px-3 py-2 text-xs ${
-                  v.deployed_surface.all_live
-                    ? 'border-green-300 bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-100'
-                    : 'border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+                  v.deployed_surface.applicable === false
+                    ? 'border-muted bg-muted/40 text-muted-foreground'
+                    : v.deployed_surface.all_live
+                      ? 'border-green-300 bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-100'
+                      : 'border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
                 }`}
               >
                 <div className='flex items-center gap-1.5 font-medium'>
-                  {v.deployed_surface.all_live ? (
+                  {v.deployed_surface.applicable === false ? (
+                    <Info className='w-3.5 h-3.5 shrink-0' />
+                  ) : v.deployed_surface.all_live ? (
                     <Check className='w-3.5 h-3.5 shrink-0' />
                   ) : (
                     <CircleAlert className='w-3.5 h-3.5 shrink-0' />
                   )}
-                  {v.deployed_surface.all_live
-                    ? 'Fix verified live on prod'
-                    : 'Fix not fully live on prod'}
+                  {v.deployed_surface.applicable === false
+                    ? 'Live-on-prod check does not apply here'
+                    : v.deployed_surface.all_live
+                      ? 'Fix verified live on prod'
+                      : 'Fix not fully live on prod'}
                 </div>
                 <p className='mt-0.5 text-[11px] opacity-90'>
-                  {v.deployed_surface.all_live
-                    ? 'The fix’s new wording renders on every reported page. What it changed is confirmed shipped; whether reporters now find it clear is the open question below.'
-                    : 'At least one reported page does not show the fix wording yet — the deploy may be incomplete.'}
+                  {v.deployed_surface.applicable === false
+                    ? 'This fix changed behaviour, not wording, so there is no new text to look for on the page. Whether it worked is answered by the re-check below and by the reporters themselves.'
+                    : v.deployed_surface.all_live
+                      ? 'The fix’s new wording renders on every reported page. What it changed is confirmed shipped; whether reporters now find it clear is the open question below.'
+                      : 'At least one reported page does not show the fix wording yet — the deploy may be incomplete.'}
                 </p>
                 <div className='mt-1 flex flex-wrap gap-1'>
                   {v.deployed_surface.surfaces.map((s) => (
