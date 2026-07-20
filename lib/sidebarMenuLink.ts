@@ -1985,7 +1985,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Building,
           submenus: [
             { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
-            { href: '/hr/employees', label: 'Non-Staff Workforce', active: pathname.startsWith('/hr/employees') },
+            { href: '/hr/employees', label: 'Employees', active: pathname.startsWith('/hr/employees') },
             { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
             { href: '/hr/leave', label: 'Leave', active: pathname.startsWith('/hr/leave') },
             { href: '/hr/leave/apply', label: 'Leave · Apply', active: pathname === '/hr/leave/apply' },
