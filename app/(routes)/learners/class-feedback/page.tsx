@@ -98,7 +98,27 @@ export default function LearnerSessionFeedbackPage() {
   // "shows 51/42 classes" cluster). fn_scf_confirmation_status already returns one
   // row per Present session with a `confirmed` flag, so no RPC change is needed.
   const { data: confirmRows } = useConfirmationStatus(from, to);
-  const historyRows = confirmRows ?? [];
+  // Block-course consolidation for the history badges (mirrors the
+  // fn_scf_pending_for_learner fix of 2026-07-18): fn_scf_confirmation_status
+  // still matches confirmed-vs-not by exact period_id only, so a learner who
+  // gave feedback for one period of a block-scheduled course still saw sibling
+  // periods of that same course/day badged "Not yet confirmed"
+  // (BUG-004651/690/707/728/741/814). Group by (date, course_code) — the only
+  // course key this RPC exposes — same conservative pattern already used by
+  // period-wise-table.tsx's pendingCourseKeys.
+  const historyRows = useMemo(() => {
+    const rows = confirmRows ?? [];
+    const confirmedKeys = new Set(
+      rows
+        .filter((r) => r.confirmed && r.course_code)
+        .map((r) => `${r.attendance_date}__${r.course_code}`)
+    );
+    return rows.map((r) =>
+      !r.confirmed && r.course_code && confirmedKeys.has(`${r.attendance_date}__${r.course_code}`)
+        ? { ...r, confirmed: true }
+        : r
+    );
+  }, [confirmRows]);
   const confirmedCount = historyRows.filter((r) => r.confirmed === true).length;
 
   return (
