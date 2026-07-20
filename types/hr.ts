@@ -113,7 +113,7 @@ export interface HRPersonView {
   source: 'staff';
   // Stable id used for routing — always staff.id after consolidation
   id: string;
-  hr_organization_id: string;
+  hr_organization_id: string | null;
   organization_name: string | null;
   employment_type: HREmploymentType;
   employee_code: string | null;
@@ -124,9 +124,13 @@ export interface HRPersonView {
   designation_name: string | null;
   cadre_name: string | null;
   department_id: string | null;
+  department_name: string | null;
+  institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;
   staff_id?: string;
+  // Human-facing staff code (staff.staff_id), distinct from the routing id.
+  staff_code: string | null;
 }
 
 // === Filters ===
@@ -136,11 +140,13 @@ export interface HRPersonFilters {
   cadre_id?: string;
   designation_id?: string;
   department_id?: string;
+  institution_id?: string;
   is_active?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;
-  // include_staff removed — all employees now live in staff table after consolidation.
+  // When true, the service returns ALL matching rows (no pagination) for export.
+  exportAll?: boolean;
 }
 
 // === API response ===
@@ -152,6 +158,25 @@ export interface HRPersonListResponse {
     pageSize: number;
     totalPages: number;
   };
+}
+
+// === Detail view for /hr/employees/[id] — names resolved, read-only ===
+export interface HRPersonDetailView {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  staff_code: string | null;
+  institution_name: string | null;
+  department_name: string | null;
+  date_of_joining: string | null;
+  is_active: boolean;
+  hr_employee_code: string | null;
+  organization_name: string | null;
+  designation_name: string | null;
+  cadre_name: string | null;
+  reports_to_name: string | null;
 }
 
 // === Display labels ===

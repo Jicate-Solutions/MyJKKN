@@ -1,11 +1,16 @@
 'use client';
 
 /**
- * React Query hooks for HR People (all backed by staff table after consolidation).
+ * React Query hooks for the HR Employee Directory (all backed by the staff table).
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { HRPersonFilters, HRPersonListResponse } from '@/types/hr';
+import type {
+  HRPersonFilters,
+  HRPersonListResponse,
+  HRPersonView,
+  HRPersonDetailView,
+} from '@/types/hr';
 
 const BASE = '/api/hr/employees';
 
@@ -33,17 +38,40 @@ export function useHREmployees(filters: HRPersonFilters = {}, enabled = true) {
   });
 }
 
-export function useHREmployee(id: string | undefined, _source: 'staff' = 'staff', enabled = true) {
+export function useHREmployee(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ['hr-person', 'staff', id],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/${id}?source=staff`);
+    queryFn: async (): Promise<HRPersonDetailView> => {
+      const res = await fetch(`${BASE}/${id}`);
       if (!res.ok) throw new Error(`HR person get failed: ${res.status}`);
       const json = await res.json();
-      return json.data;
+      return json.data as HRPersonDetailView;
     },
     enabled: enabled && !!id,
   });
+}
+
+/**
+ * Fetch ALL rows matching the current filters (no pagination) for export.
+ * Requires the caller's role to hold hr.employees.export (enforced server-side).
+ */
+export async function fetchHREmployeesForExport(
+  filters: HRPersonFilters
+): Promise<HRPersonView[]> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '' && k !== 'page' && k !== 'pageSize') {
+      params.set(k, String(v));
+    }
+  });
+  params.set('export', '1');
+  const res = await fetch(`${BASE}?${params.toString()}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HR employees export failed: ${res.status}`);
+  }
+  const json = (await res.json()) as HRPersonListResponse;
+  return json.data;
 }
 
 /**
