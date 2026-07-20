@@ -1,4 +1,5 @@
 // app/api/pde/cases/import-from-pms/route.ts
+// 2026-07-20 no-op touch: trigger a rebuild so the PMS_EXPORT_* env vars activate (env-only changes are skipped by the ignored-build-step).
 // ============================================================================
 // Server-to-server "casesheet → PDE teaching case" import.
 //
