@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const res = await fetch(`${cfg.base}/api/pde-export/search?q=${encodeURIComponent(q)}`, {
-      headers: { Authorization: `Bearer ${cfg.token}` },
+      headers: cfg.headers,
       cache: 'no-store',
       signal: AbortSignal.timeout(12_000),
     });
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   let exported: PmsExport;
   try {
     const res = await fetch(`${cfg.base}/api/pde-export/casesheet/${casesheetId}`, {
-      headers: { Authorization: `Bearer ${cfg.token}` },
+      headers: cfg.headers,
       cache: 'no-store',
       signal: AbortSignal.timeout(15_000),
     });
