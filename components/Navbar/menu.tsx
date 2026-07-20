@@ -286,7 +286,9 @@ export function Menu({ isOpen }: MenuProps) {
       </div>
       <nav className='mt-2 h-full w-full'>
         {permissionsLoading ? (
-          <div className='flex justify-center items-center py-4'>
+          // flex defaults to `row`, so without flex-col these placeholder bars
+          // rendered squeezed side-by-side instead of as stacked menu rows.
+          <div className='flex flex-col items-center py-4 px-2'>
             <div className='animate-pulse h-4 w-24 bg-muted rounded mb-2'></div>
             {[1, 2, 3, 4, 5].map((i) => (
               <div
