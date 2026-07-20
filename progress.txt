@@ -1,3 +1,28 @@
+## Session: 2026-07-20 (End /cnext ~12:00 IST) — SCF judge GROUNDED→LENIENT→ENFORCING (3 PRs) + approval reconciliation
+
+### Accomplished
+- Root-caused + fixed the SCF note-safety judge across 3 PRs. It was CONTEXT-STARVED (fed only note text + scalar net_decline), NOT the writer hallucinating — ground-truth verified (note 4e964bf0's 3,3,1/6-8Jul/Dr Sasikumar matched session_feedback exactly).
+  - **#2191 (grounding)** MERGED+DEPLOYED+VERIFIED: persist scf_learner_notes.source_signal + feed judge; 1185 backfilled. Proof: 4e964bf0 likely_unsafe@0.82 → auto_safe@0.95, 0 flags.
+  - **#2193 (leniency)** MERGED+DEPLOYED+VERIFIED: reconstructed/backfilled signals judged leniently (backfill can't recover unmet_items).
+  - **#2201 (enforcing, PR-4)** MERGED + migration applied; DEPLOY UNCONFIRMED (canceled build) + policy OFF: fn_scf_note_apply_verdict auto-publishes safe / holds flagged / crisis→human, kill-switch scf.note_judge.enforce, spot-check RPC.
+- Also merged #2184 (sidebar "Learner Notes" link). CFT-verified /admin/learner-notes live as director@ (magic-link session injection since dev-login is prod-disabled + magic-link redirect is localhost-only; cleared session after).
+- APPROVAL RECONCILIATION (Director: "did I not tell you approval is not needed?"): the self-improving loop should BE the quality mechanism, not a manual gate. Director "Approve all"-ed 1185 (published a garbled leak note + ~49 flagged live). Pulled back 58 to draft. Built the enforcing judge as the synthesis (auto-publish safe + spot-check net).
+
+### Current Status
+- Notes: 1130 approved / 58 draft. Enforce policy OFF (shadow). Full corpus re-judge draining slowly (Max lane, ₹0).
+- All 4 PRs merged (#2184/#2191/#2193 deployed+verified; #2201 deploy UNCONFIRMED). Build: green. Branch (root): feat/campus-living-fee-compute-engine (docs only).
+
+### Lessons Learned
+- Merge ≠ deploy; a "Ready" Vercel build can PREDATE your merge → verify code-live BY CONTENT (read a runtime artifact), fire the hook after merge. [[feedback_merge_does_not_deploy_verify_by_content]]
+- The judge's "97% hallucination" was context-starvation, not the writer — reading ONE note vs the raw DB inverted the whole diagnosis (Bash proves truth). SUPERSEDED last session's "fix the writer first" plan.
+- "Approve all" on a review queue = rubber-stamp that publishes the bad ones too; the fix is moving the gate from a human click to a trustworthy judge + spot-check, not removing it.
+
+### Next Session — Tasks (user: "all the above 3 fully"; "Nothing — carry it all")
+1. [P0] FINISH ENFORCING JUDGE: verify #2201 deployed BY CONTENT (cron response has `enforce{}`/`mode`, not build status) → show SQL + flip `scf.note_judge.enforce` ON → trigger cron, verify enforce{} tally (published/held/pulled) → one-time reconciliation (re-run flagged-pullback for notes judged since the 58-pull) → confirm NO flagged note is approved. Kill-switch = flip policy off to revert to shadow. (medium)
+2. [P0] BUILD SPOT-CHECK UI: panel on /admin/learner-notes calling fn_scf_auto_published_spotcheck (is_super_admin-gated) — random sample of auto-published notes for the human safety net. RPC exists; UI missing. Ship via /ship-myjkkn. (medium)
+3. [P1 LARGE] METRIC 6 mentorship federation from mentor.jkkn.ai Supabase (qcugpxmulslqrqrjycti, same Mgmt token): nightly COE-pattern sync storing read-creds → mentor_signal_snapshot (+RLS + DISTINCT ON(email) dedupe: 178 emails→179 rows) → calc_faculty_mentees_met → register faculty.mentees_met in okr_metric_registry. MET mentee = distinct counseling_sessions.student_id per mentor_id; link mentors.user_id→users.email→profiles.email. Proven rolled-back (balakumaran 43→A++, 178/178), NOTHING applied. (large)
+
+---
 ## Session: 2026-07-20 (END /cnext) — HP ALFA verified LIVE + Referral-incentive release BLOCKED (evidence-gathered)
 
 ### Accomplished
