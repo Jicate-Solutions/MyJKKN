@@ -46,7 +46,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCdcAdmin } from '@/hooks/cdc/use-cdc-admin';
 import type { CdcMasterTable } from '@/types/admin/cdc';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ export function MasterTablePage({
   extraFields = [],
   extraListColumns = [],
 }: MasterTablePageProps) {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
+  const { isCdcAdmin, isLoading: permsLoading } = useCdcAdmin();
 
   const [rows, setRows] = useState<any[]>([]);
   const [count, setCount] = useState(0);
@@ -233,7 +233,7 @@ export function MasterTablePage({
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!isCdcAdmin) {
     return (
       <ContentLayout title={title}>
         <Alert variant="destructive">

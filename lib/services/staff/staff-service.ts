@@ -644,14 +644,14 @@ export class StaffService {
       }
 
       // Faculty users can only view their own staff record
-      if (userProfile?.role === 'faculty' && userProfile.email) {
+      if (userProfile?.role === 'faculty' && userProfile.id) {
         console.log(
-          '[staff-service] Applied faculty self-only filter for:',
-          userProfile.email
+          '[staff-service] Applied self-only record filter for profile:',
+          userProfile.id
         );
         return await this.getStaffForFacultyUser(
           effectiveFilters,
-          userProfile.email
+          userProfile.id
         );
       }
 
@@ -680,10 +680,13 @@ export class StaffService {
     }
   }
 
-  // Faculty users see only their own staff record matched by institution_email
+  // Faculty users see only their own staff record, matched by profile_id
+  // (auth.uid()) — not institution_email, which can silently diverge from
+  // the user's auth login email and hide their own row. Mirrors the
+  // own_records scope in app/api/staff/route.ts.
   private static async getStaffForFacultyUser(
     filters: StaffFilters,
-    userEmail: string
+    profileId: string
   ): Promise<StaffListResponse> {
     try {
       const startTime = performance.now();
@@ -710,7 +713,7 @@ export class StaffService {
       );
 
       // Filter to only the faculty user's own record
-      query = query.eq('institution_email', userEmail);
+      query = query.eq('profile_id', profileId);
 
       const { data: staff, error, count } = await query;
 

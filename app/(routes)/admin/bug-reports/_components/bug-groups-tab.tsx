@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query/query-keys';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,13 @@ import {
   Wand2,
   Wrench,
   GitBranch,
-  CircleAlert
+  GitPullRequest,
+  ExternalLink,
+  CircleAlert,
+  ScanSearch,
+  MessageCircleQuestion,
+  Send,
+  UserRound
 } from 'lucide-react';
 
 interface ClusterMember {
@@ -49,12 +55,48 @@ interface FixabilityVerdict {
   model?: string;
 }
 
+interface FixState {
+  status: 'requested' | 'running' | 'pr_opened' | 'error' | 'no_change';
+  pr_url?: string;
+  pr_number?: number;
+  note?: string;
+  needs_migration?: boolean;
+  human_note?: string;
+  ran_at?: string;
+}
+
 interface Fixability {
   status: 'requested' | 'running' | 'done' | 'error';
   requested_at?: string;
   ran_at?: string;
   verdict?: FixabilityVerdict | null;
   error?: string | null;
+  fix?: FixState | null;
+}
+
+interface VerifyPerBug {
+  display_id: string | null;
+  verdict?: 'likely_fixed' | 'still_broken' | 'inconclusive';
+  confidence?: string;
+  reproducible?: string;
+  failed?: boolean;
+  error?: string;
+}
+
+interface VerifyState {
+  status: 'running' | 'done' | 'error';
+  requested_at: string;
+  completed_at?: string;
+  total: number;
+  per_bug: Record<string, VerifyPerBug>;
+  tally: {
+    likely_fixed: number;
+    still_broken: number;
+    inconclusive: number;
+    failed: number;
+    pending: number;
+  };
+  error?: string;
 }
 
 interface BugCluster {
@@ -68,6 +110,7 @@ interface BugCluster {
   last_scan_at: string;
   members: ClusterMember[] | null;
   fixability?: Fixability | null;
+  verify?: VerifyState | null;
 }
 
 const fetchClusters = async (status: string): Promise<BugCluster[]> => {
@@ -88,7 +131,7 @@ export function BugGroupsTab() {
   const [actingOn, setActingOn] = useState<string | null>(null);
 
   const clustersKey = [...queryKeys.bugReports.all, 'clusters', statusFilter];
-  const { data: clusters, isLoading, refetch, isFetching } = useQuery<BugCluster[]>({
+  const { data: clusters, isLoading, refetch } = useQuery<BugCluster[]>({
     queryKey: clustersKey,
     queryFn: () => fetchClusters(statusFilter),
     staleTime: 60 * 1000,
@@ -96,10 +139,14 @@ export function BugGroupsTab() {
     // verdict appears when the Mac runner finishes (usually a few minutes).
     refetchInterval: (query) => {
       const rows = query.state.data as BugCluster[] | undefined;
-      const analyzing = rows?.some(
-        (c) => c.fixability?.status === 'requested' || c.fixability?.status === 'running'
-      );
-      return analyzing ? 8000 : false;
+      const working = rows?.some((c) => {
+        const fxs = c.fixability?.status;
+        const fixs = c.fixability?.fix?.status;
+        return (
+          fxs === 'requested' || fxs === 'running' || fixs === 'requested' || fixs === 'running'
+        );
+      });
+      return working ? 8000 : false;
     }
   });
 
@@ -166,6 +213,50 @@ export function BugGroupsTab() {
     onError: (err: any) => toast.error(err?.message || 'Could not queue analysis')
   });
 
+  const fixMutation = useMutation({
+    mutationFn: async (clusterId: string) => {
+      const response = await fetch(`/api/bug-reports/clusters/${clusterId}/fix`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'Could not queue the fix');
+      return json;
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.note === 'already_queued'
+          ? 'A fix is already being prepared for this group.'
+          : 'Fix queued (AI Max, ₹0) — a draft PR will appear here for you to review and merge.'
+      );
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not queue the fix')
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: async (clusterId: string) => {
+      const response = await fetch(`/api/bug-reports/clusters/${clusterId}/verify`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'Could not start the re-check');
+      return { clusterId, ...json };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        `Re-checking ${data.enqueued ?? 0} report(s) as their reporters (AI Max, ₹0) — the tally fills in below.`
+      );
+      if (data.verify) {
+        queryClient.setQueryData(
+          [...queryKeys.bugReports.all, 'cluster-verify', data.clusterId],
+          data.verify
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not start the re-check')
+  });
+
   return (
     <Card>
       <CardHeader>
@@ -215,9 +306,16 @@ export function BugGroupsTab() {
           every report under the original (oldest) one — resolving the original
           then resolves the whole group and emails every reporter.
         </p>
+        <AutoResolveStrip />
       </CardHeader>
       <CardContent>
-        {isLoading || isFetching ? (
+        {/* Initial load ONLY (isLoading = no cached data yet). Never gate on
+            isFetching here: while a diagnosis is queued the query polls every
+            8s, and swapping the whole list for this spinner on every tick
+            collapsed the page height — scroll jumped to top and the tab
+            jittered for minutes after clicking Diagnose. Background refetches
+            keep the list mounted; React Query serves cached rows meanwhile. */}
+        {isLoading ? (
           <div className='flex items-center justify-center h-32'>
             <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
           </div>
@@ -280,12 +378,20 @@ export function BugGroupsTab() {
                   )}
                 </div>
 
-                <FixabilityPanel
+                <LoopStepper
                   cluster={cluster}
                   onAnalyze={() => fixabilityMutation.mutate(cluster.id)}
-                  isQueuing={
+                  analyzeQueuing={
                     fixabilityMutation.isPending &&
                     fixabilityMutation.variables === cluster.id
+                  }
+                  onFix={() => fixMutation.mutate(cluster.id)}
+                  fixQueuing={
+                    fixMutation.isPending && fixMutation.variables === cluster.id
+                  }
+                  onVerify={() => verifyMutation.mutate(cluster.id)}
+                  verifyQueuing={
+                    verifyMutation.isPending && verifyMutation.variables === cluster.id
                   }
                 />
 
@@ -326,6 +432,50 @@ const CONFIDENCE_CLS: Record<FixabilityVerdict['confidence'], string> = {
   low: 'text-muted-foreground'
 };
 
+/**
+ * Auto-resolve gate strip (R1-R4, built dormant): shows whether the
+ * earn-it rule is met — how many CLEAN human-approved resolutions exist
+ * toward the required track record — and the circuit-breaker state.
+ * Display only; flipping the policy on is a human decision (a migration).
+ */
+function AutoResolveStrip() {
+  const { data } = useQuery<any>({
+    queryKey: [...queryKeys.bugReports.all, 'auto-resolve-status'],
+    queryFn: async () => {
+      const response = await fetch('/api/bug-reports/auto-resolve/status');
+      if (!response.ok) return null;
+      const json = await response.json();
+      return json.status ?? null;
+    },
+    staleTime: 5 * 60 * 1000
+  });
+  if (!data) return null;
+  const suspended = data.suspended && Object.keys(data.suspended).length > 0;
+  const earned = Number(data.clean ?? 0);
+  const required = Number(data.required ?? 10);
+  return (
+    <p className='text-[11px] text-muted-foreground mt-1'>
+      {suspended ? (
+        <span className='text-red-700 dark:text-red-300 font-medium'>
+          Auto-resolve SUSPENDED — a reporter said still-broken after an
+          automatic resolve; a person must review and re-enable.
+        </span>
+      ) : data.enabled ? (
+        <span className='text-green-700 dark:text-green-300'>
+          Auto-resolve ON — settled groups with zero still-broken and at least
+          one confirmed fix resolve nightly; you are notified each time.
+        </span>
+      ) : (
+        <>
+          Auto-resolve off — earned {Math.min(earned, required)}/{required}{' '}
+          clean human-approved resolutions. It can be switched on once the
+          track record is complete.
+        </>
+      )}
+    </p>
+  );
+}
+
 function FileList({ files }: { files: string[] }) {
   if (!files || files.length === 0) return null;
   return (
@@ -343,166 +493,785 @@ function FileList({ files }: { files: string[] }) {
 }
 
 /**
- * Per-cluster fixability strip. Lets an admin queue a READ-ONLY, codebase-
- * grounded analysis (a Mac runner reads the actual code behind the member
- * reports on the Claude Max subscription, ₹0) and renders the verdict:
- * one-fix-fixes-all vs N distinct-root-cause subgroups.
- *
- * RECOMMENDATION ONLY — the verdict never resolves the group or emails
- * reporters. It only tells a human whether one fix would clear the whole group.
+ * "Fix this group" — shown only when the verdict says one fix resolves the whole
+ * group. Queues a Mac-side write runner that applies the minimal fix and opens a
+ * DRAFT PR. Never merges, never resolves, never emails — a human reviews the PR,
+ * merges + deploys, then verifies + resolves.
  */
-function FixabilityPanel({
+function FixSection({
+  fix,
+  onFix,
+  isFixing,
+  count
+}: {
+  fix: FixState | null;
+  onFix: () => void;
+  isFixing: boolean;
+  count: number;
+}) {
+  const status = fix?.status;
+
+  if (status === 'requested' || status === 'running') {
+    return (
+      <div className='mt-2 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 dark:bg-blue-950/40 px-3 py-2'>
+        <Loader2 className='w-4 h-4 animate-spin text-blue-600 shrink-0' />
+        <span className='text-xs text-blue-800 dark:text-blue-200'>
+          Preparing a fix — writing the change in a scratch copy and running
+          checks (AI Max · ₹0). A draft PR will appear here to review.
+        </span>
+      </div>
+    );
+  }
+
+  if (status === 'pr_opened' && fix?.pr_url) {
+    return (
+      <div className='mt-2 rounded-md border border-green-300 bg-green-50 dark:bg-green-950/40 px-3 py-2'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <GitPullRequest className='w-4 h-4 text-green-600 shrink-0' />
+          <span className='text-sm font-medium text-green-900 dark:text-green-100'>
+            Draft fix ready for review
+          </span>
+          <a
+            href={fix.pr_url}
+            target='_blank'
+            rel='noopener noreferrer'
+            className='inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 hover:underline'
+          >
+            PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
+          </a>
+        </div>
+        <p className='text-[11px] text-muted-foreground mt-1'>
+          Review + merge the PR, then deploy. After it&apos;s live, re-verify the
+          reports before resolving the group — resolving emails all {count}{' '}
+          reporters.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === 'no_change') {
+    return (
+      <div className='mt-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2'>
+        <div className='flex items-center gap-2'>
+          <CircleAlert className='w-4 h-4 text-amber-600 shrink-0' />
+          <span className='text-xs font-medium text-amber-900 dark:text-amber-100'>
+            {fix?.needs_migration
+              ? 'Needs a database change — a human must make this'
+              : 'AI made no code change'}
+          </span>
+        </div>
+        {(fix?.human_note || fix?.note) && (
+          <p className='text-[11px] text-muted-foreground mt-1'>
+            {fix.human_note || fix.note}
+          </p>
+        )}
+        <Button size='sm' variant='ghost' onClick={onFix} disabled={isFixing} className='mt-1 h-7 text-xs'>
+          <RefreshCw className='w-3.5 h-3.5 mr-1' /> Try the fix again
+        </Button>
+      </div>
+    );
+  }
+
+  if (status === 'error') {
+    return (
+      <div className='mt-2 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 px-3 py-2'>
+        <CircleAlert className='w-4 h-4 text-red-600 shrink-0' />
+        <span className='text-xs text-red-800 dark:text-red-200'>
+          Fix attempt failed{fix?.note ? `: ${fix.note}` : '.'}
+        </span>
+        <Button size='sm' variant='ghost' onClick={onFix} disabled={isFixing} className='ml-auto h-7 text-xs'>
+          <RefreshCw className='w-3.5 h-3.5 mr-1' /> Try again
+        </Button>
+      </div>
+    );
+  }
+
+  // No fix attempted yet — offer the button.
+  return (
+    <div className='mt-2 flex flex-wrap items-center gap-2'>
+      <Button
+        size='sm'
+        onClick={onFix}
+        disabled={isFixing}
+        className='bg-green-600 hover:bg-green-700 text-white'
+      >
+        {isFixing ? (
+          <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+        ) : (
+          <Wrench className='w-4 h-4 mr-1.5' />
+        )}
+        Fix this group (AI Max, ₹0)
+      </Button>
+      <span className='text-[11px] text-muted-foreground'>
+        AI writes the one fix as a draft PR for you to review and merge. It never
+        merges or emails on its own.
+      </span>
+    </div>
+  );
+}
+
+const VERIFY_CHIP_CLS: Record<string, string> = {
+  likely_fixed:
+    'bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200',
+  still_broken: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900 dark:text-red-200',
+  inconclusive:
+    'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200',
+  failed: 'bg-muted text-muted-foreground border-border'
+};
+
+const VERIFY_CHIP_LABEL: Record<string, string> = {
+  likely_fixed: 'likely fixed',
+  still_broken: 'still broken',
+  inconclusive: 'inconclusive',
+  failed: 'check failed'
+};
+
+interface FeedbackState {
+  total: number;
+  pending_send: number;
+  sent: number;
+  delivered: number;
+  answered: number;
+  expired: number;
+  yes: number;
+  no: number;
+}
+
+type StepState = 'done' | 'active' | 'running' | 'locked' | 'attention' | 'human';
+
+/**
+ * One row of the loop stepper: circle + connector on the left, content on the
+ * right. The circle's look encodes the state; the connector goes DASHED where
+ * the pipeline crosses a human gate — the machine's line literally breaks
+ * where only a person may act.
+ */
+function StepShell({
+  n,
+  state,
+  title,
+  last,
+  dashed,
+  lockedReason,
+  children
+}: {
+  n: number;
+  state: StepState;
+  title: string;
+  last?: boolean;
+  dashed?: boolean;
+  lockedReason?: string;
+  children?: React.ReactNode;
+}) {
+  const circle = (() => {
+    switch (state) {
+      case 'done':
+        return (
+          <span className='flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-white shrink-0'>
+            <Check className='h-3.5 w-3.5' />
+          </span>
+        );
+      case 'running':
+        return (
+          <span className='flex h-6 w-6 items-center justify-center rounded-full border-2 border-sky-500 text-sky-600 shrink-0'>
+            <Loader2 className='h-3.5 w-3.5 animate-spin' />
+          </span>
+        );
+      case 'active':
+        return (
+          <span className='flex h-6 w-6 items-center justify-center rounded-full border-2 border-primary text-primary text-[11px] font-bold shrink-0'>
+            {n}
+          </span>
+        );
+      case 'attention':
+        return (
+          <span className='flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white shrink-0'>
+            <CircleAlert className='h-3.5 w-3.5' />
+          </span>
+        );
+      case 'human':
+        return (
+          <span className='flex h-6 w-6 items-center justify-center rounded-full bg-amber-400 text-amber-950 shrink-0 ring-2 ring-amber-200 dark:ring-amber-700'>
+            <UserRound className='h-3.5 w-3.5' />
+          </span>
+        );
+      default:
+        return (
+          <span className='flex h-6 w-6 items-center justify-center rounded-full border border-border text-muted-foreground text-[11px] font-semibold shrink-0'>
+            {n}
+          </span>
+        );
+    }
+  })();
+
+  const muted = state === 'locked';
+  return (
+    <div className='flex gap-2.5'>
+      <div className='flex flex-col items-center'>
+        {circle}
+        {!last && (
+          <span
+            className={`w-px flex-1 min-h-3 ${
+              dashed
+                ? 'border-l border-dashed border-amber-400/80'
+                : 'bg-border'
+            }`}
+          />
+        )}
+      </div>
+      <div className={`min-w-0 flex-1 ${last ? '' : 'pb-2.5'}`}>
+        <p
+          className={`text-xs font-semibold leading-6 ${
+            muted ? 'text-muted-foreground' : ''
+          }`}
+        >
+          {title}
+        </p>
+        {state === 'locked' && lockedReason && (
+          <p className='text-[11px] text-muted-foreground'>{lockedReason}</p>
+        )}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The whole fix loop for one group as a single numbered pipeline:
+ * ① diagnose → ② write the fix → ③ YOU merge & deploy → ④ did it work?
+ * → ⑤ ask the reporters → ⑥ YOU resolve. Amber person-steps are the human
+ * gates; exactly one step is actionable at a time, and every AI output is a
+ * recommendation — nothing here resolves a group or emails anyone by itself.
+ */
+function LoopStepper({
   cluster,
   onAnalyze,
-  isQueuing
+  analyzeQueuing,
+  onFix,
+  fixQueuing,
+  onVerify,
+  verifyQueuing
 }: {
   cluster: BugCluster;
   onAnalyze: () => void;
-  isQueuing: boolean;
+  analyzeQueuing: boolean;
+  onFix: () => void;
+  fixQueuing: boolean;
+  onVerify: () => void;
+  verifyQueuing: boolean;
 }) {
+  const queryClient = useQueryClient();
   const fx = cluster.fixability;
+  const verdict = fx?.verdict ?? null;
   const analyzing = fx?.status === 'requested' || fx?.status === 'running';
+  const singleFix = verdict?.single_fix_feasible === true;
+  const fix = fx?.fix ?? null;
+  // Human path (walk-2 lesson): single_fix_feasible=false only means the fix
+  // was not machine-writable. When the verdict still traces ONE shared cause
+  // (at most 1 subgroup) and a human-written fix PR is recorded, reporters
+  // are eligible per E3 — mirror of fn_bug_feedback_prepare's gate.
+  const oneCauseVerdict = !!verdict && (verdict.subgroups?.length ?? 0) <= 1;
+  const oneCauseHumanFix =
+    !singleFix && oneCauseVerdict && fix?.status === 'pr_opened';
+  const feedbackEligible = singleFix || oneCauseHumanFix;
 
-  // Never analyzed — offer the button.
-  if (!fx) {
-    return (
-      <div className='mt-3 flex flex-wrap items-center gap-2'>
-        <Button size='sm' variant='outline' onClick={onAnalyze} disabled={isQueuing}>
-          {isQueuing ? (
-            <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
-          ) : (
-            <Wand2 className='w-4 h-4 mr-1.5' />
-          )}
-          Analyze fixability (AI Max, ₹0)
-        </Button>
-        <span className='text-[11px] text-muted-foreground'>
-          Reads the actual code behind these reports and says whether one fix
-          clears the whole group.
-        </span>
-      </div>
-    );
-  }
+  // ── verify: poll the aggregator while a run is active (each GET advances
+  // the tally server-side and returns fresh state).
+  const listVerify = cluster.verify ?? null;
+  const { data: polledVerify } = useQuery<VerifyState | null>({
+    queryKey: [...queryKeys.bugReports.all, 'cluster-verify', cluster.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/verify`);
+      if (!response.ok) throw new Error('Failed to read the re-check');
+      const json = await response.json();
+      return json.verify ?? null;
+    },
+    enabled: listVerify?.status === 'running',
+    refetchInterval: (query) =>
+      (query.state.data as VerifyState | null)?.status === 'running' ? 8000 : false
+  });
+  useEffect(() => {
+    if (listVerify?.status === 'running' && polledVerify && polledVerify.status !== 'running') {
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polledVerify?.status]);
+  const v = polledVerify ?? listVerify;
 
-  if (analyzing) {
-    return (
-      <div className='mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-2'>
-        <Loader2 className='w-4 h-4 animate-spin text-amber-600 shrink-0' />
-        <span className='text-xs text-amber-800 dark:text-amber-200'>
-          Analyzing — reading the code behind these reports (AI Max · ₹0). The
-          verdict appears here in a few minutes.
-        </span>
-      </div>
-    );
-  }
+  // ── reporter feedback state + actions
+  const feedbackKey = [...queryKeys.bugReports.all, 'cluster-feedback', cluster.id];
+  const { data: fb } = useQuery<FeedbackState | null>({
+    queryKey: feedbackKey,
+    queryFn: async () => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/feedback`);
+      if (!response.ok) return null;
+      const json = await response.json();
+      return json.feedback ?? null;
+    },
+    enabled: feedbackEligible,
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const s = query.state.data as FeedbackState | null;
+      return s && (s.sent > 0 || s.delivered > 0) ? 30000 : false;
+    }
+  });
+  const feedbackMutation = useMutation({
+    mutationFn: async (action: 'prepare' | 'send') => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || `${action} failed`);
+      return { action, ...json };
+    },
+    onSuccess: (data) => {
+      if (data.action === 'prepare') {
+        toast.success(
+          `${data.prepared ?? 0} reporter question(s) prepared (not sent — you approve the send).` +
+            (data.excluded_off_cause
+              ? ` ${data.excluded_off_cause} different-cause report(s) excluded.`
+              : '')
+        );
+      } else {
+        toast.success(
+          `Sent to ${data.sent ?? 0} reporter(s).` +
+            (data.queued_by_cap
+              ? ` ${data.queued_by_cap} waiting (3-question cap per learner).`
+              : '')
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: feedbackKey });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Action failed')
+  });
+  const fbBusy = feedbackMutation.isPending;
 
-  if (fx.status === 'error' || !fx.verdict) {
-    return (
-      <div className='mt-3 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 px-3 py-2'>
-        <CircleAlert className='w-4 h-4 text-red-600 shrink-0' />
-        <span className='text-xs text-red-800 dark:text-red-200'>
-          Analysis couldn&apos;t complete{fx.error ? `: ${fx.error}` : '.'}
-        </span>
-        <Button size='sm' variant='ghost' onClick={onAnalyze} disabled={isQueuing} className='ml-auto'>
-          <RefreshCw className='w-3.5 h-3.5 mr-1' />
-          Try again
-        </Button>
-      </div>
-    );
-  }
+  // ★ HUMAN ACTION ★ — split a multi-cause group into per-cause groups
+  // (S1-S4 Director-locked): children born confirmed, unsorted members kept
+  // in a needs-another-look group, the split is final. The button appears
+  // only when the diagnosis found 2+ distinct causes.
+  const splitMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/bug-reports/clusters/${cluster.id}/split`, {
+        method: 'POST'
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || 'split failed');
+      return json;
+    },
+    onSuccess: (data) => {
+      const kids = Array.isArray(data.children) ? data.children.length : 0;
+      toast.success(
+        `Split into ${kids} smaller group(s)` +
+          (data.leftover_id ? ' + 1 needs-another-look group' : '') +
+          (data.unparked ? `; ${data.unparked} report(s) returned to the open list` : '') +
+          '. Each new group starts its own pipeline.'
+      );
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
+    },
+    onError: (err: any) => toast.error(err?.message || 'Split failed')
+  });
+  const multiCause = !singleFix && (verdict?.subgroups?.length ?? 0) >= 2;
 
-  const v = fx.verdict;
-  const single = v.single_fix_feasible;
+  if (cluster.status === 'dismissed') return null;
+
+  // ── step states ─────────────────────────────────────────────────────
+  const s1: StepState = !fx
+    ? 'active'
+    : analyzing
+      ? 'running'
+      : fx.status === 'error' || !verdict
+        ? 'attention'
+        : 'done';
+
+  const s2: StepState =
+    s1 !== 'done'
+      ? 'locked'
+      : !singleFix
+        ? 'locked'
+        : !fix
+          ? 'active'
+          : fix.status === 'requested' || fix.status === 'running'
+            ? 'running'
+            : fix.status === 'pr_opened'
+              ? 'done'
+              : 'attention';
+  const s2Reason =
+    s1 !== 'done'
+      ? 'Run the diagnosis first.'
+      : !singleFix
+        ? oneCauseVerdict
+          ? 'One shared cause, but not machine-fixable — a person writes this fix (a fix PR on step 3 unlocks the rest).'
+          : 'Diagnosis found separate causes — there is no single fix to write.'
+        : undefined;
+
+  const s3: StepState = fix?.status === 'pr_opened' ? 'human' : 'locked';
+
+  const fixLive = fix?.status === 'pr_opened'; // truthfully: PR exists; you know when it went live
+  const s4: StepState = v
+    ? v.status === 'running'
+      ? 'running'
+      : v.status === 'error'
+        ? 'attention'
+        : 'done'
+    : fixLive
+      ? 'active'
+      : 'locked';
+
+  const anySent = !!fb && fb.sent + fb.delivered + fb.answered > 0;
+  const s5: StepState = !feedbackEligible
+    ? 'locked'
+    : !fixLive && !(fb && fb.total > 0)
+      ? 'locked'
+      : !fb || fb.total === 0
+        ? 'active'
+        : fb.pending_send > 0
+          ? 'human'
+          : 'done';
+  const s5Reason = !feedbackEligible
+    ? 'Needs a one-fix diagnosis.'
+    : 'Waiting for the fix to go live.';
+
+  const s6: StepState = anySent ? 'human' : 'locked';
 
   return (
-    <div
-      className={`mt-3 rounded-md border px-3 py-2.5 ${
-        single
-          ? 'border-green-300 bg-green-50 dark:bg-green-950/40'
-          : 'border-amber-300 bg-amber-50 dark:bg-amber-950/40'
-      }`}
-    >
-      <div className='flex flex-wrap items-center gap-2'>
-        {single ? (
-          <Badge
-            variant='outline'
-            className='bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200'
-          >
-            <Wrench className='w-3.5 h-3.5 mr-1' />
-            One fix can resolve all {cluster.member_count}
-          </Badge>
-        ) : (
-          <Badge
-            variant='outline'
-            className='bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200'
-          >
-            <GitBranch className='w-3.5 h-3.5 mr-1' />
-            {v.subgroups.length} distinct root cause
-            {v.subgroups.length === 1 ? '' : 's'} — separate fixes
-          </Badge>
+    <div className='mt-3 rounded-md border bg-muted/20 px-3 pt-2.5 pb-2'>
+      <StepShell n={1} state={s1} title="What's causing this?">
+        {s1 === 'active' && (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <Button size='sm' variant='outline' onClick={onAnalyze} disabled={analyzeQueuing}>
+              {analyzeQueuing ? (
+                <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+              ) : (
+                <Wand2 className='w-4 h-4 mr-1.5' />
+              )}
+              Diagnose (AI reads the code)
+            </Button>
+            <span className='text-[11px] text-muted-foreground'>
+              Says whether these {cluster.member_count} reports share one cause.
+            </span>
+          </div>
         )}
-        <span className={`text-[11px] ${CONFIDENCE_CLS[v.confidence]}`}>
-          confidence: {v.confidence}
-        </span>
-        {fx.ran_at && (
-          <span className='text-[11px] text-muted-foreground ml-auto'>
-            {new Date(fx.ran_at).toLocaleString()}
-          </span>
+        {s1 === 'running' && (
+          <p className='text-[11px] text-sky-700 dark:text-sky-300 mt-0.5'>
+            Reading the code behind these reports — the answer appears here in a
+            few minutes.
+          </p>
         )}
-      </div>
-
-      {v.summary && <p className='text-sm mt-2 leading-relaxed'>{v.summary}</p>}
-
-      {single ? (
-        <div className='mt-2'>
-          {v.root_cause && (
-            <p className='text-xs text-muted-foreground'>
-              <span className='font-medium text-foreground'>Root cause: </span>
-              {v.root_cause}
-            </p>
-          )}
-          <FileList files={v.files} />
-        </div>
-      ) : (
-        <div className='mt-2 space-y-2'>
-          {v.subgroups.map((sg, i) => (
-            <div key={i} className='rounded border bg-background/60 px-2 py-1.5'>
-              <div className='flex flex-wrap items-center gap-1.5'>
-                <span className='text-[11px] font-semibold text-muted-foreground'>
-                  Cause {i + 1}
-                </span>
-                {sg.bug_ids.map((bid) => (
-                  <Badge key={bid} variant='outline' className='text-[10px] font-mono px-1'>
-                    {bid}
-                  </Badge>
+        {s1 === 'attention' && (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <span className='text-[11px] text-red-700 dark:text-red-300'>
+              Diagnosis couldn&apos;t complete{fx?.error ? `: ${fx.error}` : '.'}
+            </span>
+            <Button size='sm' variant='ghost' onClick={onAnalyze} disabled={analyzeQueuing} className='h-6 text-xs'>
+              <RefreshCw className='w-3 h-3 mr-1' /> Try again
+            </Button>
+          </div>
+        )}
+        {s1 === 'done' && verdict && (
+          <div className='mt-1'>
+            <div className='flex flex-wrap items-center gap-2'>
+              {singleFix ? (
+                <Badge
+                  variant='outline'
+                  className='bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200'
+                >
+                  <Wrench className='w-3.5 h-3.5 mr-1' />
+                  One fix can resolve all {cluster.member_count}
+                </Badge>
+              ) : (
+                <Badge
+                  variant='outline'
+                  className='bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200'
+                >
+                  <GitBranch className='w-3.5 h-3.5 mr-1' />
+                  {verdict.subgroups.length} distinct root cause
+                  {verdict.subgroups.length === 1 ? '' : 's'} — separate fixes
+                </Badge>
+              )}
+              <span className={`text-[11px] ${CONFIDENCE_CLS[verdict.confidence]}`}>
+                confidence: {verdict.confidence}
+              </span>
+              <Button
+                size='sm'
+                variant='ghost'
+                onClick={onAnalyze}
+                disabled={analyzeQueuing}
+                className='ml-auto h-6 text-[11px] text-muted-foreground'
+              >
+                <RefreshCw className='w-3 h-3 mr-1' /> Re-diagnose
+              </Button>
+            </div>
+            {verdict.summary && (
+              <p className='text-xs mt-1.5 leading-relaxed'>{verdict.summary}</p>
+            )}
+            {singleFix ? (
+              <>
+                {verdict.root_cause && (
+                  <p className='text-[11px] text-muted-foreground mt-1'>
+                    <span className='font-medium text-foreground'>Root cause: </span>
+                    {verdict.root_cause}
+                  </p>
+                )}
+                <FileList files={verdict.files} />
+              </>
+            ) : (
+              <div className='mt-1.5 space-y-1.5'>
+                {verdict.subgroups.map((sg, i) => (
+                  <div key={i} className='rounded border bg-background/60 px-2 py-1.5'>
+                    <div className='flex flex-wrap items-center gap-1.5'>
+                      <span className='text-[11px] font-semibold text-muted-foreground'>
+                        Cause {i + 1}
+                      </span>
+                      {sg.bug_ids.map((bid) => (
+                        <Badge key={bid} variant='outline' className='text-[10px] font-mono px-1'>
+                          {bid}
+                        </Badge>
+                      ))}
+                    </div>
+                    {sg.root_cause && <p className='text-xs mt-1'>{sg.root_cause}</p>}
+                    <FileList files={sg.files} />
+                  </div>
                 ))}
               </div>
-              {sg.root_cause && <p className='text-xs mt-1'>{sg.root_cause}</p>}
-              <FileList files={sg.files} />
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </StepShell>
 
-      <div className='flex items-center gap-2 mt-2.5 pt-2 border-t border-border/60'>
-        <p className='text-[11px] text-muted-foreground'>
-          AI recommendation only — it never resolves this group or emails
-          reporters. A human decides.
-        </p>
-        <Button
-          size='sm'
-          variant='ghost'
-          onClick={onAnalyze}
-          disabled={isQueuing}
-          className='ml-auto text-muted-foreground'
-        >
-          {isQueuing ? (
-            <Loader2 className='w-3.5 h-3.5 mr-1 animate-spin' />
-          ) : (
-            <RefreshCw className='w-3.5 h-3.5 mr-1' />
-          )}
-          Re-analyze
-        </Button>
-      </div>
+      <StepShell n={2} state={s2} title='Write the fix' dashed lockedReason={s2Reason}>
+        {s2 === 'done' && fix?.pr_url ? (
+          <div className='mt-0.5 flex flex-wrap items-center gap-2'>
+            <GitPullRequest className='w-3.5 h-3.5 text-green-600 shrink-0' />
+            <a
+              href={fix.pr_url}
+              target='_blank'
+              rel='noopener noreferrer'
+              className='inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 hover:underline'
+            >
+              Draft PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
+            </a>
+            {fix.needs_migration && (
+              <span className='text-[11px] text-amber-700 dark:text-amber-300'>
+                includes a database change written on the human path
+              </span>
+            )}
+          </div>
+        ) : s2 !== 'locked' ? (
+          <FixSection
+            fix={fix}
+            onFix={onFix}
+            isFixing={fixQueuing}
+            count={cluster.member_count}
+          />
+        ) : multiCause ? (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <Button
+              size='sm'
+              onClick={() => splitMutation.mutate()}
+              disabled={splitMutation.isPending}
+              className='bg-amber-500 hover:bg-amber-600 text-amber-950'
+            >
+              {splitMutation.isPending ? (
+                <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+              ) : (
+                <GitBranch className='w-4 h-4 mr-1.5' />
+              )}
+              Split into {verdict!.subgroups.length} groups
+            </Button>
+            <span className='text-[11px] text-amber-800 dark:text-amber-200'>
+              Re-sorts these reports by cause — each smaller group gets its own
+              pipeline. This is final.
+            </span>
+          </div>
+        ) : null}
+      </StepShell>
+
+      <StepShell n={3} state={s3} title='You: merge & deploy' dashed lockedReason='Waiting for a fix PR.'>
+        {s3 === 'human' && (
+          <p className='text-[11px] text-amber-800 dark:text-amber-200 mt-0.5'>
+            Review and merge PR #{fix?.pr_number}, then deploy. The fix reaches
+            learners only after this — no AI can do it.
+          </p>
+        )}
+      </StepShell>
+
+      <StepShell n={4} state={s4} title='Did the fix work?' lockedReason='Waiting for the fix to go live.'>
+        {s4 === 'active' && (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <Button size='sm' variant='outline' onClick={onVerify} disabled={verifyQueuing}>
+              {verifyQueuing ? (
+                <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+              ) : (
+                <ScanSearch className='w-4 h-4 mr-1.5' />
+              )}
+              Re-check as the reporters
+            </Button>
+            <span className='text-[11px] text-muted-foreground'>
+              Read-only look from each reporter&apos;s account — run it once the
+              fix is live.
+            </span>
+          </div>
+        )}
+        {s4 === 'running' && v && (
+          <p className='text-[11px] text-sky-700 dark:text-sky-300 mt-0.5'>
+            Re-checking each report as its reporter — {v.total - v.tally.pending} of{' '}
+            {v.total} done.
+          </p>
+        )}
+        {s4 === 'attention' && (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <span className='text-[11px] text-red-700 dark:text-red-300'>
+              Re-check couldn&apos;t start{v?.error ? `: ${v.error}` : '.'}
+            </span>
+            <Button size='sm' variant='ghost' onClick={onVerify} disabled={verifyQueuing} className='h-6 text-xs'>
+              <RefreshCw className='w-3 h-3 mr-1' /> Try again
+            </Button>
+          </div>
+        )}
+        {s4 === 'done' && v && (
+          <div className='mt-1'>
+            <div className='flex flex-wrap items-center gap-1.5'>
+              <Badge variant='outline' className={VERIFY_CHIP_CLS.likely_fixed}>
+                {v.tally.likely_fixed} likely fixed
+              </Badge>
+              <Badge variant='outline' className={VERIFY_CHIP_CLS.still_broken}>
+                {v.tally.still_broken} still broken
+              </Badge>
+              <Badge variant='outline' className={VERIFY_CHIP_CLS.inconclusive}>
+                {v.tally.inconclusive} inconclusive
+              </Badge>
+              {v.tally.failed > 0 && (
+                <Badge variant='outline' className={VERIFY_CHIP_CLS.failed}>
+                  {v.tally.failed} check failed
+                </Badge>
+              )}
+              <Button
+                size='sm'
+                variant='ghost'
+                onClick={onVerify}
+                disabled={verifyQueuing}
+                className='ml-auto h-6 text-[11px] text-muted-foreground'
+              >
+                <RefreshCw className='w-3 h-3 mr-1' /> Re-run
+              </Button>
+            </div>
+            <div className='mt-1.5 flex flex-wrap gap-1.5'>
+              {Object.entries(v.per_bug ?? {}).map(([bugId, e]) => {
+                const kind = e.failed ? 'failed' : (e.verdict ?? 'inconclusive');
+                return (
+                  <Link
+                    key={bugId}
+                    href={`/admin/bug-reports/${bugId}`}
+                    title={e.error ?? (e.reproducible === 'write' ? 'write symptom — cannot be read-verified' : undefined)}
+                    className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono hover:opacity-80 transition-opacity ${VERIFY_CHIP_CLS[kind]}`}
+                  >
+                    {e.display_id ?? bugId.slice(0, 8)}
+                    <span className='font-sans'>· {VERIFY_CHIP_LABEL[kind]}</span>
+                  </Link>
+                );
+              })}
+            </div>
+            <p className='text-[11px] text-muted-foreground mt-1'>
+              AI re-check — not reporter-confirmed. The reporters&apos; own
+              answers are the ground truth.
+            </p>
+          </div>
+        )}
+      </StepShell>
+
+      <StepShell n={5} state={s5} title='Ask the reporters' dashed lockedReason={s5Reason}>
+        {s5 === 'active' && (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <Button size='sm' variant='outline' onClick={() => feedbackMutation.mutate('prepare')} disabled={fbBusy}>
+              {fbBusy ? (
+                <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+              ) : (
+                <MessageCircleQuestion className='w-4 h-4 mr-1.5' />
+              )}
+              Prepare the questions
+            </Button>
+            <span className='text-[11px] text-muted-foreground'>
+              Drafts a private &quot;is this fixed for you?&quot; per reporter.
+              Nothing sends yet.
+            </span>
+          </div>
+        )}
+        {s5 === 'human' && fb && (
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <Button
+              size='sm'
+              onClick={() => feedbackMutation.mutate('send')}
+              disabled={fbBusy}
+              className='bg-amber-500 hover:bg-amber-600 text-amber-950'
+            >
+              {fbBusy ? (
+                <Loader2 className='w-4 h-4 mr-1.5 animate-spin' />
+              ) : (
+                <Send className='w-4 h-4 mr-1.5' />
+              )}
+              Send to {fb.pending_send} reporter{fb.pending_send === 1 ? '' : 's'}
+            </Button>
+            <span className='text-[11px] text-amber-800 dark:text-amber-200'>
+              This messages real learners — your click is the approval.
+            </span>
+          </div>
+        )}
+        {(s5 === 'done' || (fb && anySent)) && fb && (
+          <div className='mt-1 flex flex-wrap items-center gap-1.5'>
+            {fb.sent + fb.delivered > 0 && (
+              <span className='text-[11px] text-muted-foreground'>
+                {fb.sent + fb.delivered} awaiting answer
+              </span>
+            )}
+            {fb.answered > 0 && (
+              <>
+                <Badge variant='outline' className={VERIFY_CHIP_CLS.likely_fixed}>
+                  👍 {fb.yes}
+                </Badge>
+                <Badge variant='outline' className={VERIFY_CHIP_CLS.still_broken}>
+                  👎 {fb.no}
+                </Badge>
+              </>
+            )}
+            {fb.expired > 0 && (
+              <span className='text-[11px] text-muted-foreground'>
+                {fb.expired} expired (counts as no data)
+              </span>
+            )}
+          </div>
+        )}
+      </StepShell>
+
+      <StepShell
+        n={6}
+        state={s6}
+        title='You: resolve the group'
+        last
+        lockedReason='Waiting on reporter answers.'
+      >
+        {s6 === 'human' && fb && (
+          <p
+            className={`text-[11px] mt-0.5 ${
+              fb.no > 0
+                ? 'font-medium text-red-700 dark:text-red-300'
+                : 'text-amber-800 dark:text-amber-200'
+            }`}
+          >
+            {fb.no > 0
+              ? 'A reporter says this is still broken — review before resolving.'
+              : fb.yes > 0
+                ? `Reporters confirm it's fixed — resolve when ready. Resolving emails all ${cluster.member_count} reporters.`
+                : `Answers are still arriving — resolving now would email all ${cluster.member_count} reporters before they've confirmed.`}
+          </p>
+        )}
+      </StepShell>
+
+      <p className='text-[11px] text-muted-foreground border-t border-border/60 mt-1 pt-1.5'>
+        AI proposes and never acts alone — you own merge &amp; deploy, sending to
+        reporters, and resolve. AI runs cost ₹0 (Max plan).
+      </p>
     </div>
   );
 }

@@ -6,17 +6,16 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
-import { gatherEvidence, classifyReproducibility, type ReverifyBug } from '@/lib/bug-reports/reverify/evidence';
+import { gatherEvidence, type ReverifyBug } from '@/lib/bug-reports/reverify/evidence';
+// Verdict parsing (incl. the write-symptom safety clamp) is shared with the
+// cluster Verify-group fan-out — one copy of the safety rule, on purpose.
+import { compactConsole, parseVerdict } from '@/lib/bug-reports/reverify/verdict';
 
 const POLL_MS = 2_500;
 const UNCLAIMED_DEADLINE_MS = 120_000;
 const TOTAL_DEADLINE_MS = 285_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-const VERDICTS = ['likely_fixed', 'still_broken', 'inconclusive'] as const;
-const CONFIDENCES = ['low', 'medium', 'high'] as const;
-const REPRO = ['read', 'write', 'unknown'] as const;
 
 /**
  * POST /api/bug-reports/[id]/ai-reverify
@@ -120,7 +119,7 @@ export async function POST(
     // completed job if a prior request timed out after enqueue.
     const storedGeneratedAt: string | null =
       (bug.metadata as any)?.ai_reverify?.generated_at ?? null;
-    const { data: orphan } = await (adminSupabase.from('ai_jobs') as any)
+    const { data: orphan } = await ((adminSupabase as any).from('ai_jobs'))
       .select('id, result, completed_at')
       .eq('job_type', 'bug.reverify')
       .eq('status', 'done')
@@ -160,7 +159,7 @@ export async function POST(
     const startedAt = Date.now();
     while (Date.now() - startedAt < TOTAL_DEADLINE_MS) {
       await sleep(POLL_MS);
-      const { data: job } = await (adminSupabase.from('ai_jobs') as any)
+      const { data: job } = await ((adminSupabase as any).from('ai_jobs'))
         .select('status, result, error, claimed_at')
         .eq('id', jobId)
         .maybeSingle();
@@ -207,52 +206,5 @@ export async function POST(
   }
 }
 
-function compactConsole(consoleLogs: unknown): string {
-  if (!Array.isArray(consoleLogs) || consoleLogs.length === 0) return '';
-  const errorish = consoleLogs.filter((l: any) => l && (l.type === 'error' || l.level === 'error'));
-  const picked = (errorish.length > 0 ? errorish : consoleLogs).slice(0, 3);
-  return JSON.stringify(picked).slice(0, 1500);
-}
-
-/** Parse the strict-JSON verdict. Forces reproducible to 'write' when the
- *  description is clearly a write symptom, so a WRITE bug can never be reported
- *  as read-verified "fixed" even if the model slips. */
-function parseVerdict(result: unknown, bug: ReverifyBug): Record<string, unknown> | null {
-  let text: string | null = null;
-  if (typeof result === 'string') text = result;
-  else if (result && typeof result === 'object') {
-    const o = result as Record<string, unknown>;
-    for (const k of ['answer', 'text', 'result']) {
-      if (typeof o[k] === 'string') { text = o[k] as string; break; }
-    }
-    if (!text && typeof o.verdict === 'string') return sanitize(o, bug);
-  }
-  if (!text) return null;
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  try {
-    return sanitize(JSON.parse(text.slice(start, end + 1)), bug);
-  } catch {
-    return null;
-  }
-}
-
-function sanitize(raw: Record<string, unknown>, bug: ReverifyBug): Record<string, unknown> | null {
-  if (typeof raw.reasoning !== 'string' || raw.reasoning.trim().length === 0) return null;
-  const heuristicRepro = classifyReproducibility(bug.description ?? '');
-  let verdict = VERDICTS.includes(raw.verdict as any) ? (raw.verdict as string) : 'inconclusive';
-  let reproducible = REPRO.includes(raw.reproducible as any) ? (raw.reproducible as string) : 'unknown';
-  // Safety clamp: a write symptom cannot be read-verified as fixed.
-  if (heuristicRepro === 'write') {
-    reproducible = 'write';
-    if (verdict === 'likely_fixed') verdict = 'inconclusive';
-  }
-  return {
-    verdict,
-    confidence: CONFIDENCES.includes(raw.confidence as any) ? raw.confidence : 'low',
-    reasoning: raw.reasoning,
-    what_would_confirm: typeof raw.what_would_confirm === 'string' ? raw.what_would_confirm : '',
-    reproducible,
-  };
-}
+// compactConsole / parseVerdict / the write-symptom clamp now live in
+// lib/bug-reports/reverify/verdict.ts (shared with the cluster fan-out).

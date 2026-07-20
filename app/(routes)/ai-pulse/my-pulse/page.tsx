@@ -31,6 +31,7 @@ import { MyAttendanceCard } from '../_components/my-attendance-card';
 import { QuickActionsCard } from '../_components/quick-actions-card';
 import { PulseImpactCard } from './_components/pulse-impact-card';
 import { PdeProgressCard } from './_components/pde-progress-card';
+import { DomainStarterCard } from './_components/domain-starter-card';
 
 // In-module tab label (AutoTabNav / route manifest): show "My AI Pulse" instead of
 // the folder-derived "My Pulse", matching the page heading, sidebar link, and
@@ -141,6 +142,12 @@ export default async function AiPulseLearnerPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <CurrentCycleCard cycle={cycle} />
           <MyTeamCard team={team} />
+          {/* Domain Starter — this cycle's copy-paste AI prompt pack for the
+              learner's subject/programme. Renders nothing while the generation
+              loop is dark (kill switch off) or no starter exists yet. */}
+          <div className="md:col-span-2">
+            <DomainStarterCard />
+          </div>
           {/* Gold Standard — CARE R-move learner-facing recognition (2026-06-12) */}
           {gold && (
             <div className="md:col-span-2">

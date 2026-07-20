@@ -34,7 +34,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCdcAdmin } from '@/hooks/cdc/use-cdc-admin';
 
 interface AdminCard {
   href: string;
@@ -152,7 +152,7 @@ const ADMIN_CARDS: AdminCard[] = [
 ];
 
 export default function CdcAdminPage() {
-  const { isSuperAdmin, isLoading } = usePermissions();
+  const { isCdcAdmin, isLoading } = useCdcAdmin();
 
   if (isLoading) {
     return (
@@ -166,7 +166,7 @@ export default function CdcAdminPage() {
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!isCdcAdmin) {
     return (
       <ContentLayout title="CDC Admin">
         <Alert variant="destructive">
