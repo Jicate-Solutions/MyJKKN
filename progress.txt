@@ -1,3 +1,14 @@
+## Session: 2026-07-20 (Late) — Sidebar load-jump found by measurement + FIXED + VERIFIED on prod
+
+- **Director asked "did you see any instability in the UI while navigating?"** — answer was yes, and measuring it found a real defect nobody had filed.
+- **Root cause**: `components/Favorites/FavoritesSidebarSection.tsx` did `if (isLoading || favorites.length === 0) return null` — 0px while loading, then 595px for 16 favourites, shoving `<nav>` down **475px** (`y 97→572`) ~400ms after paint.
+- **Measured on prod before**: /dashboard CLS **0.58** (Google "poor" is >0.25), /admin/bug-reports 0.12, idle 0.00 (so #2192's jitter fix was holding — this was purely first-paint).
+- **PR #2213 merged (main 3a042d6b5) + deployed (cb4yng3ot) + MEASURED AFTER**: /dashboard **0.00**, /admin/bug-reports **0.00**, `<nav>` no longer appears as a layout-shift source in any run. Fix = remember the section height and reserve it while loading; read storage in useEffect, never during render.
+- Also fixed in the same PR: menu loading skeleton used `flex` without `flex-col`, so its 5 placeholder bars rendered squeezed side-by-side instead of stacked.
+- 🔑 **Local dev CANNOT reproduce hydration-timing CLS** (dev paints after data is ready → CLS 0 with and without the fix, even after seeding 16 favourites). This repo builds no PR previews, so prod-after-deploy is the only measurement point. Test favourites seeded on test.superadmin were fully removed (15 deleted, 0 left).
+
+---
+
 ## Session: 2026-07-20 (Evening) — Claim A LIVE + 5 real reporter asks SENT + deployed-check made automatic
 
 ### Accomplished
