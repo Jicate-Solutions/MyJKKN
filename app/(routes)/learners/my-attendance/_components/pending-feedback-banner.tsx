@@ -46,9 +46,9 @@ export function PendingFeedbackBanner() {
               {count} {sessionWord} present-pending
             </p>
             <p className="mt-1 text-sm text-amber-800 dark:text-amber-300/90">
-              You&apos;re marked present for {count === 1 ? 'this class' : 'these classes'} — just
-              submit post-class feedback to confirm your attendance. You&apos;re never counted
-              absent for missing feedback; this only confirms you were there.
+              You&apos;re marked present for {count === 1 ? 'this class' : 'these classes'} — your
+              attendance is already recorded. Just submit post-class feedback to confirm you
+              were there. You&apos;re never counted absent for missing feedback.
             </p>
           </div>
         </div>
@@ -58,7 +58,7 @@ export function PendingFeedbackBanner() {
         >
           <Link href={FEEDBACK_ROUTE}>
             <MessageSquarePlus className="mr-2 h-4 w-4" />
-            Confirm attendance
+            Give feedback
           </Link>
         </Button>
       </CardContent>
