@@ -226,7 +226,7 @@ export function BugGroupsTab() {
       toast.success(
         data.note === 'already_queued'
           ? 'A fix is already being prepared for this group.'
-          : 'Fix queued (AI Max, ₹0) — a draft PR will appear here for you to review and merge.'
+          : 'Fix queued (AI Max, ₹0) — the fix PR appears here for you to review and merge; it opens ready-for-review once its local checks pass.'
       );
       queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
     },
@@ -495,7 +495,9 @@ function FileList({ files }: { files: string[] }) {
 /**
  * "Fix this group" — shown only when the verdict says one fix resolves the whole
  * group. Queues a Mac-side write runner that applies the minimal fix and opens a
- * DRAFT PR. Never merges, never resolves, never emails — a human reviews the PR,
+ * PR — READY when its local Step-2.7 gates pass (so CI attests fully green on
+ * first push; Director policy 2026-07-20), draft only if a gate regressed.
+ * Never merges, never resolves, never emails — a human reviews the PR,
  * merges + deploys, then verifies + resolves.
  */
 function FixSection({
@@ -517,7 +519,8 @@ function FixSection({
         <Loader2 className='w-4 h-4 animate-spin text-blue-600 shrink-0' />
         <span className='text-xs text-blue-800 dark:text-blue-200'>
           Preparing a fix — writing the change in a scratch copy and running
-          checks (AI Max · ₹0). A draft PR will appear here to review.
+          checks (AI Max · ₹0). The PR appears here to review — ready-for-review
+          when its checks pass.
         </span>
       </div>
     );
@@ -529,7 +532,7 @@ function FixSection({
         <div className='flex flex-wrap items-center gap-2'>
           <GitPullRequest className='w-4 h-4 text-green-600 shrink-0' />
           <span className='text-sm font-medium text-green-900 dark:text-green-100'>
-            Draft fix ready for review
+            Fix PR ready for review
           </span>
           <a
             href={fix.pr_url}
@@ -603,8 +606,9 @@ function FixSection({
         Fix this group (AI Max, ₹0)
       </Button>
       <span className='text-[11px] text-muted-foreground'>
-        AI writes the one fix as a draft PR for you to review and merge. It never
-        merges or emails on its own.
+        AI writes the one fix as a PR for you to review and merge — it opens
+        ready-for-review when its local checks pass (draft only if a check
+        regressed). It never merges or emails on its own.
       </span>
     </div>
   );
@@ -1050,7 +1054,7 @@ function LoopStepper({
               rel='noopener noreferrer'
               className='inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 hover:underline'
             >
-              Draft PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
+              Fix PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
             </a>
             {fix.needs_migration && (
               <span className='text-[11px] text-amber-700 dark:text-amber-300'>
