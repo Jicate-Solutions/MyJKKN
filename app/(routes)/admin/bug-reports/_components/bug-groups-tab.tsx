@@ -83,6 +83,21 @@ interface VerifyPerBug {
   error?: string;
 }
 
+/** Deployed-surface check (Mac runner bug-cluster-deployed-check.mjs): confirms
+ *  the fix's new user-facing wording actually renders on prod, on the exact
+ *  pages the reporters filed from. This is the ONE part of "did it work?" that
+ *  is confidently knowable for a copy/UX fix — the AI re-check is data-blind to
+ *  it and can only return "inconclusive". Claim A (the change is live) — decided
+ *  here; Claim C (reporters find it clear) stays reporter-confirmation ground
+ *  truth. */
+interface DeployedSurface {
+  checked_at: string;
+  all_live: boolean;
+  prs?: number[];
+  surfaces: { route: string; live: boolean; anchors_found: number; anchors_total: number }[];
+  claim?: string;
+}
+
 interface VerifyState {
   status: 'running' | 'done' | 'error';
   requested_at: string;
@@ -96,6 +111,7 @@ interface VerifyState {
     failed: number;
     pending: number;
   };
+  deployed_surface?: DeployedSurface;
   error?: string;
 }
 
@@ -1136,6 +1152,52 @@ function LoopStepper({
         )}
         {s4 === 'done' && v && (
           <div className='mt-1'>
+            {/* Decisive, confidently-knowable signal for a copy/UX fix: is the new
+                wording actually live on prod for the reported pages? Rendered
+                ABOVE the AI re-check tally because it answers what the re-check
+                cannot — the re-check is data-blind to a wording change and so
+                reads "inconclusive"; this line says plainly whether the fix
+                shipped. Reporter confirmation of clarity is still the ground
+                truth (step 5). */}
+            {v.deployed_surface && (
+              <div
+                className={`mb-2 rounded-md border px-3 py-2 text-xs ${
+                  v.deployed_surface.all_live
+                    ? 'border-green-300 bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-100'
+                    : 'border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+                }`}
+              >
+                <div className='flex items-center gap-1.5 font-medium'>
+                  {v.deployed_surface.all_live ? (
+                    <Check className='w-3.5 h-3.5 shrink-0' />
+                  ) : (
+                    <CircleAlert className='w-3.5 h-3.5 shrink-0' />
+                  )}
+                  {v.deployed_surface.all_live
+                    ? 'Fix verified live on prod'
+                    : 'Fix not fully live on prod'}
+                </div>
+                <p className='mt-0.5 text-[11px] opacity-90'>
+                  {v.deployed_surface.all_live
+                    ? 'The fix’s new wording renders on every reported page. What it changed is confirmed shipped; whether reporters now find it clear is the open question below.'
+                    : 'At least one reported page does not show the fix wording yet — the deploy may be incomplete.'}
+                </p>
+                <div className='mt-1 flex flex-wrap gap-1'>
+                  {v.deployed_surface.surfaces.map((s) => (
+                    <span
+                      key={s.route}
+                      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono ${
+                        s.live
+                          ? 'border-green-300 text-green-800 dark:text-green-200'
+                          : 'border-amber-300 text-amber-800 dark:text-amber-200'
+                      }`}
+                    >
+                      {s.live ? '✓' : '✗'} {s.route}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className='flex flex-wrap items-center gap-1.5'>
               <Badge variant='outline' className={VERIFY_CHIP_CLS.likely_fixed}>
                 {v.tally.likely_fixed} likely fixed
@@ -1178,8 +1240,9 @@ function LoopStepper({
               })}
             </div>
             <p className='text-[11px] text-muted-foreground mt-1'>
-              AI re-check — not reporter-confirmed. The reporters&apos; own
-              answers are the ground truth.
+              {v.deployed_surface?.all_live
+                ? 'For a wording fix the AI re-check is data-blind, so it reads “inconclusive” — that is expected, not a failure. Whether the fix shipped is answered above; the reporters’ own answers confirm it’s clearer.'
+                : 'AI re-check — not reporter-confirmed. The reporters’ own answers are the ground truth.'}
             </p>
           </div>
         )}
