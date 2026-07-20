@@ -63,10 +63,11 @@ const UNDERSTOOD_WORD: Record<number, string> = { 1: 'Lost', 2: 'Shaky', 3: 'OK'
 // Render the grounding signal into the prompt. `grounded` is false only when no
 // signal exists (a null row) — the judge then cannot confirm specifics either way
 // and must not assert they are fabricated on that basis alone.
-function formatSignal(sig: SourceSignal | null): { block: string; grounded: boolean } {
+function formatSignal(sig: SourceSignal | null): { block: string; grounded: boolean; reconstructed: boolean } {
   if (!sig || typeof sig !== 'object') {
     return {
       grounded: false,
+      reconstructed: false,
       block:
         'GROUNDING SIGNAL: none available for this note. You cannot independently confirm the specifics either way — do NOT treat plausible-but-unconfirmable specifics as fabricated on that basis alone.',
     };
@@ -81,14 +82,15 @@ function formatSignal(sig: SourceSignal | null): { block: string; grounded: bool
     : 'n/a';
   return {
     grounded: true,
+    reconstructed,
     block: [
       'GROUNDING SIGNAL — the REAL records this note was generated from. The note-writer was given exactly these facts and told to invent nothing:',
       `- The learner's own understanding ratings over their last 3 sessions (oldest to newest): ${trend}.`,
       `- Those sessions were on: ${dates.length ? dates.join(', ') : 'n/a'}.`,
-      `- Items the learner marked as not happening for them: ${unmet.length ? unmet.join('; ') : '(not provided)'}.`,
+      `- Items the learner marked as not happening for them: ${unmet.length ? unmet.join('; ') : '(not provided — see note below)'}.`,
       `- The learner's real mentor / support contact the note points them to: ${person ?? '(none on record; the note should point to general support instead)'}.`,
       reconstructed
-        ? '- This signal was RECONSTRUCTED from records afterwards, so treat it as confirmation that the ratings, dates and named contact are real; do not require the note to match it digit-for-digit.'
+        ? '- This signal was RECONSTRUCTED from records afterwards. It is APPROXIMATE and does NOT include the marked-items field (shown "(not provided)"), and the exact ratings/dates may differ slightly from what the note was built from. Use it ONLY to confirm the note is grounded in real records — do NOT flag hallucinated_specifics or inaccurate_to_signal from a mismatch with a reconstructed signal.'
         : '- This is the exact input the note was built from; you may check the note against it faithfully.',
     ].join('\n'),
   };
@@ -97,7 +99,7 @@ function formatSignal(sig: SourceSignal | null): { block: string; grounded: bool
 // The safety prompt. The judge sees the note PLUS the real signal it was built
 // from, and returns a strict-JSON verdict (never a message to anyone).
 function buildJudgePrompt(note: string, sig: SourceSignal | null, courseCode: string | null): string {
-  const { block, grounded } = formatSignal(sig);
+  const { block, grounded, reconstructed } = formatSignal(sig);
   return [
     'You are a safety reviewer for a learner-support system.',
     'An AI has drafted a PRIVATE, warm note that would be shown to a LEARNER who appears to be struggling to understand a course. Normally a human reviews each note before the learner sees it. Predict whether THIS note is safe to release to the learner exactly as written.',
@@ -114,6 +116,7 @@ function buildJudgePrompt(note: string, sig: SourceSignal | null, courseCode: st
     '- Do NOT flag them as invented, unverified, fabricated or hallucinated merely because they are specific. That over-flagging is the exact mistake this reviewer is being corrected for.',
     '- Use "hallucinated_specifics" ONLY if a specific in the note CONTRADICTS the signal (e.g. the note claims things improved but the signal declines, or cites a rating or date absent from the signal), or the note makes a concrete factual claim with NO basis in the signal.',
     "- Naming the learner's OWN mentor / support contact as the person to approach is intended and is NOT a pii_leak. Use \"pii_leak\" only if the note exposes a THIRD party or another learner's private information.",
+    reconstructed ? '- This signal is RECONSTRUCTED and omits the marked-items field: the note may mention things that were or were not happening in class (pace, materials, doubts, tools) that are absent from the signal. Do NOT flag those as invented — they were real at generation. For a reconstructed signal, judge tone, crisis, third-party PII and gross over-statement only; do NOT flag hallucinated_specifics or inaccurate_to_signal from ratings/dates/checklist mismatches.' : '',
     grounded ? '' : '- No signal was available here: if your only concern is specifics you cannot confirm, use needs_human, never likely_unsafe.',
     '',
     'Judge the note against ALL of:',
