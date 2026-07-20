@@ -1,3 +1,29 @@
+## Session END 2026-07-20 (~10:15) — AI PULSE "DOMAIN STARTER" self-improving loop BUILT+MERGED+DARK; go-live pending
+
+### Accomplished
+- Reconciled: `ss_prompts`=Solutions Hub (not this); a per-DEPT AI-Pulse loop already LIVE → ride it, don't build a parallel playbook; parked feedback-loop spec stays parked.
+- Grain=HYBRID (Director): course where timetable resolves (~4%), else programme (100%). Resolver returns BOTH; read shows finest-available → tiny-course learners fall back to programme, never blank.
+- Built the full loop across 6 PRs (all MERGED to main, all DARK): #2185 engine substrate+pack+generation cron (merged EARLY → lost 3 commits → recovered via #2199), #2197 learner card, #2196 admin Tamil-review, #2194 notify cron, #2195 vercel schedule+measure. 4 surfaces built by parallel ultracode worktree agents (verified each diff myself: notify uses real 2-row notifications+user_notifications insert; vercel.json valid; card RPCs correct).
+- Content ₹0 PROVEN E2E on cycle 07-16 (f26e2732): 13/13 subjects, real subject-specific bilingual packs; course-grain (Clinical Pharmacokinetics: Vancomycin/Phenytoin/TDM) visibly sharper than programme (BPHARM). Tamil all held pending (native-review-gated).
+- Kill-switch now gates the READ too (migration 20260720093000 applied) → truly dark; single go-live control.
+- SIDE FIX (Director-approved): assigned `hod` role to 11 real HODs (incl. hodpharmacypractice = original bug); 20→31/35. 7 HOD emails have NO account (need creating).
+
+### Current Status
+- **Feature**: AI Pulse Domain Starter — built, merged, DARK. **Build**: main complete (verified files on jicate/main). **Kill switch**: OFF.
+
+### Lessons Learned
+- Merged-early PR orphans later pushes → verify `git ls-tree main` not the MERGED label (feedback_merged_pr_early_orphans_later_pushes).
+- "Dark" kill switch must gate the READ fn too, not just crons — test data leaks otherwise (feedback_dark_feature_killswitch_must_gate_reads).
+
+### Next Session — Tasks (Director: "Verify now, go live Thursday")
+1. [P0] `/deploy-myjkkn` (safe, dark) → confirm generation route + card deploy, endpoints 200. (small)
+2. [P0] Flip `ai_pulse_policies.domain_starter_enabled=true` → render My AI Pulse as ONE real learner (persona-harness, prod) in a 13-subject e.g. BPHARM → confirm card + real prompt + copy/report work → flip OFF again. Real go-live = Thursday's fresh cycle. (medium)
+3. [P1] Land gate migration 20260720093000 into main (applied to prod, not in main). (small)
+4. [P1] Wire `/ai-pulse/admin/starter-tamil-review` into `lib/sidebarMenuLink.ts` (works by URL now). (small)
+5. [P2] Tamil native reviewer approves Tamil before it shows; 7 no-account HODs need accounts. (small)
+
+---
+
 ## UPDATE 2026-07-20 08:2x — #2191 DEPLOYED + VERIFIED; legacy-leniency PR-3.1 (#2193) open
 
 - ⚠️ CORRECTION: the #2191 merge did NOT auto-deploy (the "Ready" build predated the 01:28 merge). Caught by reading the ACTUAL enqueued judge prompt (still old "signal=2" format), not trusting build status. Fired the deploy hook manually (job GY7A2X9uYRe5CqtorST6) → build b3z4wi0hu Ready → RE-VERIFIED by reading a fresh job's prompt = full GROUNDING SIGNAL block present. Lesson reinforced: "a Ready build ≠ your code is live" — verify by content.
