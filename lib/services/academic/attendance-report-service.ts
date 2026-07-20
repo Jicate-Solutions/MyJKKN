@@ -756,7 +756,6 @@ export class AttendanceReportService {
       );
 
       // Filter periods for faculty users - only show periods they are assigned to
-      let facultyStaffId: string | null = null;
       if (userRole === 'faculty' && userId) {
         // Get staff ID if not super admin or admin
         const { data: profileData } = await this.supabase
@@ -766,15 +765,19 @@ export class AttendanceReportService {
           .single() as { data: { role: string; is_super_admin: boolean } | null };
 
         if (!profileData?.is_super_admin && profileData?.role !== 'admin') {
-          const { data: staffData } = await this.supabase
+          // Match against ALL of the user's staff ids, not a single one - mirrors
+          // the access check above (FIX 5). A `.single()` lookup here could return
+          // a different staff row than the one recorded in the period's
+          // assigned_faculty, dropping the viewer's own just-marked period and
+          // zeroing out total_students/average_attendance.
+          const { data: staffRows } = await this.supabase
             .from('staff')
             .select('id')
-            .eq('profile_id', userId)
-            .single() as { data: { id: string } | null };
+            .eq('profile_id', userId) as { data: { id: string }[] | null };
 
-          if (staffData) {
-            facultyStaffId = staffData.id;
+          const facultyStaffIds = new Set((staffRows || []).map((s) => s.id));
 
+          if (facultyStaffIds.size > 0) {
             // Filter periods to only include those assigned to this faculty.
             // Updated: 2026-06-17 - Also keep periods this faculty MARKED, mirroring
             // the access check above (assigned OR marker). Without this, a period
@@ -784,15 +787,15 @@ export class AttendanceReportService {
             periods = periods.filter((period: any) => {
               const isAssigned = Array.isArray(period.assigned_faculty)
                 ? period.assigned_faculty.some(
-                    (f: any) => f.faculty_id === facultyStaffId
+                    (f: any) => facultyStaffIds.has(f.faculty_id)
                   )
-                : period.assigned_faculty?.faculty_id === facultyStaffId;
+                : facultyStaffIds.has(period.assigned_faculty?.faculty_id);
               const isMarker = period.marked_by_details?.marker_id === userId;
               return isAssigned || isMarker;
             });
 
             if (periods.length === 0) {
-              logger.warn('academic/attendance-reports', 'No periods found for this faculty in the report', { facultyStaffId });
+              logger.warn('academic/attendance-reports', 'No periods found for these Senior Learners in the report', { facultyStaffIds: Array.from(facultyStaffIds) });
             }
           }
         }
