@@ -26,11 +26,21 @@ import type { CreateClinicalCaseInput } from '@/types/pde';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function pmsConfig(): { base: string; token: string } | null {
+function pmsConfig(): { base: string; headers: Record<string, string> } | null {
   const base = (process.env.PMS_EXPORT_URL ?? '').replace(/\/+$/, '');
   const token = process.env.PMS_EXPORT_TOKEN ?? '';
   if (!base || token.length < 16) return null;
-  return { base, token };
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  // Cloudflare Access service token — Zero Trust wall in front of the PMS export
+  // path. When set, Cloudflare rejects requests without these headers before they
+  // reach the PMS host. Dormant (bearer-only) until BOTH env vars exist.
+  const cfId = process.env.PMS_CF_ACCESS_CLIENT_ID ?? '';
+  const cfSecret = process.env.PMS_CF_ACCESS_CLIENT_SECRET ?? '';
+  if (cfId && cfSecret) {
+    headers['CF-Access-Client-Id'] = cfId;
+    headers['CF-Access-Client-Secret'] = cfSecret;
+  }
+  return { base, headers };
 }
 
 // ─── GET — proxy the PMS condition search ───────────────────────────────────
