@@ -188,9 +188,16 @@ export async function GET(request: NextRequest) {
   const started = Date.now();
   const admin = createServiceRoleClient();
 
-  // ── COLLECT: record verdicts for finished judge jobs. SHADOW — no status write.
+  // ── COLLECT: record verdicts for finished judge jobs, then (only when the
+  // 'scf.note_judge.enforce' kill-switch policy is ON) apply the verdict to the
+  // note's status via fn_scf_note_apply_verdict: auto_safe -> publish, flagged ->
+  // hold in the review queue, crisis -> always human. NEVER auto-reject/delete.
+  // With the policy OFF (default) the enforce RPC returns 'shadow' and writes
+  // nothing — so this route stays recommendation-only until enforcement is
+  // deliberately enabled and verified.
   let recorded = 0;
   let parseFailures = 0;
+  const enforce: Record<string, number> = {};
   const collected = await collectJobsLane(admin, [JOB_TYPE], COLLECT_BATCH);
   for (const item of collected) {
     const noteId = typeof item.context?.note_id === 'string' ? item.context.note_id : null;
@@ -207,7 +214,19 @@ export async function GET(request: NextRequest) {
       p_threshold_ver: THRESHOLD_VER,
     });
     if (!error) recorded++;
-    else console.error('[scf-note-judge] record failed:', error.message);
+    else {
+      console.error('[scf-note-judge] record failed:', error.message);
+      continue; // don't enforce a verdict we failed to record
+    }
+    // Enforcement (kill-switch-gated in the RPC; 'shadow' no-op when disabled).
+    const hasCrisis = parsed.safety_flags.includes('crisis');
+    const { data: outcome, error: enfErr } = await admin.rpc('fn_scf_note_apply_verdict', {
+      p_note_id: noteId,
+      p_verdict: parsed.verdict,
+      p_has_crisis: hasCrisis,
+    });
+    if (enfErr) console.error('[scf-note-judge] enforce failed:', enfErr.message);
+    else if (typeof outcome === 'string') enforce[outcome] = (enforce[outcome] ?? 0) + 1;
   }
 
   // ── ENQUEUE: judge the next batch of un-judged drafts.
@@ -239,9 +258,12 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: !awaitErr,
-    mode: 'shadow',
+    // 'shadow' while the enforce kill-switch is off (every outcome is 'shadow'),
+    // 'enforce' once it publishes/holds notes.
+    mode: Object.keys(enforce).some((k) => k !== 'shadow') ? 'enforce' : 'shadow',
     recorded,
     parseFailures,
+    enforce,
     enqueued,
     enqueueSkipped,
     // Surface the work-list query error instead of silently swallowing it: a
