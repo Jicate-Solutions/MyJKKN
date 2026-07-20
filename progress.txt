@@ -1,3 +1,25 @@
+## Session: 2026-07-20 (Evening) — Claim A LIVE + 5 real reporter asks SENT + deployed-check made automatic
+
+### Accomplished
+- **PR #2209 merged (fa9b99f16) + deployed + EYEBALLED**: the 7-report attendance group (cluster 85da2003) now shows the green **"Fix verified live on prod"** verdict with ✓/learners/class-feedback ✓/learners/my-attendance, plus the reframe telling the reader the 7 "inconclusive" chips are expected for a wording fix, not a failure.
+- **Step ⑤ SENT (Director-approved): 5 private asks, not 7** — the 7 reports come from only 5 distinct learners (DEVIPRIYA M and ELAKKIYA S each filed twice), so the E3 rule correctly asks each person once. sent_at 16:26:34Z, expires 08-03. Bell fan-out verified: ONE notifications row targeting 5 users. Their 👍/👎 auto-fills the outcome ledger and moves auto-resolve off 2/10.
+- **Task 3 (auto-wire) DONE**: shared `bug-anchor-extract.mjs` (one copy of the anchor rule) + `bug-cluster-fix.mjs` captures anchors/routes at PR-open into `metadata.fixability.fix.verify_strings` + `bug-cluster-deployed-check.mjs` prefers stored anchors and gained `--drain` + launchd `ai.jkkn.maxlane.deployedcheck` (600s) installed.
+- **PR #2210 merged (05f03870d) + deployed**: third neutral render state for fixes that change behaviour not wording ("Live-on-prod check does not apply here"), so automation cannot false-alarm on correct logic fixes.
+- **Task 4 started**: AI diagnosis running (₹0) on the next-largest untouched group `fac63628` — 11 reports, seed BUG-004715.
+
+### Lessons Learned
+- **Never narrow an inferred PR set.** `fixability.fix.pr_number` holds only the AI runner's PR; the 7er also needed the separate human fix #2190. Naive inference reported "MISSING" on a genuinely live page — a confident lie, worse than "inconclusive". The set must be the UNION of every PR any earlier run knew about.
+- **An automated writer must not emit a new record shape before the UI that renders it is live.** The drain was installed but left disarmed until #2210 deployed, otherwise 3 correct logic fixes would have shown "deploy may be incomplete" on prod.
+- **Don't trust a bare element ref on a list of identical cards.** A `find` ref hit the wrong group and prepared a draft on the wrong cluster (nothing sent; reversed). Disambiguate by asserting the seed display_id inside the nearest card ancestor, and verify every UI mutation with a before/after DB diff.
+
+### Next Session
+1. [P0] Read the 11er (fac63628) diagnosis verdict → one-fix vs split → continue the cycle toward 10/10 auto-resolve
+2. [P0] Watch for the 5 reporters' 👍/👎 (expire 08-03); each answer auto-fills bug_fix_outcomes
+3. [P1] Arm-verify the deployed-check drain now that #2210 is live (`launchctl load ai.jkkn.maxlane.deployedcheck`) and confirm it writes the neutral verdict on #2207/#2169/#2162
+4. [P1] Carry: mentor-side sub-groups (verify+resolve pending); the red "34.38% below 75% line" banner perception risk
+
+---
+
 ## Session: 2026-07-20 (End) — Bug-loop: 38er triaged+split, 14er solved, re-check made honest + decisive for copy fixes
 
 ### Accomplished
