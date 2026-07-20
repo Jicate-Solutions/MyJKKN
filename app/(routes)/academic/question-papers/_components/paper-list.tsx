@@ -207,7 +207,7 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
                     className='h-8 px-2 shrink-0'
                     title={p.authored ? 'Download PDF' : 'Author the paper before exporting'}
                     disabled={!p.authored}
-                    onClick={(e) => { e.stopPropagation(); IaPaperService.openPaperPdf(p.id); }}
+                    onClick={(e) => { e.stopPropagation(); IaPaperService.downloadPaperPdf(p.id); }}
                   >
                     <Download className='h-4 w-4' />
                   </Button>

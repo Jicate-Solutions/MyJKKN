@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { QuestionRichEditor } from '@/components/question-papers/question-rich-editor';
 import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -305,13 +305,13 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
                       </div>
                     </div>
 
-                    <Textarea
+                    <QuestionRichEditor
                       value={e?.question_text ?? ''}
                       disabled={!isEditable}
                       placeholder='Enter the question…'
-                      onChange={(ev) => patch(q.id, 'question_text', ev.target.value)}
+                      onChange={(html) => patch(q.id, 'question_text', html)}
                       onBlur={flushSave}
-                      className='text-sm min-h-[60px]'
+                      className='text-sm'
                     />
 
                     {/* MCQ options */}
@@ -382,7 +382,7 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
         )}
         <div className='ml-auto flex flex-wrap items-center gap-2'>
           {canExport && (
-            <Button variant='outline' size='sm' onClick={() => IaPaperService.openPaperPdf(paper.id)}>
+            <Button variant='outline' size='sm' onClick={() => IaPaperService.downloadPaperPdf(paper.id)}>
               <FileDown className='h-4 w-4 mr-1' /> PDF
             </Button>
           )}

@@ -84,9 +84,18 @@ export class IaPaperService {
     return asArray<IaPaperTemplate>((await res.json()).data);
   }
 
-  /** Opens the COE-rendered PDF in a new tab. */
-  static openPaperPdf(id: string): void {
-    window.open(`/api/question-papers/${id}/pdf`, '_blank', 'noopener,noreferrer');
+  /**
+   * Downloads the COE-rendered PDF directly (no new tab). The route is same-origin
+   * and sends `Content-Disposition: attachment`, so a synthesized `<a download>`
+   * click streams the file straight to Downloads and keeps the server filename.
+   */
+  static downloadPaperPdf(id: string): void {
+    const a = document.createElement('a');
+    a.href = `/api/question-papers/${id}/pdf`;
+    a.download = ''; // let the server's Content-Disposition filename win
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 }
 

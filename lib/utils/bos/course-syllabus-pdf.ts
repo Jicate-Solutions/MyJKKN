@@ -618,6 +618,12 @@ export interface CourseSyllabusPDFData {
 	 * "1.1, 1.2, …" prefixes under the parent heading).
 	 */
 	practical_topics?: BosPracticalTopic[]
+	/**
+	 * Whether to print the inline experiment number ("1. …") on practical
+	 * headings/sub-topics. Defaults to ON (numbered) when undefined so existing
+	 * syllabi are unchanged; `false` drops the prefix (S.No column still numbers).
+	 */
+	number_practical_topics?: boolean
 	/** Instructions displayed after all course content (units/topics) */
 	instruction?: string
 	textbooks?: BosTextbook[]
@@ -790,12 +796,22 @@ export function renderCourseSyllabusPDF(
 	}
 
 	// ── SECTION 5: Course Content ─────────────────────────────────────────────
-	// Practical-paper variant: when the syllabus is a lab/practical course, the
-	// form stores a flat numbered `topics` list instead of unit/chapter trees
-	// (see ContentEditor.toggleMode in components/bos/syllabus-form.tsx).
-	// Render it as an "S.No | List of Experiments" table. This branch wins over
-	// the units block — the two modes are mutually exclusive by construction.
+	// Render order is theory-first: for a combined "Theory + Practical" course
+	// the units block prints first, then the practical experiments below it.
+	// Both bodies are wrapped in deferred closures (each returns early when its
+	// data is absent) so a single-mode course still prints exactly one section,
+	// while a combined course prints both in reading order. The callers at the
+	// end of this section fix the order (renderTheoryUnits → renderPracticalTopics).
+
+	// Practical-paper variant: the form stores a flat numbered `topics` list
+	// instead of unit/chapter trees (see ContentEditor in
+	// components/bos/syllabus-form.tsx). Rendered as an "S.No | List of
+	// Experiments" table. The inline experiment number ("1. …") is printed only
+	// when numbering is enabled (default ON; see number_practical_topics).
+	const renderPracticalTopics = () => {
 	if (data.practical_topics && data.practical_topics.length > 0) {
+		// Default ON when the flag is absent, so existing syllabi stay numbered.
+		const showExperimentNumbers = data.number_practical_topics !== false
 		// Bordered table — one row per parent topic, with the bold heading +
 		// numbered sub-items stacked inside the content cell via the shared
 		// `_bosMixed` line mechanism (same machinery theory-mode unit content
@@ -838,7 +854,9 @@ export function renderCourseSyllabusPDF(
 				doc.setFont('times', 'normal')
 				doc.setFontSize(FONT_SIZE)
 				for (const st of t.subtopics!) {
-					const subText = `${st.number}. ${sanitize(st.title || '')}`
+					const subText = showExperimentNumbers
+						? `${st.number}. ${sanitize(st.title || '')}`
+						: sanitize(st.title || '')
 					const subWrapped = doc.splitTextToSize(subText, contentMaxTextW) as string[]
 					subWrapped.forEach(ln =>
 						allLines.push({ text: ln, prefixEnd: 0 }),
@@ -865,7 +883,12 @@ export function renderCourseSyllabusPDF(
 			0: { cellWidth: LABEL_W },
 			1: { cellWidth: contentColW },
 		})
-	} else if (data.units && data.units.length > 0) {
+	}
+	}
+	// Theory units — the unit/chapter layout (engineering & CAS). Wrapped so it
+	// can be invoked before the practical section for combined courses.
+	const renderTheoryUnits = () => {
+	if (data.units && data.units.length > 0) {
 	// One row per unit, two columns: the unit_id label (e.g. "I", "II") on the
 	// left, and all chapters merged into a single content cell on the right.
 	// Each chapter renders as one inline paragraph with a bold "Title:" prefix
@@ -988,6 +1011,12 @@ export function renderCourseSyllabusPDF(
 			1: { cellWidth: contentColW },
 		})
 	}
+	}
+
+	// Theory first, then practical — combined "Theory + Practical" courses print
+	// the units section above the "List of Experiments" section.
+	renderTheoryUnits()
+	renderPracticalTopics()
 
 	// ── SECTION 5.5: Instructions (after units/topics) ──────────────────────────
 	if (data.instruction && data.instruction.trim()) {

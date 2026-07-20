@@ -423,6 +423,14 @@ export interface BosCourseContentData {
   // the invariant that exactly one of units/topics/project_units is populated.
   is_practical?: boolean;
   topics?: BosPracticalTopic[];
+  /**
+   * PDF/exports: whether to print the inline experiment number (e.g. "1. Zener
+   * diode …") on each practical sub-topic and heading. Defaults to ON when
+   * absent so existing syllabi keep their current numbered output; unchecking
+   * the "Number experiments" toggle in the Content tab stores `false` and the
+   * exports drop the inline prefix (the S.No column still numbers the rows).
+   */
+  number_practical_topics?: boolean;
   // Project-mode: group-based project work rules and guidelines
   is_project?: boolean;
   project_units?: BosProjectUnit[];

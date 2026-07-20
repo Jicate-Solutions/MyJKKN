@@ -3025,6 +3025,22 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
       ) : isPractical ? (
         /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
+          {/* PDF numbering toggle — when checked (default), the exported
+              "List of Experiments" prints the inline number ("1. Zener diode
+              …") on each experiment; unchecking drops the prefix (the S.No
+              column still numbers the rows). Stored on course_content so the
+              PDF/DOCX/HTML exporters can read it. */}
+          <label className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={content?.number_practical_topics !== false}
+              onChange={(e) =>
+                onChange({ ...content, number_practical_topics: e.target.checked })
+              }
+            />
+            Number experiments in PDF (print “1.”, “2.” … before each experiment)
+          </label>
           {topics.map((topic, idx) => (
             <div key={idx} className="flex items-start gap-2.5 group">
               <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">

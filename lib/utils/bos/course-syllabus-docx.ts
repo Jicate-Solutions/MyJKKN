@@ -118,6 +118,9 @@ export interface CourseSyllabusDOCXData {
 	k_values?: Record<string, string>
 	units?: BosUnit[]
 	practical_topics?: BosPracticalTopic[]
+	/** Accepted for parity with the PDF data shape; the DOCX experiments section
+	 *  does not yet consume it. */
+	number_practical_topics?: boolean
 	instruction?: string
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
