@@ -1,3 +1,33 @@
+## Session: 2026-07-20 (END /cnext) — HP ALFA verified LIVE + Referral-incentive release BLOCKED (evidence-gathered)
+
+### Accomplished
+- **HP ALFA verification (13-day-later re-verify):** all 7 PRs MERGED (#1850/#1854/#1862/#1863/#1856/#1858/#1859); changes confirmed present in `main`; production build Ready; endpoints live (API 401, pages 307); data intact — 75 HP schools / 46 owners / 75 contacts / 74 visits / 16 websites live.
+  - ⚠️ CHANGE SINCE 07-06: **nudges were switched ON by Isvarya Lakshmi (Joint MD) on 2026-07-10** — 74 assignments, all nudged, last 07-17, **305 notifications delivered**. (Reverses the "nudges off" setting.)
+  - ⚠️ **0 of 75 AI-session statuses set** in 13 days — the new dropdowns are live but unused by the field team.
+- **Referral incentive release (new Director ask): investigated end-to-end, verdict = NOT RELEASABLE.** Four independent blockers proven with live evidence (see memory `project_referral_incentive_release`).
+- **Live UI test on prod (create → drive → delete, zero residue):** inserted TXN-000001 (₹1, first commission txn ever), drove it through the commissions UI, then deleted it. Verified ledger back to 0 rows, payout batches 0, consultant totals all ₹0.
+
+### Current Status
+- **HP ALFA / schools-network**: DONE + LIVE + verified. Nudges ON (JMD decision).
+- **Referral incentive release**: BLOCKED — investigation complete, nothing built.
+- **Build**: passing. **Branch**: feat/campus-living-fee-compute-engine (no local code changes this session; all work was verification + DB reads + one deleted test row).
+
+### Lessons Learned
+- **A money button can fail silently.** Commissions "Confirm" fired a spinner and closed, but the DB never changed. Identical UPDATE succeeds under RLS as super_admin ⇒ app-layer bug. Every visible signal said success; only the DB check revealed nothing was written.
+- **Verify the year the data actually covers.** 21,448 leads all turned out to be 2026-27; the requested 2025-26 year had 0 attribution. Row counts alone would have looked healthy.
+- **Absent payment history = double-pay risk.** 0 rows in every payout table means hand-paid referrers are invisible; a first release would pay them twice.
+- **Read the form's state destructuring.** `const [entryDate] = useState(...)` (no setter) + `disabled` is what blocks backdating — the DB column itself is nullable and accepts it.
+
+### Next Session — Tasks (user said: "all the above 4")
+1. [P0] Get the external 2025-26 referral records + already-paid list from Director; parse, match against the 1,863 real 2025-26 admissions, and produce the EXCEPTION report (unmatched / duplicate claims / self-referrals / already-paid) BEFORE any amount is computed (medium)
+2. [P0] Diagnose + fix the silent approve failure on /admission/consultants/commissions — re-run the UI test capturing console + network to pin the app-layer error (medium)
+3. [P0] Build the missing release pieces: commission rate config + the generator that turns attributions into transactions + a referral import template carrying referrer/date/amount (large)
+4. [P1] Unlock `entry_date` in the lead form (admin-gated setter, remove `disabled`) + fix the "Fee Amount: ₹NaN" render when commission_basis_amount is NULL (small)
+5. [P2] Revoke `anon` table grants (INSERT/UPDATE/DELETE/TRUNCATE) on consultant_commission_transactions — RLS blocks anon today, but this violates the revoke-anon standard (small)
+6. [P2] Compact MEMORY.md to <17.1KB (hook warning at 19.6KB) — coordinate with the parallel session that owns it (small)
+
+---
+
 ## Session END 2026-07-20 (~10:15) — AI PULSE "DOMAIN STARTER" self-improving loop BUILT+MERGED+DARK; go-live pending
 
 ### Accomplished
