@@ -8,6 +8,7 @@
   "include": [
     "next-env.d.ts",
     "types/**/*.ts",
-    "app/(routes)/bos/ta-da/_components/rate-settings-dialog.tsx"
+    "app/api/cron/aipulse-domain-starter/route.ts",
+    "lib/services/platform/ai-jobs-lane.ts"
   ]
 }
