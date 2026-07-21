@@ -318,6 +318,10 @@
     {
       "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",
       "schedule": "0 6 * * 6"
+    },
+    {
+      "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",
+      "schedule": "53 */6 * * *"
     }
   ]
 }
