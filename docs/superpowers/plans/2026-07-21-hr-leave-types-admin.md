@@ -1222,7 +1222,7 @@ import type { GenerateBalancesResult } from '@/lib/services/hr/leave-type-servic
 import { getErrorMessage } from '@/lib/utils';
 
 export default function GenerateLeaveBalancesPage() {
-  const { orgs, institutionIdByOrg } = useHrOrgMappings();
+  const { mappings, institutionIdByOrg } = useHrOrgMappings();
   const [hrOrgId, setHrOrgId] = useState('');
   const [academicYearId, setAcademicYearId] = useState('');
   const [result, setResult] = useState<GenerateBalancesResult | null>(null);
@@ -1277,8 +1277,10 @@ export default function GenerateLeaveBalancesPage() {
                 <Select value={hrOrgId} onValueChange={(v) => { setHrOrgId(v); setAcademicYearId(''); setResult(null); }}>
                   <SelectTrigger><SelectValue placeholder="Select an organization" /></SelectTrigger>
                   <SelectContent>
-                    {(orgs ?? []).map((o) => (
-                      <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                    {mappings.map((m) => (
+                      <SelectItem key={m.hr_organization_id} value={m.hr_organization_id}>
+                        {m.organization_name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1352,7 +1354,17 @@ export default function GenerateLeaveBalancesPage() {
 cd "D:/Projects/MyJKKN" && grep -n "return\|export function\|orgs" hooks/hr/use-hr-org-mappings.ts
 ```
 
-If the hook does not expose an `orgs` array (it may only expose `institutionIdByOrg`), add it there — returning the `hr_organizations` rows it already fetches — rather than fetching again in the page.
+**Verified answer — do NOT invent a surface.** The hook returns `{ mappings, orgIdByInstitution, institutionIdByOrg, isLoading, error }`. There is **no `orgs` array**; do not add one. Use `mappings`, typed:
+
+```typescript
+export interface HrOrgMapping {
+  institution_id: string;
+  hr_organization_id: string;
+  organization_name: string;
+}
+```
+
+It is backed by the SECURITY DEFINER RPC `fn_hr_orgs_for_institutions`, which returns **only organizations for institutions the caller can access**. So the dropdown is already institution-scoped, and it complements the `role_has_institution_access` guard inside `generate_hr_leave_balances` — the UI cannot offer an org the RPC would then reject.
 
 - [ ] **Step 3: Typecheck**
 
@@ -1669,7 +1681,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export default function HRLeaveTypesPage() {
-  const { orgs } = useHrOrgMappings();
+  const { mappings } = useHrOrgMappings();
   const [hrOrgId, setHrOrgId] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<HRLeaveType | null>(null);
@@ -1709,8 +1721,10 @@ export default function HRLeaveTypesPage() {
                 <Select value={hrOrgId} onValueChange={setHrOrgId}>
                   <SelectTrigger><SelectValue placeholder="All organizations" /></SelectTrigger>
                   <SelectContent>
-                    {(orgs ?? []).map((o) => (
-                      <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                    {mappings.map((m) => (
+                      <SelectItem key={m.hr_organization_id} value={m.hr_organization_id}>
+                        {m.organization_name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
