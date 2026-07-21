@@ -1587,16 +1587,27 @@ export class LeaveOndutyService {
         .filter(Boolean)
     )];
 
-    // Batch fetch period details (period_name, start_time, end_time, + clinic metadata).
-    // BUG-003208: period_mode and practical_config are required so the UI can
-    // render clinic posting blocks correctly; they were previously omitted.
+    // Batch fetch period details (period_name, start_time, end_time).
+    // NOTE: do NOT add period_mode / practical_config here — those columns live
+    // on the timetable slot, not on `periods`. Requesting them made Postgres
+    // reject the whole statement (42703), which left every period unenriched
+    // with an empty start_time, so forenoon/afternoon silently resolved to zero
+    // periods. The clinic metadata the UI needs already arrives via `...slot`.
     const { data: periodsData, error: periodsError } = await supabase
       .from('periods')
-      .select('id, period_name, start_time, end_time, is_break, period_mode, practical_config')
+      .select('id, period_name, start_time, end_time, is_break')
       .in('id', allPeriodIds);
 
+    // Enrichment is not optional: start_time drives forenoon/afternoon
+    // selection, so proceeding with unenriched periods would silently produce
+    // an application with no periods attached. Fail loudly instead.
     if (periodsError) {
-      console.warn('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+      console.error('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+      return {
+        valid: false,
+        periods: [],
+        error: 'Could not load period details for this date. Please try again or contact administrator.',
+      };
     }
 
     // Batch fetch course details (course_name, course_code)
