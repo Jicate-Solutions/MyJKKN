@@ -72,7 +72,7 @@ export async function requireCaseAuthor(supabase: SupabaseClient): Promise<CaseA
       ok: false,
       status: 403,
       error:
-        'You do not have access to add clinical images. This is limited to teaching staff — ask an administrator if you need it.',
+        'You do not have access to add clinical images. This is limited to Senior Learners — ask an administrator if you need it.',
       userId: '',
       institutionId: null,
     };
