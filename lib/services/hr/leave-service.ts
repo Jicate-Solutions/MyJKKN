@@ -68,6 +68,29 @@ export class LeaveService {
     if (filters.start_from) q = q.gte('start_date', filters.start_from);
     if (filters.start_to) q = q.lte('start_date', filters.start_to);
 
+    // Approver inbox scoping. This filter was declared on the type and sent by
+    // useApprovalInbox but NEVER applied here, so /hr/leave/approve listed every
+    // pending application in the organisation with live Approve/Reject buttons
+    // rather than the caller's own queue.
+    //
+    // JSONB containment matches an application whose approval_chain names this
+    // approver in ANY step. It deliberately does not pin to current_step:
+    // PostgREST cannot index into a JSONB array by a sibling column's value, and
+    // an approver wants their whole queue anyway, not just steps that happen to
+    // be current right now.
+    //
+    // CAVEAT — until Phase 2 seeds flows with pinned approver_ids, every chain
+    // carries approver_user_id = null, so this filter matches NOTHING. That is
+    // why it is applied only when the caller explicitly asks for it: an inbox
+    // that silently returns empty is the exact failure mode this module already
+    // suffered from. Authorisation does NOT rest on this filter — RLS
+    // (hla_select) and assertCanDecide() are the enforcement points.
+    if (filters.pending_approver_id) {
+      q = q.contains('approval_chain', [
+        { approver_user_id: filters.pending_approver_id },
+      ]);
+    }
+
     const { data, count, error } = await q;
     if (error) throw error;
     return {
@@ -260,6 +283,46 @@ export class LeaveService {
 
   // ----- Approve / Reject -----
 
+  /**
+   * Guard every approve/reject decision.
+   *
+   * Until 2026-07-21 neither method checked WHO was calling: the API route
+   * verified only that a session existed and passed `user.id` straight through
+   * as the approver. Combined with an RLS policy that let an applicant UPDATE
+   * their own row, any employee could POST to
+   * /api/hr/leave/applications/{own-id}/approve and approve their own leave.
+   * It was unreachable only because the tenancy gate locked everyone out — so
+   * the Phase 0b retrofit would have opened it.
+   *
+   * RLS now also refuses to let a non-approver land a row in approved/rejected
+   * (hla_update's WITH CHECK). This service check is the other half, and it
+   * catches the case RLS cannot: an HR manager who legitimately holds
+   * hr.leave.approve deciding on their OWN application.
+   */
+  private static async assertCanDecide(
+    supabase: SupabaseClient,
+    app: HRLeaveApplication,
+    approverId: string
+  ) {
+    const { data: myStaff, error } = await supabase
+      .from('staff')
+      .select('id')
+      .eq('profile_id', approverId);
+    if (error) throw error;
+
+    if ((myStaff ?? []).some((s) => s.id === app.employee_id)) {
+      throw new Error('You cannot decide on your own leave application.');
+    }
+
+    // Once flows pin concrete approvers, honour the assignment. Chains built
+    // before that carry approver_user_id = null, so this is a no-op for them
+    // rather than a hard block.
+    const step = app.approval_chain?.[app.current_step];
+    if (step?.approver_user_id && step.approver_user_id !== approverId) {
+      throw new Error('This approval step is assigned to a different approver.');
+    }
+  }
+
   static async approveApplication(
     supabase: SupabaseClient,
     applicationId: string,
@@ -271,6 +334,7 @@ export class LeaveService {
     if (!['pending', 'escalated'].includes(app.status)) {
       throw new Error(`Cannot approve application in status ${app.status}`);
     }
+    await this.assertCanDecide(supabase, app, approverId);
 
     const chain = [...app.approval_chain];
     const step = chain[app.current_step];
@@ -316,6 +380,7 @@ export class LeaveService {
     if (!['pending', 'escalated'].includes(app.status)) {
       throw new Error(`Cannot reject application in status ${app.status}`);
     }
+    await this.assertCanDecide(supabase, app, approverId);
 
     const chain = [...app.approval_chain];
     const step = chain[app.current_step];

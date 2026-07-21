@@ -117,8 +117,20 @@ export class AttendanceDashboardService {
   }
 
   /**
-   * Get today's attendance statistics with hierarchical structure
-   * Supports institution filtering for super admins
+   * Today's attendance statistics as an
+   * institution -> department -> semester -> section hierarchy.
+   *
+   * Aggregated by fn_attendance_dashboard_section_stats, NOT in the browser.
+   * This previously paged EVERY active learner (4,179 rows) with four embedded
+   * joins across five SEQUENTIAL round trips and grouped them in JavaScript --
+   * so every learner row was evaluated against five tables' RLS policies -- just
+   * to derive 233 section rows. The RPC returns those 233 rows in one call
+   * (~2.0s -> ~0.23s measured).
+   *
+   * The RPC is SECURITY DEFINER and self-authorizes on
+   * academic.attendance.dashboard.view, then bounds rows by
+   * role_has_institution_access -- so a scope='own' caller reads only its own
+   * institution even if it passes another institution's id.
    */
   static getTodayAttendanceStats = cache(
     async (
@@ -130,419 +142,157 @@ export class AttendanceDashboardService {
       try {
         const today = dateString || new Date().toISOString().split('T')[0];
 
-        // Build the query for getting attendance data with pagination
-        let attendanceData: any[] = [];
-        const ATTENDANCE_BATCH_SIZE = 1000;
-        let attendanceFrom = 0;
-        let fetchMoreAttendance = true;
-
-        while (fetchMoreAttendance) {
-          let query = this.supabase
-            .from('student_attendance')
-            .select(
-              `
-            institution_id,
-            timetable_id,
-            section_id,
-            attendance_data,
-            academic_year_id,
-            degree_id,
-            program_id,
-            department_id,
-            semester_id
-            `
-            )
-            .eq('attendance_date', today)
-            .range(attendanceFrom, attendanceFrom + ATTENDANCE_BATCH_SIZE - 1);
-
-          // Access control:
-          // - Super admin with canViewAllInstitutions=true and no userInstitutionId: show all institutions
-          // - Super admin with specific userInstitutionId: show that institution
-          // - Regular users: always filter by their institution (userInstitutionId)
-          if (userInstitutionId) {
-            query = query.eq('institution_id', userInstitutionId);
-          } else if (!canViewAllInstitutions) {
-            // If no institution provided and user can't view all, return empty result
-            logger.warn('academic/attendance-dashboard', 'No institution ID provided and user cannot view all institutions');
-            return [];
-          }
-
-          // Apply academic year filter if provided
-          if (academicYearId) {
-            query = query.eq('academic_year_id', academicYearId);
-          }
-
-          const { data: batchAttendance, error } = await query;
-
-          if (error) {
-            logger.error('academic/attendance-dashboard', 'Error fetching attendance data batch', error);
-            throw error;
-          }
-
-          if (batchAttendance && batchAttendance.length > 0) {
-            attendanceData = attendanceData.concat(batchAttendance);
-
-            // If we got less than BATCH_SIZE, we've reached the end
-            if (batchAttendance.length < ATTENDANCE_BATCH_SIZE) {
-              fetchMoreAttendance = false;
-            } else {
-              attendanceFrom += ATTENDANCE_BATCH_SIZE;
-            }
-          } else {
-            fetchMoreAttendance = false;
-          }
-        }
-
-        if (attendanceData && attendanceData.length >= 50000) {
-          logger.warn('academic/attendance-dashboard', 'Attendance query hit the 50,000 limit - there may be more records not fetched');
-        }
-
-        // Get unique institutions found in data
-        const foundInstitutions = [
-          ...new Set(attendanceData.map((r) => r.institution_id))
-        ];
-
-        // Get related data in separate queries
-        const institutionIds =
-          attendanceData && attendanceData.length > 0
-            ? [...new Set(attendanceData.map((r) => r.institution_id))]
-            : [];
-        const departmentIds =
-          attendanceData && attendanceData.length > 0
-            ? [...new Set(attendanceData.map((r) => r.department_id))]
-            : [];
-        const semesterIds =
-          attendanceData && attendanceData.length > 0
-            ? [...new Set(attendanceData.map((r) => r.semester_id))]
-            : [];
-        const sectionIds =
-          attendanceData && attendanceData.length > 0
-            ? [...new Set(attendanceData.map((r) => r.section_id))]
-            : [];
-
-        // First, let's get all students with their related info to build the complete structure
-        let studentsData: any[] = [];
-        let allInstitutionIds: string[] = [];
-        let allDepartmentIds: string[] = [];
-        let allSemesterIds: string[] = [];
-        let allSectionIds: string[] = [];
-
-        try {
-          // Implement pagination to fetch all student records
-          const BATCH_SIZE = 1000;
-          let from = 0;
-          let fetchMore = true;
-
-          while (fetchMore) {
-            let query = this.supabase
-              .from('learners_profiles')
-              .select(
-                `
-                id,
-                section_id,
-                institution_id,
-                academic_year_id,
-                department_id,
-                semester_id,
-                section:sections!section_id(id, section_name),
-                department:departments!department_id(id, department_name),
-                semester:semesters!semester_id(id, semester_name),
-                institution:institutions!institution_id(id, name)
-              `
-              )
-              .eq('lifecycle_status', 'active')
-              .range(from, from + BATCH_SIZE - 1);
-
-            // Apply institution filter based on access level
-            if (userInstitutionId) {
-              query = query.eq('institution_id', userInstitutionId);
-            } else if (canViewAllInstitutions) {
-              // Super admin - query all institutions
-            } else {
-              logger.warn('academic/attendance-dashboard', 'No institution access - returning empty results');
-              return [];
-            }
-
-            // Apply academic year filter if provided
-            if (academicYearId) {
-              query = query.eq('academic_year_id', academicYearId);
-            }
-
-            const { data: batchStudents, error: studentsError } = await query;
-
-            if (studentsError) {
-              logger.error('academic/attendance-dashboard', 'Error fetching students batch', studentsError);
-              return [];
-            }
-
-            if (batchStudents && batchStudents.length > 0) {
-              studentsData = studentsData.concat(batchStudents);
-
-              // If we got less than BATCH_SIZE, we've reached the end
-              if (batchStudents.length < BATCH_SIZE) {
-                fetchMore = false;
-              } else {
-                from += BATCH_SIZE;
-              }
-            } else {
-              fetchMore = false;
-            }
-          }
-
-          // Final processing
-          if (studentsData.length > 0) {
-            // Extract all unique IDs for fetching related data
-            allInstitutionIds = [
-              ...new Set(studentsData.map((s) => s.institution_id))
-            ];
-            allDepartmentIds = [
-              ...new Set(
-                studentsData.map((s) => s.department_id).filter(Boolean)
-              )
-            ];
-            allSemesterIds = [
-              ...new Set(studentsData.map((s) => s.semester_id).filter(Boolean))
-            ];
-            allSectionIds = [
-              ...new Set(studentsData.map((s) => s.section_id).filter(Boolean))
-            ];
-          }
-        } catch (error) {
-          logger.error('academic/attendance-dashboard', 'Unexpected error fetching students', error);
+        if (!userInstitutionId && !canViewAllInstitutions) {
+          logger.warn(
+            'academic/attendance-dashboard',
+            'No institution ID provided and user cannot view all institutions'
+          );
           return [];
         }
 
-        // Now fetch minimal related data for attendance records (if any)
-        const attendanceInstitutionIds =
-          institutionIds.length > 0 ? institutionIds : [];
-        const attendanceDepartmentIds =
-          departmentIds.length > 0 ? departmentIds : [];
-        const attendanceSemesterIds = semesterIds.length > 0 ? semesterIds : [];
-        const attendanceSectionIds = sectionIds.length > 0 ? sectionIds : [];
-
-        // We'll use the student data for the complete structure since it has all the info we need
-        // No need for separate fetches - we already have the related data from the students query
-
-        // Create section-wise count for matching with attendance data
-        const studentsBySection = studentsData.reduce((acc, student) => {
-          if (student.section_id) {
-            acc[student.section_id] = (acc[student.section_id] || 0) + 1;
+        const { data, error } = await this.supabase.rpc(
+          'fn_attendance_dashboard_section_stats',
+          {
+            p_date: today,
+            // `?? null`, never `|| null`: '' would flow through as a real uuid
+            // parameter and match zero rows (breaking "All Institutions").
+            p_institution_id: userInstitutionId ?? null,
+            p_academic_year_id: academicYearId ?? null
           }
-          return acc;
-        }, {} as Record<string, number>);
+        );
 
-        // Build institution hierarchy from student data
-        const institutionStats = new Map<string, any>();
-
-        // First, create the complete hierarchy structure from students
-        studentsData.forEach((student) => {
-          const institutionId = student.institution_id;
-          const departmentId = student.department_id;
-          const semesterId = student.semester_id;
-          const sectionId = student.section_id;
-
-          // Initialize institution if not exists
-          if (!institutionStats.has(institutionId)) {
-            institutionStats.set(institutionId, {
-              institution_id: institutionId,
-              institution_name:
-                student.institution?.name || 'Unknown Institution',
-              total_students: 0,
-              total_present: 0,
-              total_absent: 0,
-              attendance_percentage: 0,
-              departments: new Map()
-            });
-          }
-
-          const institution = institutionStats.get(institutionId);
-
-          // Initialize department if not exists
-          if (!institution.departments.has(departmentId)) {
-            institution.departments.set(departmentId, {
-              department_id: departmentId,
-              department_name:
-                student.department?.department_name || 'Unknown Department',
-              total_students: 0,
-              total_present: 0,
-              total_absent: 0,
-              attendance_percentage: 0,
-              semesters: new Map()
-            });
-          }
-
-          const department = institution.departments.get(departmentId);
-
-          // Initialize semester if not exists
-          if (!department.semesters.has(semesterId)) {
-            department.semesters.set(semesterId, {
-              semester_id: semesterId,
-              semester_name:
-                student.semester?.semester_name || 'Unknown Semester',
-              total_students: 0,
-              total_present: 0,
-              total_absent: 0,
-              attendance_percentage: 0,
-              sections: new Map()
-            });
-          }
-
-          const semester = department.semesters.get(semesterId);
-
-          // Initialize or update section
-          if (!semester.sections.has(sectionId)) {
-            semester.sections.set(sectionId, {
-              section_id: sectionId,
-              section_name: student.section?.section_name || 'Unknown Section',
-              total_students: 0,
-              present: 0,
-              absent: 0,
-              percentage: 0
-            });
-          }
-
-          // Count this student
-          const section = semester.sections.get(sectionId);
-          section.total_students += 1;
-          semester.total_students += 1;
-          department.total_students += 1;
-          institution.total_students += 1;
-        });
-
-        // Now process attendance data if it exists
-        if (attendanceData && attendanceData.length > 0) {
-          attendanceData.forEach((record) => {
-            const institutionId = record.institution_id;
-            const departmentId = record.department_id;
-            const semesterId = record.semester_id;
-            const sectionId = record.section_id;
-
-            // Get the existing hierarchy (should exist from student data)
-            const institution = institutionStats.get(institutionId);
-            if (!institution) {
-              logger.warn('academic/attendance-dashboard', 'Institution not found in student data - skipping attendance record', { institutionId });
-              return;
-            }
-
-            const department = institution.departments.get(departmentId);
-            if (!department) {
-              logger.warn('academic/attendance-dashboard', 'Department not found in student data - skipping attendance record', { departmentId });
-              return;
-            }
-
-            const semester = department.semesters.get(semesterId);
-            if (!semester) {
-              logger.warn('academic/attendance-dashboard', 'Semester not found in student data - skipping attendance record', { semesterId });
-              return;
-            }
-
-            const section = semester.sections.get(sectionId);
-            if (!section) {
-              logger.warn('academic/attendance-dashboard', 'Section not found in student data - skipping attendance record', { sectionId });
-              return;
-            }
-
-            // Process attendance data for this section
-            const recordAttendanceData = record.attendance_data as any;
-            let sectionPresent = 0;
-            let sectionAbsent = 0;
-            let periodCount = 0;
-
-            if (
-              recordAttendanceData &&
-              typeof recordAttendanceData === 'object'
-            ) {
-              // Count attendance for each period
-              Object.values(recordAttendanceData).forEach((periodData: any) => {
-                if (
-                  periodData &&
-                  periodData.students &&
-                  Array.isArray(periodData.students)
-                ) {
-                  periodCount++;
-                  periodData.students.forEach((student: any) => {
-                    if (student.status === 'Present') {
-                      sectionPresent++;
-                    } else if (student.status === 'Absent') {
-                      sectionAbsent++;
-                    }
-                  });
-                }
-              });
-            }
-
-            // Average attendance across periods if multiple periods
-            if (periodCount > 1) {
-              sectionPresent = Math.round(sectionPresent / periodCount);
-              sectionAbsent = Math.round(sectionAbsent / periodCount);
-            }
-
-            // Update section attendance data (student count already set from student data)
-            section.present = sectionPresent;
-            section.absent = sectionAbsent;
-            section.percentage =
-              section.total_students > 0
-                ? Math.round((sectionPresent / section.total_students) * 100)
-                : 0;
-
-            // Update aggregates up the hierarchy
-            semester.total_present += sectionPresent;
-            semester.total_absent += sectionAbsent;
-            department.total_present += sectionPresent;
-            department.total_absent += sectionAbsent;
-            institution.total_present += sectionPresent;
-            institution.total_absent += sectionAbsent;
-          });
+        if (error) {
+          logger.error(
+            'academic/attendance-dashboard',
+            'fn_attendance_dashboard_section_stats failed',
+            error
+          );
+          throw error;
         }
 
-        // Calculate percentages and convert Maps to arrays
-        const result: AttendanceStats[] = [];
-
-        institutionStats.forEach((institution) => {
-          institution.attendance_percentage =
-            institution.total_students > 0
-              ? Math.round(
-                  (institution.total_present / institution.total_students) * 100
-                )
-              : 0;
-
-          const departments: any[] = [];
-          institution.departments.forEach((department: any) => {
-            department.attendance_percentage =
-              department.total_students > 0
-                ? Math.round(
-                    (department.total_present / department.total_students) * 100
-                  )
-                : 0;
-
-            const semesters: any[] = [];
-            department.semesters.forEach((semester: any) => {
-              semester.attendance_percentage =
-                semester.total_students > 0
-                  ? Math.round(
-                      (semester.total_present / semester.total_students) * 100
-                    )
-                  : 0;
-
-              semester.sections = Array.from(semester.sections.values());
-              semesters.push(semester);
-            });
-
-            department.semesters = semesters;
-            departments.push(department);
-          });
-
-          institution.departments = departments;
-          result.push(institution);
-        });
-
-        return result;
+        return this.buildStatsHierarchy(data ?? []);
       } catch (error) {
-        logger.error('academic/attendance-dashboard', 'Error in getTodayAttendanceStats', error);
+        logger.error(
+          'academic/attendance-dashboard',
+          'Error in getTodayAttendanceStats',
+          error
+        );
         throw error;
       }
     }
   );
+
+  /**
+   * Nest the RPC's flat section rows into the AttendanceStats tree.
+   *
+   * present/absent roll UP from the sections, so a parent is always exactly the
+   * sum of its children and can never disagree with the rows beneath it. The
+   * section numbers themselves are already period-averaged and learner-attributed
+   * by the RPC.
+   */
+  private static buildStatsHierarchy(rows: any[]): AttendanceStats[] {
+    const institutions = new Map<string, any>();
+
+    rows.forEach((row) => {
+      let institution = institutions.get(row.institution_id);
+      if (!institution) {
+        institution = {
+          institution_id: row.institution_id,
+          institution_name: row.institution_name,
+          total_students: 0,
+          total_present: 0,
+          total_absent: 0,
+          attendance_percentage: 0,
+          departments: new Map()
+        };
+        institutions.set(row.institution_id, institution);
+      }
+
+      let department = institution.departments.get(row.department_id);
+      if (!department) {
+        department = {
+          department_id: row.department_id,
+          department_name: row.department_name,
+          total_students: 0,
+          total_present: 0,
+          total_absent: 0,
+          attendance_percentage: 0,
+          semesters: new Map()
+        };
+        institution.departments.set(row.department_id, department);
+      }
+
+      let semester = department.semesters.get(row.semester_id);
+      if (!semester) {
+        semester = {
+          semester_id: row.semester_id,
+          semester_name: row.semester_name,
+          total_students: 0,
+          total_present: 0,
+          total_absent: 0,
+          attendance_percentage: 0,
+          sections: []
+        };
+        department.semesters.set(row.semester_id, semester);
+      }
+
+      // Postgres bigint arrives as a string over PostgREST.
+      const totalStudents = Number(row.total_students) || 0;
+      const present = Number(row.present) || 0;
+      const absent = Number(row.absent) || 0;
+
+      semester.sections.push({
+        section_id: row.section_id,
+        section_name: row.section_name,
+        total_students: totalStudents,
+        present,
+        absent,
+        percentage:
+          totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0
+      });
+
+      semester.total_students += totalStudents;
+      semester.total_present += present;
+      semester.total_absent += absent;
+
+      department.total_students += totalStudents;
+      department.total_present += present;
+      department.total_absent += absent;
+
+      institution.total_students += totalStudents;
+      institution.total_present += present;
+      institution.total_absent += absent;
+    });
+
+    const pct = (present: number, total: number) =>
+      total > 0 ? Math.round((present / total) * 100) : 0;
+
+    return Array.from(institutions.values()).map((institution) => ({
+      ...institution,
+      attendance_percentage: pct(
+        institution.total_present,
+        institution.total_students
+      ),
+      departments: Array.from(institution.departments.values()).map(
+        (department: any) => ({
+          ...department,
+          attendance_percentage: pct(
+            department.total_present,
+            department.total_students
+          ),
+          semesters: Array.from(department.semesters.values()).map(
+            (semester: any) => ({
+              ...semester,
+              attendance_percentage: pct(
+                semester.total_present,
+                semester.total_students
+              )
+            })
+          )
+        })
+      )
+    }));
+  }
 
   /**
    * Get pending attendance periods with enhanced filtering and date range support
