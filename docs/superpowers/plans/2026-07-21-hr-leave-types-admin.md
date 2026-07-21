@@ -568,13 +568,35 @@ grep -n "'leave_types'" lib/services/hr/leave-service.ts
 
 Expected: no output.
 
-- [ ] **Step 5: Sweep the rest of the HR module**
+- [ ] **Step 4b: Repoint the four sites OUTSIDE leave-service.ts**
+
+Task 1's review found these by grep after the migration had already run. All read staff leave types from the now-empty `leave_types`. Change each `.from('leave_types')` to `.from('hr_leave_types')` and drop any `.eq('scope','staff')`:
+
+| File | Line | What breaks without the fix |
+|---|---|---|
+| `lib/services/hr/dashboard-service.ts` | 345 | **LIVE REGRESSION** — "Active Leave Types" KPI silently reads 0 |
+| `app/api/hr/leave/applications/route.ts` | 118 | Notification text falls back to generic `'Leave'` |
+| `app/api/hr/leave/applications/[id]/approve/route.ts` | 52 | same |
+| `app/api/hr/leave/applications/[id]/reject/route.ts` | 54 | same |
+| `app/api/staff/notify/route.ts` | 171, 222 | same — **outside the sweep paths below; easy to miss** |
+
+The dashboard KPI is the only one users can see today (0 applications exist, so the notification paths are dormant) — but all become live once Stage B generates balances and people start applying.
+
+**Do NOT touch `lib/services/academic/leave-management-service.ts`** — that is the Academic/learner service and must keep reading `leave_types`.
+
+- [ ] **Step 5: Sweep for anything missed**
 
 ```bash
-grep -rn "leave_types" lib/services/hr/ hooks/hr/ "app/(routes)/hr/" "app/api/hr/" | grep -v "hr_leave_types"
+grep -rn "from('leave_types')" lib/ app/ | grep -v node_modules | grep -v "services/academic/"
 ```
 
-Expected: no output. Any hit is a site that would now fail loudly — fix it before continuing.
+Expected: no output. Any hit is a staff-leave site that would now fail loudly or silently read empty — fix it before continuing.
+
+- [ ] **Step 5b: Mirror the schema change into supabase/setup/**
+
+CLAUDE.md requires migrations be mirrored into the `supabase/setup/` reference files. `supabase/setup/05_views.sql:855-920` still defines the dropped `hr_leave_types` VIEW and labels it *"LOAD-BEARING — DO NOT DROP WITHOUT REFACTOR"*, which is now stale and actively misleading.
+
+Replace that view definition with a comment recording that `hr_leave_types` became a real table in `20260721120000_hr_leave_types_split.sql`, and noting that the three policy RPCs (`hr_policy_history`, `hr_policy_diff`, `hr_policy_restore`) carry `'hr_leave_types'` in an `EXECUTE format(...)` allowlist whose JSON shape changed — the old view aliased `leave_type_name → name` and `leave_type_code → code`; the table does not. Those RPCs are currently unreachable (`features/hr/policies/registry.ts:48-53` removed `hr_leave_types` from `POLICY_TABLES` on 2026-04-15), but the mismatch becomes live if it is ever re-registered.
 
 - [ ] **Step 6: Typecheck**
 
