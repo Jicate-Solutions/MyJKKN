@@ -1990,6 +1990,59 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'HR Management',
       menus: [
         {
+          // ── Self Service (2026-07-21) ────────────────────────────────────
+          // Every employee's OWN records. Deliberately the FIRST row: it is the
+          // only part of HR that all 61 staff-bearing roles can use, whereas
+          // HR / Recruitment / Admin below are held by 2-10 roles each.
+          //
+          // PLACEMENT HISTORY — do not "promote" this back to its own
+          // groupLabel. It shipped that way on 2026-07-21 and was moved here
+          // the same day: a group assembled from /hr/* sub-routes cannot have a
+          // lib/navigation/modules.ts entry (MODULES is keyed by top-level URL
+          // slug), and components/Navbar/menu.tsx:223 appends unmatched groups
+          // AFTER every MODULES-ordered section. For an admin who sees ~30
+          // groups that buried it at the very bottom of the sidebar, nowhere
+          // near HR. As a row inside HR Management it inherits HR's position
+          // and mobile icon for free.
+          //
+          // The leave entries here are the SELF-SERVICE half; the HR row below
+          // keeps the shared/approver half (overview, approve inbox, calendar)
+          // so the same label never appears twice in one group.
+          href: '/hr/leave/apply',
+          label: 'Self Service',
+          active:
+            pathname.startsWith('/hr/leave/apply')
+            || pathname.startsWith('/hr/leave/my-applications')
+            || pathname.startsWith('/hr/leave/balance')
+            || pathname.startsWith('/hr/leave/encashment')
+            || pathname.startsWith('/hr/attendance')
+            || pathname.startsWith('/hr/shifts/my')
+            || pathname.startsWith('/hr/performance-reviews')
+            || pathname.startsWith('/hr/training')
+            || pathname.startsWith('/hr/fdp')
+            || pathname.startsWith('/hr/promotions/apply')
+            || pathname.startsWith('/hr/documents')
+            || pathname.startsWith('/hr/my-assets')
+            || pathname.startsWith('/hr/memos/my'),
+          icon: UserCheck,
+          submenus: [
+            { href: '/hr/leave/apply', label: 'Apply for Leave', active: pathname === '/hr/leave/apply' },
+            { href: '/hr/leave/my-applications', label: 'My Leave Applications', active: pathname === '/hr/leave/my-applications' },
+            { href: '/hr/leave/balance', label: 'My Leave Balance', active: pathname === '/hr/leave/balance' },
+            { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
+            { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
+            { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
+            { href: '/hr/shifts/my', label: 'My Shifts', active: pathname.startsWith('/hr/shifts/my') },
+            { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
+            { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
+            { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
+            { href: '/hr/promotions/apply', label: 'Apply for Promotion', active: pathname === '/hr/promotions/apply' },
+            { href: '/hr/documents', label: 'My Documents', active: pathname.startsWith('/hr/documents') },
+            { href: '/hr/my-assets', label: 'My Assets', active: pathname.startsWith('/hr/my-assets') },
+            { href: '/hr/memos/my', label: 'My Memos', active: pathname.startsWith('/hr/memos/my') },
+          ]
+        },
+        {
           href: '/hr',
           label: 'HR',
           // Recruitment and Admin live under /hr/ but have their own menu rows.
@@ -2000,15 +2053,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
           icon: Building,
           submenus: [
+            // Apply / My Applications / Balance / Encashment moved to the Self
+            // Service row above (2026-07-21). What stays here is the shared and
+            // approver-facing half — duplicating the self-service entries in
+            // both rows would put the same label twice in one group, the exact
+            // confusion the Employee List rename fixed a day earlier.
             { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
             { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
-            { href: '/hr/leave', label: 'Leave', active: pathname.startsWith('/hr/leave') },
-            { href: '/hr/leave/apply', label: 'Leave · Apply', active: pathname === '/hr/leave/apply' },
-            { href: '/hr/leave/my-applications', label: 'Leave · My Applications', active: pathname === '/hr/leave/my-applications' },
+            { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
             { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
-            { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
-            { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
           ]
         },
         {
@@ -2091,100 +2145,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
           ]
         }
-      ]
-    },
-    {
-      // ── Employee Self Service (2026-07-21) ─────────────────────────────────
-      // Every employee's own records: their leave, attendance, shifts, assets,
-      // appraisal, training. Distinct from HR Management, which is HR staff
-      // acting on OTHER people's records.
-      //
-      // POSITIONING CAVEAT — this group has NO entry in lib/navigation/modules.ts
-      // and cannot have one: MODULES is keyed by top-level URL slug, and these
-      // are all /hr/* sub-routes with no slug of their own. Both renderers
-      // (components/Navbar/menu.tsx and components/BottomNav/bottom-navbar.tsx)
-      // walk getModulesBySection() and then apply a trailing fallback for
-      // unmatched groups, so this renders at the END of the sidebar and takes a
-      // fallback mobile icon rather than a section icon. That is an accepted
-      // trade-off (product decision 2026-07-21) — the alternative was minting a
-      // new top-level route such as /my-hr and re-homing ten pages.
-      //
-      // Each href here MUST have a MENU_PERMISSIONS entry (see the Employee
-      // Self Service block near :283). Without one the page inherits
-      // '/hr' → 'hr.view' through RoutePermissionGuard's longest-prefix match
-      // and stays blocked for 73 of 75 roles no matter what this menu says.
-      groupLabel: 'Employee Self Service',
-      menus: [
-        {
-          href: '/hr/leave/apply',
-          label: 'My Leave',
-          active: pathname.startsWith('/hr/leave/apply')
-            || pathname.startsWith('/hr/leave/my-applications')
-            || pathname.startsWith('/hr/leave/balance')
-            || pathname.startsWith('/hr/leave/encashment'),
-          icon: CalendarDays,
-          submenus: [
-            { href: '/hr/leave/apply', label: 'Apply for Leave', active: pathname === '/hr/leave/apply' },
-            { href: '/hr/leave/my-applications', label: 'My Applications', active: pathname === '/hr/leave/my-applications' },
-            { href: '/hr/leave/balance', label: 'Leave Balance', active: pathname === '/hr/leave/balance' },
-            { href: '/hr/leave/encashment', label: 'Encashment', active: pathname === '/hr/leave/encashment' },
-          ]
-        },
-        {
-          // Short time off is NOT a separate route — it is the "Permission
-          // (Hourly)" leave type (11 rows in leave_types, duration_type='hourly',
-          // one per institution) selected on the normal apply form, which
-          // already renders start/end time inputs when duration is hourly.
-          // Deep-linking here rather than building a parallel surface.
-          href: '/hr/attendance',
-          label: 'My Attendance',
-          active: pathname.startsWith('/hr/attendance'),
-          icon: UserCheck,
-          submenus: [
-            { href: '/hr/attendance', label: 'Attendance Overview', active: pathname === '/hr/attendance' },
-            { href: '/hr/attendance/regularize', label: 'Regularize', active: pathname.startsWith('/hr/attendance/regularize') },
-          ]
-        },
-        {
-          href: '/hr/shifts/my',
-          label: 'My Shifts',
-          active: pathname.startsWith('/hr/shifts/my'),
-          icon: Clock,
-          submenus: []
-        },
-        {
-          href: '/hr/performance-reviews',
-          label: 'My Appraisal',
-          active: pathname === '/hr/performance-reviews',
-          icon: ClipboardCheck,
-          submenus: []
-        },
-        {
-          href: '/hr/training',
-          label: 'My Development',
-          active: pathname.startsWith('/hr/training')
-            || pathname.startsWith('/hr/fdp')
-            || pathname.startsWith('/hr/promotions/apply'),
-          icon: GraduationCap,
-          submenus: [
-            { href: '/hr/training', label: 'Training', active: pathname.startsWith('/hr/training') },
-            { href: '/hr/fdp', label: 'FDP', active: pathname.startsWith('/hr/fdp') },
-            { href: '/hr/promotions/apply', label: 'Apply for Promotion', active: pathname === '/hr/promotions/apply' },
-          ]
-        },
-        {
-          href: '/hr/documents',
-          label: 'My Records',
-          active: pathname.startsWith('/hr/documents')
-            || pathname.startsWith('/hr/my-assets')
-            || pathname.startsWith('/hr/memos/my'),
-          icon: FileText,
-          submenus: [
-            { href: '/hr/documents', label: 'My Documents', active: pathname.startsWith('/hr/documents') },
-            { href: '/hr/my-assets', label: 'My Assets', active: pathname.startsWith('/hr/my-assets') },
-            { href: '/hr/memos/my', label: 'My Memos', active: pathname.startsWith('/hr/memos/my') },
-          ]
-        },
       ]
     },
     {
