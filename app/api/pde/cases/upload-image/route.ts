@@ -22,7 +22,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { scanJpegForMetadata, isJpegMagic } from '@/lib/services/pde/jpeg-metadata';
+import { scanJpegForMetadata, isJpegMagic, stripJpegMetadata } from '@/lib/services/pde/jpeg-metadata';
 
 const MAX_BYTES = 10 * 1024 * 1024; // matches the bucket's file_size_limit
 const MIN_BYTES = 1024; // below this it is not a real photograph
@@ -62,17 +62,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // FAIL CLOSED: never store a file still carrying metadata.
-  const scan = scanJpegForMetadata(buf);
+  // Strip every metadata-bearing segment server-side. The browser canvas already
+  // dropped EXIF, but it attaches its own ICC colour profile — and a crafted POST
+  // may carry anything at all — so the container is rewritten here rather than
+  // merely inspected.
+  const cleaned = stripJpegMetadata(buf);
+  if (!cleaned) {
+    return NextResponse.json(
+      { error: 'The image could not be read as a valid JPEG. Please re-select the file.' },
+      { status: 400 },
+    );
+  }
+
+  // FAIL CLOSED: verify the rewrite actually produced a clean file. If this ever
+  // trips, something is wrong with the strip and nothing gets stored.
+  const scan = scanJpegForMetadata(cleaned);
   if (!scan.ok) {
-    const detail = scan.offending.length
-      ? `it still carries embedded metadata (${scan.offending.join(', ')})`
-      : 'it could not be verified as a clean JPEG';
     return NextResponse.json(
       {
         error:
-          `This image was rejected because ${detail}. ` +
-          `Clinical images must be stripped of camera and location data before upload.`,
+          'This image could not be cleaned of embedded camera and location data, so it was not saved.',
       },
       { status: 422 },
     );
@@ -82,7 +91,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const path = `manual/${user.id}/${crypto.randomUUID()}.jpg`;
   const { error: upErr } = await admin.storage
     .from('pde-clinical-images')
-    .upload(path, buf, { contentType: 'image/jpeg', upsert: false });
+    .upload(path, cleaned, { contentType: 'image/jpeg', upsert: false });
   if (upErr) {
     return NextResponse.json({ error: 'The image could not be saved. Please try again.' }, { status: 502 });
   }
