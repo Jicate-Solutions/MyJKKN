@@ -1,0 +1,88 @@
+/**
+ * HR Leave Types — staff leave catalog.
+ *
+ * Backed by the hr_leave_types TABLE (not the old view over leave_types).
+ * Keys on hr_organization_id, not institution_id — the org↔institution
+ * mapping is 1:1 and resolving it here removes the translation the apply
+ * page used to perform.
+ */
+
+// LeaveDurationType already exists at types/hr.ts:237 and is used by
+// hr_leave_applications. Re-export rather than redeclaring — two independent
+// unions of the same four values drift the moment one is edited.
+export type { LeaveDurationType } from '@/types/hr';
+import type { LeaveDurationType } from '@/types/hr';
+
+export type LeaveAccrualType = 'none' | 'annual' | 'monthly';
+export type LeaveApplicableGender = 'all' | 'male' | 'female';
+
+export interface HRLeaveType {
+  id: string;
+  hr_organization_id: string;
+  leave_type_code: string;
+  leave_type_name: string;
+  description: string | null;
+  color_code: string;
+  display_order: number;
+  is_active: boolean;
+
+  duration_type: LeaveDurationType;
+  allow_half_day: boolean;
+  allow_hourly: boolean;
+
+  skip_weekends: boolean;
+  skip_holidays: boolean;
+
+  requires_approval: boolean;
+  is_paid: boolean;
+  min_advance_notice_days: number;
+  max_continuous_days: number | null;
+  requires_documents: boolean;
+  document_required_after_days: number | null;
+  default_entitled_days: number;
+
+  valid_from: string;
+  valid_until: string | null;
+  superseded_by: string | null;
+
+  allow_carry_forward: boolean;
+  max_carry_forward_days: number | null;
+  is_encashable: boolean;
+  max_encashable_days: number | null;
+  accrual_type: LeaveAccrualType;
+  accrual_rate: number;
+  applicable_gender: LeaveApplicableGender;
+  applicable_cadre_ids: string[] | null;
+
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type HRLeaveTypeInsert = Omit<
+  HRLeaveType,
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
+> & { id?: string };
+
+export type HRLeaveTypeUpdate = Partial<
+  Omit<HRLeaveType, 'id' | 'hr_organization_id' | 'created_at' | 'updated_at'>
+>;
+
+export interface HRLeaveTypeFilters {
+  hr_organization_id?: string;
+  is_active?: boolean;
+  search?: string;
+}
+
+export const ACCRUAL_TYPE_LABELS: Record<LeaveAccrualType, string> = {
+  none: 'No accrual (granted up-front)',
+  annual: 'Annual',
+  monthly: 'Monthly',
+};
+
+export const APPLICABLE_GENDER_LABELS: Record<LeaveApplicableGender, string> = {
+  all: 'All staff',
+  male: 'Male only',
+  female: 'Female only',
+};
