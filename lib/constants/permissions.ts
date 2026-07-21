@@ -682,7 +682,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
-      // Leave (Sprint 2) — RLS keys referenced in hr_leave_* policies
+      // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
+      // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
+      // this comment was aspirational: the policies gated on user_hr_access +
+      // hardcoded 'hr_officer'/'hr_director' strings and no policy called
+      // user_has_permission(), so granting these keys changed nothing.
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
@@ -691,6 +695,36 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
       { key: 'hr.leave.encashment.view', label: 'View Leave Encashment Requests' },
       { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
+
+      // ── Employee Self Service (2026-07-21) ───────────────────────────────
+      // Gates for the "Employee Self Service" sidebar group. Every key here
+      // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
+      // app/(routes)/hr/layout.tsx wraps the whole subtree in
+      // RoutePermissionGuard, which resolves by LONGEST PREFIX, so any /hr/*
+      // page lacking its own entry silently inherits '/hr' → 'hr.view' — held
+      // by 2 of 75 roles. A key declared here without a menu entry does
+      // nothing at all; the page stays blocked.
+      //
+      // Naming follows the `.view_own` convention (~14 existing keys, the
+      // largest of six competing self-service conventions in this file). Do
+      // not introduce a seventh.
+      //
+      // hr.attendance.view_self / regularize_self are NOT new — 22 roles have
+      // carried them in custom_roles.permissions since the attendance sprint,
+      // and the code already gates on them. They were simply never declared
+      // here, so Role Management could not show them and the audit gate could
+      // not see them. Declaring them is a catalog fix, not a grant.
+      { key: 'hr.attendance.view_self', label: 'View Own Attendance' },
+      { key: 'hr.attendance.regularize_self', label: 'Request Own Attendance Regularization' },
+      { key: 'hr.shifts.view_own', label: 'View Own Shifts and Swap Requests' },
+      { key: 'hr.assets.view_own', label: 'View Own Assigned Assets' },
+      { key: 'hr.memos.view_own', label: 'View Own Memos' },
+      { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },
+      { key: 'hr.promotion.apply_own', label: 'Apply for Own Promotion' },
+      { key: 'hr.training.view_own', label: 'View Own Training and Enroll' },
+      { key: 'hr.fdp.view_own', label: 'View Own FDP Applications' },
+      { key: 'hr.documents.view_own', label: 'Manage Own HR Documents' },
+      { key: 'hr.forms.submit_own', label: 'Submit HR Forms' },
       // Employees (Sprint 1) — HR employee directory
       { key: 'hr.employees.view', label: 'View Employee Directory' },
       { key: 'hr.employees.create', label: 'Add New Employees' },

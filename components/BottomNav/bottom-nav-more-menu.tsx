@@ -54,6 +54,11 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   // 'Employee Management' key removed 2026-07-20: that groupLabel was retired
   // when /staff merged into the HR Management group as the "Employee" row.
   'HR Management':           'bg-gradient-to-br from-rose-500 via-red-500 to-rose-800',
+  // Employee Self Service (2026-07-21) — an employee's OWN records, so a
+  // lighter tone than the HR-admin rose it sits beside. Keyed on the exact
+  // groupLabel from lib/sidebarMenuLink.ts; a mismatch renders an undefined
+  // tile in the More drawer and no build gate catches it.
+  'Employee Self Service':   'bg-gradient-to-br from-teal-400 via-emerald-500 to-teal-700',
 
   // Living / Wellness — amber / orange
   'Campus Living':           'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700',
