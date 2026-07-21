@@ -867,19 +867,21 @@ ORDER BY pl.pending_leads DESC NULLS LAST, i.name;
 -- VIEW left here to drop, and application code (Task 3, 2026-07-21) has been
 -- repointed at the real table.
 --
--- REMAINING SHARP EDGE: three policy RPCs — hr_policy_history(text,uuid,text,text),
+-- The table exposes leave_type_name / leave_type_code where the old VIEW
+-- aliased them to name / code.
+--
+-- Three policy RPCs — hr_policy_history(text,uuid,text,text),
 -- hr_policy_diff(text,uuid,uuid), hr_policy_restore(text,uuid,uuid) — still
 -- carry the literal string 'hr_leave_types' in an EXECUTE format(...) table
--- allowlist written against the OLD view's column shape, which aliased
--- leave_type_name → name and leave_type_code → code. The real table does NOT
--- alias those columns (it exposes leave_type_name / leave_type_code
--- directly), so if any of those three RPCs were invoked against
--- 'hr_leave_types' today they would read/write the wrong column names.
--- They are currently unreachable: features/hr/policies/registry.ts:48-53
--- removed 'hr_leave_types' from POLICY_TABLES on 2026-04-15, and nothing else
--- calls these RPCs with that table name. The mismatch becomes live only if
--- 'hr_leave_types' is ever re-registered in POLICY_TABLES without also
--- updating the RPCs (or their allowlist) for the new column shape.
+-- allowlist. Verified via pg_get_functiondef that all three are fully
+-- dynamic (EXECUTE format('... FROM %I t ...', p_table_name) / to_jsonb(t.*))
+-- and reference no hardcoded column name (no `name`, `code`, or
+-- `leave_type_name` anywhere in their bodies), so they operate correctly on
+-- the real table as-is — they would simply surface the real column names.
+-- No live path reaches them for this table anyway: features/hr/policies/
+-- registry.ts:48-53 removed 'hr_leave_types' from POLICY_TABLES on
+-- 2026-04-15, and nothing in features/hr/policies/ or lib/services/hr/
+-- policy-service.ts reads .name/.code off these RPCs' output.
 
 -- ================================================================================
 -- SECTION: CAMPUS LIVING VIEWS (Added: 2026-05-29)
