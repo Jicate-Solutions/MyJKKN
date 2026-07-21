@@ -74,7 +74,7 @@ export function buildAuthorPrompt(e: PmsExport): string {
     line('Key findings', f.key_findings) +
     `--- END CASE ---\n\n` +
     (imageCount > 0
-      ? `Note: ${imageCount} de-identified clinical image(s) accompany this casesheet, but you cannot see them. Faculty may attach them and author image-based questions separately — do NOT reference specific image content (e.g. "as seen in the radiograph") in your questions.\n\n`
+      ? `Note: ${imageCount} de-identified clinical image(s) accompany this casesheet, but you cannot see them. The reviewing Senior Learner may attach them and author image-based questions separately — do NOT reference specific image content (e.g. "as seen in the radiograph") in your questions.\n\n`
       : '') +
     `Reply with STRICT JSON ONLY — no prose, no markdown fences — exactly this shape:\n` +
     `{"domain_weights":{"data_gathering":<int>,"hypothesis_generation":<int>,"management_planning":<int>,"patient_communication":<int>,"professionalism":<int>},` +
