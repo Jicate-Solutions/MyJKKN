@@ -2089,3 +2089,7 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Consumed by `/api/cron/scf-freetext-carry` (nightly 22:07 UTC: collect prior results → fn_scf_record_freetext_carry; enqueue tonight's candidates) and the learner feedback dialog / Senior Learner counts card.
 - APPLIED LIVE 2026-07-19 after an aborted-txn dry-run on prod (grants matrix, sanitization, re-record idempotency, deny-all direct reads, IDOR, >=3 floor both sides, kill switch). Spec: `specs/scf-freetext-carryforward-2026-07-19.md` (8 Director decisions).
 - Location: `supabase/migrations/20260719090000_scf_freetext_carryforward.sql`.
+
+### 2026-07-21: PDE clinical images bucket (PMS image bridge Phase 4)
+- 1 NEW storage bucket `pde-clinical-images` (public read, `image/jpeg` only, 10 MB cap): DE-IDENTIFIED clinical teaching images copied from the PMS casesheet bridge at import time. Metadata scrubbed at source (sharp re-encode + fail-closed JPEG marker assertion on the PMS box); builder enforces per-image Senior Learner confirmation for burned-in identifiers before attach (default-deny). Service-role writes only (`/api/pde/cases/import-from-pms`); paths `{casesheet_id}/{image_id}.jpg`. Design: `specs/pde-image-bridge-design-2026-07-21.md`.
+- Location: `supabase/migrations/20260721140000_create_pde_clinical_images_bucket.sql`.

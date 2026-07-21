@@ -26,6 +26,7 @@ import type {
   CreateClinicalQuestionInput,
   ClinicalCaseScenario,
   DomainWeights,
+  ImportedPmsImage,
   OSCEDomain,
 } from '@/types/pde';
 import { DomainWeightSliders } from './DomainWeightSliders';
@@ -39,6 +40,8 @@ interface VacCourseOption {
 
 interface Props {
   initialValue?: Partial<CreateClinicalCaseInput>;
+  /** De-identified PMS image candidates — faculty must confirm each before use (default-deny). */
+  importedImages?: ImportedPmsImage[];
   courseOptions: VacCourseOption[];
   saving?: boolean;
   saveLabel?: string;
@@ -91,6 +94,7 @@ function weightsToPercent(w: DomainWeights): DomainWeights {
 
 export function CaseFormBuilder({
   initialValue,
+  importedImages,
   courseOptions,
   saving,
   saveLabel = 'Save',
@@ -126,6 +130,9 @@ export function CaseFormBuilder({
     'patient'
   );
   const [error, setError] = useState<string | null>(null);
+  // Per-image faculty confirmation that no burned-in identifier is visible.
+  // Unconfirmed images cannot be attached anywhere (default-deny).
+  const [confirmedImages, setConfirmedImages] = useState<Record<string, boolean>>({});
 
   const weightsSum = (Object.values(weights) as number[]).reduce((a, b) => a + b, 0);
   const weightsValid = Math.abs(weightsSum - 100) < 0.5;
@@ -357,6 +364,87 @@ export function CaseFormBuilder({
                   placeholder="https://..."
                 />
               </div>
+
+              {importedImages && importedImages.length > 0 ? (
+                <div className="space-y-3 border rounded-md p-3">
+                  <p className="text-sm font-medium">
+                    Imported clinical images ({importedImages.length})
+                  </p>
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      File metadata was removed at export, but identifiers can be{' '}
+                      <strong>burned into the pixels</strong> — patient names or IDs in
+                      imaging-software panels, photographed monitors, stamps at the edges.
+                      Inspect each image closely; it can only be used after you confirm it
+                      is clean.
+                    </AlertDescription>
+                  </Alert>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {importedImages.map((img) => {
+                      const confirmed = !!confirmedImages[img.url];
+                      const inUse = scenario.image_url === img.url;
+                      return (
+                        <div key={img.url} className="border rounded-md p-2 space-y-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={img.url}
+                            alt={`Imported clinical image ${img.seq}`}
+                            className="w-full h-40 object-contain bg-muted rounded"
+                          />
+                          <div className="text-xs text-muted-foreground">
+                            {img.kind.replace(/_/g, ' ')}
+                            {img.taken_at ? ` · ${img.taken_at}` : ''}
+                          </div>
+                          <label className="flex items-start gap-2 text-xs cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={confirmed}
+                              onChange={(e) => {
+                                const ok = e.target.checked;
+                                setConfirmedImages((m) => ({ ...m, [img.url]: ok }));
+                                // Withdrawing confirmation also withdraws the image from use.
+                                if (!ok && scenario.image_url === img.url) {
+                                  setScenarioField('image_url', '');
+                                }
+                              }}
+                            />
+                            <span>
+                              I checked — no patient name, ID, date of birth, or other
+                              identifying detail is visible in this image.
+                            </span>
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={inUse ? 'secondary' : 'outline'}
+                              disabled={!confirmed || inUse}
+                              onClick={() => setScenarioField('image_url', img.url)}
+                            >
+                              {inUse ? 'In use as patient image' : 'Use as patient image'}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={!confirmed}
+                              onClick={() => navigator.clipboard?.writeText(img.url)}
+                            >
+                              Copy URL
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    “Copy URL” lets you paste a confirmed image into an image-tag question on
+                    the Questions tab.
+                  </p>
+                </div>
+              ) : null}
             </TabsContent>
 
             {/* Questions */}

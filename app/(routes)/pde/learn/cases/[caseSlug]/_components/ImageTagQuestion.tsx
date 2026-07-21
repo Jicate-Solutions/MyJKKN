@@ -34,7 +34,9 @@ function localFallbackScore(
   regions: ImageTagRegion[] | null
 ): { score: number; matched_label?: string } {
   // Local fallback used until Agent E's server endpoint is live.
-  // We treat region coordinates as natural-pixel space, same as the click.
+  // Regions are authored as FRACTIONS of the natural image dimensions (0..1 —
+  // see ImageTagRegionAuthor); the click point arrives in natural pixels, so
+  // convert each region to pixels before comparing.
   if (!regions || regions.length === 0) {
     // No expected regions defined → award full credit (faculty must define).
     return { score: 100 };
@@ -42,12 +44,14 @@ function localFallbackScore(
   let best = 0;
   let matched: string | undefined;
   for (const r of regions) {
-    const cx = r.x + r.w / 2;
-    const cy = r.y + r.h / 2;
+    const rw = r.w * pt.imgWidth;
+    const rh = r.h * pt.imgHeight;
+    const cx = r.x * pt.imgWidth + rw / 2;
+    const cy = r.y * pt.imgHeight + rh / 2;
     const dx = pt.x - cx;
     const dy = pt.y - cy;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const tol = r.tolerance_px ?? Math.max(r.w, r.h) / 2;
+    const tol = r.tolerance_px ?? Math.max(rw, rh) / 2;
     // 100% at center, drops to 0% at 2×tolerance distance.
     const s = Math.max(0, Math.min(100, (1 - dist / (tol * 2)) * 100));
     if (s > best) {
