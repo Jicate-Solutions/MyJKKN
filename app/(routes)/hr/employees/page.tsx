@@ -108,7 +108,7 @@ export default function HREmployeeDirectoryPage() {
 
   if (permsLoading) {
     return (
-      <ContentLayout title="HR — Employees">
+      <ContentLayout title="HR Directory">
         <div className="flex justify-center py-16"><BeatLoader color="#3b82f6" /></div>
       </ContentLayout>
     );
@@ -116,7 +116,7 @@ export default function HREmployeeDirectoryPage() {
 
   if (!canView) {
     return (
-      <ContentLayout title="HR — Employees">
+      <ContentLayout title="HR Directory">
         <Alert variant="destructive" className="mt-6">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Access Denied</AlertTitle>
@@ -127,7 +127,7 @@ export default function HREmployeeDirectoryPage() {
   }
 
   return (
-    <ContentLayout title="HR — Employees">
+    <ContentLayout title="HR Directory">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>

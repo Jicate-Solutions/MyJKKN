@@ -261,10 +261,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // HR Management (Sprints 1-6) — keys match permissions.ts HR block and hr_* RLS policies
   // ('/hr' itself is mapped once, later in this object: 'hr.view' — the value
   // that already won under JS last-key-wins before the duplicate was removed.)
+  // '/hr/employees/new' and '/hr/employees/[id]/edit' removed 2026-07-20:
+  // hr_employees was dropped by 20260524083600_consolidate_hr_employees_to_staff
+  // and this surface is read-only now. Creating/editing happens at /staff/list.
+  // The hr.employees.create/edit KEYS stay in lib/constants/permissions.ts —
+  // roles still hold them in custom_roles.permissions JSONB, so removing them
+  // from the catalog would only hide them from Role Management, not revoke.
   '/hr/employees': 'hr.employees.view',
-  '/hr/employees/new': 'hr.employees.create',
   '/hr/employees/[id]': 'hr.employees.view',
-  '/hr/employees/[id]/edit': 'hr.employees.edit',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar
@@ -1948,44 +1952,33 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      // Section renamed to 'Employee Management' on 2026-05-09 (product
-      // decision) to unify /staff + /hr. This groupLabel MUST stay in lock-step
-      // with the MODULES `section` string in lib/navigation/modules.ts — the
-      // mobile bottom-nav matches sections by exact groupLabel===section string,
-      // so any drift silently drops the whole section from the bottom bar.
-      groupLabel: 'Employee Management',
-      menus: [
-        {
-          href: '/staff',
-          label: 'Staff',
-          active: pathname === '/staff' || pathname.startsWith('/staff/'),
-          icon: Users,
-          submenus: [
-            { href: '/staff/dashboard', label: 'Analytics Dashboard', active: pathname === '/staff/dashboard' },
-            { href: '/staff/category', label: 'Employee Category', active: pathname === '/staff/category' },
-            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
-            { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
-          ]
-        }
-      ]
-    },
-    {
-      // HR Management — split out of 'Employee Management' 2026-07-03 so the
-      // HR domain (daily HR, hiring pipeline, admin configuration) reads as one
-      // group. Same lock-step rule as above: this groupLabel MUST match the
-      // MODULES `section` string in lib/navigation/modules.ts or the mobile
-      // bottom-nav silently drops the section.
+      // HR Management — the whole people domain in one section, read as four
+      // rows: HR · Employee · Recruitment · Admin.
+      //
+      // History: /staff + /hr were unified under a 'Employee Management'
+      // groupLabel on 2026-05-09, split apart again 2026-07-03, and re-merged
+      // 2026-07-20 — this time at the MenuItem level, so /staff/* gets its own
+      // collapsible "Employee" row instead of a competing section header.
+      //
+      // This groupLabel MUST stay in lock-step with the MODULES `section`
+      // string in lib/navigation/modules.ts — the mobile bottom-nav matches
+      // sections by exact groupLabel===section string, so any drift demotes
+      // the whole section to the trailing fallback slot on the bottom bar.
+      // No build gate catches that; verify on mobile, not just desktop.
       groupLabel: 'HR Management',
       menus: [
         {
           href: '/hr',
           label: 'HR',
           // Recruitment and Admin live under /hr/ but have their own menu rows.
+          // /hr/employees is NOT excluded from `active` — it has no sidebar
+          // submenu of its own (product decision 2026-07-21: the employee list
+          // belongs to the Employee row below, which owns the record). It
+          // surfaces as an AutoTabNav chip under /hr and highlights this row.
           active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
           icon: Building,
           submenus: [
             { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
-            { href: '/hr/employees', label: 'Employees', active: pathname.startsWith('/hr/employees') },
             { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
             { href: '/hr/leave', label: 'Leave', active: pathname.startsWith('/hr/leave') },
             { href: '/hr/leave/apply', label: 'Leave · Apply', active: pathname === '/hr/leave/apply' },
@@ -1994,6 +1987,38 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
             { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
+          ]
+        },
+        {
+          // Employee — people-records row, merged in from the retired
+          // 'Employee Management' group (2026-07-20).
+          //
+          // ONE submenu by product decision (2026-07-20): a single employee
+          // list, not five entries.
+          //
+          // This is the ONLY employee-list entry in the sidebar (2026-07-21).
+          // It stays on '/staff/list' — the WRITE surface, owning the record
+          // (create/edit/bulk upload/photos). The read-only '/hr/employees'
+          // lens deliberately has no sidebar entry of its own; it reads the
+          // same `staff` table and is reachable as an AutoTabNav chip under
+          // /hr. Repointing this href there would strand the only entry point
+          // for creating and editing staff records.
+          //
+          // Visibility note: GetRoleBasedPages (~:3100) shows this row only if
+          // SOME submenu is permitted. '/staff/list' gates on `staff.view`,
+          // held by 61 roles — so this row is effectively universal. Do not
+          // narrow it to an HR-tier key without checking that count first.
+          //
+          // The parent href stays '/staff' (NOT '/staff/list') so the rest of
+          // the subtree — dashboard, category, class-incharges — remains
+          // reachable as manifest-derived AutoTabNav chips. staff has no
+          // nav-config.ts, so this seed is their only reachability source.
+          href: '/staff',
+          label: 'Employee',
+          active: pathname === '/staff' || pathname.startsWith('/staff/'),
+          icon: Users,
+          submenus: [
+            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
           ]
         },
         {

@@ -1530,6 +1530,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Policies",
             "iconName": "BookText",
             "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/starter-tamil-review",
+            "label": "Starter Tamil Review",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -4009,14 +4015,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/hr/employees",
         "label": "Employees",
         "iconName": "Users",
-        "children": [
-          {
-            "path": "/hr/employees/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
+        "children": []
       },
       {
         "path": "/hr/fdp",

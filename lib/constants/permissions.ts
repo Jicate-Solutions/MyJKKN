@@ -406,7 +406,11 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    name: 'Employee Management',
+    // Display name only — the audit gate (lib/permissions-audit/module-mappings.ts
+    // deriveCategoryKey) matches on `key`, never on `name`, so this is safe to
+    // retitle. Renamed 'Employee Management' → 'Employee' 2026-07-20 to match
+    // the sidebar row.
+    name: 'Employee',
     key: 'staff',
     permissions: [
       { key: 'staff.dashboard.view', label: 'View Employee Analytics Dashboard' },

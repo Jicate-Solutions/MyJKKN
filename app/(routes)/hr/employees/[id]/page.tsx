@@ -30,7 +30,7 @@ export default function HREmployeeDetailPage() {
   const { data, isLoading, error } = useHREmployee(id);
 
   return (
-    <ContentLayout title="HR — Employee Detail">
+    <ContentLayout title="HR Directory — Employee">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
