@@ -38,6 +38,8 @@ export interface PmsExport {
     key_findings?: string | null;
   };
   suggested_title?: string;
+  /** Additive (2026-07-21): metadata-scrubbed clinical images available for this casesheet. */
+  images?: { image_id: string; kind?: string; taken_at?: string; seq?: number }[];
 }
 
 export interface ParsedDraft {
@@ -49,6 +51,7 @@ export interface ParsedDraft {
 export function buildAuthorPrompt(e: PmsExport): string {
   const cs = e.case_scenario as Record<string, unknown>;
   const f = e.facts ?? {};
+  const imageCount = Array.isArray(e.images) ? e.images.length : 0;
   const line = (label: string, v: unknown) => (v ? `${label}: ${String(v)}\n` : '');
   const habit =
     cs.habit_history && typeof cs.habit_history === 'object'
@@ -70,6 +73,9 @@ export function buildAuthorPrompt(e: PmsExport): string {
     line('Treatment plan', f.treatment_plan) +
     line('Key findings', f.key_findings) +
     `--- END CASE ---\n\n` +
+    (imageCount > 0
+      ? `Note: ${imageCount} de-identified clinical image(s) accompany this casesheet, but you cannot see them. Faculty may attach them and author image-based questions separately — do NOT reference specific image content (e.g. "as seen in the radiograph") in your questions.\n\n`
+      : '') +
     `Reply with STRICT JSON ONLY — no prose, no markdown fences — exactly this shape:\n` +
     `{"domain_weights":{"data_gathering":<int>,"hypothesis_generation":<int>,"management_planning":<int>,"patient_communication":<int>,"professionalism":<int>},` +
     `"questions":[{"question_type":"free_text_socratic|mcq_warmup","question_text":"<question>","points":<int>,` +

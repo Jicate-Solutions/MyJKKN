@@ -767,6 +767,19 @@ export interface ImageTagRegion {
   reasoning?: string;
 }
 
+/**
+ * A de-identified clinical image copied from the PMS bridge into the
+ * pde-clinical-images bucket. These are CANDIDATES — the builder requires
+ * faculty to confirm no burned-in identifiers before one can be attached
+ * (default-deny; see specs/pde-image-bridge-design-2026-07-21.md).
+ */
+export interface ImportedPmsImage {
+  url: string;
+  kind: string;
+  taken_at?: string;
+  seq: number;
+}
+
 export interface ClinicalQuestionMetadata {
   q_number: number;
   osce_domain: OSCEDomain;
