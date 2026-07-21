@@ -120,9 +120,17 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     .eq('assessment_id', assessment.id)
     .order('order_index', { ascending: true });
 
-  const questions: ClinicalQuestion[] = (qRows ?? []).filter(
-    (q: any) => ['free_text_socratic', 'mcq_warmup', 'image_tag'].includes(q.question_type)
-  );
+  // The answer key must never reach the learner's browser. metadata carries
+  // ground_truth (the model answer the AI marks against) and correct_answer
+  // names the right MCQ option — shipping either in the page payload puts the
+  // answers one DevTools panel away during the attempt. Both are stripped here;
+  // marking happens server-side, which reads them from the database directly.
+  const questions: ClinicalQuestion[] = (qRows ?? [])
+    .filter((q: any) => ['free_text_socratic', 'mcq_warmup', 'image_tag'].includes(q.question_type))
+    .map((q: any) => {
+      const { ground_truth: _gt, ...safeMetadata } = q.metadata ?? {};
+      return { ...q, correct_answer: null, metadata: safeMetadata };
+    });
 
   if (questions.length === 0) {
     return (
