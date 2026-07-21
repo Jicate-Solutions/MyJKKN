@@ -719,17 +719,49 @@ export class LeaveOndutyService {
     // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
     // academic chain is seeded after sponsor approves (see processSponsorApproval).
     if (!requiresSponsor) {
-      const { data: flow } = await supabase
-        .from('leave_onduty_approval_flows')
-        .select('flow_steps')
-        .eq('institution_id', institutionId)
-        .eq('category', data.category)
-        .eq('sub_category', data.sub_category)
-        .eq('is_active', true)
-        .or(`department_id.is.null,department_id.eq.${learner.department_id}`)
-        .order('department_id', { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle();
+      // Resolve the flow through the SAME RPC the approval path uses
+      // (leave-onduty-approval-service.ts:70 and :366). Do not reintroduce an
+      // inline query here — apply-time and approve-time MUST resolve the
+      // identical flow or applications seed against one and get judged against
+      // another.
+      //
+      // The previous inline query filtered `.eq('category', data.category)`
+      // and `.eq('sub_category', data.sub_category)`, which could never match
+      // the 155 flows stored as category='all' with sub_category IS NULL. Two
+      // separate reasons it failed: 'onduty' != 'all', and PostgREST emits
+      // `sub_category=eq.null` for a null argument, which never matches SQL
+      // NULL (that needs `is.null`). Result: 54 of 60 live applications were
+      // seeded with zero approver rows and sat pending with nobody able to act
+      // — a silent failure, since a missing flow produced an empty steps array
+      // rather than an error. The RPC implements the specificity ladder and
+      // handles both the 'all' fallback and NULL sub_category correctly.
+      //
+      // OVERLOAD WARNING: two overloads exist — this 5-arg one and a 7-arg
+      // variant adding degree/program. Both `RETURNS leave_onduty_approval_flows`
+      // (a composite row, so PostgREST yields a single object, not an array).
+      // The approval path calls the 5-arg overload; calling the 7-arg one here
+      // would resolve a *more specific* flow than approve-time and recreate the
+      // very mismatch this fix removes.
+      const { data: flow, error: flowError } = await supabase.rpc(
+        'get_applicable_approval_flow',
+        {
+          p_institution_id: institutionId,
+          p_department_id: learner.department_id,
+          p_semester_id: learner.semester_id,
+          p_category: data.category,
+          p_sub_category: data.sub_category,
+        }
+      );
+
+      if (flowError) {
+        // Don't fail the submission — the application is already inserted and
+        // an admin can seed approvals later. But never swallow this: an
+        // unlogged failure here is exactly how 54 applications went missing.
+        console.error(
+          '[leave-onduty] approval-flow resolution failed; application will have no approvers',
+          { applicationId: application.id, error: flowError }
+        );
+      }
 
       const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
 
