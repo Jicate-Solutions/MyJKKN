@@ -1481,9 +1481,16 @@ export default function AttendanceMarkPage() {
 
         // Redirect to report details page after delay
         setTimeout(() => {
-          // Redirect to report details page using the attendance record ID
+          // Redirect to report details page using the attendance record ID.
+          // Updated: 2026-07-21 - Land on the period we just marked/edited. The record
+          // holds every period marked that day, so without ?period= the report opened on
+          // period_details[0] — after editing period 6 you were shown period 1, which
+          // reads as "my edit went to the wrong period".
           if (result.id) {
-            router.push(`/academic/attendance/reports/${result.id}`);
+            const reportUrl = periodId
+              ? `/academic/attendance/reports/${result.id}?period=${encodeURIComponent(periodId)}`
+              : `/academic/attendance/reports/${result.id}`;
+            router.push(reportUrl);
           } else {
             // Fallback to reports list page if no ID is available
             const params = new URLSearchParams({
