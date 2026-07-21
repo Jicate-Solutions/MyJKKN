@@ -136,7 +136,7 @@ export default function ApplyLeavePage() {
       {isLoading ? (
         <div className="mt-6 text-sm text-muted-foreground">Loading your profile…</div>
       ) : !employee ? (
-        <div className="mt-6 max-w-2xl">
+        <div className="mt-6 max-full">
           <EmptyState
             icon={<UserX className="h-10 w-10 text-muted-foreground" />}
             title="No HR employee profile linked"
