@@ -217,12 +217,16 @@ export class LeaveService {
     if (!leaveType) throw new Error('Leave type not found');
 
     // 2. Blackout check (decision 12)
-    const { data: blackouts } = await supabase
+    // `error` must be destructured and thrown. Discarding it makes a failed
+    // query indistinguishable from "no blackouts configured", which silently
+    // PERMITS leave inside a blackout window — a fail-open check.
+    const { data: blackouts, error: blackoutError } = await supabase
       .from('hr_leave_blackouts')
       .select('*')
       .eq('hr_organization_id', payload.hr_organization_id)
       .lte('start_date', payload.end_date)
       .gte('end_date', payload.start_date);
+    if (blackoutError) throw blackoutError;
 
     const blocked = (blackouts ?? []).find(
       (b) => b.leave_type_ids === null || b.leave_type_ids.includes(payload.leave_type_id)
@@ -270,19 +274,37 @@ export class LeaveService {
       payload.duration_type === 'first_half' || payload.duration_type === 'second_half' ? 0.5 :
       durationDays;
 
-    const { data: balance } = await supabase
+    // Two bugs previously stacked here and cancelled the over-draw check out
+    // entirely, silently:
+    //   1. `.eq('academic_year_id', payload.academic_year_id ?? '')` — the ''
+    //      is sent as a uuid and Postgres raises 22P02.
+    //   2. `error` was not destructured, so that 22P02 was swallowed, `balance`
+    //      came back undefined, and `if (balance)` skipped the whole check.
+    // Net effect once the module became reachable: employees could exceed
+    // their entitlement with no error at all. Null academic year now means
+    // `IS NULL`, not '', and the error is surfaced.
+    let balanceQuery = supabase
       .from('hr_leave_balances')
       .select('*')
       .eq('employee_id', payload.employee_id)
-      .eq('leave_type_id', payload.leave_type_id)
-      .eq('academic_year_id', payload.academic_year_id ?? '')
-      .maybeSingle();
+      .eq('leave_type_id', payload.leave_type_id);
+
+    balanceQuery = payload.academic_year_id
+      ? balanceQuery.eq('academic_year_id', payload.academic_year_id)
+      : balanceQuery.is('academic_year_id', null);
+
+    const { data: balance, error: balanceError } = await balanceQuery.maybeSingle();
+    if (balanceError) throw balanceError;
 
     if (balance) {
       const available = (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
       if (estimatedDays > available) {
+        // leave_types has no `name` column — it is `leave_type_name`. `name`
+        // exists only on the hr_leave_types compatibility VIEW, which this
+        // query does not use, so this message read
+        // "you have 3.0 undefined available".
         throw new Error(
-          `Insufficient balance. You have ${available.toFixed(1)} ${leaveType.name} available; requested ${estimatedDays}.`
+          `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
         );
       }
     }
@@ -535,15 +557,39 @@ export class LeaveService {
     return (data ?? []) as HRLeaveApplicationComment[];
   }
 
+  /**
+   * COLUMN DRIFT (fixed 2026-07-21). This inserted
+   * `{ application_id, author_id, body }`. The table has neither `author_id`
+   * nor `body` — the real columns are `commenter_id` and `comment` — and it
+   * additionally omitted the NOT NULL `hr_organization_id`. Every POST failed
+   * with 42703/PGRST204. It was never caught because no application had ever
+   * been created, so nobody could reach a detail page to comment on.
+   *
+   * hr_organization_id is read off the parent application rather than passed
+   * in: it must match the application's org for RLS to accept the row, and
+   * deriving it here removes the chance of a caller supplying a mismatched one.
+   */
   static async addComment(
     supabase: SupabaseClient,
     applicationId: string,
     authorId: string,
     body: string
   ) {
+    const { data: parent, error: parentError } = await supabase
+      .from('hr_leave_applications')
+      .select('hr_organization_id')
+      .eq('id', applicationId)
+      .single();
+    if (parentError) throw parentError;
+
     const { data, error } = await supabase
       .from('hr_leave_application_comments')
-      .insert({ application_id: applicationId, author_id: authorId, body })
+      .insert({
+        application_id: applicationId,
+        hr_organization_id: parent.hr_organization_id,
+        commenter_id: authorId,
+        comment: body,
+      })
       .select()
       .single();
     if (error) throw error;

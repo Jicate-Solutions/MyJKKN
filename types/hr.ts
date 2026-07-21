@@ -379,11 +379,20 @@ export interface HRLeaveBlackout {
   created_at: string;
 }
 
+/**
+ * Mirrors hr_leave_application_comments. Corrected 2026-07-21: this declared
+ * `author_id` / `body`, which are not columns on that table — the real names
+ * are `commenter_id` / `comment`. The service inserted the wrong names (every
+ * POST 42703'd) and the detail page read them back as `undefined`, so comments
+ * were broken in both directions.
+ */
 export interface HRLeaveApplicationComment {
   id: string;
   application_id: string;
-  author_id: string;
-  body: string;
+  hr_organization_id: string;
+  commenter_id: string;
+  comment: string;
+  parent_comment_id: string | null;
   created_at: string;
 }
 

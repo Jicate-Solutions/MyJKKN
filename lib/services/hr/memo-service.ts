@@ -411,22 +411,42 @@ export class HRMemoService {
     reason: string,
   ): Promise<boolean> {
     try {
-      // Find staff auth_user_id + supervisor
-      const { data: staffRow } = await this.supabase
+      // SCHEMA FIX 2026-07-21: this selected `auth_user_id, supervisor_id`.
+      // NEITHER column exists on `staff` — the auth link is `profile_id`, and
+      // there is no supervisor column at all. Every call raised 42703, the
+      // error was discarded, staffRow came back null and the method returned
+      // false, so HR memo notifications have never been delivered to anyone.
+      const { data: staffRow, error: staffError } = await this.supabase
         .from('staff')
-        .select('auth_user_id, supervisor_id, first_name, last_name')
+        .select('profile_id, first_name, last_name')
         .eq('id', staffId)
         .maybeSingle();
-      if (!staffRow?.auth_user_id) return false;
+      if (staffError) {
+        console.error('[memo-service] staff lookup failed', staffError);
+        return false;
+      }
+      if (!staffRow?.profile_id) return false;
 
-      const recipients: string[] = [staffRow.auth_user_id as string];
-      if (staffRow.supervisor_id) {
+      const recipients: string[] = [staffRow.profile_id as string];
+
+      // Supervisor copy. The reporting line lives on
+      // hr_staff_details.reports_to_staff_id, not on `staff`. It is populated
+      // for 0 of 543 rows today, so this branch is a no-op until the org chart
+      // is filled in — but it now points at the right column, so it starts
+      // working the moment that happens instead of silently 42703-ing.
+      const { data: detail } = await this.supabase
+        .from('hr_staff_details')
+        .select('reports_to_staff_id')
+        .eq('staff_id', staffId)
+        .maybeSingle();
+
+      if (detail?.reports_to_staff_id) {
         const { data: sup } = await this.supabase
           .from('staff')
-          .select('auth_user_id')
-          .eq('id', staffRow.supervisor_id)
+          .select('profile_id')
+          .eq('id', detail.reports_to_staff_id)
           .maybeSingle();
-        if (sup?.auth_user_id) recipients.push(sup.auth_user_id as string);
+        if (sup?.profile_id) recipients.push(sup.profile_id as string);
       }
 
       const title = 'HR memo issued';
