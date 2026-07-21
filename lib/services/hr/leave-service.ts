@@ -127,37 +127,72 @@ export class LeaveService {
     leaveTypeId: string,
     departmentId: string | null
   ): Promise<LeaveApprovalStep[]> {
-    // Most-specific wins (decision 16): prefer department-scoped over institution-scoped
+    // SCHEMA NOTE (fixed 2026-07-21). This previously queried
+    // hr_approval_flows for leave_type_id / scope_level / chain_order /
+    // approver_role / approver_scope. NONE of those five columns exist on that
+    // table — they belong to leave_approval_chains, which serves the
+    // institution holiday calendar. Almost certainly a copy-paste from the
+    // wrong engine. Every call would have raised PostgREST 42703 before
+    // reaching the insert, so this was a second hard block on leave submission
+    // sitting behind the RLS one.
+    //
+    // The real shape is one flow row per (organization, flow_for) carrying a
+    // JSONB `steps` array. `conditions` is a free-form JSONB matcher — the
+    // recruitment flows key it on role_category; leave keys it on
+    // leave_type_id, or leaves it empty for a catch-all.
     const { data: flows, error } = await supabase
       .from('hr_approval_flows')
-      .select('*')
+      .select('flow_name, conditions, steps, escalate_after_hours')
       .eq('hr_organization_id', hrOrgId)
-      .or(`leave_type_id.eq.${leaveTypeId},leave_type_id.is.null`)
-      .is('valid_until', null)
-      .order('scope_level', { ascending: false }) // 'department' > 'institution'
-      .order('chain_order', { ascending: true });
+      .eq('flow_for', 'leave_approval')
+      .eq('is_active', true)
+      .is('valid_until', null);
 
     if (error) throw error;
 
-    // Group flows by scope_level + pick the most-specific group for this employee
-    const departmentFlows = (flows ?? []).filter(
-      (f) => f.scope_level === 'department' && f.approver_scope === departmentId
-    );
-    const institutionFlows = (flows ?? []).filter((f) => f.scope_level === 'institution');
-    const chosen = departmentFlows.length > 0 ? departmentFlows : institutionFlows;
+    type FlowRow = {
+      flow_name: string | null;
+      conditions: Record<string, unknown> | null;
+      steps: Array<Record<string, unknown>> | null;
+      escalate_after_hours: number | null;
+    };
+    const candidates = (flows ?? []) as FlowRow[];
 
-    if (chosen.length === 0) {
+    // Most-specific wins: a flow naming this leave type beats the catch-all.
+    // departmentId is accepted for signature stability and future
+    // department-scoped flows; no seeded flow keys on it today.
+    const chosen =
+      candidates.find((f) => f.conditions?.leave_type_id === leaveTypeId) ??
+      candidates.find((f) => !f.conditions?.leave_type_id);
+
+    if (!chosen) {
       throw new Error(
-        'No approval flow configured for this leave type + organization. HR must configure at /hr/policies/hr_approval_flows first.'
+        'No leave approval flow is configured for your organization. Ask HR to add one before applying.'
       );
     }
 
-    return chosen.map((f) => ({
-      step_order: f.chain_order ?? 1,
-      approver_role: f.approver_role,
-      approver_user_id: null, // resolved at approve-time by role lookup
+    const steps = (chosen.steps ?? []).slice().sort(
+      (a, b) => Number(a.chain_order ?? 0) - Number(b.chain_order ?? 0)
+    );
+
+    if (steps.length === 0) {
+      throw new Error('The configured leave approval flow has no steps.');
+    }
+
+    // approver_user_id is carried through when the flow pins a specific person.
+    // Seeded flows leave it null, which assertCanDecide() treats as "any
+    // permitted approver" rather than a hard block — authorization rests on
+    // user_has_permission('hr.leave.approve') in RLS plus the self-approval
+    // check, per the permission-based routing decision (no org chart exists:
+    // reports_to_staff_id is 0/543 and head_of_department_id is 0/79).
+    return steps.map((s) => ({
+      step_order: Number(s.chain_order ?? 1),
+      approver_role: String(s.approver_role ?? 'hr_approver'),
+      approver_user_id: (s.approver_user_id as string | null) ?? null,
       status: 'pending' as const,
-      escalate_after_hours: f.escalate_after_hours ?? 48,
+      escalate_after_hours: Number(
+        s.escalate_after_hours ?? chosen.escalate_after_hours ?? 48
+      ),
     }));
   }
 
