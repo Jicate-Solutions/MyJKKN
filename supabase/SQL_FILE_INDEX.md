@@ -1554,3 +1554,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Tables: `admission_form_templates`, `admission_forms`, `admission_form_sections`, `admission_form_fields`, `admission_form_submissions`, `admission_form_events`
 - Location: `supabase/setup/01_tables.sql` (appended)
 - Purpose: Dynamic public admission form builder with submissions flowing to leads
+
+### Loop-Graph Governance v1 (2026-07-19)
+- Column: `loop_registry.counter_metric` (Goodhart-pair; convention: m gate needs a named+measured counter) — seeded for `bug-triage`, `scf`; NULL = honestly unpaired
+- Rows: `loop_registry` +3 (`faculty-appraisal`, `scf-note-safety`, `scf-freetext-carry`, class intake/gates off) + `owner_email='aieee@jkkn.ac.in'` on ALL 21 loops
+- Table: `loop_conflicts` (arbitration home; RLS on, admin SELECT only, writes governance-only) — seeded `C1-appraisal-feedback-wire` (arbiter: Director, status open)
+- Location: `supabase/migrations/20260719_loop_graph_visibility_and_edges_v1.sql` — **APPLIED directly to prod via Mgmt API 2026-07-19** (rolled-back-validated first); file ships to jicate/main with the quiet-period cleanup PR
+- Companion protocol: `.claude/loop-morning-check.sql` (daily audit + sensor-pipe checks; bridge baseline 180/187 = 96.3%)

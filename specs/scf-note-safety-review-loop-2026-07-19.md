@@ -1,6 +1,32 @@
 # SCF Struggling-Student Note — Self-Improving Safety-Review Loop
 
 **Status:** SPEC (awaiting sign-off — nothing built)
+
+> ## 🔴 DIRECTOR DECISION — 2026-07-19 22:20 IST (Omm, via AskUserQuestion, fully informed)
+>
+> **"Fix the writer first."** Chosen over "human triage as-is" and "bulk approve" (bulk approve explicitly rejected).
+>
+> **Evidence the decision was made on** (shadow judge, live prod data at decision time): 319 notes judged →
+> **0 auto_safe** / 308 needs_human / 11 likely_unsafe. Flags: `hallucinated_specifics` 309 (97%),
+> `pii_leak` 74 (notes name mentors), `inaccurate_to_signal` 60. Backlog: 1,135 draft / 3 approved / 0 rejected;
+> 702 drafts stale ≥2 weeks (week_of 2026-07-06), 433 from week_of 2026-07-13.
+>
+> **What this means for execution (sequence amendment to this spec):**
+> 1. **Pause approvals** — reviewers should NOT work the current queue; most of it is fabricated-content rejects.
+>    ⚠️ Includes parking the daily super-admin approval reminder (PR #2115 ai-tasks-sweep tail) or letting it go
+>    quiet naturally once drafts leave `status='draft'` — decide in the build.
+> 2. **Tighten the note-writer** (`app/api/cron/scf-learner-notes` prompt): forbid invented specifics
+>    (dates, ratings, session details not in the input signal) and forbid naming any person. The judge's
+>    flag taxonomy is the acceptance test: regenerated notes must stop tripping `hallucinated_specifics`/`pii_leak`.
+> 3. **Archive the stale 1,135** — ⚠️ `scf_learner_notes.status` CHECK allows only draft/approved/rejected;
+>    archiving needs either CHECK widening (do the full TS-union sweep per
+>    `feedback_db_check_widening_needs_ts_union_sweep`) or a separate marker column. Never delete — it's the
+>    judge's training corpus.
+> 4. **Regenerate for CURRENT strugglers only**, judge re-screens (shadow cron #2183 is live), THEN resume
+>    the graduated-judge plan (PR-3 measure, PR-4 graduate) on the clean corpus.
+>
+> Writer-fix precision note: the judge-clean-rate on regenerated notes is the counter-metric that proves the
+> writer fix worked — pair it, don't just eyeball samples.
 **Date:** 2026-07-19
 **Domain:** `academic/session-feedback` (SCF loop)
 **Owner:** _TBD (student-wellbeing owner)_
@@ -130,7 +156,15 @@ CREATE TABLE public.scf_note_judgements (
 
 ## 9. `loop_registry` registration
 
-Register `loop_key='scf_note_safety_review'`, `loop_class='self_improving'`, `domain='session_feedback'`, with the 4-gate `gates` jsonb (mirroring the bug-triage loop):
+> ⚠️ **AMENDED 2026-07-19 22:40 IST (loop-graph audit, Director-approved):** this loop is **already registered** as
+> `loop_key='scf-note-safety'` (kebab, matching live registry conventions; domain `'academic'` matching the existing
+> `scf` row — NOT `'session_feedback'`, and NOT the snake_case key below). Current row: `loop_class='intake'`,
+> all 4 gates `"off"`, `owner_email='aieee@jkkn.ac.in'`, honest starting state. **PR-3 must `UPDATE` this row**
+> (loop_class, gates, routine_id) — do NOT `INSERT` a new key (duplicate fork) and do NOT use
+> `ON CONFLICT DO NOTHING` (first-write-wins would silently discard PR-3's richer seed).
+> Same applies to `scf-freetext-carry` (also registered 2026-07-19, same state).
+
+Register ~~`loop_key='scf_note_safety_review'`~~ → **use the existing `loop_key='scf-note-safety'` row**, graduating `loop_class` to `'self_improving'` when earned, with the 4-gate `gates` jsonb (mirroring the bug-triage loop):
 - **spec_built** — this document.
 - **built_live** — judge job + `scf_note_judgements` + widened review live on prod.
 - **live_walked** — a real cohort of notes went draft → judged → (human or earned auto) → student, end-to-end.

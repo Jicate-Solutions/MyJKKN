@@ -1,3 +1,4 @@
 janitor run 20260718-063705  DRY_RUN=0
 open PRs: 15
 janitor: -32 worktrees, -38 branches; now 100 wt / 1278 br; 1162 unproven branches in registry
+skip: last run 41h ago (<60h)
