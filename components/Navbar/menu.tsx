@@ -28,6 +28,7 @@ import {
 } from '@/hooks/use-expanded-sidebar-module';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
+import { useHasAnyTournamentRole } from '@/hooks/events/use-has-any-tournament-role';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
@@ -88,6 +89,12 @@ export function Menu({ isOpen }: MenuProps) {
   const marathonEventId = pathname.match(/\/events\/marathon\/([^/]+)/)?.[1] ?? '';
   const { isMember: isMarathonCommitteeMember } = useCommitteeMembership(marathonEventId);
 
+  // Per-event tournament organizers (in-charge / committee / volunteer) hold no
+  // sports.tournaments.* key but ARE let into the module by RoutePermissionGuard's
+  // fallbackCheck. Skip the RPC for users the menu already shows the module to.
+  const hasTournamentViewKey = isSuperAdmin || permissions['sports.tournaments.view'] === true;
+  const hasTournamentRole = useHasAnyTournamentRole(!permissionsLoading && !hasTournamentViewKey);
+
   // Students: the My Hostel sidebar entry is shown only for actual hostel
   // residents (learners_profiles accommodation = hostel), not every student.
   const isStudentRole = userProfile?.role === 'student';
@@ -138,6 +145,17 @@ export function Menu({ isOpen }: MenuProps) {
       enrichedPermissions['events.marathon.ops.committee_access'] = true;
     }
 
+    // Tournament in-charges / committee members / volunteers (2026-07-21).
+    // Without this the nav contradicted the route guard: an appointed student
+    // in-charge was let into /events/tournament by fallbackCheck but never shown
+    // the link, so the in-charge feature was unreachable for its intended users.
+    // Grants nothing new — fn_has_any_tournament_role() is the SAME check the
+    // guard runs, and every page/API still authorizes per event (useTournamentAccess
+    // -> canView/canManage, canViewTournament/canManageTournament server-side).
+    if (hasTournamentRole) {
+      enrichedPermissions['sports.tournaments.view'] = true;
+    }
+
     // Students: gate the My Hostel entry on live hostel residency. The role-wide
     // campus_living.my_hostel.view grant covers every student; overwrite it with
     // user_is_hosteler() so dayscholars don't get a dead-end menu.
@@ -150,7 +168,7 @@ export function Menu({ isOpen }: MenuProps) {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, isStudentRole, isHosteler]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember, hasTournamentRole, isStudentRole, isHosteler]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {
