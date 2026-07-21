@@ -10,8 +10,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateHRLeaveType, useUpdateHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
 import { ACCRUAL_TYPE_LABELS, APPLICABLE_GENDER_LABELS } from '@/types/hr-leave-types';
-import type { HRLeaveType, LeaveAccrualType, LeaveApplicableGender, LeaveDurationType } from '@/types/hr-leave-types';
+import type { HRLeaveType, HRLeaveTypeInsert, HRLeaveTypeUpdate, LeaveAccrualType, LeaveApplicableGender, LeaveDurationType } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 
 interface Props {
@@ -40,6 +41,7 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
   const [form, setForm] = useState({ ...EMPTY });
   const create = useCreateHRLeaveType();
   const update = useUpdateHRLeaveType();
+  const { profile } = useAuth();
   const isEdit = !!leaveType;
 
   useEffect(() => {
@@ -68,26 +70,63 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = {
-      ...form,
-      hr_organization_id: hrOrgId,
+
+    // Edit-mode seeds `form` from the full row (see useEffect above), so at
+    // runtime it also carries id/created_at/created_by/updated_at/updated_by/
+    // hr_organization_id/valid_from/valid_until/superseded_by/
+    // applicable_cadre_ids even though the state type doesn't declare them.
+    // Strip all of those out here — they must never blindly round-trip
+    // through this form's payload, and each is re-added deliberately below.
+    const {
+      id: _id,
+      created_at: _createdAt,
+      created_by: _createdBy,
+      updated_at: _updatedAt,
+      updated_by: _updatedBy,
+      hr_organization_id: _hrOrganizationId,
+      valid_from: _validFrom,
+      valid_until: _validUntil,
+      superseded_by: _supersededBy,
+      applicable_cadre_ids: _applicableCadreIds,
+      ...editableFields
+    } = form as typeof form & Partial<HRLeaveType>;
+
+    const shared = {
+      ...editableFields,
       description: form.description || null,
       max_continuous_days: nullable(form.max_continuous_days),
       document_required_after_days: nullable(form.document_required_after_days),
       max_carry_forward_days: nullable(form.max_carry_forward_days),
       max_encashable_days: nullable(form.max_encashable_days),
-      applicable_cadre_ids: null,
-      valid_from: leaveType?.valid_from ?? new Date().toISOString(),
-      valid_until: leaveType?.valid_until ?? null,
-      superseded_by: leaveType?.superseded_by ?? null,
     };
 
     try {
       if (isEdit) {
-        await update.mutateAsync({ id: leaveType!.id, patch: payload });
+        // The organization a leave type belongs to is never edited from this
+        // dialog — hr_organization_id is intentionally omitted from the
+        // update patch (an org move is not an edit operation). Preserve the
+        // row's own applicable_cadre_ids (no UI for it here) and advance the
+        // audit columns ourselves — there is no DB trigger doing it for us.
+        const patch: HRLeaveTypeUpdate & { updated_at: string } = {
+          ...shared,
+          applicable_cadre_ids: leaveType?.applicable_cadre_ids ?? null,
+          updated_at: new Date().toISOString(),
+          updated_by: profile?.id ?? null,
+        };
+        await update.mutateAsync({ id: leaveType!.id, patch });
         toast.success('Leave type updated');
       } else {
-        await create.mutateAsync(payload as never);
+        // Create always comes from the page-selected organization (Add is
+        // disabled without one) — never from a row, since there is none yet.
+        const insertPayload: HRLeaveTypeInsert = {
+          ...shared,
+          hr_organization_id: leaveType?.hr_organization_id ?? hrOrgId,
+          applicable_cadre_ids: null,
+          valid_from: new Date().toISOString(),
+          valid_until: null,
+          superseded_by: null,
+        };
+        await create.mutateAsync(insertPayload);
         toast.success('Leave type created');
       }
       onOpenChange(false);
@@ -225,6 +264,12 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div>
+                <Label htmlFor="accrualRate">Accrual rate (days per period)</Label>
+                <Input id="accrualRate" type="number" step="0.01" min="0"
+                  disabled={form.accrual_type === 'none'} value={form.accrual_rate}
+                  onChange={(e) => set('accrual_rate', Number(e.target.value))} />
               </div>
               <div>
                 <Label>Applicable to</Label>
