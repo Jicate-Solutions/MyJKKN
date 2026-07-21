@@ -23,16 +23,17 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { scanJpegForMetadata, isJpegMagic, stripJpegMetadata } from '@/lib/services/pde/jpeg-metadata';
+import { requireCaseAuthor } from '@/lib/services/pde/require-case-author';
 
 const MAX_BYTES = 10 * 1024 * 1024; // matches the bucket's file_size_limit
 const MIN_BYTES = 1024; // below this it is not a real photograph
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Teaching staff only — an authenticated learner must not be able to push
+  // bytes into the shared clinical-image store.
+  const gate = await requireCaseAuthor(supabase);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   let form: FormData;
   try {
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const admin = createServiceRoleClient();
-  const path = `manual/${user.id}/${crypto.randomUUID()}.jpg`;
+  const path = `manual/${gate.userId}/${crypto.randomUUID()}.jpg`;
   const { error: upErr } = await admin.storage
     .from('pde-clinical-images')
     .upload(path, cleaned, { contentType: 'image/jpeg', upsert: false });

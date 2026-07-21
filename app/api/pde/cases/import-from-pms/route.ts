@@ -22,6 +22,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, awaitJobsLaneResults } from '@/lib/services/platform/ai-jobs-lane';
 import { buildAuthorPrompt, parseDraft, type PmsExport } from '@/lib/services/pde/case-author-draft';
+import { requireCaseAuthor } from '@/lib/services/pde/require-case-author';
 import type { CreateClinicalCaseInput, ImportedPmsImage } from '@/types/pde';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,10 +48,9 @@ function pmsConfig(): { base: string; headers: Record<string, string> } | null {
 export async function GET(request: NextRequest) {
   await connection();
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized', hits: [] }, { status: 401 });
+  // Teaching staff only — this proxies de-identified patient records out of PMS.
+  const gate = await requireCaseAuthor(supabase);
+  if (!gate.ok) return NextResponse.json({ error: gate.error, hits: [] }, { status: gate.status });
 
   const q = (request.nextUrl.searchParams.get('q') ?? '').trim();
   if (q.length < 2) return NextResponse.json({ hits: [] });
@@ -77,10 +77,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   await connection();
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Teaching staff only — this pulls a de-identified patient record out of PMS
+  // and copies clinical imagery into the shared store.
+  const gate = await requireCaseAuthor(supabase);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   let body: { casesheet_id?: unknown; course_id?: unknown };
   try {
