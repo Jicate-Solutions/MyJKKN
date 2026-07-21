@@ -1915,6 +1915,28 @@ FROM custom_roles;
 
 Expected: both > 0.
 
+- [ ] **Step 7b: Complete the deferred cross-tenant verification from Task 5**
+
+Task 5's `generate_hr_leave_balances` RPC carries an institution guard added in response to a HIGH security finding. Its negative case could not be verified at the time, because no role held `hr.leave.balance.manage` — every non-super-admin was stopped at the permission gate *before* reaching the institution check. Step 7 has now granted that key, so the guard is finally reachable. Verify it:
+
+```sql
+-- Pick a non-super-admin profile that HOLDS hr.leave.balance.manage but whose
+-- roles do NOT grant access to JKKN Testing Institution.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claims = '{"sub":"<that-profile-uuid>","role":"authenticated"}';
+SELECT public.generate_hr_leave_balances(
+  '93044df2-9cfe-49eb-bb77-6aa0964c788e'::uuid,   -- Testing Institution org
+  'f88b7054-f52a-4940-9a41-4e0682f13ac7'::uuid,
+  true
+);
+ROLLBACK;
+```
+
+Expected: `RAISE EXCEPTION 'Access denied: you do not have access to institution …'` — **not** a successful dry-run result. If it succeeds, the guard is ineffective and that is a Critical finding: report it rather than proceeding.
+
+If no such profile exists (i.e. every holder of the key also has access to every institution), say so plainly rather than claiming a verification you did not perform.
+
 - [ ] **Step 8: Regenerate the route manifest and run the gates**
 
 ```bash
