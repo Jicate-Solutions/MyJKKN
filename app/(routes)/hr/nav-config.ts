@@ -254,7 +254,7 @@ const config: ModuleNavConfig = {
       label: 'Admin',
       icon: 'Settings',
       href: '/hr/admin',
-      matchPaths: ['/hr/admin'],
+      matchPaths: ['/hr/admin', '/hr/admin/leave-types', '/hr/admin/leave-balances'],
     },
   ],
 };

@@ -3492,6 +3492,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/hr/admin/leave-balances",
+            "label": "Leave Balances",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/leave-types",
+            "label": "Leave Types",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/admin/memos",
             "label": "HR Memos",
             "iconName": "AlertTriangle",
