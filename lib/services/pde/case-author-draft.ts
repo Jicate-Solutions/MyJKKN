@@ -79,9 +79,11 @@ export function buildAuthorPrompt(e: PmsExport): string {
     `Reply with STRICT JSON ONLY — no prose, no markdown fences — exactly this shape:\n` +
     `{"domain_weights":{"data_gathering":<int>,"hypothesis_generation":<int>,"management_planning":<int>,"patient_communication":<int>,"professionalism":<int>},` +
     `"questions":[{"question_type":"free_text_socratic|mcq_warmup","question_text":"<question>","points":<int>,` +
+    `"options":[{"text":"<option>","is_correct":<true|false>,"feedback":"<why this option is right or wrong>"}],` +
     `"metadata":{"q_number":<int>,"osce_domain":"data_gathering|hypothesis_generation|management_planning|patient_communication|professionalism",` +
     `"ground_truth":"<model answer, consistent with the diagnosis and treatment plan above>","key_concepts":["<concept>"]}}]}\n\n` +
-    `Rules: domain_weights are integers that sum to exactly 100. Provide 5–8 questions: exactly ONE "mcq_warmup" and the rest "free_text_socratic", spread across all five OSCE domains. Every question MUST include a non-empty metadata.ground_truth grounded in the final diagnosis and treatment plan. Keep questions answerable from the case facts given.`
+    `Rules: domain_weights are integers that sum to exactly 100. Provide 5–8 questions: exactly ONE "mcq_warmup" and the rest "free_text_socratic", spread across all five OSCE domains. Every question MUST include a non-empty metadata.ground_truth grounded in the final diagnosis and treatment plan. Keep questions answerable from the case facts given.\n` +
+    `The "mcq_warmup" question MUST carry an "options" array of 3–5 entries with EXACTLY ONE marked "is_correct":true, and its question_text must contain ONLY the question — never inline the choices as "A) …" "B) …" text. Omit "options" entirely (or set it to null) for every "free_text_socratic" question.`
   );
 }
 
@@ -158,10 +160,18 @@ export function parseDraft(text: string): ParsedDraft | null {
             }))
         : null;
 
+    // The builder requires an MCQ to carry ≥2 options with one marked correct.
+    // A model that ignores that instruction would otherwise produce a draft the
+    // faculty cannot save at all — so an unusable MCQ degrades to free-text
+    // (the question and its ground truth stay intact) rather than blocking save.
+    const usableMcq = !!options && options.length >= 2 && options.some((o) => o.is_correct);
+    const effectiveType: ClinicalQuestionType =
+      qt === 'mcq_warmup' && !usableMcq ? 'free_text_socratic' : (qt as ClinicalQuestionType);
+
     questions.push({
-      question_type: qt as ClinicalQuestionType,
+      question_type: effectiveType,
       question_text: qText,
-      options: options && options.length ? options : null,
+      options: effectiveType === 'mcq_warmup' && options?.length ? options : null,
       correct_answer: typeof q?.correct_answer === 'string' ? q.correct_answer : null,
       points: Number.isFinite(q?.points) ? Math.max(1, Math.round(q.points)) : 10,
       order_index: i + 1,
