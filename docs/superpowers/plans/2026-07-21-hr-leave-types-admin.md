@@ -13,7 +13,17 @@
 ## Global Constraints
 
 - **There is no test suite in this repo.** No `npm test` harness exists. Never claim "tests pass". Verification means: SQL assertions, `mcp__ide__getDiagnostics` on touched files, the `check:*` gates, and exercising the feature in a browser.
-- **Typecheck with `mcp__ide__getDiagnostics` per file** (seconds). Do NOT run `npm run typecheck` — it takes 3-4 minutes and OOMs under ~10GB heap.
+- **Typecheck per file — NOT with a full `npm run typecheck`** (3-4 minutes, OOMs under ~10GB heap).
+  - `mcp__ide__getDiagnostics` is the intended tool, but **it is unavailable in this session and in subagents** (confirmed in Task 2). Use this substitute, which Task 2 validated:
+
+    ```bash
+    # scoped typecheck — write a temporary include-only tsconfig, run, delete
+    cat > tsconfig.scoped.json <<'EOF'
+    { "extends": "./tsconfig.json", "include": ["PATH/TO/FILE.ts"] }
+    EOF
+    npx tsc --noEmit -p tsconfig.scoped.json; rm tsconfig.scoped.json
+    ```
+  - **Expect pre-existing errors in files you did not touch** — strict mode is off and `typescript.ignoreBuildErrors` is true. Only errors in your own files are yours to fix.
 - **Never fire-and-forget a Supabase mutation.** Always destructure `{ error }` and check it. try/catch does NOT catch RLS denials or constraint violations.
 - **Supabase errors are plain objects, not `Error` instances.** `err instanceof Error` always falls through. Use `getErrorMessage()` from `@/lib/utils`.
 - **`institutionId || ''` is an antipattern** — `||` coerces `undefined` → `''`, which flows through as a real UUID parameter and matches zero rows. Use `??`.
