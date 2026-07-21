@@ -102,7 +102,11 @@ export default function AtRiskLearnersPage() {
 
   const criticalCount = (learners || []).filter(l => l.risk_level === 'critical').length;
   const warningCount = (learners || []).filter(l => l.risk_level === 'warning').length;
-  const strugglingCount = (learners || []).filter(l => l.risk_level === 'struggling').length;
+  // Counts everyone averaging below the pass mark, not just those whose band
+  // happens to be 'struggling'. risk_level is a single-branch CASE where
+  // inactivity outranks score, so an absent-AND-failing learner lands in
+  // 'warning'/'critical' and was previously missing from this figure entirely.
+  const strugglingCount = (learners || []).filter(l => l.is_low_scoring).length;
 
   return (
     <PermissionGuard
@@ -296,12 +300,30 @@ export default function AtRiskLearnersPage() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        {learner.avg_score !== null
-                          ? `${Math.round(learner.avg_score)}%`
-                          : '-'}
+                        {learner.avg_score !== null ? (
+                          `${Math.round(learner.avg_score)}%`
+                        ) : learner.has_assessment_scores === false ? (
+                          <span className="text-muted-foreground" title="No completed assessments yet">
+                            no scores yet
+                          </span>
+                        ) : (
+                          '-'
+                        )}
                       </TableCell>
                       <TableCell>{learner.total_lessons_completed}</TableCell>
-                      <TableCell>{riskBadge(learner.risk_level)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {riskBadge(learner.risk_level)}
+                          {/* Shown only when the band would otherwise hide it —
+                              'struggling' already means "failing", so a second
+                              badge there would be noise. */}
+                          {learner.is_low_scoring && learner.risk_level !== 'struggling' ? (
+                            <Badge variant="destructive" title="Averaging below the pass mark">
+                              Low score
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
                       {(() => {
                         const h = historyByLearner.get(learner.learner_id);
                         return (
