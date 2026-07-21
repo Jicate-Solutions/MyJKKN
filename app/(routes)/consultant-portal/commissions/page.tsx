@@ -336,7 +336,7 @@ export default function ConsultantCommissionsPage() {
                           </TableCell>
                           <TableCell>
                             <div className="font-mono text-sm">
-                              {transaction.transaction_code || transaction.id.slice(0, 8)}
+                              {transaction.transaction_number || transaction.id.slice(0, 8)}
                             </div>
                             {transaction.milestone_stage && (
                               <p className="text-xs text-muted-foreground capitalize">
