@@ -69166,6 +69166,63 @@ export type Database = {
         }
         Relationships: []
       }
+      pde_at_risk_log: {
+        Row: {
+          avg_score: number | null
+          course_id: string | null
+          created_at: string
+          days_inactive: number | null
+          flag_date: string
+          flagged_at: string
+          id: string
+          institution_id: string
+          learner_id: string
+          metric_snapshot: Json
+          risk_level: string
+        }
+        Insert: {
+          avg_score?: number | null
+          course_id?: string | null
+          created_at?: string
+          days_inactive?: number | null
+          flag_date?: string
+          flagged_at?: string
+          id?: string
+          institution_id: string
+          learner_id: string
+          metric_snapshot?: Json
+          risk_level: string
+        }
+        Update: {
+          avg_score?: number | null
+          course_id?: string | null
+          created_at?: string
+          days_inactive?: number | null
+          flag_date?: string
+          flagged_at?: string
+          id?: string
+          institution_id?: string
+          learner_id?: string
+          metric_snapshot?: Json
+          risk_level?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pde_at_risk_log_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pde_at_risk_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pde_bridge_audit: {
         Row: {
           category_key: string | null
@@ -100358,6 +100415,29 @@ export type Database = {
             columns: ["course_id"]
             isOneToOne: false
             referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pde_at_risk_history: {
+        Row: {
+          days_since_first_flag: number | null
+          first_flag_date: string | null
+          first_flagged_at: string | null
+          flag_count: number | null
+          institution_id: string | null
+          is_currently_flagged: boolean | null
+          last_flag_date: string | null
+          last_flagged_at: string | null
+          learner_id: string | null
+          worst_risk_level: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pde_at_risk_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
             referencedColumns: ["id"]
           },
         ]
