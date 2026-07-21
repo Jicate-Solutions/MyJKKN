@@ -16,7 +16,7 @@ import { EmptyState } from '@/components/empty-state';
 import { useLeaveBalance } from '@/hooks/hr/use-leave';
 import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
-import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useAcademicYears, useCurrentAcademicYear } from '@/hooks/use-academic-years';
 
 export default function BalancePage() {
   // Auto-resolve the employee from the logged-in user (same pattern as Apply —
@@ -32,14 +32,18 @@ export default function BalancePage() {
   // until the institution scope is resolved — an unscoped fetch returns years
   // across ALL institutions.
   const { data: academicYearsResp, isLoading: yearsFetching } = useAcademicYears(institutionId);
-  const yearsLoading = yearsFetching || mappingsLoading;
+  // Default selection is the year that CONTAINS today, not the
+  // lexically-highest active name — the dropdown itself still lists all
+  // active years via useAcademicYears above.
+  const { data: currentYear, isLoading: currentYearFetching } = useCurrentAcademicYear(institutionId);
+  const yearsLoading = yearsFetching || currentYearFetching || mappingsLoading;
   const academicYears = useMemo(
     () => (institutionId ? academicYearsResp?.data ?? [] : []),
     [academicYearsResp, institutionId],
   );
 
   const [selectedYearId, setSelectedYearId] = useState('');
-  const academicYearId = selectedYearId || academicYears[0]?.id || '';
+  const academicYearId = selectedYearId || currentYear?.id || '';
 
   const { data, isLoading } = useLeaveBalance(
     employee?.id,
