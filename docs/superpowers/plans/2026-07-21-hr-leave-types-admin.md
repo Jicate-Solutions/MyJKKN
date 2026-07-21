@@ -214,6 +214,17 @@ ALTER TABLE public.hr_leave_policies
   ADD  CONSTRAINT hr_leave_policies_leave_type_id_fkey
        FOREIGN KEY (leave_type_id) REFERENCES public.hr_leave_types(id) ON DELETE CASCADE;
 
+-- 5a. leave_types.scope is CHECK-constrained to ('learner','staff','both').
+--     The holiday labels below are a third audience — neither learner nor
+--     staff. 'both' would be actively wrong: it means "learners AND staff",
+--     so any query filtering scope IN ('learner','both') for the Academic
+--     page AND any filtering scope IN ('staff','both') would both pick these
+--     up, reintroducing the cross-audience contamination this split removes.
+--     'both' currently has 0 rows, so widening the constraint is safe.
+ALTER TABLE public.leave_types DROP CONSTRAINT leave_types_scope_check;
+ALTER TABLE public.leave_types ADD  CONSTRAINT leave_types_scope_check
+  CHECK (scope::text = ANY (ARRAY['learner','staff','both','institution']::text[]));
+
 -- 5. institution_leaves (20 rows, RESTRICT). These are institution HOLIDAY
 --    periods that borrowed a staff leave type purely as a LABEL.
 --    hr_calc_leave_days reads institution_leaves by DATE RANGE only and never
