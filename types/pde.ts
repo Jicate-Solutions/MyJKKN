@@ -144,6 +144,24 @@ export interface PDEAtRiskLearner {
   risk_level: RiskLevel;
 }
 
+/**
+ * Per-learner rollup of `pde_at_risk_log` (view `pde_at_risk_history`), written
+ * by /api/cron/pde-at-risk-flag. The live `pde_at_risk_learners` view answers
+ * "who is at risk right now"; this answers "since when, and for how long".
+ */
+export interface PDEAtRiskHistory {
+  learner_id: string;
+  institution_id: string;
+  first_flagged_at: string;
+  last_flagged_at: string;
+  first_flag_date: string;
+  last_flag_date: string;
+  flag_count: number;
+  days_since_first_flag: number;
+  is_currently_flagged: boolean;
+  worst_risk_level: RiskLevel;
+}
+
 // ============================================
 // Certificate Types
 // ============================================
