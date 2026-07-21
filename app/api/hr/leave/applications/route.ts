@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
 
         // Resolve leave type name
         const { data: leaveType } = await serviceSupabase
-          .from('leave_types')
+          .from('hr_leave_types')
           .select('leave_type_name')
           .eq('id', created.leave_type_id)
           .maybeSingle();
