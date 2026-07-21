@@ -342,7 +342,19 @@ export default function LearnerSessionFeedbackPage() {
                         Confirmed
                       </Badge>
                     ) : withinFeedbackWindow(r.attendance_date, windowHours) ? (
-                      <Badge variant="secondary" className="shrink-0 gap-1 text-muted-foreground">
+                      // Still within the window: this badge previously used the
+                      // amber `secondary` fill (the app's gold brand color), which
+                      // reporters misread as a warning/error blocking submission —
+                      // the "Not ___" wording plus warning-colored fill looked like
+                      // a rejection even though it's just neutral status and the
+                      // class is still submittable above. Match the (already-fixed)
+                      // "Window closed" sibling badge's neutral outline treatment
+                      // and spell out that it isn't an error.
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 gap-1 text-muted-foreground"
+                        title="You haven't given feedback for this class yet — this is not an error. You can still submit it above until the feedback window closes."
+                      >
                         <Clock className="h-3.5 w-3.5" />
                         Not yet confirmed
                       </Badge>
