@@ -322,6 +322,10 @@
     {
       "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",
       "schedule": "53 */6 * * *"
+    },
+    {
+      "path": "/api/cron/pde-image-orphans?secret=${CRON_SECRET}",
+      "schedule": "41 3 * * *"
     }
   ]
 }

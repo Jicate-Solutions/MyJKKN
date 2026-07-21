@@ -490,6 +490,19 @@ export function CaseFormBuilder({
                                 if (!ok && scenario.image_url === img.url) {
                                   setScenarioField('image_url', '');
                                 }
+                                // Record the judgement (and any reversal) for audit.
+                                // Deliberately fire-and-forget: a failed audit write
+                                // must never block the reviewer, or people learn to
+                                // route around the gate itself.
+                                void fetch('/api/pde/cases/image-review', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    image_url: img.url,
+                                    decision: ok ? 'confirmed_clean' : 'withdrawn',
+                                    source: img.kind === 'uploaded' ? 'upload' : 'pms_import',
+                                  }),
+                                }).catch(() => {});
                               }}
                             />
                             <span>
