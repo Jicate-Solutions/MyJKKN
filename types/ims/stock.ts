@@ -172,6 +172,26 @@ export interface ImsDepartmentStockFilters {
   search?: string;
 }
 
+/** Direct store → department issue, bypassing the indent request/approve cycle. */
+export interface CreateImsDepartmentIssueDto {
+  department_id: string;
+  item_id: string;
+  quantity: number;
+  notes?: string;
+  store_id?: string | null;
+  institution_id?: string;
+}
+
+/** Records stock a department has used up, reducing its balance. */
+export interface CreateImsDepartmentConsumptionDto {
+  department_id: string;
+  item_id: string;
+  quantity: number;
+  notes?: string;
+  store_id?: string | null;
+  institution_id?: string;
+}
+
 export interface CreateImsStockAdjustmentDto {
   item_id: string;
   adjustment_type: string;

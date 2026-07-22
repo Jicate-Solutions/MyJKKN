@@ -2,6 +2,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ImsActivityLogService } from './activity-log-service';
+import { issueStockToDepartment } from './issue-stock';
 import type {
   ImsIndentRequest,
   ImsIndentWithItems,
@@ -438,16 +439,19 @@ export class ImsIndentService {
 
   /**
    * Issue a specific quantity for an indent item.
+   * Decrements ims_stock_summary and logs an ims_stock_issues audit row so the
+   * Items page balance and Department Stock page both reflect the issue.
    */
   static async issueItem(
     indentItemId: string,
-    quantity: number
+    quantity: number,
+    userId: string
   ): Promise<void> {
     try {
       // Get current item to calculate new issued quantity
       const { data: item, error: fetchError } = await this.supabase
         .from('ims_indent_request_items')
-        .select('issued_quantity, quantity, indent_id')
+        .select('issued_quantity, quantity, indent_id, item_id, unit_id')
         .eq('id', indentItemId)
         .single();
 
@@ -456,7 +460,7 @@ export class ImsIndentService {
       // Verify parent indent is approved
       const { data: indent } = await this.supabase
         .from('ims_indent_requests')
-        .select('status')
+        .select('status, department_id, institution_id, store_id')
         .eq('id', item.indent_id)
         .single();
 
@@ -471,6 +475,19 @@ export class ImsIndentService {
           `Cannot issue ${quantity} units. Exceeds requested quantity of ${item.quantity} (already issued: ${item.issued_quantity || 0})`
         );
       }
+
+      // Decrement store stock + write the ims_stock_issues audit row. Shared
+      // with the direct department issue so the two flows can't drift apart.
+      await issueStockToDepartment({
+        item_id: item.item_id,
+        unit_id: item.unit_id,
+        quantity,
+        department_id: indent.department_id,
+        issued_by: userId,
+        indent_id: item.indent_id,
+        store_id: indent.store_id,
+        institution_id: indent.institution_id,
+      });
 
       const { error } = await this.supabase
         .from('ims_indent_request_items')
