@@ -80,10 +80,26 @@ export class LeaveAssignmentService {
     rows: HRLeaveTypeAssignmentInsert[]
   ): Promise<void> {
     if (rows.length === 0) return;
-    const { error } = await supabase.from('hr_leave_type_assignments').insert(rows);
+
+    // The table is justified partly by its audit trail, so stamp the author.
+    // getUser() rather than getSession(): the session is client-readable and
+    // therefore not a trustworthy identity claim.
+    const { data: auth } = await supabase.auth.getUser();
+    const actor = auth?.user?.id ?? null;
+
+    const { error } = await supabase
+      .from('hr_leave_type_assignments')
+      .insert(rows.map((r) => ({ ...r, created_by: actor, updated_by: actor })));
     if (error) {
+      // Deliberately atomic. Partially applying a batch and reporting "some of
+      // these worked" is harder to act on than "none did, here is why" — and
+      // the dialog already disables targets that are assigned, so this is a
+      // stale-view case, not a routine one.
       if (error.code === '23505') {
-        throw new Error('One or more of those targets is already assigned to this leave type.');
+        throw new Error(
+          'One or more of those targets already has a rule for this leave type. ' +
+            'Close and reopen this dialog to refresh, then add the remaining ones.'
+        );
       }
       throw error;
     }
@@ -94,9 +110,10 @@ export class LeaveAssignmentService {
     id: string,
     entitledDays: number | null
   ): Promise<void> {
+    const { data: auth } = await supabase.auth.getUser();
     const { error } = await supabase
       .from('hr_leave_type_assignments')
-      .update({ entitled_days: entitledDays })
+      .update({ entitled_days: entitledDays, updated_by: auth?.user?.id ?? null })
       .eq('id', id);
     if (error) throw error;
   }
@@ -144,6 +161,9 @@ export class LeaveAssignmentService {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /** Results are capped; the picker tells the user to narrow when it is hit. */
+  static readonly STAFF_SEARCH_LIMIT = 25;
+
   /**
    * Type-ahead over active staff in one institution.
    *
@@ -160,13 +180,20 @@ export class LeaveAssignmentService {
       .select('id, staff_id, first_name, last_name, departments:department_id ( department_name )')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
-      .limit(25);
+      .limit(LeaveAssignmentService.STAFF_SEARCH_LIMIT);
 
     if (term.trim()) {
-      const safe = term.trim().replace(/[%,()]/g, '');
-      q = q.or(
-        `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,staff_id.ilike.%${safe}%`
-      );
+      // Allow-list, not a blocklist. This value is interpolated into a
+      // PostgREST .or() expression where `.` separates column.operator.value
+      // and `,` separates the branches — a blocklist that forgets one
+      // metacharacter changes which rows match. `%` and `_` are ilike
+      // wildcards and are dropped for the same reason.
+      const safe = term.trim().replace(/[^\p{L}\p{N} @'-]/gu, '').slice(0, 60);
+      if (safe) {
+        q = q.or(
+          `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,staff_id.ilike.%${safe}%`
+        );
+      }
     }
 
     const { data, error } = await q;

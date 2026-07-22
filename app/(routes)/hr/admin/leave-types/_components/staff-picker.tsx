@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useStaffSearch } from '@/hooks/hr/use-leave-assignments';
+import { LeaveAssignmentService } from '@/lib/services/hr/leave-assignment-service';
 import type { StaffPickerOption } from '@/types/hr-leave-assignments';
 
 export function StaffPicker({
@@ -117,6 +118,13 @@ export function StaffPicker({
           })
         )}
       </div>
+
+      {(data?.length ?? 0) >= LeaveAssignmentService.STAFF_SEARCH_LIMIT && (
+        <p className="text-xs text-muted-foreground">
+          Showing the first {LeaveAssignmentService.STAFF_SEARCH_LIMIT} matches — narrow the
+          search to see others.
+        </p>
+      )}
 
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-1">
