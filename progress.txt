@@ -1,3 +1,137 @@
+## Session: 2026-07-22 (END /cnext) [pane 5d42c851] — Evolis→MyJKKN ID-card integration DESIGNED (Python + Windows AI-Max host locked)
+
+### Accomplished
+- **Evolis Primacy 2 → MyJKKN integration DESIGN LOCKED.** Long discovery + architecture session over 2 conversation days, no MyJKKN code changes. Two hard decisions:
+  1. **Language: Python** (not Java). Evolis SDK 3 supports C/C++, C#, Java, Python, Swift — Node.js is NOT supported so MyJKKN's TypeScript stack can't be reused directly. Among the 5, Python fits MyJKKN team's mental model closest (dict/list/JSON near-1:1 with TypeScript, `pip install` ↔ `npm install`, ~50 LOC vs ~150 in Java, matches JKKN's broader Python AI portfolio). Locked after explicit side-by-side comparison.
+  2. **Host: existing Windows AI-Max box at JKKN office** (NOT a Raspberry Pi as originally suggested). Director revealed the box already exists — same office LAN as printer, always-on, Claude Code already installed with Max subscription. Zero new hardware, zero cost. Same box that handles Windows Max-lane drain jobs.
+- **PyPI verified via CFT (Browser 1 pairing):** `Evolis-SDK 9.4.1` on PyPI, released Jun 30 2026, official Evolis publisher (5 named employee maintainers, PyPI-verified), Python ≥3.8, Windows/macOS/Linux x86_64/arm32/arm64 all officially supported. Install: `pip install Evolis-SDK`. No license classifier on PyPI page — will surface via `pip show Evolis-SDK` after install.
+- **Two-Claude coordination pattern established:** Mac Claude (this session) designs bridge script + composes paste-ready commands → Director pastes to Windows Claude session on JKKN AI-Max box → Windows Claude executes install/deploy locally → Director pastes result back. Same shape as [[claude-code-web-remote-control-cft]] but for the Windows AI-Max box, NOT the Linux Server Claude at 172.20.15.150 (scoped only for PMS per 2026-06-08 correction).
+- **CFT investigation of Evolis docs:** navigated sdk.evolis.com (Director's authenticated session), confirmed Python is first-class binding, downloaded Wrapper details (`pip install Evolis-SDK` + offline `evolis_sdk-<ver>-py3-none-any.whl` alternate). myplace.evolis.com has SSL cert issue — Chrome needs `Advanced → Proceed` (typing `thisisunsafe` doesn't work under CDP because Chrome refuses to attach to SSL warning pages).
+- **12th-grader plain-English interview walkthroughs captured:**
+  - Failure recovery model: hybrid (auto-retry-once-then-alert-registrar with specific human-readable messages like "Ribbon empty — replace and click Retry")
+  - Peak concurrency: 5+ concurrent bulk-printers during admission week → bridge must rate-limit to ~240 cards/hour (safely under Primacy 2's 280/hour max), priority field + batch grouping needed
+  - Printer wiring: BOTH USB and Ethernet plugged in → use Ethernet path (LAN-flexible, not tied to specific PC)
+  - Encoder hardware: NONE ordered (visual print only, no magstripe/chip/RFID)
+- **Vercel/Railway "cloud can be the bridge" question EXPLAINED thoroughly** (Director pushed 3 times): private LAN IPs (192.168.x.x) are invisible from public internet by internet architecture. NO cloud provider can reach a physical office printer directly. Something must run inside the office network — that's why Windows AI-Max box is required. Explained via IP-address concrete example + 3 theoretical workarounds (public IP / tunnel client / device-connects-outbound), all of which STILL require a LAN-side machine.
+- **Memory: created `project_evolis_python_bridge_locked.md`** with everything above (deployment target, coordination pattern, failure model, concurrency, wiring, license gotcha, what-not-to-redo list) + added pointer to MEMORY.md.
+
+### Current Status
+- **Feature (Evolis bridge)**: DESIGNED (Python + Windows AI-Max host locked), install NOT started. MyJKKN-side Phase 1 substrate = 3 DRAFT PRs pending since 2026-05-10 (#762 DB substrate, #763 admin UI, #764 API surface).
+- **Build**: NO MyJKKN code changes this session. Only memory files touched (outside git tree).
+- **Branch (this checkout)**: `feat/campus-living-fee-compute-engine` — NOT mine, unchanged dirty tree from prior pane. Do NOT commit these files as part of this session.
+
+### Deferred from this session
+- MEMORY.md compaction (hook fired at 19.7KB, target <17.1KB) — got interrupted by `/cnext` mid-plan. Not blocking anything; next session can compact if the hook fires again.
+
+### Next Session — Tasks (user P0 verbatim = "Both in parallel — check PRs on Mac side while composing bridge commands for Windows side"; drops = none)
+1. [P0] **STREAM A (Mac Claude)** — Check PRs #762/#763/#764 merge-cleanness against current `jicate/main` (2+ months of drift since PR opened 2026-05-10). For EACH PR report: MERGEABLE (green, no rebase needed) / CONFLICTS (list conflicting files) / STALE-CODEBASE-ASSUMPTIONS (does PR #757's SettingsPanel/LookupTable/CascadeStepList still live at expected paths? Does `platform_policies` seed format still match current schema? Does `students.college_email` still exist?). If clean → present migration plain-English (TIER-1 protocol) → get Director approval → apply via `mcp__supabase__apply_migration` → merge order: 762 (DB first) → 764 (API) → 763 (UI). If dirty → rebase plan or rewrite. (medium)
+2. [P0] **STREAM B (Mac Claude compose → Windows Claude execute)** — First paste-ready block for Windows Claude on the JKKN AI-Max box:
+    - Step B1: Check Python 3.8+ (install if missing via `winget install Python.Python.3.11`)
+    - Step B2: `pip install Evolis-SDK`
+    - Step B3: `python -c "import evolis_sdk; print(evolis_sdk.__version__)"` and `pip show Evolis-SDK` — capture version + license text
+    - Iterate: printer discovery test → send test PNG via SDK → verify test card ejects → write `evolis_bridge.py` (~50 LOC polling script) → register as Windows Service via `nssm` → set `AGENT_PRINT_TOKEN` env var (both on Windows AND in Vercel) → E2E test with a real MyJKKN print job from admin UI. (medium)
+3. [P1] Optional Phase 0 unblock (if bridge takes multiple sessions): add "Download students CSV (ID-ALL format)" button to `/admin/students` so registrar can start manual card printing this week using bundled ID-ALL Starter (successor to cardPresso XXS). ~2-3 hours in MyJKKN. Independent of bridge work. (small)
+
+### Continuation Prompt
+→ .claude/continuation-prompt.5d42c851.md (auto-loads on /clear; pane-scoped to shell PID 5d42c851)
+
+---
+
+## Session: 2026-07-22 (END /cnext) [linkedin-certs / insights-fix / meta-integration pane]
+
+### Accomplished
+- **Insights tab hang FIXED — PR #2035 MERGED.** Root cause: RLS-per-row over a 20-page offset loop (authenticated-role EXPLAIN = 1s/page; service-role EXPLAIN lied at 46ms). Fix: 2 scope-replicated SECURITY DEFINER RPCs (fn_ig/fb_insights_summary) + DISTINCT ON. Migration 20260713203000 APPLIED to prod. Proven 158ms/25ms (was 40,000ms+), leakproof (RPC-set = RLS-set for students 14/13/7 + admin 66/9), tsc clean.
+- **LinkedIn cert Phase 2/3 — PR #1864 MERGED.** Add-to-Profile button on Learn certs (=PDE, already on /verify/) + HR training (external certificate_url). Phase 1 (#1851) already live. All in-scope cert types now wired; DARK until certs issue.
+- **Meta integration CHECK (read-only DB):** NO new integrations since Jul 13. 7 dental depts (periodontics/orthodontics/prosthodontics/oralmed+radiology/oralmaxfac/paediatrics/aec_tech) still business_discovery + no token (unchanged since Jun 10). 31/66 IG graph-integrated, 35 read-only. Blocked by the Jul 13 "Business Account Not Allowed to Advertise" restriction.
+- Memory: added feedback_pending_endpoint_rls_per_row_offset_loop; compacted MEMORY.md → 17.0KB.
+
+### Current Status
+- **Build**: my work shipped via worktree PRs — #2035 + #1864 BOTH MERGED; nothing of mine in this checkout.
+- **Branch (this checkout)**: feat/campus-living-fee-compute-engine (NOT mine — shared/dirty tree; did NOT commit).
+
+### Next Session — Tasks (user P0 verbatim = "1, 2 and 3"; drops = none)
+1. [P0] Verify #2035 + #1864 are deployed live (verify by CONTENT not SHA); deploy via /deploy-myjkkn if not; CFT-verify Insights tab loads <1s (small)
+2. [P0] Check Meta side live as the user — are the dental IG↔FB-page links present on Meta? is the ad-restriction still active (facebook.com/accountquality)? (small)
+3. [P0] Unblock the dental IG integration — draft the Meta appeal (user submits) OR trigger MyJKKN "Discover Accounts"/sync so the 7 flip business_discovery→graph (medium)
+
+### Continuation Prompt
+→ .claude/continuation-prompt.feb9dfd4.md (auto-loads on /clear; pane-scoped)
+
+---
+
+## Session: 2026-07-22 (cont.) — Attendance reconciliation: ALL 3 BUILD TASKS SHIPPED
+
+### Shipped — 3 PRs (Director merges; never self-merge)
+- **PR #2264** — v2 multi-signal reconciliation engine (two-sign rule). Replaces v1 generic-activity HIGH branch in fn_att_reconcile_propose. Sign A = on-time class-mark (primary) | pulses_run | lessons_linked | verdicts_given; Sign B = MANDATORY campus IP (attendance_campus_networks <<=); class-marking HIGH also needs witnessed (≥3 learner confirmations). Proposals only; fn_att_reconcile_review still the sole grant path. **APPLIED to prod** (CREATE OR REPLACE same 7-arg sig, service_role-only, INERT/reversible) after BEGIN…ROLLBACK validation on real July data.
+- **PR #2265** — biometric importer (UI + API). Upload .xlsx → group by (Employee Id, date) → bridge staff.staff_id→profile→role → filter faculty/hod → upsert faculty_attendance_days source=biometric (biometric wins). Admin-gated (explicit 403), service-role write. Card on HR › Attendance hub + /hr/attendance/import page + dialog.
+- **PR #2266** — activity-log IP-capture fix. Single-point in lib/utils/activity-logger.ts: resolve IP from next/headers (dynamic, guarded) when no request passed → update/create/approve/export logs get IP going forward (was 0%). Forward-only.
+
+### 🛑 Spec §14 data-map error found + corrected (load-bearing)
+student_attendance.period_slot_id column is DEAD (100% NULL). Live on-time linkage is JSONB-only: attendance_data keyed by timetable slot INNER slot_id; timetable OUTER key == periods.id (start_time); marking time = attendance_data.<slot>.students[].marked_at. Building the engine by hand (not delegating) caught this before it shipped as a silently-empty signal. Spec file corrected.
+
+### Verified
+- v2 dry-run (5d real data, empty biometric ⇒ all faculty-days gaps): 7 HIGH (each on-time+campus+witnessed), 44 on-time, 20 witnessed/24 pending, 93 campus. Grants nothing (HR reviews every proposal).
+- Importer: 10 AHS codes→6 faculty/hod (matches prior proven run); biometric-wins upsert verified in rollback. 0 source type errors across all files.
+
+### Still owed / next
+- Approved-leave/holiday calendar source (wired as a TODO in the engine). NEXT builds: HR review UI (wires the 2 RPCs) → 15-day SHADOW cycle → live.
+
+---
+
+## Session: 2026-07-22 (cont.) — Payment machine COMPLETE: payout engine + UI = PR #2261
+
+### Shipped — the machine is now end-to-end
+- **PR #2261** (feat/referral-payout) — 562 additions, 0 deletions, MERGEABLE, CI running. Four-stage payout batch engine + UI.
+- Migration 20260722150000 (APPLIED to prod): fn_create_payout_batch (groups approved+unbatched commissions → batch, atomic; replaces the schema-BROKEN ConsultantService.createPayoutBatch — payout_period_start/generated_at/generated_by are phantom, same #2219 fiction, never surfaced because payout never ran) + fn_advance_payout_batch (prepared→reviewed→approved→processed with separation of duties: reviewer≠preparer, approver≠{preparer,reviewer}, payer≠approver; processed marks commissions paid; cancelled unlinks). Both admin-gated, anon-revoked.
+- 🔴 Fixed ANOTHER instance of the per-institution-vs-global collision bug — this time trigger_set_batch_number (batch_number UNIQUE global, numbered per-institution → PAY-000001 collision). Third object with this bug class (transaction_number fixed earlier, now batch_number).
+- UI /admission/consultants/payouts: list batches, create from approved commissions, advance chain, mark paid (mode+reference).
+- **PROVEN on prod (rolled back, zero residue)**: create → 4 stages w/ 4 distinct actors → processed, 2 commissions paid, ₹9,500 net; reviewer==preparer REJECTED.
+
+### The complete machine (PRs #2258 + #2261, both awaiting Director merge)
+set rates → generate pending commissions (dry-run default) → approve (Commissions page, #2219 fixed) → create payout batch → review → approve → pay. EVERY DB step proven on real data.
+
+### Applied to prod this session (via Mgmt API, all inert/dormant until used)
+- trigger_set_transaction_number + trigger_set_batch_number: global numbering fixes.
+- referral_rate_config + fn_resolve_referral_rate + fn_generate_referral_commissions.
+- referral_import staging + fn_validate_referral_import_batch.
+- fn_create_payout_batch + fn_advance_payout_batch.
+All admin-gated, anon-revoked, dry-run/dormant defaults. No rates seeded → nothing generates.
+
+### Open PRs (Director merges)
+- #2219 commission schema drift (MERGED earlier)
+- #2220 entry_date backdating (MERGED earlier)
+- #2258 rates + generator UI (green, awaiting merge)
+- #2261 payout engine + UI (CI running, awaiting merge)
+
+### Next / remaining
+- Import UPLOAD screen (D18-D25) — the validator+template are done; the screen is the last UI piece for the 2025-26 debt path.
+- Delete superseded broken TS calculateCommission + createPayoutBatch (0 callers; DB fns supersede).
+- After Director merges #2258+#2261 → deploy → browser-verify /referral-rates + /payouts on prod.
+- Still Director-blocked: real rates, the claims file, bank/PAN for ~26 agencies, the 4 approver names.
+
+---
+## Session: 2026-07-22 (cont.) — Payment machine UI shipped as PR #2258 (+ near-miss caught)
+
+### Shipped
+- **PR #2258** (feat/referral-payment-machine) — MERGEABLE, 984 additions, **0 deletions**, 8 files. Contains: both migrations (importer validator + rate/generator, already applied to prod), the template xlsx, and the NEW rates-&-generate UI (types/service/hooks/page + sidebar).
+- **UI**: /admission/consultants/referral-rates — set flat rates per course/institution; Preview (dry run) shows candidates/payable/blocked/net + per-agency; Generate (confirm) writes pending commissions. Read=commissions.view (RLS-aligned), writes/generate=admin-only. Data flow PROVEN end-to-end on prod (rolled back): seed rate → 511 candidates / ₹24.3L net.
+- Scoped tsc clean on all new files (2 repo-wide errors pre-existing, untouched).
+
+### 🔴 NEAR-MISS caught before PR (would have reverted 7,000+ lines)
+- The referral-importer worktree was created from an OLD main; main advanced ~46 commits; the auto-save hook wip-committed the STALE tree. `git diff main..HEAD` showed my branch DELETING HR-leave/IMS/RCLTP/PDE features. Caught by reading the diff --stat BEFORE opening the PR.
+- **Fix**: created a FRESH worktree from current jicate/main, copied my 7 self-contained files, re-applied the sidebar edit on current main's version, verified additions-only. Deleted the polluted branch + worktree.
+- **Lesson (already in memory but re-confirmed)**: after any `git reset --mixed/--soft jicate/main` in a stale worktree, the branch base is old — verify `git diff --stat main..HEAD` is additions-only before pushing. Auto-save hook makes this worse by committing stale trees.
+
+### Applied to prod this session (via Mgmt API)
+- trigger_set_transaction_number GLOBAL numbering fix (was per-institution vs global unique → collision).
+- referral_rate_config + fn_resolve_referral_rate + fn_generate_referral_commissions (dormant: no rates, dry-run default, admin-gated).
+- import staging + fn_validate_referral_import_batch.
+All inert until rates + a UI-driven generate. RLS + REVOKE anon in place.
+
+### Next increment
+Four-stage payout UI on the Commissions page (lifecycle pending→approved→paid already proven E2E). Delete the superseded broken TS calculateCommission. Then the import upload SCREEN (D18-D25). Merge #2258 (Director) → deploy → browser-verify /referral-rates on prod.
+
+---
 ## Session: 2026-07-22 (cnext) — Biometric↔work-signal ATTENDANCE reconciliation designed + foundation shipped (+ SCF/mentor/Metric-6 earlier)
 
 ### Accomplished
