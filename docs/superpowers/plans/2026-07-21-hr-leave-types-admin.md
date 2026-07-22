@@ -1,10 +1,10 @@
 # HR Leave Types & Entitlement Management — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic team members:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Split the staff leave catalog out of the shared `leave_types` table into a dedicated `hr_leave_types` table managed from HR Admin, and add a balance generator so staff can actually apply for leave.
+**Goal:** Split the team member leave catalog out of the shared `leave_types` table into a dedicated `hr_leave_types` table managed from HR Admin, and add a balance generator so team members can actually apply for leave.
 
-**Architecture:** A single transactional migration creates `hr_leave_types`, copies the 66 staff rows **preserving their UUIDs** (so every foreign-key value stays byte-identical and only constraint targets move), repoints five HR foreign keys, resolves two blocking cross-module references, then deletes the originals. A `SECURITY DEFINER` RPC materializes per-employee balances for an academic year. A new HR Admin page provides CRUD over the catalog.
+**Architecture:** A single transactional migration creates `hr_leave_types`, copies the 66 team member rows **preserving their UUIDs** (so every foreign-key value stays byte-identical and only constraint targets move), repoints five HR foreign keys, resolves two blocking cross-module references, then deletes the originals. A `SECURITY DEFINER` RPC materializes per-employee balances for an academic year. A new HR Admin page provides CRUD over the catalog.
 
 **Tech Stack:** Next.js 16 (App Router, Turbopack), React 19, TypeScript 5 (strict OFF), Supabase (Postgres + RLS), TanStack Query v5, Shadcn UI, Tailwind.
 
@@ -43,14 +43,14 @@ Confirmed against production on 2026-07-21. Re-assert in Task 1; abort if any di
 | `leave_types WHERE scope='staff'` | 66 |
 | `leave_types WHERE scope='learner'` | 9 |
 | All 66 resolve to an `hr_organization` | yes — 0 dropped, 0 institutions with multiple orgs |
-| `hr_leave_balances` | 2,358 rows / 393 staff |
+| `hr_leave_balances` | 2,358 rows / 393 team members |
 | `hr_leave_applications` | 0 rows |
 | `hr_leave_type_entitlements` | 33 rows |
-| `hr_leave_policies` pointing at staff types | 0 (constraint exists, CASCADE) |
-| `institution_leaves` pointing at staff types | **20 (RESTRICT — blocks delete)** |
-| `leave_approval_chains` pointing at staff types | **3 (CASCADE — silent delete)** |
+| `hr_leave_policies` pointing at team member types | 0 (constraint exists, CASCADE) |
+| `institution_leaves` pointing at team member types | **20 (RESTRICT — blocks delete)** |
+| `leave_approval_chains` pointing at team member types | **3 (CASCADE — silent delete)** |
 | `hr_staff_details.cadre_id` populated | **0 of 543** |
-| Test user | Boobalan A, staff `403db380-17b6-46dc-91ed-b8403deeaf9c`, JKKN Testing Institution |
+| Test user | Boobalan A, team member `403db380-17b6-46dc-91ed-b8403deeaf9c`, JKKN Testing Institution |
 | Testing Institution AY 2026-2027 | `f88b7054-f52a-4940-9a41-4e0682f13ac7` |
 
 ## File Structure
@@ -580,7 +580,7 @@ Expected: no output.
 
 - [ ] **Step 4b: Repoint the four sites OUTSIDE leave-service.ts**
 
-Task 1's review found these by grep after the migration had already run. All read staff leave types from the now-empty `leave_types`. Change each `.from('leave_types')` to `.from('hr_leave_types')` and drop any `.eq('scope','staff')`:
+Task 1's review found these by grep after the migration had already run. All read team member leave types from the now-empty `leave_types`. Change each `.from('leave_types')` to `.from('hr_leave_types')` and drop any `.eq('scope','staff')`:
 
 | File | Line | What breaks without the fix |
 |---|---|---|
@@ -1265,7 +1265,7 @@ export default function GenerateLeaveBalancesPage() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Run this <strong>before</strong> staff apply for leave. Approving leave with no
+                Run this <strong>before</strong> team members apply for leave. Approving leave with no
                 balance row creates one with zero entitlement and non-zero usage, leaving a
                 permanently negative balance. Always preview first.
               </AlertDescription>
@@ -1844,7 +1844,7 @@ In `lib/sidebarMenuLink.ts`, alongside the other `/hr/admin/*` entries (~line 31
 
 - [ ] **Step 3: Add the sidebar rows**
 
-In the HR Admin submenu array in `lib/sidebarMenuLink.ts` (~line 2127), add alongside the existing admin children:
+In the HR Admin submenu array in `lib/sidebarMenuLink.ts` (~line 2127), add alongside the existing admin child entries:
 
 ```typescript
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
@@ -2015,7 +2015,7 @@ As an HR admin role, confirm `/hr/admin/leave-types` lists types for a selected 
 
 - [ ] **Step 5: Confirm the academic page is unaffected**
 
-Navigate to `/academic/leaves/settings/types`. It should now list only the 9 learner types plus the new holiday labels — no staff types.
+Navigate to `/academic/leaves/settings/types`. It should now list only the 9 learner types plus the new holiday labels — no team member types.
 
 - [ ] **Step 6: Final commit and push**
 
@@ -2032,9 +2032,9 @@ Then open a PR — `main` is protected and requires a PR plus checks.
 Not in scope here:
 
 - `/hr/admin/leave-entitlements` — cadre × leave type matrix UI
-- `/hr/admin/staff-cadres` — bulk cadre assignment for 740 staff, suggested from the 165 distinct `staff.designation` strings
+- `/hr/admin/staff-cadres` — bulk cadre assignment for 740 team members, suggested from the 165 distinct `staff.designation` strings
 
-Until Stage D ships, every staff member receives `default_entitled_days` from the leave type. This is expected and reported by the generator's fallback list — not a defect. Per-cadre entitlements become meaningful only once cadres are assigned (`hr_staff_details.cadre_id` is currently 0 of 543).
+Until Stage D ships, every team member receives `default_entitled_days` from the leave type. This is expected and reported by the generator's fallback list — not a defect. Per-cadre entitlements become meaningful only once cadres are assigned (`hr_staff_details.cadre_id` is currently 0 of 543).
 
 Also still open from the spec, unchanged by this plan:
 - Leave application comments are broken (column drift: code writes `body`/`author_id`, table has `comment`/`commenter_id` plus a NOT NULL `hr_organization_id` never supplied)

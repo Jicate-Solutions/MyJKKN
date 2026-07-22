@@ -63,7 +63,7 @@ export default function GenerateLeaveBalancesPage() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Run this <strong>before</strong> staff apply for leave. Approving leave with no
+                Run this <strong>before</strong> team members apply for leave. Approving leave with no
                 balance row creates one with zero entitlement and non-zero usage, leaving a
                 permanently negative balance. Always preview first.
               </AlertDescription>

@@ -15,7 +15,7 @@ Verified root cause — **two independent faults**:
 1. **No balances exist for the current academic year.** All 2,358 `hr_leave_balances` rows sit on 2024-2025 (2,334) or 2025-2026 (24). Zero rows exist for 2026-2027. The apply form builds its leave-type dropdown from `hr_leave_balances`, not `leave_types`, so the dropdown is empty, `leaveTypeId` never sets, and `canSubmit` is permanently false. No error, no toast, no 403.
 2. **The academic-year picker selects the wrong year.** `use-academic-years.ts:13-14` orders `academic_year_name` descending as **text** and `apply/page.tsx:49-52` takes `[0]`. Institutions have future years pre-created with `is_active = true`, so `'2030-2031' > '2026-2027'` lexically. Pharmacy requests **2030-2031**; Dental requests **2028-2029**.
 
-RLS is **not** a factor — the `20260721065226_hr_leave_rls_permission_retrofit` migration works. Verified by impersonation: a real staff member sees exactly her own 6 balance rows, self-scoped.
+RLS is **not** a factor — the `20260721065226_hr_leave_rls_permission_retrofit` migration works. Verified by impersonation: a real team member sees exactly her own 6 balance rows, self-scoped.
 
 **Why there is no admin fix:** every code reference to `hr_leave_balances` and `hr_leave_type_entitlements` is a *read*. No page, service method, or API route writes either table. The 2,358 rows were seeded once by migration and never refreshed. The only DB automation, `hr_trig_update_leave_balance`, increments `used` on approval — it never provisions `entitled`.
 
@@ -40,8 +40,8 @@ RLS is **not** a factor — the `20260721065226_hr_leave_rls_permission_retrofit
 | D2 | Migration safety | **Preserve UUIDs** — FK values stay byte-identical; only constraint targets move |
 | D3 | New fields | Carry-forward, encashment, accrual, and gender/cadre eligibility — all four groups |
 | D4 | Scope | **All three tiers** — types + entitlements + balance generation |
-| D5 | Old `leave_types` staff rows | **Delete** — one catalog per audience, no drift |
-| D6 | Staff with no cadre | **Fall back to `default_entitled_days`**, and report who fell back |
+| D5 | Old `leave_types` team member rows | **Delete** — one catalog per audience, no drift |
+| D6 | Team members with no cadre | **Fall back to `default_entitled_days`**, and report who fell back |
 | D7 | Cadre linkage | **Build a bulk cadre-assignment screen** — keep entitlements keyed by cadre |
 | D8 | `institution_leaves` conflict | **Create `scope='institution'` label types and repoint the 20 rows**, then delete |
 
@@ -85,7 +85,7 @@ These were found by querying production and **materially changed the design**. E
 | `hr_staff_details.cadre_id` | **0 of 543** |
 | `hr_staff_details.designation_id` | **0 of 543** |
 | `hr_cadres` rows | 44 |
-| `hr_leave_type_entitlements` rows | 33 (pointing at cadres no staff has) |
+| `hr_leave_type_entitlements` rows | 33 (pointing at cadres no team members have) |
 | `staff.designation` (free text) | 731 of 731 — **165 distinct, unnormalized** |
 
 The cadre × leave-type entitlement matrix therefore resolves for **zero staff today**. Every employee will hit the D6 fallback until the D7 assignment screen is used. This is expected, not a defect.
@@ -160,7 +160,7 @@ One transactional migration. Order matters — steps 2 and 3 must precede any de
 | Route | Purpose | Permission |
 |---|---|---|
 | `/hr/admin/leave-types` | CRUD the 66 types, all 28 fields | `hr.leave.types.manage` (new) |
-| `/hr/admin/staff-cadres` | Bulk-assign 740 staff → 44 cadres, suggested from `staff.designation` | `hr.staff.cadre.assign` (new) |
+| `/hr/admin/staff-cadres` | Bulk-assign 740 team members → 44 cadres, suggested from `staff.designation` | `hr.staff.cadre.assign` (new) |
 | `/hr/admin/leave-entitlements` | Matrix: cadre × leave type → entitled days | `hr.leave.policies.write` (**exists**) |
 | `/hr/admin/leave-balances` | Generate balances for an academic year | `hr.leave.balance.manage` (new) |
 
@@ -192,7 +192,7 @@ for each active staff in org:
 
 If no prior year exists, `carried := 0`.
 
-Returns `{ created, skipped, fallback_used[] }` where `fallback_used` lists staff who had no cadre entitlement. Dry-run computes and reports without writing.
+Returns `{ created, skipped, fallback_used[] }` where `fallback_used` lists team members who had no cadre entitlement. Dry-run computes and reports without writing.
 
 **Idempotent** via the real constraint `(employee_id, leave_type_id, academic_year_id)` — safe to re-run.
 
@@ -239,7 +239,7 @@ Also required: register `hr_leave_types` in `types/supabase.ts`, or `.from('hr_l
 
 | Risk | Mitigation |
 |---|---|
-| A missed code path joins `leave_types` for staff | Deliberate loud failure (D5). Full reference sweep before step 6. |
+| A missed code path joins `leave_types` for team members | Deliberate loud failure (D5). Full reference sweep before step 6. |
 | New permission keys declared but not granted → empty pages | Grant migration tested by **value** (`(permissions->>k)::boolean IS TRUE`), not key presence — 63 roles carry HR keys set to `false` |
 | Approving leave with no balance row → negative balance | Generator runs before apply is enabled; dry-run first |
 | `institution_leaves` RESTRICT blocks migration | Step 4 repoints all 20 rows before step 6 |
@@ -256,7 +256,7 @@ This spec is large (a migration, four screens, an RPC, and flow rewiring). It is
 | Stage | Contents | Outcome |
 |---|---|---|
 | **A** | Migration (§5) + `types/supabase.ts` + flow rewiring (§8) | Catalog split done; module still reads correctly |
-| **B** | Generator RPC (§7) + `/hr/admin/leave-balances` | **Staff can apply for leave** — the outage ends here |
+| **B** | Generator RPC (§7) + `/hr/admin/leave-balances` | **Team members can apply for leave** — the outage ends here |
 | **C** | `/hr/admin/leave-types` CRUD | Types manageable without SQL |
 | **D** | `/hr/admin/leave-entitlements` + `/hr/admin/staff-cadres` | Per-cadre entitlements become meaningful |
 
@@ -273,5 +273,5 @@ There is **no test suite in this repo** — do not claim tests pass.
    - Note: `check:menus` fails at HEAD on an unrelated pre-existing issue (`/system` has no `MENU_PERMISSIONS` entry). Not a regression.
 3. SQL: assert the four post-conditions in §5; assert grants by value
 4. Dry-run the generator for JKKN Testing Institution; confirm the fallback list contains all staff (cadres unassigned)
-5. Run the generator for real; confirm Boobalan A (JEI001, staff `403db380-…`) gains 6 rows on AY 2026-2027 (`f88b7054-…`)
+5. Run the generator for real; confirm Boobalan A (JEI001, team member `403db380-…`) gains 6 rows on AY 2026-2027 (`f88b7054-…`)
 6. **Browser test as a plain `faculty` role — never as super-admin.** Confirm `/hr/leave/apply` populates the dropdown and submits.
