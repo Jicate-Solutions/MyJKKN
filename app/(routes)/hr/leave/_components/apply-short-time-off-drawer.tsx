@@ -80,7 +80,10 @@ export function ApplyShortTimeOffDrawer({
     ctx.academicYearId || null,
     date || undefined
   );
-  const limited = !!usage && usage.limit_mode !== 'none';
+  const limited = !!usage && usage.limit_mode !== 'none' && !usage.window_unresolved;
+  // The database refuses these outright; saying nothing would leave the user
+  // guessing why Submit fails.
+  const windowUnresolved = !!usage?.window_unresolved;
   // Distinguish "loaded, and there is no limit" from "still loading" —
   // otherwise a genuinely limited type flashes "No usage limit configured"
   // before the query resolves.
@@ -101,6 +104,9 @@ export function ApplyShortTimeOffDrawer({
   // Mirrors hr_trig_sto_enforce_limits so the form refuses what the database
   // would refuse, with the same numbers, before a round trip.
   const limitError = (() => {
+    if (windowUnresolved) {
+      return 'The leave period for this date cannot be determined. Contact HR.';
+    }
     if (!limited || !usage || requestMinutes === null) return null;
     if (usage.min_minutes && requestMinutes < usage.min_minutes) {
       return `Minimum is ${formatMinutes(usage.min_minutes)} per request.`;
