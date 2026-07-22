@@ -90,6 +90,38 @@ export class RcltpResultsService {
   }
 
   // -------------------------------------------------------------------------
+  // SCHOOL-HEAD DASHBOARD — read-only aggregate RPC (Phase 4e)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Aggregate school-head (principal) dashboard data via
+   * `fn_rcltp_school_dashboard(p_institution_id)`. Every array in the result
+   * is empty until EKSAQ scoring produces `rcltp_assessment_results` rows —
+   * the RPC always marks `provisional: true`. Callers MUST render the
+   * "Provisional — pending EKSAQ validation" banner whenever any array is
+   * non-empty (see PrincipalDashboard).
+   */
+  static async getSchoolDashboard(
+    institutionId: string
+  ): Promise<RcltpSchoolDashboard> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_school_dashboard',
+      { p_institution_id: institutionId }
+    );
+    if (error) throw error;
+    return (
+      (data as RcltpSchoolDashboard) ?? {
+        provisional: true,
+        totals: { scoredSittings: 0, learners: 0 },
+        bandDistribution: [],
+        cycleProgress: [],
+        atRisk: [],
+        sectionComparison: [],
+      }
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // STUDENT JOURNEY — reads (RLS: staff institution-scoped; own student reads own)
   // -------------------------------------------------------------------------
 
