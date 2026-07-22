@@ -27,6 +27,7 @@ import type {
   RcltpListResponse,
   CreateRcltpBandConfigDto,
   UpdateRcltpBandConfigDto,
+  RcltpSchoolDashboard,
 } from '@/types/rcltp';
 import {
   rcltpRange,
