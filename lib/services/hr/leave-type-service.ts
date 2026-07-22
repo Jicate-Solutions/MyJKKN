@@ -17,6 +17,7 @@ import type {
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
 import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
+import type { StoUsage } from '@/types/hr-leave-types';
 
 export interface GenerateBalancesResult {
   dry_run: boolean;
@@ -101,6 +102,29 @@ export class HRLeaveTypeService {
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  /**
+   * Short Time Off usage in the current period.
+   *
+   * Resolved server-side because the limits themselves are resolved there —
+   * an assignment may override the type's whole limit block, and duplicating
+   * that precedence in the client would drift from the trigger that enforces
+   * it.
+   */
+  static async getStoUsage(
+    supabase: SupabaseClient,
+    employeeId: string,
+    leaveTypeId: string,
+    academicYearId: string | null
+  ): Promise<StoUsage> {
+    const { data, error } = await supabase.rpc('hr_sto_usage', {
+      p_staff_id: employeeId,
+      p_leave_type_id: leaveTypeId,
+      p_academic_year_id: academicYearId,
+    });
+    if (error) throw error;
+    return data as StoUsage;
   }
 
   /**
