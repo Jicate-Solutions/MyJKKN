@@ -14,7 +14,7 @@
  */
 
 import { redirect, notFound } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { CaseAttempt } from './_components/CaseAttempt';
@@ -72,6 +72,29 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     .maybeSingle();
 
   if (aErr || !assessment) {
+    // The row is hidden from this learner. Tell apart "locked to a class you're
+    // not in" from "doesn't exist" so we show a clear message, not a bare 404
+    // (CLAUDE.md rule #27 — permission failures must be explicit, never silent).
+    const svc = createServiceRoleClient();
+    const { data: exists } = await svc
+      .from('pde_assessments')
+      .select('id, status, visibility_mode')
+      .eq('id', caseSlug)
+      .eq('assessment_type', 'clinical_case')
+      .maybeSingle();
+    if (exists && exists.status === 'published' && exists.visibility_mode === 'class_only') {
+      return (
+        <ContentLayout>
+          <div className="mx-auto max-w-2xl py-12 px-4">
+            <h1 className="text-xl font-semibold">This case isn&apos;t assigned to you</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your Senior Learner has limited this case to specific sections. If you think you
+              should have access, ask them to assign it to your section.
+            </p>
+          </div>
+        </ContentLayout>
+      );
+    }
     notFound();
   }
   if (assessment.status !== 'published') {
