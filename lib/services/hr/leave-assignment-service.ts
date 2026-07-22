@@ -143,7 +143,12 @@ export class LeaveAssignmentService {
       .select('department_id, departments:department_id ( department_name )')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
-      .not('department_id', 'is', null);
+      .not('department_id', 'is', null)
+      // Explicit, because PostgREST's silent 1000-row default would drop
+      // departments rather than error. The largest institution has 156 active
+      // staff, so this is ~30x headroom; if an institution ever approaches it,
+      // this counting belongs in a GROUP BY on the server.
+      .limit(5000);
     if (error) throw error;
 
     // Aggregated client-side: PostgREST cannot GROUP BY, and this is a few
@@ -180,7 +185,12 @@ export class LeaveAssignmentService {
       .select('id, staff_id, first_name, last_name, departments:department_id ( department_name )')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
-      .limit(LeaveAssignmentService.STAFF_SEARCH_LIMIT);
+      // Deterministic order before the cap: without it the 25 rows returned
+      // are an arbitrary subset, so a person matching the term can be
+      // permanently unreachable in the picker.
+      .order('first_name', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(LeaveAssignmentService.STAFF_SEARCH_LIMIT + 1);
 
     if (term.trim()) {
       // Allow-list, not a blocklist. This value is interpolated into a
@@ -199,7 +209,12 @@ export class LeaveAssignmentService {
     const { data, error } = await q;
     if (error) throw error;
 
-    return (data ?? []).map((row: Record<string, unknown>) => {
+    // One extra row is fetched purely to distinguish "exactly the cap" from
+    // "more than the cap", then dropped — otherwise the picker claims results
+    // are truncated when they are complete.
+    return (data ?? [])
+      .slice(0, LeaveAssignmentService.STAFF_SEARCH_LIMIT + 1)
+      .map((row: Record<string, unknown>) => {
       const dep = row.departments as { department_name: string | null } | null;
       return {
         id: row.id as string,

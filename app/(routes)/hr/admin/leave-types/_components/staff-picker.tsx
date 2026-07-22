@@ -47,6 +47,13 @@ export function StaffPicker({
   }, [term]);
 
   const { data, isLoading } = useStaffSearch(institutionId, debounced);
+
+  // The service fetches cap+1 so "exactly the cap" and "more than the cap" are
+  // distinguishable. Show the cap, and only claim truncation when the extra
+  // row actually came back.
+  const LIMIT = LeaveAssignmentService.STAFF_SEARCH_LIMIT;
+  const truncated = (data?.length ?? 0) > LIMIT;
+  const options = useMemo(() => (data ?? []).slice(0, LIMIT), [data, LIMIT]);
   const selectedIds = useMemo(() => new Set(selected.map((s) => s.id)), [selected]);
 
   const toggle = (opt: StaffPickerOption) => {
@@ -78,12 +85,12 @@ export function StaffPicker({
               <Skeleton key={i} className="h-8" />
             ))}
           </div>
-        ) : (data ?? []).length === 0 ? (
+        ) : options.length === 0 ? (
           <p className="p-4 text-center text-sm text-muted-foreground">
             {debounced ? 'No team member matches that.' : 'No active team members found.'}
           </p>
         ) : (
-          (data ?? []).map((o) => {
+          options.map((o) => {
             const isSelected = selectedIds.has(o.id);
             const isExcluded = excludeIds?.has(o.id) ?? false;
             return (
@@ -119,10 +126,9 @@ export function StaffPicker({
         )}
       </div>
 
-      {(data?.length ?? 0) >= LeaveAssignmentService.STAFF_SEARCH_LIMIT && (
+      {truncated && (
         <p className="text-xs text-muted-foreground">
-          Showing the first {LeaveAssignmentService.STAFF_SEARCH_LIMIT} matches — narrow the
-          search to see others.
+          Showing the first {LIMIT} matches — narrow the search to see others.
         </p>
       )}
 

@@ -337,7 +337,12 @@ export function AssignmentManagerDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Done</Button>
+          {/* Routed through the same close path as Escape and the overlay —
+              calling onOpenChange directly skipped reset(), so the previous
+              type's picker state leaked into the next one. */}
+          <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }}>
+            Done
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

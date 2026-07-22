@@ -57,6 +57,8 @@ export interface HRLeaveTypeAssignmentInsert {
 export interface HRLeaveTypeCoverage {
   assignment_count: number;
   is_org_wide: boolean;
+  /** An archived type reaches nobody, regardless of its rules. */
+  is_type_active: boolean;
   reached: number;
   active_staff: number;
   by_scope: Partial<Record<LeaveAssignmentScope | 'unassigned', number>>;
