@@ -129,3 +129,10 @@ BEGIN
 END;
 $function$
 ;
+
+-- CREATE OR REPLACE re-registers the function, so the SECDEF anon-lock gate treats
+-- it as new and requires the explicit privilege block. These lines re-assert the
+-- EXISTING live grants (verified on prod: anon=false, authenticated=true,
+-- service_role=true) — they change no privilege, they satisfy the gate.
+REVOKE EXECUTE ON FUNCTION public.fn_scf_downward_trend_all(integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_downward_trend_all(integer) TO authenticated, service_role;
