@@ -111,18 +111,22 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     );
   }
 
-  // ---- 3. Questions ----
-  const { data: qRows } = await sb
-    .from('pde_assessment_questions')
-    .select(
-      'id, assessment_id, question_type, question_text, question_media_url, options, correct_answer, order_index, metadata, expected_regions'
-    )
-    .eq('assessment_id', assessment.id)
-    .order('order_index', { ascending: true });
-
-  const questions: ClinicalQuestion[] = (qRows ?? []).filter(
-    (q: any) => ['free_text_socratic', 'mcq_warmup', 'image_tag'].includes(q.question_type)
-  );
+  // ---- 3. Questions (server-projected: the answer key never leaves the DB) ----
+  // The learner no longer holds SELECT on pde_assessment_questions (see the
+  // pde_questions_read RLS policy). fn_pde_get_case_questions is a SECURITY
+  // DEFINER RPC that gates on published+enrolled (or staff/creator) and returns
+  // only the learner-safe projection: options with `is_correct` stripped,
+  // metadata with ground_truth/key_concepts removed, and NO correct_answer or
+  // expected_regions. This is the only learner path to a case's questions, so
+  // the key is structurally unreachable from the browser — not merely absent
+  // from this payload. Objective marking is server-side (fn_pde_mark_objective
+  // for MCQ; /api/pde/clinical-reasoning/mark-image-tag for image_tag).
+  const { data: qData } = await sb.rpc('fn_pde_get_case_questions', {
+    p_assessment_id: assessment.id,
+  });
+  const questions: ClinicalQuestion[] = Array.isArray(qData)
+    ? (qData as ClinicalQuestion[])
+    : [];
 
   if (questions.length === 0) {
     return (

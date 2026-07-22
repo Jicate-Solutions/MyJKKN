@@ -142,6 +142,14 @@ export interface PDEAtRiskLearner {
   total_time: number;
   total_lessons_completed: number;
   risk_level: RiskLevel;
+  /**
+   * True whenever the learner is averaging below the pass mark — independent of
+   * `risk_level`, which is a single-branch CASE where inactivity outranks score
+   * and would otherwise hide a failing learner behind a 'warning' band.
+   */
+  is_low_scoring: boolean;
+  /** False when the learner has completed no assessments, so "healthy" and "no evidence" are distinguishable. */
+  has_assessment_scores: boolean;
 }
 
 /**

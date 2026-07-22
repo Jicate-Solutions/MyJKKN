@@ -29,8 +29,9 @@ export interface ChangeRequestInsert {
   description?: string | null;
   impact_summary?: string | null;
   is_major?: boolean;
+  /** Omit to default to 'submitted'. Must match the status CHECK constraint. */
   status?: string;
-  /** Null — no auth helper available in this service layer. */
+  /** Omit to resolve from the current session; caller may override. */
   requested_by?: string | null;
 }
 
@@ -107,7 +108,7 @@ export class ChangeService {
         description: input.description ?? null,
         impact_summary: input.impact_summary ?? null,
         is_major: input.is_major ?? false,
-        status: input.status ?? 'pending',
+        status: input.status ?? 'submitted',
         requested_by: requestedBy,
         created_by: actorId,
       })
