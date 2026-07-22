@@ -81,6 +81,10 @@ export function ApplyShortTimeOffDrawer({
     date || undefined
   );
   const limited = !!usage && usage.limit_mode !== 'none';
+  // Distinguish "loaded, and there is no limit" from "still loading" —
+  // otherwise a genuinely limited type flashes "No usage limit configured"
+  // before the query resolves.
+  const usageResolved = usage !== undefined;
 
   const totalHours = useMemo(() => {
     const s = toMinutes(startTime);
@@ -217,11 +221,11 @@ export function ApplyShortTimeOffDrawer({
                       </span>
                     )}
                   </p>
-                ) : (
+                ) : usageResolved ? (
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     No usage limit configured for this type.
                   </p>
-                )}
+                ) : null}
               </div>
 
               <div>

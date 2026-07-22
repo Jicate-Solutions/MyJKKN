@@ -95,7 +95,9 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
         form.sto_limit_mode === 'request_count'
           ? form.sto_max_requests
           : form.sto_total_minutes;
-      if (cap === '' || Number(cap) <= 0) {
+      // `Number(undefined) <= 0` is false, so a NaN cap slipped past the very
+      // guard this block exists to be. Assert the positive case instead.
+      if (cap === '' || cap == null || !(Number(cap) > 0)) {
         toast.error(
           form.sto_limit_mode === 'request_count'
             ? 'Enter the maximum number of requests for this period.'
