@@ -200,6 +200,56 @@ export class AiPulseLearnerService {
   }
 
   /**
+   * List recent AI Pulse cycles (newest first) — backs the learner "week
+   * switcher" on My AI Pulse. Read-only browse of any past cycle.
+   */
+  static async listCyclesServer(limit = 12): Promise<AiPulseCycle[]> {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('startup_events')
+        .select('id, name, start_date, end_date, status, config')
+        .filter('config->>kind', 'eq', 'ai_pulse')
+        .neq('status', 'cancelled')
+        .order('start_date', { ascending: false, nullsFirst: false })
+        .limit(limit);
+      if (error) {
+        console.error('[ai-pulse/learner] listCyclesServer failed:', error);
+        return [];
+      }
+      return (data as AiPulseCycle[]) ?? [];
+    } catch (e) {
+      console.error('[ai-pulse/learner] listCyclesServer threw:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch a single AI Pulse cycle by id — backs the `?cycle=<id>` deep-link
+   * the week switcher navigates to. Returns null if the id is not an ai_pulse
+   * cycle (guards against a hand-typed / stale param).
+   */
+  static async getCycleByIdServer(id: string): Promise<AiPulseCycle | null> {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('startup_events')
+        .select('id, name, start_date, end_date, status, config')
+        .eq('id', id)
+        .filter('config->>kind', 'eq', 'ai_pulse')
+        .maybeSingle();
+      if (error) {
+        console.error('[ai-pulse/learner] getCycleByIdServer failed:', error);
+        return null;
+      }
+      return (data as AiPulseCycle) ?? null;
+    } catch (e) {
+      console.error('[ai-pulse/learner] getCycleByIdServer threw:', e);
+      return null;
+    }
+  }
+
+  /**
    * Find the learner's team for a given AI Pulse cycle.
    * Joins `event_team_members` → `event_registrations` filtered by event_id.
    */
