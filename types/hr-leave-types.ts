@@ -16,6 +16,20 @@ import type { LeaveDurationType } from '@/types/hr';
 export type LeaveAccrualType = 'none' | 'annual' | 'monthly';
 export type LeaveApplicableGender = 'all' | 'male' | 'female';
 
+/**
+ * Which Time Off tab a type is requested from.
+ *
+ * Stored on the row rather than derived in the UI: 11 organizations each
+ * maintain their own catalog, so hardcoding leave_type_code in React would
+ * break the first time one of them adds a type. Admins set this on
+ * /hr/admin/leave-types.
+ *
+ * Declared in types/hr.ts and re-exported here — hr.ts cannot import from this
+ * module without the two becoming circular.
+ */
+export type { LeaveRequestCategory } from '@/types/hr';
+import type { LeaveRequestCategory } from '@/types/hr';
+
 export interface HRLeaveType {
   id: string;
   hr_organization_id: string;
@@ -25,6 +39,8 @@ export interface HRLeaveType {
   color_code: string;
   display_order: number;
   is_active: boolean;
+
+  request_category: LeaveRequestCategory;
 
   duration_type: LeaveDurationType;
   allow_half_day: boolean;
@@ -73,7 +89,20 @@ export interface HRLeaveTypeFilters {
   hr_organization_id?: string;
   is_active?: boolean;
   search?: string;
+  request_category?: LeaveRequestCategory;
 }
+
+export const REQUEST_CATEGORY_LABELS: Record<LeaveRequestCategory, string> = {
+  leave: 'Leave',
+  short_time_off: 'Short Time Off',
+  compensatory_off: 'Compensatory Off',
+};
+
+export const REQUEST_CATEGORY_HINTS: Record<LeaveRequestCategory, string> = {
+  leave: 'Full or half-day absences booked against an annual entitlement — Casual, Vacation, On-Duty, Half Pay.',
+  short_time_off: 'Hourly in-day requests such as Permission. Applied with a start and end time.',
+  compensatory_off: 'Time off earned by working a holiday or week-off, rather than granted annually.',
+};
 
 export const ACCRUAL_TYPE_LABELS: Record<LeaveAccrualType, string> = {
   none: 'No accrual (granted up-front)',

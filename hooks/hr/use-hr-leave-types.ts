@@ -11,6 +11,21 @@ import type {
 
 const KEY = 'hr-leave-types';
 const ANALYTICS_KEY = 'hr-leave-balance-analytics';
+const CAN_APPROVE_KEY = 'hr-can-approve-leave';
+
+/**
+ * Whether the Approvals tab should render. Mirrors the hla_update RLS policy
+ * server-side rather than checking a permission key on the client.
+ */
+export function useCanApproveLeave() {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [CAN_APPROVE_KEY],
+    queryFn: () => HRLeaveTypeService.canApproveLeave(supabase),
+    // Capability is role-derived and does not change mid-session.
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 /**
  * Institution-wise leave provisioning analytics.

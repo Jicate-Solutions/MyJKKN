@@ -10,7 +10,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateHRLeaveType, useUpdateHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
 import { ACCRUAL_TYPE_LABELS, APPLICABLE_GENDER_LABELS } from '@/types/hr-leave-types';
-import type { HRLeaveType, HRLeaveTypeInsert, HRLeaveTypeUpdate, LeaveAccrualType, LeaveApplicableGender, LeaveDurationType } from '@/types/hr-leave-types';
+import type { HRLeaveType, HRLeaveTypeInsert, HRLeaveTypeUpdate, LeaveAccrualType, LeaveApplicableGender, LeaveDurationType, LeaveRequestCategory } from '@/types/hr-leave-types';
+import { REQUEST_CATEGORY_LABELS, REQUEST_CATEGORY_HINTS } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -25,6 +26,7 @@ interface Props {
 const EMPTY = {
   leave_type_code: '', leave_type_name: '', description: '',
   color_code: '#6B7280', display_order: 0, is_active: true,
+  request_category: 'leave' as LeaveRequestCategory,
   duration_type: 'full' as LeaveDurationType, allow_half_day: false, allow_hourly: false,
   skip_weekends: true, skip_holidays: true,
   requires_approval: true, is_paid: true,
@@ -163,6 +165,25 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
               <Label htmlFor="desc">Description</Label>
               <Textarea id="desc" value={form.description}
                 onChange={(e) => set('description', e.target.value)} />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">Request surface</h3>
+            <div>
+              <Label>Requested from</Label>
+              <Select value={form.request_category}
+                onValueChange={(v) => set('request_category', v as LeaveRequestCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(REQUEST_CATEGORY_LABELS).map(([v, l]) => (
+                    <SelectItem key={v} value={v}>{l}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {REQUEST_CATEGORY_HINTS[form.request_category as LeaveRequestCategory]}
+              </p>
             </div>
           </section>
 

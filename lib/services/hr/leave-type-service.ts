@@ -46,6 +46,11 @@ export class HRLeaveTypeService {
     if (filters.is_active != null) {
       query = query.eq('is_active', filters.is_active);
     }
+    // Drives the Time Off tabs: 'leave' excludes Permission (hourly) and
+    // Compensatory Off, which have their own request forms.
+    if (filters.request_category != null) {
+      query = query.eq('request_category', filters.request_category);
+    }
     if (filters.search) {
       query = query.or(
         `leave_type_name.ilike.%${filters.search}%,leave_type_code.ilike.%${filters.search}%`
@@ -96,6 +101,21 @@ export class HRLeaveTypeService {
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  /**
+   * Can the caller act on any leave application?
+   *
+   * Backed by an RPC that mirrors the hla_update RLS policy, so the Approvals
+   * tab, its route guard and the database cannot drift apart. Do NOT
+   * substitute a client-side `hasPermission('hr.leave.approve')` check: the
+   * policy also requires org membership, and a tab that leads to a page the
+   * database rejects is worse than no tab.
+   */
+  static async canApproveLeave(supabase: SupabaseClient): Promise<boolean> {
+    const { data, error } = await supabase.rpc('hr_can_approve_leave');
+    if (error) throw error;
+    return data === true;
   }
 
   /**
