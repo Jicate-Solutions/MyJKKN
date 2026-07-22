@@ -1,7 +1,7 @@
 'use client';
 
 // =============================================================================
-// RCLTP — shared "awaiting EKSAQ scoring" honest empty-state (Phase 4e)
+// RCLTP — shared "awaiting MyJKKN scoring" honest empty-state (Phase 4e)
 // =============================================================================
 // CONTENT-SAFETY (the whole point of Phase 4e): every report/dashboard surface
 // reuses this empty state. It NEVER renders a score, band, percentage, ranking,
@@ -21,7 +21,7 @@ export function AwaitingScoring({ what }: { what: string }) {
       <Lock className='h-5 w-5 text-muted-foreground' aria-hidden='true' />
       <p className='text-sm font-medium text-foreground'>{what}</p>
       <p className='max-w-prose text-sm text-muted-foreground'>
-        This populates once EKSAQ scoring is enabled. We only show validated
+        This populates once MyJKKN scoring is enabled. We only show validated
         results — never an estimated or placeholder score.
       </p>
     </div>
@@ -36,7 +36,7 @@ export function ChartFrame({ label }: { label: string }) {
   return (
     <div className='flex h-40 w-full items-center justify-center rounded-md border border-dashed bg-muted/20 text-center'>
       <span className='px-4 text-xs text-muted-foreground'>
-        {label} — awaiting EKSAQ scoring
+        {label} — awaiting MyJKKN scoring
       </span>
     </div>
   );

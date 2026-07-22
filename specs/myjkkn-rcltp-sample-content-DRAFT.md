@@ -1,7 +1,7 @@
-# EKSAQ RCLTP — Sample Content (AI DRAFT — NOT VALIDATED)
+# MyJKKN RCLTP — Sample Content (AI DRAFT — NOT VALIDATED)
 
 > ⚠️ **EVERY item below is an AI draft. It is NOT validated pedagogy.**
-> Use only after an educator / EKSAQ reviews and approves it. In the database
+> Use only after an educator / MyJKKN reviews and approves it. In the database
 > each row lands `source='ai_generated'`, `status='draft'`, with an `ai_meta`
 > provenance stamp, and is invisible to students until a human sets `status='approved'`.
 > English only (v1). No invented psychometric numbers are presented as final.
@@ -49,7 +49,7 @@
 
 ---
 
-## B. Provisional scoring rubric (PROVISIONAL — must be calibrated by EKSAQ)
+## B. Provisional scoring rubric (PROVISIONAL — must be calibrated by MyJKKN)
 
 > ⚠️ These are STRUCTURE placeholders, not validated cutoffs. Band thresholds for a
 > reading instrument must be normed against real children. Do NOT ship the numbers
@@ -60,7 +60,7 @@
 
 **Part B — Comprehension:** % of questions correct (auto-graded once approved questions carry `correct_answer`).
 
-**Composite (provisional weights):** Overall = 0.5 × Reading + 0.5 × Comprehension. ⚠️ Weights provisional — EKSAQ to confirm.
+**Composite (provisional weights):** Overall = 0.5 × Reading + 0.5 × Comprehension. ⚠️ Weights provisional — MyJKKN to confirm.
 
 **Bands (fixed ladder; cutoffs PROVISIONAL):**
 | Band | Provisional overall range | Note |
@@ -79,7 +79,7 @@
 | `first-reading` | First Reading | Completed your first reading assessment | on first `submit` |
 | `streak-5` | 5-Day Streak | Practised 5 days in a row | `current_streak >= 5` |
 | `level-up` | Level Up | Moved up a content level | served_content_level increased |
-| `comprehension-star` | Comprehension Star | Strong comprehension result | ⚠️ needs EKSAQ score threshold |
+| `comprehension-star` | Comprehension Star | Strong comprehension result | ⚠️ needs MyJKKN score threshold |
 
 ---
 

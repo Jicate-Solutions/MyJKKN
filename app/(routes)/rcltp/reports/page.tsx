@@ -4,7 +4,7 @@
 // /rcltp/reports — Reports index shell (Phase 4e)
 // =============================================================================
 // The catalogue entry point for RCLTP reports. This is a SHELL ONLY: the
-// validated scoring formula and the 24-report catalog are EKSAQ-gated and not
+// validated scoring formula and the 24-report catalog are MyJKKN-gated and not
 // delivered. The page lists the three named report surfaces with descriptions
 // and an honest awaiting-state. ZERO fabricated scores, bands, percentages,
 // rankings, or chart points appear anywhere.
@@ -69,9 +69,9 @@ export default function RcltpReportsPage() {
       <div className='space-y-6'>
         <Alert>
           <Clock className='h-4 w-4' aria-hidden='true' />
-          <AlertTitle>Reports populate once EKSAQ scoring is enabled</AlertTitle>
+          <AlertTitle>Reports populate once MyJKKN scoring is enabled</AlertTitle>
           <AlertDescription>
-            These reports populate once EKSAQ delivers the validated scoring
+            These reports populate once MyJKKN delivers the validated scoring
             formula and report catalog. No estimated scores are ever shown.
           </AlertDescription>
         </Alert>

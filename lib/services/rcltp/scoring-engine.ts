@@ -1,12 +1,12 @@
 /**
- * EKSAQ RCLTP — PROVISIONAL scoring engine (server-side)
+ * MyJKKN RCLTP — PROVISIONAL scoring engine (server-side)
  * ============================================================================
- * ⚠️  PROVISIONAL — pending EKSAQ validation. Implements the scoring model the
- *     EKSAQ specs define, but the composite weights and band cutoffs are the
- *     provisional placeholders from `specs/eksaq-rcltp-sample-content-DRAFT.md`
+ * ⚠️  PROVISIONAL — pending MyJKKN validation. Implements the scoring model the
+ *     MyJKKN specs define, but the composite weights and band cutoffs are the
+ *     provisional placeholders from `specs/myjkkn-rcltp-sample-content-DRAFT.md`
  *     (§B, all marked "placeholder"). EVERY surface that shows a band/score from
- *     this engine MUST carry the "Provisional — pending EKSAQ validation" banner.
- *     When EKSAQ delivers validated numbers, override the per-tenant
+ *     this engine MUST carry the "Provisional — pending MyJKKN validation" banner.
+ *     When MyJKKN delivers validated numbers, override the per-tenant
  *     `rcltp_band_config` rows and the PROVISIONAL_WEIGHTS below — no rebuild of
  *     the band-mapping logic is required.
  *
@@ -27,11 +27,11 @@ import type { RcltpBand, RcltpDimension, RcltpAssessmentResult } from '@/types/r
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Admin = SupabaseClient<any, 'public', any>;
 
-/** Provisional composite weights — EKSAQ to confirm (sample-content DRAFT §B). */
+/** Provisional composite weights — MyJKKN to confirm (sample-content DRAFT §B). */
 export const PROVISIONAL_WEIGHTS = { reading: 0.5, comprehension: 0.5 } as const;
 
 /**
- * Provisional band cutoffs (inclusive, 0–100) — placeholders, EKSAQ to validate.
+ * Provisional band cutoffs (inclusive, 0–100) — placeholders, MyJKKN to validate.
  * Used as the fallback when a tenant has no `rcltp_band_config` row for a
  * dimension. Per-tenant rows in `rcltp_band_config` OVERRIDE these.
  */

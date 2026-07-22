@@ -1,15 +1,15 @@
 /**
  * POST /api/rcltp/questions/generate
- * RCLTP v2 Phase 3 (GROUP B — EKSAQ-content-gated body).
+ * RCLTP v2 Phase 3 (GROUP B — MyJKKN-content-gated body).
  * Auto-generate Part B comprehension questions from a passage (D6: AI-generate
  * + teacher review). Generated questions are meant to land source='ai_generated',
  * status='draft' for a teacher to approve.
  *
  * SCAFFOLDED NOW: auth, institution scoping, passage fetch, and the LLM CLIENT
  * WIRING — reusing the production pattern from app/api/work-pulse/analyze/route.ts
- * (`new Anthropic({ apiKey })`), NOT a new client. DEFERRED (EKSAQ content): the
- * passage→question PROMPT and the EKSAQ competency/band alignment guardrails — so
- * no pedagogy is fabricated. Returns an honest "awaiting EKSAQ content" 501.
+ * (`new Anthropic({ apiKey })`), NOT a new client. DEFERRED (MyJKKN content): the
+ * passage→question PROMPT and the MyJKKN competency/band alignment guardrails — so
+ * no pedagogy is fabricated. Returns an honest "awaiting MyJKKN content" 501.
  *
  * Gate: rcltp.assessment.manage (teachers/admins). Institution-scoped to the passage.
  * Body: { passage_id }
@@ -30,7 +30,7 @@ import {
   readJson,
   actorMayActOnInstitution,
   isPlatformAdmin,
-  eksaqGatedResponse,
+  pendingValidationResponse,
 } from '@/app/api/rcltp/_lib/route-helpers';
 
 interface GenerateBody {
@@ -65,10 +65,10 @@ export const POST = withAuth(
     }
     const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY });
 
-    // EKSAQ-gated: the passage→question prompt + competency/band guardrails are
-    // EKSAQ content. The client is wired and constructs on prod; the prompt is deferred.
-    return eksaqGatedResponse(
-      'AI comprehension-question generation prompt + EKSAQ competency/band guardrails',
+    // MyJKKN-gated: the passage→question prompt + competency/band guardrails are
+    // MyJKKN content. The client is wired and constructs on prod; the prompt is deferred.
+    return pendingValidationResponse(
+      'AI comprehension-question generation prompt + MyJKKN competency/band guardrails',
       { passage_id: passage.id, llm_client_ready: anthropic instanceof Anthropic }
     );
   },
