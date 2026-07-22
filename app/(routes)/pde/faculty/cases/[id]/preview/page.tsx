@@ -71,12 +71,19 @@ export default function PreviewClinicalCasePage() {
         </Alert>
 
         <div className="flex justify-between items-center">
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/pde/faculty/cases/${c.id}/edit`}>
-              <ArrowLeft className="mr-1 h-4 w-4" />
-              Back to edit
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/pde/faculty/cases/${c.id}/edit`}>
+                <ArrowLeft className="mr-1 h-4 w-4" />
+                Back to edit
+              </Link>
+            </Button>
+            {c.status === 'published' ? (
+              <Button size="sm" asChild>
+                <Link href={`/pde/faculty/cases/${c.id}/assign`}>Assign to sections</Link>
+              </Button>
+            ) : null}
+          </div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Badge variant="outline">v{c.version}</Badge>
             <Badge

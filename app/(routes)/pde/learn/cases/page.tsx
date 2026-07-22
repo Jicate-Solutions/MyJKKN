@@ -86,6 +86,37 @@ export default async function LearnClinicalCasesList() {
     statusByCase.set(s.assessment_id, cur);
   }
 
+  // Cases assigned to this learner's section (RLS pde_case_assign_read scopes to
+  // their own section) → pin to top, highlight, and show a due badge. Keep the
+  // earliest due date if a case is assigned to more than one of their sections.
+  const { data: assignRows } = await sb
+    .from('pde_case_assignments')
+    .select('assessment_id, due_at');
+  const assignByCase = new Map<string, { due_at: string | null }>();
+  for (const a of (assignRows ?? []) as { assessment_id: string; due_at: string | null }[]) {
+    const existing = assignByCase.get(a.assessment_id);
+    if (!existing) {
+      assignByCase.set(a.assessment_id, { due_at: a.due_at });
+    } else if (a.due_at && (!existing.due_at || a.due_at < existing.due_at)) {
+      existing.due_at = a.due_at;
+    }
+  }
+
+  // Assigned cases first (the query already orders newest-first within each group).
+  const sortedCases = [...cases].sort(
+    (a, b) => (assignByCase.has(b.id) ? 1 : 0) - (assignByCase.has(a.id) ? 1 : 0),
+  );
+
+  function dueLabel(due: string | null): { text: string; overdue: boolean } | null {
+    if (!due) return null;
+    const ms = new Date(due).getTime() - Date.now();
+    const days = Math.ceil(ms / 86_400_000);
+    if (days < 0) return { text: 'Overdue', overdue: true };
+    if (days === 0) return { text: 'Due today', overdue: false };
+    if (days === 1) return { text: 'Due tomorrow', overdue: false };
+    return { text: `Due in ${days} days`, overdue: false };
+  }
+
   return (
     <ContentLayout>
       <PageBreadcrumb
@@ -115,18 +146,25 @@ export default async function LearnClinicalCasesList() {
           </div>
         ) : (
           <ul className="mt-6 space-y-3">
-            {cases.map((c) => {
+            {sortedCases.map((c) => {
               const st = statusByCase.get(c.id);
               const attempts = st?.attempts ?? 0;
               const bestScore = st?.bestScore ?? null;
               const hasCompleted = (st?.completed ?? 0) > 0;
+              const assigned = assignByCase.get(c.id);
+              const due = assigned ? dueLabel(assigned.due_at) : null;
 
               let actionLabel = 'Start case';
               if (attempts > 0) actionLabel = hasCompleted ? 'Attempt again' : 'Continue';
 
               return (
                 <li key={c.id}>
-                  <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-foreground/20 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                  <div
+                    className={`flex flex-col gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-foreground/20 sm:flex-row sm:items-center sm:justify-between sm:p-5 ${
+                      assigned ? 'border-l-4' : ''
+                    }`}
+                    style={assigned ? { borderLeftColor: BRAND_GREEN } : undefined}
+                  >
                     <div className="min-w-0">
                       <h2 className="text-base font-semibold leading-snug">{c.title}</h2>
                       {c.description ? (
@@ -135,6 +173,25 @@ export default async function LearnClinicalCasesList() {
                         </p>
                       ) : null}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        {assigned ? (
+                          <span
+                            className="rounded-full px-2 py-0.5 font-medium text-white"
+                            style={{ backgroundColor: BRAND_GREEN }}
+                          >
+                            Assigned to your section
+                          </span>
+                        ) : null}
+                        {due ? (
+                          <span
+                            className={`rounded-full px-2 py-0.5 font-medium ${
+                              due.overdue
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {due.text}
+                          </span>
+                        ) : null}
                         {attempts === 0 ? (
                           <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
                             Not started
