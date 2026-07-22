@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useStoUsage } from '@/hooks/hr/use-hr-leave-types';
+import { formatMinutes, STO_LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays, formatHours } from './format';
 
@@ -66,6 +68,16 @@ export function ApplyShortTimeOffDrawer({
 
   const selected = options.find((b) => b.leave_type_id === effectiveTypeId);
 
+  // Limits resolve server-side: an assignment can override the type's whole
+  // block, and duplicating that precedence here would drift from the trigger
+  // that actually enforces it.
+  const { data: usage } = useStoUsage(
+    ctx.employeeId || undefined,
+    effectiveTypeId || undefined,
+    ctx.academicYearId || null
+  );
+  const limited = !!usage && usage.limit_mode !== 'none';
+
   const totalHours = useMemo(() => {
     const s = toMinutes(startTime);
     const e = toMinutes(endTime);
@@ -75,6 +87,30 @@ export function ApplyShortTimeOffDrawer({
 
   const invalidWindow =
     !!startTime && !!endTime && totalHours === null;
+
+  const requestMinutes = totalHours === null ? null : Math.round(totalHours * 60);
+
+  // Mirrors hr_trig_sto_enforce_limits so the form refuses what the database
+  // would refuse, with the same numbers, before a round trip.
+  const limitError = (() => {
+    if (!limited || !usage || requestMinutes === null) return null;
+    if (usage.min_minutes && requestMinutes < usage.min_minutes) {
+      return `Minimum is ${formatMinutes(usage.min_minutes)} per request.`;
+    }
+    if (usage.max_minutes && requestMinutes > usage.max_minutes) {
+      return `Maximum is ${formatMinutes(usage.max_minutes)} per request.`;
+    }
+    if (usage.limit_mode === 'request_count' && (usage.requests_left ?? 0) <= 0) {
+      return `You have used all ${usage.max_requests} request(s) for this period.`;
+    }
+    if (
+      usage.limit_mode === 'total_duration' &&
+      requestMinutes > (usage.minutes_left ?? 0)
+    ) {
+      return `Only ${formatMinutes(usage.minutes_left)} left for this period.`;
+    }
+    return null;
+  })();
 
   // A type classified short_time_off but left allow_hourly=false would be
   // rejected by the service AFTER submit. Catch it here instead.
@@ -92,7 +128,7 @@ export function ApplyShortTimeOffDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId && !!date &&
     !!startTime && !!endTime && totalHours !== null && !!reason.trim() &&
-    !notHourly && !mutation.isPending;
+    !notHourly && !limitError && !mutation.isPending;
 
   const submit = async () => {
     setError(null);
@@ -160,11 +196,32 @@ export function ApplyShortTimeOffDrawer({
                     ))}
                   </SelectContent>
                 </Select>
-                {available !== null && (
+                {limited && usage ? (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {usage.limit_mode === 'request_count' ? (
+                      <>
+                        <strong>{usage.requests_left}</strong> of {usage.max_requests} request(s)
+                        left {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                      </>
+                    ) : (
+                      <>
+                        <strong>{formatMinutes(usage.minutes_left)}</strong> of{' '}
+                        {formatMinutes(usage.total_minutes)} left{' '}
+                        {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                      </>
+                    )}
+                    {usage.period_start && usage.period_end && (
+                      <span className="block">
+                        Period {new Date(`${usage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
+                        {new Date(`${usage.period_end}T00:00:00`).toLocaleDateString('en-GB')}
+                      </span>
+                    )}
+                  </p>
+                ) : available !== null ? (
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     {formatDays(available)} remaining this year
                   </p>
-                )}
+                ) : null}
               </div>
 
               <div>
@@ -208,6 +265,13 @@ export function ApplyShortTimeOffDrawer({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>End time must be after start time.</AlertDescription>
+                </Alert>
+              )}
+
+              {limitError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{limitError}</AlertDescription>
                 </Alert>
               )}
 

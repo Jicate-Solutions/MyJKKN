@@ -103,3 +103,21 @@ export function useGenerateBalances() {
     },
   });
 }
+
+/**
+ * Short Time Off usage for one person and type in the current period.
+ * Disabled until both ids are known, so the drawer does not fire on open.
+ */
+export function useStoUsage(
+  employeeId: string | undefined,
+  leaveTypeId: string | undefined,
+  academicYearId: string | null
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, academicYearId],
+    queryFn: () =>
+      HRLeaveTypeService.getStoUsage(supabase, employeeId!, leaveTypeId!, academicYearId),
+    enabled: !!employeeId && !!leaveTypeId,
+  });
+}
