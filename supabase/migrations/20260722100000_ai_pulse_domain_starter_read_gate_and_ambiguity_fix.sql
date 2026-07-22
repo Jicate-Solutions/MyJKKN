@@ -46,10 +46,12 @@ BEGIN
       ON d.topic_type = t.topic_type AND d.topic_id = t.topic_id AND d.cycle_id = p_cycle_id
     WHERE d.final_prompt IS NOT NULL
   )
+  -- Tamil policy (Director, 2026-07-22): approval is NOT required. Tamil shows by
+  -- default; a reviewer can still hide a bad one by setting ta_review_status='rejected'.
   SELECT m.id, m.topic_type, m.topic_label, m.final_prompt,
-         CASE WHEN m.ta_review_status = 'approved' THEN m.prompt_pack
-              ELSE (m.prompt_pack - 'ta') END,
-         (m.ta_review_status = 'approved') AS tamil_available
+         CASE WHEN m.ta_review_status = 'rejected' THEN (m.prompt_pack - 'ta')
+              ELSE m.prompt_pack END,
+         (m.ta_review_status <> 'rejected') AS tamil_available
   FROM mine m
   WHERE m.topic_type = 'course'                                        -- finest grain: course prompt
      OR NOT EXISTS (SELECT 1 FROM mine m2 WHERE m2.topic_type = 'course'); -- else programme fallback
