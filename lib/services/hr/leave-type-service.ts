@@ -16,6 +16,7 @@ import type {
   HRLeaveTypeInsert,
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
+import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
 
 export interface GenerateBalancesResult {
   dry_run: boolean;
@@ -95,6 +96,28 @@ export class HRLeaveTypeService {
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  /**
+   * Institution-wise provisioning analytics for the current (or named)
+   * academic year.
+   *
+   * `academicYearName` is a NAME, not an id — academic_years rows are
+   * per-institution, so one id cannot address a cross-institution view.
+   * Pass null to resolve "the year containing today" per institution.
+   *
+   * The RPC self-authorizes on hr.leave.balance.manage and scopes rows with
+   * role_has_institution_access, so callers get only their own institutions.
+   */
+  static async getBalanceAnalytics(
+    supabase: SupabaseClient,
+    academicYearName: string | null
+  ): Promise<HRLeaveBalanceAnalytics> {
+    const { data, error } = await supabase.rpc('hr_leave_balance_analytics', {
+      p_academic_year_name: academicYearName,
+    });
+    if (error) throw error;
+    return data as HRLeaveBalanceAnalytics;
   }
 
   static async generateBalances(

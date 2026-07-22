@@ -10,6 +10,22 @@ import type {
 } from '@/types/hr-leave-types';
 
 const KEY = 'hr-leave-types';
+const ANALYTICS_KEY = 'hr-leave-balance-analytics';
+
+/**
+ * Institution-wise leave provisioning analytics.
+ *
+ * `academicYearName` null = "the year containing today", resolved per
+ * institution inside the RPC.
+ */
+export function useLeaveBalanceAnalytics(academicYearName: string | null) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [ANALYTICS_KEY, academicYearName],
+    queryFn: () =>
+      HRLeaveTypeService.getBalanceAnalytics(supabase, academicYearName),
+  });
+}
 
 export function useHRLeaveTypes(filters: HRLeaveTypeFilters = {}) {
   const supabase = createClientSupabaseClient();
@@ -65,6 +81,9 @@ export function useGenerateBalances() {
     onSuccess: (_data, vars) => {
       if (!vars.dryRun) {
         qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
+        // A real run changes coverage — refresh the analytics tab too,
+        // otherwise it keeps showing pre-generation numbers.
+        qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
       }
     },
   });
