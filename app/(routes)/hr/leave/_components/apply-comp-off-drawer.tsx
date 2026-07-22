@@ -1,23 +1,17 @@
 'use client';
 
 /**
- * Apply Compensatory Off — PHASE 1 (request only).
+ * Apply Compensatory Off — book a day against an earned credit.
  *
- * SCOPE: there is no earned-credit ledger yet. The reference product models
- * comp off as credits with a worked date, an expiry date and earned/available/
- * expired totals; hr_leave_balances is a flat (entitled, used, carried_forward)
- * per academic year and cannot express per-credit expiry. That ledger
- * (hr_comp_off_credits) is Phase 2.
+ * The worked date is NOT captured here. Earning and spending are separate acts
+ * now that hr_comp_off_credits exists: you claim a worked day (which an
+ * approver confirms into a credit), then book time off against the credits you
+ * hold. Phase 1 carried the worked date in `reason` because there was nowhere
+ * else to put it; that carrier is gone.
  *
- * Until then this submits an ordinary application against the comp_off type,
- * so requests can be raised and approved. Balance will read 0 because nothing
- * credits it — the tab says so rather than implying the feature is broken.
- *
- * The worked date is captured and prefixed into `reason`. An approver cannot
- * judge a comp-off request without knowing which day was worked, and there is
- * no column for it yet. This is a deliberate Phase-1 carrier: Phase 2 moves it
- * to hr_comp_off_credits.worked_date and backfills by parsing this prefix,
- * which is why the format is fixed rather than free text.
+ * Approval consumes a credit FIFO by expiry, and the database refuses an
+ * approval with no credit behind it — so this form blocks submission when the
+ * available balance is zero rather than letting it fail at the approver.
  */
 
 import { useState } from 'react';
@@ -36,11 +30,8 @@ import {
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useCompOffBalance } from '@/hooks/hr/use-comp-off';
 import { getErrorMessage } from '@/lib/utils';
-import type { LeaveDurationType } from '@/types/hr';
-
-/** Fixed prefix — Phase 2 parses this to backfill worked_date. */
-export const WORKED_ON_PREFIX = 'Worked on';
 
 export function ApplyCompOffDrawer({
   open,
@@ -53,29 +44,26 @@ export function ApplyCompOffDrawer({
   const mutation = useApplyLeave();
 
   const [leaveTypeId, setLeaveTypeId] = useState('');
-  const [workedDate, setWorkedDate] = useState('');
   const [compOffDate, setCompOffDate] = useState('');
-  const [durationType, setDurationType] = useState<LeaveDurationType>('full');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const options = ctx.balancesFor('compensatory_off');
+  const { data: balance } = useCompOffBalance(ctx.employeeId || undefined);
+  const available = balance?.available ?? 0;
 
   // Derived rather than synced by an effect — see apply-short-time-off-drawer.
   const effectiveTypeId =
     leaveTypeId || (options.length === 1 ? options[0].leave_type_id : '');
 
   const reset = () => {
-    setLeaveTypeId(''); setWorkedDate(''); setCompOffDate('');
-    setDurationType('full'); setReason(''); setError(null);
+    setLeaveTypeId(''); setCompOffDate('');
+    setReason(''); setError(null);
   };
 
-  const workedInFuture =
-    !!workedDate && new Date(`${workedDate}T00:00:00`) > new Date();
-
   const canSubmit =
-    !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId && !!workedDate &&
-    !!compOffDate && !!reason.trim() && !workedInFuture && !mutation.isPending;
+    !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId &&
+    !!compOffDate && !!reason.trim() && available > 0 && !mutation.isPending;
 
   const submit = async () => {
     setError(null);
@@ -87,10 +75,13 @@ export function ApplyCompOffDrawer({
         academic_year_id: ctx.academicYearId || null,
         start_date: compOffDate,
         end_date: compOffDate,
-        duration_type: durationType,
+        // Whole days only: credits are earned one full day per day worked,
+        // and a half-day booking would strand the remainder of a credit.
+        // The consume trigger rejects fractional total_days outright.
+        duration_type: 'full',
         start_time: null,
         end_time: null,
-        reason: `${WORKED_ON_PREFIX} ${workedDate}. ${reason.trim()}`,
+        reason: reason.trim(),
         is_emergency: false,
         documents: [],
         applied_by: '',
@@ -128,14 +119,22 @@ export function ApplyCompOffDrawer({
             </Alert>
           ) : (
             <>
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertDescription className="text-xs">
-                  Automatic comp-off crediting from attendance is not enabled yet, so your
-                  balance will show 0. Your request still reaches your approver with the
-                  worked date recorded.
-                </AlertDescription>
-              </Alert>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <strong className="tabular-nums">{available}</strong> credit(s) available
+                <span className="block text-xs text-muted-foreground">
+                  Approval spends the credit closest to expiry first.
+                </span>
+              </div>
+
+              {available <= 0 && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    You have no available credits, so this request could not be approved.
+                    Claim a worked day first.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {options.length > 1 && (
                 <div>
@@ -153,21 +152,6 @@ export function ApplyCompOffDrawer({
                 </div>
               )}
 
-              <div>
-                <Label htmlFor="workedDate">
-                  Worked Date <span className="text-destructive">*</span>
-                </Label>
-                <Input id="workedDate" type="date" className="mt-1" value={workedDate}
-                  onChange={(e) => setWorkedDate(e.target.value)} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The holiday or week-off you worked, which this time off compensates.
-                </p>
-                {workedInFuture && (
-                  <p className="mt-1 text-xs text-destructive">
-                    The worked date cannot be in the future.
-                  </p>
-                )}
-              </div>
 
               <div>
                 <Label htmlFor="compOffDate">
@@ -177,17 +161,6 @@ export function ApplyCompOffDrawer({
                   onChange={(e) => setCompOffDate(e.target.value)} />
               </div>
 
-              <div>
-                <Label htmlFor="coDuration">Duration</Label>
-                <Select value={durationType} onValueChange={(v) => setDurationType(v as LeaveDurationType)}>
-                  <SelectTrigger id="coDuration" className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="full">Full day</SelectItem>
-                    <SelectItem value="first_half">First half (AM)</SelectItem>
-                    <SelectItem value="second_half">Second half (PM)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
               <div>
                 <Label htmlFor="coReason">Reason <span className="text-destructive">*</span></Label>
