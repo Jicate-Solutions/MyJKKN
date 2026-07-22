@@ -342,9 +342,19 @@ export default function LearnerSessionFeedbackPage() {
                         Confirmed
                       </Badge>
                     ) : withinFeedbackWindow(r.attendance_date, windowHours) ? (
-                      <Badge variant="secondary" className="shrink-0 gap-1 text-muted-foreground">
+                      // "Not yet confirmed" read as a rejection/error to reporters
+                      // (BUG-005050/051/052/053/055/058/061) despite being a neutral
+                      // status — the window is still open and feedback can still be
+                      // given from the list above. "Feedback pending" matches the
+                      // page's own "pending" vocabulary (header badge, intro line)
+                      // instead of the negatively-framed "Not ___" wording.
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 gap-1 text-muted-foreground"
+                        title="Not an error — you just haven't given feedback for this class yet. Find it in the list above and tap it to give feedback now."
+                      >
                         <Clock className="h-3.5 w-3.5" />
-                        Not yet confirmed
+                        Feedback pending
                       </Badge>
                     ) : (
                       /* Window expired: "Not yet confirmed" reads as actionable, but
