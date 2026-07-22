@@ -633,12 +633,18 @@ export class AttendanceRosterService {
             ? [filters.section_id]
             : null;
 
+      // A section fully determines its students' degree/program/semester, so once
+      // sectionIds is known those filters are redundant. They're also drift-sensitive:
+      // callers populate them from the timetable/section row, not the student's own
+      // record, so any denormalization drift (e.g. a stale semester_id after a
+      // promotion) silently excludes students who still belong to the section.
+      // Only apply them when there's no section scope to rely on instead.
       const { data, error } = await (this.supabase as any).rpc('fn_attendance_roster', {
         p_institution_id: filters.institution_id,
         p_section_ids: sectionIds,
-        p_degree_id: filters.degree_id ?? null,
-        p_program_id: filters.program_id ?? null,
-        p_semester_id: filters.semester_id ?? null
+        p_degree_id: sectionIds ? null : filters.degree_id ?? null,
+        p_program_id: sectionIds ? null : filters.program_id ?? null,
+        p_semester_id: sectionIds ? null : filters.semester_id ?? null
       });
 
       if (error) {
