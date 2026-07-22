@@ -32,7 +32,6 @@ import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useCompOffBalance } from '@/hooks/hr/use-comp-off';
 import { getErrorMessage } from '@/lib/utils';
-import type { LeaveDurationType } from '@/types/hr';
 
 export function ApplyCompOffDrawer({
   open,
@@ -46,7 +45,6 @@ export function ApplyCompOffDrawer({
 
   const [leaveTypeId, setLeaveTypeId] = useState('');
   const [compOffDate, setCompOffDate] = useState('');
-  const [durationType, setDurationType] = useState<LeaveDurationType>('full');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -60,7 +58,7 @@ export function ApplyCompOffDrawer({
 
   const reset = () => {
     setLeaveTypeId(''); setCompOffDate('');
-    setDurationType('full'); setReason(''); setError(null);
+    setReason(''); setError(null);
   };
 
   const canSubmit =
@@ -77,7 +75,10 @@ export function ApplyCompOffDrawer({
         academic_year_id: ctx.academicYearId || null,
         start_date: compOffDate,
         end_date: compOffDate,
-        duration_type: durationType,
+        // Whole days only: credits are earned one full day per day worked,
+        // and a half-day booking would strand the remainder of a credit.
+        // The consume trigger rejects fractional total_days outright.
+        duration_type: 'full',
         start_time: null,
         end_time: null,
         reason: reason.trim(),
@@ -160,17 +161,6 @@ export function ApplyCompOffDrawer({
                   onChange={(e) => setCompOffDate(e.target.value)} />
               </div>
 
-              <div>
-                <Label htmlFor="coDuration">Duration</Label>
-                <Select value={durationType} onValueChange={(v) => setDurationType(v as LeaveDurationType)}>
-                  <SelectTrigger id="coDuration" className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="full">Full day</SelectItem>
-                    <SelectItem value="first_half">First half (AM)</SelectItem>
-                    <SelectItem value="second_half">Second half (PM)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
               <div>
                 <Label htmlFor="coReason">Reason <span className="text-destructive">*</span></Label>
