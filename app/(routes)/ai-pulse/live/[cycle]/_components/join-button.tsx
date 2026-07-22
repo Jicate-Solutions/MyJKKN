@@ -83,10 +83,28 @@ export function JoinButton({
 
   if (alreadyJoined) {
     return (
-      <Button variant="outline" disabled className="gap-2">
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-        Joined this session
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" disabled className="gap-2">
+          <CheckCircle2 className="h-4 w-4 text-green-600" />
+          Joined this session
+        </Button>
+        {meetUrl ? (
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={() =>
+              window.open(meetUrl, '_blank', 'noopener,noreferrer')
+            }
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open meeting (audio/video)
+          </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            Meeting link not yet set by the Champion.
+          </span>
+        )}
+      </div>
     );
   }
 
