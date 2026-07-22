@@ -16,6 +16,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AlertCircle, Check, ShieldAlert, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -32,9 +33,11 @@ import {
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
+import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { formatDays } from '../_components/format';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
+import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
@@ -43,7 +46,14 @@ import type { HRLeaveApplicationWithType } from '@/types/hr';
 const fmtDate = (d: string) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB') : '—';
 
+const SUB_TABS = [
+  { label: 'Leave Requests', href: '/hr/leave/approvals' },
+  { label: 'Comp Off Claims', href: '/hr/leave/approvals?tab=comp-off' },
+];
+
 export default function LeaveApprovalsPage() {
+  const params = useSearchParams();
+  const view = params.get('tab') === 'comp-off' ? 'comp-off' : 'leave';
   const { data: canApprove, isLoading: gateLoading } = useCanApproveLeave();
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
@@ -56,6 +66,7 @@ export default function LeaveApprovalsPage() {
     ['pending', 'escalated']
   );
   const decide = useDecideApplication();
+  const { data: claims } = usePendingCompOffClaims(canApprove === true);
 
   // NOT date-filtered. An approval queue must show everything awaiting a
   // decision; gating it by a "This Month" default hides a request dated next
@@ -97,7 +108,7 @@ export default function LeaveApprovalsPage() {
 
   if (gateLoading) {
     return (
-      <TimeOffShell title="Approvals">
+      <TimeOffShell title="Approvals" subTabs={SUB_TABS}>
         <Skeleton className="h-64" />
       </TimeOffShell>
     );
@@ -115,8 +126,18 @@ export default function LeaveApprovalsPage() {
     );
   }
 
+  const claimCount = claims?.length ?? 0;
+  const subTabs = SUB_TABS.map((t) =>
+    t.href.includes('comp-off') && claimCount > 0
+      ? { ...t, label: `${t.label} (${claimCount})` }
+      : t
+  );
+
   return (
-    <TimeOffShell title="Approvals">
+    <TimeOffShell title="Approvals" subTabs={subTabs}>
+      {view === 'comp-off' ? (
+        <CompOffClaimsQueue />
+      ) : (
       <div className="space-y-4">
         <PeriodFilter
           value={period}
@@ -184,6 +205,7 @@ export default function LeaveApprovalsPage() {
           ))}
         </RequestTable>
       </div>
+      )}
 
       <Dialog open={!!rejectId} onOpenChange={(v) => { if (!v) setRejectId(null); }}>
         <DialogContent>
