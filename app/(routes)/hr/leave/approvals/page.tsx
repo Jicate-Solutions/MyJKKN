@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dialog';
 
 import { TimeOffShell } from '../_components/time-off-shell';
-import { PeriodFilter, defaultPeriod, type PeriodRange } from '../_components/period-filter';
+import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
@@ -45,7 +45,7 @@ const fmtDate = (d: string) =>
 export default function LeaveApprovalsPage() {
   const { data: canApprove, isLoading: gateLoading } = useCanApproveLeave();
   const ctx = useTimeOffContext();
-  const [period, setPeriod] = useState<PeriodRange>(defaultPeriod());
+  const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -56,10 +56,18 @@ export default function LeaveApprovalsPage() {
   );
   const decide = useDecideApplication();
 
+  // NOT date-filtered. An approval queue must show everything awaiting a
+  // decision; gating it by a "This Month" default hides a request dated next
+  // month from its approver entirely. The period control below narrows the
+  // view only when the approver explicitly asks for it.
+  const all = useMemo(
+    () => (data?.data ?? []) as HRLeaveApplicationWithType[],
+    [data]
+  );
   const rows = useMemo(() => {
-    const all = (data?.data ?? []) as HRLeaveApplicationWithType[];
+    if (period.preset === 'all') return all;
     return all.filter((a) => a.start_date <= period.to && a.end_date >= period.from);
-  }, [data, period.from, period.to]);
+  }, [all, period]);
 
   const onApprove = async (id: string) => {
     setError(null);
@@ -135,7 +143,7 @@ export default function LeaveApprovalsPage() {
           ]}
           isLoading={isLoading || ctx.isLoading}
           isEmpty={rows.length === 0}
-          emptyMessage="Nothing awaiting your decision in this period."
+          emptyMessage="Nothing awaiting your decision."
         >
           {rows.map((a) => (
             <RequestRow key={a.id} status={a.status}>

@@ -75,6 +75,10 @@ export function ApplyShortTimeOffDrawer({
   const invalidWindow =
     !!startTime && !!endTime && totalHours === null;
 
+  // A type classified short_time_off but left allow_hourly=false would be
+  // rejected by the service AFTER submit. Catch it here instead.
+  const notHourly = !!selected && !selected.allow_hourly;
+
   const available = selected
     ? selected.entitled + selected.carried_forward - selected.used
     : null;
@@ -87,7 +91,7 @@ export function ApplyShortTimeOffDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId && !!date &&
     !!startTime && !!endTime && totalHours !== null && !!reason.trim() &&
-    !mutation.isPending;
+    !notHourly && !mutation.isPending;
 
   const submit = async () => {
     setError(null);
@@ -188,6 +192,16 @@ export function ApplyShortTimeOffDrawer({
                 Total Hours{' '}
                 <strong>{totalHours !== null ? totalHours.toFixed(2) : '—'}</strong>
               </div>
+
+              {notHourly && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {selected?.leave_type_name} is not configured for hourly requests.
+                    Ask HR to enable hourly duration on this leave type.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {invalidWindow && (
                 <Alert variant="destructive">

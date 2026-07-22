@@ -59,17 +59,23 @@ export function ApplyLeaveDrawer({
   const options = ctx.balancesFor('leave');
   const selected = options.find((b) => b.leave_type_id === leaveTypeId);
 
-  // Half-day is only offered where the type allows it; a half-day request
-  // against a full-day-only type is rejected downstream. Not memoized — it is
-  // a ternary over a module constant, and wrapping it in useMemo defeats the
-  // React Compiler rather than helping.
-  const durationOptions = selected?.allow_half_day ? DURATIONS : DURATIONS.slice(0, 1);
+  const isSingleDay = !!startDate && startDate === endDate;
 
-  // Derived, not synced. Switching to a full-day-only type must not leave a
-  // stale 'first_half' in state; computing the effective value avoids a
+  // Half-day is offered only where the type allows it AND the request covers a
+  // single date. Not memoized — a ternary over a module constant, and wrapping
+  // it in useMemo defeats the React Compiler rather than helping.
+  const durationOptions =
+    selected?.allow_half_day && isSingleDay ? DURATIONS : DURATIONS.slice(0, 1);
+
+  // Derived, not synced: computing the effective value avoids a
   // setState-inside-effect and the cascading render it causes.
+  //
+  // The isSingleDay term matters for correctness, not just UI. Applying the 0.5
+  // factor across a range made a 5-day first_half request count as 2.5 days,
+  // which then passed the balance and max_continuous_days checks it should
+  // have failed.
   const effectiveDuration: LeaveDurationType =
-    selected?.allow_half_day ? durationType : 'full';
+    selected?.allow_half_day && isSingleDay ? durationType : 'full';
 
   const available = selected
     ? selected.entitled + selected.carried_forward - selected.used
@@ -223,6 +229,11 @@ export function ApplyLeaveDrawer({
                 {selected && !selected.allow_half_day && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {selected.leave_type_name} is full-day only.
+                  </p>
+                )}
+                {selected?.allow_half_day && !isSingleDay && startDate && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Half-day applies to a single date only.
                   </p>
                 )}
               </div>

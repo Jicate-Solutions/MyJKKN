@@ -19,7 +19,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 
 import { TimeOffShell } from '../_components/time-off-shell';
-import { PeriodFilter, defaultPeriod, type PeriodRange } from '../_components/period-filter';
+import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
 import { ApplyLeaveDrawer } from '../_components/apply-leave-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
@@ -40,7 +40,7 @@ export default function LeaveRequestsPage() {
   const view = params.get('tab') === 'balance' ? 'balance' : 'requests';
 
   const ctx = useTimeOffContext();
-  const [period, setPeriod] = useState<PeriodRange>(defaultPeriod());
+  const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
@@ -52,13 +52,22 @@ export default function LeaveRequestsPage() {
   // join, which drops rows whose type is unreadable under RLS.
   const rows = useMemo(() => {
     const all = (data?.data ?? []) as HRLeaveApplicationWithType[];
+    if (period.preset === 'all') {
+      return all.filter(
+        (a) => (a.hr_leave_types?.request_category ?? 'leave') === 'leave'
+      );
+    }
     return all.filter(
       (a) =>
-        a.hr_leave_types?.request_category === 'leave' &&
+        // A null embed means the type is unreadable under RLS. Treat it as
+        // 'leave' rather than excluding it: matching no category would make
+        // the row vanish from EVERY tab — the silent hiding the service's
+        // LEFT join exists to prevent.
+        (a.hr_leave_types?.request_category ?? 'leave') === 'leave' &&
         a.start_date <= period.to &&
         a.end_date >= period.from
     );
-  }, [data, period.from, period.to]);
+  }, [data, period]);
 
   const leaveBalances = ctx.balancesFor('leave');
 
@@ -131,7 +140,7 @@ export default function LeaveRequestsPage() {
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
-            emptyMessage="No leave requests in this period. Use Apply to submit one."
+            emptyMessage="No leave requests yet. Use Apply to submit one."
           >
             {rows.map((a) => (
               <RequestRow key={a.id} status={a.status}>

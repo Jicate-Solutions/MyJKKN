@@ -157,7 +157,9 @@ export function LeaveBalanceAnalytics() {
           code: t.code,
           days: Number(t.entitled),
           perHead: Number(t.default_days),
-          fill: `var(--color-s${idx})`,
+          // Cycle: an org with more than 6 active types would otherwise
+          // reference an undefined --color-s6+ and render an unfilled bar.
+          fill: `var(--color-s${idx % SERIES.length})`,
         })),
     [data?.leave_types]
   );

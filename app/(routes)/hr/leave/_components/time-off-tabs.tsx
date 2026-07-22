@@ -15,7 +15,7 @@
  */
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
 
@@ -34,6 +34,9 @@ const APPROVALS_TAB = { label: 'Approvals', href: '/hr/leave/approvals' } as con
 
 export function TimeOffTabs({ subTabs }: { subTabs?: TimeOffSubTab[] }) {
   const pathname = usePathname();
+  // usePathname() strips the query, so comparing it to '/x?tab=balance'
+  // never matched and the Balance sub-tab could never highlight.
+  const search = useSearchParams();
   const { data: canApprove } = useCanApproveLeave();
 
   const tabs = canApprove ? [...TOP_TABS, APPROVALS_TAB] : TOP_TABS;
@@ -68,7 +71,9 @@ export function TimeOffTabs({ subTabs }: { subTabs?: TimeOffSubTab[] }) {
       {subTabs && subTabs.length > 0 && (
         <nav className="flex gap-1 overflow-x-auto pt-1" aria-label="Section views">
           {subTabs.map((s) => {
-            const active = pathname === s.href || pathname.startsWith(`${s.href}?`);
+            const [sPath, sQuery] = s.href.split('?');
+            const sTab = sQuery ? new URLSearchParams(sQuery).get('tab') : null;
+            const active = pathname === sPath && (search.get('tab') ?? null) === sTab;
             return (
               <Link
                 key={s.href}

@@ -20,7 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 
 export type PeriodPreset =
-  | 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
+  | 'all' | 'this_month' | 'last_month' | 'this_quarter' | 'this_year' | 'custom';
 
 export interface PeriodRange {
   preset: PeriodPreset;
@@ -29,6 +29,7 @@ export interface PeriodRange {
 }
 
 const PRESET_LABELS: Record<PeriodPreset, string> = {
+  all: 'All time',
   this_month: 'This Month',
   last_month: 'Last Month',
   this_quarter: 'This Quarter',
@@ -66,6 +67,17 @@ export function defaultPeriod(): PeriodRange {
   return { preset: 'this_month', ...rangeForPreset('this_month') };
 }
 
+/**
+ * Default for request lists and the approval queue.
+ *
+ * Deliberately NOT 'this_month': a request dated next month would be hidden
+ * from both its owner and its approver until they noticed the filter. A queue
+ * defaults to showing everything; narrowing is an explicit act.
+ */
+export function allTimePeriod(): PeriodRange {
+  return { preset: 'all', ...rangeForPreset('this_year') };
+}
+
 export function PeriodFilter({
   value,
   onChange,
@@ -88,7 +100,7 @@ export function PeriodFilter({
   );
 
   const setPreset = (preset: PeriodPreset) => {
-    if (preset === 'custom') {
+    if (preset === 'custom' || preset === 'all') {
       onChange({ ...value, preset });
       return;
     }
@@ -121,6 +133,7 @@ export function PeriodFilter({
           <Input
             type="date"
             value={value.from}
+            disabled={value.preset === 'all'}
             onChange={(e) => setBound('from', e.target.value)}
             className="mt-1 h-8 w-[150px] border-0 p-0 shadow-none focus-visible:ring-0"
           />
@@ -132,6 +145,7 @@ export function PeriodFilter({
             type="date"
             value={value.to}
             min={value.from}
+            disabled={value.preset === 'all'}
             onChange={(e) => setBound('to', e.target.value)}
             className="mt-1 h-8 w-[150px] border-0 p-0 shadow-none focus-visible:ring-0"
           />

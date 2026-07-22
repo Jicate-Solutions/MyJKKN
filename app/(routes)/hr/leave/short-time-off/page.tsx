@@ -16,7 +16,7 @@ import { TableCell } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { TimeOffShell } from '../_components/time-off-shell';
-import { PeriodFilter, defaultPeriod, type PeriodRange } from '../_components/period-filter';
+import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
 import { ApplyShortTimeOffDrawer } from '../_components/apply-short-time-off-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
@@ -39,7 +39,7 @@ function hoursBetween(start: string | null, end: string | null): string {
 
 export default function ShortTimeOffPage() {
   const ctx = useTimeOffContext();
-  const [period, setPeriod] = useState<PeriodRange>(defaultPeriod());
+  const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
@@ -48,13 +48,22 @@ export default function ShortTimeOffPage() {
 
   const rows = useMemo(() => {
     const all = (data?.data ?? []) as HRLeaveApplicationWithType[];
+    if (period.preset === 'all') {
+      return all.filter(
+        (a) => (a.hr_leave_types?.request_category ?? 'leave') === 'short_time_off'
+      );
+    }
     return all.filter(
       (a) =>
-        a.hr_leave_types?.request_category === 'short_time_off' &&
+        // A null embed means the type is unreadable under RLS. Treat it as
+        // 'leave' rather than excluding it: matching no category would make
+        // the row vanish from EVERY tab — the silent hiding the service's
+        // LEFT join exists to prevent.
+        (a.hr_leave_types?.request_category ?? 'leave') === 'short_time_off' &&
         a.start_date <= period.to &&
         a.end_date >= period.from
     );
-  }, [data, period.from, period.to]);
+  }, [data, period]);
 
   return (
     <TimeOffShell title="Short Time Off">
@@ -92,7 +101,7 @@ export default function ShortTimeOffPage() {
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
-            emptyMessage="No short time off requests in this period. Use Apply to submit one."
+            emptyMessage="No short time off requests yet. Use Apply to submit one."
           >
             {rows.map((a) => (
               <RequestRow key={a.id} status={a.status}>

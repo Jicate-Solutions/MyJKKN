@@ -20,7 +20,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { TimeOffShell } from '../_components/time-off-shell';
-import { PeriodFilter, defaultPeriod, type PeriodRange } from '../_components/period-filter';
+import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
 import { ApplyCompOffDrawer, WORKED_ON_PREFIX } from '../_components/apply-comp-off-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
@@ -50,7 +50,7 @@ export default function CompensatoryOffPage() {
   const view = params.get('tab') === 'balance' ? 'balance' : 'requests';
 
   const ctx = useTimeOffContext();
-  const [period, setPeriod] = useState<PeriodRange>(defaultPeriod());
+  const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
@@ -59,13 +59,22 @@ export default function CompensatoryOffPage() {
 
   const rows = useMemo(() => {
     const all = (data?.data ?? []) as HRLeaveApplicationWithType[];
+    if (period.preset === 'all') {
+      return all.filter(
+        (a) => (a.hr_leave_types?.request_category ?? 'leave') === 'compensatory_off'
+      );
+    }
     return all.filter(
       (a) =>
-        a.hr_leave_types?.request_category === 'compensatory_off' &&
+        // A null embed means the type is unreadable under RLS. Treat it as
+        // 'leave' rather than excluding it: matching no category would make
+        // the row vanish from EVERY tab — the silent hiding the service's
+        // LEFT join exists to prevent.
+        (a.hr_leave_types?.request_category ?? 'leave') === 'compensatory_off' &&
         a.start_date <= period.to &&
         a.end_date >= period.from
     );
-  }, [data, period.from, period.to]);
+  }, [data, period]);
 
   const compBalances = ctx.balancesFor('compensatory_off');
 
@@ -137,7 +146,7 @@ export default function CompensatoryOffPage() {
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
-            emptyMessage="No compensatory off requests in this period. Use Apply to submit one."
+            emptyMessage="No compensatory off requests yet. Use Apply to submit one."
           >
             {rows.map((a) => {
               const worked = extractWorkedDate(a.reason);
