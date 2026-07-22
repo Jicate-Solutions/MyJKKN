@@ -88,12 +88,12 @@ const STATUS_META: Record<
   complete: {
     label: 'Complete',
     tone: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
-    hint: 'Every active staff member has balance rows for this year.',
+    hint: 'Every active team member has balance rows for this year.',
   },
   partial: {
     label: 'Partial',
     tone: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-    hint: 'Some staff have balances, some do not — re-run the generator.',
+    hint: 'Some team members have balances, some do not — re-run the generator.',
   },
   not_generated: {
     label: 'Not generated',
@@ -111,9 +111,9 @@ const STATUS_META: Record<
     hint: 'No academic year covers this period, so the generator cannot run at all.',
   },
   no_staff: {
-    label: 'No staff',
+    label: 'No team members',
     tone: 'border-muted-foreground/30 bg-muted text-muted-foreground',
-    hint: 'No active staff to provision.',
+    hint: 'No active team members to provision.',
   },
 };
 
@@ -238,9 +238,9 @@ export function LeaveBalanceAnalytics() {
         />
         <Kpi
           icon={<UserCheck className="h-4 w-4" />}
-          label="Staff covered"
+          label="Team members covered"
           value={`${fmt(totals?.staff_covered ?? 0)} / ${fmt(totals?.active_staff ?? 0)}`}
-          sub={`${coverage}% of active staff`}
+          sub={`${coverage}% of active team members`}
           progress={coverage}
         />
         <Kpi
@@ -255,7 +255,7 @@ export function LeaveBalanceAnalytics() {
         />
         <Kpi
           icon={<Users className="h-4 w-4" />}
-          label="Staff without balances"
+          label="Team members without balances"
           value={fmt(totals?.uncovered_staff ?? 0)}
           sub="Approving leave for these creates a negative balance"
           tone={totals && totals.uncovered_staff > 0 ? 'warn' : 'ok'}
@@ -271,7 +271,7 @@ export function LeaveBalanceAnalytics() {
               Provisioning gaps
             </CardTitle>
             <CardDescription>
-              Staff with no balance row get a permanently negative balance the first time
+              Team members with no balance row get a permanently negative balance the first time
               leave is approved — the generator cannot repair it afterwards.
             </CardDescription>
           </CardHeader>
@@ -450,7 +450,7 @@ export function LeaveBalanceAnalytics() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Institution</TableHead>
-                  <TableHead className="text-right">Staff</TableHead>
+                  <TableHead className="text-right">Team Members</TableHead>
                   <TableHead className="text-right">Covered</TableHead>
                   <TableHead className="text-right">Types</TableHead>
                   <TableHead className="text-right">Days / head</TableHead>
@@ -587,7 +587,7 @@ function GapRow({
           </Badge>
           {missing > 0 && (
             <span className="text-xs text-muted-foreground">
-              {fmt(missing)} staff unprovisioned
+              {fmt(missing)} team members unprovisioned
             </span>
           )}
         </div>
@@ -674,7 +674,7 @@ function CadreHealth({ withCadre, total }: { withCadre: number; total: number })
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-semibold tabular-nums">{fmt(withCadre)}</span>
           <span className="text-sm text-muted-foreground">
-            of {fmt(total)} staff have a cadre assigned ({pct}%)
+            of {fmt(total)} team members have a cadre assigned ({pct}%)
           </span>
         </div>
         <Progress value={pct} className="h-1.5" />
@@ -682,7 +682,7 @@ function CadreHealth({ withCadre, total }: { withCadre: number; total: number })
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription className="text-xs">
-              No staff member has a cadre, so every balance falls back to the leave type&apos;s
+              No team member has a cadre, so every balance falls back to the leave type&apos;s
               default entitlement. The generator lists all of them as
               &ldquo;no cadre assigned&rdquo; — that is the normal path here, not an error.
               Entitlements are effectively flat per institution.

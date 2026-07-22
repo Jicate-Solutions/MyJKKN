@@ -9,12 +9,12 @@
 
 /** Why an institution is or isn't provisioned. Drives the status badge. */
 export type HRLeaveCoverageStatus =
-  | 'complete'          // every active staff member has balance rows
-  | 'partial'           // some staff covered, some not
+  | 'complete'          // every active team member has balance rows
+  | 'partial'           // some team members covered, some not
   | 'not_generated'     // configured and ready, but nobody has run the generator
   | 'no_types'          // org has zero active leave types — generator writes 0 rows
   | 'no_academic_year'  // no academic_years row covers the period — cannot generate
-  | 'no_staff';         // no active staff to provision
+  | 'no_staff';         // no active team members to provision
 
 export interface HRLeaveInstitutionAnalytics {
   org_id: string;

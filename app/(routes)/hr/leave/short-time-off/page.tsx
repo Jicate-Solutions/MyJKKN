@@ -62,7 +62,7 @@ export default function ShortTimeOffPage() {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Time Off is available to staff with an HR employee record. Please contact HR if
+            Time Off is available to team members with an HR employee record. Please contact HR if
             you believe this is an error.
           </AlertDescription>
         </Alert>
