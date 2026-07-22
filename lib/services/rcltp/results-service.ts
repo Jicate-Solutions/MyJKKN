@@ -32,6 +32,7 @@ import {
   rcltpRange,
   rcltpMetadata,
   rcltpAwaitingEksaqContent,
+  rcltpPostJson,
 } from './rcltp-helpers';
 
 export class RcltpResultsService {
@@ -199,14 +200,26 @@ export class RcltpResultsService {
   // -------------------------------------------------------------------------
 
   /**
-   * Compute the composite per-sitting result (reading/comprehension/overall
-   * scores + band placement) and store it in rcltp_assessment_results. The
-   * composite-score formula and band cutoffs are EKSAQ content — deferred.
+   * PROVISIONAL scoring — run the composite engine for a sitting via the
+   * service-role route `POST /api/rcltp/assessments/:id/score`. Auto-grades Part B,
+   * combines with the teacher-entered Part A score, places bands from the tenant's
+   * (or provisional) cutoffs, upserts `rcltp_assessment_results`, and advances the
+   * learner journey server-side.
+   *
+   * ⚠️ Result bands/scores are PROVISIONAL — pending EKSAQ validation — and MUST be
+   * rendered with the "Provisional — pending EKSAQ validation" banner.
+   *
+   * @param readingScore teacher-entered Part A (read-aloud) score 0–100; omit for a
+   *   consent-driven Part-B-only sitting.
    */
   static async computeAndStoreResult(
-    _assessmentId: string
+    assessmentId: string,
+    readingScore?: number | null
   ): Promise<RcltpAssessmentResult> {
-    return rcltpAwaitingEksaqContent('composite scoring + band placement');
+    return rcltpPostJson<RcltpAssessmentResult>(
+      `/api/rcltp/assessments/${assessmentId}/score`,
+      readingScore != null ? { readingScore } : undefined
+    );
   }
 
   /**
