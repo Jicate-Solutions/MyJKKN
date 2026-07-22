@@ -10,6 +10,37 @@ import type {
 } from '@/types/hr-leave-types';
 
 const KEY = 'hr-leave-types';
+const ANALYTICS_KEY = 'hr-leave-balance-analytics';
+const CAN_APPROVE_KEY = 'hr-can-approve-leave';
+
+/**
+ * Whether the Approvals tab should render. Mirrors the hla_update RLS policy
+ * server-side rather than checking a permission key on the client.
+ */
+export function useCanApproveLeave() {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [CAN_APPROVE_KEY],
+    queryFn: () => HRLeaveTypeService.canApproveLeave(supabase),
+    // Capability is role-derived and does not change mid-session.
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Institution-wise leave provisioning analytics.
+ *
+ * `academicYearName` null = "the year containing today", resolved per
+ * institution inside the RPC.
+ */
+export function useLeaveBalanceAnalytics(academicYearName: string | null) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [ANALYTICS_KEY, academicYearName],
+    queryFn: () =>
+      HRLeaveTypeService.getBalanceAnalytics(supabase, academicYearName),
+  });
+}
 
 export function useHRLeaveTypes(filters: HRLeaveTypeFilters = {}) {
   const supabase = createClientSupabaseClient();
@@ -65,6 +96,9 @@ export function useGenerateBalances() {
     onSuccess: (_data, vars) => {
       if (!vars.dryRun) {
         qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
+        // A real run changes coverage — refresh the analytics tab too,
+        // otherwise it keeps showing pre-generation numbers.
+        qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
       }
     },
   });
