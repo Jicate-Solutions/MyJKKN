@@ -172,6 +172,12 @@ const config: ModuleNavConfig = {
           href: '/hr/attendance/regularize/approvals',
           matchPaths: ['/hr/attendance/regularize/approvals'],
         },
+        {
+          label: 'Import Punches',
+          icon: 'Upload',
+          href: '/hr/attendance/import',
+          matchPaths: ['/hr/attendance/import'],
+        },
       ],
     },
     {
