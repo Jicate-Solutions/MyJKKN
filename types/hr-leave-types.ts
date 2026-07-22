@@ -164,6 +164,12 @@ export const STO_LIMIT_PERIOD_HINT =
 /** Usage in the current period, from hr_sto_usage(). */
 export interface StoUsage {
   limit_mode: StoLimitMode;
+  /**
+   * The period could not be resolved, so the database refuses submissions.
+   * Reported explicitly rather than as limit_mode 'none' — telling someone
+   * they are unlimited while every submission is blocked is the worse lie.
+   */
+  window_unresolved?: boolean;
   limit_period?: StoLimitPeriod;
   /** Which rule supplied these limits: the type, or an assignment scope. */
   source?: 'type' | 'organization' | 'department' | 'staff';
