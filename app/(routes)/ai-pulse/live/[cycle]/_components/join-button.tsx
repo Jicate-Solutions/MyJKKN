@@ -83,10 +83,33 @@ export function JoinButton({
 
   if (alreadyJoined) {
     return (
-      <Button variant="outline" disabled className="gap-2">
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-        Joined this session
-      </Button>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" disabled className="gap-2">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            Joined this session
+          </Button>
+          {meetUrl && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="gap-2"
+              onClick={() =>
+                window.open(meetUrl, '_blank', 'noopener,noreferrer')
+              }
+            >
+              <ExternalLink className="h-4 w-4" />
+              Open meeting link
+            </Button>
+          )}
+        </div>
+        {!meetUrl && (
+          <p className="text-xs text-muted-foreground">
+            No meeting link has been set for this session yet — audio/video
+            happens outside the app. Contact your Champion for the link.
+          </p>
+        )}
+      </div>
     );
   }
 
