@@ -46,27 +46,20 @@ export async function GET(
   const { caseRow } = loaded;
 
   const svc = createServiceRoleClient();
-  const [{ data: assignments }, { data: courseRow }] = await Promise.all([
+  const [{ data: assignments }, { data: sections }] = await Promise.all([
     svc.from('pde_case_assignments').select('section_id, due_at').eq('assessment_id', id),
-    svc.from('vac_courses').select('institution_id').eq('id', caseRow.course_id).maybeSingle(),
+    // Sections available to assign = only those with >=1 learner enrolled in this
+    // case's course (assigning to an empty section is meaningless). Each row also
+    // carries a disambiguating "Programme · Semester · Section" label, since a bare
+    // "Section A" collides across years/programmes. fn_pde_assignable_sections is
+    // service-role-locked (anon/authenticated revoked) — the join lives in SQL.
+    svc.rpc('fn_pde_assignable_sections', { p_assessment_id: id }),
   ]);
-
-  // Sections available to assign — scoped to the case's institution.
-  let sections: unknown[] = [];
-  if (courseRow?.institution_id) {
-    const { data: secRows } = await svc
-      .from('sections')
-      .select('id, section_name, program_id, semester_id')
-      .eq('institution_id', courseRow.institution_id)
-      .eq('is_active', true)
-      .order('section_name', { ascending: true });
-    sections = secRows ?? [];
-  }
 
   return NextResponse.json({
     visibility_mode: caseRow.visibility_mode ?? 'open',
     assignments: assignments ?? [],
-    sections,
+    sections: sections ?? [],
   });
 }
 

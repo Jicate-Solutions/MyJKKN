@@ -5,6 +5,9 @@ import { useEffect, useMemo, useState } from 'react';
 interface Section {
   id: string;
   section_name: string | null;
+  // "Programme · Semester · Section" — disambiguates the many identically-named
+  // sections (e.g. "G" exists in 4 Year and in CRRI). Supplied by the API.
+  label: string | null;
 }
 interface Assignment {
   section_id: string;
@@ -54,7 +57,9 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
   const filtered = useMemo(() => {
     const f = filter.trim().toLowerCase();
     if (!f) return sections;
-    return sections.filter((s) => (s.section_name ?? '').toLowerCase().includes(f));
+    return sections.filter((s) =>
+      (s.label ?? s.section_name ?? '').toLowerCase().includes(f),
+    );
   }, [sections, filter]);
 
   function toggle(id: string) {
@@ -142,7 +147,7 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
 
         <input
           type="text"
-          placeholder="Search sections…"
+          placeholder="Search by programme, year, or section…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="mt-4 block w-full rounded-md border px-3 py-2 text-sm"
@@ -155,7 +160,7 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
             filtered.map((s) => (
               <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
                 <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} />
-                <span>{s.section_name || s.id.slice(0, 8)}</span>
+                <span>{s.label || s.section_name || s.id.slice(0, 8)}</span>
               </label>
             ))
           )}
