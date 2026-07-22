@@ -111,13 +111,17 @@ export function useGenerateBalances() {
 export function useStoUsage(
   employeeId: string | undefined,
   leaveTypeId: string | undefined,
-  academicYearId: string | null
+  academicYearId: string | null,
+  /** The request date. The period window is computed from it, not from today. */
+  onDate?: string
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, academicYearId],
+    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, academicYearId, onDate ?? null],
     queryFn: () =>
-      HRLeaveTypeService.getStoUsage(supabase, employeeId!, leaveTypeId!, academicYearId),
+      HRLeaveTypeService.getStoUsage(
+        supabase, employeeId!, leaveTypeId!, academicYearId, onDate
+      ),
     enabled: !!employeeId && !!leaveTypeId,
   });
 }

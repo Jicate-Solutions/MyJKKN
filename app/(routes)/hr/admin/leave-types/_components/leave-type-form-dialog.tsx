@@ -88,6 +88,23 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // hr_leave_types_sto_cap_present rejects a mode without its cap. Catch it
+    // here so the user sees a sentence rather than a raw constraint violation.
+    if (form.request_category === 'short_time_off' && form.sto_limit_mode !== 'none') {
+      const cap =
+        form.sto_limit_mode === 'request_count'
+          ? form.sto_max_requests
+          : form.sto_total_minutes;
+      if (cap === '' || Number(cap) <= 0) {
+        toast.error(
+          form.sto_limit_mode === 'request_count'
+            ? 'Enter the maximum number of requests for this period.'
+            : 'Enter the total minutes allowed for this period.'
+        );
+        return;
+      }
+    }
+
     // Edit-mode seeds `form` from the full row (see useEffect above), so at
     // runtime it also carries id/created_at/created_by/updated_at/updated_by/
     // hr_organization_id/valid_from/valid_until/superseded_by/

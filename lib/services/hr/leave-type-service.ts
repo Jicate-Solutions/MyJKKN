@@ -116,12 +116,15 @@ export class HRLeaveTypeService {
     supabase: SupabaseClient,
     employeeId: string,
     leaveTypeId: string,
-    academicYearId: string | null
+    academicYearId: string | null,
+    /** Request date; omitted means today. Must match what enforcement sees. */
+    onDate?: string
   ): Promise<StoUsage> {
     const { data, error } = await supabase.rpc('hr_sto_usage', {
       p_staff_id: employeeId,
       p_leave_type_id: leaveTypeId,
       p_academic_year_id: academicYearId,
+      ...(onDate ? { p_on: onDate } : {}),
     });
     if (error) throw error;
     return data as StoUsage;
