@@ -5,7 +5,13 @@
  *
  * Creates a new project change request. Fields: change_type (select),
  * title, description, impact_summary, is_major (toggle).
- * requested_by is left null (no auth helper in this layer — deferred).
+ * requested_by is resolved from the current session by ChangeService
+ * (omitted here so the service fills it with the acting user's id).
+ *
+ * change_type / status values must match the DB CHECK constraints:
+ *   change_type ∈ {scope, timeline, budget, other}
+ *   status starts at 'submitted' (∈ {submitted, under_review, approved,
+ *   rejected, implemented}).
  *
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F14.
  */
@@ -34,13 +40,11 @@ import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
 import { useCreateChangeRequest } from '@/hooks/projects/use-changes';
 
+// Values MUST match the project_change_requests.change_type CHECK constraint.
 const CHANGE_TYPES = [
   { value: 'scope', label: 'Scope' },
-  { value: 'schedule', label: 'Schedule' },
+  { value: 'timeline', label: 'Timeline' },
   { value: 'budget', label: 'Budget' },
-  { value: 'resource', label: 'Resource' },
-  { value: 'technical', label: 'Technical' },
-  { value: 'process', label: 'Process' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -88,8 +92,8 @@ export function ChangeRequestFormDialog({
         description: description.trim() || null,
         impact_summary: impactSummary.trim() || null,
         is_major: isMajor,
-        status: 'pending',
-        requested_by: null,
+        status: 'submitted',
+        // requested_by omitted → ChangeService resolves it to the session actor.
       },
       {
         onSuccess: () => {

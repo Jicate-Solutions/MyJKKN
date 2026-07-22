@@ -4,7 +4,7 @@
  * Change Request List — table of all change requests for one project.
  *
  * Columns: major/minor badge, type, title, impact summary, status, actions.
- * Actions: Approve / Reject (pending only), Delete.
+ * Actions: Approve / Reject (submitted or under_review), Delete.
  * Major requests are visually distinguished with a bold badge.
  *
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F14.
@@ -224,7 +224,8 @@ export function ChangeRequestList({ projectId }: ChangeRequestListProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {cr.status === 'pending' && (
+                        {(cr.status === 'submitted' ||
+                          cr.status === 'under_review') && (
                           <>
                             <DropdownMenuItem
                               onSelect={() => setDecidingRequest(cr)}
