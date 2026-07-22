@@ -31,7 +31,7 @@ import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useStoUsage } from '@/hooks/hr/use-hr-leave-types';
 import { formatMinutes, STO_LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
-import { formatDays, formatHours } from './format';
+import { formatHours } from './format';
 
 /** Minutes since midnight, or null when unparseable. */
 function toMinutes(hhmm: string): number | null {
@@ -71,10 +71,14 @@ export function ApplyShortTimeOffDrawer({
   // Limits resolve server-side: an assignment can override the type's whole
   // block, and duplicating that precedence here would drift from the trigger
   // that actually enforces it.
+  // The DB computes the window from the REQUEST date, not today. Passing the
+  // selected date keeps the remaining figure shown here identical to the one
+  // enforcement will use — a future-dated request falls in a later period.
   const { data: usage } = useStoUsage(
     ctx.employeeId || undefined,
     effectiveTypeId || undefined,
-    ctx.academicYearId || null
+    ctx.academicYearId || null,
+    date || undefined
   );
   const limited = !!usage && usage.limit_mode !== 'none';
 
@@ -115,10 +119,6 @@ export function ApplyShortTimeOffDrawer({
   // A type classified short_time_off but left allow_hourly=false would be
   // rejected by the service AFTER submit. Catch it here instead.
   const notHourly = !!selected && !selected.allow_hourly;
-
-  const available = selected
-    ? selected.entitled + selected.carried_forward - selected.used
-    : null;
 
   const reset = () => {
     setLeaveTypeId(''); setDate(''); setStartTime(''); setEndTime('');
@@ -217,11 +217,11 @@ export function ApplyShortTimeOffDrawer({
                       </span>
                     )}
                   </p>
-                ) : available !== null ? (
+                ) : (
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    {formatDays(available)} remaining this year
+                    No usage limit configured for this type.
                   </p>
-                ) : null}
+                )}
               </div>
 
               <div>
