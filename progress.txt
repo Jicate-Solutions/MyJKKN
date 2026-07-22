@@ -1,3 +1,34 @@
+## Session: 2026-07-22 (END /cnext) [RCLTP] — RCLTP provisional scoring engine + LIVE populated principal dashboard SHIPPED (Phases 1-3)
+
+### Accomplished
+- **Policies gate fix** (#2252, MERGED+LIVE): /rcltp landing "Policies" card showed "Available" to config-managers but the page is super-admin-only → added `superAdminOnly` flag; principal now correctly sees "No access" matching the page guard.
+- **RCLTP Phase 1 (engine) + Phase 2 (dashboard)** (#2253, MERGED+DEPLOYED): `lib/services/rcltp/scoring-engine.ts` (auto-grade Part B MCQ + teacher Part A + composite 0.5·reading+0.5·comprehension → bands; per-tenant cutoffs + provisional fallback 0-39/40-59/60-84/85-100; **22 unit tests pass**); score route `POST /api/rcltp/assessments/[id]/score` (gate `rcltp.review`); RPC `fn_rcltp_school_dashboard` (SECDEF, permission-gated, anon-revoked, **APPLIED to prod**); `principal-dashboard.tsx` 4 recharts panels + persistent **"Provisional — pending EKSAQ validation"** banner.
+- **Phase 3 (LIVE [TEST] class on prod)**: 16 synthetic `[TEST]` learners at Nattraja Vidhyalya (grade 3/4 × section A/B), 48 sittings (cycles 1-3), all scored by the REAL deployed engine. Dashboard verified populated as principal (screenshot proof): bands E4/T5/P4/SP3, cycle trend 43.7→54.7→60.3, 7 at-risk (4 low_band + 3 regression).
+- **All-stakeholders test**: learner (`/rcltp/student` portal, correctly scoped-empty), senior learner/faculty (`/rcltp/teacher` console + `/teacher/assessments`), admin (`/rcltp/admin`→policies, 17 policies), principal (populated). All correctly role-scoped, no cross-lane leakage.
+- Strategy threads (verbal only, NOT written): CBSE SAFAL personalised-CBT readiness (RCLTP = the wedge); AI-Max faculty-offload (30 live `ai_job_types`, 2879 jobs done; teacher → editor-of-AI). Nattraja RCLTP = **ENGLISH-ONLY** (no Tamil).
+
+### Current Status
+- **Feature**: RCLTP Phases 1-3 LIVE on jkkn.ai; `[TEST]` class seeded and KEPT (director choice).
+- **Build**: passing — both PRs green CI, deployed (build `my-jkkn-hfw9dm0xa`).
+- **Branch**: RCLTP work was in `.claude/worktrees/rcltp-engine` (MERGED, branch deleted). ⚠️ Main omm-dev checkout has UNRELATED uncommitted changes (hr/attendance, nav-config, activity-service, features.json) — NOT from this session, do NOT commit them.
+
+### Lessons Learned
+- MyJKKN `preview/end` (see-as-user) may NOT restore the admin session → left the CFT browser logged out. A **faculty** minted-session works for the API `withAuth`, but an **Omm/superadmin** minted-session 401s with "User profile not found".
+- Audit a role permission by VALUE (`permissions->>'key'`) not key existence (`? operator`) — faculty had the `config.manage` key present but value=`false`.
+- Dashboard RPC render needs ~15s to populate (usePermissions → institution_id → RPC chain); a 6s capture caught skeletons.
+
+### Next Session — Tasks (ALL 4 — director interview: "all the above 4 of them")
+1. [P0] **Populated learner view** — give ONE `[TEST]` learner a login (auth.users + profile row id=auth-id, role `student`, institution Nattraja, `learner_id`=the [TEST] learner's id), render `/rcltp/student` as them → show their scored band/report (medium)
+2. [P0] **Phase 4 voice-AI** — Azure/Speechace read-aloud auto-scoring for Part A; BLOCKED on director providing an API key (none in env) (large)
+3. [P0] **Polish + harden** — fix section-comparison bar clip (Grade 4-B under angled x-labels; render-only, data is complete), add an RPC permission-gate impersonation test, tidy (small-medium)
+4. [P0] **CBSE/AI strategy write-up** — one-pager: CBSE SAFAL personalised-CBT readiness + AI-Max faculty-offload model (which faculty loads → which AI job, live vs new, the approval flow) (medium)
+
+### Keep (director)
+- `[TEST]` class STAYS seeded ("keep it for now"). Teardown preserved: `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/rcltp-test-class/rcltp-test-teardown.sql` (+ seed + run-engine.mjs).
+- Plan: `~/.claude/plans/soft-tickling-origami.md`. Memory: `reference_nattraja_vidhyalaya_rcltp_english_only.md`.
+
+---
+
 ## Session: 2026-07-22 (END /cnext) [pane 5d42c851] — Evolis→MyJKKN ID-card integration DESIGNED (Python + Windows AI-Max host locked)
 
 ### Accomplished
