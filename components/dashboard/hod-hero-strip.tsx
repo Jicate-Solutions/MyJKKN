@@ -104,21 +104,36 @@ export default function HodHeroStrip() {
     : dhs.band === 'green' ? 'green'
     : dhs.band === 'amber' ? 'amber'
     : 'red';
-  // Marking: more sections marked = better. Grievances / leave-approvals: fewer =
-  // better, and ZERO is the good (green) state — not a warning. Sensible defaults,
-  // easy to tune.
+  // ── Status thresholds (interview 2026-07-22; all tunable in one place) ──
+  const MARKING_RED_AFTER_HOUR = 16; // low marking only turns red at/after 4pm IST
+  const GRIEVANCE_OVERDUE_DAYS = 7;  // an open grievance older than this → red
+  const LEAVE_OLD_DAYS = 3;          // a pending leave waiting longer than this → red
+  const LEAVE_MANY = 5;              // this many pending (or more) → red
+  const istHour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false
+    }).format(new Date())
+  );
+  // Marking: ≥80% good; 40–79% partial (amber); below that it's amber early in the
+  // day and only turns red once it's late and classes are still unmarked.
   const markingStatus: Status =
     metrics.marking_compliance_pct >= 80 ? 'green'
     : metrics.marking_compliance_pct >= 40 ? 'amber'
-    : 'red';
+    : istHour >= MARKING_RED_AFTER_HOUR ? 'red'
+    : 'amber';
+  // Grievances: zero = all clear; red only when one has been open too long (overdue);
+  // otherwise open-but-recent is a heads-up (amber).
   const grievanceStatus: Status =
     metrics.open_grievances === 0 ? 'green'
-    : metrics.open_grievances <= 2 ? 'amber'
-    : 'red';
+    : metrics.grievance_oldest_days > GRIEVANCE_OVERDUE_DAYS ? 'red'
+    : 'amber';
+  // Leave: zero pending = clear; red if many pile up OR any single one has waited too
+  // long; otherwise a few recent ones is a heads-up (amber).
   const leaveStatus: Status =
     metrics.pending_leave_approvals === 0 ? 'green'
-    : metrics.pending_leave_approvals <= 4 ? 'amber'
-    : 'red';
+    : (metrics.pending_leave_approvals >= LEAVE_MANY
+        || metrics.leave_oldest_days > LEAVE_OLD_DAYS) ? 'red'
+    : 'amber';
   const dhsComponentsLine = dhs?.components
     ? (['dept_attendance', 'faculty_marking', 'grievance_resolution'] as const)
         .filter((k) => dhs.components[k] !== null && dhs.components[k] !== undefined)

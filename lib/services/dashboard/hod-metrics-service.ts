@@ -27,6 +27,10 @@ export interface HodMetrics {
   marking_compliance_pct: number;
   open_grievances: number;
   pending_leave_approvals: number;
+  // Age (whole days) of the oldest still-open grievance / oldest pending leave.
+  // 0 when there are none. Used to colour those tiles by "overdue", not just count.
+  grievance_oldest_days: number;
+  leave_oldest_days: number;
   department_health_score?: DepartmentHealthScore;
 }
 
@@ -36,6 +40,8 @@ const EMPTY_METRICS: HodMetrics = {
   marking_compliance_pct: 0,
   open_grievances: 0,
   pending_leave_approvals: 0,
+  grievance_oldest_days: 0,
+  leave_oldest_days: 0,
   department_health_score: {
     score: 0,
     band: 'red',
