@@ -211,7 +211,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/my-proof', 'Learners'], // Verified Skills Record — learner self view (learners.proof.view)
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
-  ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)
+  ['/rcltp', 'Academic'], // MyJKKN RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
   // Global Calendar module (/calendar, /calendar/holidays, /calendar/settings) —

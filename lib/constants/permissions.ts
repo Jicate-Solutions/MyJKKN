@@ -2405,7 +2405,7 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
-  // rcltp.config.manage for /rcltp (EKSAQ reading-assessment module) but the
+  // rcltp.config.manage for /rcltp (MyJKKN reading-assessment module) but the
   // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
   // permissions-catalog gate on every open PR and hiding the toggle from the
   // Role-Management Edit dialog.

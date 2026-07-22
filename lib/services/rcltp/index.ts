@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — service layer barrel (Phase B).
+ * MyJKKN RCLTP — service layer barrel (Phase B).
  * Import from '@/lib/services/rcltp' to reach any domain service or shared helper.
  */
 export * from './rcltp-helpers';

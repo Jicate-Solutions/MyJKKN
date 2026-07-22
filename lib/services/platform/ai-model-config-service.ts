@@ -336,7 +336,7 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'work_pulse.analyze': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
     'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
     'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
-    // rcltp generate route is EKSAQ-gated scaffold (no model in code yet) —
+    // rcltp generate route is MyJKKN-gated scaffold (no model in code yet) —
     // forward-default to the platform workhorse.
     'rcltp.question_generation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),

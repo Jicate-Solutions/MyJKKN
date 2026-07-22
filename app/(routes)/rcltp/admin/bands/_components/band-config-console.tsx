@@ -8,7 +8,7 @@
 // config is per-institution (institution_id NOT NULL) — an institution must be
 // picked before rows load or are created.
 //
-// SAFETY: these cutoffs are PROVISIONAL config, NOT EKSAQ-validated, and drive no
+// SAFETY: these cutoffs are PROVISIONAL config, NOT MyJKKN-validated, and drive no
 // live scoring yet. A persistent banner + <ValidationBanner> sit on the surface so
 // a cutoff is never read as an authoritative psychometric value. No score is ever
 // computed or shown here — this edits config rows only.
@@ -252,7 +252,7 @@ function BandConfigDialog({
 
           <Alert>
             <AlertDescription className='text-xs'>
-              These cutoffs are <strong>provisional — pending EKSAQ validation</strong>. They
+              These cutoffs are <strong>provisional — pending MyJKKN validation</strong>. They
               are configuration values, not validated psychometric thresholds, and do not
               drive any live scoring yet.
             </AlertDescription>
@@ -383,7 +383,7 @@ export function BandConfigConsole() {
       {/* Persistent provisional banner — always visible on this surface. */}
       <Alert className='border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100'>
         <AlertDescription className='text-sm font-medium'>
-          <span className='font-semibold'>Provisional cutoffs — pending EKSAQ validation.</span>{' '}
+          <span className='font-semibold'>Provisional cutoffs — pending MyJKKN validation.</span>{' '}
           These do not drive any live scoring yet. They are configuration values, not
           validated psychometric thresholds.
         </AlertDescription>

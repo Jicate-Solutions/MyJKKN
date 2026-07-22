@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Passages domain service (Phase B) · REFERENCE PATTERN
+ * MyJKKN RCLTP — Passages domain service (Phase B) · REFERENCE PATTERN
  * ----------------------------------------------------------------------------
  * Tables: rcltp_passages, rcltp_part_b_questions, rcltp_passage_exposure.
  *
@@ -11,7 +11,7 @@
  *     (institution_id IS NULL)
  *   - READS + STAFF/ADMIN writes go through the client (RLS allows them)
  *   - STUDENT-affecting writes are stubs → server-side route (migration §6)
- *   - content/formula-dependent logic is stubbed → awaiting EKSAQ
+ *   - content/formula-dependent logic is stubbed → awaiting MyJKKN
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -34,7 +34,7 @@ import {
   rcltpRange,
   rcltpMetadata,
   rcltpPostJson,
-  rcltpAwaitingEksaqContent,
+  rcltpAwaitingValidationContent,
 } from './rcltp-helpers';
 
 export class RcltpPassagesService {
@@ -270,12 +270,12 @@ export class RcltpPassagesService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — content pipeline → awaiting EKSAQ
+  // DEFERRED — content pipeline → awaiting MyJKKN
   // -------------------------------------------------------------------------
 
-  /** AI passage generation (age-appropriate, per grade/language). Awaiting EKSAQ seed passages + guardrails. */
+  /** AI passage generation (age-appropriate, per grade/language). Awaiting MyJKKN seed passages + guardrails. */
   static async generatePassage(_params: unknown): Promise<RcltpPassage> {
-    return rcltpAwaitingEksaqContent('AI passage generation');
+    return rcltpAwaitingValidationContent('AI passage generation');
   }
 
   // -------------------------------------------------------------------------
@@ -306,14 +306,14 @@ export class RcltpPassagesService {
    * production LLM pattern (work-pulse/analyze) via a Phase-3 server route
    * POST /api/rcltp/questions/generate; generated questions land
    * source='ai_generated', status='draft' for teacher review. The passage->question
-   * prompt + EKSAQ competency/band alignment guardrails are awaiting EKSAQ content.
+   * prompt + MyJKKN competency/band alignment guardrails are awaiting MyJKKN content.
    */
   static async generatePartBQuestions(
     passageId: string
   ): Promise<RcltpPartBQuestion[]> {
-    // The route + LLM client wiring exist; the passage→question prompt + EKSAQ
+    // The route + LLM client wiring exist; the passage→question prompt + MyJKKN
     // competency/band guardrails are content-gated, so this currently throws the
-    // route's honest "awaiting EKSAQ content" message until that content lands.
+    // route's honest "awaiting MyJKKN content" message until that content lands.
     return rcltpPostJson<RcltpPartBQuestion[]>('/api/rcltp/questions/generate', {
       passage_id: passageId,
     });

@@ -56,7 +56,7 @@ const TEACHER_TOOLS: TeacherTool[] = [
     id: 'recordings',
     title: 'Recording review',
     description:
-      'Listen to learners’ Part A voice recordings and record your manual review. Auto voice-scoring is pending (EKSAQ) — you score by hand for now.',
+      'Listen to learners’ Part A voice recordings and record your manual review. Auto voice-scoring is pending (MyJKKN) — you score by hand for now.',
     href: '/rcltp/teacher/recordings',
     icon: Mic,
     permission: 'rcltp.review',
