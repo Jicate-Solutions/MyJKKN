@@ -1,3 +1,155 @@
+## Session: 2026-07-22 (cnext) — Biometric↔work-signal ATTENDANCE reconciliation designed + foundation shipped (+ SCF/mentor/Metric-6 earlier)
+
+### Accomplished
+**Main thread — Attendance reconciliation feature (faculty missed-punch → work-signal rescue, HR-approved):**
+- Full design via 6 plain-English interviews (19 decisions locked). Principle: SUPPLEMENT biometric, never replace (user's first "replace/payroll-basis" idea REJECTED on coverage+gaming+statutory grounds).
+- **DB foundation LIVE on prod (PR #2248, open):** `faculty_attendance_days` + `faculty_attendance_reconcile_proposals` + `fn_att_reconcile_propose` (proposals only) + `fn_att_reconcile_review` (only grant path, HR-gated). Self-contained on profile_id (NOT hr_employees — its FK would force payroll-master activation). Proven e2e rolled-back.
+- **Configurable campus networks LIVE (PR #2248):** `attendance_campus_networks` (subnet-aware CIDR, admin-editable). Campus gateways CONFIRMED+ACTIVE: 163.53.207.162 + 103.98.192.37.
+- **Input #1 (biometric file) RECEIVED + import PROVEN on real AHS data (rolled back):** bridge = `staff.staff_id` (NO email); 8/10 matched, 6 faculty loaded, engine found 1 real missed-punch-worked day. File = punch-events, group by (code,date), DD/MM/YYYY.
+- **v2 corroboration fully specced (§14-17):** 2 signs required — (A) own-timetable class marked ≤15min of period start / or pulse / lesson / verdict AND (B) on campus; ghost-class anti-cheat = sessions_witnessed (≥3 students); blank-network→HR; no VPN so campus-IP trustworthy.
+- **IP-capture gap diagnosed:** login=100% IP, update/create=0% (ActivityService reads x-forwarded-for only when `request` passed). Fix agreed as own PR (forward-only).
+**Earlier this session:** SCF enforcing judge VERIFIED (0 unsafe notes live; caught a stale-read-replica trap); spot-check panel PR #2242 MERGED; Metric-6 mentor federation foundation LIVE + PR #2246 (187 mentors, 2821 met, lossless).
+
+### Current Status
+- **PRs:** #2242 MERGED · #2246 open (mentor) · #2248 open (attendance, 2 migrations). All mergeable, awaiting Director.
+- **Prod DB:** attendance foundation + campus config LIVE (inert — no cron, no biometric data persisted). Mentor snapshot populated.
+- **Build:** passing. **Branch:** feat/campus-living-fee-compute-engine (docs root; code shipped via worktree PRs off jicate/main).
+
+### Lessons Learned
+- Mgmt-API `database/query` can serve STALE read-replica snapshots (~5-6h lag) — guard multi-query diagnostics with a total-count check (memory: feedback_mgmt_api_stale_read_replica_snapshots).
+- Auto-mode classifier blocks `DROP FUNCTION` on prod → restructure to CREATE OR REPLACE (same signature).
+- Read-existing-patterns caught two would-be mistakes: hr_attendance_records' FK to empty hr_employees (payroll trap), and work_signal_types already tagging each signal's category.
+
+### Next Session — Tasks (user P0 verbatim: "all 3 of them 1,2 and 3 fully"; drops: "Nothing"; must-read: "read all")
+1. [P0] Build the importer UI + API — upload biometric .xlsx → parse (group by code,date; DD/MM/YYYY) → match staff_id (filter faculty/hod) → upsert faculty_attendance_days source=biometric → report loaded/skipped/unmatched. Ship via /ship-myjkkn. (medium; needs xlsx lib — confirm in package.json)
+2. [P0] Build the v2 multi-signal engine (spec §14-17) — replaces v1 generic-activity scoring. Own-timetable class-on-time + campus + witnessed; 2-sign rule; blank→HR. Timetable JSONB map in §14. (large)
+3. [P0] Fix activity-logging IP capture (own PR) — thread `request` into logActivity / stamp IP at central /api/activity route. Forward-only. (medium, cross-cutting — scope carefully)
+4. [P1] Still needed from Omm: approved-leave/holiday source (so leave days aren't flagged missed punches).
+
+---
+
+## Session: 2026-07-22 (cont.) — Payment-machine ENGINE built + proven + a real bug fixed on prod
+
+### Built (branch feat/referral-2025-26-importer, commit 68dd27642)
+- **referral_rate_config** — universal flat rate by (academic_year, institution?, programme?). Chose a small purpose-built table: consultant_commission_structures is per-agency (consultant_id NOT NULL, wrong scope for a universal rate); referral_reward_configs is the perks rail (wrong downstream). Documented rationale.
+- **fn_resolve_referral_rate** — most-specific-wins. PROVEN: override institution→8000, others→5000.
+- **fn_generate_referral_commissions** — the one thing nothing in the system did: attributed CONSULTANT referral → pending commission transaction. DRY RUN default (D20/D15), admin-gated (SECURITY DEFINER self-check), skips already-transacted + no-rate rows, faculty/students out of scope. PROVEN on real 2026-27: 511 candidates, 478 payable, 511 transactions written (rolled back), zero residue.
+
+### 🔴 Pre-existing SYSTEM-WIDE bug FOUND + FIXED + APPLIED to prod
+- **trigger_set_transaction_number numbered MAX+1 SCOPED TO institution_id, but the unique constraint on transaction_number is GLOBAL.** First transaction of every institution got TXN-000001 → collides across institutions. Never surfaced because the ledger was always empty (0 rows ever). Breaks the manual commission-entry path too, not just the generator. **Fixed to number globally; APPLIED to prod** (safe: CREATE OR REPLACE, 0 rows, no wired caller). The proof caught this — a bulk generate of 511 multi-institution rows collided until fixed.
+- ⚠️ Also noted (pre-existing, out of scope): the trigger has a concurrency race between parallel writers; the global unique index is the integrity backstop.
+
+### State
+- Trigger fix: APPLIED to prod (standalone bug fix, live).
+- Rate table + generator: BUILT + PROVEN, NOT applied (feature, pending deploy/screens).
+- The broken TS ConsultantService.calculateCommission is now REDUNDANT (the DB generator supersedes it) — still 0 callers. Deprecate or delete in the screens PR; do NOT wire it (it computes flat base_rate silently).
+
+### Next (payment machine, remaining)
+Screens (ship via Translator PR): (1) rate entry UI → referral_rate_config; (2) generate+preview UI calling fn_generate_referral_commissions(dry_run); (3) four-stage payout batch UI (createPayoutBatch exists; lifecycle pending→approved→paid already proven). Then apply the feature migration. First real run = small agency group (D27).
+
+---
+## Session: 2026-07-22 (cont.) — Payment-machine DRY-RUN proven on 2026-27 (both halves)
+
+### The machine works — proven end-to-end on REAL data, zero writes
+- **Compute half (dry-run report):** ran the payment computation over the 718 already-captured 2026-27 referrals at an ILLUSTRATIVE Rs 5,000/admission + 5% TDS. Report `docs/referral-2026-27-dryrun.xlsx` delivered to user.
+  - **Wave 1 payable NOW: 13 agencies, 478 referrals, Rs 22.7L net** (illustrative).
+  - **Rs 1.57L stuck** on 15 agencies missing bank/PAN (33 referrals).
+  - **Staff: Rs 8L gross, 51 staff, 160 referrals** → payroll wave 2 (taxed as salary).
+  - Students: 47, excluded (tracking only, D4).
+  - 🔴 **CONCENTRATION: SMET alone = Rs 12.16L = 53% of wave 1** (256 of 511 agency referrals). Director MUST eyeball whether one agency legitimately drove a third of all referrals before paying.
+  - Clean inputs: all 718 resolve to a real referrer, 0 self-referrals.
+- **Mechanism half (rolled-back E2E):** generate → approve → mark-paid lifecycle proven on a real SMET referral. TXN-000001 created, status→approved with approved_by set (confirms #2219 fix works in payout context), status→paid, totals trigger moved Rs 5,000. RAISE-rollback → ledger still 0 rows. Zero residue.
+
+### Key caveats (state to Director)
+- Rate is ILLUSTRATIVE — real per-course rates (D3) change every number; pipeline unchanged.
+- This is 2026-27 (the de-risk year), NOT the 2025-26 debt. Same machine runs 2025-26 after import.
+- Release still works for no year in the live UI — this proves the compute+lifecycle; the wired generator/payout screen (F5/F6) is the next build.
+
+### Next
+Build F5 (repair calculateCommission against real structures schema) + F6 (generator → four-stage payout), seeded by this proven logic. Then the import upload screen (D18-D25) in parallel (D26).
+
+---
+## Session: 2026-07-22 (cont.) — importer interview: 15 more decisions (D18-D32) + attendance/feedback enrolment reframe
+
+### Two sharp user challenges that reshaped the plan
+- **"Don't 2026-27 already have provision to add + release referral payments?"** → VERIFIED: ADD yes (lead form → 718 referrals captured), RELEASE **no, for ANY year** — ledger has 0 transactions/0 payouts EVER; createPayoutBatch/createCommission exist in the service but are wired to NO button; referrals page is read-only. So the release machinery (rates→generate→payout) is SHARED across all years; only "get data in" is year-specific. **The importer writes CANONICAL attribution (learners_profiles.referred_by_id) — it's the bulk cousin of the 2026-27 lead-form provision, same destination (D28).** Decision: build importer + payment machine in PARALLEL (D26); first real run = small agency group then widen (D27).
+- **"If attendance & feedback exist for the candidate, we know he's studying — registrar need not verify."** → VERIFIED + adopted with a critical caveat. student_attendance (JSONB per-session, student_id+status inside) + session_feedback (direct student_id) are LIVE (latest 07-21 / 07-22). Coverage: only **~53% of the 2025-26 cohort** has a recent presence signal; **~47% have NONE — because their college doesn't mark attendance in this system, NOT because they left.** So: auto-confirm on attendance OR feedback (D29); no signal = UNKNOWN → registrar, NEVER auto-reject (D30, the key safety rule); this-term recency (D31); re-check at payment time (D32). Registrar's job shrinks from "every claimed student" to "only those with no digital footprint."
+
+### Decisions locked D18-D32 (full text in SPECS.md §3)
+D18 approve promotes CLEAN rows only, rest to to-do list · D19 overrides senior-only+logged · D20 approve records CLAIMS not payments (already-paid→double-pay ledger) · D21 corrections = on-screen edit + re-upload · D22 on-screen edits senior-only, re-validated+logged · D23 refuse wrong-column files · D24 dedup ACROSS uploads · D25 auto-emit registrar check-list · D26 importer+payment machine in parallel · D27 first run = small agency group then widen · D28 importer writes canonical attribution; release works for NO year yet · D29 auto-confirm on attendance/feedback · D30 no signal→registrar never auto-reject · D31 this-term recency · D32 re-check at payment time.
+
+### Built this session (branch feat/referral-2025-26-importer, commit 4688c7a3f — NOT pushed/applied)
+- Staging schema + fn_validate_referral_import_batch — PROVEN on prod (9/9 verdict classes, zero footprint).
+- docs/referral-2025-26-import-template.xlsx — DELIVERED to user.
+- Match key = application_id (100% unique across 1,863; register_number has 6 dup groups).
+- Data truths: family signal = father_name/mother_name NOT surname (Tamil last names are initials); agency payability gap = only 23/49 have bank+PAN.
+
+### Next slice
+Upload SCREEN (Next.js) implementing D18-D25 + apply migration (show-first). In parallel: payment machine (F4 rates + F5 calculator repair + F6 payout) proven on 2026-27's 718 first (dry-run), then 2025-26 after import. Enrolment auto-confirm (F3) wired to attendance/feedback.
+
+---
+## Session: 2026-07-22 (c281314d) — ✅ PDE ANSWER-KEY LEAK CLOSED on prod + learner CASE LIST live
+
+### P0 #1 — Answer-key hardening: DONE + PROVEN ON LIVE PROD
+- **Leak proven first** (not assumed): impersonated an enrolled learner against live RLS — auth.uid() resolved to them and the model answers came back from `pde_assessment_questions`. The whole surface leaked, not just `metadata.ground_truth`: also `correct_answer`, `options[].is_correct`, `expected_regions`, `key_concepts`. MCQ + image_tag graded CLIENT-SIDE against the leaked key.
+- **Chose NON-DESTRUCTIVE lock over the brief's "move the column"** (that misses the other 4 leak cols): 3 SECDEF RPCs — `fn_pde_get_case_questions` (key-stripped delivery), `fn_pde_mark_objective` (server MCQ marking), `fn_pde_get_answer_key_for_review` (key only after a completed submission; all REVOKE anon) — then REVOKE the learner read on the base table (`pde_questions_read` USING = admin/creator/`pde.faculty.view` only). image_tag marking → new `/api/pde/clinical-reasoning/mark-image-tag` (service-role). score + standard-results routes → service-role key read.
+- **PR #2244** (app, 7 files) merged; **#2247** records the Phase 2 RLS migration. Migration validated in rolled-back txn (9 assertions) BEFORE applying; 2-phase rollout (RPCs → deploy #2244 → RLS tighten) so no live path broke.
+- **LIVE PROOF (post-deploy, post-tighten):** 2 enrolled learners read **0** base-table rows; safe RPC returns 7 questions with `leaks_key=false`; case author reads all 7; browser-confirmed the attempt page loads via RPC with no key shown.
+- Memory: [[feedback_rls_row_not_column_lock_base_table_not_move_column]].
+
+### P0 #3 — Adoption: learner CASE LIST live (discoverability half)
+- `/pde/learn/cases` was a redirect stub → replaced with a real browse list (**PR #2245**, merged+deployed). Browser-verified on prod: renders all 4 published cases with Start/Continue/Attempt-again + best score. JKKN green.
+- Survey finding: PDE "cohort" today = ANALYTICS, not case-assignment. **assign-to-cohort NOT built** — it's a net-new access mechanism; discoverability was the CARRE 35/100 blocker and is now closed. Flagged for follow-up.
+
+### P0 #2 — Lab radiographs: HANDED OFF (awaiting user)
+- Read-only investigation prompt (upload/Lab/ apache-lock, 27.7k reports) re-issued to the user to paste into the Server Claude session. Awaiting findings.
+
+### ⚠️ Flagged, not touched (out of scope)
+- Published case title "Oral Lichen Planus — Mrs. Lalitha, 52F" uses a personal name, not a de-identified label (manually authored, not via the PMS de-ID pipeline) — possible privacy issue, faculty should check.
+- `clinical-reasoning/score` route maps `ground_truth: correct_answer` but the free-text key lives in `metadata.ground_truth` — pre-existing scoring-quality bug.
+
+---
+## Session: 2026-07-22 (SCF judge verify + spot-check UI + Metric 6 federation) — 3-task brief 60d002de
+
+### Accomplished
+- **Task 1 — SCF enforcing note-safety judge: VERIFIED DONE (safety objective met).** Resumed brief 60d002de; reality had drifted (enforce policy already flipped ON 07-21 16:20). Content-verified #2201 deployed (cron carries `enforce{}`+`mode`), read the enforce RPC (auto_safe→publish / flagged→pull-to-draft / crisis→always-human / NEVER deletes). **Live safety invariant HOLDS: 0 `approved` notes carry a flagged verdict; all 77 flagged (45 needs_human + 32 likely_unsafe) held in draft; 275 auto_safe published.** ⚠️ CAUGHT a stale-read-replica trap: first ~8 Mgmt-API queries hit a ~5-6h-lagged replica inventing a phantom "11 stuck notes" — nothing needed publishing; added a total-count snapshot guard once reads stabilized. Legacy 1025 unjudged-approved = 1022 human-vouched, only 3 no-signoff (benign encouragement).
+- **Task 2 — Auto-published spot-check panel: SHIPPED, PR #2242 MERGED.** Read-only super-admin panel on /admin/learner-notes sampling judge-published notes (the human net over auto-publish); wraps existing `fn_scf_auto_published_spotcheck`; low-confidence flagged "scrutinise". Scoped tsc + terminology green; all required CI passed; merged into jicate/main.
+- **Task 3 — Metric 6 Mentorship Federation: FOUNDATION LIVE on prod + PR #2246 open.** Federated (read-not-migrate) the separate mentor Supabase `qcugpxmulslqrqrjycti`. Applied: `mentor_signal_snapshot`+RLS, `calc_faculty_mentees_met` (mirrors calc_faculty_publications sig), registry row `faculty.mentees_met`, `fn_mentor_signal_sync_upsert(jsonb)` service_role-only (DISTINCT ON email dedup). **Populated: 187 mentors matched / 0 unmatched / total met=2821 == mentor-DB distinct pairs (LOSSLESS); balakumaran=43 via live metric.** All DB objects validated in rolled-back txns first. Cron `/api/cron/mentor-signal-sync` INERT pending creds.
+
+### Current Status
+- **PR #2242** MERGED. **PR #2246** open, mergeable (needs Director merge). **Prod DB**: mentor-federation foundation live+populated; SCF enforce live+safe.
+- **Branch**: feat/campus-living-fee-compute-engine (docs root; all code shipped via worktree PRs off jicate/main). 2 session worktrees cleaned up.
+
+### Next Session / Blocked on Omm
+- 🔴 **Metric 6 activation**: provision `MENTOR_SUPABASE_URL` + `MENTOR_SUPABASE_SERVICE_ROLE_KEY` (read-only) in MyJKKN Vercel env → the inert cron activates; then add a nightly `vercel.json` cron entry. (I cannot enter credentials.)
+- Merge PR #2246. Then: Metric 6 UI + grade bands (A++15+/A+10-14/A5-9/B1-4).
+- SCF: async ₹0 Max-lane worker (Windows box) was asleep (~35 judge jobs queued) — self-drains when online. 3 benign no-signoff notes could be routed through the judge.
+
+### Lessons (memory)
+- Mgmt-API `database/query` can serve STALE READ-REPLICA snapshots (~5-6h lag observed) — guard multi-query diagnostics with a total-count/updated_at snapshot check; 5 identical consecutive reads = settled.
+- feedback_verify_agent_claims_and_browser_test_before_done applied again: scoped-tsc caught real type errors both PRs before CI.
+
+---
+## Session: 2026-07-22 — Referral importer slice 1: validator PROVEN on prod + template delivered
+
+### Accomplished
+- **Built + PROVED the import validator** (branch `feat/referral-2025-26-importer`, commit 4688c7a3f, NOT pushed/applied). Staging tables `referral_import_batches`/`referral_import_rows` + `fn_validate_referral_import_batch` — one set-based pass buckets every row ok/flagged/blocked/no_match. **All 9 verdict classes proved correct against REAL production anchors** in a temp-table harness (zero footprint): clean, already-paid, no-match, self-referral(blocked), duplicate(both), family, name-mismatch, referrer-not-found.
+- **Delivered the fill-in template** `docs/referral-2025-26-import-template.xlsx` to the user (Read-me sheet + 14 cols + dropdowns + examples). Columns mirror the validator exactly → round-trips.
+
+### Match-key + data truths locked (verified 2026-07-22)
+- **Match key = `learners_profiles.application_id`** — 100% populated, UNIQUE across the 1,863 2025-26 admissions. `register_number` is 99% but has **6 duplicate groups** → rejected as key.
+- **Family signal = referrer name vs `father_name`/`mother_name`** (100% populated), NOT surname: Tamil last names are single initials (only 111/1863 have a >2-char last name) → surname matching is noise.
+- 🔴 **Agency payability gap:** of 49 active consultants only **23 have bank details AND 23 have PAN**. "Agencies 100% unblocked" was too optimistic — ~half cannot receive a transfer yet. Validator flags 'no bank/PAN on file'. Agencies matched by **phone** (47/49; code=0, email=3).
+
+### Decisions confirmed this session
+- Already-paid list + claims = **ONE file** (payment cols filled only where already settled) — merges F1+F2 intake.
+- Build order confirmed by user: **build validator → emit template → user fills → uploads**. Template out now so Director can collect data in parallel with UI build.
+
+### Next slice
+- Build the **upload screen** (Next.js): upload xlsx → parse into a batch → call fn_validate → render exception report → approve → (promote pending). Then **apply the migration to prod (show-SQL-first)** as part of shipping the screen.
+- Parallel human tasks: (a) Director fills the template; (b) someone collects bank details + PAN for the ~26 agencies missing them.
+
+---
 ## Session: 2026-07-21/22 (cnext) — PMS→PDE IMAGES LIVE + 6 security migrations applied to prod
 
 ### Accomplished
