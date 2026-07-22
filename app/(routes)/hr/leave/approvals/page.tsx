@@ -35,7 +35,6 @@ import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/pe
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
 import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { formatDays } from '../_components/format';
-import { formatDays } from '../_components/format';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
 import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';

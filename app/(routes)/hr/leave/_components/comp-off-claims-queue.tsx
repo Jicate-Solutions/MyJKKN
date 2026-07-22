@@ -105,8 +105,13 @@ export function CompOffClaimsQueue() {
         emptyMessage="No compensatory off claims awaiting your decision."
       >
         {claims.map((c) => {
-          // fn_my_staff_ids() may hold several records; compare against the
-          // resolved employee id rather than assuming one.
+          // Compares against the ONE staff record the context resolves. An
+          // approver mapped to several staff records could still see the
+          // buttons on a non-primary claim of their own — hcoc_update's
+          // WITH CHECK (employee_id NOT IN fn_my_staff_ids()) rejects the
+          // click and the error surfaces in the alert above, so this is a
+          // cosmetic gap, not a self-approval hole. Closing it properly means
+          // exposing the full staff-id set through the context.
           const isOwn = c.employee_id === ctx.employeeId;
           return (
             <RequestRow key={c.id} status="pending">
