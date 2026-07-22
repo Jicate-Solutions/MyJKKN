@@ -8097,3 +8097,25 @@ CREATE POLICY hostel_attendance_select_permission ON public.hostel_attendance
         OR (user_has_permission('campus_living.attendance.view')
             AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
     );
+
+-- hr_leave_types (migration 20260721120000_hr_leave_types_split.sql) — staff
+-- leave-type catalog, split out of the shared leave_types table. Reads are
+-- gated on org membership (own hr_organization_id) or the manage permission;
+-- writes require the manage permission outright.
+ALTER TABLE public.hr_leave_types ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hlt_select ON public.hr_leave_types
+  FOR SELECT TO authenticated
+  USING (
+    hr_organization_id IN (
+      SELECT o.id FROM public.hr_organizations o
+      JOIN public.staff s ON s.institution_id = o.institution_id
+      WHERE s.profile_id = auth.uid()
+    )
+    OR public.user_has_permission('hr.leave.types.manage')
+  );
+
+CREATE POLICY hlt_write ON public.hr_leave_types
+  FOR ALL TO authenticated
+  USING      (public.user_has_permission('hr.leave.types.manage'))
+  WITH CHECK (public.user_has_permission('hr.leave.types.manage'));

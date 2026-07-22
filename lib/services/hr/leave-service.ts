@@ -206,12 +206,12 @@ export class LeaveService {
       department_id?: string | null;
     }
   ) {
-    // 1. Fetch leave_type (unified catalog; scope='staff' for HR leave)
+    // 1. Fetch leave type from the HR catalog. The table is staff-only by
+    //    construction, so the old .eq('scope','staff') filter is gone.
     const { data: leaveType, error: ltErr } = await supabase
-      .from('leave_types')
+      .from('hr_leave_types')
       .select('*')
       .eq('id', payload.leave_type_id)
-      .eq('scope', 'staff')
       .maybeSingle();
     if (ltErr) throw ltErr;
     if (!leaveType) throw new Error('Leave type not found');
@@ -299,9 +299,8 @@ export class LeaveService {
     if (balance) {
       const available = (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
       if (estimatedDays > available) {
-        // leave_types has no `name` column — it is `leave_type_name`. `name`
-        // exists only on the hr_leave_types compatibility VIEW, which this
-        // query does not use, so this message read
+        // hr_leave_types has no `name` column — it is `leave_type_name`.
+        // Reading `.name` here previously made this message read
         // "you have 3.0 undefined available".
         throw new Error(
           `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
@@ -607,7 +606,7 @@ export class LeaveService {
       .from('hr_leave_balances')
       .select(`
         *,
-        leave_types:leave_type_id (
+        hr_leave_types:leave_type_id (
           leave_type_name,
           leave_type_code,
           duration_type,
@@ -620,7 +619,7 @@ export class LeaveService {
     if (error) throw error;
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      const lt = row.leave_types as {
+      const lt = row.hr_leave_types as {
         leave_type_name: string;
         leave_type_code: string;
         duration_type: string;

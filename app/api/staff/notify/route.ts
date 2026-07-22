@@ -168,7 +168,7 @@ async function handleLeaveSubmitted(
 
   // Resolve leave type name
   const { data: leaveType } = await supabase
-    .from('leave_types')
+    .from('hr_leave_types')
     .select('leave_type_name')
     .eq('id', app.leave_type_id)
     .maybeSingle();
@@ -219,7 +219,7 @@ async function handleLeaveDecision(
 
   // Resolve leave type name
   const { data: leaveType } = await supabase
-    .from('leave_types')
+    .from('hr_leave_types')
     .select('leave_type_name')
     .eq('id', app.leave_type_id)
     .maybeSingle();
