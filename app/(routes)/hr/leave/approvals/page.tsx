@@ -32,6 +32,7 @@ import {
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
+import { formatDays } from '../_components/format';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -152,7 +153,7 @@ export default function LeaveApprovalsPage() {
               </TableCell>
               <TableCell>{fmtDate(a.start_date)}</TableCell>
               <TableCell>{fmtDate(a.end_date)}</TableCell>
-              <TableCell className="text-right tabular-nums">{a.total_days}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatDays(a.total_days)}</TableCell>
               <TableCell className="text-muted-foreground">
                 {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
               </TableCell>

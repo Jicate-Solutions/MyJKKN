@@ -29,6 +29,7 @@ import {
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
+import { formatDays, formatHours } from './format';
 
 /** Minutes since midnight, or null when unparseable. */
 function toMinutes(hhmm: string): number | null {
@@ -161,7 +162,7 @@ export function ApplyShortTimeOffDrawer({
                 </Select>
                 {available !== null && (
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    {available.toFixed(1)} remaining this year
+                    {formatDays(available)} remaining this year
                   </p>
                 )}
               </div>
@@ -190,7 +191,7 @@ export function ApplyShortTimeOffDrawer({
 
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
                 Total Hours{' '}
-                <strong>{totalHours !== null ? totalHours.toFixed(2) : '—'}</strong>
+                <strong>{totalHours !== null ? formatHours(totalHours) : '—'}</strong>
               </div>
 
               {notHourly && (
