@@ -1,3 +1,74 @@
+## Session: 2026-07-21/22 (cnext) — PMS→PDE IMAGES LIVE + 6 security migrations applied to prod
+
+### Accomplished
+- **Image bridge COMPLETE + E2E on prod.** Real de-identified radiograph from live jkkn326 casesheet renders inside PUBLISHED case eeba3849-a044-4e70-a752-aad19972439b ("Classification of Pulpal Disease — Patient X, 58M"). PMS sharp-scrubs images behind CF+bearer wall (additive images[] key, anti-IDOR), MyJKKN copies ≤6 into public bucket `pde-clinical-images`, faculty default-deny burned-in-pixel confirm gate. De-ID PROVEN: uploaded EXIF+GPS-injected file, stored copy came back clean. (#2223)
+- **Direct faculty image upload** (#2227, #2230): browser canvas re-encode + server SANITIZE (stripJpegMetadata keeps only structural JPEG segments — NOT validate-only, because Chrome's canvas adds an APP2 ICC profile a validate-only gate rejects; this was a real bug caught only by browser-testing on prod).
+- **MCQ draft bug fixed** (#2227): author prompt had no options field → every PMS import produced an unsaveable MCQ. Prompt now carries options[]; parser degrades a still-broken MCQ to free-text.
+- **6 SECURITY/schema migrations APPLIED to prod** (all validated in rolled-back txn first):
+  1. pde-clinical-images bucket
+  2. pde_clinical_image_reviews (immutable audit trail — no UPDATE/DELETE policy)
+  3. pde_rls_cross_tenant_fix (submissions/engagement world-readable → 4 permissive policies 4→0)
+  4. pde_assessment_write_rls (learners could DELETE published cases / rewrite questions / mint certs — the FOR ALL policies my first SELECT-only sweep MISSED; write grants created_by+admin, browse scoped to enrolled+published; impersonation-proven learner blocked / creator preserved)
+  5. pde_at_risk_log + history view
+  6. pde_at_risk_unmask_low_score (inactivity masked a failing score in the single-branch CASE; added is_low_scoring + has_assessment_scores)
+- **2 dead Senior-Learner routes repaired** (#2239): cohort + transcripts 500'd on EVERY call since shipping (selected learners_profiles.full_name + pde_submissions.metadata — neither exists). Now first_name/last_name + derive domain scores from answers[].
+- CSV export ported from aicbl (#2234, real, replaced a "No data available yet" stub).
+- All 10 session PRs MERGED: #2223 #2227 #2230 #2232 #2233 #2234 #2235 #2236 #2238 #2239.
+
+### Current Status
+- **Build**: passing. **Prod**: jkkn.ai 200, published case healthy, 0 permissive policies on the 5 tables that held learner work.
+- **Branch**: feat/campus-living-fee-compute-engine (repo root; all work shipped via worktree PRs off jicate/main). 7 session worktrees cleaned up.
+
+### Lessons Learned (memory files written)
+- feedback_rls_sweep_must_include_for_all_policies — SELECT-only sweep misses FOR ALL (the ones with data + DELETE).
+- feedback_verify_agent_claims_and_browser_test_before_done — agent's at-risk premise was FALSE; green tests ≠ done (browser-test); terminology gate caught "staff"/"faculty" 3× in prose.
+
+### Next Session — Tasks (user P0 verbatim: "1,2, and 3 fully" — do all three)
+1. [P0] **Finish answer-key hardening** (large): move metadata.ground_truth → staff-only table + MCQ marking server-side (~12 files). Enrolled learner can still read own case's answer key via direct pde_assessment_questions query — RLS is row-level, learner-page payload was stripped but table isn't. THE remaining real gap.
+2. [P0] **Unlock lab radiographs** (medium): paste the ready server-session prompt (scratchpad/lab-images-unlock-prompt.md) to investigate opening apache-locked upload/Lab/ — 27,700 lab reports/radiographs vs 10,900 photos, ~3× teaching material. Read-only investigation, recommend-don't-apply.
+3. [P0] **Adoption / distribution gap** (large): PDE has no learner-facing case list at /pde/learn/cases, no assign-to-cohort. CARRE 35/100 said the experience layer is the real blocker — plumbing works, nobody can find the cases.
+
+### Also carried (not P0)
+- Wedged CFT (claude-in-chrome/browser-use) session — reports running, every command times out on BrowserStartEvent. Separate fix.
+- aicbl leftovers: dead aicbl_inbox_events table (drop); at-risk cron/notify shipped (#2232).
+
+---
+## Session: 2026-07-21 — REFERRAL RELEASE 2025-26 fully specified (17 decisions locked) + 2 money-bug PRs shipped
+
+### Accomplished
+- **Root-caused and fixed the silent approve failure** (PR #2219, open, CI green). Not a permissions bug and not one bug: `ConsultantCommissionTransaction` was **fiction — 9 of its 22 fields named columns that do not exist**, hidden by `(supabase as any)`. Approve sent `status_changed_at`/`status_changed_by` → PostgREST **PGRST204, whole request rejected before touching the row**, so **no approval on that page has ever persisted**. Same cause produced: clawback broken (`clawback_at`), every amount rendering `₹NaN`, `approved_by`/`approved_at` never written, `lead_id` filter raising `42703`, and an insert path that could never succeed (omitted NOT NULLs `gross_amount`/`net_amount`/`transaction_type`). Fix derives row+insert types from `Database['public']['Tables']` so drift now fails typecheck. **Proven on prod in a rolled-back txn: status→approved with approved_by/approved_at set, zero residue.**
+- **Unlocked `entry_date`** for super-admin/admission-global, bounded `2025-01-01 → today` with onChange clamping (PR #2220, open, CI green).
+- **Ran the full interview** (11 adaptive questions) and locked **17 decisions**. Wrote `SPECS.md`, added **8 features** to `features.json` (each with `outcome_metric` + `test_steps`).
+
+### Discoveries that changed the plan
+- 🔴 **Prior memory was WRONG.** "No function/service/button creates a commission transaction" is false. `calculateCommission` (rates, %/flat, milestones, volume tiers, caps), `createCommissionTransaction`, the trigger-config table AND both rate-entry UIs all exist. **Rates are empty CONFIG, not a missing build.** Caught by the mandatory production sweep.
+- 🔴 **`calculateCommission` fails SOFT** — reads 4 phantom columns on `consultant_commission_structures`, so its branches fall through and **every commission would compute as the flat `base_rate`**, silently ignoring percentages, milestones and caps. 0 callers today = harmless until wired. More dangerous than the transactions bug, which failed loudly.
+- 🔴 **Enrolment status is unusable.** 319 of 1,863 2025-26 learners are marked `graduated` on **2-year (129) and 3-year (190) courses** — none can have finished. Fee receipts are no fallback: only **42% of `active`** students have any 2026 receipt. → eligibility must be verified per-claim with the registrar, never from `lifecycle_status`.
+- 🔴 **Faculty/students have NO payment rail.** `consultant_commission_transactions.consultant_id` is a FK to `education_consultants`; staff live in `staff`, student referrers in `learners_profiles`. ~29% of 2026-27 referrals belong to people the system structurally cannot pay. `referral_rewards` is a perks/redemption model, not cash.
+- 🔴 **Payroll is built but unpopulated** — 93 `hr_*` tables, but `hr_employees`=0 of 844 staff, `hr_pay_scales`=0, `hr_payslips`=0; only `hr_pay_components` (98) is loaded. Salaries run outside MyJKKN. So "pay staff via payroll" is a cutover project, not a config change.
+- 🟡 **`referred_by_id` has NO foreign key** — polymorphic by `referral_type` (consultant→`education_consultants`, faculty→`staff`, student→`learners_profiles`). Nothing enforces it; this is how the **135 type-without-referrer** rows happened.
+- 🟡 **Near-miss caught:** `jicate/main` moved twice mid-session. A `git add -A` after `reset --soft` staged a **reversion of a teammate's Cloudflare Access change (#2208)** into my branch. Both branches were affected. Stage named files, never `-A`, after a base move.
+
+### Decisions locked (SPECS.md §3)
+D1 goal = **settle a debt** (speed+fairness) · D2 one standard rate promised at the time · D3 rate = **flat, varies by course/institution** (deliberately NOT %-of-fee — fee data is patchy) · D4 **agencies AND staff** owed, students tracking-only · D5 staff paid **via payroll with salary**, not as suppliers · D6 eligibility = admitted 2025-26 **and still studying**, verified **per-claim with the registrar** · D7 **pay agencies NOW, staff in wave 2** · D8 payroll stand-up = separate tracked project · D9 **minimal import screen (~1 day)** then load · D10 **full four-stage approval** (prepare→review→approve→process) · D11 self-referral **hard-blocked**, family **flagged only** (surname matching unreliable in Tamil naming) · D12 duplicate claims → **pay neither** · D13 the 135 unlinked → **review list, drop nobody** · D14 clawback auto/full/**90 days** as config · D15 calculator repaired but **never auto-fires** · D16 nothing pays before matching + history load · D17 backdate floor 2025-01-01.
+
+### Current Status
+- **PRs #2219 + #2220** — open, mergeable, 11/11 CI green (incl. PR-scoped TypeCheck). **Need the Director to merge.**
+- **Referral release** — fully specified, **implementation not started**. Blocked on Director inputs.
+- ⚠️ **Full-project `tsc` is unusable** on this repo — it OOMs at 8/20GB and a crash dump contains no `error TS` lines, so **an OOM is indistinguishable from a clean pass by error count**. Use exit code, or scoped `tsc -p`. I misreported a pass this session because of exactly this.
+
+### Blocked on (Director / Finance / Registrar)
+1. **Referral payment history** (already-paid list) — gates everything (D16). No payment history exists anywhere → double-pay risk is live.
+2. **2025-26 referral claims** with **application/roll numbers** (names alone won't match 1,863 students).
+3. **Rate table** — amount per course/institution.
+4. **Named people for the 4 approval roles.**
+5. **Registrar confirmation** of enrolment for claimed students.
+6. **Written Finance sign-off** on staff-via-payroll treatment.
+
+### Next Session
+Build order is F1 → F2 → F3 → F4 → F6 (agencies, wave 1); F5 calculator repair in parallel; F7 staff register; F8 payroll separately. **Do not compute or release any amount until F1 has loaded the payment history.**
+
+---
 ## Session: 2026-07-20/21 (cnext) — PMS→PDE BRIDGE LIVE ON **REAL** PATIENT DATA (both locks) + CARRE audit 35/100
 
 ### Accomplished
