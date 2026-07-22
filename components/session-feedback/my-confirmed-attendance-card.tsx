@@ -27,9 +27,42 @@ export function MyConfirmedAttendanceCard() {
   const { data: configWindowHours } = useFeedbackWindowHours();
   const CONFIRM_WINDOW_HOURS = configWindowHours ?? DEFAULT_WINDOW_HOURS;
 
-  // Fail-safe: never render a broken/misleading card. Hidden while loading, on error,
-  // when the caller is not a learner (null), or when enforcement is off entirely.
-  if (isLoading || isError || !data) return null;
+  // Loading and error states must be visible — silently returning null here made
+  // the whole attendance section disappear with zero explanation whenever a learner
+  // opened the page before the RPC resolved, or it errored transiently
+  // (BUG-004845/004846/004849/004855 — the card "self-heals" on reload, which is
+  // exactly the symptom of a swallowed loading/error state, not a data problem).
+  if (isLoading) {
+    return (
+      <Card className="border-border">
+        <CardContent className="flex items-center gap-3 py-4">
+          <div className="h-5 w-5 shrink-0 animate-pulse rounded-full bg-muted" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardContent className="flex items-start gap-3 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="text-sm">
+            <p className="font-medium">Couldn&apos;t load your attendance right now.</p>
+            <p className="text-muted-foreground">Please refresh the page in a moment.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Fail-safe: hidden when the caller is not a learner (null) or has no in-scope
+  // marks, or when enforcement is off entirely — these are intentional, not errors.
+  if (!data) return null;
   if (data.gate_mode === 'off') return null;
 
   const {
