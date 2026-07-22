@@ -1,6 +1,8 @@
 // types/education-consultants.ts
 // Types for the Education Consultants module within Admission Management
 
+import type { Database } from '@/types/supabase';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ENUMS & UNION TYPES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -363,45 +365,34 @@ export interface LeadAttributionFilters {
 // COMMISSION TRANSACTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface ConsultantCommissionTransaction {
-  id: string;
-  institution_id: string;
-  consultant_id: string;
-  lead_id: string | null;
+// Derived from the generated schema type rather than hand-written. The previous
+// hand-written shape had drifted from the real table: 9 of its 22 fields
+// (fee_amount, calculated_amount, final_amount, rate_type, lead_id,
+// transaction_code, status_changed_at, status_changed_by, clawback_at) named
+// columns that do not exist, which made every approve/clawback write fail with
+// PostgREST PGRST204 and rendered every amount as ₹NaN. Deriving the row shape
+// from Database keeps this honest — a future column rename now fails typecheck
+// instead of failing silently at runtime.
+type ConsultantCommissionTransactionRow =
+  Database['public']['Tables']['consultant_commission_transactions']['Row'];
+
+export interface ConsultantCommissionTransaction
+  extends Omit<ConsultantCommissionTransactionRow, 'status'> {
   status: CommissionStatus;
-  fee_amount: number;
-  commission_rate: number;
-  rate_type: RateType;
-  calculated_amount: number;
-  final_amount: number;
-  tds_amount: number;
-  net_amount: number;
-  milestone_stage: string | null;
-  payout_batch_id: string | null;
-  transaction_code: string | null;
-  notes: string | null;
-  status_changed_at: string | null;
-  status_changed_by: string | null;
-  clawback_reason: string | null;
-  clawback_at: string | null;
-  created_at: string;
-  updated_at: string;
 
   // Relationships (optional populated)
   consultant?: { id: string; name: string; code: string | null };
+  // Embedded via the admission_id -> admission_leads FK.
   lead?: { id: string; full_name: string };
 }
 
-export interface CreateCommissionTransactionInput {
-  institution_id: string;
-  consultant_id: string;
-  lead_id?: string | null;
-  fee_amount: number;
-  commission_rate: number;
-  rate_type?: RateType;
-  milestone_stage?: string | null;
-  notes?: string | null;
-}
+// Also derived from the generated schema. The previous hand-written shape named
+// fee_amount / rate_type (neither exists) and omitted gross_amount, net_amount
+// and transaction_type, all of which are NOT NULL — so an insert through it
+// could never have succeeded. createCommissionTransaction passes this straight
+// to .insert(), so it must describe insertable columns exactly.
+export type CreateCommissionTransactionInput =
+  Database['public']['Tables']['consultant_commission_transactions']['Insert'];
 
 export interface CommissionTransactionFilters {
   institution_id?: string;

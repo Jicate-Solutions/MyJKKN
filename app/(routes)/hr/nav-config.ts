@@ -122,7 +122,10 @@ const config: ModuleNavConfig = {
       ],
     },
     {
-      label: 'Employees',
+      // Deliberately NOT 'Employee List' — that label belongs to the /staff/list
+      // sidebar entry (the write surface). This read-only lens has no sidebar
+      // entry of its own and is reachable only as this chip.
+      label: 'HR Directory',
       icon: 'UsersRound',
       href: '/hr/employees',
       matchPaths: ['/hr/employees'],
@@ -251,7 +254,7 @@ const config: ModuleNavConfig = {
       label: 'Admin',
       icon: 'Settings',
       href: '/hr/admin',
-      matchPaths: ['/hr/admin'],
+      matchPaths: ['/hr/admin', '/hr/admin/leave-types', '/hr/admin/leave-balances'],
     },
   ],
 };

@@ -716,7 +716,7 @@ function ConsultantDetailContent() {
                             style: 'currency',
                             currency: 'INR',
                             maximumFractionDigits: 0
-                          }).format(commission.final_amount)}
+                          }).format(commission.net_amount)}
                         </TableCell>
                         <TableCell>
                           <Badge className={getCommissionStatusColor(commission.status)}>

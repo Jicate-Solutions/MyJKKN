@@ -678,3 +678,58 @@ export interface UpdateRcltpQuestionReviewDto {
   reviewed_at?: string | null;
   ai_meta?: Json | null;
 }
+
+// ---------------------------------------------------------------------------
+// 7. SCHOOL-HEAD (PRINCIPAL) DASHBOARD — fn_rcltp_school_dashboard RPC (Phase 4e)
+//    Read-only aggregate for /rcltp/principal. Every array below is EMPTY until
+//    EKSAQ scoring produces rcltp_assessment_results rows. `provisional` is
+//    always `true` today (no validated composite-score formula exists yet) —
+//    callers MUST render a "Provisional — pending EKSAQ validation" banner
+//    whenever any array is non-empty. Shape is hand-written (not generated)
+//    per the file-header convention above: the RPC is not in types/supabase.ts.
+// ---------------------------------------------------------------------------
+
+/** One row of `bandDistribution` — learner count per proficiency band. */
+export interface RcltpBandDistRow {
+  band: RcltpBand;
+  count: number;
+}
+
+/** One row of `cycleProgress` — average overall score per assessment cycle. */
+export interface RcltpCycleRow {
+  cycle: number;
+  avgOverall: number;
+  count: number;
+}
+
+/** One row of `atRisk` — a learner flagged for additional reading support. */
+export interface RcltpAtRiskRow {
+  learnerId: string;
+  name: string;
+  roll: string;
+  band: RcltpBand;
+  overall: number;
+  reason: 'low_band' | 'regression' | 'other';
+}
+
+/** One row of `sectionComparison` — average overall score per class/section. */
+export interface RcltpSectionRow {
+  sectionId: string;
+  section: string;
+  grade: number;
+  avgOverall: number;
+  count: number;
+}
+
+/** Full return shape of `fn_rcltp_school_dashboard(p_institution_id)`. */
+export interface RcltpSchoolDashboard {
+  provisional: boolean;
+  totals: {
+    scoredSittings: number;
+    learners: number;
+  };
+  bandDistribution: RcltpBandDistRow[];
+  cycleProgress: RcltpCycleRow[];
+  atRisk: RcltpAtRiskRow[];
+  sectionComparison: RcltpSectionRow[];
+}

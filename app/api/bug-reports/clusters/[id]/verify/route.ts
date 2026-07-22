@@ -178,7 +178,10 @@ export async function POST(
 
           let evidence;
           try {
-            evidence = await gatherEvidence(reverifyBug, admin);
+            // verify.requested_at is post-deploy (the human clicks Verify only
+            // after merge + deploy), so it is the fix boundary: recurrence counts
+            // reports arriving AFTER the fix, not the pre-fix wave the fix targets.
+            evidence = await gatherEvidence(reverifyBug, admin, verify.requested_at);
           } catch {
             evidence = {
               reporter_reachable: 'unknown',

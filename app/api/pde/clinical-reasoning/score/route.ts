@@ -146,7 +146,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data: questionRows, error: qErr } = await supabase
+  // The answer key (correct_answer / metadata.ground_truth) lives on
+  // pde_assessment_questions, which learners can no longer SELECT after the
+  // pde_questions_read RLS tighten. Ownership of this submission is already
+  // enforced above — the session-client read returns 404 for a submission that
+  // is not the caller's — so reading the key with the service-role client here
+  // is both safe and necessary for server-side scoring.
+  const svc = createServiceRoleClient();
+  const { data: questionRows, error: qErr } = await svc
     .from('pde_assessment_questions')
     .select(
       'id, question_text, correct_answer, metadata, order_index, question_type',

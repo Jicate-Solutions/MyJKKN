@@ -21,7 +21,7 @@ import { AlertCircle, UserX } from 'lucide-react';
 import { useApplyLeave, useLeaveBalance } from '@/hooks/hr/use-leave';
 import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
-import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useCurrentAcademicYear } from '@/hooks/use-academic-years';
 import { EmptyState } from '@/components/empty-state';
 import type { LeaveDurationType } from '@/types/hr';
 
@@ -40,16 +40,11 @@ export default function ApplyLeavePage() {
   const institutionId = employee?.hr_organization_id
     ? institutionIdByOrg.get(employee.hr_organization_id)
     : undefined;
-  const { data: academicYearsResp, isLoading: yearsFetching } = useAcademicYears(institutionId);
+  // Pick the year that CONTAINS today, not the lexically-highest active name.
+  const { data: currentYear, isLoading: yearsFetching } =
+    useCurrentAcademicYear(institutionId);
   const yearsLoading = yearsFetching || mappingsLoading;
-
-  // Pick the first active academic year by name-desc (matches use-academic-years).
-  // Ignore results until the institution scope is resolved — an unscoped fetch
-  // returns years across ALL institutions.
-  const activeAcademicYearId = useMemo(
-    () => (institutionId ? academicYearsResp?.data?.[0]?.id ?? '' : ''),
-    [academicYearsResp, institutionId],
-  );
+  const activeAcademicYearId = currentYear?.id ?? '';
 
   const hrOrgId = employee?.hr_organization_id ?? '';
   const employeeId = employee?.id ?? '';
@@ -136,7 +131,7 @@ export default function ApplyLeavePage() {
       {isLoading ? (
         <div className="mt-6 text-sm text-muted-foreground">Loading your profile…</div>
       ) : !employee ? (
-        <div className="mt-6 max-w-2xl">
+        <div className="mt-6 max-full">
           <EmptyState
             icon={<UserX className="h-10 w-10 text-muted-foreground" />}
             title="No HR employee profile linked"
@@ -144,7 +139,7 @@ export default function ApplyLeavePage() {
           />
         </div>
       ) : (
-        <form onSubmit={onSubmit} className="mt-6 space-y-4 max-w-3xl">
+        <form onSubmit={onSubmit} className="mt-6 space-y-4 max-w-full">
           <Card>
             <CardHeader><CardTitle className="text-base">Submitting as</CardTitle></CardHeader>
             <CardContent className="space-y-1">

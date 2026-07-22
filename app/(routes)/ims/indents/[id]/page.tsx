@@ -169,11 +169,11 @@ function IndentDetailPageInner() {
       return;
     }
     try {
-      await issueItem.mutateAsync({ itemId, quantity: qty });
+      await issueItem.mutateAsync({ itemId, quantity: qty, userId: profile?.id || '' });
       toast.success('Item issued successfully');
       setIssueQuantities((prev) => ({ ...prev, [itemId]: 0 }));
-    } catch {
-      toast.error('Failed to issue item');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to issue item');
     }
   };
 

@@ -45,6 +45,13 @@ interface LaneCard {
   phase?: string;
   /** If true, only render this card when the user has this permission */
   requiredPermission?: string;
+  /**
+   * If true, the destination page is super-admin only (e.g. it uses the
+   * <SuperAdminOnly> guard). Non-super-admins see the card locked, even if
+   * they hold `requiredPermission`. Prevents advertising a lane as
+   * "Available" that the page itself will then refuse.
+   */
+  superAdminOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +78,9 @@ const ALL_LANES: LaneCard[] = [
     icon: Settings2,
     available: true,
     requiredPermission: 'rcltp.config.manage',
+    // The policies page uses <SuperAdminOnly> (writes platform_policies rows),
+    // so only super-admins may actually open it. Gate the card to match.
+    superAdminOnly: true,
   },
   {
     id: 'teacher',
@@ -256,11 +266,14 @@ export default function RcltpHubPage() {
               if (!lane.available) {
                 return <PlaceholderCard key={lane.id} lane={lane} />;
               }
-              // Available lane — show only if user has permission; else show locked
-              const hasAccess =
-                isSuperAdmin ||
-                !lane.requiredPermission ||
-                can(lane.requiredPermission);
+              // Available lane — show only if user has permission; else show locked.
+              // superAdminOnly lanes require super-admin regardless of requiredPermission
+              // (the destination page enforces the same, e.g. via <SuperAdminOnly>).
+              const hasAccess = lane.superAdminOnly
+                ? isSuperAdmin
+                : isSuperAdmin ||
+                  !lane.requiredPermission ||
+                  can(lane.requiredPermission);
 
               return hasAccess ? (
                 <AvailableCard key={lane.id} lane={lane} />

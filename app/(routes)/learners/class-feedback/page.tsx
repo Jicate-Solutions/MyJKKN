@@ -98,7 +98,27 @@ export default function LearnerSessionFeedbackPage() {
   // "shows 51/42 classes" cluster). fn_scf_confirmation_status already returns one
   // row per Present session with a `confirmed` flag, so no RPC change is needed.
   const { data: confirmRows } = useConfirmationStatus(from, to);
-  const historyRows = confirmRows ?? [];
+  // Block-course consolidation for the history badges (mirrors the
+  // fn_scf_pending_for_learner fix of 2026-07-18): fn_scf_confirmation_status
+  // still matches confirmed-vs-not by exact period_id only, so a learner who
+  // gave feedback for one period of a block-scheduled course still saw sibling
+  // periods of that same course/day badged "Not yet confirmed"
+  // (BUG-004651/690/707/728/741/814). Group by (date, course_code) — the only
+  // course key this RPC exposes — same conservative pattern already used by
+  // period-wise-table.tsx's pendingCourseKeys.
+  const historyRows = useMemo(() => {
+    const rows = confirmRows ?? [];
+    const confirmedKeys = new Set(
+      rows
+        .filter((r) => r.confirmed && r.course_code)
+        .map((r) => `${r.attendance_date}__${r.course_code}`)
+    );
+    return rows.map((r) =>
+      !r.confirmed && r.course_code && confirmedKeys.has(`${r.attendance_date}__${r.course_code}`)
+        ? { ...r, confirmed: true }
+        : r
+    );
+  }, [confirmRows]);
   const confirmedCount = historyRows.filter((r) => r.confirmed === true).length;
 
   return (
@@ -322,9 +342,19 @@ export default function LearnerSessionFeedbackPage() {
                         Confirmed
                       </Badge>
                     ) : withinFeedbackWindow(r.attendance_date, windowHours) ? (
-                      <Badge variant="secondary" className="shrink-0 gap-1 text-muted-foreground">
+                      // "Not yet confirmed" read as a rejection/error to reporters
+                      // (BUG-005050/051/052/053/055/058/061) despite being a neutral
+                      // status — the window is still open and feedback can still be
+                      // given from the list above. "Feedback pending" matches the
+                      // page's own "pending" vocabulary (header badge, intro line)
+                      // instead of the negatively-framed "Not ___" wording.
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 gap-1 text-muted-foreground"
+                        title="Not an error — you just haven't given feedback for this class yet. Find it in the list above and tap it to give feedback now."
+                      >
                         <Clock className="h-3.5 w-3.5" />
-                        Not yet confirmed
+                        Feedback pending
                       </Badge>
                     ) : (
                       /* Window expired: "Not yet confirmed" reads as actionable, but

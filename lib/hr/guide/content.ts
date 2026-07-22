@@ -321,7 +321,7 @@ export const GUIDES: GuideBook = {
             {
               action: 'Jump to a workflow from the shortcut buttons.',
               detail:
-                'Quick links take you straight to Full-Time Staff, the Non-Staff Workforce list, and the Leave workflow.',
+                'Quick links take you straight to the Employee List, the HR Directory, and the Leave workflow.',
             },
           ],
         },
@@ -330,21 +330,16 @@ export const GUIDES: GuideBook = {
           title: 'Manage the workforce',
           steps: [
             {
-              action: 'Open **Workforce** to browse every employee in the HR module.',
+              action: 'Open **HR Directory** to browse every employee in the HR module.',
               detail:
                 'Search by name, code, or email and filter by active or inactive. Each row links to the employee\'s detail page.',
               link: { label: 'Take me there', href: '/hr/employees' },
             },
             {
-              action: 'Use **Full Employee Management** for the complete staff record.',
+              action: 'Use **Employee List** for the complete staff record.',
               detail:
-                'Employees come from the central staff table, so deeper edits happen in the main staff management area linked from this page.',
-            },
-            {
-              action: 'Add a non-staff worker with **New employee** when needed.',
-              detail:
-                'This form registers non-staff workforce (for example guests/contract roles) into the HR module.',
-              link: { label: 'Take me there', href: '/hr/employees/new' },
+                'Employees come from the central staff table, so every add, edit and deeper change happens there. HR Directory is a read-only view with HR context layered on.',
+              link: { label: 'Take me there', href: '/staff/list' },
             },
           ],
         },

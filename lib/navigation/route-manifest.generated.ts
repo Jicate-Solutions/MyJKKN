@@ -3492,6 +3492,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/hr/admin/leave-balances",
+            "label": "Leave Balances",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/leave-types",
+            "label": "Leave Types",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/admin/memos",
             "label": "HR Memos",
             "iconName": "AlertTriangle",
@@ -4015,14 +4027,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/hr/employees",
         "label": "Employees",
         "iconName": "Users",
-        "children": [
-          {
-            "path": "/hr/employees/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
+        "children": []
       },
       {
         "path": "/hr/fdp",

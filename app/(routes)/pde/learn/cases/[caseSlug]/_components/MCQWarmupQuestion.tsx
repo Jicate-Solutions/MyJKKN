@@ -1,16 +1,18 @@
 'use client';
 
 /**
- * MCQWarmupQuestion — single-select MCQ with immediate validation against
- * `correct_answer`. No AI call; instant feedback.
+ * MCQWarmupQuestion — single-select MCQ with immediate validation.
  *
- * Note on correct_answer: pde_assessment_questions.correct_answer is a
- * scalar TEXT column. Convention: faculty stores the option `id` of the
- * correct choice there. If a row instead uses an `options` element with
- * `is_correct: true`, we honour that too.
+ * Marking is SERVER-SIDE. The answer key (correct_answer / options[].is_correct)
+ * is never shipped to the browser: fn_pde_get_case_questions strips it from the
+ * question payload, and grading happens via the SECURITY DEFINER RPC
+ * fn_pde_mark_objective, which reads the key in the database and returns only
+ * the verdict plus the correct option id (revealed post-answer for the review
+ * highlight). No client-side comparison against a leaked key.
  */
 
 import { useState } from 'react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   ClinicalQuestion,
   ClinicalAnswerEnvelope,
@@ -31,30 +33,44 @@ export function MCQWarmupQuestion({
 }: MCQWarmupQuestionProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
+  const [correctId, setCorrectId] = useState<string | null>(null);
+  const [isCorrect, setIsCorrect] = useState(false);
   const options = question.options ?? [];
 
-  function resolveCorrectId(): string | null {
-    // Prefer explicit correct_answer text column if present
-    if (question.correct_answer) return question.correct_answer;
-    const flagged = options.find((o) => o.is_correct);
-    return flagged?.id ?? null;
+  async function submit() {
+    if (!selectedId || marking) return;
+    setMarking(true);
+    setMarkError(null);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase = createClientSupabaseClient() as any;
+      const { data, error } = await supabase.rpc('fn_pde_mark_objective', {
+        p_question_id: question.id,
+        p_selected_option_id: selectedId,
+      });
+      if (error) throw new Error(error.message);
+      const verdict = (data ?? {}) as { is_correct?: boolean; correct_id?: string | null };
+      const serverCorrect = verdict.is_correct === true;
+      setIsCorrect(serverCorrect);
+      setCorrectId(verdict.correct_id ?? null);
+      setSubmitted(true);
+      onAnswered({
+        question_id: question.id,
+        question_type: 'mcq_warmup',
+        selected_option_id: selectedId,
+        is_correct: serverCorrect,
+        submitted_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      setMarkError(
+        e instanceof Error ? e.message : 'Could not mark this answer. Please try again.',
+      );
+    } finally {
+      setMarking(false);
+    }
   }
-
-  function submit() {
-    if (!selectedId) return;
-    const correctId = resolveCorrectId();
-    const isCorrect = correctId !== null && selectedId === correctId;
-    setSubmitted(true);
-    onAnswered({
-      question_id: question.id,
-      question_type: 'mcq_warmup',
-      selected_option_id: selectedId,
-      is_correct: isCorrect,
-      submitted_at: new Date().toISOString(),
-    });
-  }
-
-  const correctId = resolveCorrectId();
 
   return (
     <div>
@@ -65,7 +81,7 @@ export function MCQWarmupQuestion({
         </p>
       ) : null}
 
-      <fieldset className="mt-4 space-y-2" disabled={submitted}>
+      <fieldset className="mt-4 space-y-2" disabled={submitted || marking}>
         <legend className="sr-only">Choose one</legend>
         {options.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -74,13 +90,12 @@ export function MCQWarmupQuestion({
         ) : null}
         {options.map((o) => {
           const isSelected = selectedId === o.id;
-          const showResult = submitted;
-          const isCorrectOption = correctId !== null && o.id === correctId;
+          const isCorrectOption = submitted && correctId !== null && o.id === correctId;
 
           let tone = '';
-          if (showResult && isSelected && isCorrectOption) tone = 'border-emerald-500 bg-emerald-50';
-          else if (showResult && isSelected && !isCorrectOption) tone = 'border-red-500 bg-red-50';
-          else if (showResult && isCorrectOption) tone = 'border-emerald-300';
+          if (submitted && isSelected && isCorrectOption) tone = 'border-emerald-500 bg-emerald-50';
+          else if (submitted && isSelected && !isCorrectOption) tone = 'border-red-500 bg-red-50';
+          else if (submitted && isCorrectOption) tone = 'border-emerald-300';
           else if (isSelected) tone = 'border-primary';
 
           return (
@@ -103,26 +118,29 @@ export function MCQWarmupQuestion({
       </fieldset>
 
       {!submitted ? (
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!selectedId || options.length === 0}
-          className="mt-4 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-        >
-          Submit answer
-        </button>
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!selectedId || options.length === 0 || marking}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {marking ? 'Checking…' : 'Submit answer'}
+          </button>
+          {markError ? (
+            <p className="mt-2 text-sm text-red-600">{markError}</p>
+          ) : null}
+        </div>
       ) : (
         <div className="mt-4">
           <div
             className={`rounded-md border px-3 py-2 text-sm ${
-              correctId !== null && selectedId === correctId
+              isCorrect
                 ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
                 : 'border-red-300 bg-red-50 text-red-900'
             }`}
           >
-            {correctId !== null && selectedId === correctId
-              ? 'Correct.'
-              : 'Not quite — review the highlighted answer.'}
+            {isCorrect ? 'Correct.' : 'Not quite — review the highlighted answer.'}
           </div>
           <button
             type="button"

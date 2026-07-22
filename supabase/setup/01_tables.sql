@@ -4727,6 +4727,68 @@ CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_recommendation
 
 -- END HR Recruitment Phase 3 tables
 
+-- =====================================================================
+-- 20260721120000_hr_leave_types_split.sql — HR Leave Types (staff catalog)
+-- Was a compat VIEW over leave_types (scope='staff'); split back out into
+-- its own real table so HR-only fields (carry-forward, encashment, accrual,
+-- eligibility) don't leak onto the shared academic/learner leave catalog.
+-- NOTE: references public.hr_organizations(id), which is not itself mirrored
+-- into this file — a fresh install from supabase/setup/ needs that table
+-- created first (pre-existing gap, not introduced by this table).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_leave_types (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id        uuid NOT NULL REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  leave_type_code           varchar NOT NULL,
+  leave_type_name           varchar NOT NULL,
+  description               text,
+  color_code                varchar NOT NULL DEFAULT '#6B7280',
+  display_order             integer NOT NULL DEFAULT 0,
+  is_active                 boolean NOT NULL DEFAULT true,
+
+  duration_type             varchar NOT NULL DEFAULT 'full'
+                              CHECK (duration_type IN ('full','first_half','second_half','hourly')),
+  allow_half_day            boolean NOT NULL DEFAULT false,
+  allow_hourly              boolean NOT NULL DEFAULT false,
+
+  skip_weekends             boolean NOT NULL DEFAULT true,
+  skip_holidays             boolean NOT NULL DEFAULT true,
+
+  requires_approval         boolean NOT NULL DEFAULT true,
+  is_paid                   boolean NOT NULL DEFAULT true,
+  min_advance_notice_days   integer NOT NULL DEFAULT 0,
+  max_continuous_days       integer,
+  requires_documents        boolean NOT NULL DEFAULT false,
+  document_required_after_days integer,
+  default_entitled_days     numeric NOT NULL DEFAULT 0,
+
+  valid_from                timestamptz NOT NULL DEFAULT now(),
+  valid_until               timestamptz,
+  superseded_by             uuid REFERENCES public.hr_leave_types(id),
+
+  -- HR-specific (design D3)
+  allow_carry_forward       boolean NOT NULL DEFAULT false,
+  max_carry_forward_days    numeric,
+  is_encashable             boolean NOT NULL DEFAULT false,
+  max_encashable_days       numeric,
+  accrual_type              varchar NOT NULL DEFAULT 'none'
+                              CHECK (accrual_type IN ('none','annual','monthly')),
+  accrual_rate              numeric NOT NULL DEFAULT 0,
+  applicable_gender         varchar NOT NULL DEFAULT 'all'
+                              CHECK (applicable_gender IN ('all','male','female')),
+  applicable_cadre_ids      uuid[],
+
+  created_by                uuid,
+  updated_by                uuid,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_leave_types_org_code_unique UNIQUE (hr_organization_id, leave_type_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hlt_org_active ON public.hr_leave_types(hr_organization_id, is_active);
+
 -- Updated: 2026-04-18 - Call Notes dialog enrichment
 -- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
 -- to admission_call_logs so counselors can record richer context when
