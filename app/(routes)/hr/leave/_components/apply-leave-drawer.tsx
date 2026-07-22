@@ -30,6 +30,7 @@ import {
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
+import { formatDays } from './format';
 import type { LeaveDurationType } from '@/types/hr';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
@@ -180,7 +181,7 @@ export function ApplyLeaveDrawer({
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
                           <span className="ml-2 text-xs text-muted-foreground">
-                            {avail.toFixed(1)} day(s) available
+                            {formatDays(avail)} day(s) available
                           </span>
                         </SelectItem>
                       );
@@ -240,8 +241,8 @@ export function ApplyLeaveDrawer({
 
               {requestedDays > 0 && (
                 <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                  Requesting <strong>{requestedDays.toFixed(1)}</strong> day(s)
-                  {available !== null && <> of {available.toFixed(1)} available</>}
+                  Requesting <strong>{formatDays(requestedDays)}</strong> day(s)
+                  {available !== null && <> of {formatDays(available)} available</>}
                 </div>
               )}
 
@@ -249,8 +250,8 @@ export function ApplyLeaveDrawer({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Requested {requestedDays.toFixed(1)} day(s) exceeds your available{' '}
-                    {available?.toFixed(1)}.
+                    Requested {formatDays(requestedDays)} day(s) exceeds your available{' '}
+                    {formatDays(available)}.
                   </AlertDescription>
                 </Alert>
               )}

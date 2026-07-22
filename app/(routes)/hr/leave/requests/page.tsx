@@ -21,6 +21,7 @@ import { AlertCircle } from 'lucide-react';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
+import { formatDays } from '../_components/format';
 import { ApplyLeaveDrawer } from '../_components/apply-leave-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -99,13 +100,14 @@ export default function LeaveRequestsPage() {
                       <div className="flex items-baseline justify-between">
                         <span className="text-sm font-medium">{b.leave_type_name}</span>
                         <span className="text-sm tabular-nums">
-                          <strong>{avail.toFixed(1)}</strong>
-                          <span className="text-muted-foreground"> / {total.toFixed(1)}</span>
+                          <strong>{formatDays(avail)}</strong>
+                          <span className="text-muted-foreground"> / {formatDays(total)}</span>
                         </span>
                       </div>
                       <Progress value={pct} className="mt-1.5 h-1.5" />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Entitled {b.entitled} · used {b.used} · carried {b.carried_forward}
+                        Entitled {formatDays(b.entitled)} · used {formatDays(b.used)} · carried{' '}
+                        {formatDays(b.carried_forward)}
                       </p>
                     </div>
                   );
@@ -149,7 +151,7 @@ export default function LeaveRequestsPage() {
                 </TableCell>
                 <TableCell>{fmtDate(a.start_date)}</TableCell>
                 <TableCell>{fmtDate(a.end_date)}</TableCell>
-                <TableCell className="text-right tabular-nums">{a.total_days}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatDays(a.total_days)}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
