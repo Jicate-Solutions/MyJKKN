@@ -983,10 +983,17 @@ export class LeaveOndutyService {
       'event_coordinator',
     ];
 
+    // NOTE: intentionally NOT scoped by institution_id. JKKN institutions sit
+    // on a single walkable campus and are organizational, not geographic —
+    // sponsors for OnDuty sub-categories (e.g. Solve for 100, Young Indians)
+    // are routinely staff/faculty at a different institution than the
+    // applicant. RLS already allows any authenticated user to read any
+    // `profiles` row (profiles_select_policy: auth.uid() IS NOT NULL) and the
+    // downstream sponsor RLS (sponsors_view_assigned/update_own_pending) keys
+    // only on sponsor_id = auth.uid(), so this does not widen data exposure.
     let query: any = supabase
       .from('profiles')
       .select('id, full_name, email, role, department_id')
-      .eq('institution_id', params.institutionId)
       .in('role', eligibleRoles)
       .limit(limit);
 
