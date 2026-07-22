@@ -1,3 +1,30 @@
+## Session: 2026-07-22 (End /cnext) — JKKN MBA Teaching-Enterprise model designed + 5 HTML playbooks
+
+### Accomplished
+- Designed the full "teaching enterprise" MBA model (learners run/improve JKKN's own operations).
+- Produced 5 standalone HTML playbooks in ~/Downloads/JKKN-Playbooks/ (index, mba-r2026-playbook [14 parts], ceo-rounds-rangarajan [6], cbo-playbook-mohanraj [9], mba-build-spec [7]). All verified well-formed, theme-aware, full JKKN terminology.
+- Locked many decisions via plain-English interviews: title = Management Associate (Senior/Junior), daily rhythm 1+2+rest, graded day-one, all-depts rolling wave, two-jobs-per-posting (improve + drive MyJKKN adoption), stipend model (milestone->performance-linked->value-share, durability-verified).
+- Audited prod: 14 institutions / 6,922 learners / 88 depts / 1,329 tables / 168 PII tables; current 2nd-years = 46, tagged R-2025. Deleted dead Supabase project jkkn-solutions-hub. Backfilled 15 JICATE client drafts into sh_clients.
+
+### Current Status
+- Feature: docs/design only (playbooks in ~/Downloads, NOT the repo). Build not started.
+- Branch: feat/campus-living-fee-compute-engine (unrelated pre-existing changes present — NOT touched).
+
+### Lessons Learned
+- JKKN terminology is zero-tolerance: learners / learning facilitators / team members / learning pathway / learning assessments; "trainee" banned -> "Management Associate" instead. Keep regulatory quotes verbatim.
+- macOS sed has no \b; use python for word-boundary replaces. Re-run HTML well-formedness check after every edit.
+
+### Next Session — Tasks (user-ranked)
+1. [P0][START HERE] Build Tier-1 de-identified learning views + mba_learner_analyst role (SQL-first, impersonation-tested). See build-spec Part 7.
+2. [P0] Build Improvement Board + CEO Rounds log (on learners-council/issues + meetings patterns).
+3. [P0] Settle OPEN academics-vs-pay decision (exam-window pause: keep vs relax) -> finalise playbook.
+4. [P1] Define stipend competency-milestone + value-attribution rule.
+5. [P2] Adoption starter-checklist per dept; clarify "wrc"; optional PDF render; 2nd-year data cleanup (58 records no batch/reg).
+
+Full brief: .claude/continuation-prompt.7b016c82.md | Detail: memory/project_mba_r2026_curriculum_review_playbook.md
+
+---
+
 ## Session: 2026-07-22 (END /cnext) [PDE] — Answer-key leak CLOSED + case list + assign-to-section, all LIVE; section-picker follow-up DECIDED
 
 ### Accomplished (all shipped to prod + verified)
