@@ -12,19 +12,27 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { Plus, Pencil, Archive } from 'lucide-react';
+import { Plus, Pencil, Archive, Users } from 'lucide-react';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import { useHRLeaveTypes, useDeleteHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
 import { LeaveTypeFormDialog } from './_components/leave-type-form-dialog';
+import { AssignmentManagerDialog } from './_components/assignment-manager-dialog';
 import type { HRLeaveType } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export default function HRLeaveTypesPage() {
-  const { mappings } = useHrOrgMappings();
+  const { mappings, institutionIdByOrg } = useHrOrgMappings();
   const [hrOrgId, setHrOrgId] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [assignFor, setAssignFor] = useState<HRLeaveType | null>(null);
   const [editing, setEditing] = useState<HRLeaveType | null>(null);
+
+  // The staff and department pickers query by institution, not by HR org;
+  // the mapping is 1:1 and resolved here rather than in each picker.
+  const institutionId = assignFor
+    ? institutionIdByOrg.get(assignFor.hr_organization_id)
+    : undefined;
 
   const { data: types, isLoading } = useHRLeaveTypes(
     hrOrgId ? { hr_organization_id: hrOrgId } : {}
@@ -99,6 +107,15 @@ export default function HRLeaveTypesPage() {
                       <span className="text-xs font-mono text-muted-foreground">{t.leave_type_code}</span>
                     </div>
                     <div className="flex gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Who gets this leave type"
+                        aria-label={`Manage who gets ${t.leave_type_name}`}
+                        onClick={() => setAssignFor(t)}
+                      >
+                        <Users className="h-4 w-4" />
+                      </Button>
                       <Button size="icon" variant="ghost" onClick={() => { setEditing(t); setDialogOpen(true); }}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -128,6 +145,13 @@ export default function HRLeaveTypesPage() {
           onOpenChange={setDialogOpen}
           hrOrgId={hrOrgId}
           leaveType={editing}
+        />
+
+        <AssignmentManagerDialog
+          open={!!assignFor}
+          onOpenChange={(v) => { if (!v) setAssignFor(null); }}
+          leaveType={assignFor}
+          institutionId={institutionId}
         />
       </ContentLayout>
     </PermissionGuard>
