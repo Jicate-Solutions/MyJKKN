@@ -146,3 +146,12 @@ BEGIN
   RETURN jsonb_build_object('question_id', p_question_id, 'correct_id', v_correct_id,
     'is_correct', (v_correct_id IS NOT NULL AND p_selected_option_id = v_correct_id));
 END; $fn$;
+
+-- Re-assert the anon lock on the two RPCs re-created above. They were already
+-- locked in pde_answer_key_secdef_rpcs.sql; this is idempotent and also satisfies
+-- the secdef-anon-revoke CI gate, which checks every function DEFINED in a
+-- migration (a CREATE OR REPLACE counts as a definition).
+REVOKE EXECUTE ON FUNCTION public.fn_pde_get_case_questions(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_pde_get_case_questions(uuid) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_pde_mark_objective(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_pde_mark_objective(uuid, text) TO authenticated;
