@@ -10,7 +10,7 @@ import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bold, Italic, Underline as UnderlineIcon, Subscript as SubIcon, Superscript as SupIcon,
   Sigma, Table as TableIcon, Rows3, Columns3, Trash2, Grid2x2Plus, Grid2x2X,
@@ -107,10 +107,11 @@ export function QuestionRichEditor({
   const [eqOpen, setEqOpen] = useState(false);
   // LaTeX pre-fill when the caret is on an existing formula (edit vs insert).
   const [eqInitial, setEqInitial] = useState('');
+  // Track the last HTML we emitted so controlled value echoes don't clobber typing.
+  const lastEmittedRef = useRef(value);
 
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
+  const extensions = useMemo(
+    () => [
       StarterKit.configure({ heading: false, codeBlock: false, code: false, blockquote: false }),
       Underline,
       Subscript,
@@ -121,10 +122,18 @@ export function QuestionRichEditor({
       TableCell,
       MathInline,
     ],
+    []
+  );
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions,
     content: value || '',
     editable: !disabled,
     onUpdate: ({ editor }) => {
-      onChange(editor.isEmpty ? '' : editor.getHTML());
+      const html = editor.isEmpty ? '' : editor.getHTML();
+      lastEmittedRef.current = html;
+      onChange(html);
     },
     onBlur: () => onBlur?.(),
     editorProps: {
@@ -145,13 +154,21 @@ export function QuestionRichEditor({
     },
   });
 
-  // Keep the editor in sync with external value changes (server reload / row swap).
+  // Keep the editor in sync with external value changes (initial seed / row swap).
   useEffect(() => {
     if (!editor) return;
+    // Skip echoes of our own onUpdate — parent re-renders must not reset the doc.
+    if (value === lastEmittedRef.current) return;
+    // NEVER overwrite while the user is typing — background cache updates must not
+    // clobber in-progress edits or jump the cursor. Only sync when unfocused.
+    if (editor.isFocused) return;
     const current = editor.isEmpty ? '' : editor.getHTML();
     // v2 signature: setContent(content, emitUpdate=false) — don't fire onUpdate
     // on external sync, or a server reload would re-mark the row dirty.
-    if (value !== current) editor.commands.setContent(value || '', false);
+    if (value !== current) {
+      editor.commands.setContent(value || '', false);
+      lastEmittedRef.current = value;
+    }
   }, [editor, value]);
 
   useEffect(() => {

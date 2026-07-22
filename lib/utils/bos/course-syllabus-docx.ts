@@ -315,7 +315,7 @@ function rowsCoursePart(data: CourseSyllabusDOCXData): TableRow[] {
 			children: [
 				tc([p(partLabel, { bold: true, alignment: AlignmentType.CENTER })], { valign: VerticalAlign.CENTER }),
 				tc(
-					[p(data.course_name.toUpperCase(), { bold: true, size: TITLE_SIZE, alignment: AlignmentType.CENTER })],
+					[p((data.course_name ?? '').toUpperCase(), { bold: true, size: TITLE_SIZE, alignment: AlignmentType.CENTER })],
 					{ columnSpan: 4, valign: VerticalAlign.CENTER },
 				),
 			],

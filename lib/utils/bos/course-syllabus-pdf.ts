@@ -711,7 +711,7 @@ export function renderCourseSyllabusPDF(
 	y = table(doc, y, [
 		[
 			bold(partLabel, { halign: 'center', cellWidth: LABEL_W }),
-			bold(data.course_name.toUpperCase(), { fontSize: 13, halign: 'center', cellWidth: TABLE_W - LABEL_W }),
+			bold((data.course_name ?? '').toUpperCase(), { fontSize: 13, halign: 'center', cellWidth: TABLE_W - LABEL_W }),
 		],
 	], {
 		0: { cellWidth: LABEL_W },
