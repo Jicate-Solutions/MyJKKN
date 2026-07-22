@@ -4,7 +4,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   PDEAssessment, PDEAssessmentQuestion, PDESubmission, PDECertificate,
-  PDEEngagementEvent, PDEEngagementDaily, PDEAtRiskLearner,
+  PDEEngagementEvent, PDEEngagementDaily, PDEAtRiskLearner, PDEAtRiskHistory,
   CreateAssessmentInput, CreateQuestionInput,
   LogEngagementInput, GenerateCertificateInput,
   AssessmentWithQuestions, EngagementSummary,
@@ -305,6 +305,25 @@ export class PDEService {
     const { data, error } = await query.order('risk_level');
     if (error) throw new Error(`Failed to get at-risk learners: ${error.message}`);
     return data || [];
+  }
+
+  /**
+   * Flag history from `pde_at_risk_history` (rollup over `pde_at_risk_log`,
+   * written by /api/cron/pde-at-risk-flag). Institution-scoped by RLS on the
+   * underlying table — the view is security_invoker.
+   *
+   * Read separately from getAtRiskLearners() on purpose: the live view keeps
+   * working untouched even if the cron has never run, in which case this
+   * simply returns [] and the history columns render as "Not yet recorded".
+   */
+  static async getAtRiskHistory(): Promise<PDEAtRiskHistory[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('pde_at_risk_history')
+      .select('*')
+      .order('first_flagged_at', { ascending: true });
+    if (error) throw new Error(`Failed to get at-risk history: ${error.message}`);
+    return (data || []) as PDEAtRiskHistory[];
   }
 
   // ============================================

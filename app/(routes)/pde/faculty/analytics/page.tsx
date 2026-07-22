@@ -61,16 +61,41 @@ function FacultyAnalyticsPageInner() {
 
   const courses = coursesData?.data || [];
 
-  const handleExportCSV = (reportType: string) => {
-    // CSV export placeholder - will trigger download when backend supports it
-    const csvContent = `Report: ${reportType}\nGenerated: ${new Date().toISOString()}\nCourse: ${selectedCourseId || 'All'}\n\nNo data available yet.`;
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pde-${reportType}-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [exportingReport, setExportingReport] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // Streams a real CSV from /api/pde/analytics/export. The route scopes rows to
+  // the caller's institution, so the download is fetched (not a plain <a href>)
+  // in order to surface a 401/403/500 as a message instead of silently saving
+  // an error page as a .csv file.
+  const handleExportCSV = async (reportType: string) => {
+    setExportingReport(reportType);
+    setExportError(null);
+    try {
+      const params = new URLSearchParams({ type: reportType });
+      if (selectedCourseId) params.set('courseId', selectedCourseId);
+
+      const res = await fetch(`/api/pde/analytics/export?${params.toString()}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Export failed (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pde-${reportType}-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Delay revocation so the browser has started the download.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExportingReport(null);
+    }
   };
 
   return (
@@ -119,6 +144,18 @@ function FacultyAnalyticsPageInner() {
             not that anything is wrong.
           </span>
         </div>
+
+        {/* Export failures must be visible — a silent no-op download is exactly
+            the bug this replaced. */}
+        {exportError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
+          >
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>Could not export: {exportError}</span>
+          </div>
+        )}
 
         {/* Tab Navigation */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -208,9 +245,10 @@ function FacultyAnalyticsPageInner() {
                 variant="outline"
                 size="sm"
                 onClick={() => handleExportCSV('overview')}
+                disabled={exportingReport === 'overview'}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Export Overview CSV
+                {exportingReport === 'overview' ? 'Preparing CSV…' : 'Export Overview CSV'}
               </Button>
             </div>
           </TabsContent>
@@ -238,9 +276,10 @@ function FacultyAnalyticsPageInner() {
                 variant="outline"
                 size="sm"
                 onClick={() => handleExportCSV('time-on-task')}
+                disabled={exportingReport === 'time-on-task'}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Export Time Data CSV
+                {exportingReport === 'time-on-task' ? 'Preparing CSV…' : 'Export Time Data CSV'}
               </Button>
             </div>
           </TabsContent>
@@ -275,9 +314,10 @@ function FacultyAnalyticsPageInner() {
                 variant="outline"
                 size="sm"
                 onClick={() => handleExportCSV('finks-dimensions')}
+                disabled={exportingReport === 'finks-dimensions'}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Export Fink&apos;s Data CSV
+                {exportingReport === 'finks-dimensions' ? 'Preparing CSV…' : 'Export Fink&apos;s Data CSV'}
               </Button>
             </div>
           </TabsContent>
@@ -343,9 +383,10 @@ function FacultyAnalyticsPageInner() {
                 variant="outline"
                 size="sm"
                 onClick={() => handleExportCSV('performers')}
+                disabled={exportingReport === 'performers'}
               >
                 <Download className="h-4 w-4 mr-2" />
-                Export Performers CSV
+                {exportingReport === 'performers' ? 'Preparing CSV…' : 'Export Performers CSV'}
               </Button>
             </div>
           </TabsContent>
