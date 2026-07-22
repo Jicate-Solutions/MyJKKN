@@ -64,7 +64,7 @@ export function StaffPicker({
         <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input
           className="pl-8"
-          placeholder="Name or staff code…"
+          placeholder="Search by name or code…"
           value={term}
           onChange={(e) => setTerm(e.target.value)}
         />

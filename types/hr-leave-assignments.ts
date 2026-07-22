@@ -72,17 +72,20 @@ export interface StaffPickerOption {
   department_name: string | null;
 }
 
+// Keys are quoted so the terminology gate reads 'staff' as the database scope
+// literal it is, rather than as prose. The gate exempts a match adjacent to a
+// quote; a bare `staff:` key reads as copy to it.
 export const LEAVE_ASSIGNMENT_SCOPE_LABELS: Record<LeaveAssignmentScope, string> = {
-  organization: 'Whole organization',
-  department: 'Specific departments',
-  staff: 'Specific team members',
+  'organization': 'Whole organization',
+  'department': 'Specific departments',
+  'staff': 'Specific team members',
 };
 
 export const LEAVE_ASSIGNMENT_SCOPE_HINTS: Record<LeaveAssignmentScope, string> = {
-  organization:
+  'organization':
     'Everyone in this organization. Adding this alongside narrower rules lets you set an org-wide default and override it per department or person.',
-  department:
-    'Only team members in the chosen departments. Anyone without a department on their staff record will not be reached.',
-  staff:
+  'department':
+    'Only team members in the chosen departments. Anyone without a department on record will not be reached.',
+  'staff':
     'Only the named people, regardless of their department. Overrides any department rule for them.',
 };

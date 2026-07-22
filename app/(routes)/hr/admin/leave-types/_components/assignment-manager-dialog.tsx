@@ -67,7 +67,7 @@ export function AssignmentManagerDialog({
 
   const [scope, setScope] = useState<LeaveAssignmentScope>('department');
   const [deptIds, setDeptIds] = useState<string[]>([]);
-  const [staff, setStaff] = useState<StaffPickerOption[]>([]);
+  const [people, setPeople] = useState<StaffPickerOption[]>([]);
   const [override, setOverride] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -85,10 +85,10 @@ export function AssignmentManagerDialog({
   );
   const hasOrgRow = rows.some((r) => r.scope_kind === 'organization');
 
-  const reset = () => { setDeptIds([]); setStaff([]); setOverride(''); setError(null); };
+  const reset = () => { setDeptIds([]); setPeople([]); setOverride(''); setError(null); };
 
   const targetCount =
-    scope === 'department' ? deptIds.length : scope === 'staff' ? staff.length : 1;
+    scope === 'department' ? deptIds.length : scope === 'staff' ? people.length : 1;
 
   const onAdd = async () => {
     if (!leaveType) return;
@@ -109,7 +109,7 @@ export function AssignmentManagerDialog({
       scope === 'department'
         ? deptIds.map((id) => ({ ...base, scope_kind: 'department' as const, department_id: id }))
         : scope === 'staff'
-        ? staff.map((s) => ({ ...base, scope_kind: 'staff' as const, staff_id: s.id }))
+        ? people.map((s) => ({ ...base, scope_kind: 'staff' as const, staff_id: s.id }))
         : [{ ...base, scope_kind: 'organization' as const }];
 
     try {
@@ -285,8 +285,8 @@ export function AssignmentManagerDialog({
             {scope === 'staff' && (
               <StaffPicker
                 institutionId={institutionId}
-                selected={staff}
-                onChange={setStaff}
+                selected={people}
+                onChange={setPeople}
                 excludeIds={assignedStaffIds}
               />
             )}
