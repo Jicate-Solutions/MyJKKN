@@ -116,7 +116,7 @@ const ALL_LANES: LaneCard[] = [
     id: 'reports',
     title: 'Reports & Dashboards',
     description:
-      'Per-persona report shells — student/parent score report, teacher analytics, school-head dashboard. (Awaiting MyJKKN scoring + report catalog.)',
+      'Per-persona report shells — learner/parent score report, Senior Learner analytics, school-head dashboard. (Awaiting MyJKKN scoring + report catalog.)',
     href: '/rcltp/reports',
     icon: FileBarChart,
     available: true,
