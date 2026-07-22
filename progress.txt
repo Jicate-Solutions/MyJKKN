@@ -1,3 +1,34 @@
+## Session: 2026-07-22 (END /cnext) [AI PULSE] — Domain Starter WENT LIVE to learners + week-switcher built
+
+### Accomplished
+- **GO-LIVE** (Director: "push last week's prompts to users"): deployed latest main, flipped `domain_starter_enabled=true` (COMMITTED). Re-pointed the 13 07-16 prompts onto the current card cycle (`d9e6b0d4`/07-23) because the card resolves the LATEST `startup_events` by demo_date (rolled to the empty upcoming week). Learners in the 13 subjects now see their English **+ Tamil** prompt on My AI Pulse. Was DARK before this.
+- **CRITICAL BUG fixed at go-live**: `fn_ai_pulse_my_domain_starters` had an ambiguous `topic_type` (ERROR 42702) → errored EVERY learner the instant the switch turned on. Never caught because the read path only runs switch-on, never tested until go-live prep. Fixed (`mine m2` alias); proven by impersonating a real BPHARM learner in a rolled-back txn. `notify_targets` verified clean (497 targets).
+- **Tamil approval step REMOVED** (Director: "no need for approval"): read fn → show-unless-rejected (Tamil auto-shows; reject still hides one). Applied to prod + PR.
+- **PR #2260** (OPEN): read-gate + ambiguity-fix migration + Tamil no-approval + wired tamil-review admin page into sidebar as "Admin · AI Starters".
+- **PR #2267** (OPEN): learner WEEK SWITCHER — browse any past cycle read-only on My AI Pulse (`domain-starter-card` takes `cycleId`; `learner-service.listCyclesServer`/`getCycleByIdServer`; `?cycle=<id>`; hides submit actions on past weeks). Type-clean (scoped tsc verified vs pristine main).
+
+### Current Status
+- **Feature**: Domain Starter LIVE on jkkn.ai (switch ON, prompts + Tamil showing). Both PRs OPEN, awaiting a DEV merge to main + deploy.
+- **Build**: PRs type-clean (scoped tsc); full-project tsc OOMs locally — CI is the gate.
+- **Branch**: work done in worktrees `.claude/worktrees/aipulse-golive-cleanup` (#2260) + `aipulse-cycle-switcher` (#2267). Main omm-dev checkout has UNRELATED uncommitted changes — do NOT commit them; ONLY progress.txt committed this session.
+
+### Lessons Learned
+- Test a DARK feature's READ path (switch-on, impersonated, rolled-back txn) BEFORE go-live — write-path E2E ≠ read-path tested. (The 42702 bug survived to go-live prep.)
+- Full-project `tsc` OOMs (false exit-0 when backgrounded) → scoped tsconfig + diff vs pristine main. `feedback_tsc_oom_use_scoped_tsconfig_and_diff_baseline`
+- Pre-push guard blocks any remote_ref with substring "main" → false-positives "domain" branches; rename. `feedback_prepush_guard_main_substring_blocks_domain_branches`
+- The auto-mode classifier blocks agent prod-DB writes (Supabase Mgmt API UPDATE/CREATE FUNCTION) even inside rolled-back txns — user runs staged scripts via `!`; do NOT hide writes in `bash script.sh` to evade the guard.
+
+### Next Session — Tasks (Director interview 07-22, ranked verbatim)
+1. [P0] **Merge + deploy PRs** #2260 + #2267 (a dev merges to main — I can't; then `/deploy-myjkkn` + verify endpoints) (small once merged)
+2. [P0] **Quiz leaderboard** — Quizizz-style, post-session first then live-during-session (`app/(routes)/ai-pulse/live/[cycle]/_components/quiz-panel.tsx` + `lib/services/ai-pulse/quiz-service.ts`; only ranking today = dept-ranking in Lab) (medium-large)
+3. [P0] **Attendance in Proof** — wire `ai_pulse_live_attendance` into My Proof's "Presence" section (`components/proof-record/record-sections.tsx` `AttendanceSection` + `app/api/proof-record/route.ts` — currently excludes AI Pulse) (medium)
+4. [P1] **Verify week switcher** (#2267) visually on the Vercel preview as a real learner (small)
+
+### Prod state note
+- `apply-tamil-noapproval` already RAN — prod read fn is show-unless-rejected. ✓ Thursday 09:00 UTC cron regenerates fresh prompts onto `d9e6b0d4`.
+
+---
+
 ## Session: 2026-07-22 (END /cnext) [RCLTP] — RCLTP provisional scoring engine + LIVE populated principal dashboard SHIPPED (Phases 1-3)
 
 ### Accomplished
