@@ -4,6 +4,7 @@
 // graduation, interviews, pivots, roster changes, notifications, and export.
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   SF100Program,
@@ -465,6 +466,34 @@ export class SF100Service extends BaseService {
       if (error.code === 'PGRST116') return null;
       throw new Error('Failed to fetch enrollment: ' + error.message);
     }
+
+    // event_registrations_select only grants SELECT to the registration owner,
+    // legacy admin roles, or sf100 admin-permission holders — so for any other
+    // authenticated viewer (e.g. a participant opening this team from the public
+    // leaderboard) the `registration` embed above comes back null even though
+    // registration_id is set. This endpoint backs an intentional read-only
+    // "transparency view" open to every authenticated user, so fall back to a
+    // service-role read of the same public-facing fields — mirroring how the
+    // public leaderboard route already reads this same table for the same reason.
+    if (!(data as any)?.registration && (data as any)?.registration_id) {
+      const { data: registration } = await createServiceRoleClient()
+        .from('event_registrations')
+        .select(`
+          team_name,
+          team_code,
+          institution_id,
+          owner_id,
+          institution:institutions(name),
+          team_members:event_team_members(profile_id, full_name, email, is_leader, status),
+          submission:event_submissions(app_name, live_app_url, paying_users_count, mrr_amount, active_users_count)
+        `)
+        .eq('id', (data as any).registration_id)
+        .maybeSingle();
+      if (registration) {
+        (data as any).registration = registration;
+      }
+    }
+
     return data as SF100Enrollment;
   }
 
@@ -2487,7 +2516,7 @@ export class SF100Service extends BaseService {
 
     const judgeIds = [
       ...new Set((assignments || []).map((a: { staff_id: string }) => a.staff_id)),
-    ];
+    ] as string[];
 
     if (judgeIds.length === 0) return;
 
@@ -2553,7 +2582,7 @@ export class SF100Service extends BaseService {
       ...new Set(
         (judgeAssignments || []).map((a: { staff_id: string }) => a.staff_id)
       ),
-    ];
+    ] as string[];
 
     const allUserIds = [...new Set([...presenterIds, ...judgeIds])];
     if (allUserIds.length === 0) return { notified: 0 };
