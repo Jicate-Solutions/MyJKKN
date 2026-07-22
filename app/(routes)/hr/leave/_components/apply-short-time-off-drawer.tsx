@@ -227,6 +227,13 @@ export function ApplyShortTimeOffDrawer({
                       </span>
                     )}
                   </p>
+                ) : windowUnresolved ? (
+                  // Distinct from "no limit": the database refuses these, so
+                  // saying "unlimited" here is the lie the window check exists
+                  // to stop telling.
+                  <p className="mt-1.5 text-xs text-destructive">
+                    The leave period for this date cannot be determined.
+                  </p>
                 ) : usageResolved ? (
                   <p className="mt-1.5 text-xs text-muted-foreground">
                     No usage limit configured for this type.
