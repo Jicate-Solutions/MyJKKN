@@ -67,3 +67,18 @@ export const COMP_OFF_STATUS_LABELS: Record<CompOffEffectiveStatus, string> = {
 
 /** Credits within this many days of lapsing get a visual warning. */
 export const COMP_OFF_EXPIRY_WARNING_DAYS = 14;
+
+/** A claim awaiting an approver's decision, with the claimant resolved. */
+export interface PendingCompOffClaim {
+  id: string;
+  employee_id: string;
+  /** 'Unknown' when the staff row is unreadable — the claim still shows. */
+  employee_name: string;
+  employee_code: string | null;
+  worked_date: string;
+  expires_on: string;
+  credit_days: number;
+  source: CompOffCreditSource;
+  notes: string | null;
+  created_at: string;
+}

@@ -46,9 +46,25 @@ export function useDecideCompOffClaim() {
     }) => CompOffService.decideClaim(supabase, creditId, decision, rejectionReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
       // Approving a claim changes what can be booked, so the applications
       // list must refetch too.
       qc.invalidateQueries({ queryKey: ['hr-leave-applications'] });
     },
+  });
+}
+
+const CLAIMS_KEY = 'hr-comp-off-pending-claims';
+
+/**
+ * Claims awaiting decision. Scoped by RLS to the approver's organizations,
+ * so no org argument is threaded through the client.
+ */
+export function usePendingCompOffClaims(enabled = true) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [CLAIMS_KEY],
+    queryFn: () => CompOffService.listPendingClaims(supabase),
+    enabled,
   });
 }

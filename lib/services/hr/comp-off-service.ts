@@ -8,7 +8,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { CompOffBalance } from '@/types/hr-comp-off';
+import type { CompOffBalance, PendingCompOffClaim } from '@/types/hr-comp-off';
 
 export class CompOffService {
   /**
@@ -63,6 +63,50 @@ export class CompOffService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Claims awaiting a decision.
+   *
+   * No organization filter here: hcoc_select already restricts approvers to
+   * their own organizations, and re-filtering client-side on an id the caller
+   * supplied would be security theatre — RLS is the real boundary.
+   *
+   * The staff embed is a LEFT join. An inner join would drop any claim whose
+   * staff row the caller cannot read, silently shrinking the queue rather than
+   * showing the row with no name.
+   */
+  static async listPendingClaims(
+    supabase: SupabaseClient
+  ): Promise<PendingCompOffClaim[]> {
+    const { data, error } = await supabase
+      .from('hr_comp_off_credits')
+      .select(
+        `id, employee_id, worked_date, expires_on, credit_days, source, notes, created_at,
+         staff:employee_id ( first_name, last_name, staff_id )`
+      )
+      .eq('status', 'pending')
+      .order('worked_date', { ascending: true });
+    if (error) throw error;
+
+    return (data ?? []).map((row: Record<string, unknown>) => {
+      const s = row.staff as
+        | { first_name: string | null; last_name: string | null; staff_id: string | null }
+        | null;
+      return {
+        id: row.id as string,
+        employee_id: row.employee_id as string,
+        employee_name:
+          [s?.first_name, s?.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
+        employee_code: s?.staff_id ?? null,
+        worked_date: row.worked_date as string,
+        expires_on: row.expires_on as string,
+        credit_days: Number(row.credit_days),
+        source: row.source as PendingCompOffClaim['source'],
+        notes: (row.notes as string | null) ?? null,
+        created_at: row.created_at as string,
+      };
+    });
   }
 
   /**
