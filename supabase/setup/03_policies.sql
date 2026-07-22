@@ -7408,6 +7408,27 @@ CREATE POLICY events_induction_speaker_read ON public.events
   FOR SELECT TO authenticated
   USING (public.fn_induction_is_event_speaker(id));
 
+-- ── Tournament per-event organizer reads (2026-07-22) ──
+-- Migration: supabase/migrations/20260722130000_events_tournament_role_read_rls.sql
+-- The tournament counterpart of the induction policy above. In-charges, committee
+-- members and checked-in volunteers are authorized per event by the module's RPCs,
+-- but `events` itself is read client-side (EventBaseService.getEvent), and its only
+-- SELECT paths were institution-match or is_public+non-draft. A cross-institution
+-- student committee member therefore got PGRST116 -> null -> "Tournament not found".
+-- All three fn_* are SECURITY DEFINER and hard-code auth.uid(), so no recursion and
+-- each caller only ever learns their own role. Additive SELECT-only.
+DROP POLICY IF EXISTS events_tournament_role_read ON public.events;
+CREATE POLICY events_tournament_role_read ON public.events
+  FOR SELECT TO authenticated
+  USING (
+    event_type = 'sports_tournament'
+    AND (
+      public.fn_is_event_incharge(id)
+      OR public.fn_is_event_committee_member(id)
+      OR public.fn_is_event_volunteer(id)
+    )
+  );
+
 DROP POLICY IF EXISTS induction_programs_speaker_view ON public.induction_programs;
 CREATE POLICY induction_programs_speaker_view ON public.induction_programs
   FOR SELECT TO authenticated
