@@ -1,3 +1,29 @@
+## Session: 2026-07-22 (END /cnext) [PDE] — Answer-key leak CLOSED + case list + assign-to-section, all LIVE; section-picker follow-up DECIDED
+
+### Accomplished (all shipped to prod + verified)
+- **P0 #1 — Answer-key leak CLOSED + proven live (PR #2244 app, #2247 RLS record).** An enrolled learner could read the whole answer-key surface (`ground_truth`+`correct_answer`+`options[].is_correct`+`expected_regions`+`key_concepts`) by querying `pde_assessment_questions` directly — proven by impersonation. Fix was NOT the brief's "move ground_truth to a companion table" (misses the other 4 cols) — instead **lock the base table** (revoke learner read on `pde_questions_read`) + re-serve via 3 SECDEF RPCs (`fn_pde_get_case_questions` key-stripped, `fn_pde_mark_objective` server MCQ, `fn_pde_get_answer_key_for_review` gated on completed submission). Score+results routes + image_tag marking read the key via service-role. 2-phase rollout (RPCs → deploy → RLS tighten). LIVE PROOF: 2 enrolled learners read 0 keys; creator/marking/review intact; browser-confirmed.
+- **P0 #3 — Learner case list LIVE (#2245).** `/pde/learn/cases` was a redirect stub → real browse list (4 cases). Browser-verified on prod.
+- **P0 #2 — Lab radiographs investigated + documented.** Server session found: 14k 2024-25 lab images world-readable NOW (only Lab/2026 dir-locked); path `Lab/YYYY/MM/<labreportuploads.id>`; 26.7k images/81 PDFs; REAL gate = burned-in patient headers not perms. Director ACL decision pending. Spec updated.
+- **NEW: Assign-to-section BUILT + LIVE (#2250).** Open-by-default + per-case lock (`visibility_mode`); one SECDEF predicate `fn_pde_case_visible_to_learner` powers BOTH `pde_assess_read` AND the answer-key RPCs; notify+highlight+due dates. Impersonation-proven (assigned sees / non-assigned 0 / prior-attempt keeps). Faculty assign page browser-verified on prod (safe no-op save). Migration additive (default 'open' = no behavior change).
+
+### Current Status
+- **Build**: green. **Prod**: jkkn.ai 200, all 4 PRs merged + deployed. Migrations applied.
+- **Branch**: code shipped via worktree PRs off jicate/main (worktree `.claude/worktrees/pde-answerkey`). Main repo untouched by me (another session has uncommitted hr/attendance + biometric work — DO NOT commit those).
+
+### Lessons (memory written)
+- [[feedback_rls_row_not_column_lock_base_table_not_move_column]] — hide columns from same-role users → lock base table + SECDEF RPCs, don't move columns.
+- [[feedback_secdef_anon_gate_flags_create_or_replace]] — CI anon-gate flags CREATE OR REPLACE of an existing SECDEF fn; re-assert REVOKE anon in the new migration. `git reset --soft` to collapse wip → force-push → BLOCKED on prod repo; add a new commit instead.
+
+### Next Session — Tasks (P0 verbatim from user interview 2026-07-22)
+1. [P0] **Build the section-picker + overdue-block follow-up** (medium) — spec: `specs/pde-case-assignment-design-2026-07-22.md` (bottom "Follow-up decisions" section). Decided verbatim: (a) picker shows ONLY sections with learners enrolled in THIS case's course; (b) label = **Programme · Semester · Section** (join programs.program_name + semesters.semester_name — `vac_courses` col is `programme_id`/`name`); (c) **overdue = hard-block LOCKED (class_only) cases only** — open cases just show "Overdue"; mid-attempt learners finish; completed stays reviewable; explicit "Overdue — closed" message (rule #27). Touches the assign API GET (label+scope) + attempt-entry page (block). Access-logic → validate in rolled-back impersonation txn.
+2. [P1] Lab-image ingestion (`kind:lab_report`) — unblocked for 2024-25; but STRATEGIC: drive adoption of existing cases before adding 14k more supply. Director ACL decision (2026 folder) pending.
+3. [P2] "Mrs. Lalitha" case title (0de5e907) — user chose "leave for faculty"; no action unless asked.
+
+### DO NOT
+- Commit the other session's uncommitted main-repo work (hr/attendance, hod-hero-strip, activity-service, biometric spec, features.json).
+- Count `pde_demonstrations` (222 backfill) as participation.
+
+---
 ## Session: 2026-07-22 (END /cnext) [AI PULSE] — Domain Starter WENT LIVE to learners + week-switcher built
 
 ### Accomplished
