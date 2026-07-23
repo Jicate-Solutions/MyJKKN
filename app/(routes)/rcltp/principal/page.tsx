@@ -4,8 +4,8 @@
 // /rcltp/principal — Principal (school-head) dashboard shell (Phase 4e)
 // =============================================================================
 // The school-head view of RCLTP reading outcomes. This is a SHELL ONLY: the
-// scoring engine and the 24-report catalog are EKSAQ-gated and not delivered, so
-// every section renders an honest "awaiting EKSAQ scoring" state. ZERO fabricated
+// scoring engine and the 24-report catalog are MyJKKN-gated and not delivered, so
+// every section renders an honest "awaiting MyJKKN scoring" state. ZERO fabricated
 // scores, bands, percentages, rankings, or chart points appear anywhere.
 //
 // Gated to rcltp.report.view_all (also accepts rcltp.config.manage). Access

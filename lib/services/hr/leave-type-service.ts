@@ -16,6 +16,8 @@ import type {
   HRLeaveTypeInsert,
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
+import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
+import type { StoUsage } from '@/types/hr-leave-types';
 
 export interface GenerateBalancesResult {
   dry_run: boolean;
@@ -44,6 +46,11 @@ export class HRLeaveTypeService {
     }
     if (filters.is_active != null) {
       query = query.eq('is_active', filters.is_active);
+    }
+    // Drives the Time Off tabs: 'leave' excludes Permission (hourly) and
+    // Compensatory Off, which have their own request forms.
+    if (filters.request_category != null) {
+      query = query.eq('request_category', filters.request_category);
     }
     if (filters.search) {
       query = query.or(
@@ -95,6 +102,69 @@ export class HRLeaveTypeService {
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  /**
+   * Short Time Off usage in the current period.
+   *
+   * Resolved server-side because the limits themselves are resolved there —
+   * an assignment may override the type's whole limit block, and duplicating
+   * that precedence in the client would drift from the trigger that enforces
+   * it.
+   */
+  static async getStoUsage(
+    supabase: SupabaseClient,
+    employeeId: string,
+    leaveTypeId: string,
+    academicYearId: string | null,
+    /** Request date; omitted means today. Must match what enforcement sees. */
+    onDate?: string
+  ): Promise<StoUsage> {
+    const { data, error } = await supabase.rpc('hr_sto_usage', {
+      p_staff_id: employeeId,
+      p_leave_type_id: leaveTypeId,
+      p_academic_year_id: academicYearId,
+      ...(onDate ? { p_on: onDate } : {}),
+    });
+    if (error) throw error;
+    return data as StoUsage;
+  }
+
+  /**
+   * Can the caller act on any leave application?
+   *
+   * Backed by an RPC that mirrors the hla_update RLS policy, so the Approvals
+   * tab, its route guard and the database cannot drift apart. Do NOT
+   * substitute a client-side `hasPermission('hr.leave.approve')` check: the
+   * policy also requires org membership, and a tab that leads to a page the
+   * database rejects is worse than no tab.
+   */
+  static async canApproveLeave(supabase: SupabaseClient): Promise<boolean> {
+    const { data, error } = await supabase.rpc('hr_can_approve_leave');
+    if (error) throw error;
+    return data === true;
+  }
+
+  /**
+   * Institution-wise provisioning analytics for the current (or named)
+   * academic year.
+   *
+   * `academicYearName` is a NAME, not an id — academic_years rows are
+   * per-institution, so one id cannot address a cross-institution view.
+   * Pass null to resolve "the year containing today" per institution.
+   *
+   * The RPC self-authorizes on hr.leave.balance.manage and scopes rows with
+   * role_has_institution_access, so callers get only their own institutions.
+   */
+  static async getBalanceAnalytics(
+    supabase: SupabaseClient,
+    academicYearName: string | null
+  ): Promise<HRLeaveBalanceAnalytics> {
+    const { data, error } = await supabase.rpc('hr_leave_balance_analytics', {
+      p_academic_year_name: academicYearName,
+    });
+    if (error) throw error;
+    return data as HRLeaveBalanceAnalytics;
   }
 
   static async generateBalances(

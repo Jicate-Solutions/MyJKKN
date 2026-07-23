@@ -10,8 +10,8 @@
 // computed here.
 //
 // SAFETY: a badge's `criteria` is provisional config — the award rules it implies
-// are NOT EKSAQ-validated yet and drive no live awarding. Every catalog surface
-// renders <ValidationBanner> + labels criteria "provisional — pending EKSAQ".
+// are NOT MyJKKN-validated yet and drive no live awarding. Every catalog surface
+// renders <ValidationBanner> + labels criteria "provisional — pending MyJKKN".
 //
 // Gated to rcltp.config.manage (also accepts rcltp.reward.config). Super-admin
 // always allowed. Access failures are surfaced explicitly (rule #27), never a

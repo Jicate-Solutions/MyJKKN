@@ -37,6 +37,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import { createHash } from 'node:crypto';
 
 const JOB_TYPE = 'ai_pulse.domain_starter';
 const ENABLED_KEY = 'domain_starter_enabled';
@@ -53,6 +54,8 @@ type StarterContext = {
   topic_label: string;
   institution_id: string | null;
   learner_count: number;
+  // Silent control cohort this cycle: generated WITHOUT the improvement hint.
+  is_control?: boolean;
 };
 
 // A candidate topic row from fn_ai_pulse_domain_starter_candidates.
@@ -117,6 +120,15 @@ function liftWord(n: unknown): string {
 
 /** Assemble the full prompt string the ₹0 drain feeds the model (system + user).
  *  The prior-cycle block is the self-improvement hinge. */
+// Deterministic silent control cohort: ~10% of topics each cycle, rotating (the
+// cycle_id salt changes the set every cycle, so no topic is held back for long).
+// Control topics are generated WITHOUT the improvement hint, so tuned-vs-control
+// per-prompt copy-rate isolates the tuning effect from regression to the mean.
+// Read the result with fn_ai_pulse_control_vs_tuned(cycle).
+function isControlTopic(topicId: string, cycleId: string): boolean {
+  return createHash('md5').update(`${topicId}|${cycleId}`).digest()[0] % 10 === 0;
+}
+
 function buildPrompt(topicLabel: string, prior: Record<string, unknown> | null): string {
   let improveBlock = '';
   const priorPrompt = prior && typeof prior.prior_prompt === 'string' ? prior.prior_prompt : '';
@@ -224,6 +236,7 @@ export async function GET(request: NextRequest) {
           generated_prompt: text,
           prompt_pack: pack,
           model: 'max-lane',
+          is_control: ctx.is_control ?? false,
         },
       });
       if (error) {
@@ -247,6 +260,7 @@ export async function GET(request: NextRequest) {
       console.error('[cron/aipulse-domain-starter] candidates failed:', candErr.message);
     } else {
       for (const row of (candidates as CandidateRow[] | null)?.slice(0, CAP) ?? []) {
+        const control = isControlTopic(row.topic_id, cycleId);
         const ctx: StarterContext = {
           cycle_id: cycleId,
           topic_type: row.topic_type,
@@ -254,10 +268,13 @@ export async function GET(request: NextRequest) {
           topic_label: row.topic_label,
           institution_id: row.institution_id,
           learner_count: Number(row.learner_count ?? 0),
+          is_control: control,
         };
         const res = await enqueueJobsLane(admin, {
           jobType: JOB_TYPE,
-          prompt: buildPrompt(row.topic_label, row.prior_context ?? null),
+          // Control cohort withholds the improvement hint (prior=null) => a clean
+          // baseline the tuned cohort is measured against.
+          prompt: buildPrompt(row.topic_label, control ? null : (row.prior_context ?? null)),
           context: ctx as unknown as Record<string, unknown>,
           dedupeKey: `aipulse_ds|${cycleId}|${row.topic_type}|${row.topic_id}`,
         });

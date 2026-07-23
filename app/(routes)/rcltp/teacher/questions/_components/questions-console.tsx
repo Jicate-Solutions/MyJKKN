@@ -7,7 +7,7 @@
 // (useRcltpQuestions, status='draft'); approve/retire each via
 // useReviewRcltpQuestion. "Generate questions with AI" calls
 // RcltpPassagesService.generatePartBQuestions in a try/catch and, on the gated
-// 501/"awaiting EKSAQ" error, shows an honest toast — it never fabricates a
+// 501/"awaiting MyJKKN" error, shows an honest toast — it never fabricates a
 // question.
 //
 // CONTENT-SAFETY: a <ValidationBanner draftCount /> renders wherever drafts show.
@@ -120,8 +120,8 @@ function PassageQuestions({ passage }: { passage: RcltpPassage }) {
       // query invalidation in the service/hook layer surfaces them for review.
       toast.success('Draft questions generated — review them below.');
     } catch (e) {
-      // EKSAQ-gated path: the route returns an honest "awaiting EKSAQ" error.
-      toast.error('AI question generation is awaiting EKSAQ content.');
+      // MyJKKN-gated path: the route returns an honest "awaiting MyJKKN" error.
+      toast.error('AI question generation is awaiting MyJKKN content.');
     } finally {
       setGenerating(false);
     }

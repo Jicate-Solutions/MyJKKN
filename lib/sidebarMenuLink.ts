@@ -155,6 +155,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
 
+  // Improvement Board (MBA teaching-enterprise)
+  '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/leaderboard': 'improvement.ideas.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -474,6 +478,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
+  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -678,6 +683,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
@@ -1103,7 +1109,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
-  // EKSAQ RCLTP — gated to content managers for now (only admin authoring +
+  // MyJKKN RCLTP — gated to content managers for now (only admin authoring +
   // policies exist in Phase 4a); broaden when student/teacher surfaces (4b/4c) land.
   '/rcltp': 'rcltp.config.manage',
 
@@ -1416,6 +1422,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/my-proof',
           icon: BadgeCheck,
           submenus: []
+        },
+        {
+          // MBA Improvement Board — business-case pipeline (kanban) + impact
+          // leaderboard. Gated by improvement.ideas.view via MENU_PERMISSIONS.
+          href: '/improvement-board',
+          label: 'Improvement Board',
+          active:
+            pathname === '/improvement-board' ||
+            pathname.startsWith('/improvement-board/'),
+          icon: Lightbulb,
+          submenus: [
+            { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+          ]
         }
       ]
     },
@@ -1572,7 +1592,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // EKSAQ RCLTP — reading-assessment module. Role-aware landing at /rcltp
+          // MyJKKN RCLTP — reading-assessment module. Role-aware landing at /rcltp
           // routes each persona to their lane (admin authoring + policies live now;
           // student/teacher/principal surfaces land in Phase 4b/4c).
           href: '/rcltp',
@@ -1760,6 +1780,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/payouts',
+              label: 'Payouts',
+              active: pathname === '/admission/consultants/payouts'
             },
             {
               href: '/admission/consultants/referrals',
@@ -2529,6 +2554,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
+            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }

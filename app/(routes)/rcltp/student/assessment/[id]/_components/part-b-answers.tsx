@@ -11,7 +11,7 @@
 // Questions authored in the 4a console are question_type='mcq' but carry no
 // structured `options` (only a hidden correct_answer), so we render a free-text
 // box by default and only show radio choices when a question actually ships a
-// non-empty options array. Grading is the EKSAQ-gated scoring step — we capture
+// non-empty options array. Grading is the MyJKKN-gated scoring step — we capture
 // the raw response and NEVER show right/wrong here.
 // =============================================================================
 

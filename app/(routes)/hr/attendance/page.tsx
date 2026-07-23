@@ -23,7 +23,7 @@
 
 import type { ComponentType } from 'react';
 import Link from 'next/link';
-import { ArrowRight, ClipboardCheck, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ClipboardCheck, ShieldCheck, Upload } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +54,13 @@ export default function HRAttendancePage() {
             title="Regularize Approvals"
             description="Review queue for HR officers. Approve, reject, or request more info on pending regularization requests."
             audience="For HR officers"
+          />
+          <ActionCard
+            href="/hr/attendance/import"
+            icon={Upload}
+            title="Import Biometric Punches"
+            description="Upload the biometric export (.xlsx). Punches are matched to faculty/HOD and loaded as present days for reconciliation."
+            audience="For HR administrators"
           />
         </div>
       </div>

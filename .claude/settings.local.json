@@ -273,7 +273,13 @@
       "mcp__ide__executeCode",
       "Bash(gh pr *)",
       "WebFetch(domain:hdfcbank-collectnow-docs.razorpay.com)",
-      "mcp__codegraph__codegraph_search"
+      "mcp__codegraph__codegraph_search",
+      "Bash(export PYTHONIOENCODING=utf-8)",
+      "Bash(python runner.py)",
+      "Bash(python -c ' *)",
+      "Bash(python tidy_sql.py)",
+      "Bash(python validate_sql.py)",
+      "Bash(python make_report.py)"
     ],
     "deny": [],
     "ask": []

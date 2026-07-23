@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Assessments domain service (Phase B)
+ * MyJKKN RCLTP — Assessments domain service (Phase B)
  * ----------------------------------------------------------------------------
  * Tables: rcltp_assessments (§3.3), rcltp_part_a_recordings (§3.4),
  *         rcltp_part_b_responses (§3.5).
@@ -307,7 +307,7 @@ export class RcltpAssessmentsService {
 
   // -------------------------------------------------------------------------
   // VOICE/ENGINE SCORING — Phase 3 route exists; the scoring engine + composite
-  // formula are EKSAQ content, so the route returns an honest "awaiting EKSAQ" gate.
+  // formula are MyJKKN content, so the route returns an honest "awaiting MyJKKN" gate.
   // -------------------------------------------------------------------------
 
   /** Run the voice-scoring engine over a recording → POST /api/rcltp/recordings/:id/score. */
