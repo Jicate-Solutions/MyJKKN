@@ -100,7 +100,7 @@ export function MyConfirmedAttendanceCard() {
     ? `Your attendance is ${official_pct}% and that's fine — you're never counted absent for missing feedback. What's below the line is feedback: only ${confirmed_pct}% of your attended classes have feedback given within ${CONFIRM_WINDOW_HOURS} hours. Give feedback on each class to raise it back above ${pass_line}%.`
     : close
       ? `Your attendance is ${official_pct}%. To keep your feedback-given % above the ${pass_line}% line, give feedback within ${CONFIRM_WINDOW_HOURS} hours of every class.`
-      : `Your attendance is ${official_pct}% and ${confirmed_pct}% of those classes have feedback given. Keep it up.`;
+      : `Your attendance is ${official_pct}% and ${confirmed_pct}% of those sessions have feedback given. Keep it up.`;
 
   return (
     <Card className={bg}>
