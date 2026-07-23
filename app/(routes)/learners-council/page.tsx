@@ -299,7 +299,7 @@ export default async function LearnersCouncilDashboard({
                   {new Date(stats.activeTerm.start_date).toLocaleDateString()} — {new Date(stats.activeTerm.end_date).toLocaleDateString()}
                 </p>
               </div>
-              <Badge variant="default" className="ml-auto bg-amber-600">Active Term</Badge>
+              <Badge variant="default" className="ml-auto bg-amber-600 whitespace-nowrap">Active Term</Badge>
             </div>
           </div>
         )}

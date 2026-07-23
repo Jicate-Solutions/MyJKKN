@@ -156,7 +156,7 @@ export function SettingsClient({ userId, initialPreferences }: SettingsClientPro
         </CardHeader>
         <CardContent>
           {/* Header Row */}
-          <div className="grid grid-cols-[1fr_80px_80px_80px] gap-4 mb-4 pb-2 border-b">
+          <div className="grid grid-cols-[1fr_44px_44px_44px] gap-1 sm:grid-cols-[1fr_80px_80px_80px] sm:gap-4 mb-4 pb-2 border-b">
             <div className="text-sm font-medium text-muted-foreground">Category</div>
             <div className="text-sm font-medium text-muted-foreground text-center">In-App</div>
             <div className="text-sm font-medium text-muted-foreground text-center">Email</div>
@@ -170,9 +170,9 @@ export function SettingsClient({ userId, initialPreferences }: SettingsClientPro
               const Icon = cat.icon;
 
               return (
-                <div key={cat.type} className="grid grid-cols-[1fr_80px_80px_80px] gap-4 items-center">
+                <div key={cat.type} className="grid grid-cols-[1fr_44px_44px_44px] gap-1 sm:grid-cols-[1fr_80px_80px_80px] sm:gap-4 items-center">
                   <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                    <div className="h-9 w-9 rounded-lg bg-gray-50 hidden sm:flex items-center justify-center shrink-0">
                       <Icon className={`h-4 w-4 ${cat.color}`} />
                     </div>
                     <div>
@@ -204,7 +204,7 @@ export function SettingsClient({ userId, initialPreferences }: SettingsClientPro
           </div>
 
           {/* Save Button */}
-          <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t">
+          <div className="flex flex-wrap items-center justify-end gap-3 mt-6 pt-4 border-t">
             {saved && (
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                 <Check className="h-3 w-3 mr-1" />
