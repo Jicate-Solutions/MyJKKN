@@ -162,6 +162,20 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // MBA teaching-enterprise: Management Associates file improvement ideas about
+    // JKKN's own operations; facilitators + CEO office review/approve; only staff
+    // (board.manage) can mark a fix applied/verified (propose-only enforced in DB).
+    name: 'Improvement Board',
+    key: 'improvement',
+    permissions: [
+      { key: 'improvement.ideas.view', label: 'View Improvement Board' },
+      { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
+      { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
+      { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
+      { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [

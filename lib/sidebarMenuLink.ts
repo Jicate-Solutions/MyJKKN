@@ -155,6 +155,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
 
+  // Improvement Board (MBA teaching-enterprise)
+  '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/leaderboard': 'improvement.ideas.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -1418,6 +1422,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/my-proof',
           icon: BadgeCheck,
           submenus: []
+        },
+        {
+          // MBA Improvement Board — business-case pipeline (kanban) + impact
+          // leaderboard. Gated by improvement.ideas.view via MENU_PERMISSIONS.
+          href: '/improvement-board',
+          label: 'Improvement Board',
+          active:
+            pathname === '/improvement-board' ||
+            pathname.startsWith('/improvement-board/'),
+          icon: Lightbulb,
+          submenus: [
+            { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+          ]
         }
       ]
     },
