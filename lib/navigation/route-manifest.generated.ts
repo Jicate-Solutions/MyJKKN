@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/import",
+            "label": "Import",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",

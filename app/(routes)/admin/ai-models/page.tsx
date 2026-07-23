@@ -32,6 +32,7 @@ import { AiModelsDataTable } from './_components/ai-models-data-table';
 import { UsageByModelPanel } from './_components/usage-by-model-panel';
 import { AiStudioPanel } from './_components/ai-studio-panel';
 import { CapabilityGapLoopCard } from './_components/capability-gap-loop-card';
+import { ModelSwitchWatchCard } from './_components/model-switch-watch-card';
 
 export default function AiModelsPage() {
   return (
@@ -54,6 +55,7 @@ export default function AiModelsPage() {
             <TabsTrigger value="capability-gap-loop">Capability-Gap Loop</TabsTrigger>
           </TabsList>
           <TabsContent value="models" className="space-y-6">
+            <ModelSwitchWatchCard />
             <UsageByModelPanel />
             <AiModelsDataTable />
           </TabsContent>
