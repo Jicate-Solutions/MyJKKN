@@ -1,11 +1,11 @@
 export const dynamic = 'force-dynamic';
 
-// GET /api/id-cards/templates/:id/render?student_id=<uuid>
+// GET /api/id-cards/templates/:id/render?profile_id=<uuid>
 // Phase 1C — STUB. Real renderer (template + student → composited PNG) ships
 // in a follow-up PR. This route exists so consumer UIs and the agent station
 // can wire against the URL contract today.
 //
-// Auth: super_admin / registrar / admission_admin (user session) OR agent-token.
+// Auth: super_admin / registrar / admission (user session) OR agent-token.
 
 import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ import { requireUserOrAgent, isAuthFailure } from '@/lib/id-cards/auth';
 import { TEMPLATE_RENDER_ROLES } from '@/lib/id-cards/types';
 
 const paramsSchema = z.string().uuid();
-const querySchema = z.object({ student_id: z.string().uuid() });
+const querySchema = z.object({ profile_id: z.string().uuid() });
 
 // 1x1 transparent PNG, base64 — placeholder until the real renderer lands.
 const PLACEHOLDER_PNG_BASE64 =
@@ -37,7 +37,7 @@ export async function GET(
 
     const url = new URL(request.url);
     const parsedQuery = querySchema.safeParse({
-      student_id: url.searchParams.get('student_id')
+      profile_id: url.searchParams.get('profile_id')
     });
     if (!parsedQuery.success) {
       return jsonError(
@@ -56,7 +56,7 @@ export async function GET(
       png_base64: PLACEHOLDER_PNG_BASE64,
       stub: true,
       template_id: parsedId.data,
-      student_id: parsedQuery.data.student_id,
+      profile_id: parsedQuery.data.profile_id,
       message: 'Phase 1C placeholder — real rendering ships in a follow-up PR.'
     });
   } catch (err) {

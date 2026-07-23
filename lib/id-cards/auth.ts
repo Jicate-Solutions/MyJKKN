@@ -2,7 +2,7 @@
 // Phase 1C — auth helpers for the id-card subsystem.
 //
 // Two distinct auth paths:
-//   1. requireUser(roles) — Supabase session + role check (super_admin / registrar / admission_admin).
+//   1. requireUser(roles) — Supabase session + role check (super_admin / registrar / admission).
 //   2. requireAgentToken() — `Authorization: Bearer ${AGENT_PRINT_TOKEN}` header. Fail-closed if env unset.
 //
 // Both return a discriminated union so route handlers can early-return with the right status.

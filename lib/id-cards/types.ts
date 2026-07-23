@@ -28,7 +28,7 @@ export type IdCardPrintJobStatus =
 
 export type IdCardPrintJob = {
   id: string;
-  student_id: string;
+  profile_id: string;
   template_id: string;
   status: IdCardPrintJobStatus;
   enqueued_by: string;
@@ -58,6 +58,8 @@ export type IdCardPolicyKey = (typeof ID_CARD_POLICY_KEYS)[number];
 
 // Roles allowed to enqueue print jobs and to read job lists with a user session.
 // agent-token is a separate auth path (Bearer header) and is checked elsewhere.
-export const JOB_WRITER_ROLES = ['super_admin', 'registrar', 'admission_admin'] as const;
-export const JOB_READER_ROLES = ['super_admin', 'registrar', 'admission_admin'] as const;
-export const TEMPLATE_RENDER_ROLES = ['super_admin', 'registrar', 'admission_admin'] as const;
+// Role keys verified against prod custom_roles 2026-07-23 — 'admission_admin'
+// does not exist; the admission-side role_key is 'admission'.
+export const JOB_WRITER_ROLES = ['super_admin', 'registrar', 'admission'] as const;
+export const JOB_READER_ROLES = ['super_admin', 'registrar', 'admission'] as const;
+export const TEMPLATE_RENDER_ROLES = ['super_admin', 'registrar', 'admission'] as const;

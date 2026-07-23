@@ -3,12 +3,13 @@ export const dynamic = 'force-dynamic';
 // /api/id-cards/jobs
 // Phase 1C — print-job queue endpoints.
 //
-// POST  — enqueue a print job for a (student_id, template_id).
-//         Roles: super_admin / registrar / admission_admin.
-//         Rejects duplicates (existing pending|rendering|sent_to_agent for same student) → 409.
+// POST  — enqueue a print job for a (profile_id, template_id). Universal: the
+//         person may be a learner or an employee (profiles anchor).
+//         Roles: super_admin / registrar / admission.
+//         Rejects duplicates (existing pending|rendering|sent_to_agent for same person) → 409.
 //
 // GET   — list jobs, filter by status, paginated by limit (default 50, max 200).
-//         Reachable from EITHER a user session (super_admin / registrar / admission_admin)
+//         Reachable from EITHER a user session (super_admin / registrar / admission)
 //         OR an agent-token (Bearer ${AGENT_PRINT_TOKEN}). Agent uses this to poll for work.
 
 import { NextRequest, connection } from 'next/server';
@@ -26,7 +27,7 @@ import {
 const ACTIVE_STATUSES: IdCardPrintJobStatus[] = ['pending', 'rendering', 'sent_to_agent'];
 
 const postBodySchema = z.object({
-  student_id: z.string().uuid(),
+  profile_id: z.string().uuid(),
   template_id: z.string().uuid()
 });
 
@@ -57,13 +58,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { student_id, template_id } = parsed.data;
+    const { profile_id, template_id } = parsed.data;
 
-    // Reject duplicate active job for the same student.
+    // Reject duplicate active job for the same person.
     const { data: existing, error: dupeError } = await auth.supabase
       .from('id_card_print_jobs')
       .select('*')
-      .eq('student_id', student_id)
+      .eq('profile_id', profile_id)
       .in('status', ACTIVE_STATUSES)
       .order('enqueued_at', { ascending: false })
       .limit(1)
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
       return new Response(
         JSON.stringify({
           error: {
-            message: `An active print job already exists for this student (status=${existing.status}). Wait for it to complete or be cancelled.`,
+            message: `An active print job already exists for this person (status=${existing.status}). Wait for it to complete or be cancelled.`,
             code: 'duplicate_active_job'
           },
           data: existing as IdCardPrintJob
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest) {
     const { data: inserted, error: insertError } = await auth.supabase
       .from('id_card_print_jobs')
       .insert({
-        student_id,
+        profile_id,
         template_id,
         status: 'pending' as IdCardPrintJobStatus,
         enqueued_by: auth.userId
