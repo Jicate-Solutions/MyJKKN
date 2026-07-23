@@ -92,10 +92,10 @@ export function MyConfirmedAttendanceCard() {
   // (official_pct) is stated first, reassuringly, then the feedback gap
   // is explained.
   const headline = atRisk
-    ? `You've given feedback for ${confirmed_pct}% of your classes — below the ${pass_line}% line. Your attendance is not affected.`
+    ? `You've given feedback for ${confirmed_pct}% of your sessions — below the ${pass_line}% line. Your attendance is not affected.`
     : close
-      ? `You've given feedback for ${confirmed_pct}% of your classes — just above the ${pass_line}% line.`
-      : `You've given feedback for ${confirmed_pct}% of your classes — above the ${pass_line}% line.`;
+      ? `You've given feedback for ${confirmed_pct}% of your sessions — just above the ${pass_line}% line.`
+      : `You've given feedback for ${confirmed_pct}% of your sessions — above the ${pass_line}% line.`;
   const sub = atRisk
     ? `Your attendance is ${official_pct}% and that's fine — you're never counted absent for missing feedback. What's below the line is feedback: only ${confirmed_pct}% of your attended classes have feedback given within ${CONFIRM_WINDOW_HOURS} hours. Give feedback on each class to raise it back above ${pass_line}%.`
     : close
