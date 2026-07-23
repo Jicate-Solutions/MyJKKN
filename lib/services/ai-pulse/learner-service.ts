@@ -202,22 +202,32 @@ export class AiPulseLearnerService {
   /**
    * List recent AI Pulse cycles (newest first) — backs the learner "week
    * switcher" on My AI Pulse. Read-only browse of any past cycle.
+   *
+   * Only surfaces cycles the learner actually has a Domain Starter in.
+   * fn_ai_pulse_switchable_cycles mirrors the read-fn's kill-switch gate and
+   * topic-join, so an "empty week" (no prompt for THIS learner) never appears
+   * in the switcher — previously the switcher listed every ai_pulse cycle, so
+   * a learner could browse back into weeks with nothing to show.
    */
   static async listCyclesServer(limit = 12): Promise<AiPulseCycle[]> {
     try {
       const supabase = await createServerSupabaseClient();
-      const { data, error } = await (supabase as any)
-        .from('startup_events')
-        .select('id, name, start_date, end_date, status, config')
-        .filter('config->>kind', 'eq', 'ai_pulse')
-        .neq('status', 'cancelled')
-        .order('start_date', { ascending: false, nullsFirst: false })
-        .limit(limit);
+      const { data, error } = await (supabase as any).rpc(
+        'fn_ai_pulse_switchable_cycles',
+        { p_limit: limit }
+      );
       if (error) {
         console.error('[ai-pulse/learner] listCyclesServer failed:', error);
         return [];
       }
-      return (data as AiPulseCycle[]) ?? [];
+      return ((data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+        id: r.cycle_id as string,
+        name: r.name as string,
+        start_date: (r.start_date as string | null) ?? null,
+        end_date: (r.end_date as string | null) ?? null,
+        status: (r.status as string | null) ?? null,
+        config: null,
+      })) as AiPulseCycle[];
     } catch (e) {
       console.error('[ai-pulse/learner] listCyclesServer threw:', e);
       return [];
