@@ -2500,7 +2500,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'id_cards.templates.delete', label: 'Delete ID Card Templates' },
       { key: 'id_cards.jobs.view', label: 'View All ID Card Print Jobs' },
       { key: 'id_cards.jobs.manage', label: 'Enqueue Print Jobs + Resolve Failures' },
-      { key: 'id_cards.my-cards.view', label: 'View My ID Card Status (Learners)' }
+      { key: 'id_cards.my-cards.view', label: 'View My Own ID Card Status' }
     ]
   }
 ];

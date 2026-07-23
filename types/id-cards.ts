@@ -31,7 +31,7 @@ export type IdCardPrintJobStatus = 'pending' | 'rendering' | 'sent_to_agent' | '
 
 export type IdCardPrintJob = {
   id: string;
-  student_id: string;
+  profile_id: string;
   template_id: string;
   status: IdCardPrintJobStatus;
   enqueued_by: string;
