@@ -193,7 +193,9 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
       <button
         type="button"
         onClick={save}
-        disabled={saving}
+        // A locked case with no sections would be hidden from everyone — block the
+        // save here too (the API rejects it as well) so it can't happen by accident.
+        disabled={saving || (visibility === 'class_only' && selected.size === 0)}
         className="inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         style={{ backgroundColor: BRAND_GREEN }}
       >

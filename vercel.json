@@ -36,6 +36,10 @@
       "schedule": "7 22 * * *"
     },
     {
+      "path": "/api/cron/pde-case-due-soon?secret=${CRON_SECRET}",
+      "schedule": "23 2 * * *"
+    },
+    {
       "path": "/api/cron/induction-generate-playbook?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },
