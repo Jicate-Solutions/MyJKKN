@@ -155,6 +155,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
 
+  // Improvement Board (MBA teaching-enterprise)
+  '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/leaderboard': 'improvement.ideas.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -271,15 +275,47 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/employees/[id]': 'hr.employees.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
-  // HR Leave — parent + 6 submenus shown in sidebar
+  // HR Leave — parent + 6 submenus shown in sidebar.
+  // '/hr/leave' and '/hr/leave/calendar' are the SHARED/approver lens and keep
+  // the HR-tier 'hr.leave.view'. Everything an employee does with their OWN
+  // leave gates on a self-service key instead — see the block below.
   '/hr/leave': 'hr.leave.view',
   '/hr/leave/apply': 'hr.leave.apply',
-  '/hr/leave/my-applications': 'hr.leave.view',
   '/hr/leave/approve': 'hr.leave.approve',
   '/hr/leave/calendar': 'hr.leave.view',
   '/hr/leave/balance': 'hr.leave.balance.view',
   '/hr/leave/encashment': 'hr.leave.encashment.view',
-  '/hr/leave/[id]': 'hr.leave.view',
+  // ── Time Off self-service (2026-07-23) ──────────────────────────────────
+  // 'hr.leave.view' is DUAL-PURPOSE: besides gating these routes it is an
+  // org-wide read grant inside hla_select on hr_leave_applications
+  // (`user_has_permission('hr.leave.view') AND hr_organization_id IN
+  // fn_my_hr_organization_ids()`). Holding it at the 61-role self-service
+  // population meant every employee could read every colleague's leave in
+  // their HR organization. It is now an HR-tier key (7 roles).
+  //
+  // These routes therefore moved to 'hr.leave.apply'. Nothing is lost: hla_select
+  // already returns own rows through the IDENTITY clauses
+  // (`employee_id IN fn_my_staff_ids()` / `applied_by = auth.uid()`), so the
+  // route guard only has to let the applicant through — RLS still decides which
+  // rows they actually see.
+  //
+  // requests / compensatory-off / short-time-off / approvals had NO entry at all
+  // before today. They were gated purely by accident: the '[id]' line below
+  // inserts a '*' wildcard node in the route trie (lib/auth/route-matcher.ts:204),
+  // and they fell through to it. Deleting that one line would have left all four
+  // COMPLETELY ungated. They are declared explicitly now.
+  '/hr/leave/my-applications': 'hr.leave.apply',
+  '/hr/leave/requests': 'hr.leave.apply',
+  '/hr/leave/compensatory-off': 'hr.leave.apply',
+  '/hr/leave/short-time-off': 'hr.leave.apply',
+  // Approvals tab: visibility is a RUNTIME capability the static map cannot
+  // express — the page self-gates on hr_can_approve_leave() (which mirrors the
+  // hla_update policy) and renders a "not an approver" state otherwise. The
+  // static gate is deliberately the permissive self-service key so approvers
+  // whose authority comes from an approval flow rather than a permission key
+  // are not blocked at the route layer. See app/(routes)/hr/leave/approvals/page.tsx.
+  '/hr/leave/approvals': 'hr.leave.apply',
+  '/hr/leave/[id]': 'hr.leave.apply',
   // ── Employee Self Service (2026-07-21) ───────────────────────────────────
   // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx
   // wraps the whole /hr subtree in RoutePermissionGuard, and routeMatcher
@@ -291,6 +327,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // page.
   '/hr/attendance': 'hr.attendance.view_self',
   '/hr/attendance/regularize': 'hr.attendance.regularize_self',
+  // Biometric punch import — an HR-ops surface, NOT self-service. Without this
+  // line it inherited '/hr/attendance' -> hr.attendance.view_self and rendered
+  // for all 61 self-service roles; the page is deliberately permissive and lets
+  // /api/hr/attendance/import return the 403, so every non-HR user who opened it
+  // got a dead-end upload dialog. hr.dashboard.view is the same core-HR gate the
+  // other 99 admin pages use, and it is already in the permission catalog
+  // (hr.attendance.view_all is NOT — 2 roles carry it undeclared).
+  '/hr/attendance/import': 'hr.dashboard.view',
   '/hr/shifts/my': 'hr.shifts.view_own',
   '/hr/my-assets': 'hr.assets.view_own',
   '/hr/memos/my': 'hr.memos.view_own',
@@ -1418,6 +1462,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/my-proof',
           icon: BadgeCheck,
           submenus: []
+        },
+        {
+          // MBA Improvement Board — business-case pipeline (kanban) + impact
+          // leaderboard. Gated by improvement.ideas.view via MENU_PERMISSIONS.
+          href: '/improvement-board',
+          label: 'Improvement Board',
+          active:
+            pathname === '/improvement-board' ||
+            pathname.startsWith('/improvement-board/'),
+          icon: Lightbulb,
+          submenus: [
+            { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+          ]
         }
       ]
     },
