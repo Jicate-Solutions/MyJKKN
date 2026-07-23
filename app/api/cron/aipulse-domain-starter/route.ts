@@ -141,7 +141,7 @@ function buildPrompt(topicLabel: string, prior: Record<string, unknown> | null):
     // is on; otherwise this branch is never taken and the wording is unchanged.
     if (prior?.reverted === true) {
       improveBlock =
-        `\n\nYour MOST RECENT version of this subject's prompts was copied by FEWER students than an earlier version. ` +
+        `\n\nYour MOST RECENT version of this subject's prompts was copied by FEWER learners than an earlier version. ` +
         `Here is that earlier, better-performing "build" prompt: "${priorPrompt}". ` +
         `It was copied by ${copiesWord(prior?.prior_copies)} students, and their engagement ${liftWord(prior?.prior_lift)}. ` +
         `Go BACK toward this earlier version and improve from HERE — do NOT continue from your last attempt. ` +
