@@ -1,3 +1,46 @@
+## Session: 2026-07-23 (End /cnext) — Per-job MODEL SELECTION shipped LIVE end-to-end + Feature A auto-compare partly built
+
+### Accomplished
+- **Per-job model selection SHIPPED + LIVE + visually verified (CFT).** Root cause: max-lane drain hardcoded `--model sonnet`; fn_ai_claim didn't pass the model. Fixed: fn_ai_claim resolves ai_job_types-first (mirrors getModelForFeature) + Windows drain patched (honors model, records real model+tokens) — PROVEN (demo.ping set to claude-opus-4-8 → drain ran Opus, recorded it). UI (usage-by-model panel + Claude-only picker + Opus warning + safety-floor) = PR #2307 MERGED + DEPLOYED (Build Depth Gate green, /deploy-myjkkn). Usage panel LIVE on prod shows the Opus probe as its own row (visual proof via CFT browser).
+- **Feature B safety-judge floor**: adversarial verify (ultracode workflow) found the guard MISPLACED (PATCH route 404s before it; wrong table). FIXED at fn_ai_job_type_set_model (real chokepoint), applied to prod, shipped in #2307.
+- **Feature A auto-compare (PARTLY built)**: substrate (2 tables + model_compare.judge + fn_model_switch_record_comparison) APPLIED to prod (from #2310). Switch-detection wired into fn_ai_job_type_set_model + PROVEN (sonnet→opus opens 1 collecting eval, rolled back). Judge template had NO {{prompt}} placeholder (outputs never reached the model) → FIXED live; fresh test job 20cc459f enqueued for next-session verification.
+
+### Current Status
+- **Per-job model**: DONE, live on prod. **Feature B**: DONE, live in #2307. **Feature A**: substrate+switch-detection live; judge fix unverified; COLLECT (old-model-run) + UI NOT built.
+- **Build**: #2307 merged+deployed green. **PRs**: #2307 MERGED; #2310 DRAFT (Feature A scaffolding; migrations 20260731130000/130001 + judge-template fix APPLIED to prod but files need updating).
+- **Branch**: feat/campus-living-fee-compute-engine (main repo). Worktrees: ai-models-ui (#2307, can remove — merged), ai-autocompare (#2310).
+
+### Lessons Learned
+- Built + adversarially-verified ≠ works: verify agent OK'd the judge PROMPT TEXT but couldn't see the runtime wiring — the template had no {{prompt}} slot, so outputs never reached the model. Only a real run surfaced it.
+- ai_job_types is the SOURCE OF TRUTH for model governance (getModelForFeature + list route read it first; PATCH mirrors to it via fn_ai_job_type_set_model). ai_model_config = legacy fallback. (Corrected 2 wrong turns mid-session.)
+- Merging does NOT auto-apply migrations (supabase-migration-apply.yml = workflow_dispatch/manual).
+
+### Next Session — Tasks (user-ranked via /cnext interview; autobuild ARMED)
+1. [P0] Finish Feature A's collect loop — verify judge fix (job 20cc459f → expect new_better), then build the drain payload-model-override (run OLD model) + collect-cron (/api/cron/model-compare-collect) → judge → fn_model_switch_record_comparison. Box-dependent (large).
+2. [P1] Feature A warning-surface UI on /admin/ai-models — show each switch's collecting N/20 + verdict (new_worse/tie/new_better) (medium).
+3. [P1] Prove RPC tally end-to-end (verdict → counter → verdict_ready at margin) + update #2310 migration files to match prod ({{prompt}} template fix + switch-detection) (small-medium).
+
+---
+
+## Session: 2026-07-23 — Per-job MODEL SELECTION for the Max lane (DB half APPLIED to prod, behavior-preserving)
+
+### Found (root cause)
+- Max-lane drain HARDCODES `--model sonnet` (ai-jobs-drain.mjs:139/:183, ai-chat-drain.mjs:290, engine.mjs:118). `fn_ai_claim`'s spec never passed model_id → `ai_job_types.model_id` was DECORATIVE on lane='max'. Per-job model honored only on lane='api'. Two model tables (ai_model_config=UI/screen by feature_key; ai_job_types=job registry) are historical dup, mirror-only, no sync. Memory: reference_max_lane_ignores_model_id_hardcoded_sonnet.
+
+### 9 decisions locked (2 AskUserQuestion interviews) → memory project_per_job_model_selection_maxlane
+- ai_model_config (/admin/ai-models) = SINGLE source of truth; one worker switches --model per job; Claude-only for max jobs; warn+confirm on Opus-for-busy; per-job backup model; changes apply to new jobs ~1min; budget-exhausted→wait for reset (₹0); record real model+tokens; admins only.
+
+### APPLIED to prod (ref kvizhngldtiuufknvehv) — behavior-preserving, reversible
+- fn_ai_claim rewired: model = COALESCE(ai_model_config[feature_key=job_type,is_active], ai_job_types), + provider/model_id/fallback_* in spec. Grants service_role only, anon revoked. PROVEN e2e (rolled-back probe → procurement.invoice_extract resolves claude-opus-4-8). SQL: scratchpad 20260723_fn_ai_claim_pass_model_to_drain.sql.
+- Backfill: 18 max-lane jobs added to ai_model_config seeded claude-sonnet-4-6 (=current effective), display names polished. Screen 25→43 rows, 0 max missing. SQL: scratchpad 20260723_backfill_ai_model_config_maxlane_jobs.sql.
+
+### Remaining (Director action)
+- Piece 3 app UI = SHIPPED Draft PR #2307 (build green, 4 files +427/-7, Director merge pending): /admin/ai-models Claude-only dropdown + Opus warn dialog + USAGE PANEL (hour/day/week, calls+cost+last-used, free-lane honest label, cost alert 80/100% of monthly_spend_cap_inr; reads ai_model_usage, 265k rows, ts=invoked_at).
+- Piece 4 Windows drain patch = LIVE + PROVEN E2E (07-23 ~07:45Z): demo.ping set to claude-opus-4-8 recorded claude-opus-4-8+tokens; null-model recorded sonnet+tokens → drain honors per-job model, full-ID works, D8 records real model (was placeholder). engine.mjs left alone (brains don't use fn_ai_claim). D5/D7 written-not-exercised. Verified empirically (box exec blocked, couldn't syntax-check). demo.ping reverted.
+- Usage-card: real Claude /usage quota (session%/weekly%/credits) NOT machine-readable in a supported way → SKIP the OAuth-endpoint hack; robust = rate-limit status + reset from drain errors + logbook panel.
+
+---
+
 ## Session: 2026-07-23 (End /cnext) — MBA Improvement Board PR-1 SHIPPED (#2300) + data views live + playbook finalized
 
 ### Accomplished
@@ -23,6 +66,29 @@
 
 ---
 
+## Session: 2026-07-23 — RCLTP AI-Max RUN FIXED + PROVEN E2E on prod; config codified = PR #2301 (green, awaiting merge)
+
+### The fix (P0 #1 DONE — the async ₹0 Max lane now works end-to-end)
+- Root cause was TWO config bugs in the Slice-1 `ai_job_types` registration of `rcltp.remedial_plan_draft`, both making the Windows Max seat fail BEFORE calling Claude:
+  1. `input_schema` declared `learner_id` required → seat errored `missing required input(s): learner_id` (payload keys live in `_ctx`, not top level). **Fixed live on prod** → prompt-only schema.
+  2. `prompt_template` was NULL → after (1) fixed, seat errored `empty prompt after template fill` (seat substitutes payload into prompt_template). **Fixed live on prod** → `{{prompt}}`.
+  - Canonical `{{prompt}}`-glue Max job needs BOTH: prompt-only `input_schema` AND `prompt_template='{{prompt}}'` (matches curriculum.lesson_spine_generate, pde.case_author). Memory `reference_aimax_offload_job_build_pattern` updated with the 2nd bug.
+- **PROVEN E2E on prod** (no direct-path shortcut): re-enqueued a real job for [TEST] learner Deepa (c0ffee00-…0004) via `fn_ai_enqueue_system` with the maiden job's real assembled payload. Job `e03a2961` → `status='done'` on `claimed_by='windows'` (no error). Ran the (dark/undeployed) collect cron's tail manually via the SAME RPCs (`fn_ai_collect_claim` + `fn_rcltp_remedial_plan_ai_draft_upsert`); Deepa's plan row `a443e40e` flipped `ai_model` `direct:claude-sonnet-4-6` → **`maxlane:rcltp.remedial_plan_draft`**, status='draft', 5 activities, grounded summary. QUALITY BAR met.
+
+### Shipped this session
+- **PR #2301** (fix/rcltp-remedial-job-config, worktree `.claude/worktrees/rcltp-jobconfig`) — corrective forward migration `20260723100000_rcltp_remedial_plan_fix_job_config.sql` (idempotent; codifies the live prod fix so a fresh env can't re-inherit broken Slice-1 values — Slice-1 ON CONFLICT doesn't update these fields). **17/17 CI green. NOT merged, NOT deployed — Director's call.** Scoped to remedial_plan_draft ONLY.
+- Memory: Marzano's New Taxonomy = JKKN SCHOOLS lesson-spine cognitive framework (Director directive, school-tier only, not yet wired) → `reference_jkkn_schools_lesson_spine_marzano_taxonomy`.
+
+### Remaining ranked items (Director-gated)
+- **#2 DEPLOY** the remedial-plan loop live (merged-but-dark; main's Vercel build predates PR #2293) — HELD by Director choice this turn. `/deploy-myjkkn` when ready.
+- **#3** `rcltp.question_generation` offload — SAME config gap (prompt_template=null, input_schema=[]), plus tool_set='all' (vs 'none') design Q; `enabled=false` dormant. Fix + enable + prove on async lane.
+- **#4** spec-rename PR #2298 (docs-only, green) — Director merge.
+- **#5** adoption: 0 REAL Nattraja grade 3-4 learners scored (all [TEST] synthetic) — binding constraint, non-code.
+
+### DO NOT / cleanup
+- Never merge #2301 or deploy without Director. Remove worktree `.claude/worktrees/rcltp-jobconfig` by EXACT path after #2301 merges (not via grep).
+
+---
 ## Session: 2026-07-23 — Import UPLOAD SCREEN built = PR #2296. Referral machine COMPLETE end-to-end.
 
 ### Shipped

@@ -17,6 +17,34 @@
   },
   "features": [
     {
+      "id": "per-job-model-selection-maxlane",
+      "name": "Per-job AI model selection on the Max lane (+ safety-judge floor)",
+      "status": "self-verified",
+      "outcome_metric": {
+        "metric_name": "count(DISTINCT ai_model_usage.model_id) recorded on the free lane (was 1 placeholder 'max-subscription'; real per-model rows once jobs are switched)",
+        "baseline_value": "1 ('max-subscription' placeholder) as of 2026-07-23 morning; drain now records the real model per job",
+        "threshold_90d": "Free-lane usage shows the real Claude model per run (proven: Opus probe recorded claude-opus-4-8); Director can set any job's model from /admin/ai-models and it takes effect",
+        "kill_criterion": "If a model pick in /admin/ai-models does not change what the free-lane drain runs, the source-of-truth wiring is broken — re-audit ai_job_types vs ai_model_config",
+        "verdict_date": "2026-10-23",
+        "verdict_status": "HIT (shipped + live + visually verified via CFT; Opus probe ran Opus on prod)"
+      },
+      "notes": "SHIPPED + LIVE 2026-07-23. fn_ai_claim (ai_job_types-first resolution) + fn_ai_job_type_set_model (safety-judge floor) applied to prod; Windows drain patched (honors per-job model, records real model+tokens; Opus proven). UI = PR #2307 (usage-by-model panel + Claude-only picker + Opus-volume warning + safety floor) MERGED + DEPLOYED, visually verified. Source of truth = ai_job_types. Memory: project_per_job_model_selection_maxlane."
+    },
+    {
+      "id": "ai-model-autocompare-loop",
+      "name": "Feature A — auto-compare model-quality loop (switch → judge old vs new → warn)",
+      "status": "in-progress",
+      "outcome_metric": {
+        "metric_name": "count(model_switch_evaluations WHERE status='verdict_ready') — switches that reached a real old-vs-new verdict",
+        "baseline_value": "0 (substrate applied 2026-07-23; no collect loop running yet)",
+        "threshold_90d": "≥1 real switch reaches a verdict via ≥20 judged comparisons by 2026-10-23",
+        "kill_criterion": "If the collect loop never accumulates comparisons (drain old-model-run not built), the loop is inert — decide whether the box-dependent piece is worth the free-seat cost",
+        "verdict_date": "2026-10-23",
+        "verdict_status": "PENDING — substrate + switch-detection live; judge template fixed (unverified, job 20cc459f); COLLECT (old-model-run) + UI NOT built"
+      },
+      "notes": "Draft PR #2310. Substrate (model_switch_evaluations/comparisons + model_compare.judge + fn_model_switch_record_comparison) APPLIED to prod. Switch-detection in fn_ai_job_type_set_model APPLIED + proven. Judge {{prompt}} template bug fixed live. Next: verify judge, build drain old-model-run + collect-cron, warning UI, prove RPC tally. Memory: project_per_job_model_selection_maxlane (Follow-on features section)."
+    },
+    {
       "id": "counselor-rules-engine-substrate",
       "name": "Counselor rules-engine — Phases 1-8a shipped (verdict 2026-06-30)",
       "status": "self-verified",
@@ -219,7 +247,7 @@
     {
       "id": "referral-2025-26-payment-history-import",
       "name": "F1 — Referral payment history importer (already-paid list)",
-      "status": "in-progress",
+      "status": "built-pr-open",
       "spec": "SPECS.md §6 F1",
       "priority": "P0 — gates every other feature (D16)",
       "outcome_metric": {
@@ -249,7 +277,7 @@
         "Uploading a file where >~a third of rows don't match triggers a strong warning + confirm before any write (D39).",
         "A non-admin, non-uploader cannot open a past upload's contents (D40)."
       ],
-      "notes": "Validator PROVEN on prod 2026-07-22 (fn_validate_referral_import_batch + staging tables; all 9 verdict classes correct, zero footprint; branch feat/referral-2025-26-importer, NOT applied). Template docs/referral-2025-26-import-template.xlsx delivered. Match key=application_id (100% unique). Decisions: refuse wrong-column file (D23); approve promotes CLEAN rows only (D18); approve records canonical attribution not payments (D20/D28); senior-only logged overrides+edits (D19/D21/D22); dedup across uploads (D24); auto-emit registrar check-list (D25). UI screen = next slice. | UPLOAD SCREEN decisions D33-D40 (2026-07-22/23): show enrolment status inline (D33); already-paid rows create paid record (D34); upload/preview=any admission staff, approve=senior (D35); conflict=write-once + dispute, NO credit rule (no evidence layer: referral_code 0%, is_verified 98% non-discriminating) (D36); owed=agreed-paid only if file shows higher agreed (D37); blank amount=record as 'to be set', not payable (D38); messy file=warn+confirm then approve good rows (D39); access=admission admins+uploader (D40). Write to consultant_lead_attributions (full record), not just referred_by_id, so verify/dispute/contest work."
+      "notes": "Validator PROVEN on prod 2026-07-22 (fn_validate_referral_import_batch + staging tables; all 9 verdict classes correct, zero footprint; branch feat/referral-2025-26-importer, NOT applied). Template docs/referral-2025-26-import-template.xlsx delivered. Match key=application_id (100% unique). Decisions: refuse wrong-column file (D23); approve promotes CLEAN rows only (D18); approve records canonical attribution not payments (D20/D28); senior-only logged overrides+edits (D19/D21/D22); dedup across uploads (D24); auto-emit registrar check-list (D25). UI screen = next slice. | UPLOAD SCREEN decisions D33-D40 (2026-07-22/23): show enrolment status inline (D33); already-paid rows create paid record (D34); upload/preview=any admission staff, approve=senior (D35); conflict=write-once + dispute, NO credit rule (no evidence layer: referral_code 0%, is_verified 98% non-discriminating) (D36); owed=agreed-paid only if file shows higher agreed (D37); blank amount=record as 'to be set', not payable (D38); messy file=warn+confirm then approve good rows (D39); access=admission admins+uploader (D40). Write to consultant_lead_attributions (full record), not just referred_by_id, so verify/dispute/contest work. | UPLOAD SCREEN BUILT (PR #2296): enrich+promote proven on prod (write-once, dispute-on-conflict, paid-ledger, owed, enrolment). UI /admission/consultants/import."
     },
     {
       "id": "referral-2025-26-claim-matching",
