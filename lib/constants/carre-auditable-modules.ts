@@ -55,6 +55,7 @@ export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   { key: 'events', label: 'Events' }, // incl. induction (/events/induction)
   { key: 'startup-studio', label: 'Startup Studio' },
   { key: 'solutions', label: 'Solution Hub' },
+  { key: 'improvement-board', label: 'Improvement Board' }, // MBA teaching-enterprise: Associates file improvement ideas (participant-facing)
 
   // ── Staff / faculty experiences ───────────────────────────────────────
   { key: 'faculty', label: 'Faculty' },
