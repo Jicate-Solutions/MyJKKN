@@ -58,17 +58,20 @@ export const CARD_FIELD_LABELS: Record<CardField, string> = {
   department: 'Department',
   valid_until: 'Valid until date',
   qr_code: 'QR code data',
-  photo: 'Student photo',
+  photo: 'Learner photo',
 };
 
+// Real columns on learners_profiles (the canonical learner table — the old
+// `students` table was renamed before this module shipped).
 export const DB_COLUMN_OPTIONS = [
-  { value: 'students.full_name', label: 'students.full_name' },
-  { value: 'students.roll_number', label: 'students.roll_number' },
-  { value: 'students.course_id', label: 'students.course_id' },
-  { value: 'students.department_id', label: 'students.department_id' },
-  { value: 'students.valid_until', label: 'students.valid_until' },
-  { value: 'students.id', label: 'students.id (for QR)' },
-  { value: 'students.photo_url', label: 'students.photo_url' },
+  { value: 'learners_profiles.first_name', label: 'learners_profiles.first_name' },
+  { value: 'learners_profiles.last_name', label: 'learners_profiles.last_name' },
+  { value: 'learners_profiles.roll_number', label: 'learners_profiles.roll_number' },
+  { value: 'learners_profiles.register_number', label: 'learners_profiles.register_number' },
+  { value: 'learners_profiles.program_id', label: 'learners_profiles.program_id' },
+  { value: 'learners_profiles.department_id', label: 'learners_profiles.department_id' },
+  { value: 'learners_profiles.id', label: 'learners_profiles.id (for QR)' },
+  { value: 'learners_profiles.student_photo_url', label: 'learners_profiles.student_photo_url' },
 ];
 
 export type FieldMappingRow = {

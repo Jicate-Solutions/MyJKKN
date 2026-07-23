@@ -249,7 +249,7 @@ export function IdCardPrintQueue() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Student</TableHead>
+                <TableHead>Learner</TableHead>
                 <TableHead className="w-44">Template</TableHead>
                 <TableHead className="w-36">Status</TableHead>
                 <TableHead className="w-44">Enqueued</TableHead>

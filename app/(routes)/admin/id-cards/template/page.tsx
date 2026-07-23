@@ -24,12 +24,12 @@ export default function IdCardTemplatePage() {
           <h3 className="mb-2 text-sm font-semibold">What this page controls</h3>
           <p>
             The <strong>Field mappings</strong> tab decides what data from the
-            student record appears on each part of the printed card (name, roll
+            learner record appears on each part of the printed card (name, roll
             number, course, etc.). Each card field maps to one database column.
           </p>
           <p className="mt-2">
             The <strong>Photo fallback</strong> tab decides what happens when a
-            student doesn&apos;t have a photo. MyJKKN tries each source in the
+            learner doesn&apos;t have a photo. MyJKKN tries each source in the
             order shown — the first one that has a photo is used.
           </p>
         </>

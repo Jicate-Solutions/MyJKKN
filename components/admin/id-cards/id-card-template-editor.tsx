@@ -44,7 +44,7 @@ const STUB_FIELD_MAPPINGS: FieldMappingRow[] = [
   { id: '4', card_field: 'department', db_column: 'students.department_id' },
   { id: '5', card_field: 'valid_until', db_column: 'students.valid_until' },
   { id: '6', card_field: 'qr_code', db_column: 'students.id' },
-  { id: '7', card_field: 'photo', db_column: 'students.photo_url' },
+  { id: '7', card_field: 'photo', db_column: 'learners_profiles.student_photo_url' },
 ];
 
 const STUB_PHOTO_FALLBACK: PhotoFallbackStep[] = [
@@ -52,7 +52,7 @@ const STUB_PHOTO_FALLBACK: PhotoFallbackStep[] = [
     id: '1',
     sort_order: 1,
     label: 'Student uploaded photo',
-    source: 'students.photo_url',
+    source: 'learners_profiles.student_photo_url',
     is_active: true,
   },
   {
@@ -123,7 +123,7 @@ function buildMappingFormSchema(
       name: 'db_column',
       kind: 'enum',
       englishLabel: 'Database column',
-      englishHint: 'Which column from the students table to read the value from.',
+      englishHint: "Which column from the learner's record to read the value from.",
       required: true,
       options: DB_COLUMN_OPTIONS,
     },
@@ -206,7 +206,7 @@ function buildFallbackFormSchema(): ReadonlyArray<FieldSchema> {
       englishLabel: 'Step label',
       englishHint:
         'Plain-English name for this fallback source. Shown in the admin UI only.',
-      placeholder: 'e.g. Student uploaded photo',
+      placeholder: 'e.g. Learner uploaded photo',
       required: true,
     },
     {
@@ -214,8 +214,8 @@ function buildFallbackFormSchema(): ReadonlyArray<FieldSchema> {
       kind: 'text',
       englishLabel: 'Source identifier',
       englishHint:
-        'Either a database column path (e.g. students.photo_url) or a system key (e.g. system:placeholder).',
-      placeholder: 'students.photo_url',
+        'Either a database column path (e.g. learners_profiles.student_photo_url) or a system key (e.g. system:placeholder).',
+      placeholder: 'learners_profiles.student_photo_url',
       required: true,
     },
     {
@@ -350,7 +350,7 @@ export function IdCardTemplateEditor() {
         <TabsContent value="mappings" className="mt-4">
           <div className="mb-3 text-sm text-muted-foreground">
             Each row maps one zone on the printed card (left column) to the
-            student record column that fills it (right column). Changing a
+            learner record column that fills it (right column). Changing a
             mapping takes effect on the next batch of cards printed — previously
             printed cards are not affected.
           </div>
@@ -368,7 +368,7 @@ export function IdCardTemplateEditor() {
 
         <TabsContent value="photo-fallback" className="mt-4">
           <div className="mb-3 text-sm text-muted-foreground">
-            When a student doesn&apos;t have a photo at the primary source, MyJKKN
+            When a learner doesn&apos;t have a photo at the primary source, MyJKKN
             tries each step below in order. The first step that finds a photo
             wins. Steps marked &quot;Off&quot; are skipped. Drag-reorder by editing the
             step number.

@@ -87,7 +87,7 @@ function magstripeConsequence(values: Record<string, unknown>): string {
   if (enabled && !hwPresent) {
     return '⚠ Encoder hardware is not installed on this printer. Cards will print, but the magnetic stripe will be blank. Mark the hardware as installed once the encoder module is fitted.';
   }
-  return 'Cards will be encoded with the student\'s roll number on Track 2. These cards work in cafeteria and library card-readers.';
+  return 'Cards will be encoded with the learner\'s roll number on Track 2. These cards work in cafeteria and library card-readers.';
 }
 
 function chipConsequence(values: Record<string, unknown>): string {
@@ -100,7 +100,7 @@ function chipConsequence(values: Record<string, unknown>): string {
   if (enabled && !hwPresent) {
     return '⚠ Chip contact station not fitted. Cards will print but the chip will not be programmed. Fit the contact station module first.';
   }
-  return 'Cards will be personalised with student identity on the smart chip. These cards work in chip-reader access control gates.';
+  return 'Cards will be personalised with learner identity on the smart chip. These cards work in chip-reader access control gates.';
 }
 
 function rfidConsequence(values: Record<string, unknown>): string {
@@ -210,7 +210,7 @@ function buildConfig(values: Record<string, unknown>): SettingsConfig {
       dbKey: 'magstripe_enabled',
       label: 'Magnetic stripe encoding',
       group: 'Encoding hardware',
-      explanation: 'When enabled, the printer will write the student\'s roll number onto the magnetic stripe of each card. The cafeteria and library readers use this stripe.',
+      explanation: 'When enabled, the printer will write the learner\'s roll number onto the magnetic stripe of each card. The cafeteria and library readers use this stripe.',
       consequenceText: magstripeConsequence(values),
       input: { type: 'toggle' },
     },
@@ -228,7 +228,7 @@ function buildConfig(values: Record<string, unknown>): SettingsConfig {
       dbKey: 'chip_enabled',
       label: 'Smart chip (contact) encoding',
       group: 'Encoding hardware',
-      explanation: 'When enabled, the printer personalises the ISO smart chip embedded in each card with student identity data.',
+      explanation: 'When enabled, the printer personalises the ISO smart chip embedded in each card with learner identity data.',
       consequenceText: chipConsequence(values),
       input: { type: 'toggle' },
     },
@@ -246,7 +246,7 @@ function buildConfig(values: Record<string, unknown>): SettingsConfig {
       dbKey: 'rfid_enabled',
       label: 'RFID contactless encoding',
       group: 'Encoding hardware',
-      explanation: 'When enabled, the printer writes student identity data to the contactless chip. Required for RFID attendance kiosks and contactless access gates.',
+      explanation: 'When enabled, the printer writes learner identity data to the contactless chip. Required for RFID attendance kiosks and contactless access gates.',
       consequenceText: rfidConsequence(values),
       input: { type: 'toggle' },
     },
