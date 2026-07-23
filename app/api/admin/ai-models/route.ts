@@ -36,8 +36,8 @@ interface FeatureWithUsage extends AiModelConfigRow {
   lane: string | null;
   runnable: boolean;
   // UNIFICATION (2026-07-23): false when this registry job carries no model yet
-  // (provider/model_id are ''). The UI shows "Uses default model" and hides the
-  // model-edit button for these until PR-2 adds first-time governance.
+  // (provider/model_id are ''). The UI shows "Uses default model" and a "Set
+  // model" button that governs the job for the first time.
   model_set: boolean;
 }
 
@@ -84,10 +84,10 @@ export async function GET(_request: NextRequest) {
     // UNIFICATION (2026-07-23): return ALL registry job types, not only those
     // that carry a model. The unified console shows every one of the 45 jobs
     // grouped by lane, so model-less rows must appear too — they come back with
-    // provider/model_id = null and a `model_set: false` flag, which the UI
-    // renders as "Uses default model" (and hides the model-edit affordance;
-    // setting a model on a never-governed job is a PR-2 follow-up, since the
-    // PATCH path 404s without an ai_model_config row).
+    // provider/model_id = null and a `model_set: false` flag. The UI renders
+    // these as "Uses default model" and offers a "Set model" button that governs
+    // the job for the first time (the [feature_key] PATCH upserts an
+    // ai_model_config row when none exists yet).
     const { data: regRows, error: regErr } = await svc
       .from('ai_job_types')
       .select(

@@ -225,7 +225,7 @@ interface FeatureRow {
   lane?: string | null;
   runnable?: boolean;
   // UNIFICATION (2026-07-23): false → this registry job has no model yet
-  // (provider/model_id are ''); render "Uses default model", hide model-edit.
+  // (provider/model_id are ''); render "Uses default model" + a "Set model" button.
   model_set?: boolean;
 }
 
@@ -685,20 +685,34 @@ export function AiModelsDataTable() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
-                              {/* GOVERNANCE-FIRST: edit the MODEL / spend cap inline,
-                                  but only for jobs that already carry a model — the
-                                  PATCH path needs an ai_model_config row, so setting
-                                  a model on a never-governed job is a PR-2 follow-up. */}
-                              {f.model_set !== false && f.model_id && (
+                              {/* GOVERNANCE-FIRST: edit the model / spend cap inline.
+                                  A model-less registry job gets a "Set model" button
+                                  that governs it for the FIRST time — the PATCH now
+                                  upserts an ai_model_config row (UNIFICATION follow-up). */}
+                              {f.model_set === false ? (
                                 <Button
-                                  variant="ghost"
+                                  variant="outline"
                                   size="sm"
+                                  className="h-7 gap-1 text-xs"
                                   onClick={() => setEditingFeature(f)}
-                                  aria-label={`Edit model for ${f.display_name}`}
-                                  title="Change model / spend cap"
+                                  aria-label={`Set a model for ${f.display_name}`}
+                                  title="Pin a model for this job"
                                 >
-                                  <Pencil className="h-4 w-4" />
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Set model
                                 </Button>
+                              ) : (
+                                f.model_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setEditingFeature(f)}
+                                    aria-label={`Edit model for ${f.display_name}`}
+                                    title="Change model / spend cap"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                )
                               )}
                               {/* AUTHORING + RUN tuck behind Advanced so the default
                                   row stays governance-focused (UNIFICATION 2026-07-23).
