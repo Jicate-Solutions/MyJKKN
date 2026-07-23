@@ -57,7 +57,7 @@ This module assesses real children. AI-drafted pedagogy is allowed ONLY under th
 
 ### Phase 4e — Reports & dashboards FRAMEWORK  ·  PARTLY GATED (build shells)
 - Per-persona report **shells** reusing Recharts / score-card / heatmap / leaderboard components (PRD §7 framework).
-- The 3 named reports (student/parent score report, teacher analytics, school-head dashboard) as shells; the **24-report catalog + the score/band data are MyJKKN-gated** → shells show "awaiting MyJKKN scoring + report catalog". No fabricated numbers.
+- The 3 named reports (learner/parent score report, Senior Learner analytics, school-head dashboard) as shells; the **24-report catalog + the score/band data are MyJKKN-gated** → shells show "awaiting MyJKKN scoring + report catalog". No fabricated numbers.
 
 ### Deferred (own track later)
 - **Parent persona** (consent + `parent_guardian` role + `parent_learner_links` migration).
