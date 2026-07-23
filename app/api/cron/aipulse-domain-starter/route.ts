@@ -150,7 +150,7 @@ function buildPrompt(topicLabel: string, prior: Record<string, unknown> | null):
       improveBlock =
         `\n\nLAST CYCLE you wrote this "build" prompt for this subject: "${priorPrompt}". ` +
         `It was copied by ${copiesWord(prior?.prior_copies)} learners, and their engagement ${liftWord(prior?.prior_lift)}. ` +
-        `Make this cycle's prompts sharper, simpler, and more hands-on so more students actually use them — and do NOT repeat the same build idea.`;
+        `Make this cycle's prompts sharper, simpler, and more hands-on so more learners actually use them — and do NOT repeat the same build idea.`;
     }
   }
   const user = `Subject / programme: ${topicLabel}.${improveBlock}\n\nReturn the JSON pack now.`;
