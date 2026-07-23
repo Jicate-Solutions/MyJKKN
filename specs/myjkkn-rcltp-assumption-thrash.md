@@ -1,6 +1,6 @@
-# EKSAQ RCLTP — Assumption-Thrash Spec
+# MyJKKN RCLTP — Assumption-Thrash Spec
 
-> Source materials: `EKSAQ RCA Brochure.pdf` (20pp) + `EKSAQ Leadership Profile.pdf`.
+> Source materials: `MyJKKN RCA Brochure.pdf` (20pp) + `MyJKKN Leadership Profile.pdf`.
 > Produced via `/assumption-thrash` on 2026-06-13. 23 decisions locked across 5 interview rounds + edge-case walkthrough + an L2 parallel speech-engine verification.
 > Status: **pre-build.** Ready to feed `/myjkkn-module` (deep business interview) then `/myjkkn-api` (build).
 
@@ -8,7 +8,7 @@
 
 ## 1. What we're building
 
-**RCLTP** (Reading Comprehension Learning *and* Teaching Proficiency) — EKSAQ's AI-driven reading-assessment + learning platform for pre-primary → K10.
+**RCLTP** (Reading Comprehension Learning *and* Teaching Proficiency) — MyJKKN's AI-driven reading-assessment + learning platform for pre-primary → K10.
 
 Three engines:
 - **RCA Part A — Read & Record**: child reads an *unseen* passage aloud; system scores pronunciation accuracy, reading speed (wpm), expression, voice modulation, chunking, punctuation.
@@ -160,7 +160,7 @@ Four parallel helpers (Azure · Speechace+SpeechSuper · Google+ELSA · Indian/o
 ## 9. Open decisions for `/myjkkn-module` + `/myjkkn-api`
 1. **English Part-A engine**: Speechace (child-proven, ORF, wpm, intonation; US-hosted → DPDP check) vs Azure en-IN (India-hosted, but no ProsodyScore → custom expression). *Recommend Speechace for English if US audio-processing of minors is acceptable; else Azure en-IN + custom.* A two-engine architecture (Speechace=EN, Azure=TA) is viable since both are cloud-deferred.
 2. Passage **AI-generation guardrails** (age-appropriateness, safety) — content pipeline design.
-3. **VBB 5,000-word list** source — EKSAQ-supplied vs build (per language).
+3. **VBB 5,000-word list** source — MyJKKN-supplied vs build (per language).
 4. Exact **composite formula**: overall band from reading + comprehension (the 67→85 example).
 5. Whether `rcltp_consent` rides existing MyJKKN consent infra.
 6. The 24 report definitions (read-layer views).
@@ -196,4 +196,4 @@ Four parallel helpers (Azure · Speechace+SpeechSuper · Google+ELSA · Indian/o
 
 ### Module decisions locked (2026-06-14)
 - Scope: all 13 features + 4 cross-cutting must-haves (WhatsApp/email notifications, audit trail, bulk teacher ops, offline recording) shipped together as v1; **internally sequenced** (build order is engineer's call).
-- **Language (FINAL): English-only v1, per-tenant pluggable.** English is the v1 base (mature, low-risk voice scoring). Local languages (Tamil for JKKN, Telugu/Hindi for EKSAQ's region, etc.) are added later — content + speech engine — only when a school's medium of instruction requires them; architecture treats language as per-tenant config so this is an add-on, never a rebuild. JKKN's schools (Nattraja Vidhyalaya CBSE, JKKN Matriculation) are English-medium, so English is also the correct assessment language for them. **Supersedes earlier "English + Tamil" (decision #20) and "Tamil voice phase 2."** The Dravidian voice-scoring spike (§7) runs only if/when such a language is added — it is NOT a v1 task.
+- **Language (FINAL): English-only v1, per-tenant pluggable.** English is the v1 base (mature, low-risk voice scoring). Local languages (Tamil for JKKN, Telugu/Hindi for MyJKKN's region, etc.) are added later — content + speech engine — only when a school's medium of instruction requires them; architecture treats language as per-tenant config so this is an add-on, never a rebuild. JKKN's schools (Nattraja Vidhyalaya CBSE, JKKN Matriculation) are English-medium, so English is also the correct assessment language for them. **Supersedes earlier "English + Tamil" (decision #20) and "Tamil voice phase 2."** The Dravidian voice-scoring spike (§7) runs only if/when such a language is added — it is NOT a v1 task.

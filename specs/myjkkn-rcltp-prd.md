@@ -1,12 +1,12 @@
-# EKSAQ RCLTP — Product Requirements Document (PRD)
+# MyJKKN RCLTP — Product Requirements Document (PRD)
 
-**Date:** 2026-06-14 · **Status:** ready for `/myjkkn-api` · **Companion:** `eksaq-rcltp-assumption-thrash.md` (23 thrash decisions + corrections + grounding ledger)
+**Date:** 2026-06-14 · **Status:** ready for `/myjkkn-api` · **Companion:** `myjkkn-rcltp-assumption-thrash.md` (23 thrash decisions + corrections + grounding ledger)
 
 ---
 
 ## 1. In one paragraph
 
-RCLTP is a **reading-assessment + adaptive-learning module for school children (grades 1–10)**, built inside MyJKKN first and designed to be lifted out later as a standalone Jicate product for other schools. Children read passages **aloud** (voice-scored) and answer **comprehension** questions; the system scores them, places them in bands (**Emergent → Transitional → Proficient → Super Proficient**), assigns **adaptive weekly practice**, builds **vocabulary (VBB)**, and reports to **students, parents, teachers, and school heads**. **v1 is English end-to-end.** Language is **per-tenant pluggable** — English is the base; local languages (Tamil for JKKN, Telugu/Hindi for EKSAQ's region) are added later (content + speech engine) when a school's medium of instruction requires them, with no rebuild.
+RCLTP is a **reading-assessment + adaptive-learning module for young learners (grades 1–10)**, built inside MyJKKN first and designed to be lifted out later as a standalone Jicate product for other schools. Young learners read passages **aloud** (voice-scored) and answer **comprehension** questions; the system scores them, places them in bands (**Emergent → Transitional → Proficient → Super Proficient**), assigns **adaptive weekly practice**, builds **vocabulary (VBB)**, and reports to **learners, parents, Senior Learners, and school heads**. **v1 is English end-to-end.** Language is **per-tenant pluggable** — English is the base; local languages (Tamil for JKKN, Telugu/Hindi for MyJKKN's region) are added later (content + speech engine) when a school's medium of instruction requires them, with no rebuild.
 
 ---
 
@@ -87,7 +87,7 @@ School students live in `learners_profiles` under the **virtual "K-12 Program" d
 ## 7. Reports
 
 **Defined now (from brochure):** (1) Student/Parent score report — per-word pronunciation heatmap, Reading/Comprehension/Overall bands, prev-vs-current, Part-B competency tags. (2) Teacher VBB report — stage avg, completion rate, week-wise trend, improvement rate. (3) School-Head dashboard — avg reading/comprehension, comprehension indicators, student rankings.
-**Open:** the full **24-report catalog must come from EKSAQ** — we'll build the 3 above + a report framework (per-persona shells reusing existing components) and slot the remaining 21 once EKSAQ supplies the list. *Flagged so "24 reports" isn't silently invented.*
+**Open:** the full **24-report catalog must come from MyJKKN** — we'll build the 3 above + a report framework (per-persona shells reusing existing components) and slot the remaining 21 once MyJKKN supplies the list. *Flagged so "24 reports" isn't silently invented.*
 
 ---
 
@@ -127,7 +127,7 @@ I. **Future (not v1) — local-language plug-in.** When a school's medium requir
 
 ## 11. Open items
 
-1. **EKSAQ to supply:** full 24-report catalog, validated band cutoffs/rubric, the 5,000-word VBB list (EN + Tamil), seed passages, the composite-score formula (Reading + Comprehension → Overall, the 67→85 example).
+1. **MyJKKN to supply:** full 24-report catalog, validated band cutoffs/rubric, the 5,000-word VBB list (EN + Tamil), seed passages, the composite-score formula (Reading + Comprehension → Overall, the 67→85 example).
 2. **Verify at build:** exact field holding grade 1–10 under the K-12 degree (program vs section), against live data.
 3. **English Part-A engine** final pick (Speechace vs Azure en-IN) + DPDP sign-off on audio processing location.
 4. **Local-language validation spike** — *only when a Dravidian local language (Tamil/Telugu) is added* (NOT a v1 task): record real children, measure the engine's score↔human correlation; if < ~0.7 → AI4Bharat custom build.

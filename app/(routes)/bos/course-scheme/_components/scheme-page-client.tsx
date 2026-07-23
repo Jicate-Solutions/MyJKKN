@@ -188,6 +188,10 @@ export function SchemePageClient() {
             internal_max_mark: m.course.internal_max_mark ?? 0,
             external_max_mark: m.course.external_max_mark ?? 0,
             total_max_mark: m.course.total_max_mark ?? 0,
+            // Drives "count the group once" in the semester totals — without
+            // this the PDF would sum every elective option (see the report's
+            // totals row) while the on-screen table collapses them.
+            group_order: m.group_order,
           };
         }),
       })),

@@ -5,7 +5,7 @@
 // =============================================================================
 // The learner's home: their reading assessments (start/continue), earned badges
 // + streak, and an honest "report awaiting scoring" state (composite scoring is
-// EKSAQ-gated — we never show a fabricated band/score). The take-assessment flow
+// MyJKKN-gated — we never show a fabricated band/score). The take-assessment flow
 // (read + record + answer + submit) lives at /rcltp/student/assessment/[id].
 //
 // Gated to rcltp.assessment.take. The learner id is derived from the session via

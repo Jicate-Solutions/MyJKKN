@@ -8,9 +8,9 @@
 //   (a) Cohort band distribution   (b) Cycle progress
 //   (c) At-risk learners           (d) Class / section comparison
 //
-// CONTENT-SAFETY: the scoring engine is not EKSAQ-validated yet, so the RPC
+// CONTENT-SAFETY: the scoring engine is not MyJKKN-validated yet, so the RPC
 // always marks `provisional: true`. Whenever ANY array is non-empty we render
-// a persistent "Provisional — pending EKSAQ validation" banner near the top —
+// a persistent "Provisional — pending MyJKKN validation" banner near the top —
 // never a band or score without it nearby. Each panel independently falls
 // back to the EXISTING honest empty state (AwaitingScoring) when its own
 // array is empty — we never invent numbers to fill a chart.
@@ -149,11 +149,11 @@ function ProvisionalBanner() {
         aria-hidden='true'
       />
       <AlertTitle className='font-semibold'>
-        Provisional — pending EKSAQ validation.
+        Provisional — pending MyJKKN validation.
       </AlertTitle>
       <AlertDescription className='text-sm'>
         Not an authoritative band/score. The figures below come from the
-        RCLTP scoring engine ahead of EKSAQ&apos;s validated composite-score
+        RCLTP scoring engine ahead of MyJKKN&apos;s validated composite-score
         formula and band cutoffs — treat them as indicative only.
       </AlertDescription>
     </Alert>

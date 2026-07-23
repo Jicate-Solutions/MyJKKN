@@ -87,40 +87,61 @@ export function AllocationAcademicFilterSelects({
     [rows]
   );
 
+  // Every downstream select is scoped to the chosen institution, so a
+  // super-admin viewing all institutions doesn't see programs/semesters/room
+  // and mess categories that belong to institutions other than the one picked.
+  const instScoped = useMemo(
+    () =>
+      value.institution_id
+        ? rows.filter((a) => academic(a)?.institution_id === value.institution_id)
+        : rows,
+    [rows, value.institution_id]
+  );
+
   const programOptions = useMemo(
     () =>
-      distinctOptions(rows, (a) => ({
+      distinctOptions(instScoped, (a) => ({
         value: academic(a)?.program_id,
         label: academic(a)?.program?.program_name,
       })),
-    [rows]
+    [instScoped]
+  );
+
+  // Semesters further cascade under the chosen program (still within the
+  // institution scope).
+  const progScoped = useMemo(
+    () =>
+      value.program_id
+        ? instScoped.filter((a) => academic(a)?.program_id === value.program_id)
+        : instScoped,
+    [instScoped, value.program_id]
   );
 
   const semesterOptions = useMemo(
     () =>
-      distinctOptions(rows, (a) => ({
+      distinctOptions(progScoped, (a) => ({
         value: academic(a)?.semester_id,
         label: academic(a)?.semester?.semester_name,
       })),
-    [rows]
+    [progScoped]
   );
 
   const roomCategoryOptions = useMemo(
     () =>
-      distinctOptions(rows, (a) => ({
+      distinctOptions(instScoped, (a) => ({
         value: academic(a)?.hostel_category_id,
         label: academic(a)?.room_category?.name,
       })),
-    [rows]
+    [instScoped]
   );
 
   const messCategoryOptions = useMemo(
     () =>
-      distinctOptions(rows, (a) => ({
+      distinctOptions(instScoped, (a) => ({
         value: academic(a)?.mess_category_id,
         label: academic(a)?.mess_category?.name,
       })),
-    [rows]
+    [instScoped]
   );
 
   // Rooms cascade one level below Room Category: with a category picked, only
@@ -129,10 +150,10 @@ export function AllocationAcademicFilterSelects({
   // scope spans more than one block (no block selected upstream).
   const roomOptions = useMemo(() => {
     const scoped = value.room_category_id
-      ? rows.filter(
+      ? instScoped.filter(
           (a) => academic(a)?.hostel_category_id === value.room_category_id
         )
-      : rows;
+      : instScoped;
     const multiBlock =
       new Set(scoped.map((a) => a?.hostel_blocks?.name).filter(Boolean)).size >
       1;
@@ -145,7 +166,7 @@ export function AllocationAcademicFilterSelects({
         label: multiBlock && block ? `${block} · Room ${num}` : `Room ${num}`,
       };
     });
-  }, [rows, value.room_category_id]);
+  }, [instScoped, value.room_category_id]);
 
   const set = (patch: Partial<AllocationAdvancedFilters>) =>
     onChange({ ...value, ...patch });
@@ -155,7 +176,18 @@ export function AllocationAcademicFilterSelects({
       {institutionOptions.length > 0 && (
         <Select
           value={value.institution_id ?? 'all'}
-          onValueChange={(v) => set({ institution_id: v === 'all' ? null : v })}
+          onValueChange={(v) =>
+            // Program/semester/category/room/mess picks are all scoped under
+            // the institution, so switching it invalidates the current ones.
+            set({
+              institution_id: v === 'all' ? null : v,
+              program_id: null,
+              semester_id: null,
+              room_category_id: null,
+              room_id: null,
+              mess_category_id: null,
+            })
+          }
         >
           <SelectTrigger>
             <SelectValue placeholder='All Institutions' />
@@ -173,7 +205,10 @@ export function AllocationAcademicFilterSelects({
       {programOptions.length > 0 && (
         <Select
           value={value.program_id ?? 'all'}
-          onValueChange={(v) => set({ program_id: v === 'all' ? null : v })}
+          onValueChange={(v) =>
+            // Semester options cascade under the chosen program.
+            set({ program_id: v === 'all' ? null : v, semester_id: null })
+          }
         >
           <SelectTrigger>
             <SelectValue placeholder='All Programs' />

@@ -10,7 +10,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateHRLeaveType, useUpdateHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
 import { ACCRUAL_TYPE_LABELS, APPLICABLE_GENDER_LABELS } from '@/types/hr-leave-types';
-import type { HRLeaveType, HRLeaveTypeInsert, HRLeaveTypeUpdate, LeaveAccrualType, LeaveApplicableGender, LeaveDurationType } from '@/types/hr-leave-types';
+import type { HRLeaveType, HRLeaveTypeInsert, HRLeaveTypeUpdate, LeaveAccrualType, LeaveApplicableGender, LeaveDurationType, LeaveRequestCategory } from '@/types/hr-leave-types';
+import {
+  REQUEST_CATEGORY_LABELS, REQUEST_CATEGORY_HINTS,
+  STO_LIMIT_MODE_LABELS, STO_LIMIT_MODE_HINTS,
+  STO_LIMIT_PERIOD_LABELS, STO_LIMIT_PERIOD_HINT,
+  type StoLimitMode, type StoLimitPeriod,
+} from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -20,11 +26,28 @@ interface Props {
   onOpenChange: (o: boolean) => void;
   hrOrgId: string;
   leaveType?: HRLeaveType | null;
+  /**
+   * Fired after a successful create/update, before the dialog closes.
+   *
+   * The list is rendered by the generic DataTable, which fetches through
+   * `fetchDataFn` rather than React Query — so the `invalidateQueries` these
+   * mutations already perform is invisible to it unless some other mounted
+   * component happens to hold an ['hr-leave-types'] query. This callback is the
+   * deterministic signal; see leave-types-data-table.tsx.
+   */
+  onSaved?: () => void;
 }
 
 const EMPTY = {
   leave_type_code: '', leave_type_name: '', description: '',
   color_code: '#6B7280', display_order: 0, is_active: true,
+  request_category: 'leave' as LeaveRequestCategory,
+  sto_limit_mode: 'none' as StoLimitMode,
+  sto_limit_period: 'month' as StoLimitPeriod,
+  sto_max_requests: '' as string | number,
+  sto_total_minutes: '' as string | number,
+  sto_min_minutes: '' as string | number,
+  sto_max_minutes: '' as string | number,
   duration_type: 'full' as LeaveDurationType, allow_half_day: false, allow_hourly: false,
   skip_weekends: true, skip_holidays: true,
   requires_approval: true, is_paid: true,
@@ -37,7 +60,7 @@ const EMPTY = {
   applicable_gender: 'all' as LeaveApplicableGender,
 };
 
-export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: Props) {
+export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, onSaved }: Props) {
   const [form, setForm] = useState({ ...EMPTY });
   const create = useCreateHRLeaveType();
   const update = useUpdateHRLeaveType();
@@ -55,6 +78,10 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
         document_required_after_days: leaveType.document_required_after_days ?? '',
         max_carry_forward_days: leaveType.max_carry_forward_days ?? '',
         max_encashable_days: leaveType.max_encashable_days ?? '',
+        sto_max_requests: leaveType.sto_max_requests ?? '',
+        sto_total_minutes: leaveType.sto_total_minutes ?? '',
+        sto_min_minutes: leaveType.sto_min_minutes ?? '',
+        sto_max_minutes: leaveType.sto_max_minutes ?? '',
       });
     } else {
       setForm({ ...EMPTY });
@@ -70,6 +97,25 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // hr_leave_types_sto_cap_present rejects a mode without its cap. Catch it
+    // here so the user sees a sentence rather than a raw constraint violation.
+    if (form.request_category === 'short_time_off' && form.sto_limit_mode !== 'none') {
+      const cap =
+        form.sto_limit_mode === 'request_count'
+          ? form.sto_max_requests
+          : form.sto_total_minutes;
+      // `Number(undefined) <= 0` is false, so a NaN cap slipped past the very
+      // guard this block exists to be. Assert the positive case instead.
+      if (cap === '' || cap == null || !(Number(cap) > 0)) {
+        toast.error(
+          form.sto_limit_mode === 'request_count'
+            ? 'Enter the maximum number of requests for this period.'
+            : 'Enter the total minutes allowed for this period.'
+        );
+        return;
+      }
+    }
 
     // Edit-mode seeds `form` from the full row (see useEffect above), so at
     // runtime it also carries id/created_at/created_by/updated_at/updated_by/
@@ -95,6 +141,18 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
       ...editableFields,
       description: form.description || null,
       max_continuous_days: nullable(form.max_continuous_days),
+      // Only the active mode's cap is stored. Leaving the other populated
+      // would violate hr_leave_types_sto_cap_present the moment the mode is
+      // switched, and a stale cap is the kind of value that reappears later
+      // looking deliberate.
+      sto_max_requests:
+        form.sto_limit_mode === 'request_count' ? nullable(form.sto_max_requests) : null,
+      sto_total_minutes:
+        form.sto_limit_mode === 'total_duration' ? nullable(form.sto_total_minutes) : null,
+      sto_min_minutes:
+        form.sto_limit_mode === 'none' ? null : nullable(form.sto_min_minutes),
+      sto_max_minutes:
+        form.sto_limit_mode === 'none' ? null : nullable(form.sto_max_minutes),
       document_required_after_days: nullable(form.document_required_after_days),
       max_carry_forward_days: nullable(form.max_carry_forward_days),
       max_encashable_days: nullable(form.max_encashable_days),
@@ -129,6 +187,7 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
         await create.mutateAsync(insertPayload);
         toast.success('Leave type created');
       }
+      onSaved?.();
       onOpenChange(false);
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -165,6 +224,111 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
                 onChange={(e) => set('description', e.target.value)} />
             </div>
           </section>
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">Request surface</h3>
+            <div>
+              <Label>Requested from</Label>
+              <Select value={form.request_category}
+                onValueChange={(v) => set('request_category', v as LeaveRequestCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(REQUEST_CATEGORY_LABELS).map(([v, l]) => (
+                    <SelectItem key={v} value={v}>{l}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {REQUEST_CATEGORY_HINTS[form.request_category as LeaveRequestCategory]}
+              </p>
+            </div>
+          </section>
+
+          {form.request_category === 'short_time_off' && (
+            <section className="space-y-3 rounded-md border border-primary/25 bg-primary/[0.03] p-3">
+              <div>
+                <h3 className="text-sm font-semibold">Short Time Off limits</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Short time off is measured in minutes, not days — a 30-minute and a
+                  4-hour request are different amounts. These caps replace the day
+                  entitlement for this category.
+                </p>
+              </div>
+
+              <div>
+                <Label>Limit type</Label>
+                <Select value={form.sto_limit_mode}
+                  onValueChange={(v) => set('sto_limit_mode', v as StoLimitMode)}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(STO_LIMIT_MODE_LABELS).map(([v, l]) => (
+                      <SelectItem key={v} value={v}>{l}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {STO_LIMIT_MODE_HINTS[form.sto_limit_mode as StoLimitMode]}
+                </p>
+              </div>
+
+              {form.sto_limit_mode !== 'none' && (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <Label>Period</Label>
+                      <Select value={form.sto_limit_period}
+                        onValueChange={(v) => set('sto_limit_period', v as StoLimitPeriod)}>
+                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(STO_LIMIT_PERIOD_LABELS).map(([v, l]) => (
+                            <SelectItem key={v} value={v}>{l}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {form.sto_limit_mode === 'request_count' ? (
+                      <div>
+                        <Label htmlFor="stoMaxReq">
+                          Maximum requests <span className="text-destructive">*</span>
+                        </Label>
+                        <Input id="stoMaxReq" type="number" min={1} className="mt-1"
+                          value={form.sto_max_requests}
+                          onChange={(e) => set('sto_max_requests', e.target.value)} />
+                      </div>
+                    ) : (
+                      <div>
+                        <Label htmlFor="stoTotal">
+                          Total minutes <span className="text-destructive">*</span>
+                        </Label>
+                        <Input id="stoTotal" type="number" min={1} step={5} className="mt-1"
+                          value={form.sto_total_minutes}
+                          onChange={(e) => set('sto_total_minutes', e.target.value)} />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{STO_LIMIT_PERIOD_HINT}</p>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <Label htmlFor="stoMin">Minimum minutes per request</Label>
+                      <Input id="stoMin" type="number" min={1} step={5} className="mt-1"
+                        placeholder="No minimum"
+                        value={form.sto_min_minutes}
+                        onChange={(e) => set('sto_min_minutes', e.target.value)} />
+                    </div>
+                    <div>
+                      <Label htmlFor="stoMax">Maximum minutes per request</Label>
+                      <Input id="stoMax" type="number" min={1} step={5} className="mt-1"
+                        placeholder="No maximum"
+                        value={form.sto_max_minutes}
+                        onChange={(e) => set('sto_max_minutes', e.target.value)} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
 
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">Duration &amp; day counting</h3>

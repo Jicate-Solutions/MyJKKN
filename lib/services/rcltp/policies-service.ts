@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Policies service (read wrappers + admin editor backing)
+ * MyJKKN RCLTP — Policies service (read wrappers + admin editor backing)
  * ============================================================================
  *
  * EXTENDS the EXISTING platform_policies substrate — it does NOT reinvent it.
@@ -24,7 +24,7 @@
  *      code calls. Each bakes the seeded default in as the RPC `p_default`, so a
  *      missing/inactive row fails soft to the documented default and a feature
  *      never breaks on a config lookup. NOTE: fn_get_policy resolves only
- *      is_active=true rows — the 3 EKSAQ-pending rows are seeded is_active=false,
+ *      is_active=true rows — the 3 MyJKKN-pending rows are seeded is_active=false,
  *      so these wrappers correctly return the baked default for them until an
  *      admin activates the row in the editor.
  *   2. LIST / UPDATE for the admin editor (RcltpPoliciesService.listAll /
@@ -32,7 +32,7 @@
  *      (value + ui_widget + ui_options + ui_consequence + ui_cascade +
  *      ui_category + is_active), which the typed RPCs don't return, so the list
  *      reads the table directly and INCLUDES is_active=false rows (the Director
- *      must see + eventually activate the EKSAQ-pending placeholders).
+ *      must see + eventually activate the MyJKKN-pending placeholders).
  *
  * Convention: canonical rcltp service shape — class with `static` methods over a
  * singleton createClientSupabaseClient(), `(this.supabase as any)` at the seam
@@ -59,14 +59,14 @@
  *       → C voice scoring: the Part-A scoring route — recordings below this
  *         engine-confidence get held in the teacher review queue (F8) instead
  *         of auto-publishing to the parent.
- *   rcltp.bands.mastery_threshold (EKSAQ-pending) getMasteryThreshold()
+ *   rcltp.bands.mastery_threshold (MyJKKN-pending) getMasteryThreshold()
  *       → F5 band logic: the mastery-gate that promotes a learner to the next
- *         band. Returns the baked default until EKSAQ validates + admin activates.
- *   rcltp.scoring.weights (EKSAQ-pending)  getScoringWeights()
+ *         band. Returns the baked default until MyJKKN validates + admin activates.
+ *   rcltp.scoring.weights (MyJKKN-pending)  getScoringWeights()
  *       → F5/F11 composite score: combines Part-A (reading) + Part-B
- *         (comprehension) into Overall on the report. Baked default until EKSAQ
+ *         (comprehension) into Overall on the report. Baked default until MyJKKN
  *         supplies the validated formula (the 67→85 example, PRD §11).
- *   rcltp.bands.nipun_wpm (EKSAQ-pending)  getNipunWpmTargets()
+ *   rcltp.bands.nipun_wpm (MyJKKN-pending)  getNipunWpmTargets()
  *       → F5/F13 band logic: per-grade words-per-minute baselines flagging
  *         below/at/above grade. Baked default until NIPUN-validated figures land.
  *   rcltp.audio.retention_days            getAudioRetentionDays()
@@ -119,8 +119,8 @@ export type RcltpPolicyKey =
   (typeof RCLTP_POLICY_KEYS)[keyof typeof RCLTP_POLICY_KEYS];
 
 // Baked-in defaults — MUST equal the seed's `value` so a missing/inactive row
-// fails soft to the same number the row would carry. EKSAQ-pending defaults are
-// the documented built-in fallbacks (NOT authoritative EKSAQ numbers).
+// fails soft to the same number the row would carry. MyJKKN-pending defaults are
+// the documented built-in fallbacks (NOT authoritative MyJKKN numbers).
 export const RCLTP_POLICY_DEFAULTS = {
   cyclesPerYear: 6,
   reminderLeadDays: 3,
@@ -132,7 +132,7 @@ export const RCLTP_POLICY_DEFAULTS = {
     super_proficient: 1,
   } as Record<string, number>,
   lowConfidenceThreshold: 0.6,
-  // EKSAQ-pending — built-in fallback, replaced once EKSAQ validates + admin activates.
+  // MyJKKN-pending — built-in fallback, replaced once MyJKKN validates + admin activates.
   masteryThreshold: 0.7,
   scoringWeights: { reading: 0.5, comprehension: 0.5 } as Record<string, number>,
   nipunWpm: {
@@ -335,9 +335,9 @@ export class RcltpPoliciesService {
     return typeof v === 'number' ? v : RCLTP_POLICY_DEFAULTS.lowConfidenceThreshold;
   }
 
-  // --- F5 bands / scoring (EKSAQ-pending until activated) -------------------
+  // --- F5 bands / scoring (MyJKKN-pending until activated) -------------------
 
-  /** Mastery fraction (0–1) required for band promotion. EKSAQ-pending — returns baked default until activated. */
+  /** Mastery fraction (0–1) required for band promotion. MyJKKN-pending — returns baked default until activated. */
   static async getMasteryThreshold(
     institutionId?: string | null
   ): Promise<number> {
@@ -349,7 +349,7 @@ export class RcltpPoliciesService {
     return typeof v === 'number' ? v : RCLTP_POLICY_DEFAULTS.masteryThreshold;
   }
 
-  /** Reading/comprehension weights for the composite Overall score. EKSAQ-pending. */
+  /** Reading/comprehension weights for the composite Overall score. MyJKKN-pending. */
   static getScoringWeights(
     institutionId?: string | null
   ): Promise<Record<string, number>> {
@@ -360,7 +360,7 @@ export class RcltpPoliciesService {
     );
   }
 
-  /** Per-grade NIPUN words-per-minute baselines (grade 1–10). EKSAQ/NIPUN-pending. */
+  /** Per-grade NIPUN words-per-minute baselines (grade 1–10). MyJKKN/NIPUN-pending. */
   static getNipunWpmTargets(
     institutionId?: string | null
   ): Promise<Record<string, number | null>> {
@@ -424,7 +424,7 @@ export class RcltpPoliciesService {
 
   /**
    * List every global rcltp.* row for the Director editor — INCLUDING
-   * is_active=false rows (the EKSAQ-pending placeholders the Director must see
+   * is_active=false rows (the MyJKKN-pending placeholders the Director must see
    * and eventually activate). Ordered by ui_category then policy_key.
    */
   static async listAll(): Promise<RcltpPolicyRow[]> {

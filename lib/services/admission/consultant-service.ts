@@ -130,6 +130,16 @@ export class ConsultantService {
         }
       }
 
+      // Global status filter (primary table column — junction status only
+      // applies in the institution-scoped branch below)
+      if (status) {
+        if (Array.isArray(status)) {
+          query = query.in('status', status);
+        } else {
+          query = query.eq('status', status);
+        }
+      }
+
       if (city) {
         query = query.ilike('city', `%${sanitizeSearch(city)}%`);
       }
@@ -733,7 +743,8 @@ export class ConsultantService {
         `
         *,
         consultant:education_consultants(id, name, code),
-        lead:admission_leads(id, full_name, phone, email)
+        institution:institutions(id, name),
+        lead:admission_leads(id, full_name, phone, email, funnel_stage, program_id, program:programs!program_id(id, program_name), learner_profile:learners_profiles!learner_profile_id(id, lifecycle_status))
       `,
         { count: 'exact' }
       );

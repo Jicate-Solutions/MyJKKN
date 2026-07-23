@@ -7,9 +7,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -34,6 +35,7 @@ import {
   getProviderRegistry,
   type ModelOption,
 } from '@/lib/services/platform/ai-providers';
+import { isSafetyJudge, isBelowSonnet } from '@/lib/constants/ai-safety-judge';
 
 interface FeatureRow {
   feature_key: string;
@@ -44,7 +46,18 @@ interface FeatureRow {
   fallback_provider: string | null;
   fallback_model_id: string | null;
   monthly_spend_cap_inr: number | null;
+  // Registry-sourced governance threaded through from the GET list route.
+  // lane === 'max' → the subscription (Max) worker runs this, and that worker
+  // is the Claude CLI only (D3). month_to_date_invocations drives the Opus
+  // high-volume warning (D4).
+  lane?: string | null;
+  month_to_date_invocations?: number;
 }
+
+// Anthropic's provider id in the AI provider registry (ai-providers.ts) — the
+// only provider the subscription (Max) worker can run. Verified against
+// AI_PROVIDER_REGISTRY, not guessed.
+const MAX_LANE_PROVIDER = 'anthropic';
 
 interface AiModelEditDialogProps {
   open: boolean;
@@ -63,9 +76,25 @@ interface FormState {
 }
 
 function buildFormState(f: FeatureRow | null): FormState {
+  let provider = f?.provider ?? 'openai';
+  let model_id = f?.model_id ?? '';
+  // D3: a Max-lane feature can only run on the subscription Claude worker, so
+  // the provider is locked to Anthropic. If a max-lane row is somehow stored on
+  // another provider, coerce to Anthropic and clear the model so the picker
+  // forces a Claude re-pick.
+  if (f?.lane === 'max' && provider !== MAX_LANE_PROVIDER) {
+    provider = MAX_LANE_PROVIDER;
+    model_id = '';
+  }
+  // Safety-judge FLOOR: if a safety-critical judge row is somehow stored on a
+  // below-Sonnet model (legacy bad data), clear it so the picker forces a valid
+  // Sonnet/Opus re-pick instead of silently keeping the sub-floor model.
+  if (isSafetyJudge(f?.feature_key) && isBelowSonnet(provider, model_id)) {
+    model_id = '';
+  }
   return {
-    provider: f?.provider ?? 'openai',
-    model_id: f?.model_id ?? '',
+    provider,
+    model_id,
     fallback_provider: f?.fallback_provider ?? '',
     fallback_model_id: f?.fallback_model_id ?? '',
     monthly_spend_cap_inr: f?.monthly_spend_cap_inr?.toString() ?? '',
@@ -81,14 +110,46 @@ export function AiModelEditDialog({
 }: AiModelEditDialogProps) {
   const [form, setForm] = useState<FormState>(buildFormState(null));
   const [saving, setSaving] = useState(false);
+  // D4: the Director must tick a box before saving an Opus model on a
+  // high-volume job. Reset on each open so the ack is fresh per dialog session.
+  const [opusConfirmed, setOpusConfirmed] = useState(false);
 
   useEffect(() => {
-    if (open && feature) setForm(buildFormState(feature));
+    if (open && feature) {
+      setForm(buildFormState(feature));
+      setOpusConfirmed(false);
+    }
   }, [open, feature]);
 
+  // Any change to the chosen model clears a stale Opus acknowledgement.
+  useEffect(() => {
+    setOpusConfirmed(false);
+  }, [form.model_id]);
+
+  // D3: when the feature runs on the free (Max) lane, the provider is locked to
+  // Anthropic (the subscription worker is the Claude CLI only).
+  const isMaxLane = feature?.lane === 'max';
+  const providerOptions = useMemo(
+    () => (isMaxLane ? PROVIDER_OPTIONS.filter((p) => p.value === MAX_LANE_PROVIDER) : PROVIDER_OPTIONS),
+    [isMaxLane],
+  );
+
+  // D4: warn (do not block) when an Opus model is chosen for a job that already
+  // ran a lot this month.
+  const monthlyInvocations = feature?.month_to_date_invocations ?? 0;
+  const isOpusHighVolume =
+    form.model_id.toLowerCase().includes('opus') && monthlyInvocations >= 100;
+
+  // Safety-judge FLOOR: this feature must never run below Sonnet. Hide
+  // below-Sonnet models from the picker (offer only Sonnet/Opus). Same
+  // isBelowSonnet predicate the PATCH route enforces server-side.
+  const isSafetyJudgeFeature = isSafetyJudge(feature?.feature_key);
+
   const providerModels = useMemo<ModelOption[]>(() => {
-    return getProviderRegistry(form.provider)?.models ?? [];
-  }, [form.provider]);
+    const models = getProviderRegistry(form.provider)?.models ?? [];
+    if (!isSafetyJudgeFeature) return models;
+    return models.filter((m) => !isBelowSonnet(form.provider, m.id));
+  }, [form.provider, isSafetyJudgeFeature]);
 
   const fallbackProviderModels = useMemo<ModelOption[]>(() => {
     if (!form.fallback_provider) return [];
@@ -120,6 +181,13 @@ export function AiModelEditDialog({
     const fallback_model_id = form.fallback_model_id.trim() || null;
     if (fallback_provider && !fallback_model_id) {
       toast.error('Pick a fallback model or clear the fallback provider.');
+      return;
+    }
+
+    // D4: warn+confirm only — the checkbox already gates the Save button; this
+    // is defense in depth in case Save is triggered another way.
+    if (isOpusHighVolume && !opusConfirmed) {
+      toast.error('Please confirm you want Opus for this high-volume job.');
       return;
     }
 
@@ -173,11 +241,16 @@ export function AiModelEditDialog({
                 <SelectValue placeholder="Pick provider" />
               </SelectTrigger>
               <SelectContent>
-                {PROVIDER_OPTIONS.map((p) => (
+                {providerOptions.map((p) => (
                   <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {isMaxLane && (
+              <p className="text-xs text-muted-foreground">
+                Free (Max) worker runs Claude only.
+              </p>
+            )}
           </div>
 
           {/* Model */}
@@ -200,7 +273,34 @@ export function AiModelEditDialog({
                 {providerModels.find((m) => m.id === form.model_id)?.notes ?? 'Reference pricing in the registry — actual cost is recorded per call.'}
               </p>
             )}
+            {isSafetyJudgeFeature && (
+              <p className="text-xs text-muted-foreground">
+                Safety-critical judge — cannot run below Sonnet.
+              </p>
+            )}
           </div>
+
+          {/* D4: Opus-on-a-busy-job warning. Warn + require an explicit tick,
+              but never block the save. */}
+          {isOpusHighVolume && (
+            <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40">
+              <div className="flex items-start gap-2 text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  This job ran {monthlyInvocations.toLocaleString('en-IN')} times this month.
+                  Opus is expensive and can slow the shared free worker — are you sure?
+                </span>
+              </div>
+              <label className="flex items-center gap-2 pl-6 text-xs text-amber-800 dark:text-amber-200">
+                <Checkbox
+                  checked={opusConfirmed}
+                  onCheckedChange={(v) => setOpusConfirmed(v === true)}
+                  aria-label="Confirm using Opus for this high-volume job"
+                />
+                Yes, use Opus for this high-volume job.
+              </label>
+            </div>
+          )}
 
           {/* Spend cap */}
           <div className="space-y-2">
@@ -284,7 +384,7 @@ export function AiModelEditDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={saving}>
+          <Button onClick={handleSubmit} disabled={saving || (isOpusHighVolume && !opusConfirmed)}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save changes
           </Button>

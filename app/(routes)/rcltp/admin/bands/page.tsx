@@ -8,7 +8,7 @@
 // band (emergent/transitional/proficient/super_proficient). Band config is
 // per-institution (institution_id NOT NULL) — there is no global cutoff set.
 //
-// SAFETY: these cutoffs are PROVISIONAL and NOT EKSAQ-validated. They do not drive
+// SAFETY: these cutoffs are PROVISIONAL and NOT MyJKKN-validated. They do not drive
 // any live scoring yet. This is a config-editing screen, NOT a scoring screen — no
 // score is ever computed or presented as authoritative here. A persistent banner +
 // <ValidationBanner> make that explicit on the surface.
