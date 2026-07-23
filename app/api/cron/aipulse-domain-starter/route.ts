@@ -133,10 +133,25 @@ function buildPrompt(topicLabel: string, prior: Record<string, unknown> | null):
   let improveBlock = '';
   const priorPrompt = prior && typeof prior.prior_prompt === 'string' ? prior.prior_prompt : '';
   if (priorPrompt) {
-    improveBlock =
-      `\n\nLAST CYCLE you wrote this "build" prompt for this subject: "${priorPrompt}". ` +
-      `It was copied by ${copiesWord(prior?.prior_copies)} students, and their engagement ${liftWord(prior?.prior_lift)}. ` +
-      `Make this cycle's prompts sharper, simpler, and more hands-on so more students actually use them — and do NOT repeat the same build idea.`;
+    // Auto-revert hint (decision #19): when fn_ai_pulse_domain_starter_candidates
+    // flags reverted=true, prior_prompt is the BEST earlier version (by copy-rate),
+    // not the latest — the most recent rewrite LOST usage. Tell the model to go
+    // back toward that better version instead of continuing from the worse one.
+    // reverted is only ever set when the domain_starter_autorevert_enabled switch
+    // is on; otherwise this branch is never taken and the wording is unchanged.
+    if (prior?.reverted === true) {
+      improveBlock =
+        `\n\nYour MOST RECENT version of this subject's prompts was copied by FEWER students than an earlier version. ` +
+        `Here is that earlier, better-performing "build" prompt: "${priorPrompt}". ` +
+        `It was copied by ${copiesWord(prior?.prior_copies)} students, and their engagement ${liftWord(prior?.prior_lift)}. ` +
+        `Go BACK toward this earlier version and improve from HERE — do NOT continue from your last attempt. ` +
+        `Make it sharper, simpler, and more hands-on so more students actually use it, and do NOT repeat the same build idea.`;
+    } else {
+      improveBlock =
+        `\n\nLAST CYCLE you wrote this "build" prompt for this subject: "${priorPrompt}". ` +
+        `It was copied by ${copiesWord(prior?.prior_copies)} students, and their engagement ${liftWord(prior?.prior_lift)}. ` +
+        `Make this cycle's prompts sharper, simpler, and more hands-on so more students actually use them — and do NOT repeat the same build idea.`;
+    }
   }
   const user = `Subject / programme: ${topicLabel}.${improveBlock}\n\nReturn the JSON pack now.`;
   return `${SYSTEM_PROMPT}\n\n${user}`;
