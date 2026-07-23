@@ -1,3 +1,76 @@
+## Session: 2026-07-23 (End /cnext) — AI Pulse loop WENT LIVE + today's cycle set up
+
+### Accomplished
+- **AI Pulse build-from-parts loop LIVE.** All 6 PRs merged+deployed (prod build my-jkkn-kr487hs49). Switches flipped GLOBAL: prompt_build_enabled=true, domain_starter_autorevert_enabled=true; graduation HELD false. Builder card verified rendering (screenshot).
+- Built + shipped auto-revert (#2295) + graduation (#2297) this session; Director merged all 4 (incl. #2291/#2292). Fixed #2291 terminology (student→learner) + resolved #2292 vercel.json cron conflict (union of grade+graduate crons). Ran Step 2.7 bespoke gates on all four → green.
+- **Today's cycle (d9e6b0d4) CONFIG set up + saved** (status still draft): briefing="Gemini 3.6 Flash in Google Canvas…", challenge (old-vs-new + four-part prompt), host=Ommsharravana S, tool=Gemini, meet_url=standing Teams link. Researched Gemini 3.6 Flash (21 Jul release = efficiency upgrade, not a leap).
+- Confirmed two-quiz model: LIVE polls (champion, real-time) vs POST-SESSION quiz (from recording, bilingual, gates engagement).
+
+### Current Status
+- **Loop**: LIVE (dark switches flipped). **Cycle d9e6b0d4**: draft (go-live pending). **Starters**: 13 (batch NOT fired). **Build**: green/deployed. **Branch**: feat/campus-living-fee-compute-engine (shared omm-dev).
+
+### Lessons Learned
+- Starter generation is ATTENDANCE-gated (reads ai_pulse_live_attendance) → a threshold change alone won't unlock zero-attendance subjects; must generate from ENROLLMENT. Programme-level = 106 covers all 6,920 learners (course-level 3,808 = too heavy, query timed out).
+- Enqueue a Max-lane job directly: fn_ai_enqueue_system(p_job_type, p_payload{prompt,_ctx}, p_dedupe_key); reuse an existing job's exact prompt rather than retyping the SYSTEM_PROMPT.
+- CFT automation Chrome is a SANDBOXED profile — user's normal login doesn't reach it; switch_browser to the logged-in one ("23jul").
+
+### Next Session — Tasks (Director-ranked; full mechanism in continuation-prompt.dde309c4.md)
+1. [P0] FIRE the starter-unlock batch — ~93 programme-level ai_pulse.domain_starter jobs via fn_ai_enqueue_system (was mid-fire; reuse existing job's prompt) (medium, INTERACTIVE prod)
+2. [P0] GO LIVE tonight's cycle d9e6b0d4 (open live session /ai-pulse/live/[cycle]) — TIME-SENSITIVE, moot after ~19:30 IST (small)
+3. [P1] Post-session quiz — AI-suggest from tonight's recording (bilingual, no manual Tamil) (small)
+4. [P1] Reconcile "400+ prompts" claim — open Admin · AI Starters, ask Director which screen (small)
+5. [P2] Graduation "usage"-axis definition before flipping prompt_graduation_enabled (small)
+
+---
+
+## Session: 2026-07-23 (ship via Step 2.7) — machine SHIPPING; Director merged 2 of 4
+
+### Step 2.7 run on all 3 machine PRs — caught 1 real gate failure
+- nav-config / radix / permissions-catalog: ✓ all branches. carre/school-defaults/smart-guide: bare-worktree script env-error ("line: 1: out file"), FAILS on clean main too → not my code (advisory in CI).
+- 🔴 **JKKN terminology gate FAILED #2296**: `<TableHead>Student</TableHead>` → JKKN wants 'Learner'. Fixed.
+
+### Shipping reality (Director merged live while I worked)
+- **#2261 payout = MERGED** (2789ea6cc). **#2296 import = MERGED** (6376062e2) — but at PRE-FIX commit 88a757d69, so my terminology fix ORPHANED (the merged-early-orphans-pushes trap). "Student" landed on main.
+- **#2313** = tiny follow-up PR re-landing the terminology fix (Student→Learner) on current main. Open, needs merge.
+- **#2258 rates+generator = was CONFLICTING** (sidebarMenuLink.ts hotspot — #2261+#2296 both added sidebar entries). RESOLVED: merged main in, kept all 4 consultant entries (Commissions/Rates & Generate/Import/Payouts), sidebar tsc clean, pushed (26bbf5b02). Now MERGEABLE. Needs merge.
+
+### On main now (from #2261+#2296): payouts + import UI + enrich/promote migration. Rates UI NOT yet (in #2258).
+### Awaiting Director merge: #2258 (rates+generator, mergeable) + #2313 (terminology one-liner).
+### THEN deploy: Step -1 audit main build → fire Vercel hook → browser-verify /referral-rates, /payouts, /import on prod.
+### DB engines all applied to prod + dormant. Still Director-blocked on inputs: rates, claims file, bank/PAN 26 agencies, 4 approvers.
+
+---
+## Session: 2026-07-23 — Feature A auto-compare COLLECT LOOP complete + proven E2E (PR #2310 Ready)
+
+### Accomplished (all ranked P0/P1 items DONE)
+- **The collect loop is complete and proven end-to-end on prod.** A real `scf.freetext_carry` switch drove the full pipeline via the cron: discover → replay OLD model (haiku) → judge → record → a genuine `old_better` comparison landed (the judge caught the newer output wrapping its JSON in prose). Eval finalized `verdict_ready='tie'` (2-0 doesn't clear the margin-3 bar — correct conservative behavior).
+- **Box handoff AVOIDED (key deviation from the brief).** The brief expected a Windows-drain `.mjs` patch for the OLD-model run. But the drain already runs whatever `spec.model_id` says (per last session's Opus probe), so I implemented the same `_model_override` contract INSIDE `fn_ai_claim` (migration 130003) — a pure DB change I validated rolled-back + applied. PROVEN on the live drain: a `model_compare.replay` job pinned to haiku via `_model_override` recorded `claude-haiku-4-5-20251001`. No box dependency remains for Stage A.
+- **Migrations applied + rolled-back-validated on prod:** 130002 (codify live `{{prompt}}` judge fix + `model_compare.replay` neutral replay job [output_target=job.result → no domain writes] + `model_switch_replays` state-machine table) and 130003 (fn_ai_claim `_model_override`, anthropic-only, excluded for the 3 safety-judge jobs — behavior-preserving; the exclusion proven: a haiku override on scf.note_safety_judge is IGNORED).
+- **RPC tally proven** (rolled back): 20 verdicts each → flips `new_worse` (old wins by ≥margin 4), `new_better`, and `tie` (dead heat) exactly. `fn_model_switch_record_comparison` stays service_role-only.
+- **Warning UI built + PIXEL-verified** (production `next start` + puppeteer, super-admin): "Model switch quality watch" card on /admin/ai-models — amber banner + red "new model worse" badge for a regressing switch, yellow "no clear difference" for a tie. Reads /api/admin/ai-models/switches.
+- **Cron** `/api/cron/model-compare-collect` (glue-guarded, per-run capped, in_flight-recovery-safe) + registered in vercel.json (`9,39 * * * *`).
+
+### Current Status — SHIPPED + DEPLOYED + VERIFIED LIVE (via /myjkkn-chain)
+- **PR #2310 = MERGED (squash, 2026-07-23 11:25Z) + DEPLOYED + verified live on www.jkkn.ai.**
+- **Build Depth Gate green** incl. Step 2.7 bespoke gates: secdef-anon-revoke (3 SECDEF fns all lock anon) · nav-config · radix-empty · permissions-catalog · terminology-delta · typecheck/reachability/audit-coverage. **All 16 CI checks passed** on the non-draft PR (8 required + advisory), 0 failures.
+- **Merge conflict resolved**: main had added `UsageByModelPanel` to the same AI Models tab; merged jicate/main in, models tab now renders ModelSwitchWatchCard + UsageByModelPanel + AiModelsDataTable.
+- **Deploy**: Step -1 (main Ready) + Step 1.6 migration gate (all schema deps live, ground-truth) passed → deploy hook `4BaatXkhf8O2iANdfoiC` → landed ~4 min. Verified: `/api/cron/model-compare-collect` 404→401, `/api/admin/ai-models/switches` 405→401, `/admin/ai-models` HTTP 200 as super_admin (both card + usage panel render; switches API returns {data:[]}). No errors.
+- **The cron is now scheduled** (vercel.json 9,39) — runs every 30 min; returns "no collecting evaluations" cheaply until a real switch opens one.
+- **Prod DB clean**: substrate tables exist but empty (test evals deleted). Populates on a real switch.
+- **Branch**: worktree `.claude/worktrees/ai-autocompare` (feat/ai-model-autocompare-substrate, MERGED — janitor can remove). Main-repo branch unchanged: feat/campus-living-fee-compute-engine.
+
+### Lessons Learned
+- The "box-dependent piece" wasn't: since the drain already honors `spec.model_id`, a per-job model override belongs in `fn_ai_claim`, not the .mjs. DB-only = fully verifiable, no box round-trip.
+- The live Max-lane drain ETIMEDOUTs on LARGE prompts (pde.case_author ~2010 chars) but completes SMALL ones (scf.freetext_carry ~916). The cron correctly SKIPS a failed replay with the real error reason (never poisons the tally). Use small-prompt job types for loop proofs.
+- Headless screenshot deadlocks on Turbopack DEV but works fine against `next start` (production) — the route to an autonomous pixel eyeball.
+
+### Next Session — Tasks
+1. ✅ DONE — #2310 merged + deployed + verified live this session.
+2. Make a REAL model switch on /admin/ai-models for a glue max job → confirm the card shows it "collecting N/20", then a verdict after ~20 real runs (cron ticks 9,39). This is the live-adoption proof of the outcome metric.
+3. (Optional) raise the drain's spawnSync timeout on the Windows box so large-prompt replays (pde.case_author ~2010 chars) don't ETIMEDOUT — otherwise those job types can't be auto-compared (small-prompt types like scf.freetext_carry work fine).
+
+---
+
 ## Session: 2026-07-23 (End /cnext) — Per-job MODEL SELECTION shipped LIVE end-to-end + Feature A auto-compare partly built
 
 ### Accomplished
