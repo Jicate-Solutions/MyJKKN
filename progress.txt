@@ -1,3 +1,35 @@
+## Session: 2026-07-23 (End /cnext) [RCLTP] — 4 P0s closed + EKSAQ→MyJKKN shipped + remedial-plan loop Slice 1 live
+
+### Accomplished
+- **Verified** RCLTP Phases 1–3 prod state matches brief (PRs #2252/#2253 merged, dashboard RPC live, 16 [TEST] learners, 48 scored).
+- **Task 1 (student view)**: created real login `test.rcltp.asha@jkkn.ac.in` (uid 15fc29a4…, learner c0ffee00…-001), flipped only Asha lifecycle_status→active, rendered `/rcltp/student` live → 3 scored assessments list. FINDING: student portal shows NO band/score BY DESIGN (aggregate-only; principal sees provisional, learners don't). Director confirmed KEEP aggregate-only. Student access gated by proxy.ts StudentValidationService (lifecycle_status active/graduated).
+- **Task 3 (chart clip)**: FALSE bug — fullPage screenshot re-animation artifact (DOM had 4 bars; viewport screenshot shows all 4). No code change. RPC gate PROVEN via prod impersonation (principal allowed / student 42501 denied).
+- **Task 4**: CBSE/AI-Max strategy one-pager written + published as Artifact (HTML). Honest framing: 2,892 AI jobs = 96% system pipelines, genuine Senior-Learner offload ~71 jobs; 0 REAL RCLTP learners scored.
+- **EKSAQ→MyJKKN rename** (director decision): swept 152 mentions/48 files + spec + memory + one-pager; PR #2283 MERGED + DEPLOYED (incl. terminology-gate fix for 2 reactivated 'teacher' lines).
+- **loop-lens**: 🟡 right idea wrong sequence — adoption is the constraint, not building. **moat-loop**: 🔴 remedial loop designed-not-built; would be self-reinforcing (regression-to-mean) until edit-capture + control arm + validated metric.
+- **BUILD (/loop) — remedial-plan draft loop Slice 1 LIVE**: `rcltp_remedial_plans` table + 2 anon-locked RPCs (service_role generator upsert; authenticated rcltp.review approve = ONLY path to 'approved') + `ai_job_types` registration `rcltp.remedial_plan_draft` (lane=max). Applied to prod (dry-run validated). Branch `feat/rcltp-remedial-plan-loop` (commit f0a8ed951, NOT pushed/PR'd yet).
+
+### Current Status
+- **Feature**: RCLTP remedial-plan loop — Slice 1 (DB) done; Slices 2–5 pending.
+- **Build**: EKSAQ PR #2283 merged+deployed (green). Remedial Slice 1 migration applied to prod.
+- **Branch**: `feat/rcltp-remedial-plan-loop` (worktree `.claude/worktrees/rcltp-remedial`).
+
+### Lessons Learned
+- AI-Max offload build pattern = mirror curriculum lesson-spine (ai_job_types lane=max ₹0 + draft/approve SECDEF RPCs; approve RPC = structural gate). See reference_aimax_offload_job_build_pattern.
+- Management API from Python needs a non-default User-Agent (Cloudflare 403s python-urllib). Dry-run migrations by swapping COMMIT→ROLLBACK.
+- Delta terminology gate REACTIVATES on token sweeps — a find-replace pulls dormant 'teacher'/'student' lines into the diff and re-flags them.
+- Puppeteer fullPage screenshot re-animates Recharts → verify charts with viewport-only or a DOM elementFromPoint probe.
+
+### Next Session — Tasks
+1. [P0] Slice 2 — remedial-plan GENERATION handler: bespoke cron `app/api/cron/rcltp-remedial-plan-generate/route.ts` mirroring lesson-spine; ground Claude prompt in at-risk learner's RCLTP data (band, overall, weak areas from rcltp_part_b_responses) → write draft via fn_rcltp_remedial_plan_ai_draft_upsert (medium-large)
+2. [P0] Slice 3 — Senior Learner review/edit/APPROVE UI in RCLTP teacher console (calls fn_rcltp_remedial_plan_approve; captures edited_content) (medium)
+3. [P0] Slice 4 — E2E proof on a [TEST] at-risk learner (Chitra/Gowri/Priya/Lakshmi low_band or Deepa/Karthik/Omar regression): enqueue → draft → edit → approve; browser-verify via admin-mint (small-med)
+4. [P0] Slice 5 — push branch + open PR `feat/rcltp-remedial-plan-loop` for DIRECTOR merge (never auto-merge institutional PR) (small)
+5. [P1] Rename residual spec `specs/eksaq-rcltp-phase4-ui-plan.md` → `myjkkn-...` (last EKSAQ trace) (small)
+6. [P2] Adoption (loop-lens binding constraint, NOT code): get REAL grade 3–4 Nattraja learners scored in RCLTP — the loop has no fuel until real learners exist
+
+---
+
 ## Session: 2026-07-22 (End /cnext) — JKKN MBA Teaching-Enterprise model designed + 5 HTML playbooks
 
 ### Accomplished
