@@ -20,6 +20,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { invalidateModelCache } from '@/lib/services/platform/ai-model-config-service';
+import { isSafetyJudge, isBelowSonnet } from '@/lib/constants/ai-safety-judge';
 
 async function requireSuperAdmin() {
   const supabase = await createClient();
@@ -108,6 +109,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (readErr) throw readErr;
     if (!existing) {
       return NextResponse.json({ error: 'Feature not found' }, { status: 404 });
+    }
+
+    // Safety-judge FLOOR (defense in depth — the dialog also hides sub-floor
+    // models): a safety-critical judge must never be set below Sonnet. Guard
+    // the effective model whenever this PATCH touches the provider or model.
+    if (isSafetyJudge(feature_key) && ('provider' in updates || 'model_id' in updates)) {
+      const effectiveProvider = ('provider' in updates ? updates.provider : existing.provider) as string;
+      const effectiveModelId = ('model_id' in updates ? updates.model_id : existing.model_id) as string;
+      if (isBelowSonnet(effectiveProvider, effectiveModelId)) {
+        return NextResponse.json(
+          { error: 'Safety-judge jobs cannot be set below Sonnet.' },
+          { status: 400 },
+        );
+      }
     }
 
     updates.updated_by = auth.userId;
