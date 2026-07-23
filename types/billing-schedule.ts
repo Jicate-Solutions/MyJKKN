@@ -1,6 +1,8 @@
 // Billing Schedule Types
 // This file contains all TypeScript interfaces for the billing schedule management system
 
+import type { BillingCollectionType } from './billing';
+
 // Enums and Union Types
 export type BillStatus =
   | 'paid'
@@ -156,6 +158,9 @@ export interface StudentBillFilters {
   student_id?: string;
   institution_id?: string;
   item_category_id?: string;
+  // Ownership of the fee — resolved to the matching billing_categories ids and
+  // applied as item_category_id IN (...). Uncategorised bills are excluded when set.
+  collection_type?: BillingCollectionType;
   status?: BillStatus;
   // learners_profiles.lifecycle_status — filters bills by the learner's
   // lifecycle state (routes the query through the !inner learner join).
@@ -276,6 +281,12 @@ export interface ReceiptFilters {
   search?: string;
   student_id?: string;
   institution_id?: string;
+  /**
+   * Matches receipts containing AT LEAST ONE line of this ownership. A single
+   * payment can settle both management and government bills, so this is
+   * inclusive — a mixed receipt appears under both filters.
+   */
+  collection_type?: BillingCollectionType;
   payment_mode?: PaymentMode;
   receipt_date_from?: string;
   receipt_date_to?: string;
