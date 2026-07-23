@@ -158,6 +158,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  '/ceo-rounds': 'ceo_rounds.log',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -1477,6 +1478,16 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
             { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
           ]
+        },
+        {
+          // CEO Rounds — the daily rounds log (participation-graded attendance,
+          // rotating-associate summary, Rounds-task → Board link). Gated by
+          // ceo_rounds.log via MENU_PERMISSIONS.
+          href: '/ceo-rounds',
+          label: 'CEO Rounds',
+          active: pathname === '/ceo-rounds' || pathname.startsWith('/ceo-rounds/'),
+          icon: ClipboardList,
+          submenus: []
         }
       ]
     },

@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/import",
+            "label": "Import",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
@@ -3185,6 +3191,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/ceo-rounds",
+    "label": "Ceo Rounds",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/consultant-portal",

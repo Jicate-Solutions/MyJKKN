@@ -213,6 +213,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
   ['/improvement-board', 'Improvement Board'], // MBA teaching-enterprise (improvement.* + ceo_rounds.* perms)
+  ['/ceo-rounds', 'Improvement Board'], // MBA teaching-enterprise — CEO Rounds log (ceo_rounds.* perms)
   ['/rcltp', 'Academic'], // MyJKKN RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
