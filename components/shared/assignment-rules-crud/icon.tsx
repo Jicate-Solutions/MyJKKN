@@ -5,7 +5,7 @@
 //
 // Extracted from columns.tsx during the policy-shell refactor (2026-05-08) so
 // the helper survives independently of the now-deleted TanStack table.
-// PR #757's /admin/counselors/rule-types page imports this from
+// PR #757's /admission/counselors/admin/rule-types page imports this from
 // components/shared/assignment-rules-crud/columns; the columns.tsx file now
 // re-exports from here to keep that import path stable.
 // ============================================================================

@@ -22,6 +22,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PermissionError } from '@/components/errors/permission-error';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { TeamNav } from './_components/team-nav';
 
@@ -35,10 +36,18 @@ const TEAM_TAB_META = [
     subtitle: '7-day availability schedule for each counselor.',
   },
   {
+    // /allocation/<id> — per-source assignment workspace. Must come BEFORE the
+    // bare /allocation entry so startsWith picks the longer prefix first.
+    match: '/admission/counselors/team/allocation/',
+    crumb: 'Allocation',
+    contentTitle: 'Team — Allocation',
+    subtitle: 'Assign counselors and distribute leads for this source.',
+  },
+  {
     match: '/admission/counselors/team/allocation',
     crumb: 'Allocation',
     contentTitle: 'Team — Allocation',
-    subtitle: 'Institution and lead-source allocation per counselor.',
+    subtitle: 'Click a source to manage counselor assignment and lead distribution.',
   },
   {
     match: '/admission/counselors/team/rules',
@@ -50,7 +59,7 @@ const TEAM_TAB_META = [
     match: '/admission/counselors/team/activity',
     crumb: 'Activity',
     contentTitle: 'Team — Activity',
-    subtitle: 'Last 50 lead cascade and reassignment events.',
+    subtitle: 'Day-by-day counselor activity log with type breakdown and 7-day trend.',
   },
   // Members (root) — must be last so longer prefixes match first.
   {
@@ -72,7 +81,23 @@ export default function TeamLayout({ children }: { children: ReactNode }) {
   const meta = resolveMeta(pathname);
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard
+      module="admission.counselors.team"
+      action="view"
+      // BUG-003988 companion: the inner allocation/layout.tsx manage-gate already
+      // surfaces an explicit view-only message, but this OUTER view-gate rendered
+      // a fully BLANK page (incl. /team/allocation) for anyone without
+      // admission.counselors.team.view. Permission failures must be explicit,
+      // never silent (CLAUDE.md rule #27).
+      fallback={
+        <ContentLayout title="Team Management">
+          <PermissionError
+            message="Counselor team management is restricted to admission leaders (Admission Manager, Principal, HOD)."
+            requiredPermission="admission.counselors.team.view"
+          />
+        </ContentLayout>
+      }
+    >
       <AdmissionErrorBoundary>
         <ContentLayout title={meta.contentTitle}>
           <div className="space-y-6">

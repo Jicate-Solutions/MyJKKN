@@ -330,7 +330,7 @@ export default function FormAnalyticsPage({
   const { id } = usePromise(params);
   return (
     <AdmissionErrorBoundary>
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission.settings.forms" action="view">
         <AnalyticsContent formId={id} />
       </PermissionGuard>
     </AdmissionErrorBoundary>

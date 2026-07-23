@@ -1,0 +1,34 @@
+# Bug-Triage & Duplicate-Cluster loop manifest — INTAKE loop (not yet self-improving).
+# Registered 2026-07-17 (PR 3 of the bug-triage epic). Gates: g=on a=on m=off f=off.
+#
+# HONESTY NOTE (moat-loop discipline): this loop has NO measure-vs-baseline and
+# NO feed-forward yet, so there is no sim block — /loops regress has nothing to
+# assert here beyond structure. When the measure ships (duplicate-confirmation
+# rate / backlog shrink / cluster recurrence after a "fix"), add the sim and
+# flip m=on in loop_registry.
+loop_key: bug-triage
+name: Bug Triage & Duplicate-Cluster Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: bug_reports       # user-filed reports; open pool = status in (new,seen,in_progress) AND duplicate_of IS NULL
+  action: bug_clusters     # trigram-scan duplicate proposals; status proposed|confirmed|dismissed
+
+mechanism:
+  scan: fn_bug_cluster_scan()      # deterministic pg_trgm clustering (0.55 sim, 14-day pair window, 2..40 members); nightly cron /api/cron/bug-cluster-scan (21:19 UTC) + Groups-tab "Scan now"
+  surface: fn_bug_cluster_list()   # Groups tab on /admin/bug-reports
+  act: POST /api/bug-reports/clusters/[id] {action confirm|dismiss}   # human-gated; confirm parks members (status=duplicate, duplicate_of=seed)
+  downstream: PR-1 duplicate machinery  # resolving the canonical cascades resolution + emails every duplicate's reporter; reopen of any copy reopens the canonical
+  ai_briefing: bug.triage ai_job_type   # per-bug ₹0 briefing (PR 2), on-demand from the detail page
+
+walk:
+  hops:
+    - persona: superadmin
+      action: open /admin/bug-reports Groups tab; run Scan now; confirm ONE small sentinel-only group
+      forbidden: [confirming clusters containing real learner reports during a walk]
+  cleanup: reset sentinel bugs' duplicate_of/status; delete sentinel cluster rows
+
+notes:
+  - Cluster identity = seed_bug_id (oldest member). Dismissed seeds are never re-proposed; confirmed members leave the open pool (self-cleaning).
+  - The 14-day pair window is load-bearing: without it, months of similar complaints transitively chain into a 140-member mega-cluster (observed in pre-apply validation 2026-07-17).
+  - similarity() lives in the `extensions` schema on Supabase — fn search_path includes it.

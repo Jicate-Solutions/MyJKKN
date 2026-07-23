@@ -172,7 +172,8 @@ export class RoleService {
         description: role.description ?? null,
         permissions: (role.permissions || DEFAULT_ROLE_PERMISSIONS) as any,
         is_system_role: role.is_system_role ?? false,
-        institution_id: role.institution_id ?? null
+        institution_scope: role.institution_scope ?? 'own',
+        module_scopes: (role.module_scopes ?? {}) as any
       } as any;
 
       const { data, error } = await (this.supabase as any)
@@ -454,13 +455,18 @@ export class RoleService {
         .order('role_name');
 
       if (error) {
-        console.error('[RoleService] Error fetching assignable roles:', error);
+        // Demoted to warn (2026-04-28): callers receive the thrown error and
+        // decide severity. Diagnostic-level logging here was triggering Next.js
+        // dev overlay on transient network blips even when callers had fallbacks.
+        console.warn('[RoleService] Error fetching assignable roles:', error);
         throw error;
       }
-      
+
       return data ? data.map(row => this.toCustomRole(row)) : [];
     } catch (error) {
-      console.error('[RoleService] Error in getAssignableRoles:', error);
+      // Demoted to warn (2026-04-28) — see note above. Outer catch is a duplicate
+      // diagnostic; the throw is what matters for callers.
+      console.warn('[RoleService] Error in getAssignableRoles:', error);
       throw error;
     }
   }

@@ -1,6 +1,21 @@
 import type { PageEntry } from './types';
 
 /**
+ * Roles the database `is_admin()` treats as admin:
+ *   is_super_admin = true  OR  role IN ('admin','super_admin','administrator').
+ * The nav/route guard must NOT be stricter than the data layer — these roles pass
+ * `is_admin()` on every RPC, so blocking them at the route guard (which previously
+ * bypassed only `isSuperAdmin`) produced a confusing "can't open my own admin
+ * console" lockout for non-super-admin `administrator` users. This mirrors
+ * `is_admin()` exactly, so it grants nothing the DB doesn't already grant; a plain
+ * student/faculty (not in this set) is unaffected and cannot be over-opened.
+ */
+const ADMIN_BYPASS_ROLES = ['admin', 'super_admin', 'administrator'];
+function hasAdminBypass(userRole: string, isSuperAdmin: boolean): boolean {
+  return isSuperAdmin || ADMIN_BYPASS_ROLES.includes(userRole);
+}
+
+/**
  * Filters page entries based on user's merged permissions.
  * Uses the same permission keys from MENU_PERMISSIONS that the sidebar uses.
  *
@@ -21,8 +36,8 @@ export function filterByPermissions(
     // Universal permissions — always accessible
     if (['view_dashboard', 'view_profile'].includes(page.permission)) return true;
 
-    // Super admin sees everything except student-only pages
-    if (isSuperAdmin) {
+    // Admin roles (mirrors DB is_admin()) see everything except student-only pages
+    if (hasAdminBypass(userRole, isSuperAdmin)) {
       return !page.path.includes('/learners/my-') &&
              page.path !== '/learners/leave-onduty/my-applications';
     }
@@ -59,7 +74,7 @@ export function isPageAccessible(
 ): boolean {
   if (!permission) return true;
   if (['view_dashboard', 'view_profile'].includes(permission)) return true;
-  if (isSuperAdmin) return true;
+  if (hasAdminBypass(userRole, isSuperAdmin)) return true;
   // Marathon ops & committees — page-level guards handle committee membership
   if (permission === 'events.marathon.live_ops.manage' ||
       permission === 'events.marathon.committees.manage') return true;

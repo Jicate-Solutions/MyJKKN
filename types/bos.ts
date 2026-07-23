@@ -8,7 +8,8 @@ export type BosExpertCategory =
   | 'university_nominee'
   | 'subject_expert'
   | 'industry_expert'
-  | 'alumni';
+  | 'alumni'
+  | 'startup';
 
 export type BosMemberType =
   | 'chairman'
@@ -16,7 +17,12 @@ export type BosMemberType =
   | 'university_nominee'
   | 'subject_expert'
   | 'industry_expert'
-  | 'alumni';
+  | 'alumni'
+  | 'startup'
+  | 'hod'
+  | 'facilitator'
+  | 'principal'
+  | 'member_secretary';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -28,7 +34,7 @@ export type BosMeetingStatus =
   | 'minutes_approved'
   | 'ratified';
 
-export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online';
+export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
@@ -66,6 +72,7 @@ export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  startup: 'Startup',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
@@ -75,11 +82,42 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   subject_expert: 'Subject Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
+  startup: 'Startup',
+  hod: 'Head of Department',
+  facilitator: 'Facilitator',
+  principal: 'Principal',
+  member_secretary: 'Member Secretary',
 };
+
+/**
+ * Display label for a member_type value. Catalog-driven rows store the
+ * bos_member_types.name verbatim — shown as-is; legacy enum values map
+ * through BOS_MEMBER_TYPE_LABELS.
+ */
+export function bosMemberTypeLabel(memberType: string | null | undefined): string {
+  if (!memberType) return '';
+  return (BOS_MEMBER_TYPE_LABELS as Record<string, string>)[memberType] ?? memberType;
+}
+
+/**
+ * Is this bos_members row a chairman seat? Mirrors the DB predicate in the
+ * 20260710150000 helper functions: legacy literal 'chairman' (case-insensitive,
+ * covering catalog rows named "Chairman" whose FK was later nulled) OR a
+ * linked catalog type whose base_type is 'chairman'.
+ */
+export function isBosChairmanRow(m: {
+  member_type?: string | null;
+  member_type_rec?: { base_type?: BosMemberType | string | null } | null;
+}): boolean {
+  return (
+    (m.member_type ?? '').toLowerCase() === 'chairman' ||
+    m.member_type_rec?.base_type === 'chairman'
+  );
+}
 
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
   draft: 'Draft',
-  principal_approved: 'Principal Approved',
+  principal_approved: 'Principal Approval',
   noticed: 'Notice Sent',
   expert_invited: 'Experts Invited',
   completed: 'Meeting Completed',
@@ -93,6 +131,8 @@ export const BOS_MEETING_TYPE_LABELS: Record<BosMeetingType, string> = {
   special: 'Special',
   emergency: 'Emergency',
   online: 'Online',
+  hybrid: 'Hybrid',
+  academic_council: 'Academic Council',
 };
 
 export const BOS_COURSE_REVIEW_ACTION_LABELS: Record<BosCourseReviewAction, string> = {
@@ -116,12 +156,17 @@ export const BOS_DOCUMENT_TYPE_LABELS: Record<BosDocumentType, string> = {
 // ── Meeting State Machine ────────────────────────────────────────────────────
 // Ordered list of states for progress stepper component
 
+// 'completed' is intentionally omitted: per the 2026-05-20 UX simplification,
+// the "Meeting Finalized" action chains expert_invited → completed → minutes_drafted
+// in a single click (see handleTransitionConfirm in the meeting detail page),
+// so the intermediate Completed state isn't shown as a stepper step. The
+// enum value still exists for legacy meetings and the state machine still
+// permits the transition — only the visible workflow collapsed it.
 export const BOS_MEETING_STATUS_ORDER: BosMeetingStatus[] = [
   'draft',
   'principal_approved',
   'noticed',
   'expert_invited',
-  'completed',
   'minutes_drafted',
   'minutes_approved',
   'ratified',
@@ -138,6 +183,623 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   minutes_approved: 'ratified',
   ratified: null,
 };
+
+// ── Academic Council meeting state machine ───────────────────────────────────
+// AC meetings (meeting_type = 'academic_council') are convened by the principal,
+// so there is NO 'principal_approved' hop (the principal is the scheduler) and
+// NO 'ratified' terminal state (the AC is itself the ratifying body). Call
+// letters are sent at 'noticed'; there is no separate 'expert_invited' step.
+//
+//   draft → noticed → completed → minutes_drafted → minutes_approved
+//
+// The status route and stepper pick this map when meeting_type is
+// 'academic_council'; BoS meetings continue to use BOS_MEETING_NEXT_STATUS.
+export const AC_MEETING_STATUS_ORDER: BosMeetingStatus[] = [
+  'draft',
+  'noticed',
+  'minutes_drafted',
+  'minutes_approved',
+];
+
+export const AC_MEETING_NEXT_STATUS: Partial<Record<BosMeetingStatus, BosMeetingStatus | null>> = {
+  draft: 'noticed',
+  noticed: 'completed',
+  completed: 'minutes_drafted',
+  minutes_drafted: 'minutes_approved',
+  minutes_approved: null,
+};
+
+/**
+ * Returns the correct transition map for a meeting given its type.
+ * Use this instead of referencing BOS_MEETING_NEXT_STATUS directly wherever a
+ * meeting could be an Academic Council meeting.
+ */
+export function meetingNextStatusMap(
+  meetingType: string | null | undefined
+): Partial<Record<BosMeetingStatus, BosMeetingStatus | null>> {
+  return meetingType === 'academic_council'
+    ? AC_MEETING_NEXT_STATUS
+    : BOS_MEETING_NEXT_STATUS;
+}
+
+// ── Board Programme Mapping ──────────────────────────────────────────────────
+
+export interface BosBoardProgramme {
+  id: string;
+  board_id: string;
+  institutions_id: string;
+  programme_code: string;    // UEN, UCM, UTA…
+  programme_name?: string;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Programme Outcomes ───────────────────────────────────────────────────────
+
+export interface BosProgrammeOutcome {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  po_code: string;           // PO1, PO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface BosProgrammeSpecificOutcome {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  programme_code: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+// ── Institution-level master PO/PSO (bos_master_pos / bos_master_psos /
+// bos_board_psos, migration 20260710170000). Different axis from the
+// regulation-scoped BosProgrammeOutcome above — see /bos/po-pso.
+
+export interface BosMasterPo {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  po_code: string;           // PO1, PO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface BosMasterPso {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/** Board-level PSO override row. board_id is a COE board UUID (no local FK). */
+export interface BosBoardPso {
+  id: string;
+  board_id: string;
+  institutions_id: string;
+  regulation_id: string;
+  board_code?: string | null;
+  board_name?: string | null;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/** Summary row returned by GET /api/bos/taxonomy/[regulationId]/programmes */
+export interface BosProgrammeSummary {
+  programme_code: string;
+  programme_name: string;
+  board_id: string;
+  board_name: string;
+  po_count: number;
+  pso_count: number;
+  can_edit: boolean;   // true if current user is chairman for this programme (or super admin)
+  can_view: boolean;   // true if current user is any board member, principal, or super admin
+}
+
+// ── Board (Reference from COE) ───────────────────────────────────────────────
+
+export interface BosBoard {
+  id: string;
+  board_code: string;
+  board_name: string;
+  board_type?: string | null;
+  institutions_id?: string;
+  is_active?: boolean;
+  display_name?: string | null;
+  board_order?: number | null;   // COE-provided ordering; we sort ascending in selects
+}
+
+export interface BosBoardFilters {
+  institutionsId?: string;
+  // Note: boards endpoint doesn't support pagination or filtering
+  // It returns filtered results based on authenticated user's institution scope
+}
+
+// ── Course Syllabus & Learning Outcomes ─────────────────────────────────
+
+export interface BosCourseObjective {
+  id?: string;
+  number: number;
+  description: string;
+}
+
+export interface BosCourseLearnOutcome {
+  clo_number: number;
+  description: string;
+  k_values: string[]; // ['K1', 'K3', 'K5', 'K6'] from taxonomy
+}
+
+export interface BosCourseObjectivesContent {
+  objectives: BosCourseObjective[];
+}
+
+export interface BosCourseLearnOutcomesContent {
+  clos: BosCourseLearnOutcome[];
+}
+
+// ── Course Content: Units & Chapters ───────────────────────────────────
+
+export interface BosChapterSubtopic {
+  number: number;
+  title: string;
+}
+
+export interface BosChapter {
+  chapter_number: number;
+  title: string;
+  sections: string; // "Chapter 1: Sections 13 and 14"
+  subtopics?: BosChapterSubtopic[];
+}
+
+export interface BosUnit {
+  unit_id: string; // "I", "II", "III", "IV", "V"
+  unit_title: string;
+  chapters: BosChapter[];
+  remarks?: string;
+  /** Period marker "theory+tutorial" (e.g. "6+6"); engineering/CET syllabi. */
+  hours?: string;
+}
+
+// Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
+// hold child sub-topics (e.g. "Estimation of dissolved Oxygen"). Sub-topics
+// are optional — rows authored before the hierarchy shipped continue to work
+// as flat single-line entries because the PDF renderer falls back on
+// `{ number, title }` when `subtopics` is empty or absent.
+export interface BosPracticalTopic {
+  number: number;
+  title: string;
+  subtopics?: BosChapterSubtopic[];
+}
+
+// Project-mode rule: a titled guideline with paragraph content
+export interface BosProjectRule {
+  unit_of_experiment: string;  // e.g., "Project Assignment & Submission"
+  content: string;              // The paragraph/guideline text from the PDF
+}
+
+// Project-mode unit: contains project work rules and guidelines
+export interface BosProjectUnit {
+  unit_id: string;              // "I", "II", "III" (auto-generated)
+  unit_title: string;           // e.g., "Timeline & Submission"
+  rules: BosProjectRule[];       // Guidelines for this unit
+  remarks?: string;
+}
+
+export interface BosCourseContentData {
+  units: BosUnit[];
+  // Practical-paper mode (e.g. lab courses): when true, `topics` is the
+  // authoritative content — a numbered list of headings, each optionally
+  // carrying its own sub-experiments. `units` is ignored in this mode.
+  // The form toggle in components/bos/syllabus-form.tsx (toggleMode) maintains
+  // the invariant that exactly one of units/topics/project_units is populated.
+  is_practical?: boolean;
+  topics?: BosPracticalTopic[];
+  /**
+   * PDF/exports: whether to print the inline experiment number (e.g. "1. Zener
+   * diode …") on each practical sub-topic and heading. Defaults to ON when
+   * absent so existing syllabi keep their current numbered output; unchecking
+   * the "Number experiments" toggle in the Content tab stores `false` and the
+   * exports drop the inline prefix (the S.No column still numbers the rows).
+   */
+  number_practical_topics?: boolean;
+  // Project-mode: group-based project work rules and guidelines
+  is_project?: boolean;
+  project_units?: BosProjectUnit[];
+  instruction?: string;
+  /** Course total periods "theory+tutorial" (e.g. "30+30"); engineering/CET. */
+  total_hours?: string;
+}
+
+// ── Textbooks & References ────────────────────────────────────────────
+
+export interface BosTextbook {
+  title: string;
+  author: string;
+  publication_year: number;
+  publisher?: string;
+}
+
+export interface BosBooksData {
+  primary: BosTextbook[];
+  references: BosTextbook[];
+}
+
+// ── Web Resources ─────────────────────────────────────────────────────
+
+export interface BosWebResource {
+  title: string;
+  url: string;
+}
+
+export interface BosWebResourcesData {
+  resources: BosWebResource[];
+}
+
+// ── Pedagogy Methods ──────────────────────────────────────────────────
+
+export interface BosPedagogyData {
+  methods: string[]; // ["Chalk and talk", "PowerPoint", "E-content", "Group discussion", ...]
+}
+
+// ── Programme Outcome Mappings ────────────────────────────────────────
+
+export interface BosPoMapping {
+  co_id: string; // "CO1", "CO2", etc.
+  pos: Record<string, 'H' | 'M' | 'L'>; // {"PO1": "H", "PO2": "M", ...}
+  psos?: Record<string, 'H' | 'M' | 'L'>; // Optional PSO mappings
+}
+
+export interface BosPOMappingsData {
+  mappings: BosPoMapping[];
+}
+
+// ── Complete Course Syllabus ──────────────────────────────────────────
+
+export interface BosSyllabusContent {
+  course_objectives?: BosCourseObjectivesContent;
+  course_learning_outcomes?: BosCourseLearnOutcomesContent;
+  course_content?: BosCourseContentData;
+  textbooks?: BosBooksData;
+  web_resources?: BosWebResourcesData;
+  pedagogy?: BosPedagogyData;
+  po_mappings?: BosPOMappingsData;
+  assessment_structure?: BosAssessmentStructure;
+  concept_applications?: BosConceptApplicationsData;
+  assessment_pattern?: BosAssessmentPatternData;
+  capstone_project?: BosCapstoneProjectData;
+  capstone_rubric?: BosCapstoneRubricData;
+  llc_conference?: BosLlcConferenceData;
+}
+
+// ── Assessment Structure (v1.2) ──────────────────────────────────────────────
+// One row of the "Assessment Structure (Total 100)" table.
+export interface BosAssessmentComponent {
+  id?: string;
+  sno?: number;
+  component: string;
+  marks: number;
+}
+
+// A single Principal-Agent Public Exhibition capstone option.
+export interface BosCapstone {
+  id?: string;
+  title: string;
+  subject?: string;
+  artifacts?: string;
+  give_back?: string;
+}
+
+// Full assessment block stored as one JSONB column on bos_course_syllabi.
+export interface BosAssessmentStructure {
+  components?: BosAssessmentComponent[];
+  concept_applications_note?: string;
+  exhibition_note?: string;
+  capstones?: BosCapstone[];
+}
+
+// ── Fink's Formative + Capstone blocks (v3.5) ────────────────────────────────
+// Five dedicated JSONB columns on bos_course_syllabi (20260709 migration),
+// separating what v1.2 crammed into assessment_structure.
+
+// One formative activity row of "Concept Applications (Formative Learning
+// Activities)" — anchored to a unit/lab task, shaped by a Fink's dimension.
+export interface BosConceptApplication {
+  id?: string;
+  sno?: number;
+  unit: string;              // e.g. "Word Tasks 1-2"
+  finks_dimension: string;   // e.g. "Foundational Knowledge", "Caring"
+  task: string;
+  deliverable_notes: string; // deliverable + 3-4 sentence reflection prompt
+}
+
+export interface BosConceptApplicationsData {
+  intro_note?: string;
+  activities?: BosConceptApplication[];
+}
+
+// One internal-component row of the "Assessment Pattern" table.
+export interface BosAssessmentPatternComponent {
+  id?: string;
+  sno?: number;
+  component: string; // e.g. "CIA I, CIA II & Model Examination"
+  marks: number;
+}
+
+export interface BosAssessmentPatternData {
+  internal_marks?: number;  // e.g. 30
+  external_marks?: number;  // e.g. 70
+  components?: BosAssessmentPatternComponent[];
+  activities_note?: string; // "* Activities: Assignment / Case study / …"
+  note?: string;            // formative-vs-summative footnote
+}
+
+// One "choose ONE of FIVE" capstone option card.
+export interface BosCapstoneOption {
+  id?: string;
+  option_no?: number;
+  title: string;    // e.g. "The Document Kit for a Real Event"
+  primary?: string; // PRIMARY (AI-proof) deliverable
+  support?: string; // ~400-word reflection brief
+  llc?: string;     // what is demonstrated live at the LLC
+}
+
+export interface BosCapstoneProjectData {
+  intro_note?: string;
+  options?: BosCapstoneOption[];
+}
+
+// One criterion row of the common capstone rubric.
+export interface BosCapstoneRubricCriterion {
+  id?: string;
+  sno?: number;
+  criterion: string;
+  marks: number;
+}
+
+export interface BosCapstoneRubricData {
+  total_marks?: number; // e.g. 10
+  note?: string;        // "10 marks · common to all 5 options"
+  criteria?: BosCapstoneRubricCriterion[];
+}
+
+// End-of-course Learners Led Conference description block.
+export interface BosLlcConferenceData {
+  title?: string;
+  subtitle?: string;   // "cohort audience · faculty + Senior Learner facilitate…"
+  description?: string;
+}
+
+export interface BosCourseSyllabus {
+  id: string;
+  institutions_id: string;
+  board_id: string;
+  regulation_id?: string;
+  composition_id?: string;
+  /**
+   * Stable COE course id (BosCourseMaster.id) — the canonical link to the COE
+   * course. course_code/course_name below are fallback display snapshots that
+   * COE may rename; prefer resolving the live values from COE by course_id.
+   */
+  course_id?: string;
+  course_code: string;
+  course_name: string;
+  course_credits?: number;
+  total_hours?: number;
+  contact_hours?: number;
+
+  // Versioning
+  version_number: number;
+  is_latest: boolean;
+  is_archived: boolean;
+  revised_from_syllabus_id?: string;
+
+  // Content (as JSONB)
+  course_objectives?: Record<string, unknown> | BosCourseObjectivesContent;
+  course_learning_outcomes?: Record<string, unknown> | BosCourseLearnOutcomesContent;
+  course_content?: BosCourseContentData;
+  textbooks?: BosBooksData;
+  web_resources?: BosWebResourcesData;
+  pedagogy?: BosPedagogyData;
+  po_mappings?: BosPOMappingsData;
+  assessment_structure?: BosAssessmentStructure;
+  concept_applications?: BosConceptApplicationsData;
+  assessment_pattern?: BosAssessmentPatternData;
+  capstone_project?: BosCapstoneProjectData;
+  capstone_rubric?: BosCapstoneRubricData;
+  llc_conference?: BosLlcConferenceData;
+
+  // Metadata
+  created_by: string; // User ID
+  created_at: string;
+  last_modified_by?: string;
+  last_modified_at?: string;
+
+  // Additional
+  notes?: string;
+  stream?: string; // "Engineering", "Pharmacy", "Nursing", "Dental", "Arts"
+}
+
+export type CreateBosSyllabusDto = Omit<
+  BosCourseSyllabus,
+  'id' | 'created_at' | 'last_modified_at' | 'version_number' | 'is_latest' | 'is_archived'
+>;
+
+export type UpdateBosSyllabusDto = Partial<Omit<
+  BosCourseSyllabus,
+  'id' | 'created_at' | 'created_by' | 'version_number' | 'regulation_id' | 'institutions_id'
+>>;
+
+export interface BosSyllabusFilters {
+  institutionsId?: string;
+  boardId?: string;
+  regulationId?: string;
+  courseCode?: string;
+  stream?: string;
+  isLatest?: boolean;
+  isArchived?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+// ── Master Taxonomy Frameworks (bos_taxonomy + bos_taxonomy_levels) ──
+
+export interface BosTaxonomyLevel {
+  id: string;
+  taxonomy_id: string;
+  code: string; // 'K1', 'K2', ...
+  name: string; // 'Remember', 'Foundational Knowledge', ...
+  description?: string | null;
+  verb_examples: string[]; // [] for Fink's, ['define','list',...] for Bloom's
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BosTaxonomy {
+  id: string;
+  institutions_id: string;
+  code: string; // 'blooms' | 'finks' | custom slug
+  name: string; // 'Bloom\'s Taxonomy', 'Fink\'s Taxonomy', ...
+  description?: string | null;
+  is_hierarchical: boolean;
+  is_system: boolean;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_by?: string | null;
+  updated_at: string;
+}
+
+export interface BosTaxonomyWithLevels extends BosTaxonomy {
+  levels: BosTaxonomyLevel[];
+}
+
+export interface BosTaxonomySummary extends BosTaxonomy {
+  level_count: number;
+  institution_name?: string;
+}
+
+export interface CreateBosTaxonomyDto {
+  institutions_id?: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  is_hierarchical?: boolean;
+  is_active?: boolean;
+  levels: Array<{
+    code: string;
+    name: string;
+    description?: string | null;
+    verb_examples?: string[];
+    sort_order?: number;
+  }>;
+}
+
+export type UpdateBosTaxonomyDto = Partial<Omit<CreateBosTaxonomyDto, 'institutions_id'>>;
+
+export interface BosTaxonomyFilters {
+  institutionsId?: string;
+  isActive?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+// ── Regulation Taxonomy Master ────────────────────────────────────────
+
+export interface BosRegulationTaxonomy {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  // COE board id (nullable, no FK). NULL = regulation-wide default that applies to
+  // any board lacking its own override; a non-null value scopes the framework to a
+  // specific board. Resolution is board-first then NULL fallback.
+  board_id?: string | null;
+  taxonomy_type: 'finks' | 'blooms' | string; // Framework choice
+  k_values: Record<string, string>; // {"K1": "Application", "K2": "Foundational", ...}
+  // Per-programme PO definitions: { "UEN": { "PO1": "...", "PO2": "..." }, "UCM": { ... } }
+  // Legacy flat format { "PO1": "..." } is also accepted for backward compat.
+  pos: Record<string, string> | Record<string, Record<string, string>>;
+  psos?: Record<string, string> | Record<string, Record<string, string>>; // PSO definitions (optional)
+  created_by: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type CreateBosRegulationTaxonomyDto = Omit<
+  BosRegulationTaxonomy,
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by'
+>;
+
+export type UpdateBosRegulationTaxonomyDto = Partial<Omit<
+  BosRegulationTaxonomy,
+  'id' | 'created_at' | 'created_by' | 'institutions_id' | 'regulation_id'
+>>;
+
+// ── Syllabus Duplication & Revision ────────────────────────────────────
+
+export interface BosSyllabusDuplicateRequest {
+  source_regulation_id: string;
+  target_regulation_id: string;
+  course_code_mapping: Array<{
+    from: string; // "24UGTA01"
+    to: string;   // "25UGTA01"
+  }>;
+  keep_content?: boolean; // default: true
+}
+
+export interface BosSyllabusRevisionRequest {
+  syllabi_id: string;
+  updated_content: BosSyllabusContent;
+  notes?: string; // "Updated per board feedback"
+}
+
+export interface BosSyllabusHistory {
+  current: BosCourseSyllabus;
+  previous?: BosCourseSyllabus;
+  all_versions: BosCourseSyllabus[];
+}
+
+// ── List Response ─────────────────────────────────────────────────────
+
+export interface BosSyllabusListResponse extends BosListResponse<BosCourseSyllabus> {
+  // Inherits data, metadata from BosListResponse
+}
 
 // ── External Expert ──────────────────────────────────────────────────────────
 
@@ -156,6 +818,13 @@ export interface BosExternalExpert {
   specialization?: string;
   qualifications?: string;
   is_active: boolean;
+  /**
+   * One-way distance in km from this expert to the institution. The runtime
+   * compute step doubles it for round-trip TA (distance_km × 2 × ₹5/km).
+   * NULL → no TA component on the auto-generated claim (honorarium still paid).
+   * See 20260521_bos_ta_da_sop_redesign.sql.
+   */
+  distance_km?: number | null;
   notes?: string;
   created_at: string;
   updated_at: string;
@@ -180,8 +849,27 @@ export interface BosExpertFilters {
 export interface BosComposition {
   id: string;
   institutions_id: string;
+  /** Primary board (= board_ids[0]). Kept for back-compat; meetings/PDF use it. */
   board_id: string;
+  /** All boards governed by this composition (multi-board). board_id is the primary. */
+  board_ids?: string[];
+  /** Enriched board list on GET responses — names per board in board_ids. */
+  boards?: { id: string; board_code: string; board_name: string; board_type?: string | null }[];
+  /**
+   * Academic level of the board (e.g. 'PG', 'UG'), denormalized from COE
+   * /api/public/boards.board_type at composition-create time. Used to render
+   * "Meeting of the {board_type} {board_name} Board of Studies" on call letters.
+   * Nullable for legacy rows created before 20260521_add_board_type_to_bos_compositions_meetings.
+   */
+  board_type?: string | null;
   composition_title: string;
+  /**
+   * True when this composition represents the institution-level Academic
+   * Council rather than a subject-level Board of Studies. AC bodies have no
+   * board_id and their members are the BoS chairmen (auto-snapshotted at create
+   * time) plus principal-added members. See 20260706b_bos_academic_council.sql.
+   */
+  is_academic_council?: boolean;
   term_start_date: string;
   term_end_date: string;
   academic_year: string;
@@ -190,6 +878,9 @@ export interface BosComposition {
   ratified_by_gc: boolean;
   ratified_date?: string;
   notes?: string;
+  // Auth user who created the row — used as a bootstrap permission gate
+  // (creator can edit/delete + manage members before a chairman is appointed).
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
@@ -200,7 +891,7 @@ export interface BosComposition {
 
 export type CreateBosCompositionDto = Omit<
   BosComposition,
-  'id' | 'created_at' | 'updated_at' | 'board' | 'members' | 'member_count'
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'board' | 'boards' | 'members' | 'member_count'
 >;
 export type UpdateBosCompositionDto = Partial<CreateBosCompositionDto>;
 
@@ -216,20 +907,106 @@ export interface BosCompositionFilters {
   sortOrder?: 'asc' | 'desc';
 }
 
+// ── Committee ─────────────────────────────────────────────────────────────────
+// Per-composition committees (Curriculum Development Cell, Exam Committee, …). A
+// composition's members are grouped by committee via bos_members.committee_id.
+// Managed inline on the composition detail page (20260706 re-parented these from
+// institution-owned to composition-owned).
+
+export interface BosCommittee {
+  id: string;
+  /** Owning composition. Each composition has its own committee set. */
+  composition_id?: string | null;
+  /** Denormalised RLS anchor (role_has_institution_access gates on it). */
+  institutions_id: string;
+  name: string;
+  short_code?: string | null;
+  /** Display order within the composition (committees list + member grouping). */
+  sort_order: number;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  /**
+   * Enriched on the paginated master-list GET only: the owning composition's
+   * title (null for unassigned template rows). Lets the /bos/committees "All"
+   * view distinguish otherwise-identical committee instances across
+   * compositions. Not a stored column.
+   */
+  composition_title?: string | null;
+}
+
+export type CreateBosCommitteeDto = Omit<
+  BosCommittee,
+  'id' | 'created_at' | 'updated_at' | 'created_by'
+>;
+export type UpdateBosCommitteeDto = Partial<CreateBosCommitteeDto>;
+
+// ── Member Type (institution-wise, table-driven) ─────────────────────────────
+// Replaces the hardcoded BOS_MEMBER_TYPE_LABELS dropdown in the Add Member
+// dialog. base_type maps each row to the legacy BosMemberType enum, which
+// stays the behaviour key (chairman authorization, staff-vs-expert picker).
+// Managed on /bos/member-types.
+
+export interface BosMemberTypeRecord {
+  id: string;
+  institutions_id: string;
+  name: string;
+  /** Legacy behaviour key — written to bos_members.member_type on insert. */
+  base_type: BosMemberType;
+  /** Display order within the institution (dropdown + member grouping). */
+  sort_order: number;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreateBosMemberTypeDto = Omit<
+  BosMemberTypeRecord,
+  'id' | 'created_at' | 'updated_at' | 'created_by'
+>;
+export type UpdateBosMemberTypeDto = Partial<CreateBosMemberTypeDto>;
+
 // ── Member ───────────────────────────────────────────────────────────────────
 
 export interface BosMember {
   id: string;
   institutions_id: string;
   composition_id: string;
-  member_type: BosMemberType;
+  /**
+   * Which committee (within the composition) this member sits on. NULL for
+   * rows created before committees existed — rendered as the "General" group.
+   */
+  committee_id?: string | null;
+  /**
+   * The SELECTED member type. For catalog-driven rows this is the
+   * bos_member_types.name verbatim (e.g. 'Nominated by the Governing Body');
+   * legacy rows (member_type_id NULL) carry the old BosMemberType enum value.
+   * Behaviour (chairman auth, staff-vs-expert, TA/DA) derives from the
+   * catalog row's base_type via member_type_id — NOT from this string.
+   * The static DB CHECK was dropped by 20260710150000.
+   */
+  member_type: string;
+  /**
+   * FK to bos_member_types (institution-wise, table-driven). NULL on rows
+   * created before the table existed and not backfilled.
+   */
+  member_type_id?: string | null;
   staff_id?: string;
   staff_name?: string;
   staff_designation?: string;
   expert_id?: string;
   display_name: string;
   display_designation?: string;
+  display_department?: string;
   display_institution?: string;
+  /**
+   * Distance in km for external expert members. NULL for internal (staff) members.
+   * Read on the auto-claim hot path so the attendance route doesn't need
+   * to join out to bos_external_experts on every save.
+   */
+  distance_km?: number | null;
   address?: string;
   contact_no?: string;
   email?: string;
@@ -241,10 +1018,84 @@ export interface BosMember {
   updated_at: string;
   // Joined
   expert?: BosExternalExpert;
+  /**
+   * Joined from bos_member_types via member_type_id. Display consumers show
+   * this name (the type the user actually selected in Add Member) and fall
+   * back to BOS_MEMBER_TYPE_LABELS[member_type] for legacy rows. NULL when
+   * member_type_id is null or the reader's RLS can't see bos_member_types.
+   */
+  member_type_rec?: { id: string; name: string; base_type: BosMemberType } | null;
 }
 
-export type CreateBosMemberDto = Omit<BosMember, 'id' | 'created_at' | 'updated_at' | 'expert'>;
+export type CreateBosMemberDto = Omit<
+  BosMember,
+  'id' | 'created_at' | 'updated_at' | 'expert' | 'member_type_rec'
+>;
 export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
+
+// ── Meeting Minutes (rich content) ────────────────────────────────────────────
+
+/**
+ * One row in the "changes log" table of a meeting's minutes. Each entry records
+ * a specific change discussed for a specific syllabus during the meeting, with
+ * optional attribution to the member who suggested it.
+ *
+ * Fields like syllabus_code and suggested_by_name are denormalized snapshots —
+ * they're populated at save time so PDF/DOCX exports don't need to re-resolve
+ * UUIDs after archiving. The *_id fields remain for navigation/audit.
+ */
+export interface BosMinutesChangeLogEntry {
+  id: string; // client-generated UUID for stable React keys
+  /**
+   * Academic Council meetings only: the board the picked course belongs to.
+   * Drives the cascading Board → Course pickers in the Minutes tab; regular
+   * BoS meetings never set it (their courses are already board-scoped).
+   * board_name is a display snapshot for exports.
+   */
+  board_id?: string | null;
+  board_name?: string | null;
+  syllabus_id?: string | null;
+  syllabus_code?: string | null;
+  unit?: string | null;
+  /**
+   * Multi-select: a single change row can cover several related topics within
+   * the picked unit. May also be a single string in legacy data (rows saved
+   * with the first iteration of the editor before multi-select shipped) —
+   * normalize via asTopicArray() in the UI.
+   */
+  topic?: string | string[] | null;
+  /**
+   * Multi-select: sub-topics from any of the picked topics. Same legacy-string
+   * fallback applies — see topic field.
+   */
+  sub_topic?: string | string[] | null;
+  /**
+   * Multi-select: one change may be co-suggested by several members
+   * (committee proposal style). Single-string form is accepted for
+   * backward-compat with rows saved before multi-select shipped on
+   * 2026-05-20 — normalize via the asArray helper in minutes-tab.tsx /
+   * bos-pdf-generator.ts / meeting-minutes-docx.ts.
+   */
+  suggested_by_member_id?: string | string[] | null;
+  /**
+   * Denormalized member name(s) — array order matches suggested_by_member_id.
+   * Snapshot at save time so PDF/DOCX exports stay readable if a member is
+   * later renamed or removed from the composition.
+   */
+  suggested_by_name?: string | string[] | null;
+  suggestion_text: string; // required — every row must describe a change
+  created_at?: string;
+}
+
+/**
+ * Structured rich-minutes payload stored in bos_meetings.minutes_content (JSONB).
+ * - narrative_html: TipTap-rendered HTML of the free-form minutes body
+ * - changes_log: list of structured per-syllabus change entries
+ */
+export interface BosMeetingMinutesContent {
+  narrative_html?: string;
+  changes_log?: BosMinutesChangeLogEntry[];
+}
 
 // ── Meeting ───────────────────────────────────────────────────────────────────
 
@@ -252,11 +1103,38 @@ export interface BosMeeting {
   id: string;
   institutions_id: string;
   board_id: string;
+  /**
+   * Academic level of the board (e.g. 'PG', 'UG'), copied from the parent
+   * composition at meeting-create time so the per-recipient call-letter PDF
+   * render path doesn't need a COE round-trip per render. See
+   * 20260521_add_board_type_to_bos_compositions_meetings.sql.
+   */
+  board_type?: string | null;
+  /**
+   * Regulation the meeting's syllabi are scoped to. Optional: there is no
+   * regulation_id column on bos_meetings today, so this is undefined at runtime
+   * for every meeting. The Syllabus and Minutes tabs read it to narrow the
+   * syllabus picker and both guard against undefined (the filter is simply not
+   * applied when it's absent). Kept on the interface so those reads type-check
+   * and so the field is already correct if a regulation_id column is later
+   * added to bos_meetings (the detail GET selects `*`).
+   */
+  regulation_id?: string | null;
   composition_id: string;
   meeting_number: number;
   academic_year: string;
   meeting_title?: string;
   meeting_type: BosMeetingType;
+  /**
+   * Convening council/committee of the composition (bos_committees). Each
+   * council/committee carries its own TA/DA remuneration rates, and the
+   * meeting's member list is drawn from this committee's members
+   * (bos_members.committee_id). BoS meetings pick it in the scheduling form;
+   * AC meetings auto-attach to the AC body's default 'Academic Council'
+   * committee. NULL only for pre-committee legacy rows the 20260710 backfills
+   * couldn't attribute unambiguously.
+   */
+  committee_id?: string | null;
   status: BosMeetingStatus;
   scheduled_date?: string;
   scheduled_time?: string;
@@ -272,6 +1150,12 @@ export interface BosMeeting {
   ratified_date?: string;
   agenda_text?: string;
   minutes_summary?: string;
+  /**
+   * Structured rich-text minutes. Optional because legacy meetings (created
+   * before the 2026-05-20 minutes-editor migration) won't have it populated.
+   * Migration: supabase/migrations/20260520000000_bos_meetings_minutes_content.sql
+   */
+  minutes_content?: BosMeetingMinutesContent;
   minutes_drafted_at?: string;
   minutes_approved_at?: string;
   minutes_approved_by?: string;
@@ -283,8 +1167,21 @@ export interface BosMeeting {
   // Joined
   board?: { board_code: string; board_name: string };
   composition?: { composition_title: string };
+  /** Embedded convening committee (via committee_id FK) — list/detail GETs. */
+  committee?: { id: string; name: string } | null;
   attendee_count?: number;
   agenda_item_count?: number;
+  // Embedded via the FK constraint bos_meetings_principal_approved_by_fkey;
+  // populated by GET /api/bos/meetings/[id] when the column is non-null. Used
+  // to gate the post-approval transition button to the specific staff member
+  // who was recorded as the approver during draft submission.
+  principal_approved_by_staff?: {
+    id: string;
+    profile_id: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    designation: string | null;
+  } | null;
 }
 
 export type CreateBosMeetingDto = Omit<
@@ -295,13 +1192,20 @@ export type CreateBosMeetingDto = Omit<
   | 'updated_at'
   | 'board'
   | 'composition'
+  | 'committee'
   | 'attendee_count'
   | 'agenda_item_count'
->;
+> & {
+  // Optional: chairman may override the auto-suggested next number (e.g. when
+  // earlier meetings were conducted outside the system). Uniqueness per
+  // composition is enforced by the API.
+  meeting_number?: number;
+};
 export type UpdateBosMeetingDto = Partial<CreateBosMeetingDto>;
 
 export interface BosMeetingFilters {
   institutionsId?: string;
+  institutionCode?: string;
   boardId?: string;
   compositionId?: string;
   academicYear?: string;
@@ -390,6 +1294,30 @@ export interface BosCourseReview {
   created_at: string;
 }
 
+// ── TA/DA Rate Settings ───────────────────────────────────────────────────────
+
+/**
+ * Configurable per-council / per-member-type claim rates (bos_ta_da_rates,
+ * 20260710130000). Keyed by committee NAME (a council kind — every
+ * composition's 'Curriculum Development Cell' shares one rate set) and the
+ * member-type NAME from the institution's bos_member_types catalog (e.g.
+ * 'Subject Expert', 'Controller of the Examinations'). Claim generation
+ * resolves a member's catalog name via bos_members.member_type_id, falling
+ * back to the coarse enum label for unlinked members; a type with no active
+ * row uses the flat SOP constants in lib/utils/bos/ta-da-rates.ts.
+ */
+export interface BosTaDaRate {
+  id: string;
+  institutions_id: string;
+  committee_name: string;
+  member_type: string;
+  honorarium_amount: number;
+  ta_per_km: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── TA/DA Claim ───────────────────────────────────────────────────────────────
 
 export interface BosTaDaClaim {
@@ -397,14 +1325,27 @@ export interface BosTaDaClaim {
   institutions_id: string;
   meeting_id: string;
   member_id: string;
-  expert_id: string;
+  expert_id?: string | null;
   travel_mode?: string;
   travel_from?: string;
   travel_to?: string;
   travel_amount: number;
-  da_days: number;
-  da_rate: number;
-  da_amount: number;
+  /**
+   * Renamed from da_days on 2026-05-21 per SOP redesign — kept on the
+   * interface for back-compat reads of legacy rows. Auto-generated claims
+   * write 1 here (units × rate = amount when units=1).
+   */
+  honorarium_units: number;
+  /**
+   * Renamed from da_rate. Auto-generated claims set this to the honorarium
+   * amount (₹1,500 external / ₹1,000 internal) so rate × units = amount.
+   */
+  honorarium_rate: number;
+  /**
+   * Renamed from da_amount. The per-meeting honorarium that contributes to
+   * the GENERATED total_amount. ₹1,500 external / ₹1,000 internal per SOP.
+   */
+  honorarium_amount: number;
   other_amount: number;
   other_description?: string;
   total_amount: number;  // GENERATED column — database computes this
@@ -418,6 +1359,17 @@ export interface BosTaDaClaim {
   // Joined
   member?: BosMember;
   expert?: BosExternalExpert;
+  /**
+   * Embedded parent meeting (aliased, claims GET) — carries the convening
+   * council so the printed claim form can say "Claim Form for <council> of"
+   * / "Position in <council>". committee is null for pre-committee legacy
+   * meetings; meeting_type distinguishes Academic Council ones.
+   */
+  meeting?: {
+    id: string;
+    meeting_type?: string | null;
+    committee?: { name: string } | null;
+  } | null;
 }
 
 // ── Document ──────────────────────────────────────────────────────────────────

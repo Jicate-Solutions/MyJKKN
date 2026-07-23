@@ -54,6 +54,8 @@ import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AccreditationService } from '@/lib/services/accreditation/accreditation-service';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
+import { QualityLoopsSection } from './_components/quality-loops-section';
+import { CopoHeldRollupsSection } from './_components/copo-held-rollups-section';
 
 // ----------------------------------------------------------------------------
 // NAAC's 10 attributes (Binary + MBGL framework). Each shows its seeded
@@ -356,6 +358,13 @@ export default function NAACDashboardPage() {
           })}
         </div>
 
+        {/* Quality Loops — Metric 7.3 QAS (Loop → accreditation bridge, PR-2 of 2) */}
+        <QualityLoopsSection selectedInstitution={selectedInstitution} />
+
+        {/* Twin-college re-stamp control (Director 2026-07-10) — renders only
+            for super admins + accreditation.evidence.restamp holders */}
+        <CopoHeldRollupsSection />
+
         {/* Footer */}
         <Card className="bg-muted/30">
           <CardContent className="pt-6 text-xs text-muted-foreground space-y-2">
@@ -373,7 +382,7 @@ export default function NAACDashboardPage() {
             </p>
             <p>
               Evidence rows are auto-emitted by fan-out triggers (PR-A5
-              anti-ragging → 7.7.1; PR-A3 admission → 2.1.1 on demand).
+              anti-ragging → 7.7.1; PR-A3 admission → 8.1.1 on demand).
               Additional fan-outs will wire up as each source module is retrofitted.
             </p>
           </CardContent>

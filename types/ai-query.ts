@@ -16,6 +16,61 @@ export interface AIQueryMessage {
   timestamp: Date;
   isStreaming?: boolean;
   toolCalls?: ToolCall[];
+  /** Total server-measured time (ms) the Max lane took to answer — shown next to the badge. */
+  responseMs?: number;
+  /** ai_jobs.id of the Max-lane answer — lets the user flag it as "looks wrong". */
+  jobId?: string;
+  /** Lightweight refs to artifacts the assistant produced for this message. Full
+   *  content is fetched lazily (owner-scoped) via fn_ai_get_artifact when opened. */
+  artifacts?: ArtifactRef[];
+}
+
+export type ArtifactType = 'chart' | 'report' | 'spreadsheet' | 'slides';
+
+/** Small reference the chat carries per artifact; the panel fetches the content. */
+export interface ArtifactRef {
+  id: string;
+  type: ArtifactType;
+  title: string | null;
+  is_sensitive: boolean;
+}
+
+/** Full artifact content returned by fn_ai_get_artifact (owner-scoped). */
+export interface ArtifactFull extends ArtifactRef {
+  job_id: string | null;
+  conversation_id: string | null;
+  content: ArtifactContent;
+  version: number;
+  supersedes_id: string | null;
+  created_at: string;
+}
+
+/** Type-specific artifact payload the model emits (spec §4). */
+export type ArtifactContent =
+  | ChartArtifactContent
+  | ReportArtifactContent
+  | SpreadsheetArtifactContent
+  | SlidesArtifactContent;
+
+export interface ChartArtifactContent {
+  chartType: 'bar' | 'line' | 'pie' | 'doughnut';
+  title?: string;
+  xLabel?: string;
+  yLabel?: string;
+  series: { label: string; data: { x: string | number; y: number }[] }[];
+}
+
+export interface ReportArtifactContent {
+  markdown: string;
+}
+
+export interface SpreadsheetArtifactContent {
+  columns: { key: string; label: string; type?: string }[];
+  rows: Record<string, unknown>[];
+}
+
+export interface SlidesArtifactContent {
+  slides: { title: string; bullets: string[]; notes?: string }[];
 }
 
 export interface QueryResultData {
@@ -257,6 +312,8 @@ export interface AIQueryResponse {
   message: AIQueryMessage;
   suggestions?: string[];
   rate_limit: RateLimitResult;
+  /** Artifact refs the drain produced for this answer (empty when none). */
+  artifacts?: ArtifactRef[];
 }
 
 export interface AIQueryStreamChunk {

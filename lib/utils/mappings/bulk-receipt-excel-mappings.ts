@@ -1,13 +1,13 @@
 /**
  * Excel mapping utility for the Bulk Receipt Generation flow (super-admin).
  *
- * Unlike the bulk-bill import, this template is server-PRE-FILLED with
- * outstanding bills picked up by the schedule filters. The admin only fills
- * the "Paid Amount" column and uploads. The hidden Bill ID column is the
+ * The template is server-PRE-FILLED with outstanding bills picked up by the
+ * dialog's hierarchy filters AND with per-row payment metadata defaults from
+ * Step 1. The admin then fills "Paid Amount" and can override the per-row
+ * Payment Mode / Paid Date / Payer Name / Contact / Reference / Remarks for
+ * any row that doesn't match the defaults. The hidden Bill ID column is the
  * deterministic key the importer uses to bind a row back to a specific
- * billing_student_bills row — never trust roll_number + amount alone, that
- * combination is not unique when a student has two unpaid bills with the
- * same balance.
+ * billing_student_bills row — never trust roll_number + amount alone.
  */
 
 export const BULK_RECEIPT_TEMPLATE_HEADERS = [
@@ -17,15 +17,33 @@ export const BULK_RECEIPT_TEMPLATE_HEADERS = [
   'Bill Description',
   'Category',
   'Balance Amount',
-  'Paid Amount'
+  'Paid Amount',
+  'Payment Mode',
+  'Paid Date',
+  'Payer Name',
+  'Payer Contact',
+  'Payment Reference',
+  'Remarks'
 ] as const;
 
 export type BulkReceiptTemplateHeader =
   (typeof BULK_RECEIPT_TEMPLATE_HEADERS)[number];
 
+/** Allowed values for the Payment Mode column. Kept aligned with billing-schedule.PaymentMode. */
+export const BULK_RECEIPT_PAYMENT_MODES = [
+  'cash',
+  'online',
+  'bank_transfer',
+  'dd',
+  'cheque'
+] as const;
+export type BulkReceiptPaymentMode =
+  (typeof BULK_RECEIPT_PAYMENT_MODES)[number];
+
 /**
- * Shape of a single parsed Excel row before it is grouped by student and
- * turned into a billing_receipt + billing_receipt_items pair.
+ * Shape of a single parsed Excel row before it is grouped by
+ * (student, payment_paid_date, payment_mode) and turned into a billing_receipt
+ * with billing_receipt_items underneath.
  */
 export interface BulkReceiptRow {
   roll_number: string;
@@ -35,6 +53,14 @@ export interface BulkReceiptRow {
   category: string | null;
   balance_amount: number;
   paid_amount: number;
+
+  // Per-row payment metadata (new — was batch-level prior to 2026-05-15).
+  payment_mode: BulkReceiptPaymentMode;
+  payment_paid_date: string; // ISO yyyy-mm-dd
+  payer_name: string;
+  payer_contact: string | null;
+  payment_reference_number: string | null;
+  payment_remarks: string | null;
 
   // Filled by validator
   _resolved_student_id?: string;
@@ -83,6 +109,41 @@ export interface BulkReceiptImportResult {
   totalRows: number;
   totalStudents: number; // distinct students attempted
   receipts: BulkReceiptCreated[];
+  errors: BulkReceiptImportError[];
+}
+
+/**
+ * A single (student, paid_date, mode) bucket that the preview shows. One of
+ * these will become exactly one billing_receipts row on commit.
+ */
+export interface BulkReceiptPreviewGroup {
+  group_key: string; // student_id::paid_date::payment_mode (stable for React keys)
+  student_id: string;
+  roll_number: string;
+  student_name: string;
+  bill_count: number;
+  total_amount: number;
+  payment_mode: BulkReceiptPaymentMode;
+  payment_paid_date: string;
+  payer_name: string;
+  payer_contact: string | null;
+  payment_reference_number: string | null;
+  payment_remarks: string | null;
+  row_numbers: number[]; // Excel row numbers (2-indexed) for traceability
+}
+
+/**
+ * Returned by the preview endpoint (dry_run=true). The dialog displays this
+ * to the admin and only commits if they hit "Confirm & Generate".
+ */
+export interface BulkReceiptPreviewResult {
+  totalRows: number; // distinct non-blank data rows in the upload
+  validRows: number; // rows that passed all validation
+  errorCount: number;
+  groups: BulkReceiptPreviewGroup[];
+  totalCollected: number;
+  totalStudents: number; // distinct students across the groups
+  totalReceipts: number; // === groups.length, surfaced for readability
   errors: BulkReceiptImportError[];
 }
 

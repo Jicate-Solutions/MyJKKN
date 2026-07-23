@@ -66,14 +66,22 @@ export default function ProposalStatusPage() {
       </Breadcrumb>
 
       <div className="max-w-xl">
-        <Link
-          href="/events/propose"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
-          aria-label="Back to propose form"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Propose
-        </Link>
+        <div className="flex items-center justify-between mb-4">
+          <Link
+            href="/events/propose"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Back to propose form"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Propose
+          </Link>
+          <Link
+            href="/events/proposals"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            All proposals →
+          </Link>
+        </div>
 
         <Card>
           <CardHeader>

@@ -22,6 +22,8 @@ import {
   INTERNSHIP_POLICY_KEYS,
 } from '@/lib/services/admin/internship-policy-service';
 import { VehicleForm, type InstitutionOption } from '../../_components/vehicles/VehicleForm';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 const VEHICLE_DEFAULT_CAPACITY_KEY = 'internship.policy.vehicle_default_capacity';
 const FALLBACK_CAPACITY = 10;
@@ -70,6 +72,7 @@ export default function NewInternshipVehiclePage() {
   });
 
   return (
+    <PermissionGuard module="internship.vehicles" action="create" fallback={<NoAccessAlert />}>
     <ContentLayout title="Add Vehicle">
       <PageBreadcrumb
         items={[
@@ -128,5 +131,6 @@ export default function NewInternshipVehiclePage() {
         </CardContent>
       </Card>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

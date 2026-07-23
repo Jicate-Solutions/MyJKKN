@@ -29,12 +29,13 @@ export default function ApprovalsPage() {
   const { data: approvalsData, isLoading } = usePendingApprovals();
   const { data: countData } = usePendingApprovalCount();
 
-  // Extract service requests from approvals
+  // The API returns ServiceRequest[] directly (not wrapped ServiceRequestApproval
+  // records). The earlier `.map(a => a.service_request)` reshape produced []
+  // because the rows don't have a service_request property — that's the bug
+  // where the badge said "2 pending" but the table said "All caught up".
   const requests: ServiceRequest[] = useMemo(() => {
     if (!approvalsData?.data) return [];
-    return approvalsData.data
-      .map((a: any) => a.service_request)
-      .filter(Boolean);
+    return (approvalsData.data as unknown as ServiceRequest[]).filter(Boolean);
   }, [approvalsData]);
 
   const columns = useMemo<ColumnDef<ServiceRequest>[]>(

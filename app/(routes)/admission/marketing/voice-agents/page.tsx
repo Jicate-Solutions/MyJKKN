@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -44,10 +45,12 @@ const STATUS_COLORS: Record<string, string> = {
   scheduled: 'bg-purple-100 text-purple-800',
 };
 
+const VOICE_AGENTS_TABS = ['agents', 'calls'] as const;
+
 function VoiceAgentsPageContent() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
-  const [activeTab, setActiveTab] = useState('agents');
+  const [activeTab, setActiveTab] = useTabParam('agents', VOICE_AGENTS_TABS);
   const [callStatusFilter, setCallStatusFilter] = useState<string>('all');
 
   const { configs, isLoading: configsLoading, refetch } = useVoiceAgentConfigs(institutionId);
@@ -338,7 +341,9 @@ function VoiceAgentsPageContent() {
 export default function VoiceAgentsPage() {
   return (
     <AdmissionErrorBoundary>
-      <VoiceAgentsPageContent />
+      <Suspense fallback={null}>
+        <VoiceAgentsPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

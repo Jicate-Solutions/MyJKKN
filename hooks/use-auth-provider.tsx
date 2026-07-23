@@ -13,6 +13,18 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 /**
+ * Purge the service-worker "api-cache" so a previous user's cached /api/*
+ * responses can never be served to the next user on a shared browser
+ * (admission-leads cross-counselor leak, 2026-06-03). Only the api-cache is
+ * removed — never precache/next-static, which would trigger the SW refresh loop
+ * the pwa-provider guards against. Best-effort, non-blocking.
+ */
+function purgeApiCache(): void {
+  if (typeof window === 'undefined' || !('caches' in window)) return;
+  void caches.delete('api-cache').catch(() => {});
+}
+
+/**
  * Auth Provider - Provides auth state globally
  * Prevents duplicate queries by sharing state across all components
  */
@@ -110,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // When Supabase can't refresh the token (expired/revoked), it emits SIGNED_OUT.
       // Clear profile silently — middleware/proxy will redirect to /auth/login.
       if (event === 'SIGNED_OUT' && !session) {
+        purgeApiCache();
         setProfile(null);
         setIsLoading(false);
         return;
@@ -121,6 +134,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // data tables) and causes unsaved input to be lost.
       if (event === 'SIGNED_IN' && session?.user?.id && profileRef.current?.id === session.user.id) {
         return;
+      }
+
+      // A different user signed in on this browser (or a fresh login) — drop the
+      // prior user's cached /api/* responses before loading the new profile so a
+      // stale body can't be served to the new user.
+      if (event === 'SIGNED_IN') {
+        purgeApiCache();
       }
 
       setIsLoading(true);

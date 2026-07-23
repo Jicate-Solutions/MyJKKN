@@ -47,7 +47,7 @@ export function NAACReportGenerator() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            NAAC Criteria 2.1.1 Report
+            NAAC 8.1 — Student Enrolment (Binary framework)
           </CardTitle>
           <div className="flex gap-2">
             <Button

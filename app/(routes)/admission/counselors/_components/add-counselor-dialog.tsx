@@ -151,8 +151,10 @@ export function AddCounselorDialog({
   const [userSearchFilter, setUserSearchFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState<SelectedUser | null>(null);
 
-  // Counselor settings
-  const [maxLeads, setMaxLeads] = useState(50);
+  // Counselor settings — 5000 default mirrors the DB column default raised on
+  // 2026-05-11 (was 50, which left 56% of counselors at-cap and invisible to
+  // auto-routing).
+  const [maxLeads, setMaxLeads] = useState(5000);
   const [specializations, setSpecializations] = useState('');
 
   // Submit state
@@ -217,7 +219,7 @@ export function AddCounselorDialog({
       setUserResults([]);
       setUserSearchFilter('');
       setSelectedUser(null);
-      setMaxLeads(50);
+      setMaxLeads(5000);
       setSpecializations('');
     }
   }, [open, propInstitutionId]);
@@ -1048,7 +1050,7 @@ export function AddCounselorDialog({
                     type="number"
                     min={1}
                     value={maxLeads}
-                    onChange={(e) => setMaxLeads(parseInt(e.target.value) || 50)}
+                    onChange={(e) => setMaxLeads(parseInt(e.target.value) || 5000)}
                     className="h-9 text-sm"
                   />
                 </div>

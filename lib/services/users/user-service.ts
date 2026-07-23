@@ -25,7 +25,7 @@ export class UserService {
       if (filters.search) searchParams.set('search', filters.search);
       if (filters.isActive !== undefined) searchParams.set('isActive', String(filters.isActive));
 
-      const response = await fetch(`/api/users?${searchParams.toString()}`);
+      const response = await fetch(`/api/users?${searchParams.toString()}`, { cache: 'no-store' });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -291,7 +291,7 @@ export class UserService {
     }
 
     try {
-      const response = await fetch(`/api/users/${id}`);
+      const response = await fetch(`/api/users/${id}`, { cache: 'no-store' });
 
       if (!response.ok) {
         throw new Error('Failed to fetch user');

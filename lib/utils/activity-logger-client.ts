@@ -47,8 +47,9 @@ export async function logActivityForCurrentUser(
 ): Promise<void> {
   try {
     const supabase = createClientSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.id) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return;
+    const user = session.user;
     await logActivityClient({ ...params, userId: user.id });
   } catch (error) {
     console.error('[activity-logger-client] Failed to log activity (current user):', error);
@@ -643,6 +644,211 @@ export const ResourceManagementActivityTemplates = {
     resourceType: RESOURCE_TYPES.RESOURCE,
     description: `Deleted maintenance schedule for "${resourceName}"`,
     sub_type: 'maintenance_schedule' as const,
+  }),
+};
+
+/**
+ * Billing module activity templates.
+ * Covers: categories, bills, receipts, invoices, discounts, refunds.
+ * Sub-types in metadata let the audit dashboard filter by sub-domain.
+ */
+export const BillingActivityTemplates = {
+  // ── CATEGORIES ───────────────────────────────────────────────────
+  categoryCreated: (categoryName: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Created billing category "${categoryName}"`,
+    sub_type: 'billing_category' as const,
+  }),
+  categoryUpdated: (categoryName: string, changes?: string[]) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Updated billing category "${categoryName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
+    sub_type: 'billing_category' as const,
+  }),
+  categoryDeleted: (categoryName: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Deleted billing category "${categoryName}"`,
+    sub_type: 'billing_category' as const,
+  }),
+  categoriesBulkDeleted: (count: number) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.CATEGORY,
+    description: `Bulk deleted ${count} billing categories`,
+    sub_type: 'billing_category_bulk_delete' as const,
+  }),
+
+  // ── STUDENT BILLS ────────────────────────────────────────────────
+  billCreated: (billDescription: string, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Created bill "${billDescription}" for ${studentName}`,
+    sub_type: 'student_bill' as const,
+  }),
+  billUpdated: (billDescription: string, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Updated bill "${billDescription}" for ${studentName}`,
+    sub_type: 'student_bill' as const,
+  }),
+  billDeleted: (billId: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Deleted student bill ${billId}`,
+    sub_type: 'student_bill' as const,
+  }),
+  billsBulkCreated: (count: number, studentCount: number) => ({
+    actionType: ACTIVITY_TYPES.CREATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Bulk created ${count} bills for ${studentCount} students`,
+    sub_type: 'student_bill_bulk' as const,
+  }),
+  billsBulkDeleted: (successCount: number, totalCount: number) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Bulk deleted ${successCount}/${totalCount} student bills`,
+    sub_type: 'student_bill_bulk_delete' as const,
+  }),
+  billCancelled: (billDescription: string, studentName: string, reason?: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Cancelled bill "${billDescription}" for ${studentName}${reason ? ` — ${reason}` : ''}`,
+    sub_type: 'bill_cancel' as const,
+  }),
+  billsBulkCancelled: (successCount: number, totalCount: number, reason?: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Bulk cancelled ${successCount}/${totalCount} student bills${reason ? ` — ${reason}` : ''}`,
+    sub_type: 'student_bill_bulk_cancel' as const,
+  }),
+  billStatusUpdated: (billId: string, newStatus: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.BILL,
+    description: `Updated bill status to "${newStatus}"`,
+    sub_type: 'bill_status' as const,
+  }),
+
+  // ── RECEIPTS ─────────────────────────────────────────────────────
+  receiptCreated: (receiptNumber: string, studentName: string, amount: number) => ({
+    actionType: ACTIVITY_TYPES.PAYMENT_PROCESS,
+    resourceType: RESOURCE_TYPES.RECEIPT,
+    description: `Created receipt ${receiptNumber} for ${studentName} (₹${amount.toLocaleString('en-IN')})`,
+    sub_type: 'receipt' as const,
+  }),
+  receiptUpdated: (receiptNumber: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.RECEIPT,
+    description: `Updated receipt ${receiptNumber}`,
+    sub_type: 'receipt' as const,
+  }),
+  receiptDeleted: (receiptId: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.RECEIPT,
+    description: `Deleted receipt ${receiptId}`,
+    sub_type: 'receipt' as const,
+  }),
+  receiptsBulkGenerated: (successCount: number, totalCount: number) => ({
+    actionType: ACTIVITY_TYPES.PAYMENT_PROCESS,
+    resourceType: RESOURCE_TYPES.RECEIPT,
+    description: `Bulk generated ${successCount}/${totalCount} receipts`,
+    sub_type: 'receipt_bulk' as const,
+  }),
+
+  // ── INVOICES ─────────────────────────────────────────────────────
+  invoiceCreated: (invoiceNumber: string, studentName: string, amount: number) => ({
+    actionType: ACTIVITY_TYPES.INVOICE_GENERATE,
+    resourceType: RESOURCE_TYPES.INVOICE,
+    description: `Generated invoice ${invoiceNumber} for ${studentName} (₹${amount.toLocaleString('en-IN')})`,
+    sub_type: 'invoice' as const,
+  }),
+  invoiceUpdated: (invoiceNumber: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.INVOICE,
+    description: `Updated invoice ${invoiceNumber}`,
+    sub_type: 'invoice' as const,
+  }),
+  invoiceDeleted: (invoiceId: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.INVOICE,
+    description: `Deleted invoice ${invoiceId}`,
+    sub_type: 'invoice' as const,
+  }),
+
+  // ── DISCOUNTS ────────────────────────────────────────────────────
+  discountCreated: (category: string, amount: number, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.DISCOUNT_APPLY,
+    resourceType: RESOURCE_TYPES.DISCOUNT,
+    description: `Applied ${category} discount of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'discount' as const,
+  }),
+  discountUpdated: (discountId: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.DISCOUNT,
+    description: `Updated discount ${discountId}`,
+    sub_type: 'discount' as const,
+  }),
+  discountDeleted: (discountId: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.DISCOUNT,
+    description: `Deleted discount ${discountId}`,
+    sub_type: 'discount' as const,
+  }),
+  discountApproved: (category: string, amount: number, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.APPROVE,
+    resourceType: RESOURCE_TYPES.DISCOUNT,
+    description: `Approved ${category} discount of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'discount_approval' as const,
+  }),
+  discountRejected: (category: string, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.REJECT,
+    resourceType: RESOURCE_TYPES.DISCOUNT,
+    description: `Rejected ${category} discount for ${studentName}`,
+    sub_type: 'discount_approval' as const,
+  }),
+  discountReversed: (category: string, amount: number, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.DISCOUNT,
+    description: `Reversed ${category} discount of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'discount_reversal' as const,
+  }),
+
+  // ── REFUNDS ──────────────────────────────────────────────────────
+  refundCreated: (amount: number, receiptNumber: string, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.REFUND_PROCESS,
+    resourceType: RESOURCE_TYPES.REFUND,
+    description: `Created refund of ₹${amount.toLocaleString('en-IN')} against receipt ${receiptNumber} for ${studentName}`,
+    sub_type: 'refund' as const,
+  }),
+  refundUpdated: (refundId: string) => ({
+    actionType: ACTIVITY_TYPES.UPDATE,
+    resourceType: RESOURCE_TYPES.REFUND,
+    description: `Updated refund ${refundId}`,
+    sub_type: 'refund' as const,
+  }),
+  refundDeleted: (refundId: string) => ({
+    actionType: ACTIVITY_TYPES.DELETE,
+    resourceType: RESOURCE_TYPES.REFUND,
+    description: `Deleted refund ${refundId}`,
+    sub_type: 'refund' as const,
+  }),
+  refundApproved: (amount: number, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.APPROVE,
+    resourceType: RESOURCE_TYPES.REFUND,
+    description: `Approved refund of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'refund_approval' as const,
+  }),
+  refundRejected: (studentName: string, reason?: string) => ({
+    actionType: ACTIVITY_TYPES.REJECT,
+    resourceType: RESOURCE_TYPES.REFUND,
+    description: `Rejected refund for ${studentName}${reason ? ` (${reason})` : ''}`,
+    sub_type: 'refund_approval' as const,
+  }),
+  refundProcessed: (amount: number, studentName: string) => ({
+    actionType: ACTIVITY_TYPES.REFUND_PROCESS,
+    resourceType: RESOURCE_TYPES.REFUND,
+    description: `Processed refund of ₹${amount.toLocaleString('en-IN')} for ${studentName}`,
+    sub_type: 'refund_process' as const,
   }),
 };
 

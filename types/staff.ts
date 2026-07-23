@@ -22,6 +22,9 @@ export interface EmploymentCategory {
   is_teaching: boolean;
   shows_extended_profile: boolean;
   is_active: boolean;
+  // When false, new staff in this category default to login_enabled=false
+  // (view-only). Per-row override on staff still wins.
+  allows_login: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
@@ -34,6 +37,7 @@ export interface CreateEmploymentCategoryDto {
   is_teaching?: boolean;
   shows_extended_profile?: boolean;
   is_active?: boolean;
+  allows_login?: boolean;
 }
 
 export interface UpdateEmploymentCategoryDto
@@ -92,6 +96,10 @@ export interface Staff {
   designation: string;
   institution_email: string;
 
+  // Optional free-form labels (lowercased) used to fetch staff subsets via the
+  // external API (GET /api/api-management/staff?tags=a,b → any-of). Empty = untagged.
+  tags: string[];
+
   // Foreign keys
   category_id: string;
   institution_id: string;
@@ -143,6 +151,9 @@ export interface Staff {
 
   // Audit fields
   is_active: boolean;
+  // View-only / labour staff have login_enabled=false; their linked profile
+  // is is_active=false and emails are synthetic @nolog.jkkn.local.
+  login_enabled: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string;
@@ -156,7 +167,9 @@ export interface CreateStaffDto {
   date_of_birth: string;
   marital_status: MaritalStatus;
   blood_group?: BloodGroup;
-  email: string;
+  // Optional for view-only staff (login_enabled=false). Service will generate
+  // a deterministic synthetic email at @nolog.jkkn.local when blank.
+  email?: string;
   phone: string;
   staff_id?: string;
   profile_picture?: string;
@@ -168,10 +181,16 @@ export interface CreateStaffDto {
   designation: string;
   category_id: string;
   institution_id: string;
-  institution_email: string;
+  // Optional for view-only staff (same generation rule as email).
+  institution_email?: string;
   department_id?: string | null;
   role_key: string;
+  // Optional free-form labels (lowercased) for external-API filtering.
+  tags?: string[];
   is_active?: boolean;
+  // Default true. Set false to mark this staff as "view-only" — they cannot
+  // log in and their linked profile is deactivated by the trigger.
+  login_enabled?: boolean;
 
   // All extended profile fields are optional on create
   has_extended_profile?: boolean;
@@ -231,8 +250,15 @@ export interface StaffFilters {
   role_key?: string;
   is_teaching?: boolean;
   isActive?: boolean;
+  login_enabled?: boolean;
   page?: number;
   limit?: number;
+  /**
+   * Cross-institution teaching assignment lookup (staff planning "Other
+   * institutions" picker). Requires academic.staff.planning.edit; the API
+   * returns a reduced, active-only column set for the target institution.
+   */
+  for_teaching_assignment?: boolean;
 }
 
 export interface StaffListResponse {
@@ -267,6 +293,7 @@ export interface StaffOverviewStats {
   averageTenure: number; // Average years of service
   staffWithProfiles: number;
   staffWithoutProfiles: number;
+  inactiveProfiles: number;
 }
 
 export interface StaffRegistrationTrend {

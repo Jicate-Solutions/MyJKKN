@@ -1,0 +1,30 @@
+-- ============================================================================
+-- Drop the retired per-room college-access junction (room_institution_access)
+-- Date: 2026-06-03
+-- ============================================================================
+-- room_institution_access was a redundant, incomplete shadow of
+-- hostel_block_institutions:
+--   • every active grant's (block, institution) pair already existed in the
+--     block junction (verified 2026-06-03 — 0 grants outside it);
+--   • per-room granularity was never used (all rooms in a block shared the
+--     same institution set);
+--   • it had drifted (only 145/224 student rooms granted, to 1 of 2 colleges).
+--
+-- All readers were migrated to the block→institution junction first:
+--   • DB functions (fn_auto_allocate_classic / _preview / fn_hostel_ensure_room_beds
+--     / fn_my_room_options / fn_self_request_room / fn_user_can_access_room) in
+--     20260603100000_hostel_room_access_block_junction.sql via
+--     fn_room_serves_institution();
+--   • TS/API readers (hostel-room-service.getRooms, listAvailableRoomsForPremium,
+--     api-management/campus-living/rooms GET + [id]).
+--
+-- The per-room "Manage Access" UI (Rooms module) was removed; institution access
+-- is now managed on the Block edit page (hostel_block_institutions). Cohort
+-- reservations remain in Program Eligibility → Physical Rooms.
+--
+-- Pre-drop checks (2026-06-03): no incoming FKs, no functions, no views
+-- reference the table. DROP TABLE auto-removes its own RLS policies, indexes,
+-- trigger, and outgoing FKs — no CASCADE needed.
+-- ============================================================================
+
+DROP TABLE IF EXISTS public.room_institution_access;

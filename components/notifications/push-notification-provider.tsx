@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   PushNotificationsContext,
   PushNotificationState,
@@ -70,6 +71,16 @@ export function PushNotificationProvider({
   // to prevent the init→auto-resubscribe→init infinite loop
   const hasForceResubscribedRef = useRef(false);
 
+  // This provider is mounted in the ROOT layout, so it also runs on /parent/*
+  // pages. The Parent Portal has its OWN service worker (/parent-sw.js, scope
+  // "/parent") and its own push flow (use-parent-push). If this faculty flow
+  // ran here it would grab the parent-scoped registration via .ready and either
+  // 401 (pure parent) or, worse for a dual-role user, save the PARENT endpoint
+  // into the faculty push_subscriptions table — cross-contaminating the two
+  // apps' notifications. So stand fully down on the parent surface.
+  const pathname = usePathname();
+  const isParentRoute = !!pathname && pathname.startsWith('/parent');
+
   // ─── 1. Check browser support ────────────────────────────────
   useEffect(() => {
     const isSupported =
@@ -88,6 +99,11 @@ export function PushNotificationProvider({
   // ─── 2. Register SW and check existing subscription ──────────
   useEffect(() => {
     if (!state.isSupported) return;
+    // Parent surface owns its own SW + push flow — don't touch it here.
+    if (isParentRoute) {
+      setState((prev) => ({ ...prev, isLoading: false }));
+      return;
+    }
 
     // Serwist only generates a valid /sw.js in production builds. In dev
     // the file is either missing or a stale artifact from a past prod build
@@ -173,13 +189,15 @@ export function PushNotificationProvider({
     };
 
     init();
-  }, [state.isSupported]);
+  }, [state.isSupported, isParentRoute]);
 
   // ─── 3. Auto-subscribe when permission is already granted ────
   //     This handles mobile re-opens where the subscription expired
   //     but the user previously granted permission.
   useEffect(() => {
     if (!state.isSupported || state.isLoading) return;
+    // Parent surface owns its own SW + push flow — never auto-subscribe here.
+    if (isParentRoute) return;
 
     // Match the init effect above: push testing only happens in prod/preview.
     // In dev there is no registered SW for /sw.js, so subscribe() would loop
@@ -205,7 +223,7 @@ export function PushNotificationProvider({
       }, 1000); // SW is already activated by init, short delay is sufficient
       return () => clearTimeout(timer);
     }
-  }, [state.isSupported, state.isLoading, state.permission, state.isSubscribed]);
+  }, [state.isSupported, state.isLoading, state.permission, state.isSubscribed, isParentRoute]);
 
   // ─── 4. Show error toast (only for user-initiated actions) ───
   useEffect(() => {
@@ -278,23 +296,19 @@ export function PushNotificationProvider({
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidPublicKey) throw new Error('VAPID public key not found');
 
-      // Unsubscribe any existing stale subscription first to avoid conflicts
-      const existingSub = await registration.pushManager.getSubscription();
-      if (existingSub) {
-        try {
-          await existingSub.unsubscribe();
-        } catch {
-          // Ignore — stale sub cleanup is best-effort
-        }
-      }
-
-      // Create new push subscription
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(
-          vapidPublicKey
-        ) as BufferSource
-      });
+      // Reuse the existing browser subscription if there is one; only create a
+      // new one when none exists. The previous code unsubscribed-first, which on
+      // this shared origin (faculty "/" + parent "/parent") destroyed whichever
+      // app subscribed last — the root cause of dual-role users losing push.
+      // Stale server rows are pruned on the next failed send (404/410) instead.
+      const subscription =
+        (await registration.pushManager.getSubscription()) ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(
+            vapidPublicKey
+          ) as BufferSource
+        }));
 
       // Save to server
       const response = await fetch('/api/notifications/subscribe', {

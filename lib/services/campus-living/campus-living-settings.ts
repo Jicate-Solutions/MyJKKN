@@ -223,7 +223,7 @@ export class CampusLivingSettings {
   // Fee Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getFeeConfigs(institutionId: string | undefined, academicYearId?: string) {
+  static async getFeeConfigs(institutionId: string | undefined, hostelYearId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -232,7 +232,7 @@ export class CampusLivingSettings {
         .eq('is_active', true);
 
       if (institutionId) query = query.eq('institution_id', institutionId);
-      if (academicYearId) query = query.eq('academic_year_id', academicYearId);
+      if (hostelYearId) query = query.eq('hostel_year_id', hostelYearId);
       query = query.order('room_type').order('ac_status');
 
       const { data, error } = await query;

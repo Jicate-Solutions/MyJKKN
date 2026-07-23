@@ -42,6 +42,7 @@ import {
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, format } from 'date-fns';
 import type { ReputationLevel, BadgeCategory, PDEBadge, PDELearnerBadge } from '@/types/pde';
+import { AgencyIndexCard } from '../_components/agency-index-card';
 
 // ============================================
 // Constants
@@ -397,25 +398,17 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Agency Index + Portfolio Link */}
+        {/* Agency Index + Portfolio Link.
+            The Agency Index half was an inline card reading reputation.agency_index —
+            a field on pde_reputation that nothing populates (the dead source PR #1815
+            called out), so it always rendered "--". Replaced with the live
+            AgencyIndexCard, own index only. */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Zap className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs text-muted-foreground">Agency Index</p>
-                  <p className="text-2xl font-bold">{(reputation as Record<string, unknown>)?.agency_index as number ?? '--'}</p>
-                </div>
-              </div>
-              <Progress value={((reputation as Record<string, unknown>)?.agency_index as number) ?? 0} className="h-1.5 mt-2" />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                How independently you direct AI tools as a Principal
-              </p>
-            </CardContent>
-          </Card>
+          {learnerId ? (
+            <AgencyIndexCard learnerId={learnerId} showTrend={false} className="h-full" />
+          ) : (
+            <Card />
+          )}
 
           <Card>
             <CardContent className="p-4 flex flex-col justify-center h-full">

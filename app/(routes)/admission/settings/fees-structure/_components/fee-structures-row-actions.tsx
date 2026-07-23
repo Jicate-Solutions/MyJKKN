@@ -35,6 +35,7 @@ import {
 import toast from 'react-hot-toast';
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { getErrorMessage } from '@/lib/utils';
 import type { AdmissionFeeStructure } from '@/types/admission';
 
 interface Props {
@@ -58,7 +59,7 @@ export function FeeStructureRowActions({ structure, onChanged }: Props) {
       toast.success('Fee structure archived');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Archive failed');
+      toast.error(getErrorMessage(err) || 'Archive failed');
     } finally {
       setSubmitting(false);
       setConfirmArchive(false);
@@ -72,7 +73,7 @@ export function FeeStructureRowActions({ structure, onChanged }: Props) {
       toast.success('Fee structure activated');
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Activate failed');
+      toast.error(getErrorMessage(err) || 'Activate failed');
     } finally {
       setSubmitting(false);
     }
@@ -85,7 +86,7 @@ export function FeeStructureRowActions({ structure, onChanged }: Props) {
       toast.success(`Deleted "${structure.name}"`);
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      toast.error(getErrorMessage(err) || 'Delete failed');
     } finally {
       setSubmitting(false);
       setConfirmDelete(false);

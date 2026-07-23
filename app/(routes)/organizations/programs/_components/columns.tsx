@@ -8,7 +8,10 @@ import { Program } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Program>[] = [
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Program>[] => {
+  const adapt = adaptLabel || ((label) => label);
+
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -34,7 +37,7 @@ export const columns: ColumnDef<Program>[] = [
   {
     accessorKey: 'program_id',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program ID' />
+      <DataTableColumnHeader column={column} title={adapt('Program ID')} />
     ),
     cell: ({ row }) => {
       const program = row.original;
@@ -47,7 +50,7 @@ export const columns: ColumnDef<Program>[] = [
   {
     accessorKey: 'program_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program Name' />
+      <DataTableColumnHeader column={column} title={adapt('Program Name')} />
     ),
     cell: ({ row }) => {
       const program = row.original;
@@ -67,7 +70,7 @@ export const columns: ColumnDef<Program>[] = [
   {
     accessorKey: 'degree',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Degree' />
+      <DataTableColumnHeader column={column} title={adapt('Degree')} />
     ),
     cell: ({ row }) => {
       const program = row.original;
@@ -80,7 +83,7 @@ export const columns: ColumnDef<Program>[] = [
   {
     accessorKey: 'department',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Department' />
+      <DataTableColumnHeader column={column} title={adapt('Department')} />
     ),
     cell: ({ row }) => {
       const program = row.original;
@@ -102,6 +105,39 @@ export const columns: ColumnDef<Program>[] = [
     size: 200,
     minSize: 150,
     maxSize: 300
+  },
+  {
+    accessorKey: 'program_duration_yrs',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Duration' />
+    ),
+    cell: ({ row }) => {
+      const duration = row.original.program_duration_yrs;
+      if (duration == null) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      const years = Number(duration);
+      return `${years} ${years === 1 ? 'yr' : 'yrs'}`;
+    },
+    size: 100,
+    minSize: 80,
+    maxSize: 120
+  },
+  {
+    accessorKey: 'program_type',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Type' />
+    ),
+    cell: ({ row }) => {
+      const type = row.original.program_type;
+      if (!type) {
+        return <span className='text-muted-foreground'>—</span>;
+      }
+      return <Badge variant='outline'>{type}</Badge>;
+    },
+    size: 90,
+    minSize: 70,
+    maxSize: 110
   },
   {
     accessorKey: 'is_active',
@@ -153,4 +189,5 @@ export const columns: ColumnDef<Program>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

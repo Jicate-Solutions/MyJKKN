@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useServiceTypes, useServiceType } from '@/hooks/service-requests/use-service-types';
 import { useCreateServiceRequest } from '@/hooks/service-requests/use-service-requests';
 import { ServiceTypeCard } from '../_components/service-type-card';
@@ -51,10 +51,7 @@ export default function NewServiceRequestPage() {
 
   const handleSelectType = (type: ServiceType) => {
     setSelectedType(type);
-  };
-
-  const handleNext = () => {
-    if (selectedType) setStep(2);
+    setStep(2);
   };
 
   const handleBack = () => {
@@ -118,7 +115,11 @@ export default function NewServiceRequestPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="space-y-6 mt-4">
+      {/* Mobile bottom-nav (z-[80]) + AttentionBar (z-[75]) both fix to the
+          bottom on <lg screens and would otherwise occlude the Next / Submit
+          button. pb-28 = 112px clearance; lg:pb-6 resets at the breakpoint
+          where both bars are hidden. */}
+      <div className="space-y-6 mt-4 pb-28 lg:pb-6">
         <div>
           <h1 className="text-2xl font-bold">New Service Request</h1>
           <p className="text-muted-foreground">
@@ -155,24 +156,16 @@ export default function NewServiceRequestPage() {
                 <p className="text-sm text-muted-foreground">Loading service types...</p>
               </div>
             ) : serviceTypes && serviceTypes.length > 0 ? (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {serviceTypes.map((type) => (
-                    <ServiceTypeCard
-                      key={type.id}
-                      serviceType={type}
-                      onSelect={handleSelectType}
-                      selected={selectedType?.id === type.id}
-                    />
-                  ))}
-                </div>
-                <div className="flex justify-end">
-                  <Button onClick={handleNext} disabled={!selectedType} className="gap-2">
-                    Next
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {serviceTypes.map((type) => (
+                  <ServiceTypeCard
+                    key={type.id}
+                    serviceType={type}
+                    onSelect={handleSelectType}
+                    selected={selectedType?.id === type.id}
+                  />
+                ))}
+              </div>
             ) : (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">

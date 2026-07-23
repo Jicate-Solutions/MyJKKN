@@ -20,6 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface EditProgramPageProps {
   params: Promise<{ id: string }>;
@@ -31,6 +32,8 @@ export default function EditProgramPage({ params }: EditProgramPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [program, setProgram] = useState<Program | null>(null);
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('Edit Program');
 
   useEffect(() => {
     async function fetchProgram() {
@@ -54,7 +57,7 @@ export default function EditProgramPage({ params }: EditProgramPageProps) {
 
   if (loading) {
     return (
-      <ContentLayout title='Edit Program'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -64,13 +67,13 @@ export default function EditProgramPage({ params }: EditProgramPageProps) {
 
   if (error || !program) {
     return (
-      <ContentLayout title='Edit Program'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Program not found'}
+            {error || `${adapt('Program')} not found`}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/programs'>Back to Programs</Link>
+            <Link href='/organizations/programs'>Back to {adapt('Programs')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -78,7 +81,7 @@ export default function EditProgramPage({ params }: EditProgramPageProps) {
   }
 
   return (
-    <ContentLayout title='Edit Program'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -95,21 +98,21 @@ export default function EditProgramPage({ params }: EditProgramPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/programs'>Programs</Link>
+              <Link href='/organizations/programs'>{adapt('Programs')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Edit Program</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>Edit Program</h1>
+          <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Update program details
+            Update {adapt('program')} details
           </p>
         </div>
 

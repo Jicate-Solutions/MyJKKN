@@ -10,13 +10,24 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { SourceMasterService } from '@/lib/services/admission/source-master-service';
 import type { SourceMaster } from '@/lib/services/admission/source-master-service';
-import { columns } from './columns';
+import { makeColumns } from './columns';
 import { SourceFormDialog } from './source-form-dialog';
 
 const SourcesRefreshContext = createContext<() => void>(() => {});
 export const useSourcesRefresh = () => useContext(SourcesRefreshContext);
 
-export function SourcesDataTable() {
+interface SourcesDataTableProps {
+  // 'manage' (default — /admission/settings/sources): full CRUD surface.
+  //   Label-click opens the Edit dialog; per-row dropdown offers Edit /
+  //   Activate / Deactivate; "New Source" toolbar button visible.
+  // 'allocate' (/admission/counselors/team/allocation): read-only picker.
+  //   Label-click navigates to /admission/counselors/team/allocation/{id}
+  //   where the per-source assignment workspace lives; no toolbar create,
+  //   no per-row dropdown.
+  variant?: 'manage' | 'allocate';
+}
+
+export function SourcesDataTable({ variant = 'manage' }: SourcesDataTableProps = {}) {
   const { profile } = useAuth();
   const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
 
@@ -34,10 +45,26 @@ export function SourcesDataTable() {
 
   const [refetchKey, setRefetchKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  // Edit dialog (manage variant only) — opened by label-cell click.
+  const [editTarget, setEditTarget] = useState<SourceMaster | null>(null);
   // Aggregate analytics strip: lifted from the latest fetched data so it
   // re-aggregates whenever the table refetches (search, sort, refetchKey bump).
   const [latestSources, setLatestSources] = useState<SourceMaster[] | null>(null);
   const bumpRefetch = useCallback(() => setRefetchKey((k) => k + 1), []);
+
+  const columns = useMemo(
+    () =>
+      variant === 'allocate'
+        ? makeColumns({
+            variant: 'allocate',
+            linkBase: '/admission/counselors/team/allocation',
+          })
+        : makeColumns({
+            variant: 'manage',
+            onLabelClick: (source) => setEditTarget(source),
+          }),
+    [variant],
+  );
 
   const fetchData = useCallback(
     async (params: DataFetchParams) => {
@@ -111,7 +138,9 @@ export function SourcesDataTable() {
     resetSelection: () => void;
   }) => (
     <div className="flex items-center gap-2">
-      {canManage && (
+      {/* New Source belongs to the management surface only — in 'allocate'
+          variant users are picking an existing source, not creating one. */}
+      {variant === 'manage' && canManage && (
         <Button onClick={() => setCreateOpen(true)} size="sm" className="h-8">
           <Plus className="mr-2 h-4 w-4" />
           New Source
@@ -221,6 +250,20 @@ export function SourcesDataTable() {
         onOpenChange={setCreateOpen}
         source={null}
         onSaved={bumpRefetch}
+      />
+
+      {/* Edit dialog, opened from a label-cell click on the management surface.
+          Allocate variant never sets editTarget, so this dialog stays closed. */}
+      <SourceFormDialog
+        open={!!editTarget}
+        onOpenChange={(o) => {
+          if (!o) setEditTarget(null);
+        }}
+        source={editTarget}
+        onSaved={() => {
+          setEditTarget(null);
+          bumpRefetch();
+        }}
       />
     </SourcesRefreshContext.Provider>
   );

@@ -61,17 +61,6 @@ export const ACCOMMODATION_VALUES = [
   'HOME'
 ] as const;
 
-export const HOSTEL_TYPE_VALUES = [
-  'AC HOSTEL',
-  'NON-AC HOSTEL'
-] as const;
-
-export const FOOD_TYPE_VALUES = [
-  'VEG',
-  'NON-VEG',
-  'VEGAN'
-] as const;
-
 export const QUOTA_VALUES = [
   'GOVERNMENT',
   'GOVERNMENT 7.5%',
@@ -95,8 +84,6 @@ export type Community = typeof COMMUNITY_VALUES[number];
 export type BloodGroup = typeof BLOOD_GROUP_VALUES[number];
 export type EntryType = typeof ENTRY_TYPE_VALUES[number];
 export type AccommodationType = typeof ACCOMMODATION_VALUES[number];
-export type HostelType = typeof HOSTEL_TYPE_VALUES[number];
-export type FoodType = typeof FOOD_TYPE_VALUES[number];
 export type Quota = typeof QUOTA_VALUES[number];
 export type ScholarshipType = typeof SCHOLARSHIP_TYPE_VALUES[number];
 
@@ -257,21 +244,19 @@ export const ACCOMMODATION_OPTIONS = [
   { value: 'HOME', label: 'Home' }
 ] as const;
 
-export const HOSTEL_TYPE_OPTIONS = [
-  { value: 'AC HOSTEL', label: 'AC Hostel' },
-  { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
-] as const;
-
-export const FOOD_TYPE_OPTIONS = [
-  { value: 'VEG', label: 'Vegetarian' },
-  { value: 'NON-VEG', label: 'Non-Vegetarian' },
-  { value: 'VEGAN', label: 'Vegan' }
-] as const;
-
 export const QUOTA_OPTIONS = [
   { value: 'GOVERNMENT', label: 'Government Quota' },
   { value: 'GOVERNMENT 7.5%', label: 'Government 7.5% Quota' },
   { value: 'MANAGEMENT', label: 'Management Quota' }
+] as const;
+
+export const BOARD_OF_STUDY_OPTIONS = [
+  { value: 'state_board', label: 'State Board' },
+  { value: 'cbse', label: 'CBSE' },
+  { value: 'icse', label: 'ICSE' },
+  { value: 'matriculation', label: 'Matriculation' },
+  { value: 'anglo_indian', label: 'Anglo Indian' },
+  { value: 'others', label: 'Others' }
 ] as const;
 
 export const SCHOLARSHIP_TYPE_OPTIONS = [
@@ -280,3 +265,36 @@ export const SCHOLARSHIP_TYPE_OPTIONS = [
   { value: '7.5% SCHOLARSHIP', label: '7.5% Scholarship' },
   { value: 'NOT APPLICABLE', label: 'Not Applicable' }
 ] as const;
+
+// Parent occupation categories. Derived from analysis of 4,445 father + 4,325
+// mother values in learners_profiles (2026-05-19). Covers ~95-98% of existing
+// distinct values when fuzzy-matched via the migration. The OTHER option
+// triggers a conditional free-text input in the form so unique occupations are
+// still captureable. Used for BOTH father_occupation and mother_occupation —
+// homemaker fits both even though it's mostly mothers in practice.
+export const OCCUPATION_OPTIONS = [
+  { value: 'HOMEMAKER',           label: 'Homemaker',                                       tamil: 'இல்லத்தரசி' },
+  { value: 'DAILY_WAGE_WORKER',   label: 'Daily Wage Worker (Coolie / Labour)',             tamil: 'கூலி வேலை' },
+  { value: 'FARMER',              label: 'Farmer / Agriculture',                            tamil: 'விவசாயி' },
+  { value: 'DRIVER',              label: 'Driver / Conductor',                              tamil: 'ஓட்டுநர்' },
+  { value: 'BUSINESS',            label: 'Business / Self-Employed',                        tamil: 'சொந்த தொழில்' },
+  { value: 'WEAVER',              label: 'Weaver / Textile Worker',                         tamil: 'நெசவாளர்' },
+  { value: 'TAILOR',              label: 'Tailor',                                          tamil: 'தையற்காரர்' },
+  { value: 'SKILLED_TRADE',       label: 'Skilled Trade (Mason / Electrician / Carpenter)', tamil: 'கைவினைஞர்' },
+  { value: 'TEACHER',             label: 'Teacher / Professor',                             tamil: 'ஆசிரியர்' },
+  { value: 'HEALTHCARE',          label: 'Healthcare (Nurse / Pharmacist)',                 tamil: 'சுகாதார பணி' },
+  { value: 'GOVERNMENT_EMPLOYEE', label: 'Government Employee',                             tamil: 'அரசு பணியாளர்' },
+  { value: 'PRIVATE_EMPLOYEE',    label: 'Private Employee',                                tamil: 'தனியார் பணியாளர்' },
+  { value: 'ENGINEER',            label: 'Engineer / Professional',                         tamil: 'பொறியாளர்' },
+  { value: 'DECEASED',            label: 'Deceased / Late',                                 tamil: 'காலமானார்' },
+  { value: 'OTHER',               label: 'Other (specify)',                                 tamil: 'பிற' },
+] as const;
+
+export type OccupationCode = (typeof OCCUPATION_OPTIONS)[number]['value'];
+
+// Helper: given a saved value, return the option that matches by VALUE.
+// Returns undefined if no match — caller treats this as "needs OTHER + text".
+export function findOccupationOption(saved: string | null | undefined) {
+  if (!saved) return undefined;
+  return OCCUPATION_OPTIONS.find((o) => o.value === saved.trim());
+}

@@ -39,6 +39,8 @@ import {
 import { useCreateCycle } from '@/hooks/internships/useCycles';
 import { CollegeSelect } from '../_components/college-select';
 import type { CyclePostingType, CycleTemporalMode } from '@/lib/services/internships/types';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 interface FormState {
   cycle_name: string;
@@ -147,6 +149,7 @@ export default function NewCyclePage() {
   const isSubmitting = createCycle.isPending;
 
   return (
+    <PermissionGuard module="internship.cycles" action="create" fallback={<NoAccessAlert />}>
     <ContentLayout title="Create posting cycle">
       <Breadcrumb className="mb-4">
         <BreadcrumbList>
@@ -386,6 +389,7 @@ export default function NewCyclePage() {
         </div>
       </form>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

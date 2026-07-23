@@ -4,8 +4,20 @@
 // Backs: app/(routes)/ai-pulse/evidence/naac/page.tsx (+ _components/*) and
 //        the two API routes app/api/ai-pulse/evidence/naac/{route,export/route}.ts
 // Pairs with: event_submissions + event_registrations + startup_events
-//             (config->>'kind' = 'ai_pulse'). Gold Standard = tier_level >= 4
-//             per spec §7.
+//             (config->>'kind' = 'ai_pulse').
+//
+// Gold Standard semantics (updated 2026-06-11, Lane E — SOP Phases III–IV):
+//   PRIMARY  — faculty judgment. A submission is Gold when its id appears in
+//              any department bucket of the cycle's
+//              config.ai_pulse.gold_selections (written by the Lab Evaluation
+//              Console, lib/services/ai-pulse/lab-evaluation-service.ts).
+//              These rows export with Verification = "Faculty-selected".
+//   FALLBACK — for cycles with NO faculty selections yet, the legacy
+//              tier_level >= 4 behavior applies. tier_level is SELF-REPORTED
+//              (auto-computed from claimed MRR by event-submission-service),
+//              so those rows are flagged is_faculty_verified=false and export
+//              with Verification = "Self-reported" — evidence integrity made
+//              visible while old data still exports.
 // RLS:        Read-only. RLS on event_submissions / event_registrations
 //             scopes results to institutions the caller can access. Page-level
 //             permission gate at the form layer is `aiPulse:naac.evidence_export`
@@ -52,6 +64,10 @@ export interface NaacEvidenceRow {
   champion_at_time: string;
   ig_reach: number;
   proof_urls: string;
+  /** True when faculty picked this submission in the Lab Evaluation Console. */
+  is_faculty_verified: boolean;
+  /** Export-facing label: 'Faculty-selected' | 'Self-reported'. */
+  verification: string;
 }
 
 export interface NaacEvidenceSummary {
@@ -121,8 +137,12 @@ function rangeLabel(filters: NaacEvidenceFilters): string {
 
 export class NaacEvidenceService extends BaseService {
   /**
-   * Read Gold Standard rows (tier_level >= 4) from event_submissions joined
-   * to event_registrations and startup_events filtered to AI Pulse cycles.
+   * Read Gold Standard rows from event_submissions joined to
+   * event_registrations and startup_events filtered to AI Pulse cycles.
+   *
+   * Gold source (see header): faculty selections from
+   * config.ai_pulse.gold_selections per cycle; tier_level >= 4 fallback
+   * (flagged "Self-reported") only for cycles without any selections.
    *
    * Date range filters apply to the cycle's demo_date.
    * Institution filter applies to the registration's institution_id (which
@@ -168,12 +188,49 @@ export class NaacEvidenceService extends BaseService {
       };
     }
     const cycleIds = cycles.map((c) => c.id);
+    const cycleIdSet = new Set<string>(cycleIds);
+
+    // 1b. Faculty Gold selections per cycle (config.ai_pulse.gold_selections —
+    //     nested shape written by the Lab Evaluation Console). Cycles with at
+    //     least one selected submission use ONLY faculty judgment; the rest
+    //     fall back to self-reported tier_level >= 4.
+    const facultySelectedByCycle = new Map<string, Set<string>>();
+    for (const c of cycles) {
+      const aiPulse =
+        c?.config?.ai_pulse && typeof c.config.ai_pulse === 'object'
+          ? c.config.ai_pulse
+          : {};
+      const selections =
+        aiPulse?.gold_selections && typeof aiPulse.gold_selections === 'object'
+          ? (aiPulse.gold_selections as Record<string, any>)
+          : {};
+      const ids = new Set<string>();
+      for (const deptBucket of Object.values(selections)) {
+        const subIds = Array.isArray(deptBucket?.submission_ids)
+          ? deptBucket.submission_ids
+          : [];
+        for (const id of subIds) {
+          if (typeof id === 'string' && id) ids.add(id);
+        }
+      }
+      if (ids.size > 0) facultySelectedByCycle.set(c.id, ids);
+    }
+    const facultySelectedIds = Array.from(
+      new Set(
+        Array.from(facultySelectedByCycle.values()).flatMap((s) =>
+          Array.from(s),
+        ),
+      ),
+    );
+    const fallbackCycleIds = cycleIds.filter(
+      (id) => !facultySelectedByCycle.has(id),
+    );
 
     // 2. Resolve featured_tool labels referenced by these cycles in one batch.
     const featuredToolIds = Array.from(
       new Set(
         cycles
-          .map((c) => c?.config?.featured_tool_id)
+          .map((c) => c?.config?.ai_pulse?.featured_tool_id ?? c?.config?.featured_tool_id)
           .filter(Boolean) as string[],
       ),
     );
@@ -197,7 +254,7 @@ export class NaacEvidenceService extends BaseService {
     const hostUserIds = Array.from(
       new Set(
         cycles
-          .map((c) => c?.config?.host_user_id)
+          .map((c) => c?.config?.ai_pulse?.host_user_id ?? c?.config?.host_user_id)
           .filter(Boolean) as string[],
       ),
     );
@@ -229,21 +286,50 @@ export class NaacEvidenceService extends BaseService {
       }
     }
 
-    // 5. Fetch Gold Standard submissions for these cycles.
-    let subsQuery = supabase
-      .from('event_submissions')
-      .select(
-        'id, event_id, registration_id, app_name, github_url, live_app_url, description, problem_statement, solution_summary, tier_level, total_score, proof_urls, active_users_count',
-      )
-      .in('event_id', cycleIds)
-      .gte('tier_level', 4);
+    // 5. Fetch Gold Standard submissions: faculty-selected ids first, then
+    //    tier_level >= 4 fallback for cycles without any selections.
+    const SUBMISSION_SELECT =
+      'id, event_id, registration_id, app_name, github_url, live_app_url, description, problem_statement, solution_summary, tier_level, total_score, proof_urls, active_users_count';
 
-    const { data: subsRaw, error: subsErr } = await subsQuery;
-    if (subsErr) {
-      console.error('[ai-pulse/naac] submissions query failed:', subsErr);
-      throw new Error(subsErr.message);
+    const submissions: any[] = [];
+    const seenSubmissionIds = new Set<string>();
+
+    if (facultySelectedIds.length > 0) {
+      const { data: selectedRaw, error: selErr } = await supabase
+        .from('event_submissions')
+        .select(SUBMISSION_SELECT)
+        .in('id', facultySelectedIds);
+      if (selErr) {
+        console.error('[ai-pulse/naac] selected submissions query failed:', selErr);
+        throw new Error(selErr.message);
+      }
+      for (const s of (selectedRaw ?? []) as any[]) {
+        // Guard: only count selections whose submission belongs to an
+        // in-range cycle (selection ids are stored per cycle, but be safe
+        // against stale/cross-cycle ids).
+        if (!cycleIdSet.has(s.event_id)) continue;
+        if (seenSubmissionIds.has(s.id)) continue;
+        seenSubmissionIds.add(s.id);
+        submissions.push(s);
+      }
     }
-    const submissions = (subsRaw ?? []) as any[];
+
+    if (fallbackCycleIds.length > 0) {
+      const { data: fallbackRaw, error: subsErr } = await supabase
+        .from('event_submissions')
+        .select(SUBMISSION_SELECT)
+        .in('event_id', fallbackCycleIds)
+        .gte('tier_level', 4);
+      if (subsErr) {
+        console.error('[ai-pulse/naac] submissions query failed:', subsErr);
+        throw new Error(subsErr.message);
+      }
+      for (const s of (fallbackRaw ?? []) as any[]) {
+        if (seenSubmissionIds.has(s.id)) continue;
+        seenSubmissionIds.add(s.id);
+        submissions.push(s);
+      }
+    }
 
     if (submissions.length === 0) {
       return {
@@ -379,11 +465,15 @@ export class NaacEvidenceService extends BaseService {
         ? departmentNameById.get(owner.department_id) ?? ''
         : '';
 
-      const featuredToolName = cycle?.config?.featured_tool_id
-        ? featuredToolNameById.get(cycle.config.featured_tool_id) ?? ''
+      const cycleToolId =
+        cycle?.config?.ai_pulse?.featured_tool_id ?? cycle?.config?.featured_tool_id;
+      const cycleHostId =
+        cycle?.config?.ai_pulse?.host_user_id ?? cycle?.config?.host_user_id;
+      const featuredToolName = cycleToolId
+        ? featuredToolNameById.get(cycleToolId) ?? ''
         : '';
-      const championName = cycle?.config?.host_user_id
-        ? hostNameById.get(cycle.config.host_user_id) ?? ''
+      const championName = cycleHostId
+        ? hostNameById.get(cycleHostId) ?? ''
         : '';
 
       const description =
@@ -395,6 +485,9 @@ export class NaacEvidenceService extends BaseService {
       const proofUrls = Array.isArray(s.proof_urls)
         ? (s.proof_urls as string[]).filter(Boolean).join(' | ')
         : '';
+
+      const isFacultyVerified =
+        facultySelectedByCycle.get(s.event_id)?.has(s.id) ?? false;
 
       return {
         academic_year: academicYearFor(cycle?.demo_date ?? null),
@@ -408,8 +501,12 @@ export class NaacEvidenceService extends BaseService {
         live_app_url: s.live_app_url ?? '',
         featured_tool: featuredToolName,
         champion_at_time: championName,
+        // Self-reported active-users count; real IG reach (ig_post_metrics) available via pulse-analytics-service as a future upgrade.
+        // Field key stays `ig_reach` for back-compat; surfaced label is now "Active Users (self-reported)".
         ig_reach: typeof s.active_users_count === 'number' ? s.active_users_count : 0,
         proof_urls: proofUrls,
+        is_faculty_verified: isFacultyVerified,
+        verification: isFacultyVerified ? 'Faculty-selected' : 'Self-reported',
       };
     });
 

@@ -104,8 +104,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
 
   // SECTION 9: Accommodation Details
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
-  'hostel_type': ['Hostel Type', 'hostel_type'],
-  'food_type': ['Food Type', 'food_type'],
+  'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -115,7 +114,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
   'quota': ['Quota', 'quota'],
-  'category': ['Category', 'category'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
 
@@ -400,7 +398,6 @@ export async function POST(request: NextRequest) {
             {
               year: yearInt,
               institutionId: profile.institution_id,
-              programId: sanitizedData.program_id,
             }
           );
         }
@@ -584,11 +581,10 @@ export async function POST(request: NextRequest) {
       if (mappedData.accommodation_type) {
         sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
       }
-      if (mappedData.hostel_type) {
-        sanitizedData.hostel_type = sanitizeValue(mappedData.hostel_type, 'text');
-      }
-      if (mappedData.food_type) {
-        sanitizedData.food_type = sanitizeValue(mappedData.food_type, 'text');
+      if (mappedData.bus_required !== undefined && mappedData.bus_required !== '') {
+        const b = String(mappedData.bus_required).trim().toLowerCase();
+        if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;
+        else if (['no', 'n', 'false', '0'].includes(b)) sanitizedData.bus_required = false;
       }
       // SECTION 10: Reference Information
       if (mappedData.reference_type) {

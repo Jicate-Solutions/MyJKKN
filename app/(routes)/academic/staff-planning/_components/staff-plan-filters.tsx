@@ -23,6 +23,7 @@ import { StaffPlanningSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { AcademicYear } from '@/types/academics';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface StaffPlanFiltersProps {
   searchParams: StaffPlanningSearchParams;
@@ -57,6 +58,7 @@ export function StaffPlanFilters({
   const [currentAcademicYear, setCurrentAcademicYear] = useState<AcademicYear | null>(null);
   const [loading, setLoading] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   // Memoize onFilterChange to prevent stale closures in effects
   const stableOnFilterChange = useCallback(onFilterChange, [onFilterChange]);
@@ -68,7 +70,9 @@ export function StaffPlanFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types. Filter is
+        // rendered for super admin only, so no userId scoping is needed.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         if (isMounted) {
           setInstitutions(data);
         }
@@ -438,10 +442,10 @@ export function StaffPlanFilters({
             disabled={!searchParams.institution_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select degree' />
+              <SelectValue placeholder={`Select ${adapt('degree')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Degrees</SelectItem>
+              <SelectItem value='all'>{adapt('All Degrees')}</SelectItem>
               {degrees.map((degree) => (
                 <SelectItem key={degree.id} value={degree.id}>
                   {degree.degree_name}
@@ -464,10 +468,10 @@ export function StaffPlanFilters({
             disabled={!searchParams.degree_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select department' />
+              <SelectValue placeholder={`Select ${adapt('department')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Departments</SelectItem>
+              <SelectItem value='all'>{adapt('All Departments')}</SelectItem>
               {departments.map((dept) => (
                 <SelectItem key={dept.id} value={dept.id}>
                   {dept.department_name}
@@ -489,10 +493,10 @@ export function StaffPlanFilters({
             disabled={!searchParams.department_id}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
-              <SelectValue placeholder='Select program' />
+              <SelectValue placeholder={`Select ${adapt('program')}`} />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
-              <SelectItem value='all'>All Programs</SelectItem>
+              <SelectItem value='all'>{adapt('All Programs')}</SelectItem>
               {programs.map((program) => (
                 <SelectItem key={program.id} value={program.id}>
                   {program.program_name}
@@ -518,10 +522,10 @@ export function StaffPlanFilters({
           disabled={!searchParams.program_id}
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
-            <SelectValue placeholder='Select semester' />
+            <SelectValue placeholder={`Select ${adapt('semester')}`} />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Semesters</SelectItem>
+            <SelectItem value='all'>{adapt('All Semesters')}</SelectItem>
             {semesters.map((semester) => (
               <SelectItem key={semester.id} value={semester.id}>
                 {semester.semester_name}
@@ -538,10 +542,10 @@ export function StaffPlanFilters({
           disabled={!searchParams.institution_id}
         >
           <SelectTrigger className='w-full sm:w-[200px]'>
-            <SelectValue placeholder='Select course' />
+            <SelectValue placeholder={`Select ${adapt('course')}`} />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
-            <SelectItem value='all'>All Courses</SelectItem>
+            <SelectItem value='all'>{adapt('All Courses')}</SelectItem>
             {courses.map((course) => (
               <SelectItem key={course.id} value={course.id}>
                 {course.course_code} - {course.course_name}

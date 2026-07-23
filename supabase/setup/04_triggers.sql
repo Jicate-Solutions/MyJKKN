@@ -117,6 +117,13 @@ CREATE TRIGGER trigger_update_bill_status_on_payment AFTER INSERT ON billing_rec
 CREATE TRIGGER trigger_update_bill_status_on_delete AFTER DELETE ON billing_receipt_items
     FOR EACH ROW EXECUTE FUNCTION update_bill_status_on_delete();
 
+-- 20260611150000: re-check hostel upgrade payment-threshold holds on every payment
+-- (gateway callbacks and office receipts both insert receipt items). The function
+-- computes paid % from receipt items, so its order relative to
+-- trigger_update_bill_status_on_payment does not matter.
+CREATE TRIGGER trg_cl_upgrade_holds_after_payment AFTER INSERT ON billing_receipt_items
+    FOR EACH ROW EXECUTE FUNCTION _on_receipt_item_process_upgrade_holds();
+
 CREATE TRIGGER trigger_update_bill_balance_on_amount_change AFTER UPDATE OF bill_amount ON billing_student_bills
     FOR EACH ROW EXECUTE FUNCTION update_bill_balance_on_amount_change();
 
@@ -132,6 +139,19 @@ CREATE TRIGGER trigger_receipts_refresh_summary AFTER INSERT OR UPDATE OR DELETE
 
 CREATE TRIGGER trigger_refunds_refresh_summary AFTER INSERT OR UPDATE OR DELETE ON billing_refunds
     FOR EACH ROW EXECUTE FUNCTION trigger_refresh_student_billing_summary();
+
+-- BILLING REFUND WORKFLOW (2026-07-11) updated_at triggers
+CREATE TRIGGER trigger_refund_flow_configs_updated_at BEFORE UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+CREATE TRIGGER trigger_refund_requests_updated_at BEFORE UPDATE ON billing_refund_requests
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
+
+-- Global XOR institution-specific scope exclusivity backstop (2026-07-14,
+-- refund_flow_scope_exclusivity). See fn_enforce_refund_flow_scope_exclusivity
+-- in 02_functions.sql.
+CREATE TRIGGER trigger_refund_flow_scope_exclusivity BEFORE INSERT OR UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION fn_enforce_refund_flow_scope_exclusivity();
 
 -- ================================================================================
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
@@ -280,6 +300,15 @@ CREATE TRIGGER log_resource_usage_trigger AFTER INSERT ON resource_reservations
 -- Update resource reservation count
 CREATE TRIGGER update_resource_reservation_count_trigger AFTER INSERT OR UPDATE OR DELETE ON resource_reservations
     FOR EACH ROW EXECUTE FUNCTION update_resource_reservation_count();
+
+-- Pending-aware, capacity-aware slot lock (replaces tr_reservation_approved_decrement_stock)
+DROP TRIGGER IF EXISTS tr_reservation_approved_decrement_stock ON public.resource_reservations;
+DROP FUNCTION IF EXISTS public.fn_reservation_approved_decrement_stock();
+CREATE TRIGGER tr_reservation_enforce_slot_lock
+  BEFORE INSERT OR UPDATE OF start_time, end_time, quantity, resource_id, status
+  ON public.resource_reservations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_reservation_enforce_slot_lock();
 
 -- Update category usage count
 CREATE TRIGGER update_category_usage_count_trigger AFTER INSERT OR UPDATE OR DELETE ON resources
@@ -461,7 +490,11 @@ BEGIN
     -- Only proceed if this is a NEW profile without learner_id
     IF TG_OP = 'INSERT' AND NEW.learner_id IS NULL AND NEW.email IS NOT NULL THEN
 
-        -- Check if there's an approved/active/graduated learner with matching college_email
+        -- Match an eligible learner by college_email. 'approved'/'active'/
+        -- 'graduated' = full access; the 4 induction statuses = pre-onboarding
+        -- induction-only access (scoped by proxy.ts). Keep in sync with
+        -- INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES + the OAuth callback lookup.
+        -- (20260629100000_induction_only_access_widen_provisioning.sql)
         SELECT
             id,
             first_name,
@@ -472,7 +505,10 @@ BEGIN
         INTO v_learner_record
         FROM learners_profiles
         WHERE LOWER(college_email) = LOWER(NEW.email)
-        AND lifecycle_status IN ('approved', 'active', 'graduated')
+        AND lifecycle_status IN (
+            'approved', 'active', 'graduated',
+            'admitted', 'reserved', 'enquiry_submitted', 'enquiry', 'account'
+        )
         LIMIT 1;
 
         -- If learner found, link it to this profile
@@ -926,7 +962,8 @@ CREATE TRIGGER trg_expo_event_stalls_touch
 -- learners_profiles admission_year_id scope validator — Added 2026-04-23
 -- Fires BEFORE INSERT/UPDATE OF admission_year_id, institution_id, program_id.
 -- Calls validate_learner_admission_year_scope() (02_functions.sql) which
--- rejects cross-institution / cross-program FK attachment.
+-- rejects cross-institution FK attachment (admission_years is institution-wide
+-- as of 2026-06-05; the program check was dropped).
 -- =====================================================
 DROP TRIGGER IF EXISTS trg_validate_learner_admission_year_scope
   ON public.learners_profiles;
@@ -989,9 +1026,15 @@ FOR EACH ROW EXECUTE FUNCTION public.fn_log_notif_gen_cfg_change();
 
 -- =====================================================================
 -- Plan 5 — Detect matrix-dim changes on learners_profiles
--- Spec §8.4 — fires AFTER UPDATE; inserts admission_fee_change_events
--- when learner's matrix dims change AND non-superseded bills exist AND
--- no pending event already exists.
+-- Spec §8.4 — fires AFTER UPDATE on learners_profiles.
+-- Three behaviors:
+--   1. Always re-resolves fee_items via admission_resolve_fee_items_for_lead
+--      so the profile always reflects the current fee structure.
+--   2. If active (non-superseded) bills exist AND no pending event →
+--      creates admission_fee_change_events + event_lines for admin review.
+--   3. If active bills exist AND a pending event already exists →
+--      UPDATES the existing event with current new_fee_structure_id and
+--      regenerates event_lines with correct new amounts.
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION public.trigger_detect_fee_dimension_change()
@@ -1003,16 +1046,18 @@ AS $$
 DECLARE
     v_changed_field         text;
     v_has_active_bills      boolean;
-    v_has_pending_event     boolean;
+    v_pending_event_id      uuid;
     v_old_structure_id      uuid;
     v_new_structure_id      uuid;
     v_event_id              uuid;
     v_caller                uuid := auth.uid();
 BEGIN
+    -- Skip if legacy mode or if legacy_fee_mode itself is what changed
     IF NEW.legacy_fee_mode = true OR NEW.legacy_fee_mode IS DISTINCT FROM OLD.legacy_fee_mode THEN
         RETURN NEW;
     END IF;
 
+    -- Detect which fee-matrix dimension changed (first match wins)
     v_changed_field := CASE
         WHEN NEW.program_id IS DISTINCT FROM OLD.program_id THEN 'program_id'
         WHEN NEW.quota_id IS DISTINCT FROM OLD.quota_id THEN 'quota_id'
@@ -1026,48 +1071,121 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Always re-resolve fee_items so profile reflects current structure
+    PERFORM public.admission_resolve_fee_items_for_lead(NEW.id);
+
+    -- Check if bills exist — only create/update change events when they do
     SELECT EXISTS (
         SELECT 1 FROM public.billing_student_bills
          WHERE student_id = NEW.id AND status <> 'superseded'
     ) INTO v_has_active_bills;
+
     IF NOT v_has_active_bills THEN
+        -- No bills → fee_items already refreshed above, nothing else to do
         RETURN NEW;
     END IF;
 
-    SELECT EXISTS (
-        SELECT 1 FROM public.admission_fee_change_events
-         WHERE learner_id = NEW.id AND status = 'pending_review'
-    ) INTO v_has_pending_event;
-    IF v_has_pending_event THEN
+    -- OLD structure — match 7 dims + community via junction
+    SELECT afs.id INTO v_old_structure_id
+      FROM public.admission_fee_structures afs
+     WHERE afs.institution_id        = OLD.institution_id
+       AND afs.degree_id             = OLD.degree_id
+       AND afs.department_id         = OLD.department_id
+       AND afs.programme_id          = OLD.program_id
+       AND afs.quota_id              = OLD.quota_id
+       AND afs.accommodation_type_id = OLD.accommodation_type_id
+       AND afs.admission_year_id     = OLD.admission_year_id
+       AND afs.status = 'active'
+       AND EXISTS (
+             SELECT 1 FROM public.admission_fee_structure_communities j
+              WHERE j.fee_structure_id      = afs.id
+                AND j.community_category_id = OLD.community_category_id
+           )
+     LIMIT 1;
+
+    -- NEW structure — same shape, learner's NEW dimensions
+    SELECT afs.id INTO v_new_structure_id
+      FROM public.admission_fee_structures afs
+     WHERE afs.institution_id        = NEW.institution_id
+       AND afs.degree_id             = NEW.degree_id
+       AND afs.department_id         = NEW.department_id
+       AND afs.programme_id          = NEW.program_id
+       AND afs.quota_id              = NEW.quota_id
+       AND afs.accommodation_type_id = NEW.accommodation_type_id
+       AND afs.admission_year_id     = NEW.admission_year_id
+       AND afs.status = 'active'
+       AND EXISTS (
+             SELECT 1 FROM public.admission_fee_structure_communities j
+              WHERE j.fee_structure_id      = afs.id
+                AND j.community_category_id = NEW.community_category_id
+           )
+     LIMIT 1;
+
+    -- Check for existing pending event
+    SELECT id INTO v_pending_event_id
+      FROM public.admission_fee_change_events
+     WHERE learner_id = NEW.id AND status = 'pending_review'
+     LIMIT 1;
+
+    IF v_pending_event_id IS NOT NULL THEN
+        -- Update existing pending event with latest change info
+        UPDATE public.admission_fee_change_events
+           SET trigger_field         = v_changed_field,
+               new_fee_structure_id  = v_new_structure_id,
+               updated_at            = now()
+         WHERE id = v_pending_event_id;
+
+        -- Regenerate event lines with current amounts
+        DELETE FROM public.admission_fee_change_event_lines
+         WHERE event_id = v_pending_event_id;
+
+        INSERT INTO public.admission_fee_change_event_lines (
+            event_id, billing_category_id, old_amount, new_amount, paid_amount_so_far
+        )
+        SELECT
+            v_pending_event_id,
+            cat_id,
+            old_amount,
+            new_amount,
+            paid
+        FROM (
+            SELECT cat_id,
+                   MAX(old_amount) AS old_amount,
+                   MAX(new_amount) AS new_amount,
+                   COALESCE(MAX(paid), 0) AS paid
+              FROM (
+                  SELECT fsi.billing_category_id AS cat_id,
+                         fsi.amount AS old_amount,
+                         NULL::numeric AS new_amount,
+                         NULL::numeric AS paid
+                    FROM public.admission_fee_structure_items fsi
+                    JOIN public.admission_fee_change_events evt ON evt.id = v_pending_event_id
+                   WHERE fsi.fee_structure_id = evt.old_fee_structure_id
+                  UNION ALL
+                  SELECT fsi.billing_category_id,
+                         NULL::numeric,
+                         fsi.amount,
+                         NULL::numeric
+                    FROM public.admission_fee_structure_items fsi
+                   WHERE fsi.fee_structure_id = v_new_structure_id
+                  UNION ALL
+                  SELECT b.item_category_id,
+                         NULL::numeric,
+                         NULL::numeric,
+                         b.final_amount - b.balance_amount
+                    FROM public.billing_student_bills b
+                   WHERE b.student_id = NEW.id
+                     AND b.status <> 'superseded'
+                     AND b.item_category_id IS NOT NULL
+              ) u
+             GROUP BY cat_id
+        ) g
+        WHERE cat_id IS NOT NULL;
+
         RETURN NEW;
     END IF;
 
-    SELECT id INTO v_old_structure_id
-      FROM public.admission_fee_structures
-     WHERE institution_id        = OLD.institution_id
-       AND degree_id             = OLD.degree_id
-       AND department_id         = OLD.department_id
-       AND programme_id          = OLD.program_id
-       AND quota_id              = OLD.quota_id
-       AND community_category_id = OLD.community_category_id
-       AND accommodation_type_id = OLD.accommodation_type_id
-       AND admission_year_id     = OLD.admission_year_id
-       AND status = 'active'
-     LIMIT 1;
-
-    SELECT id INTO v_new_structure_id
-      FROM public.admission_fee_structures
-     WHERE institution_id        = NEW.institution_id
-       AND degree_id             = NEW.degree_id
-       AND department_id         = NEW.department_id
-       AND programme_id          = NEW.program_id
-       AND quota_id              = NEW.quota_id
-       AND community_category_id = NEW.community_category_id
-       AND accommodation_type_id = NEW.accommodation_type_id
-       AND admission_year_id     = NEW.admission_year_id
-       AND status = 'active'
-     LIMIT 1;
-
+    -- No pending event — create a new one
     INSERT INTO public.admission_fee_change_events (
         learner_id, trigger_field,
         old_program_id, old_quota_id, old_community_category_id,
@@ -1120,9 +1238,10 @@ BEGIN
                WHERE b.student_id = NEW.id
                  AND b.status <> 'superseded'
                  AND b.item_category_id IS NOT NULL
-          ) t
+          ) u
          GROUP BY cat_id
-    ) merged;
+    ) g
+    WHERE cat_id IS NOT NULL;
 
     RETURN NEW;
 END;
@@ -1148,3 +1267,282 @@ DROP TRIGGER IF EXISTS trg_set_legacy_fee_mode_default ON public.learners_profil
 CREATE TRIGGER trg_set_legacy_fee_mode_default
     BEFORE INSERT ON public.learners_profiles
     FOR EACH ROW EXECUTE FUNCTION public.set_legacy_fee_mode_default();
+
+-- ============================================================================
+-- razorpay_accounts updated_at (migration 20260603130000)
+-- ============================================================================
+DROP TRIGGER IF EXISTS trigger_razorpay_accounts_updated_at ON public.razorpay_accounts;
+CREATE TRIGGER trigger_razorpay_accounts_updated_at
+BEFORE UPDATE ON public.razorpay_accounts
+FOR EACH ROW EXECUTE FUNCTION public.update_razorpay_accounts_updated_at();
+
+-- ============================================================================
+-- trg_sync_lead_referral_to_learner_profile (migration 20260610160000)
+-- ============================================================================
+-- Mirrors admission_leads referral attribution (referral_type, referred_by_id,
+-- referred_by_name) onto the linked learners_profiles row so referral edits
+-- made AFTER lead→learner conversion stay visible on the Enquiries page.
+-- The leads module is the single edit surface for referral attribution
+-- (enquiry-form Reference Information block removed 2026-05-21).
+-- SECURITY DEFINER: lead editors don't necessarily hold learners_profiles
+-- UPDATE rights. The nested learners_profiles UPDATE fires
+-- trg_sync_learner_referral_to_attribution, whose NOT EXISTS guard finds the
+-- already-updated lead row and skips — no duplicate attribution rows.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.sync_lead_referral_to_learner_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  IF NEW.learner_profile_id IS NOT NULL THEN
+    UPDATE learners_profiles lp
+    SET referral_type    = NEW.referral_type,
+        referred_by_id   = NEW.referred_by_id,
+        referred_by_name = NEW.referred_by_name,
+        updated_at       = now()
+    WHERE lp.id = NEW.learner_profile_id
+      AND (lp.referral_type    IS DISTINCT FROM NEW.referral_type
+        OR lp.referred_by_id   IS DISTINCT FROM NEW.referred_by_id
+        OR lp.referred_by_name IS DISTINCT FROM NEW.referred_by_name);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_sync_lead_referral_to_learner_profile ON public.admission_leads;
+CREATE TRIGGER trg_sync_lead_referral_to_learner_profile
+AFTER INSERT OR UPDATE OF referral_type, referred_by_id, referred_by_name, learner_profile_id
+ON public.admission_leads
+FOR EACH ROW EXECUTE FUNCTION public.sync_lead_referral_to_learner_profile();
+
+-- 20260611180000: seed today's hostel_cleaning_tasks row when a due cleaning
+-- schedule is created (daily plans appear on the Tasks page immediately).
+CREATE TRIGGER trg_cleaning_schedule_seed_task AFTER INSERT ON hostel_cleaning_schedules
+    FOR EACH ROW EXECUTE FUNCTION _on_cleaning_schedule_seed_task();
+
+-- 20260611190000: sync learners_profiles room/mess categories from the room
+-- whenever an allocation becomes active (single enforcement point for manual,
+-- batch-approval, auto-allocate and upgrade allocation paths).
+CREATE TRIGGER trg_allocation_sync_learner_categories
+AFTER INSERT OR UPDATE OF status ON hostel_allocations
+FOR EACH ROW WHEN (NEW.status = 'active')
+EXECUTE FUNCTION _on_allocation_sync_learner_categories();
+
+-- Auto-apply fee-condition room/mess categories on academic bill writes
+-- (mig 20260612130000). Transition tables can't span events => one per event.
+DROP TRIGGER IF EXISTS trg_bill_apply_hostel_fee_categories_ins ON billing_student_bills;
+CREATE TRIGGER trg_bill_apply_hostel_fee_categories_ins
+AFTER INSERT ON billing_student_bills
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();
+
+DROP TRIGGER IF EXISTS trg_bill_apply_hostel_fee_categories_upd ON billing_student_bills;
+CREATE TRIGGER trg_bill_apply_hostel_fee_categories_upd
+AFTER UPDATE ON billing_student_bills
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT
+EXECUTE FUNCTION trg_bill_apply_hostel_fee_categories();
+
+-- TMS transport-fee safe-delete: clean up soft-linked billing_student_bills
+-- when a tms_fee_bill is deleted (mig 20260616160000). Closes the orphan trap
+-- from the non-FK tms_fee_bill.billing_student_bill_id link; fails closed on paid.
+DROP TRIGGER IF EXISTS trg_tms_fee_bill_cleanup_linked_billing ON tms_fee_bill;
+CREATE TRIGGER trg_tms_fee_bill_cleanup_linked_billing
+BEFORE DELETE ON tms_fee_bill
+FOR EACH ROW
+EXECUTE FUNCTION tms_fee_bill_cleanup_linked_billing();
+
+-- Auto-derive hr_recruitment_jobs.hr_organization_id from the chosen college.
+-- Mirrors 20260625120000_hr_recruitment_jobs_autofill_org.sql.
+DROP TRIGGER IF EXISTS hr_recruitment_jobs_fill_org_biu ON public.hr_recruitment_jobs;
+CREATE TRIGGER hr_recruitment_jobs_fill_org_biu
+  BEFORE INSERT OR UPDATE OF institution_id, hr_organization_id
+  ON public.hr_recruitment_jobs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_recruitment_jobs_fill_org();
+
+-- Induction day/program feedback updated_at touch (2026-07-30).
+-- Migration: supabase/migrations/20260730110000_induction_day_program_feedback.sql
+DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_day_feedback;
+CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_day_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_touch_updated_at ON public.event_program_feedback;
+CREATE TRIGGER trg_touch_updated_at BEFORE UPDATE ON public.event_program_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.induction_touch_updated_at();
+
+
+-- hr_recruitment_candidate_comments updated_at (migration 20260703130200)
+CREATE TRIGGER hr_rec_cand_comments_updated_at
+  BEFORE UPDATE ON hr_recruitment_candidate_comments
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Cohort Core updated_at (migration 20260731040000_cohort_core_spine.sql). 2026-07-05.
+-- cohort_status_events is append-only (no updated_at column) → no trigger.
+DROP TRIGGER IF EXISTS trg_cohorts_updated_at ON public.cohorts;
+CREATE TRIGGER trg_cohorts_updated_at
+  BEFORE UPDATE ON public.cohorts
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_cohort_memberships_updated_at ON public.cohort_memberships;
+CREATE TRIGGER trg_cohort_memberships_updated_at
+  BEFORE UPDATE ON public.cohort_memberships
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ── Cohort Core — M2: outcome-capture-at-close (Phase 7 · THE MOAT) ───────────
+-- Migration: supabase/migrations/20260731091000_cohort_outcome_capture.sql (2026-07-05).
+-- Snapshots ONE public.cohort_outcomes row when a cohort_memberships row
+-- transitions INTO a terminal status (graduated | removed) from a non-terminal
+-- one. The trigger is the single chokepoint every close passes through, so the
+-- moat's fuel cannot be stranded by a service that forgets to record it.
+-- SECURITY DEFINER (must INSERT regardless of who closed); anon/PUBLIC revoked
+-- (invoked only by the trigger, never called directly). institution_id is copied
+-- from the parent cohort — never a NULL-institution row.
+-- UPGRADED 2026-07-06 (M7.1, migration 20260731092000): now CALLS the versioned
+-- estimator fn_cohort_blended_score at close and MERGES the {blended_baseline,
+-- blended_outcome, lift, …} envelope into outcome_snapshot. Scoring is best-effort
+-- (an estimator error → unscored snapshot); the whole capture stays inside the
+-- best-effort wrap so it can NEVER roll back the membership close.
+CREATE OR REPLACE FUNCTION public.fn_capture_cohort_outcome()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_kind           text;
+  v_institution_id uuid;
+  v_score          jsonb;
+BEGIN
+  IF NEW.status NOT IN ('graduated','removed') THEN RETURN NEW; END IF;
+  IF OLD.status IS NOT DISTINCT FROM NEW.status THEN RETURN NEW; END IF;
+  IF OLD.status IN ('graduated','removed') THEN RETURN NEW; END IF;
+
+  SELECT c.kind, c.institution_id INTO v_kind, v_institution_id
+    FROM public.cohorts c WHERE c.id = NEW.cohort_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE NOTICE 'cohort_outcome capture skipped for membership % — parent cohort % has no institution', NEW.id, NEW.cohort_id;
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    BEGIN
+      v_score := public.fn_cohort_blended_score(v_kind, NEW.member_type, NEW.member_ref, v_institution_id);
+    EXCEPTION WHEN OTHERS THEN
+      v_score := jsonb_build_object('scored', false, 'estimator_version', 'none',
+                                    'reason', 'estimator raised: ' || SQLERRM, 'lift', NULL);
+    END;
+
+    INSERT INTO public.cohort_outcomes (
+      cohort_id, membership_id, member_ref, member_type, kind,
+      captured_at, outcome_snapshot, source, institution_id
+    ) VALUES (
+      NEW.cohort_id, NEW.id, NEW.member_ref, NEW.member_type, v_kind,
+      now(),
+      jsonb_build_object(
+        'from_status',       OLD.status,
+        'to_status',         NEW.status,
+        'role',              NEW.role,
+        'joined_at',         NEW.joined_at,
+        'membership_config', NEW.config,
+        'captured_by',       'trigger'
+      ) || COALESCE(v_score, '{}'::jsonb),
+      'trigger', v_institution_id
+    )
+    ON CONFLICT (membership_id) WHERE membership_id IS NOT NULL DO NOTHING;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'cohort_outcome capture failed for membership % (kind %): %; close proceeds (best-effort M2)', NEW.id, v_kind, SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_capture_cohort_outcome() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_cohort_capture_outcome ON public.cohort_memberships;
+CREATE TRIGGER trg_cohort_capture_outcome
+  AFTER UPDATE OF status ON public.cohort_memberships
+  FOR EACH ROW
+  WHEN (
+    NEW.status IN ('graduated','removed')
+    AND OLD.status IS DISTINCT FROM NEW.status
+  )
+  EXECUTE FUNCTION public.fn_capture_cohort_outcome();
+
+-- ── Cohort Core — M7.3 proposals updated_at trigger (Phase 7) ────────────────
+DROP TRIGGER IF EXISTS trg_cohort_proposals_updated_at ON public.cohort_adjustment_proposals;
+CREATE TRIGGER trg_cohort_proposals_updated_at
+  BEFORE UPDATE ON public.cohort_adjustment_proposals
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- ── Cohort Core — M7.3 proposal terminal-state + anti-spoof guard (Phase 7) ──
+-- 'applied'/'rejected' are immutable (no re-apply of the additive delta); a human
+-- decision binds reviewed_by to auth.uid(). Migration 20260731094000.
+CREATE OR REPLACE FUNCTION public.fn_cohort_proposal_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
+BEGIN
+  IF OLD.status IN ('applied','rejected') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    RAISE EXCEPTION 'proposal % is % (terminal) — its status cannot change', OLD.id, OLD.status
+      USING ERRCODE='check_violation';
+  END IF;
+  IF NEW.status IN ('approved','rejected') AND NEW.status IS DISTINCT FROM OLD.status THEN
+    IF auth.uid() IS NOT NULL THEN NEW.reviewed_by := auth.uid(); END IF;
+    NEW.reviewed_at := COALESCE(NEW.reviewed_at, now());
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_cohort_proposal_guard() FROM anon, PUBLIC;
+DROP TRIGGER IF EXISTS trg_cohort_proposals_guard ON public.cohort_adjustment_proposals;
+CREATE TRIGGER trg_cohort_proposals_guard
+  BEFORE UPDATE ON public.cohort_adjustment_proposals
+  FOR EACH ROW EXECUTE FUNCTION public.fn_cohort_proposal_guard();
+
+-- School Master: keep updated_at fresh
+DROP TRIGGER IF EXISTS school_master_touch_updated_at ON public.school_master;
+CREATE TRIGGER school_master_touch_updated_at
+  BEFORE UPDATE ON public.school_master
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+-- Postal Codes: keep updated_at fresh
+DROP TRIGGER IF EXISTS postal_codes_touch_updated_at ON public.postal_codes;
+CREATE TRIGGER postal_codes_touch_updated_at
+  BEFORE UPDATE ON public.postal_codes
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+-- ── events privileged-field guard (2026-07-10, tournament_incharge_privilege_guard) ──
+-- Tier 1: only super admin / sports.tournaments.manage may change config->incharges.
+-- Tier 2: only super admin / admin-coordinator roles / tournament managers may change
+-- institution_id, event_type, created_by. service_role (auth.uid() IS NULL) bypasses.
+-- Function body lives in 02_functions.sql (fn_guard_event_privileged_fields).
+
+DROP TRIGGER IF EXISTS trg_events_guard_privileged_fields ON public.events;
+CREATE TRIGGER trg_events_guard_privileged_fields
+  BEFORE UPDATE ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_event_privileged_fields();
+
+-- ── Tournament registration form event_id sync (2026-07-14,
+--    event_registration_form_event_id_sync_triggers,
+--    event_registration_form_sync_triggers_unconditional) ──
+-- Corrects the denormalized event_id from the parent chain before RLS
+-- WITH CHECK evaluation. Function bodies live in 02_functions.sql
+-- (sync_event_registration_form_section_event_id / _field_event_id).
+-- Fires on EVERY insert/update (not just OF form_id / OF section_id) — a bare
+-- UPDATE ... SET event_id = X touching neither FK column must still be
+-- corrected, otherwise it bypasses the sync entirely.
+
+DROP TRIGGER IF EXISTS trg_sync_event_registration_form_section_event_id ON public.event_registration_form_sections;
+CREATE TRIGGER trg_sync_event_registration_form_section_event_id
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_sections
+  FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_section_event_id();
+
+DROP TRIGGER IF EXISTS trg_sync_event_registration_form_field_event_id ON public.event_registration_form_fields;
+CREATE TRIGGER trg_sync_event_registration_form_field_event_id
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_fields
+  FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_field_event_id();

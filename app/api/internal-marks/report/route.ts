@@ -7,6 +7,7 @@ import {
   resolveEffectiveInstitutionId,
   resolveCoeInstitutionId,
 } from '@/lib/utils/internal-marks/internal-marks-access';
+import { flattenReportExtraMarks } from '@/lib/utils/internal-marks/flatten-extra-marks';
 import type { CiaReportResponse } from '@/types/internal-marks';
 
 export async function GET(request: NextRequest) {
@@ -35,13 +36,14 @@ export async function GET(request: NextRequest) {
     }
 
     const client = CoeRestClient.create();
-    const data = await client.get<CiaReportResponse>('/api/v1/cia-marks/report', {
+    const raw = await client.get<CiaReportResponse>('/api/v1/cia-marks/report', {
       institutions_id: coeInstitutionId,
       examination_session_id: examSessionId,
       course_code: courseCode,
       cia_round: ciaRound,
       program_code: programCode ?? undefined,
     });
+    const data = flattenReportExtraMarks(raw);
 
     // Filter learners by user's MyJKKN institution (Aided/SF separation)
     if (institutionId && data?.learners?.length > 0) {

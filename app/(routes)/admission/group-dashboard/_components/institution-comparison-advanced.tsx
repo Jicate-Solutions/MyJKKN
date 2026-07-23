@@ -21,6 +21,9 @@ function FillBadge({ pct }: { pct: number }) {
   return <Badge variant="destructive">{pct}%</Badge>;
 }
 
+// 2026-05-20: enrolled_count semantics narrowed from {active} →
+// {admitted, active} per the workflow realignment, so this score now reflects
+// "share of leads who got admitted" — the canonical conversion metric.
 function scorecard(row: InstitutionComparisonRow) {
   const score =
     Math.min(row.fill_percentage, 100) * 0.5 +
@@ -157,7 +160,9 @@ export function InstitutionComparisonAdvanced({ institutionIds, programStartYear
                   <TableHead className="text-right">Filled</TableHead>
                   <TableHead className="text-right">Fill %</TableHead>
                   <TableHead className="text-right">Leads</TableHead>
-                  <TableHead className="text-right">Enrolled</TableHead>
+                  {/* 2026-05-20: column rename Enrolled → Admitted.
+                       Underlying enrolled_count now = lifecycle (admitted+active). */}
+                  <TableHead className="text-right">Admitted</TableHead>
                   <TableHead className="text-right">Conv %</TableHead>
                   <TableHead>Top Source</TableHead>
                   <TableHead>Top District</TableHead>
@@ -175,7 +180,7 @@ export function InstitutionComparisonAdvanced({ institutionIds, programStartYear
                       {r.total_seats > 0 ? <FillBadge pct={r.fill_percentage} /> : <span className="text-xs">—</span>}
                     </TableCell>
                     <TableCell className="text-right text-xs">{r.total_leads || '—'}</TableCell>
-                    <TableCell className="text-right text-xs">{r.enrolled_count}</TableCell>
+                    <TableCell className="text-right text-xs font-semibold">{r.enrolled_count}</TableCell>
                     <TableCell className="text-right text-xs">{r.conversion_rate || '—'}%</TableCell>
                     <TableCell className="text-xs capitalize">
                       {r.top_source?.replace(/_/g, ' ') ?? '—'}

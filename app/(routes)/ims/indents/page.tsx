@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsIndents, useCancelImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import {
   INDENT_STATUS_CONFIG,
   INDENT_URGENCY_CONFIG,
@@ -42,7 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Eye, X, Search } from 'lucide-react';
+import { Plus, Eye, X, Search, Pencil } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
@@ -102,6 +103,11 @@ function IndentsPageInner() {
       indent.requested_by === profile?.id
     );
   };
+
+  // Edit is allowed under the same conditions as cancel: pre-approval, own request,
+  // and the user holds ims.indents.edit (or is super admin).
+  const canEditRow = (indent: { status: string; requested_by: string }) =>
+    canCancel(indent);
 
   return (
     <ContentLayout title="Indent Requests">
@@ -200,7 +206,7 @@ function IndentsPageInner() {
                           {indent.indent_number}
                         </TableCell>
                         <TableCell>
-                          {new Date(indent.created_at).toLocaleDateString()}
+                          {formatDateDMY(indent.created_at)}
                         </TableCell>
                         <TableCell>
                           {indent.department?.department_name || '-'}
@@ -230,6 +236,15 @@ function IndentsPageInner() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
+                            {canEditRow(indent) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => router.push(`/ims/indents/${indent.id}/edit`)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
                             {canCancel(indent) && (
                               <Button
                                 variant="ghost"

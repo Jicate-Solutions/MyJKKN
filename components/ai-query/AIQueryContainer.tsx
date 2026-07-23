@@ -32,6 +32,9 @@ import {
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './MessageBubble';
 import { SuggestedQueries } from './SuggestedQueries';
+import { ChatHistorySheet } from './ChatHistorySheet';
+import { DrainHealthBanner } from './DrainHealthBanner';
+import { ArtifactPanel } from './ArtifactPanel';
 import type { ActionDefinition } from '@/types/ai-query';
 
 interface AIQueryContainerProps {
@@ -40,8 +43,15 @@ interface AIQueryContainerProps {
 
 export function AIQueryContainer({ className }: AIQueryContainerProps) {
   const [inputValue, setInputValue] = useState('');
+  const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const openArtifact = (id: string) => {
+    setOpenArtifactId(id);
+    setArtifactOpen(true);
+  };
 
   const { isSuperAdmin } = usePermissions([]);
 
@@ -53,6 +63,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
     suggestions,
     sendMessage,
     clearMessages,
+    loadConversation,
   } = useAIQuery({
     onError: (err) => {
       console.warn('[AIQueryContainer] Error:', err);
@@ -96,6 +107,9 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
+      {/* Admin-only banner — renders only when the Max chat drain is confirmed offline */}
+      <DrainHealthBanner />
+
       {/* Header - Responsive */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -126,6 +140,8 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             <RefreshCw className="h-4 w-4" />
             <span className="hidden sm:inline ml-1">Clear</span>
           </Button>
+          {/* Your past chats — visible to every user; tap one to reopen + continue */}
+          <ChatHistorySheet onSelect={loadConversation} />
           {/* Super Admin Only - AI Query Tools Link */}
           {isSuperAdmin && (
             <TooltipProvider>
@@ -137,7 +153,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
                     asChild
                     className="gap-1 h-8 px-2 sm:px-3"
                   >
-                    <Link href="/admin/ai-query-tools">
+                    <Link href="/ai-query/admin">
                       <Settings2 className="h-4 w-4" />
                       <span className="hidden md:inline">Tools</span>
                     </Link>
@@ -178,6 +194,7 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
                 key={message.id}
                 message={message}
                 onActionClick={handleActionClick}
+                onOpenArtifact={openArtifact}
               />
             ))}
           </div>
@@ -236,6 +253,13 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
           </div>
         )}
       </div>
+
+      {/* Artifact side panel — opens when a message's artifact card is tapped */}
+      <ArtifactPanel
+        artifactId={openArtifactId}
+        open={artifactOpen}
+        onOpenChange={setArtifactOpen}
+      />
     </div>
   );
 }

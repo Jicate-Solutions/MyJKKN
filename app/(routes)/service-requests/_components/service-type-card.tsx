@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { FileText } from 'lucide-react';
 import type { ServiceType } from '@/types/service-request';
-import { SERVICE_TYPE_SCOPE_CONFIG } from '@/types/service-request';
+import { SERVICE_TYPE_SCOPE_CONFIG, ALL_ROLES_WILDCARD } from '@/types/service-request';
 import { SCOPE_ICONS } from './scope-icons';
 import { cn } from '@/lib/utils';
 
@@ -53,15 +53,21 @@ export function ServiceTypeCard({ serviceType, onSelect, selected }: ServiceType
                   );
                 })()
               )}
-              {serviceType.allowed_roles.slice(0, 3).map((role) => (
-                <Badge key={role} variant="outline" className="text-xs capitalize">
-                  {role.replace(/_/g, ' ')}
-                </Badge>
-              ))}
-              {serviceType.allowed_roles.length > 3 && (
-                <Badge variant="outline" className="text-xs">
-                  +{serviceType.allowed_roles.length - 3} more
-                </Badge>
+              {serviceType.allowed_roles.includes(ALL_ROLES_WILDCARD) ? (
+                <Badge variant="outline" className="text-xs">All roles</Badge>
+              ) : (
+                <>
+                  {serviceType.allowed_roles.slice(0, 3).map((role) => (
+                    <Badge key={role} variant="outline" className="text-xs capitalize">
+                      {role.replace(/_/g, ' ')}
+                    </Badge>
+                  ))}
+                  {serviceType.allowed_roles.length > 3 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{serviceType.allowed_roles.length - 3} more
+                    </Badge>
+                  )}
+                </>
               )}
             </div>
           </div>

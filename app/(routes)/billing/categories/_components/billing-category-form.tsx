@@ -34,9 +34,33 @@ import {
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import type {
   BillingCategory,
+  BillingCategoryKind,
   CreateBillingCategoryDto,
   UpdateBillingCategoryDto
 } from '@/types/billing';
+
+// Fee head (billing_categories.kind enum). Drives Razorpay account routing:
+// payment-gateway-service matches this against razorpay_accounts.fee_head, so e.g.
+// every category with kind 'tuition' settles into the institution's tuition MID.
+// Single source of truth for the picker AND the list badge.
+export const KIND_OPTIONS: { value: BillingCategoryKind; label: string }[] = [
+  { value: 'tuition', label: 'Tuition Fee' },
+  { value: 'university_fee', label: 'University Fee' },
+  { value: 'establishment', label: 'Establishment Fee' },
+  { value: 'hostel', label: 'Hostel Fee' },
+  { value: 'mess', label: 'Mess Fee' },
+  { value: 'transport', label: 'Transport / Bus Fee' },
+  { value: 'exam', label: 'Exam Fee' },
+  { value: 'application_fee', label: 'Application Fee' },
+  { value: 'library', label: 'Library Fee' },
+  { value: 'other', label: 'Other' }
+];
+
+const KIND_VALUES = KIND_OPTIONS.map((o) => o.value) as string[];
+
+export function billingKindLabel(kind: BillingCategoryKind): string {
+  return KIND_OPTIONS.find((o) => o.value === kind)?.label ?? kind;
+}
 
 const categorySchema = z.object({
   category_name: z
@@ -58,6 +82,12 @@ const categorySchema = z.object({
   frequency: z.enum(['monthly', 'quarterly', 'yearly', 'one-time'], {
     errorMap: () => ({ message: 'Please select a frequency' })
   }),
+  // Required, no default — operator must consciously pick the fee head so a new
+  // category never silently lands on the 'other' DB default and misroutes payments.
+  kind: z
+    .string()
+    .min(1, 'Please select a fee head')
+    .refine((v) => KIND_VALUES.includes(v), 'Please select a valid fee head'),
   description: z.string().max(500, 'Description must be at most 500 characters').optional(),
   is_active: z.boolean().default(true)
 });
@@ -83,6 +113,7 @@ export function BillingCategoryForm({
       category_name: category?.category_name || '',
       amount: category?.amount?.toString() || '',
       frequency: category?.frequency || 'one-time',
+      kind: category?.kind || '',
       description: category?.description || '',
       is_active: category?.is_active ?? true
     }
@@ -96,6 +127,7 @@ export function BillingCategoryForm({
         category_name: data.category_name.trim(),
         amount: data.amount ? Number(data.amount) : null,
         frequency: data.frequency,
+        kind: data.kind as BillingCategoryKind,
         description: data.description?.trim() || null,
         is_active: data.is_active
       };
@@ -148,6 +180,36 @@ export function BillingCategoryForm({
                       maxLength={150}
                     />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='kind'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Fee Head *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select a fee head' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {KIND_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-sm text-muted-foreground'>
+                    Determines which Razorpay account collects this fee. All
+                    categories with the same fee head (e.g. every &quot;… Tuition
+                    Fee&quot;) route to the institution&apos;s matching account.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

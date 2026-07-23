@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 
 export default async function SAMLAdminDashboard() {
   const supabase = await createClient();
@@ -28,6 +29,15 @@ export default async function SAMLAdminDashboard() {
   const metadataUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/saml/metadata`;
 
   return (
+    <SuperAdminOnly
+      fallback={
+        <div className="container mx-auto py-8 px-4">
+          <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+            This page is restricted to super administrators.
+          </div>
+        </div>
+      }
+    >
     <div className="container mx-auto py-8 px-4">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">SAML Identity Provider</h1>
@@ -136,5 +146,6 @@ export default async function SAMLAdminDashboard() {
         </Card>
       </div>
     </div>
+    </SuperAdminOnly>
   );
 }

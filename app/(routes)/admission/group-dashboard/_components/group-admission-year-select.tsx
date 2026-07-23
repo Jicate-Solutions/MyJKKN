@@ -2,7 +2,7 @@
 
 // app/(routes)/admission/group-dashboard/_components/group-admission-year-select.tsx
 //
-// Group-level admission-year picker for the dashboard. Lists program_start_year
+// Group-level admission-year picker for the dashboard. Lists admission_years.year
 // cohorts deduped across the user's accessible institutions. Default selection
 // is the latest year (top of DESC list).
 
@@ -19,10 +19,10 @@ import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-ye
 export interface GroupAdmissionYearSelectProps {
   /** Institution scope. undefined = all institutions the user can access. */
   institutionIds: string[] | null | undefined;
-  /** Currently selected program_start_year (or null while we're choosing default). */
+  /** Currently selected cohort year (or null while we're choosing default). */
   value: number | null;
-  /** Called with the new program_start_year. */
-  onChange: (programStartYear: number) => void;
+  /** Called with the new cohort year. */
+  onChange: (year: number) => void;
   /** Optional className for the wrapping div. */
   className?: string;
 }

@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/organizations/departments/_components/department-filters.tsx
 
-
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { useEffect, useState } from 'react';
 import {
   Select,
@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useScopedInstitutionFilter } from '@/hooks/organization/use-scoped-institution-filter';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentsSearchParams } from './data-table-schema';
 
@@ -27,43 +27,21 @@ export function DepartmentFilters({
   onFilterChange,
   onClearFilters
 }: DepartmentFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const adapt = useAdaptiveLabels();
+  // Super admins see all institutions + an "All" option; normal users see
+  // only their own and are auto-selected into one (no "All" option).
+  const {
+    institutions,
+    loading: institutionsLoading,
+    isSuperAdmin
+  } = useScopedInstitutionFilter({
+    selectedInstitutionId: searchParams.institution_id,
+    onFilterChange
+  });
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
   >([]);
   const [loading, setLoading] = useState(false);
-
-  // FIXED: Add AbortController to prevent race conditions and memory leaks
-  useEffect(() => {
-    const abortController = new AbortController();
-
-    async function loadInstitutions() {
-      try {
-        setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-
-        // Only update state if not aborted
-        if (!abortController.signal.aborted) {
-          setInstitutions(data);
-        }
-      } catch (error) {
-        if (!abortController.signal.aborted) {
-          console.error('Error loading institutions:', error);
-        }
-      } finally {
-        if (!abortController.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadInstitutions();
-
-    // Cleanup: abort fetch on unmount
-    return () => abortController.abort();
-  }, []);
 
   // FIXED: Add AbortController to prevent race conditions and memory leaks
   useEffect(() => {
@@ -128,15 +106,17 @@ export function DepartmentFilters({
             <Select
               value={searchParams.institution_id || 'all'}
               onValueChange={handleInstitutionChange}
-              disabled={loading}
+              disabled={institutionsLoading}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue
-                  placeholder={loading ? 'Loading...' : 'All Institutions'}
+                  placeholder={institutionsLoading ? 'Loading...' : 'All Institutions'}
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Institutions</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value='all'>All Institutions</SelectItem>
+                )}
                 {institutions.map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     {inst.name}
@@ -156,10 +136,10 @@ export function DepartmentFilters({
               disabled={!searchParams.institution_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Degrees' />
+                <SelectValue placeholder={`All ${adapt('Degrees')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                <SelectItem value='all'>All {adapt('Degrees')}</SelectItem>
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}

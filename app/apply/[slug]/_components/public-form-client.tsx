@@ -54,6 +54,8 @@ interface PublicFormClientProps {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  /** Resolved by server from `?c={token}` or mjk_campaign_token cookie. */
+  campaignLinkId?: string;
   /** When true, disables analytics tracking and submission — used by admin preview. */
   previewMode?: boolean;
 }
@@ -216,6 +218,7 @@ export default function PublicFormClient({
   utmSource,
   utmMedium,
   utmCampaign,
+  campaignLinkId,
   previewMode = false,
 }: PublicFormClientProps) {
   const router = useRouter();
@@ -320,6 +323,7 @@ export default function PublicFormClient({
           utmSource,
           utmMedium,
           utmCampaign,
+          campaignLinkId,
           referrerUrl: typeof document !== 'undefined' ? document.referrer : '',
         }),
       });

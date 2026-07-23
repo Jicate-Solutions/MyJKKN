@@ -264,6 +264,10 @@ export default function NewReservationPage() {
               onSelectSlot={handleTimeSlotSelect}
               selectedStartTime={selectedStartTime}
               selectedEndTime={selectedEndTime}
+              operatingHours={
+                (selectedResource as any).booking_config?.time_slot_config
+                  ?.operating_hours?.default
+              }
             />
 
             <div className='flex items-center justify-between'>

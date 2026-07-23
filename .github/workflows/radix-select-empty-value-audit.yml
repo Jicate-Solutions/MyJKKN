@@ -1,0 +1,38 @@
+name: Radix Select empty-value audit
+
+# Radix UI's <SelectItem> crashes the entire dropdown when value="" is set
+# (literal empty string). The crash happens on first open — never at mount —
+# so build, type-check, and substrate-pattern screenshots all pass.
+#
+# This is failure pattern (f) from the silent-failure-auditor skill's 6-pattern
+# audit. The other 5 patterns need AST/LLM analysis; this one is a pure grep.
+#
+# Static-only: literal `value=""` is caught. Dynamic `value={someVar}` is NOT
+# caught even when someVar can resolve to "" at runtime — that needs AST work.
+# Companion check: ESLint rule (TBD) would catch the dynamic case.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  # Merge queue (2026-07-11): full-tree scan re-runs on the queue's merged tree
+  # so a combination of individually-green PRs can't land a broken main.
+  # Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: No Radix SelectItem with empty value
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - name: Run audit
+        run: bash scripts/ci/check-radix-select-empty-values.sh

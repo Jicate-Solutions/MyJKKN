@@ -9,7 +9,7 @@
 //
 // Edits take effect on the next page navigation — no deploy needed.
 // Server-side consumers (e.g. /admin/page.tsx, /admin/lti/page.tsx,
-// /admin/pde/page.tsx) read the same rows via fn_get_policy_text.
+// /pde/admin/page.tsx) read the same rows via fn_get_policy_text.
 //
 // Sister PR (Agent J) ships the migration that seeds the 3 nav.* rows
 // and rewrites the consumer redirects. Until that lands this page shows
@@ -20,7 +20,7 @@
 //   - Helper: public.fn_get_policy_text(text, text, uuid)
 //   - Service: lib/services/admin/landing-page-policies-service.ts
 //
-// Permission: super_admin / admin only (PermissionGuard)
+// Permission: super_admin / admin only (SuperAdminOnly)
 // =====================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -36,7 +36,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -65,11 +65,11 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 
 // ---------------------------------------------------------------------------
-// Page wrapper — gated by PermissionGuard (super_admin / admin only).
+// Page wrapper — gated by SuperAdminOnly (super_admin / admin only).
 // ---------------------------------------------------------------------------
 export default function LandingPagesPolicyPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Landing Page Policies">
         <PageBreadcrumb
           items={[
@@ -80,7 +80,7 @@ export default function LandingPagesPolicyPage() {
         />
         <LandingPagesPolicyContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 

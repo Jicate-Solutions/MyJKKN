@@ -95,13 +95,19 @@ export function SF100PivotForm({
       setError('Please describe what you are pivoting to.');
       return;
     }
+    // Required: sf100_pivots.reasoning is TEXT NOT NULL and the API route
+    // rejects a missing value with 400 before it ever reaches the DB.
+    if (!form.reasoning.trim()) {
+      setError('Please explain the reasoning behind this pivot.');
+      return;
+    }
 
     mutate(
       {
         pivot_type: form.pivot_type,
         before_description: form.before_description.trim(),
         after_description: form.after_description.trim(),
-        reasoning: form.reasoning.trim() || undefined,
+        reasoning: form.reasoning.trim(),
         evidence: form.evidence.trim() || undefined,
       },
       {
@@ -209,7 +215,9 @@ export function SF100PivotForm({
 
           {/* Reasoning */}
           <div className="space-y-1.5">
-            <Label htmlFor="reasoning">Reasoning</Label>
+            <Label htmlFor="reasoning">
+              Reasoning <span className="text-destructive" aria-hidden="true">*</span>
+            </Label>
             <Textarea
               id="reasoning"
               value={form.reasoning}
@@ -217,6 +225,8 @@ export function SF100PivotForm({
               placeholder="Why are you making this change?"
               rows={2}
               className="resize-none"
+              required
+              aria-required="true"
             />
           </div>
 

@@ -24,6 +24,8 @@ import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptLabel } from '@/lib/utils/school-label-adapter';
 
 export interface SectionTab {
   href: string;
@@ -38,6 +40,9 @@ export interface SectionTab {
 export function SectionSubNav({ tabs }: { tabs: SectionTab[] }) {
   const pathname = usePathname();
   const { permissions, isSuperAdmin, isLoading } = usePermissions();
+  // Adapt tab labels to the institution type (e.g. "Departments" → "Wings" for
+  // schools), consistent with AutoTabNav. Non-mapped labels pass through.
+  const { institutionType } = useInstitutionType();
 
   const canShowTab = (href: string): boolean => {
     if (isLoading) return true;
@@ -75,7 +80,7 @@ export function SectionSubNav({ tabs }: { tabs: SectionTab[] }) {
             )}
           >
             <Icon className='h-3.5 w-3.5' />
-            {tab.label}
+            {adaptLabel(tab.label, institutionType)}
           </Link>
         );
       })}

@@ -5,7 +5,11 @@
 // Enums & Constants
 // ============================================================================
 
-export type EventType = 'marathon' | 'cultural_fest' | 'seminar' | 'workshop' | 'sports_day' | 'conference';
+export type EventType = 'marathon' | 'cultural_fest' | 'seminar' | 'workshop' | 'sports_day' | 'conference' | 'sports_tournament';
+
+// Cross-institution levers (exist on the live `events` table; CHECK-constrained in DB).
+export type EventScope = 'chapter' | 'institution' | 'all_jkkn';
+export type EventVisibility = 'public' | 'all_jkkn' | 'institution' | 'invited';
 
 export type EventStatus = 'draft' | 'planning' | 'preparation' | 'execution' | 'live' | 'post_event' | 'archived' | 'cancelled';
 
@@ -77,6 +81,12 @@ export interface Event {
   venue: string | null;
   venue_address: string | null;
   venue_coordinates: { lat: number; lng: number } | null;
+  // Cross-institution + venue-reservation columns (live on `events`; added to
+  // the TS interface 2026-06-22 for the Sports Tournament module's RLS/scope use).
+  scope: EventScope | null;
+  visibility: EventVisibility | null;
+  venue_resource_id: string | null;
+  venue_text: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -212,6 +222,15 @@ export interface CreateEventDto {
   config?: Record<string, unknown>;
   registration_config?: Record<string, unknown>;
   branding_config?: Record<string, unknown>;
+  // Cross-institution + scheduling fields (used by the Sports Tournament module).
+  scope?: EventScope;
+  visibility?: EventVisibility;
+  venue_resource_id?: string;
+  venue_text?: string;
+  start_date?: string;
+  end_date?: string;
+  registration_open_date?: string;
+  registration_close_date?: string;
 }
 
 export interface UpdateEventDto extends Partial<CreateEventDto> {

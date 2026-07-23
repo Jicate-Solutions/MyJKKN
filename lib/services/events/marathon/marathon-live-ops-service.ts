@@ -2,6 +2,11 @@
 // Marathon Live Ops service — real-time race day operations: GPS tracking, checkpoints,
 // incidents, volunteers.
 // Created: 2026-04-07
+// Events Platform Promotion PR4 (2026-06-23): the incident + volunteer tables were promoted to the
+// shared events layer and renamed marathon_incidents → event_incidents,
+// marathon_volunteer_checkins → event_volunteer_checkins. This service's incident/volunteer queries are
+// repointed to the new table names below; the GPS/checkpoint logic stays marathon-specific. The
+// event-generic incident/volunteer concerns also live in EventVolunteerService for reuse by other types.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -347,7 +352,7 @@ export class MarathonLiveOpsService {
   static async getIncidents(eventId: string): Promise<MarathonIncident[]> {
     try {
       const { data, error } = await (this.supabase as any)
-        .from('marathon_incidents')
+        .from('event_incidents')
         .select('*')
         .eq('event_id', eventId)
         .order('created_at', { ascending: false });
@@ -370,7 +375,7 @@ export class MarathonLiveOpsService {
   static async createIncident(dto: CreateMarathonIncidentDto): Promise<MarathonIncident> {
     try {
       const { data, error } = await (this.supabase as any)
-        .from('marathon_incidents')
+        .from('event_incidents')
         .insert([
           {
             event_id: dto.event_id,
@@ -415,7 +420,7 @@ export class MarathonLiveOpsService {
   ): Promise<MarathonIncident> {
     try {
       const { data, error } = await (this.supabase as any)
-        .from('marathon_incidents')
+        .from('event_incidents')
         .update({
           status: 'resolved',
           resolved_at: new Date().toISOString(),
@@ -448,7 +453,7 @@ export class MarathonLiveOpsService {
   static async getVolunteers(eventId: string): Promise<MarathonVolunteerCheckin[]> {
     try {
       const { data, error } = await (this.supabase as any)
-        .from('marathon_volunteer_checkins')
+        .from('event_volunteer_checkins')
         .select('*')
         .eq('event_id', eventId)
         .order('checked_in_at', { ascending: false });
@@ -477,7 +482,7 @@ export class MarathonLiveOpsService {
   }): Promise<void> {
     try {
       const { error } = await (this.supabase as any)
-        .from('marathon_volunteer_checkins')
+        .from('event_volunteer_checkins')
         .insert([
           {
             event_id: dto.event_id,
@@ -510,7 +515,7 @@ export class MarathonLiveOpsService {
   static async checkoutVolunteer(id: string): Promise<void> {
     try {
       const { error } = await (this.supabase as any)
-        .from('marathon_volunteer_checkins')
+        .from('event_volunteer_checkins')
         .update({ checked_out_at: new Date().toISOString() })
         .eq('id', id);
 
@@ -532,7 +537,7 @@ export class MarathonLiveOpsService {
   static async deleteVolunteer(id: string): Promise<void> {
     try {
       const { error } = await (this.supabase as any)
-        .from('marathon_volunteer_checkins')
+        .from('event_volunteer_checkins')
         .delete()
         .eq('id', id);
 

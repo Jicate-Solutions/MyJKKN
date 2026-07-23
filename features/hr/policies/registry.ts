@@ -77,7 +77,7 @@ export const POLICY_TABLES: PolicyTableDef[] = [
     displayField: 'flow_name',
     fields: [
       { name: 'flow_name', label: 'Flow name', type: 'text', required: true },
-      { name: 'flow_for', label: 'Flow for', type: 'enum', enumValues: ['leave_request', 'reimbursement', 'training_request', 'incentive_claim', 'termination', 'memo_appeal'], required: true },
+      { name: 'flow_for', label: 'Flow for', type: 'enum', enumValues: ['leave_request', 'reimbursement', 'training_request', 'incentive_claim', 'termination', 'memo_appeal', 'recruitment_approval'], required: true },
       { name: 'conditions', label: 'Trigger conditions (JSON)', type: 'json', jsonShape: 'object', helpText: 'e.g. {"days_gt": 3, "cadre": "TEACHING"}' },
       { name: 'steps', label: 'Approval steps (JSON array)', type: 'json', jsonShape: 'array', helpText: 'e.g. [{"role":"hod"},{"role":"principal"}]' },
       { name: 'is_active', label: 'Active', type: 'boolean' },

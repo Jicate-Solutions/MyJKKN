@@ -1,0 +1,145 @@
+# PDE Quest → Demonstration Loop manifest — discovery pass 2026-07-13.
+# Every fact below carries its receipt (prod DB query or jicate/main path).
+# RE-VERIFIED independently 2026-07-13 (second pass, this session): registry row,
+# edge, fill-rates, pg_proc list, pde_demonstrations columns, RLS polcmd,
+# fn_pde_validate_demonstration prosrc (reviewer array + status machine),
+# persona roles, ceo-only pde.* custom_roles, route existence, category_key 400,
+# guard-free layouts, MENU_PERMISSIONS L1230, bridge routine row (enabled,
+# minute_of_day=630=10:30 IST, last_status "skipped 35, created 0, candidates 35,
+# processed 3") — all receipts held.
+# Registry row (loop_registry, read 2026-07-13): stack_tier=3, loop_class=cadence,
+# domain=pde, gates {"g":"on","a":"on","m":"off","f":"off"}, routine_id=NULL,
+# is_active=true. loop_edges: pde-quest → ai-pulse (what_flows=fuel,
+# "PDE bridge scores demonstration engagement into Pulse (#1931/#1933)").
+# NOTE the code-verified direction of that bridge: AiPulsePdeBridgeService
+# (lib/services/ai-pulse/ai-pulse-pde-bridge-service.ts on jicate/main) bridges
+# AI Pulse participation signals INTO pde_demonstrations rows — Pulse is the
+# fuel SOURCE for this loop's demonstration lane, and the demonstrations then
+# feed the live agency score read back on Pulse surfaces.
+loop_key: pde-quest
+name: PDE Quest → Demonstration Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  # The demonstration row is BOTH where the signal enters and where the
+  # action/verdict lands (status machine on the same row) — unlike scf there
+  # is no separate suggestions table.
+  input: pde_demonstrations    # evidence enters here: learner form POST /api/pde/demonstrations OR the ai_pulse bridge
+  action: pde_demonstrations   # reviewer verdict + scoring stamped on the same row: status / raw_score / weighted_score / passed / scored_at
+  # Related tables + FILL-RATES (prod counts 2026-07-13 via Mgmt API):
+  #   pde_quests=1, pde_quest_enrollments=0, pde_quest_submissions=0
+  #     → the QUEST lane of this loop has NEVER carried prod traffic (dark).
+  #   pde_demonstrations=35 — ALL 35 have evidence->>'source'='ai_pulse'
+  #     (bridge rows: category embodied, evidence_type engagement_record,
+  #     status scored, created 2026-07-10..11). ZERO learner-submitted demos.
+  #   pde_agency_index=0 (snapshot lane empty — agency score is recomputed
+  #     LIVE from scored pde_demonstrations in a 90-day window per
+  #     lib/services/pde-agency-live-service.ts, mode policy
+  #     pde.visibility.agency_index_mode).
+  #   pde_engagement_events=0, pde_learner_capabilities=0 (legacy
+  #     pde-bridge-service lane also dark).
+
+# sim: OMITTED — honest gap, not an oversight.
+# Class 'cadence' + registry gates.m='off', and pg_proc (checked 2026-07-13)
+# has NO measure function for this loop: no fn_pde_measure_*; the only pde
+# functions are fn_pde_validate_demonstration, fn_pde_review_queue,
+# fn_pde_agency_distribution_for_facilitator, fn_pde_get_syllabus_outcomes,
+# fn_pde_list_approved_syllabi, fn_pde_list_vac_courses, pde_auto_grade_submission,
+# pde_log_engagement, pde_next_certificate_number, pde_set_updated_at.
+# A known-delta sim would require a measurer that stamps an outcome delta on
+# action rows (e.g. re-engagement / capability lift after a validated
+# demonstration, vs a per-learner baseline). No such fn exists — do NOT invent one.
+
+# confound: OMITTED — pde_demonstrations has verdict-ish columns
+# (status 'validated'/'rejected', passed boolean) but NO after-action outcome
+# column (no outcome_lift analog measured post-verdict), so the
+# not_tried-vs-tried falsification has nothing to read. (Columns verified via
+# information_schema.columns 2026-07-13.)
+
+# feed_forward: OMITTED — registry gates.f='off'; no reader conditions the
+# next quest/demonstration generation on a prior row's measured outcome.
+# The closest live coupling is one-directional: scored demonstrations →
+# live agency score (pde-agency-live-service) → displayed on Pulse/faculty
+# surfaces. Nothing generates a NEXT action from that score.
+
+walk:
+  personas:
+    student: test.student@jkkn.ac.in        # role student, has institution (profiles checked 2026-07-13)
+    reviewer: test.hod@jkkn.ac.in           # role hod — IS in the reviewer role array of fn_pde_review_queue + fn_pde_validate_demonstration
+    superadmin: test.superadmin@jkkn.ac.in  # is_super_admin=true, institution NULL
+    # TRAP: test.faculty@jkkn.ac.in is role 'staff_counselor' (profiles, 2026-07-13)
+    # — NOT in the reviewer array ('super_admin','administrator','institution_admin',
+    # 'dean','hod','coordinator','faculty') → cannot see the review queue or
+    # validate. Use test.hod for the reviewer hops.
+  hops:
+    # Page reachability receipt: layouts DO exist under app/(routes)/pde/**
+    # (pde/layout.tsx = plain pass-through; pde/admin/layout.tsx = AdminCategoryNav
+    # chrome only) but NEITHER mounts RoutePermissionGuard — no permission guard
+    # anywhere under the pde tree on jicate/main (read 2026-07-13; the guard is
+    # opt-in per-module and PDE is absent from
+    # __tests__/lib/auth/route-permission-guard-access.test.ts GATED list;
+    # no root middleware.ts on jicate/main). MENU_PERMISSIONS maps
+    # /pde/learn/demonstrations → 'pde.profile.view' etc. (lib/sidebarMenuLink.ts
+    # ~L1230), but in custom_roles ONLY role_key='ceo' has any pde.* key = true —
+    # student/faculty/hod/principal all false — so the SIDEBAR entries are hidden
+    # for the walk personas; pages must be opened by direct URL. Auth-only access.
+    - { as: student, do: form_submit, page: /pde/learn/demonstrations/new,
+        detail: "DemonstrationForm → POST /api/pde/demonstrations with submit:true; field is category_key (API 400s on missing category_key) e.g. embodied, skill_name 'ZZAUDIT walk <date>'",
+        assert_db: "1 new pde_demonstrations row, skill_name LIKE 'ZZAUDIT%', status='submitted', learner_id=test.student uid, institution_id=student's institution (RLS pde_demonstrations_learner_own is FOR ALL)" }
+    - { as: reviewer, do: click, page: /pde/faculty/demonstrations,
+        target: "Validate (the faculty page's own inline validate dialog via useValidateDemonstration — NOT the ValidationForm.tsx component, which lives under /pde/admin/demonstrations; decision=validated + raw_score)",
+        detail: "queue reads fn_pde_review_queue (SECURITY DEFINER, reviewer+same-institution gate, hides draft/withdrawn); write goes through fn_pde_validate_demonstration RPC — faculty-lane RLS on the table is SELECT-only",
+        assert_db: "sentinel row status='validated', raw_score set, validator_ids contains test.hod uid, validator_notes keyed by uid" }
+    - { as: superadmin, do: api_post, path: "/api/pde/demonstrations/<sentinel id>/score",
+        detail: "PDEScoringService.scoreAndPersist — session-scoped client UPDATE",
+        assert: "http 200; row status='scored', weighted_score + passed + scored_at populated" }
+        # TRAP (verified 2026-07-13): the score route's comment claims faculty/hod
+        # can write, but the ONLY RLS UPDATE policies on pde_demonstrations are
+        # pde_demonstrations_learner_own (learner_id=auth.uid(), FOR ALL) and
+        # pde_demonstrations_super_admin_all; pde_demonstrations_faculty_same_inst
+        # is polcmd='r' (SELECT-only). A hod-called score UPDATE matches no policy
+        # → 0 rows → .single() errors. Run this hop as superadmin (or the learner).
+    - { as: student, do: open_assert, page: /pde/learn/transcript,
+        expect: "the scored ZZAUDIT demonstration appears in the learner transcript / My Demonstrations (loop-closure read-back); /pde/learn/demonstrations also lists it" }
+    # OPTIONAL extra read (uncertain, verify before relying on it): hod opening
+    # /pde/faculty/dashboard agency distribution calls
+    # fn_pde_agency_distribution_for_facilitator, which requires a staff row
+    # (staff.profile_id = auth.uid()) — NOT verified that test.hod has one;
+    # returns reason='not_teaching_staff' if absent.
+  forbidden:
+    - "/api/cron/ai-pulse-pde-bridge — creates REAL pde_demonstrations rows from live AI Pulse data (routine ai-pulse-pde-bridge is enabled, fires 10:30 IST daily; policy pde_bridge_enabled=true)"
+    - "/api/pde/hod-escalation — notifies real HoDs (NOTE: no /api/cron/pde-hod-escalation route exists on jicate/main — verified via ls-tree 2026-07-13; only the cron-less /api/pde/ path)"
+    - "/api/cron/pde-gaming-defense and /api/cron/pde-quest-risk-tier — mutate real quest risk tiers (routes exist on jicate/main; NO schedule found in vercel.json crons nor ai_routine_schedules as of 2026-07-13 — appear unscheduled, do not wake them)"
+    - notifications / nudges of any kind
+  cleanup: |
+    DELETE FROM pde_demonstrations WHERE skill_name LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE Mgmt-API call: sentinel count = 0. Compare SENTINEL
+    -- counts only, never table totals — the bridge routine adds real rows daily
+    -- (last_status 2026-07-12: "skipped 35, created 0, candidates 35").
+  notes:
+    - >-
+      Demonstration status machine (fn_pde_validate_demonstration + scoring
+      service, read 2026-07-13): draft → submitted → under_review →
+      validated | rejected | draft (changes_requested returns it) → scored;
+      'withdrawn' exists and is hidden from the review queue. Only
+      submitted/under_review rows can be reviewed. raw_score required when
+      decision='validated'; rejection leaves raw_score untouched.
+    - >-
+      Quest lane vocabulary (app/api/pde/quests/route.ts + [id]/submit):
+      quest status draft → open → archived (publish sets 'open'; students see
+      status IN ('open','in_progress'), institution-scoped); enrollment must
+      be status='active' before /api/pde/quests/[id]/submit accepts. All of
+      this is UNTESTED BY PROD TRAFFIC (0 enrollments/submissions ever).
+    - >-
+      Bridge idempotency key = evidence.source_key '<cycle>:<profile>:<signal>'
+      (ai-pulse-pde-bridge-service.ts) — a walk must never fabricate rows with
+      source='ai_pulse' or the daily bridge dedupe becomes ambiguous. Sentinel
+      rows use the learner form path only.
+    - >-
+      Bridge signal map is the pde_bridge_signal_map ai_pulse_policies row
+      (engaged_live_session → embodied/scored, weight_multiplier 0.25 =
+      quiz×0.25 Director lock 2026-07-10; domain_sync_submitted →
+      problem_finding/submitted; gold_selected → social_leadership/validated;
+      publication_above_target → cultural_civic/validated).
+
+registry_gates_hint: '{"g":"on","a":"on","m":"off","f":"off"}'

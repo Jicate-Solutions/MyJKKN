@@ -2,12 +2,20 @@
 // LIFECYCLE STATUS BADGE COMPONENT
 // ============================================
 // Created: 2025-01-18
+// Updated: 2026-05-18 — reads colors/labels from admission_statuses dynamically
 // Purpose: Visual indicator for learner lifecycle status
 // ============================================
+
+'use client';
 
 import { Badge } from '@/components/ui/badge';
 import type { LifecycleStatus } from '@/types/learner-profile';
 import { cn } from '@/lib/utils';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
+import {
+  getStatusColor as getDynamicStatusColor,
+  getStatusLabel as getDynamicStatusLabel,
+} from '@/lib/admission/status-helpers';
 
 interface LifecycleStatusBadgeProps {
   status: LifecycleStatus;
@@ -15,7 +23,8 @@ interface LifecycleStatusBadgeProps {
   showIcon?: boolean;
 }
 
-// Status configuration with colors and labels
+// KEEP the original statusConfig as a fallback — synchronous helpers below depend on it
+// and the dynamic badge uses the `icon` field when `showIcon` is true.
 const statusConfig: Record<
   LifecycleStatus,
   {
@@ -25,11 +34,31 @@ const statusConfig: Record<
     icon?: string;
   }
 > = {
+  // 2026-05-20: New workflow entries. Colors mirror the admission_statuses seed.
+  enquiry: {
+    label: 'Enquiry',
+    variant: 'outline',
+    className: 'bg-blue-100 text-blue-800 border-blue-300',
+    icon: '📨',
+  },
+  enquiry_submitted: {
+    label: 'Enquiry Submitted',
+    variant: 'secondary',
+    className: 'bg-purple-100 text-purple-800 border-purple-300',
+    icon: '✉️',
+  },
+  reserved: {
+    label: 'Reserved',
+    variant: 'secondary',
+    className: 'bg-sky-100 text-sky-800 border-sky-300',
+    icon: '🎫',
+  },
+  // 'admitted' now means post-threshold (50% paid). Updated colour + label intent.
   admitted: {
     label: 'Admitted',
-    variant: 'outline',
-    className: 'bg-gray-100 text-gray-700 border-gray-300',
-    icon: '📋',
+    variant: 'success',
+    className: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    icon: '🎯',
   },
   pending: {
     label: 'Pending Review',
@@ -96,7 +125,11 @@ const statusConfig: Record<
 /**
  * LifecycleStatusBadge Component
  *
- * Displays a colored badge indicating the learner's current lifecycle status
+ * Displays a colored badge indicating the learner's current lifecycle status.
+ * Colors and labels are sourced from the `admission_statuses` table via
+ * `useAdmissionStatuses('learner')` — edits in Settings propagate without code
+ * changes. Falls back to the hardcoded `statusConfig` map (above) for unknown
+ * codes or before the query resolves.
  *
  * @param status - The lifecycle status to display
  * @param className - Optional additional CSS classes
@@ -113,30 +146,29 @@ export function LifecycleStatusBadge({
   className,
   showIcon = false,
 }: LifecycleStatusBadgeProps) {
-  const config = statusConfig[status];
+  const { data: statuses } = useAdmissionStatuses('learner', { activeOnly: false });
+  const fallback = statusConfig[status];
+  const color = getDynamicStatusColor(statuses, 'learner', status);
+  const label = getDynamicStatusLabel(statuses, 'learner', status);
 
-  if (!config) {
+  if (!fallback && !statuses?.find((s) => s.scope === 'learner' && s.code === status)) {
     console.warn(`[LifecycleStatusBadge] Unknown status: ${status}`);
-    return (
-      <Badge variant="outline" className={className}>
-        {status}
-      </Badge>
-    );
   }
 
   return (
     <Badge
-      variant={config.variant}
-      className={cn(config.className, 'font-medium', className)}
+      style={{ backgroundColor: color, color: '#fff', borderColor: color }}
+      className={cn('font-medium', className)}
     >
-      {showIcon && config.icon && <span className="mr-1">{config.icon}</span>}
-      {config.label}
+      {showIcon && fallback?.icon && <span className="mr-1">{fallback.icon}</span>}
+      {label}
     </Badge>
   );
 }
 
 /**
  * Helper function to get status color class (for use in other components)
+ * Synchronous fallback — uses hardcoded map only.
  */
 export function getStatusColorClass(status: LifecycleStatus): string {
   return statusConfig[status]?.className || 'bg-gray-100 text-gray-700';
@@ -144,6 +176,7 @@ export function getStatusColorClass(status: LifecycleStatus): string {
 
 /**
  * Helper function to get status label
+ * Synchronous fallback — uses hardcoded map only.
  */
 export function getStatusLabel(status: LifecycleStatus): string {
   return statusConfig[status]?.label || status;
@@ -151,6 +184,7 @@ export function getStatusLabel(status: LifecycleStatus): string {
 
 /**
  * Helper function to get status icon
+ * Synchronous fallback — uses hardcoded map only.
  */
 export function getStatusIcon(status: LifecycleStatus): string | undefined {
   return statusConfig[status]?.icon;

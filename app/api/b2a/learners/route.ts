@@ -108,7 +108,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, batch_id, roll_number, register_number, college_email, ' +
         'student_email, is_profile_complete, admission_year_id, ' +
-        'admission_year_obj:admission_years!admission_year_id(program_start_year), ' +
+        'admission_year_obj:admission_years!admission_year_id(year), ' +
         'created_at, updated_at',
         { count: 'exact' }
       );
@@ -147,7 +147,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       items = ((data ?? []) as unknown as Array<Record<string, any>>).map((row) => ({
         ...row,
         admission_year:
-          row.admission_year_obj?.program_start_year ?? null,
+          row.admission_year_obj?.year ?? null,
       })) as LearnerRow[];
       // Strip the join helper from the response shape.
       for (const r of items as Array<Record<string, any>>) {

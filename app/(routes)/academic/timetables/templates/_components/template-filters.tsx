@@ -16,6 +16,7 @@ import { Separator } from '@/components/ui/separator';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Search,
   Filter,
@@ -51,6 +52,7 @@ export function TemplateFilters({
   onClearFilters
 }: TemplateFiltersProps) {
   const [searchInput, setSearchInput] = useState(searchParams.search || '');
+  const adapt = useAdaptiveLabels();
   const { institutions } = useUserInstitutionAccess();
 
   // Get departments and programs based on selected institution
@@ -163,7 +165,7 @@ export function TemplateFilters({
           <div className='space-y-2'>
             <label className='text-sm font-medium flex items-center gap-1'>
               <BookOpen className='h-3 w-3' />
-              Department
+              {adapt('Department')}
             </label>
             <Select
               value={searchParams.department_id || 'all'}
@@ -180,12 +182,12 @@ export function TemplateFilters({
                   placeholder={
                     !searchParams.institution_id
                       ? 'Select institution first'
-                      : 'All Departments'
+                      : adapt('All Departments')
                   }
                 />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='all'>All Departments</SelectItem>
+                <SelectItem value='all'>{adapt('All Departments')}</SelectItem>
                 {departments?.data?.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
                     {department.department_name}
@@ -199,7 +201,7 @@ export function TemplateFilters({
           <div className='space-y-2'>
             <label className='text-sm font-medium flex items-center gap-1'>
               <GraduationCap className='h-3 w-3' />
-              Program
+              {adapt('Program')}
             </label>
             <Select
               value={searchParams.program_id || 'all'}
@@ -215,13 +217,13 @@ export function TemplateFilters({
                 <SelectValue
                   placeholder={
                     !searchParams.department_id
-                      ? 'Select department first'
-                      : 'All Programs'
+                      ? `Select ${adapt('department')} first`
+                      : adapt('All Programs')
                   }
                 />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value='all'>All Programs</SelectItem>
+                <SelectItem value='all'>{adapt('All Programs')}</SelectItem>
                 {programs?.data?.map((program) => (
                   <SelectItem key={program.id} value={program.id}>
                     {program.program_name}
@@ -298,7 +300,7 @@ export function TemplateFilters({
 
               {searchParams.department_id && (
                 <Badge variant='secondary' className='gap-1'>
-                  Department:{' '}
+                  {adapt('Department')}:{' '}
                   {
                     departments?.data?.find(
                       (d) => d.id === searchParams.department_id
@@ -313,7 +315,7 @@ export function TemplateFilters({
 
               {searchParams.program_id && (
                 <Badge variant='secondary' className='gap-1'>
-                  Program:{' '}
+                  {adapt('Program')}:{' '}
                   {
                     programs?.data?.find(
                       (p) => p.id === searchParams.program_id

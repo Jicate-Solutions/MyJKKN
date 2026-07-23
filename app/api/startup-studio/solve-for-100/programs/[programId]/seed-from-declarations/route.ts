@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/with-auth'
-import { SF100Service } from '@/lib/services/startup-studio'
+import { SF100Service, resolveRosterEnrollmentIds } from '@/lib/services/startup-studio'
 import { successApiResponse, errorResponse } from '@/lib/api/response'
 import { corsHeaders } from '@/lib/api-keys/cors'
 
@@ -35,11 +35,21 @@ export const POST = withAuth(async (request, auth, context) => {
     return successApiResponse({ enrolled: 0, skipped: 0, errors: [] })
   }
 
-  // 3. Get existing enrollments to skip duplicates
-  const { data: existing, error: existError } = await auth.supabase
+  // 3. Get existing enrollments to skip duplicates.
+  // Roster scoped by sf100_enrollments.program_id as the AUTHORITATIVE base, folded
+  // (union) with the cohort spine — via the single shared resolver — so every
+  // already-enrolled team's registration_id is ALWAYS seen and drift/incompleteness
+  // in cohort_memberships can never cause a double-enroll. `null` → no enrollments
+  // yet → the `.eq('program_id')` fallback returns 0 rows too (identical).
+  const rosterIds = await resolveRosterEnrollmentIds(auth.supabase, programId)
+
+  let existingQuery = auth.supabase
     .from('sf100_enrollments')
     .select('registration_id')
-    .eq('program_id', programId)
+  existingQuery = rosterIds
+    ? existingQuery.in('id', rosterIds)
+    : existingQuery.eq('program_id', programId)
+  const { data: existing, error: existError } = await existingQuery
 
   if (existError) {
     return errorResponse('Failed to check existing enrollments: ' + existError.message, 500)

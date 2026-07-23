@@ -3,33 +3,42 @@ export const dynamic = 'force-dynamic';
 // app/api/billing/receipts/bulk-import/route.ts
 //
 // Super-admin only. Accepts the filled bulk-receipts template, validates
-// per-row, groups by student, and creates one billing_receipt per student
-// with N billing_receipt_items.
+// per-row (including per-row payment metadata), groups by
+// (student + paid_date + payment_mode), and creates one billing_receipt
+// per group with N billing_receipt_items.
 //
-// Partial-success contract — valid student groups commit even if other
-// students/rows fail. Per-row errors are returned in the response so the
-// dialog can render an actionable error report.
+// Two modes (controlled by `?dry_run=true|false` query param):
+//   - dry_run=true  → Preview: parse + validate + group, return BulkReceiptPreviewResult,
+//                     DO NOT write to the database. Used by the dialog's Preview step.
+//   - dry_run=false → Commit: full pipeline, return BulkReceiptImportResult.
+//
+// Partial-success contract — valid groups commit even if other groups fail.
+// Per-row errors are returned in the response so the dialog can render an
+// actionable error report.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import * as XLSX from 'xlsx';
-import { z } from 'zod';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import {
-  groupRowsByStudent,
+  groupRowsByStudentAndPayment,
   createReceiptForStudentGroup,
-  type BulkReceiptBatchMetadata
+  type BulkReceiptBatchDefaults
 } from '@/lib/services/billing/receipts/bulk-receipt-service';
 import type {
   BulkReceiptRow,
   BulkReceiptImportError,
   BulkReceiptImportResult,
-  BulkReceiptCreated
+  BulkReceiptPreviewResult,
+  BulkReceiptPreviewGroup,
+  BulkReceiptCreated,
+  BulkReceiptPaymentMode
 } from '@/lib/utils/mappings/bulk-receipt-excel-mappings';
+import { BULK_RECEIPT_PAYMENT_MODES } from '@/lib/utils/mappings/bulk-receipt-excel-mappings';
 
 export const maxDuration = 60;
 
 // ----------------------------------------------------------------------
-// Helpers (mirror the bills import — kept local so route is self-contained)
+// Helpers
 // ----------------------------------------------------------------------
 
 function cellToString(value: unknown): string {
@@ -49,19 +58,38 @@ function cellToNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Best-effort date parsing — handles three formats the user might leave in
+ * the cell: an Excel-typed Date (cellDates:true), a 'YYYY-MM-DD' string,
+ * or a 'DD/MM/YYYY' / 'DD-MM-YYYY' string (common in Indian English locales).
+ * Returns null if it can't make sense of the input.
+ */
+function cellToISODate(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const s = String(value).trim();
+  // Already ISO?
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : s;
+  }
+  // DD/MM/YYYY or DD-MM-YYYY → reorder
+  const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) {
+    const [, dd, mm, yyyy] = m;
+    const iso = `${yyyy}-${mm!.padStart(2, '0')}-${dd!.padStart(2, '0')}`;
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : iso;
+  }
+  return null;
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const metaSchema = z.object({
-  payment_mode: z.enum(['cash', 'online', 'bank_transfer', 'dd', 'cheque']),
-  payment_paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  payer_mode: z.enum(['student', 'fixed']).default('student'),
-  payer_name_fixed: z.string().optional(),
-  payer_contact: z.string().optional(),
-  payment_reference_number: z.string().optional(),
-  payment_remarks: z.string().optional(),
-  accountant_id: z.string().uuid().optional()
-});
+const ALLOWED_PAYMENT_MODES = new Set<string>(BULK_RECEIPT_PAYMENT_MODES);
 
 async function assertSuperAdmin(userId: string): Promise<boolean> {
   const supabase = createServiceRoleClient();
@@ -94,6 +122,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const isDryRun = request.nextUrl.searchParams.get('dry_run') === 'true';
+
   try {
     const formData = await request.formData();
     const file = formData.get('file');
@@ -101,42 +131,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    // -- Parse metadata -------------------------------------------------
-    const metaRaw = {
-      payment_mode: formData.get('payment_mode')?.toString() ?? '',
-      payment_paid_date: formData.get('payment_paid_date')?.toString() ?? '',
-      payer_mode: formData.get('payer_mode')?.toString() || 'student',
-      payer_name_fixed:
-        formData.get('payer_name_fixed')?.toString() || undefined,
-      payer_contact: formData.get('payer_contact')?.toString() || undefined,
-      payment_reference_number:
-        formData.get('payment_reference_number')?.toString() || undefined,
-      payment_remarks:
-        formData.get('payment_remarks')?.toString() || undefined,
-      accountant_id: formData.get('accountant_id')?.toString() || undefined
-    };
-    const metaParsed = metaSchema.safeParse(metaRaw);
-    if (!metaParsed.success) {
-      return NextResponse.json(
-        {
-          error: 'Invalid batch metadata',
-          issues: metaParsed.error.issues
-        },
-        { status: 400 }
-      );
-    }
-    const meta: BulkReceiptBatchMetadata = metaParsed.data;
-
     // -- Read workbook --------------------------------------------------
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
 
     // Pick the data sheet BY NAME (lesson from the bulk-upload memory).
-    // The template ships "Bills" + "Instructions"; SheetNames[0] is
-    // ordinarily "Bills", but if the admin reordered sheets we'd parse
-    // instructions as data otherwise.
-    const sheetName = workbook.SheetNames.find((n) => n === 'Bills')
-      ?? workbook.SheetNames[0];
+    const sheetName =
+      workbook.SheetNames.find((n) => n === 'Bills') ?? workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) {
       return NextResponse.json(
@@ -159,8 +160,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Quick sanity check: header row matches what we expect. If a column
-    // got reordered/renamed, fail loud rather than silently misinterpret.
+    // Header row check — fail loud rather than silently misinterpret a
+    // template that was re-saved with reordered or renamed columns.
     const headerCells = (rows[0] as unknown[]).map(cellToString);
     const expectedHeaders = [
       'Roll Number',
@@ -169,7 +170,13 @@ export async function POST(request: NextRequest) {
       'Bill Description',
       'Category',
       'Balance Amount',
-      'Paid Amount'
+      'Paid Amount',
+      'Payment Mode',
+      'Paid Date',
+      'Payer Name',
+      'Payer Contact',
+      'Payment Reference',
+      'Remarks'
     ];
     const headerMismatch = expectedHeaders.some(
       (h, i) => headerCells[i] !== h
@@ -206,43 +213,136 @@ export async function POST(request: NextRequest) {
       const category = cellToString(cells[4]) || null;
       const balanceAmount = cellToNumber(cells[5]);
       const paidAmount = cellToNumber(cells[6]);
+      const paymentModeRaw = cellToString(cells[7]).toLowerCase();
+      const paidDateRaw = cells[8];
+      const payerName = cellToString(cells[9]);
+      const payerContactRaw = cellToString(cells[10]);
+      const paymentReferenceRaw = cellToString(cells[11]);
+      const remarksRaw = cellToString(cells[12]);
 
       // Skip rows the admin chose not to fill — paid amount blank means
-      // "ignore this bill" per the instructions.
+      // "ignore this bill" per the instructions. Per-row payment columns
+      // are evaluated only for rows the admin DID fill.
       if (paidAmount === null || paidAmount === 0) continue;
 
+      // Field-by-field validation. We accumulate errors per row but still
+      // try to extract the safe values so the preview can show as much
+      // context as possible alongside the error message.
+      const rowErrors: BulkReceiptImportError[] = [];
+
       if (!UUID_RE.test(billId)) {
-        errors.push({
+        rowErrors.push({
           row: rowNumber,
           field: 'Bill ID',
           message:
             'Bill ID is missing or malformed. Do not edit or delete this column.'
         });
-        continue;
       }
       if (!rollNumber) {
-        errors.push({
+        rowErrors.push({
           row: rowNumber,
           field: 'Roll Number',
           message: 'Roll Number is missing.'
         });
-        continue;
       }
       if (paidAmount < 0) {
-        errors.push({
+        rowErrors.push({
           row: rowNumber,
           field: 'Paid Amount',
           message: 'Paid amount cannot be negative.'
         });
-        continue;
       }
       if (balanceAmount !== null && paidAmount > balanceAmount + 0.01) {
-        // 0.01 tolerance for floating-point noise
-        errors.push({
+        rowErrors.push({
           row: rowNumber,
           field: 'Paid Amount',
           message: `Paid amount (${paidAmount}) exceeds Balance Amount (${balanceAmount}). Refunds and adjustments must use the dedicated flows.`
         });
+      }
+
+      // Payment Mode — must be one of the enum values
+      if (!paymentModeRaw) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Payment Mode',
+          message:
+            'Payment Mode is required. Pick one of: cash, online, bank_transfer, dd, cheque.'
+        });
+      } else if (!ALLOWED_PAYMENT_MODES.has(paymentModeRaw)) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Payment Mode',
+          message: `Payment Mode "${paymentModeRaw}" is not valid. Use one of: cash, online, bank_transfer, dd, cheque.`
+        });
+      }
+
+      // Paid Date — must be a valid ISO date
+      const paidDateISO = cellToISODate(paidDateRaw);
+      if (!paidDateISO) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Paid Date',
+          message:
+            'Paid Date is required and must be a valid date (e.g. 2026-05-15).'
+        });
+      } else {
+        // Reject future dates beyond today (≤ 1 day grace for timezone)
+        const today = new Date();
+        const max = new Date(today.getTime() + 36 * 60 * 60 * 1000);
+        const parsed = new Date(paidDateISO);
+        if (parsed.getTime() > max.getTime()) {
+          rowErrors.push({
+            row: rowNumber,
+            field: 'Paid Date',
+            message: `Paid Date "${paidDateISO}" is in the future. Receipts cannot be back-dated forward.`
+          });
+        }
+      }
+
+      // Payer Name — required (we already pre-fill with student name)
+      if (!payerName) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Payer Name',
+          message:
+            'Payer Name is required. Defaults to the student\'s name; do not blank it out.'
+        });
+      } else if (payerName.length > 200) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Payer Name',
+          message: 'Payer Name is too long (max 200 characters).'
+        });
+      }
+
+      // Payer Contact — optional but if present, sanity-check length
+      if (payerContactRaw && payerContactRaw.length > 100) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Payer Contact',
+          message: 'Payer Contact is too long (max 100 characters).'
+        });
+      }
+
+      // Payment Reference — optional but length-bounded
+      if (paymentReferenceRaw && paymentReferenceRaw.length > 100) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Payment Reference',
+          message: 'Payment Reference is too long (max 100 characters).'
+        });
+      }
+
+      if (remarksRaw && remarksRaw.length > 500) {
+        rowErrors.push({
+          row: rowNumber,
+          field: 'Remarks',
+          message: 'Remarks too long (max 500 characters).'
+        });
+      }
+
+      if (rowErrors.length > 0) {
+        errors.push(...rowErrors);
         continue;
       }
 
@@ -255,12 +355,31 @@ export async function POST(request: NextRequest) {
           bill_description: billDescription,
           category,
           balance_amount: balanceAmount ?? 0,
-          paid_amount: paidAmount
+          paid_amount: paidAmount,
+          payment_mode: paymentModeRaw as BulkReceiptPaymentMode,
+          payment_paid_date: paidDateISO!, // guaranteed non-null by above check
+          payer_name: payerName,
+          payer_contact: payerContactRaw || null,
+          payment_reference_number: paymentReferenceRaw || null,
+          payment_remarks: remarksRaw || null
         }
       });
     }
 
     if (cleanedRows.length === 0) {
+      // Either no bills filled or every filled row failed shape validation.
+      if (isDryRun) {
+        return NextResponse.json<BulkReceiptPreviewResult>({
+          totalRows: 0,
+          validRows: 0,
+          errorCount: errors.length,
+          groups: [],
+          totalCollected: 0,
+          totalStudents: 0,
+          totalReceipts: 0,
+          errors
+        });
+      }
       return NextResponse.json<BulkReceiptImportResult>({
         success: false,
         successCount: 0,
@@ -273,16 +392,34 @@ export async function POST(request: NextRequest) {
     }
 
     // -- Resolve bills against the database in batch --------------------
+    // Split the original embedded-join query into TWO flat queries that
+    // can run in parallel. PostgREST's resource embedding
+    // (`learners_profiles:student_id(roll_number)`) serializes a nested
+    // object per row — for a 5000-row template that's 5000 extra JSON
+    // sub-objects on the wire. Two flat queries usually win by 3-5x
+    // because each one hits a simple PK index lookup with minimal
+    // serialization.
+    const timings: Record<string, number> = {};
+    const tStart = Date.now();
     const supabase = createServiceRoleClient();
     const billIds = Array.from(
       new Set(cleanedRows.map((r) => r.cleaned.bill_id))
     );
-    const { data: dbBills, error: billsError } = await (supabase as any)
+
+    // Query 1: bills only (no join)
+    const billsPromise = (supabase as any)
       .from('billing_student_bills')
       .select(
-        'id, student_id, institution_id, balance_amount, final_amount, status, learners_profiles:student_id(roll_number)'
+        'id, student_id, institution_id, balance_amount, final_amount, status'
       )
       .in('id', billIds);
+
+    // We can't run the learners query in parallel until we know the
+    // student_ids, BUT we can pre-fetch by the unique student_ids implied
+    // by the row data optimistically — except that the row carries only
+    // roll_number, not student_id. So we wait for bills to return.
+    const { data: dbBills, error: billsError } = await billsPromise;
+    timings.bills_query = Date.now() - tStart;
 
     if (billsError) {
       console.error('[receipts/bulk-import] Bills lookup failed:', billsError);
@@ -292,10 +429,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Query 2: learners_profiles for the resolved student_ids.
+    // Skip entirely if no bills came back — saves a roundtrip.
+    const tLearners = Date.now();
+    const distinctStudentIds = Array.from(
+      new Set((dbBills ?? []).map((b: any) => b.student_id).filter(Boolean))
+    );
+
+    let learnerByStudentId: Map<string, { roll_number: string }> = new Map();
+    if (distinctStudentIds.length > 0) {
+      const { data: learners, error: learnersError } = await (supabase as any)
+        .from('learners_profiles')
+        .select('id, roll_number')
+        .in('id', distinctStudentIds);
+      if (learnersError) {
+        console.error(
+          '[receipts/bulk-import] Learners lookup failed:',
+          learnersError
+        );
+        // Non-fatal — we just lose the roll_number cross-check. Receipts
+        // still go to the correct student because student_id is read
+        // from the bill itself, not the Excel row.
+      } else {
+        (learners ?? []).forEach((l: any) => {
+          if (l?.id) learnerByStudentId.set(l.id, { roll_number: l.roll_number });
+        });
+      }
+    }
+    timings.learners_query = Date.now() - tLearners;
+
     const billById = new Map<string, any>();
     (dbBills ?? []).forEach((b: any) => billById.set(b.id, b));
 
-    // Validate per row against DB state
+    // Validate per row against DB state.
+    const tValidate = Date.now();
     const validatedRows: typeof cleanedRows = [];
     for (const entry of cleanedRows) {
       const { rowNumber, cleaned } = entry;
@@ -311,9 +478,8 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Cross-check that the row's roll_number actually belongs to this bill's student.
-      // Catches the case where someone copy-pasted rows across files.
-      const dbRoll = bill.learners_profiles?.roll_number;
+      const dbRoll =
+        learnerByStudentId.get(bill.student_id)?.roll_number ?? null;
       if (dbRoll && cleaned.roll_number && dbRoll !== cleaned.roll_number) {
         errors.push({
           row: rowNumber,
@@ -366,6 +532,59 @@ export async function POST(request: NextRequest) {
       validatedRows.push(entry);
     }
 
+    timings.validation_loop = Date.now() - tValidate;
+
+    // -- Group by (student, paid_date, payment_mode) --------------------
+    const tGroup = Date.now();
+    const groups = groupRowsByStudentAndPayment(validatedRows, errors);
+    timings.grouping = Date.now() - tGroup;
+
+    // -- DRY RUN: return preview, do NOT commit -------------------------
+    if (isDryRun) {
+      const previewGroups: BulkReceiptPreviewGroup[] = groups.map((g) => ({
+        group_key: `${g.student_id}::${g.payment_paid_date}::${g.payment_mode}`,
+        student_id: g.student_id,
+        roll_number: g.roll_number,
+        student_name: g.student_name,
+        bill_count: g.rows.length,
+        total_amount: g.rows.reduce((s, r) => s + r.paid_amount, 0),
+        payment_mode: g.payment_mode,
+        payment_paid_date: g.payment_paid_date,
+        payer_name: g.payer_name,
+        payer_contact: g.payer_contact,
+        payment_reference_number: g.payment_reference_number,
+        payment_remarks: g.payment_remarks,
+        row_numbers: g.row_numbers
+      }));
+      const distinctStudents = new Set(previewGroups.map((g) => g.student_id))
+        .size;
+      const totalCollected = previewGroups.reduce(
+        (s, g) => s + g.total_amount,
+        0
+      );
+
+      const previewResponse = NextResponse.json<BulkReceiptPreviewResult>({
+        totalRows: cleanedRows.length,
+        validRows: validatedRows.length,
+        errorCount: errors.length,
+        groups: previewGroups,
+        totalCollected,
+        totalStudents: distinctStudents,
+        totalReceipts: previewGroups.length,
+        errors
+      });
+      // Stage-by-stage timing so future "validation feels slow" reports
+      // can be diagnosed by looking at this header in DevTools Network tab.
+      previewResponse.headers.set(
+        'X-Validation-Timings',
+        Object.entries(timings)
+          .map(([k, v]) => `${k}=${v}ms`)
+          .join('; ')
+      );
+      return previewResponse;
+    }
+
+    // -- COMMIT path: create receipts -----------------------------------
     if (validatedRows.length === 0) {
       return NextResponse.json<BulkReceiptImportResult>({
         success: false,
@@ -378,20 +597,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // -- Group by student and create receipts ---------------------------
-    const groups = groupRowsByStudent(validatedRows, errors);
+    const defaults: BulkReceiptBatchDefaults = { accountant_id: user.id };
     const created: BulkReceiptCreated[] = [];
-
-    // Default accountant to the calling super admin if not supplied
-    const finalMeta: BulkReceiptBatchMetadata = {
-      ...meta,
-      accountant_id: meta.accountant_id ?? user.id
-    };
 
     for (const group of groups) {
       const result = await createReceiptForStudentGroup(
         group,
-        finalMeta,
+        defaults,
         supabase as any
       );
       if (result.ok) {
@@ -399,17 +611,19 @@ export async function POST(request: NextRequest) {
       } else {
         errors.push({
           row: 0,
-          message: `Failed to create receipt for student ${group.student_name} (${group.roll_number}): ${result.message}`
+          message: `Failed to create receipt for student ${group.student_name} (${group.roll_number}) on ${group.payment_paid_date}/${group.payment_mode}: ${result.message}`
         });
       }
     }
+
+    const distinctStudents = new Set(groups.map((g) => g.student_id)).size;
 
     return NextResponse.json<BulkReceiptImportResult>({
       success: errors.length === 0,
       successCount: created.length,
       errorCount: errors.length,
       totalRows: cleanedRows.length,
-      totalStudents: groups.length,
+      totalStudents: distinctStudents,
       receipts: created,
       errors
     });

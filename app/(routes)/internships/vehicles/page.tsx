@@ -44,6 +44,8 @@ import {
   VehicleTypeBadge,
 } from '../_components/vehicles/VehicleStatusBadge';
 import type { VehicleStatus } from '@/lib/services/internships/types';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../_components/no-access-alert';
 
 export default function InternshipVehiclesPage() {
   const [filters, setFilters] = useState<VehicleFiltersValue>({
@@ -110,6 +112,7 @@ export default function InternshipVehiclesPage() {
   }, [institutions]);
 
   return (
+    <PermissionGuard module="internship.vehicles" action="view" fallback={<NoAccessAlert />}>
     <ContentLayout title="Internship Vehicles">
       <PageBreadcrumb
         items={[
@@ -254,6 +257,7 @@ export default function InternshipVehiclesPage() {
         </CardContent>
       </Card>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

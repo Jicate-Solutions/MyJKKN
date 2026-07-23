@@ -1,4 +1,4 @@
-// scripts/verify-student-form-hmac.ts
+// scripts/verify-student-form-hmac.tsṭ
 // Run via: npx tsx scripts/verify-student-form-hmac.ts
 
 // Set fake env so the script runs without the real .env.local.

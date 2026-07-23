@@ -23,6 +23,7 @@ import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-ser
 import type { LeaveBlockInfo } from '@/types/leaves';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface AvailablePeriodsCardsProps {
   periods: AttendancePeriodOption[];
@@ -42,6 +43,7 @@ export function AvailablePeriodsCards({
   isSuperAdmin
 }: AvailablePeriodsCardsProps) {
   const router = useRouter();
+  const label = useAdaptiveLabels();
   const [markedPeriods, setMarkedPeriods] = useState<Set<string>>(new Set());
   const [periodRecordIds, setPeriodRecordIds] = useState<Map<string, string>>(
     new Map()
@@ -228,8 +230,22 @@ export function AvailablePeriodsCards({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // Navigate to attendance report details page
-      router.push(`/academic/attendance/reports/${recordId}`);
+      // Navigate to attendance report details page.
+      // Updated: 2026-06-19 (FIX 3) - Pass the clicked period so the report opens ON it.
+      // One semester-level student_attendance record can hold several periods; without this
+      // the report page always defaulted to the first period, so "View Details" on (e.g.)
+      // Oral Medicine showed the first period's class (Oral Surgery) instead. [BUG-003154]
+      // Updated: 2026-07-21 - Send timetable_slot_id, NOT period.id. FIX 3 shipped the wrong
+      // identifier: period.id is the periods-TABLE row id (attendance-service.ts sets
+      // `id: slot.period_id`), whereas student_attendance.attendance_data is keyed by slot_id
+      // (mark page writes `[periodId]` where periodId === timetable_slot_id). Verified against
+      // prod: zero attendance_data keys match a periods.id. So ?period= never resolved and the
+      // report silently fell back to period_details[0] — leaving BUG-003154 live, and making
+      // every "Edit Attendance" target the first period. timetable_slot_id also carries the
+      // `_group_N` suffix for subdivided slots, matching how the keys are actually stored.
+      router.push(
+        `/academic/attendance/reports/${recordId}?period=${encodeURIComponent(period.timetable_slot_id)}`
+      );
       return;
     } else {
       // Use the original period selection behavior for unmarked periods
@@ -335,7 +351,7 @@ export function AvailablePeriodsCards({
                             <CheckCircle className='h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0' />
                             <span className='text-xs text-green-600 dark:text-green-400 font-medium'>
                               {isMultiSection
-                                ? 'All Sections Completed'
+                                ? `All ${label('Sections')} Completed`
                                 : 'Completed'}
                             </span>
                           </div>
@@ -460,8 +476,8 @@ export function AvailablePeriodsCards({
                           <Users className='h-3 w-3 flex-shrink-0' />
                           <span>
                             {period.sections.length === 1
-                              ? `Section ${period.sections[0].section_name || period.sections[0].name || period.section_name || ''}`
-                              : `${period.sections.length} Sections: ${period.sections.map(s => s.section_name || s.name).join(', ')}`
+                              ? `${label('Section')} ${period.sections[0].section_name || period.sections[0].name || period.section_name || ''}`
+                              : `${period.sections.length} ${label('Sections')}: ${period.sections.map(s => s.section_name || s.name).join(', ')}`
                             }
                           </span>
                         </div>
@@ -469,7 +485,7 @@ export function AvailablePeriodsCards({
                         // Single section (section-level timetable - legacy fallback)
                         <div className='bg-blue-50 dark:bg-blue-900/30 px-3 py-2 rounded-md text-center flex items-center justify-center gap-1.5 font-medium text-blue-700 dark:text-blue-300 col-span-1 xs:col-span-2 sm:col-span-1'>
                           <Users className='h-3 w-3 flex-shrink-0' />
-                          <span>Section {period.section_name}</span>
+                          <span>{label('Section')} {period.section_name}</span>
                         </div>
                       ) : null}
                     </div>
@@ -504,7 +520,7 @@ export function AvailablePeriodsCards({
                               {period.period_mode === 'practical'
                                 ? 'Select Batch & Mark Attendance'
                                 : isMultiSection
-                                  ? 'Mark All Sections'
+                                  ? `Mark All ${label('Sections')}`
                                   : 'Mark Attendance'}
                             </span>
                           </>

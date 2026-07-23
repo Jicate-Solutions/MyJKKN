@@ -27,6 +27,11 @@ interface Props {
    *  render the NoMatchEmptyState fallback. Also forwards the matched record so
    *  the parent can reuse it without a second fetch. */
   onMatchChange?: (match: AdmissionFeeStructureWithItems | null) => void;
+  /** Monotonic counter the parent can bump to force a re-fetch — e.g. when the
+   *  user clicks "Sync Fees" or after the LegacyModeBanner finishes adoption.
+   *  Listed alongside JSON.stringify(dims) in the effect dep array so a bump
+   *  with unchanged dims still triggers the fetch. */
+  refreshTick?: number;
 }
 
 function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
@@ -37,12 +42,11 @@ function isFullDims(d: Partial<FeeStructureMatrixDimensions>): boolean {
     d.programme_id &&
     d.quota_id &&
     d.community_category_id &&
-    d.accommodation_type_id &&
     d.admission_year_id
   );
 }
 
-export function FeeStructureReadonlyPanel({ dims, onMatchChange }: Props) {
+export function FeeStructureReadonlyPanel({ dims, onMatchChange, refreshTick = 0 }: Props) {
   const [match, setMatch] = useState<AdmissionFeeStructureWithItems | null>(null);
   const [categoriesById, setCategoriesById] = useState<Record<string, BillingCategory>>({});
   const [loading, setLoading] = useState(false);
@@ -97,7 +101,7 @@ export function FeeStructureReadonlyPanel({ dims, onMatchChange }: Props) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(dims)]);
+  }, [JSON.stringify(dims), refreshTick]);
 
   if (!isFullDims(dims)) {
     // Build a specific list of which dims are missing so the counsellor
@@ -110,7 +114,6 @@ export function FeeStructureReadonlyPanel({ dims, onMatchChange }: Props) {
     if (!dims.programme_id) missing.push('Programme (Course Selection)');
     if (!dims.quota_id) missing.push('Quota (Course Selection)');
     if (!dims.community_category_id) missing.push('Community (Basic Details)');
-    if (!dims.accommodation_type_id) missing.push('Accommodation (Accommodation Preferences)');
     if (!dims.admission_year_id) missing.push('Admission Year (Course Selection)');
 
     return (

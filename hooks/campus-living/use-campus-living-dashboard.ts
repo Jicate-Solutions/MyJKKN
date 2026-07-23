@@ -13,6 +13,7 @@ export const campusLivingDashboardKeys = {
   safetySummary: (institutionId: string) => ['campus-living-dashboard', 'safety-summary', institutionId] as const,
   alerts: (institutionId: string) => ['campus-living-dashboard', 'alerts', institutionId] as const,
   recentActivity: (institutionId: string) => ['campus-living-dashboard', 'recent-activity', institutionId] as const,
+  demographics: (institutionId: string) => ['campus-living-dashboard', 'demographics', institutionId] as const,
 };
 
 // --- Query hooks ---
@@ -24,6 +25,16 @@ export function useCampusLivingOverview(institutionId: string | undefined) {
     queryFn: () => CampusLivingDashboard.getDashboardData(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
     staleTime: 2 * 60 * 1000, // 2 minutes — dashboard data refreshes less often
+  });
+}
+
+export function useResidentDemographics(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: campusLivingDashboardKeys.demographics(institutionId ?? 'all'),
+    queryFn: () => CampusLivingDashboard.getResidentDemographics(isSuperAdmin ? undefined : institutionId),
+    enabled: isSuperAdmin || !!institutionId,
+    staleTime: 2 * 60 * 1000,
   });
 }
 

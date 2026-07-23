@@ -2,7 +2,7 @@
 // ============================================================================
 // React Query hook for the assignment_rule_type_registry config table.
 // Used by the rule-form-dialog dropdown (active rows only) and the
-// /admin/counselors/rule-types CRUD page (all rows).
+// /admission/counselors/admin/rule-types CRUD page (all rows).
 //
 // Created: 2026-05-07
 // ============================================================================

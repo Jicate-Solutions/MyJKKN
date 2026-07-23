@@ -8,7 +8,12 @@ import { Section } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Section>[] = [
+export const getColumns = (
+  adaptLabel?: (label: string) => string
+): ColumnDef<Section>[] => {
+  const adapt = adaptLabel || ((label) => label);
+
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -34,7 +39,7 @@ export const columns: ColumnDef<Section>[] = [
   {
     accessorKey: 'section_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Section Name' />
+      <DataTableColumnHeader column={column} title={`${adapt('Section')} Name`} />
     ),
     cell: ({ row }) => {
       const section = row.original;
@@ -78,7 +83,7 @@ export const columns: ColumnDef<Section>[] = [
   {
     accessorKey: 'program',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
+      <DataTableColumnHeader column={column} title={adapt('Program')} />
     ),
     cell: ({ row }) => {
       const section = row.original;
@@ -91,7 +96,7 @@ export const columns: ColumnDef<Section>[] = [
   {
     accessorKey: 'semester',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester' />
+      <DataTableColumnHeader column={column} title={adapt('Semester')} />
     ),
     cell: ({ row }) => {
       const section = row.original;
@@ -162,4 +167,5 @@ export const columns: ColumnDef<Section>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

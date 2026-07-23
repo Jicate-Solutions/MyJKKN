@@ -27,8 +27,9 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
   useEffect(() => {
     BosMeetingService.getMeeting(meetingId)
       .then((data) => {
-        if (data.status !== 'draft') {
-          toast.error('Only draft meetings can be edited.');
+        // Allow editing in draft or principal_approved stages
+        if (data.status !== 'draft' && data.status !== 'principal_approved') {
+          toast.error('Meeting can only be edited in draft or principal approval stages.');
           router.push(`/bos/meetings/${meetingId}`);
           return;
         }
@@ -55,7 +56,7 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
 
   if (isLoading) {
     return (
-      <div className='max-w-3xl space-y-4'>
+      <div className='space-y-4'>
         <Skeleton className='h-10 w-64' />
         <Skeleton className='h-4 w-80' />
         {Array.from({ length: 3 }).map((_, i) => (
@@ -68,18 +69,19 @@ export default function EditMeetingPage({ params }: EditMeetingPageProps) {
   if (!meeting) return null;
 
   return (
-    <div className='max-w-3xl'>
+    <div>
       <PageHeader
-        title='Edit Meeting'
-        description={`Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
+        title='Edit Meeting Schedule & Venue'
+        description={`Meeting #${meeting.meeting_number}/${meeting.academic_year} (${meeting.status === 'draft' ? 'Draft' : 'Principal Approval'})`}
       />
 
-      <div className='mt-6'>
+      <div className='mt-4'>
         <MeetingForm
           meeting={meeting}
           isSubmitting={updateMeeting.isPending}
           onSubmit={handleSubmit}
           onCancel={() => router.push(`/bos/meetings/${meetingId}`)}
+          isEditingScheduleOnly={meeting.status === 'principal_approved'}
         />
       </div>
     </div>

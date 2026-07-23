@@ -62,6 +62,38 @@ function resolveIcon(iconName: string): LucideIcon {
 }
 
 /**
+ * Resolve the permission gate for a manifest path.
+ *
+ * A direct MENU_PERMISSIONS entry always wins. Otherwise — for BoS pages only —
+ * walk up the path segments and inherit the nearest mapped ancestor's gate.
+ *
+ * Why: the route manifest registers every page.tsx as its own entry, including
+ * children like /bos/compositions/new and /bos/syllabus/new. Those children are
+ * NOT catalogued in MENU_PERMISSIONS, so without inheritance they resolve to
+ * `undefined`, and the Command Palette's filter treats a missing permission as
+ * "visible to all authenticated users" (lib/navigation/permission-filter.ts:19)
+ * — surfacing them to students even though the parent listing page is gated.
+ *
+ * Scoped to /bos so we only tighten this known subtree; unmapped children
+ * elsewhere keep their current visibility (avoids cross-module regressions).
+ * Inheritance only ADDS a gate to pages that had none — it never loosens one.
+ */
+function resolveManifestPermission(path: string): string | undefined {
+  const direct = MENU_PERMISSIONS[path];
+  if (direct) return direct;
+  if (!path.startsWith('/bos')) return undefined;
+
+  // e.g. '/bos/compositions/new' → try '/bos/compositions', then '/bos'.
+  const segments = path.split('/').filter(Boolean);
+  for (let i = segments.length - 1; i >= 1; i--) {
+    const ancestor = '/' + segments.slice(0, i).join('/');
+    const inherited = MENU_PERMISSIONS[ancestor];
+    if (inherited) return inherited;
+  }
+  return undefined;
+}
+
+/**
  * Walk the ROUTE_MANIFEST tree depth-first, emitting a PageEntry for every
  * non-parametric path. Parametric segments (e.g. `[id]`) are skipped at the
  * source by the generator, but we guard anyway.
@@ -81,7 +113,7 @@ export function getManifestPages(): PageEntry[] {
 
       const module = deriveModuleLabel(node.path);
       const icon = resolveIcon(node.iconName);
-      const permission = MENU_PERMISSIONS[node.path];
+      const permission = resolveManifestPermission(node.path);
 
       out.push({
         path: node.path,

@@ -31,6 +31,8 @@ import {
 } from '@/components/ui/breadcrumb';
 import { cn } from '@/lib/utils';
 import { deriveBreadcrumbs } from '@/lib/navigation/derive-breadcrumbs';
+import { useInstitutionType } from '@/hooks/use-institution-type';
+import { adaptLabel } from '@/lib/utils/school-label-adapter';
 
 interface AutoBreadcrumbsProps {
   className?: string;
@@ -38,7 +40,14 @@ interface AutoBreadcrumbsProps {
 
 export function AutoBreadcrumbs({ className }: AutoBreadcrumbsProps) {
   const pathname = usePathname() ?? '/';
-  const items = deriveBreadcrumbs(pathname);
+  const { institutionType } = useInstitutionType();
+  // Crumb labels are derived from the raw route manifest, so adapt each one to
+  // the institution type (e.g. "Degrees" → "Streams" for schools) to stay in
+  // sync with the navbar title, sidebar, and page body.
+  const items = deriveBreadcrumbs(pathname).map((item) => ({
+    ...item,
+    label: adaptLabel(item.label, institutionType),
+  }));
 
   // Skip root, /auth/*, /api/*, and any pathname with no crumbs.
   // Also skip 1-item trails (just "Home") — adds no value.

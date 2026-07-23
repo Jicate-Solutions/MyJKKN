@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
@@ -35,7 +34,6 @@ interface SourceRowActionsProps {
 }
 
 export function SourceRowActions({ source }: SourceRowActionsProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { canAccess, isSuperAdmin } = usePermissions();
   const refresh = useSourcesRefresh();
@@ -77,11 +75,9 @@ export function SourceRowActions({ source }: SourceRowActionsProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-[180px]">
-          <DropdownMenuItem
-            onSelect={() => router.push(`/admission/settings/sources/${source.id}`)}
-          >
-            View details
-          </DropdownMenuItem>
+          {/* "View details" removed — the per-source assignment workspace
+              moved to /admission/counselors/team/allocation/{id}. From the
+              CRUD list, the row label opens the Edit dialog directly. */}
           <DropdownMenuItem
             disabled={!canManage}
             onSelect={() => setEditOpen(true)}

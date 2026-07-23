@@ -31,6 +31,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { useFacultyCalendar } from '@/hooks/academic/use-faculty-calendar';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type {
   FacultySlot,
   FacultyCalendarEvent,
@@ -128,6 +129,7 @@ export function FacultyCalendar({
   height = 600,
   className
 }: FacultyCalendarProps) {
+  const adapt = useAdaptiveLabels();
   // State
   const [currentView, setCurrentView] = useState<View>(Views.WEEK);
   const [currentDate, setCurrentDate] = useState<Date | null>(null);
@@ -397,7 +399,7 @@ export function FacultyCalendar({
             <div className='flex items-center justify-between'>
               <div>
                 <p className='text-sm font-medium text-muted-foreground'>
-                  Courses
+                  {adapt('Courses')}
                 </p>
                 <p className='text-2xl font-bold'>{courses.length}</p>
               </div>
@@ -541,6 +543,7 @@ export function FacultyCalendar({
 
 // Event details component
 function EventDetailsContent({ slot }: { slot: FacultySlot }) {
+  const adapt = useAdaptiveLabels();
   return (
     <div className='space-y-4'>
       {/* Header */}
@@ -614,7 +617,7 @@ function EventDetailsContent({ slot }: { slot: FacultySlot }) {
           <div>{slot.timetable.institution_name}</div>
           <div>{slot.timetable.department_name}</div>
           {slot.timetable.semester && (
-            <div>Semester: {slot.timetable.semester}</div>
+            <div>{adapt('Semester')}: {slot.timetable.semester}</div>
           )}
         </div>
       </div>
@@ -636,7 +639,7 @@ function EventDetailsContent({ slot }: { slot: FacultySlot }) {
                 )}
                 {subSlot.sections && subSlot.sections.length > 0 && (
                   <div>
-                    Sections:{' '}
+                    {adapt('Sections')}:{' '}
                     {subSlot.sections.map((s) => s.section_name).join(', ')}
                   </div>
                 )}

@@ -1,5 +1,10 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type {
+  HostelPmTask,
+  HostelPmTaskStatus,
+  CompleteHostelPmTaskDTO,
+} from '@/types/campus-living/community';
 
 /**
  * Row shape surfaced by PreventiveMaintenanceService — joins the underlying
@@ -136,6 +141,117 @@ export class PreventiveMaintenanceService {
       logger.error(
         'campus-living/preventive-maintenance',
         'Unexpected error in getSchedules',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  // ── PM Tasks (added 2026-05-20 by Agent ξ — additive) ──────────────────
+  //
+  // Backs /campus-living/maintenance/preventive/tasks. Reads from
+  // `hostel_pm_tasks` (existing on prod). Tasks are auto-generated rows
+  // produced by an upstream scheduler from each active schedule; this
+  // service is read-mostly with a single `completeTask` write path.
+
+  /**
+   * List preventive-maintenance tasks for an institution. Filters: status
+   * (single or array), schedule_id, block_id, search (matches title).
+   * Orders by due_date ascending so overdue/today bubble to the top.
+   */
+  static async getTasks(
+    institutionId: string | undefined,
+    filters?: {
+      status?: HostelPmTaskStatus | HostelPmTaskStatus[];
+      schedule_id?: string;
+      block_id?: string | null;
+      search?: string;
+    },
+  ): Promise<HostelPmTask[]> {
+    if (!institutionId) return [];
+    try {
+      const supabase = createClientSupabaseClient();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let query: any = supabase
+        .from('hostel_pm_tasks')
+        .select('*')
+        .eq('institution_id', institutionId);
+
+      if (filters?.status) {
+        if (Array.isArray(filters.status)) {
+          query = query.in('status', filters.status);
+        } else {
+          query = query.eq('status', filters.status);
+        }
+      }
+      if (filters?.schedule_id) query = query.eq('schedule_id', filters.schedule_id);
+      if (filters?.block_id) query = query.eq('block_id', filters.block_id);
+      if (filters?.search) {
+        query = query.ilike('title', `%${filters.search}%`);
+      }
+      query = query.order('due_date', { ascending: true, nullsFirst: false });
+
+      const { data, error } = await query;
+      if (error) {
+        logger.error(
+          'campus-living/preventive-maintenance',
+          'Failed to fetch PM tasks',
+          error,
+        );
+        throw error;
+      }
+      return (data ?? []) as HostelPmTask[];
+    } catch (error) {
+      logger.error(
+        'campus-living/preventive-maintenance',
+        'Unexpected error in getTasks',
+        error,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Complete a PM task — sets status='resolved', stamps completed_by +
+   * completed_at, optionally records completion_notes, photo_urls, and
+   * cost_actual. Returns the updated row.
+   */
+  static async completeTask(
+    id: string,
+    completedBy: string | null,
+    payload: CompleteHostelPmTaskDTO,
+  ): Promise<HostelPmTask> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const body: Record<string, unknown> = {
+        status: 'resolved',
+        completed_by: completedBy,
+        completed_at: new Date().toISOString(),
+        completion_notes: payload.completion_notes ?? null,
+        photo_urls: payload.photo_urls ?? null,
+        cost_actual: payload.cost_actual ?? null,
+        updated_at: new Date().toISOString(),
+      };
+      const { data, error } = await supabase
+        .from('hostel_pm_tasks')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update(body as any)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) {
+        logger.error(
+          'campus-living/preventive-maintenance',
+          'Failed to complete PM task',
+          error,
+        );
+        throw error;
+      }
+      return data as HostelPmTask;
+    } catch (error) {
+      logger.error(
+        'campus-living/preventive-maintenance',
+        'Unexpected error in completeTask',
         error,
       );
       throw error;

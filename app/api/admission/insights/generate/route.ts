@@ -1,18 +1,52 @@
 export const dynamic = 'force-dynamic';
 
 // app/api/admission/insights/generate/route.ts
-// Generates AI-powered CRM insights using Claude claude-sonnet-4-5.
+// Generates AI-powered CRM insights using Claude (model from ai_model_config).
 // Uses server-side service role client to bypass RLS for read/write.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  resolveChatModel,
+  recordChatUsage,
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
 import type { AdmissionLead, FunnelStage } from '@/types/admission';
 
 // ── Anthropic client (initialised once at module level) ───────────────────────
 const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY,
 });
+
+// AI model config adoption (2026-07-02): the model is resolved at runtime from
+// the ai_model_config row for this feature key (drift-corrected to
+// anthropic/claude-sonnet-4-5 — exactly what this route hardcoded before).
+const AI_INSIGHTS_FEATURE_KEY = 'admission.ai_insights';
+
+/** Cost in INR from the pricing registry; null when pricing/tokens missing. */
+function computeCostInr(
+  modelId: string,
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined,
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  if (
+    !pricing ||
+    pricing.inputPer1KTokensInr == null ||
+    pricing.outputPer1KTokensInr == null ||
+    inputTokens == null ||
+    outputTokens == null
+  ) {
+    return null;
+  }
+  return Number(
+    (
+      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
+      (outputTokens / 1000) * pricing.outputPer1KTokensInr
+    ).toFixed(6),
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -307,14 +341,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     nearConversion: stats.nearConversion.count,
   });
 
-  // ── Step 5: Call Claude claude-sonnet-4-5 ────────────────────────────────────
+  // ── Step 5: Call Claude (model resolved from ai_model_config) ─────────────
+  const { model_id: modelId } = await resolveChatModel(AI_INSIGHTS_FEATURE_KEY);
   let claudeInsights: ClaudeInsight[] = [];
+  const claudeStartedAt = Date.now();
   try {
-    console.log('[insights/generate] Calling Claude API (claude-sonnet-4-5)...');
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: buildPrompt(stats) }],
+    console.log(`[insights/generate] Calling Claude API (${modelId})...`);
+    let response: Anthropic.Message;
+    try {
+      response = await anthropic.messages.create({
+        model: modelId,
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: buildPrompt(stats) }],
+      });
+    } catch (apiErr) {
+      await recordChatUsage(AI_INSIGHTS_FEATURE_KEY, 'anthropic', modelId, {
+        duration_ms: Date.now() - claudeStartedAt,
+        success: false,
+        error_message: apiErr instanceof Error ? apiErr.message.slice(0, 500) : String(apiErr),
+      });
+      throw apiErr;
+    }
+
+    await recordChatUsage(AI_INSIGHTS_FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: response.usage?.input_tokens ?? undefined,
+      output_tokens: response.usage?.output_tokens ?? undefined,
+      cost_inr:
+        computeCostInr(
+          modelId,
+          response.usage?.input_tokens ?? null,
+          response.usage?.output_tokens ?? null,
+        ) ?? undefined,
+      duration_ms: Date.now() - claudeStartedAt,
+      success: true,
     });
 
     const textBlock = response.content.find(c => c.type === 'text');

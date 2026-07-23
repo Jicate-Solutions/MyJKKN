@@ -1,0 +1,126 @@
+'use client';
+
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AllocationBatchService } from '@/lib/services/campus-living/allocation-batch-service';
+
+const KEY = ['campus-living', 'allocation-batches'] as const;
+
+export function useAllocationBatches(institutionId?: string) {
+  return useQuery({
+    queryKey: [...KEY, 'list', institutionId ?? null],
+    queryFn: () => AllocationBatchService.getBatches(institutionId),
+  });
+}
+
+export function useAllocationBatch(batchId: string | null) {
+  return useQuery({
+    queryKey: [...KEY, 'detail', batchId],
+    queryFn: () => AllocationBatchService.getBatch(batchId!),
+    enabled: !!batchId,
+  });
+}
+
+// Per-allocation eligibility explanation — fetched lazily when the details modal opens.
+export function useAllocationExplain(allocationId: string | null) {
+  return useQuery({
+    queryKey: [...KEY, 'explain', allocationId],
+    queryFn: () => AllocationBatchService.explainAllocation(allocationId!),
+    enabled: !!allocationId,
+  });
+}
+
+export function useAutoCategories() {
+  const query = useQuery({
+    queryKey: [...KEY, 'auto-categories'],
+    queryFn: () => AllocationBatchService.getAutoCategories(),
+  });
+  return { categories: query.data ?? [], loading: query.isLoading };
+}
+
+export function useAutoBlocks() {
+  const query = useQuery({
+    queryKey: [...KEY, 'auto-blocks'],
+    queryFn: () => AllocationBatchService.getBlocks(),
+  });
+  return { blocks: query.data ?? [], loading: query.isLoading };
+}
+
+// Floors (with student rooms) for the selected block — drives the floor-scope picker.
+export function useBlockFloors(blockId: string) {
+  const query = useQuery({
+    queryKey: [...KEY, 'block-floors', blockId],
+    queryFn: () => AllocationBatchService.getBlockFloors(blockId),
+    enabled: !!blockId,
+  });
+  return { floors: query.data ?? [], loading: query.isLoading };
+}
+
+// Institutions the selected block serves — scopes the Institution cohort filter.
+export function useBlockInstitutions(blockId: string) {
+  const query = useQuery({
+    queryKey: [...KEY, 'block-institutions', blockId],
+    queryFn: () => AllocationBatchService.getBlockInstitutions(blockId),
+    enabled: !!blockId,
+  });
+  return { institutions: query.data ?? [], loading: query.isLoading };
+}
+
+export function useHostelYears() {
+  const query = useQuery({
+    queryKey: [...KEY, 'hostel-years'],
+    queryFn: () => AllocationBatchService.getHostelYears(),
+  });
+  return { years: query.data ?? [], loading: query.isLoading };
+}
+
+// Mutations (manual invalidation; these are infrequent admin/warden actions).
+export function useAllocationBatchActions() {
+  const qc = useQueryClient();
+  const invalidate = useCallback(
+    () => qc.invalidateQueries({ queryKey: KEY }),
+    [qc]
+  );
+
+  const generate = useCallback(
+    async (
+      blockId: string,
+      hostelYearId: string,
+      strict = false,
+      floor: number | null = null,
+      institutionId: string | null = null,
+      programId: string | null = null,
+      semesterId: string | null = null,
+    ) => {
+      const id = await AllocationBatchService.generate(
+        blockId, hostelYearId, strict, floor, institutionId, programId, semesterId,
+      );
+      await invalidate();
+      return id;
+    },
+    [invalidate]
+  );
+  const approve = useCallback(
+    async (batchId: string) => {
+      await AllocationBatchService.approve(batchId);
+      await invalidate();
+    },
+    [invalidate]
+  );
+  const reject = useCallback(
+    async (batchId: string) => {
+      await AllocationBatchService.reject(batchId);
+      await invalidate();
+    },
+    [invalidate]
+  );
+  const reset = useCallback(
+    async (batchId: string) => {
+      await AllocationBatchService.reset(batchId);
+      await invalidate();
+    },
+    [invalidate]
+  );
+
+  return { generate, approve, reject, reset };
+}

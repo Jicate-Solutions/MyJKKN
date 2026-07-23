@@ -237,7 +237,18 @@ export function MultiRoleSelector({
           collisionPadding={16}
           avoidCollisions={true}
         >
-          <Command className="max-h-[300px] overflow-hidden">
+          <Command
+            className="max-h-[300px] overflow-hidden"
+            filter={(value, search, keywords) => {
+              if (!search) return 1;
+              const needle = search.toLowerCase().trim();
+              const haystack = [value, ...(keywords ?? [])]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+              return haystack.includes(needle) ? 1 : 0;
+            }}
+          >
             <CommandInput placeholder="Search roles..." />
             <CommandList className="max-h-[250px] overflow-y-auto">
               <CommandEmpty>No roles found.</CommandEmpty>
@@ -250,6 +261,7 @@ export function MultiRoleSelector({
                     <CommandItem
                       key={role.id}
                       value={role.role_name}
+                      keywords={[role.role_key, role.description ?? '']}
                       onSelect={() => handleSelect(role.id)}
                       className="flex items-center justify-between"
                     >

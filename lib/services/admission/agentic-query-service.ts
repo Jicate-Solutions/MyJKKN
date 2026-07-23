@@ -6,6 +6,76 @@ import Anthropic from '@anthropic-ai/sdk';
 import { sanitizeSearch } from '@/lib/config/pagination';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AI MODEL CONFIG ADOPTION (2026-07-02)
+// The model id is resolved from ai_model_config — ONE feature key covers BOTH
+// AI calls in this service (intent parse + result summary). This service is
+// built around the BROWSER Supabase client, so the server-only config service
+// is imported LAZILY inside the flow: a top-level import would poison any
+// future client bundle. On any resolution failure we degrade to the
+// previously hardcoded model (cutover invariant — zero behavior change).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const AGENTIC_QUERY_FEATURE_KEY = 'admission.agentic_query';
+const AGENTIC_QUERY_FALLBACK_MODEL = 'claude-3-5-haiku-20241022';
+
+async function resolveAgenticQueryModel(): Promise<string> {
+  try {
+    const { resolveChatModel } = await import(
+      '@/lib/services/platform/ai-clients/chat'
+    );
+    const { model_id } = await resolveChatModel(AGENTIC_QUERY_FEATURE_KEY);
+    return model_id;
+  } catch {
+    // Config service unavailable (e.g. executed outside a server context) —
+    // keep working on the previously hardcoded model.
+    return AGENTIC_QUERY_FALLBACK_MODEL;
+  }
+}
+
+/**
+ * Best-effort usage recording — must NEVER throw: a throw inside
+ * formatResponse's try block would wrongly trigger its deterministic
+ * fallback-summary path.
+ */
+async function recordAgenticQueryUsage(
+  modelId: string,
+  durationMs: number,
+  usage?: { input_tokens: number; output_tokens: number },
+  errorMessage?: string
+): Promise<void> {
+  try {
+    const { recordChatUsage } = await import(
+      '@/lib/services/platform/ai-clients/chat'
+    );
+    const { getModel } = await import(
+      '@/lib/services/platform/ai-providers'
+    );
+    const pricing = getModel('anthropic', modelId);
+    const costInr =
+      usage &&
+      pricing?.inputPer1KTokensInr != null &&
+      pricing?.outputPer1KTokensInr != null
+        ? Number(
+            (
+              (usage.input_tokens / 1000) * pricing.inputPer1KTokensInr +
+              (usage.output_tokens / 1000) * pricing.outputPer1KTokensInr
+            ).toFixed(6)
+          )
+        : null;
+    await recordChatUsage(AGENTIC_QUERY_FEATURE_KEY, 'anthropic', modelId, {
+      input_tokens: usage?.input_tokens,
+      output_tokens: usage?.output_tokens,
+      cost_inr: costInr ?? undefined,
+      duration_ms: durationMs,
+      success: !errorMessage,
+      error_message: errorMessage
+    });
+  } catch (recordError) {
+    console.error('[AgenticQueryService] Usage recording failed:', recordError);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -204,111 +274,87 @@ export class AgenticQueryService {
     };
 
     try {
-      // Step 1: Understanding
+      // ── Max lane (2026-07-13) ──────────────────────────────────────────────
+      // This is the AGENTIC exception: instead of parsing intent + running the
+      // SELECTs + summarizing locally (three round-trips + two Anthropic calls),
+      // we enqueue a single `admission.agentic_query` registry job carrying ONLY
+      // the user's {{query}}. The job runs ON THE DRAIN with tools (tool_set=all,
+      // scoped to the enqueuer's identity by fn_ai_enqueue) — it queries the DB
+      // itself and returns a natural-language answer. Runs on the Claude Max
+      // subscription (₹0 API). Payload key MUST match the seeded {{query}}
+      // placeholder exactly. institutionId is retained in the signature for the
+      // existing caller contract; row-scoping is enforced server-side by the
+      // enqueuer's RLS identity, not by a passed id.
+      void institutionId;
+
+      // Step 1: Understanding — enqueue the registry job.
       const understandingStep: QueryStep = {
         id: 'understanding',
         name: 'understanding',
         status: 'in_progress',
-        message: 'Analyzing your query...',
+        message: 'Sending your question to the assistant...',
         startedAt: new Date().toISOString(),
       };
       updateStep(understandingStep);
 
-      const intent = await this.parseQueryIntent(query);
+      const { data: enq, error: enqError } = await this.supabase.rpc(
+        'fn_ai_enqueue',
+        { p_job_type: AGENTIC_QUERY_FEATURE_KEY, p_payload: { query } }
+      );
+      if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+        const errText =
+          typeof enq?.error === 'string'
+            ? enq.error
+            : enqError?.message ?? 'could not start the query';
+        throw new Error(errText);
+      }
+      const jobId = enq.job_id;
 
       updateStep({
         ...understandingStep,
         status: 'completed',
-        message: `Understood: ${intent.type} query for ${intent.entities.join(', ')}`,
-        details: `Confidence: ${(intent.confidence * 100).toFixed(0)}%`,
+        message: 'Question accepted',
         completedAt: new Date().toISOString(),
       });
 
-      // Step 2: Planning
-      const planningStep: QueryStep = {
-        id: 'planning',
-        name: 'planning',
-        status: 'in_progress',
-        message: 'Planning data retrieval...',
-        startedAt: new Date().toISOString(),
-      };
-      updateStep(planningStep);
-
-      const dbQuery = await this.buildDatabaseQuery(intent, institutionId);
-
-      updateStep({
-        ...planningStep,
-        status: 'completed',
-        message: `Prepared query for ${intent.entities[0] || 'data'}`,
-        details: `Filters: ${intent.filters.length}, Group by: ${intent.groupBy?.join(', ') || 'none'}`,
-        completedAt: new Date().toISOString(),
-      });
-
-      // Step 3: Executing
-      const executingStep: QueryStep = {
+      // Steps 2-4 collapse into the drain's tool-use loop (plan → query → analyze).
+      const workingStep: QueryStep = {
         id: 'executing',
         name: 'executing',
         status: 'in_progress',
-        message: 'Fetching data...',
+        message: 'The assistant is querying the data...',
         startedAt: new Date().toISOString(),
       };
-      updateStep(executingStep);
+      updateStep(workingStep);
 
-      const rawData = await this.executeQuery(dbQuery);
-
-      updateStep({
-        ...executingStep,
-        status: 'completed',
-        message: `Retrieved ${Array.isArray(rawData) ? rawData.length : 1} records`,
-        completedAt: new Date().toISOString(),
-      });
-
-      // Step 4: Analyzing
-      const analyzingStep: QueryStep = {
-        id: 'analyzing',
-        name: 'analyzing',
-        status: 'in_progress',
-        message: 'Analyzing results...',
-        startedAt: new Date().toISOString(),
-      };
-      updateStep(analyzingStep);
-
-      const processedData = this.processResults(rawData, intent);
+      const answer = await this.pollForAnswer(jobId);
 
       updateStep({
-        ...analyzingStep,
+        ...workingStep,
         status: 'completed',
-        message: 'Analysis complete',
+        message: 'Data retrieved',
         completedAt: new Date().toISOString(),
       });
 
       // Step 5: Responding
-      const respondingStep: QueryStep = {
+      updateStep({
         id: 'responding',
         name: 'responding',
-        status: 'in_progress',
-        message: 'Generating response...',
-        startedAt: new Date().toISOString(),
-      };
-      updateStep(respondingStep);
-
-      const response = await this.formatResponse(processedData, query, intent);
-
-      updateStep({
-        ...respondingStep,
         status: 'completed',
         message: 'Response ready',
+        startedAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
       });
 
       return {
         success: true,
         query,
-        intent,
+        // The drain owns intent internally; expose a minimal, honest shape.
+        intent: { type: 'list', entities: [], filters: [], confidence: 1 },
         steps,
-        data: processedData,
-        summary: response.summary,
-        visualizationType: response.visualizationType,
+        data: null,
+        summary: answer,
+        visualizationType: 'metric',
         executionTimeMs: Date.now() - startTime,
       };
     } catch (error) {
@@ -332,11 +378,77 @@ export class AgenticQueryService {
     }
   }
 
+  // Poll cadence — mirrors app/api/work-pulse/translate/route.ts (the proven
+  // ai_jobs consumer). This service runs client-side, so the wait lives for the
+  // life of the open page; a longer job is picked up by the "while you were
+  // away" inbox pattern at the route/hook layer when one is wired.
+  private static readonly POLL_MS = 2_500;
+  private static readonly UNCLAIMED_DEADLINE_MS = 120_000; // drain offline → give up
+  private static readonly TOTAL_DEADLINE_MS = 285_000;
+
+  /**
+   * Long-poll fn_ai_job_status until the Max drain finishes, then return the
+   * answer text. Throws on error/timeout so processQuery's catch surfaces it.
+   */
+  private static async pollForAnswer(jobId: string): Promise<string> {
+    const startedAt = Date.now();
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    while (Date.now() - startedAt < this.TOTAL_DEADLINE_MS) {
+      await sleep(this.POLL_MS);
+      const { data: st, error: stError } = await this.supabase.rpc(
+        'fn_ai_job_status',
+        { p_job_id: jobId }
+      );
+      if (stError || !st || typeof st.status !== 'string') continue;
+      if (st.status === 'done') {
+        const ans = this.extractAnswer((st as { result?: unknown }).result);
+        if (ans) return ans;
+        throw new Error('The query finished with an empty result.');
+      }
+      if (
+        st.status === 'error' ||
+        st.status === 'canceled' ||
+        st.status === 'not_found'
+      ) {
+        throw new Error(`The query ${st.status}.`);
+      }
+      if (
+        st.status === 'pending' &&
+        Date.now() - startedAt > this.UNCLAIMED_DEADLINE_MS
+      ) {
+        throw new Error('The assistant is not available right now.');
+      }
+    }
+    throw new Error('The query did not finish in time. Please try again.');
+  }
+
+  /**
+   * Read the answer text out of the drain's result jsonb. The generic runner
+   * returns { answer }; tolerate a few shapes so a completed job is never lost.
+   */
+  private static extractAnswer(result: unknown): string | null {
+    if (typeof result === 'string') return result.trim() || null;
+    if (result && typeof result === 'object') {
+      const o = result as Record<string, unknown>;
+      for (const key of ['answer', 'summary', 'text', 'result']) {
+        const v = o[key];
+        if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+      }
+    }
+    return null;
+  }
+
   /**
    * Parse natural language query to extract intent and entities
+   *
+   * @param modelId - pre-resolved model id (processQuery resolves once per
+   *   run); when called standalone the model is resolved here.
    */
-  static async parseQueryIntent(query: string): Promise<QueryIntent> {
+  static async parseQueryIntent(query: string, modelId?: string): Promise<QueryIntent> {
     const client = this.getClient();
+    const resolvedModelId = modelId ?? (await resolveAgenticQueryModel());
 
     const systemPrompt = `You are a query parser for a CRM system. Parse the user's natural language query and extract structured intent.
 
@@ -359,13 +471,30 @@ Examples:
 
 Return ONLY valid JSON, no explanation.`;
 
-    const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 1024,
-      messages: [
-        { role: 'user', content: query }
-      ],
-      system: systemPrompt,
+    const startedAt = Date.now();
+    let response: Anthropic.Message;
+    try {
+      response = await client.messages.create({
+        model: resolvedModelId,
+        max_tokens: 1024,
+        messages: [
+          { role: 'user', content: query }
+        ],
+        system: systemPrompt,
+      });
+    } catch (apiError) {
+      await recordAgenticQueryUsage(
+        resolvedModelId,
+        Date.now() - startedAt,
+        undefined,
+        apiError instanceof Error ? apiError.message.slice(0, 500) : String(apiError)
+      );
+      throw apiError;
+    }
+
+    await recordAgenticQueryUsage(resolvedModelId, Date.now() - startedAt, {
+      input_tokens: response.usage.input_tokens,
+      output_tokens: response.usage.output_tokens,
     });
 
     const textContent = response.content.find(c => c.type === 'text');
@@ -666,9 +795,11 @@ Return ONLY valid JSON, no explanation.`;
   static async formatResponse(
     data: any,
     query: string,
-    intent: QueryIntent
+    intent: QueryIntent,
+    modelId?: string
   ): Promise<{ summary: string; visualizationType: 'table' | 'chart' | 'cards' | 'metric' }> {
     const client = this.getClient();
+    const resolvedModelId = modelId ?? (await resolveAgenticQueryModel());
 
     // Determine visualization type
     let visualizationType: 'table' | 'chart' | 'cards' | 'metric' = 'table';
@@ -689,9 +820,10 @@ Use professional but friendly tone.`;
 
     const dataPreview = JSON.stringify(data, null, 2).slice(0, 2000);
 
+    const startedAt = Date.now();
     try {
       const response = await client.messages.create({
-        model: 'claude-3-5-haiku-20241022',
+        model: resolvedModelId,
         max_tokens: 256,
         messages: [
           { role: 'user', content: `Query: "${query}"\n\nResults:\n${dataPreview}\n\nProvide a brief summary.` }
@@ -699,11 +831,24 @@ Use professional but friendly tone.`;
         system: systemPrompt,
       });
 
+      // Non-throwing by construction — a throw here would wrongly divert to
+      // the fallback-summary catch below.
+      await recordAgenticQueryUsage(resolvedModelId, Date.now() - startedAt, {
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+      });
+
       const textContent = response.content.find(c => c.type === 'text');
       const summary = textContent?.type === 'text' ? textContent.text : 'Results retrieved successfully.';
 
       return { summary, visualizationType };
     } catch (error) {
+      await recordAgenticQueryUsage(
+        resolvedModelId,
+        Date.now() - startedAt,
+        undefined,
+        error instanceof Error ? error.message.slice(0, 500) : String(error)
+      );
       // Fallback summary if AI fails
       let summary = 'Results retrieved successfully.';
       if (data.totalCount !== undefined) {

@@ -1,39 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
-import { resolveBosAccess } from '@/lib/utils/bos/bos-access';
+import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
+import { resolveBosBoardScope, resolveCoeInstitutionCode, resolveCoeInstitutionById, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
-interface CoeInstitution {
-  id: string;
-  institution_code: string;
-  name: string;
-  myjkkn_institution_ids: string[] | null;
-  is_active: boolean;
-}
-
-interface BoardItem {
+interface CoeBoard {
   id: string;
   board_code: string;
   board_name: string;
-  board_type: string | null;
-  display_name?: string | null;
+  board_type?: string | null;
   institutions_id?: string;
+  is_active?: boolean;
 }
 
-// ── GET /api/bos/boards ──────────────────────────────────────────────────────
-// Returns BoS boards for the institution dropdowns.
-//
-// Mapping: BoS forms send a MyJKKN institutions_id (the FK used inside
-// MyJKKN's bos_* tables). Boards live in COE under a COE institutions_id.
-// We translate via COE.institutions.myjkkn_institution_ids so the form layer
-// keeps speaking MyJKKN UUIDs while the storage layer (board) speaks COE.
-//
-// We deliberately call COE's already-live `/api/public/boards` (not v1/boards)
-// because COE's middleware gates /api/master/* behind a session cookie that
-// our server-to-server CoeRestClient cannot supply. /api/public/* is on the
-// `publicApiRoutes` allowlist (COE middleware.ts), accepts `institution_code`,
-// and returns the same `board` rows — making this resilient to the COE dev
-// server not hot-reloading the freshly-added /api/v1/boards file.
+// ── GET /api/bos/boards ───────────────────────────────────────────────────────
+// Returns boards for a given institution from the COE API.
+// Query param: institutionsId (MyJKKN UUID)
+// Super-admin may query any institution; regular users can query their own
+// institution or CAS siblings (institutions with the same counselling_code).
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -42,56 +25,101 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-courses.view but on no
+    // board (not a principal, member of nothing) may read any institution's
+    // boards, like a super-admin. VIEW ONLY — only the scope gate is relaxed;
+    // the COE/MyJKKN id resolution below is untouched.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-courses.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
     const { searchParams } = new URL(request.url);
+    const requestedId = searchParams.get('institutionsId');
 
-    const myjkknInstitutionsId = scope.isSuperAdmin
-      ? (searchParams.get('institutionsId') ?? undefined)
-      : scope.institutionsId ?? undefined;
-
-    if (!myjkknInstitutionsId) {
-      return NextResponse.json([]);
+    // The requested id may live in EITHER id space:
+    //   • a MyJKKN institution UUID — scope-based callers (sidebar, scope strip)
+    //   • a COE institution UUID    — the course edit page derives it from the
+    //     COE course record's `institutions_id`, which is a COE id, not a
+    //     MyJKKN one. Passing it raw used to fail the MyJKKN-only check below
+    //     and return an empty list ("No boards available for this institution").
+    // Resolve to a COE institution_code (the natural key /api/public/boards
+    // wants) plus the MyJKKN UUIDs it bridges to (for authorization).
+    async function resolveTarget(
+      id: string,
+    ): Promise<{ code: string; myJkknIds: string[] } | null> {
+      const codeFromMyJkkn = await resolveCoeInstitutionCode(id);
+      if (codeFromMyJkkn) return { code: codeFromMyJkkn, myJkknIds: [id] };
+      const coe = await resolveCoeInstitutionById(id);
+      if (coe) return { code: coe.institution_code, myJkknIds: coe.myjkkn_institution_ids };
+      return null;
     }
+
+    let target: { code: string; myJkknIds: string[] } | null = null;
+
+    if (requestedId) {
+      const resolved = await resolveTarget(requestedId);
+      // Super-admin may query any institution; others only if the resolved
+      // institution maps to one of their (CAS-expanded) MyJKKN institutions.
+      const authorized =
+        !!resolved &&
+        (seeAll ||
+          resolved.myJkknIds.some((mid) => scope.allInstitutionIds.includes(mid)));
+      if (authorized) target = resolved;
+    }
+
+    // Fall back to the caller's own institution when no id was supplied, or the
+    // requested one couldn't be resolved/authorized. Keeps the edit page
+    // working for non-super-admins even if the COE id can't be mapped, and
+    // never leaks a foreign institution's boards.
+    if (!target && !seeAll && scope.institutionsId) {
+      const code = await resolveCoeInstitutionCode(scope.institutionsId);
+      if (code) target = { code, myJkknIds: [scope.institutionsId] };
+    }
+
+    if (!target) {
+      return NextResponse.json({ data: [], count: 0 });
+    }
+
+    const institutionCode = target.code;
 
     const coe = CoeRestClient.create();
-
-    // ── 1. Resolve MyJKKN institutions_id → COE institution(s) ─────────────
-    const coeInstitutions = await coe.get<CoeInstitution[]>('/api/v1/institutions');
-    const matchedCoeInstitutions = (coeInstitutions ?? []).filter((ci) =>
-      (ci.myjkkn_institution_ids ?? []).includes(myjkknInstitutionsId),
-    );
-
-    if (matchedCoeInstitutions.length === 0) {
-      return NextResponse.json([]);
-    }
-
-    // ── 2. Fetch boards for each matched COE institution_code and merge ────
-    // /api/public/boards filters by `institution_code` and prepends a synthetic
-    // `{id:'none', ...}` row used by an unrelated public form — we strip it.
-    const allBoards: BoardItem[] = [];
-    const seen = new Set<string>();
-
-    for (const ci of matchedCoeInstitutions) {
-      if (!ci.institution_code) continue;
-      const boards = await coe
-        .get<BoardItem[]>('/api/public/boards', {
-          institution_code: ci.institution_code,
-        })
-        .catch(() => [] as BoardItem[]);
-
-      for (const b of boards ?? []) {
-        if (b.id === 'none' || seen.has(b.id)) continue;
-        seen.add(b.id);
-        allBoards.push(b);
+    let raw: unknown;
+    try {
+      raw = await coe.get<unknown>('/api/public/boards', {
+        institution_code: institutionCode,
+      });
+    } catch (coeErr) {
+      if (coeErr instanceof CoeApiError && coeErr.status === 404) {
+        console.warn('[GET /api/bos/boards] COE /api/public/boards 404 for institution_code=%s (requestedId=%s)', institutionCode, requestedId);
+        return NextResponse.json({ data: [], count: 0 });
       }
+      throw coeErr;
     }
 
-    // Sort by board_name for stable dropdown order
-    allBoards.sort((a, b) => a.board_name.localeCompare(b.board_name));
+    // COE's envelope has drifted between shapes over time. Extract the board
+    // array from whichever known shape arrives, and NEVER let a non-array slip
+    // through — a non-array `data` would crash every consumer that does
+    // `boardsRaw.map(...)` (the composition edit form, the service, etc.).
+    const extractBoards = (value: unknown): CoeBoard[] => {
+      if (Array.isArray(value)) return value as CoeBoard[];
+      if (value && typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        if (Array.isArray(obj.data)) return obj.data as CoeBoard[];
+        if (Array.isArray(obj.boards)) return obj.boards as CoeBoard[];
+        // Nested one level deeper, e.g. { data: { boards: [...] } }.
+        if (obj.data && typeof obj.data === 'object') {
+          const inner = obj.data as Record<string, unknown>;
+          if (Array.isArray(inner.boards)) return inner.boards as CoeBoard[];
+        }
+      }
+      console.warn('[GET /api/bos/boards] Unexpected COE response shape for institution_code=%s', institutionCode);
+      return [];
+    };
+    const boards = extractBoards(raw);
 
-    return NextResponse.json(allBoards);
+    return NextResponse.json({ data: boards, count: boards.length });
   } catch (error) {
-    console.error('[bos/boards] GET error:', error);
+    console.error('[GET /api/bos/boards]', error);
     return NextResponse.json({ error: 'Failed to fetch boards' }, { status: 500 });
   }
 }

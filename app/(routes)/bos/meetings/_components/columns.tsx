@@ -58,6 +58,24 @@ export function getColumns({ canEdit, canDelete }: GetColumnsOptions): ColumnDef
       },
     },
     {
+      accessorKey: 'committee',
+      header: 'Council',
+      cell: ({ row }) => {
+        const m = row.original;
+        // Convening council/committee (drives TA/DA rate selection). AC
+        // meetings have no committee — the Academic Council itself convenes.
+        const name =
+          m.committee?.name ??
+          (m.meeting_type === 'academic_council' ? 'Academic Council' : null);
+        return name ? (
+          <span className='text-sm'>{name}</span>
+        ) : (
+          <span className='text-muted-foreground text-xs'>—</span>
+        );
+      },
+      size: 160,
+    },
+    {
       accessorKey: 'meeting_type',
       header: 'Type',
       cell: ({ row }) => (

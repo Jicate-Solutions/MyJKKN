@@ -21,7 +21,7 @@ const Sidebar = () => {
         isOpen={sidebars?.isOpen}
         setIsOpen={sidebars?.setIsOpen}
       />
-      <div className='relative h-full flex flex-col px-3 py-4 overflow-y-auto shadow-md dark:shadow-none'>
+      <div className='relative h-full flex flex-col px-3 py-4 overflow-y-auto overflow-x-hidden shadow-md dark:shadow-none'>
         <Button
           className={cn(
             'transition-transform ease-in-out duration-300 mb-1',

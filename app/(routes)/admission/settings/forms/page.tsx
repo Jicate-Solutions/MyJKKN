@@ -69,11 +69,13 @@ function FormsListContent() {
   });
   const { selectedInstitutionId, getAccessibleInstitutionIds } =
     useUserInstitutionAccess();
-  const { isSuperAdmin, canAccess } = usePermissions();
-  const canEditForms = canAccess('admission', 'edit')
+  const { canAccess } = usePermissions();
+  const canEditForms = canAccess('admission.settings.forms', 'manage')
+    || canAccess('admission', 'edit')
     || canAccess('admission', 'manage')
     || canAccess('admission', 'settings.edit');
-  const canDeleteForms = canAccess('admission', 'delete')
+  const canDeleteForms = canAccess('admission.settings.forms', 'manage')
+    || canAccess('admission', 'delete')
     || canAccess('admission', 'manage')
     || canAccess('admission', 'settings.delete');
   const [createOpen, setCreateOpen] = useState(false);
@@ -84,14 +86,11 @@ function FormsListContent() {
     templateId: '',
   });
 
-  // Super admins see forms from ALL institutions they can access.
-  // Regular users see only forms for their current institution context.
+  // Trust the access RPC: scope='all' roles return many ids, single-
+  // institution roles return one. RLS still gates rows at the DB, so
+  // passing the full list is always safe.
   const accessibleIds = getAccessibleInstitutionIds();
-  const formsQueryScope = isSuperAdmin
-    ? accessibleIds.length > 0
-      ? accessibleIds
-      : selectedInstitutionId
-    : selectedInstitutionId;
+  const formsQueryScope = accessibleIds.length > 0 ? accessibleIds : selectedInstitutionId;
   const { data: forms = [], isLoading } = useAdmissionForms(formsQueryScope || undefined);
   const { data: templates = [] } = useFormTemplates();
   const formIds = forms.map((f) => f.id);
@@ -121,6 +120,7 @@ function FormsListContent() {
   };
 
   const handleCreate = async () => {
+    if (createForm.isPending || createFromTemplate.isPending) return;
     if (!selectedInstitutionId || !profile?.id) {
       toast.error('Institution context required');
       return;
@@ -214,6 +214,7 @@ function FormsListContent() {
   };
 
   const handleDuplicate = async () => {
+    if (duplicateForm.isPending) return;
     if (!duplicateSource || !profile?.id) return;
     if (!duplicate.name.trim() || !duplicate.slug.trim()) {
       toast.error('Name and slug are required');
@@ -370,10 +371,11 @@ function FormsListContent() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        title="Duplicate form (e.g. for a new channel)"
+                        title="Clone form (e.g. for a new channel)"
                         onClick={() => openDuplicate(form)}
                       >
-                        <Copy className="h-3.5 w-3.5" />
+                        <Copy className="h-3.5 w-3.5 mr-1" />
+                        Clone
                       </Button>
                     )}
                     {canDeleteForms && (
@@ -559,7 +561,7 @@ function FormsListContent() {
 export default function AdmissionFormsPage() {
   return (
     <AdmissionErrorBoundary>
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission.settings.forms" action="view">
         <FormsListContent />
       </PermissionGuard>
     </AdmissionErrorBoundary>

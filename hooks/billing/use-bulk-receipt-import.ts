@@ -1,46 +1,69 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
-  BulkReceiptImportResult
+  BulkReceiptImportResult,
+  BulkReceiptPreviewResult
 } from '@/lib/utils/mappings/bulk-receipt-excel-mappings';
 
+/**
+ * Both preview and commit endpoints take just the file — the per-row
+ * payment metadata lives inside the workbook itself now, so the multipart
+ * form payload collapsed to a single field.
+ */
 export interface BulkReceiptImportPayload {
   file: File;
-  payment_mode: 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque';
-  payment_paid_date: string; // ISO yyyy-mm-dd
-  payer_mode: 'student' | 'fixed';
-  payer_name_fixed?: string;
-  payer_contact?: string;
-  payment_reference_number?: string;
-  payment_remarks?: string;
-  accountant_id?: string;
 }
 
 /**
- * Mutation hook for the super-admin bulk receipt import. Posts a multipart
- * form to /api/billing/receipts/bulk-import. On success it invalidates the
- * receipts and schedule queries so the UI reflects the newly created
- * receipts and updated bill statuses immediately.
+ * Preview mutation — calls /api/billing/receipts/bulk-import?dry_run=true.
+ *
+ * Parses + validates + groups but does NOT write to the DB. The dialog
+ * uses the response to render the Preview step. No query invalidation
+ * because nothing actually changed server-side.
+ */
+export function useBulkReceiptPreview() {
+  return useMutation<BulkReceiptPreviewResult, Error, BulkReceiptImportPayload>(
+    {
+      mutationFn: async ({ file }) => {
+        const fd = new FormData();
+        fd.append('file', file);
+
+        const res = await fetch(
+          '/api/billing/receipts/bulk-import?dry_run=true',
+          { method: 'POST', body: fd }
+        );
+
+        if (!res.ok) {
+          let message = `Preview failed with status ${res.status}`;
+          try {
+            const body = await res.json();
+            message = body.error || body.message || message;
+          } catch {
+            const text = await res.text();
+            if (text) message = text;
+          }
+          throw new Error(message);
+        }
+
+        return (await res.json()) as BulkReceiptPreviewResult;
+      }
+    }
+  );
+}
+
+/**
+ * Commit mutation — calls /api/billing/receipts/bulk-import.
+ *
+ * Same multipart payload as preview (just the file), but this path
+ * actually creates the receipts. Invalidates receipts / schedule /
+ * student-bills queries so the rest of the UI reflects the change.
  */
 export function useBulkReceiptImport() {
   const qc = useQueryClient();
 
   return useMutation<BulkReceiptImportResult, Error, BulkReceiptImportPayload>({
-    mutationFn: async (payload) => {
+    mutationFn: async ({ file }) => {
       const fd = new FormData();
-      fd.append('file', payload.file);
-      fd.append('payment_mode', payload.payment_mode);
-      fd.append('payment_paid_date', payload.payment_paid_date);
-      fd.append('payer_mode', payload.payer_mode);
-      if (payload.payer_name_fixed)
-        fd.append('payer_name_fixed', payload.payer_name_fixed);
-      if (payload.payer_contact)
-        fd.append('payer_contact', payload.payer_contact);
-      if (payload.payment_reference_number)
-        fd.append('payment_reference_number', payload.payment_reference_number);
-      if (payload.payment_remarks)
-        fd.append('payment_remarks', payload.payment_remarks);
-      if (payload.accountant_id)
-        fd.append('accountant_id', payload.accountant_id);
+      fd.append('file', file);
 
       const res = await fetch('/api/billing/receipts/bulk-import', {
         method: 'POST',

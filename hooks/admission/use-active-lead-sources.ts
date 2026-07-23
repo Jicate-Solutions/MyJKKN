@@ -120,8 +120,10 @@ export const FALLBACK_LEAD_SOURCE_LABELS: Record<LeadSourceEnum, string> = {
   publisher: 'Publisher',
   google_ads: 'Google Ads',
   facebook_ads: 'Facebook Ads',
+  youtube_ads: 'YouTube Ads',
   inbound_call: 'Inbound Call',
   whatsapp: 'WhatsApp',
   gate_entry: 'Gate Entry',
+  learner_creator_content: 'Learner Creator (Instagram)',
   other: 'Other',
 };

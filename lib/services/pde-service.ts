@@ -4,7 +4,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   PDEAssessment, PDEAssessmentQuestion, PDESubmission, PDECertificate,
-  PDEEngagementEvent, PDEEngagementDaily, PDEAtRiskLearner,
+  PDEEngagementEvent, PDEEngagementDaily, PDEAtRiskLearner, PDEAtRiskHistory,
   CreateAssessmentInput, CreateQuestionInput,
   LogEngagementInput, GenerateCertificateInput,
   AssessmentWithQuestions, EngagementSummary,
@@ -24,6 +24,13 @@ import type {
   PDECoachConversation, CoachMessage, CoachMessageResponse, CoachingStyle,
   PDEAgencyIndex, AgencyLevel, CoachContextType,
 } from '@/types/pde';
+import type {
+  PDEReviewQueueRow,
+  ValidateDemonstrationInput,
+  PDEDemonstration,
+  PDECategoryKey,
+  PDEDemonstrationStatus,
+} from '@/lib/types/pde-demonstrations';
 
 // Helper to get untyped supabase client for PDE tables (not yet in generated types)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -298,6 +305,25 @@ export class PDEService {
     const { data, error } = await query.order('risk_level');
     if (error) throw new Error(`Failed to get at-risk learners: ${error.message}`);
     return data || [];
+  }
+
+  /**
+   * Flag history from `pde_at_risk_history` (rollup over `pde_at_risk_log`,
+   * written by /api/cron/pde-at-risk-flag). Institution-scoped by RLS on the
+   * underlying table — the view is security_invoker.
+   *
+   * Read separately from getAtRiskLearners() on purpose: the live view keeps
+   * working untouched even if the cron has never run, in which case this
+   * simply returns [] and the history columns render as "Not yet recorded".
+   */
+  static async getAtRiskHistory(): Promise<PDEAtRiskHistory[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('pde_at_risk_history')
+      .select('*')
+      .order('first_flagged_at', { ascending: true });
+    if (error) throw new Error(`Failed to get at-risk history: ${error.message}`);
+    return (data || []) as PDEAtRiskHistory[];
   }
 
   // ============================================
@@ -623,6 +649,49 @@ export class PDEService {
     const { data, error } = await query.order('category').order('level');
     if (error) throw new Error(`Failed to get capabilities: ${error.message}`);
     return data || [];
+  }
+
+  // ============================================
+  // FACULTY REVIEW (durable-value taxonomy)
+  // ============================================
+
+  /**
+   * Faculty review queue — institution-scoped, learner-name-enriched. Reads via
+   * the `fn_pde_review_queue` SECURITY DEFINER RPC (faculty SELECT-RLS reviewer
+   * roles only; drafts/withdrawn hidden). Optional durable-value category +
+   * status filters are pushed into the RPC.
+   */
+  static async getReviewQueue(opts?: {
+    category?: PDECategoryKey;
+    status?: PDEDemonstrationStatus;
+  }): Promise<PDEReviewQueueRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_pde_review_queue', {
+      p_category: opts?.category ?? null,
+      p_status: opts?.status ?? null,
+    });
+    if (error) throw new Error(`Failed to load review queue: ${error.message}`);
+    return (data || []) as PDEReviewQueueRow[];
+  }
+
+  /**
+   * Record a faculty validation decision (validated | rejected) on a
+   * demonstration. Writes via the `fn_pde_validate_demonstration` RPC — the
+   * only faculty write path, since faculty RLS is SELECT-only. On 'validated'
+   * the raw_score is required; weighted scoring stays downstream.
+   */
+  static async validateDemonstration(
+    input: ValidateDemonstrationInput
+  ): Promise<PDEDemonstration> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_pde_validate_demonstration', {
+      p_demonstration_id: input.demonstrationId,
+      p_decision: input.decision,
+      p_raw_score: input.rawScore ?? null,
+      p_notes: input.notes ?? null,
+    });
+    if (error) throw new Error(`Failed to validate demonstration: ${error.message}`);
+    return data as PDEDemonstration;
   }
 
   static async getCapabilityById(id: string): Promise<PDECapability | null> {
@@ -1102,8 +1171,22 @@ export class PDEService {
 
   /**
    * Send a message to the AI Coach. Stores the learner message,
-   * generates a placeholder coach reply (actual Gemini integration is follow-up).
-   * Returns the coach reply and conversation ID.
+   * generates a coach reply, and persists both to pde_coach_conversations.
+   *
+   * Routing by context_type:
+   * - clinical_case → POSTs to /api/pde/coach which runs the Socratic
+   *   service (lib/services/pde-coach-clinical-reasoning.ts) server-side
+   *   with policy-driven AI dispatch, lifetime-attempt cap enforcement,
+   *   and ai_model_usage cost tracking. The API route surfaces typed
+   *   errors (CAP_REACHED 429, AI_FAILURE 502, etc.) via JSON body;
+   *   callers should inspect res.status / body.code to drive UI.
+   * - any other context_type → placeholder reply (existing behavior
+   *   preserved for non-clinical PDE coach surfaces).
+   *
+   * The contextId for clinical_case is the pde_assessments.id (the case).
+   * The message payload for clinical_case must be JSON-encoded as
+   * '{"questionId":"<uuid>","answer":"<text>"}' since the API route
+   * needs both fields to route the Socratic call.
    */
   static async sendCoachMessage(
     learnerId: string,
@@ -1113,8 +1196,96 @@ export class PDEService {
   ): Promise<CoachMessageResponse> {
     const supabase = getSupabase();
 
+    // ------ clinical_case branch — route to Socratic API ------
+    if (contextType === 'clinical_case') {
+      // The student UI is responsible for passing message as JSON
+      // containing { questionId, answer }. If the caller passed raw
+      // text we treat the whole thing as the answer with a sentinel
+      // questionId so the API can return a 400 with a clear error.
+      let questionId = '';
+      let answer = message;
+      try {
+        const parsed = JSON.parse(message) as { questionId?: string; answer?: string };
+        if (parsed && typeof parsed.questionId === 'string' && typeof parsed.answer === 'string') {
+          questionId = parsed.questionId;
+          answer = parsed.answer;
+        }
+      } catch {
+        // not JSON — leave as raw text; API will validate
+      }
+
+      const res = await fetch('/api/pde/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          learnerId,
+          assessmentId: contextId,
+          questionId,
+          answer,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Preserve typed error info on the thrown Error so callers
+        // (useSendCoachMessage hook, student UI) can branch on code.
+        const err = new Error(body.error || `Coach request failed (${res.status})`) as Error & {
+          code?: string;
+          status?: number;
+          retryable?: boolean;
+        };
+        err.code = body.code;
+        err.status = res.status;
+        err.retryable = body.retryable;
+        throw err;
+      }
+
+      // Persist the exchange to pde_coach_conversations (same shape as
+      // non-clinical path). The reply we store is the Socratic feedback.
+      const now = new Date().toISOString();
+      const learnerMsg: CoachMessage = { role: 'learner', content: answer, timestamp: now };
+      const coachMsg: CoachMessage = {
+        role: 'coach',
+        content: body.feedback as string,
+        timestamp: now,
+      };
+
+      const conversation = await this.getCoachConversation(learnerId, contextType, contextId);
+      if (!conversation) {
+        const { data, error } = await supabase
+          .from('pde_coach_conversations')
+          .insert({
+            learner_id: learnerId,
+            context_type: contextType,
+            context_id: contextId,
+            messages: [learnerMsg, coachMsg],
+            coaching_style: 'socratic',
+            tokens_used: answer.length + (body.feedback as string).length,
+          })
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to create coach conversation: ${error.message}`);
+        return { reply: body.feedback as string, conversation_id: data.id };
+      }
+      const updatedMessages = [...(conversation.messages || []), learnerMsg, coachMsg];
+      const { error } = await supabase
+        .from('pde_coach_conversations')
+        .update({
+          messages: updatedMessages,
+          coaching_style: 'socratic',
+          tokens_used:
+            (conversation.tokens_used || 0) +
+            answer.length +
+            (body.feedback as string).length,
+          updated_at: now,
+        })
+        .eq('id', conversation.id);
+      if (error) throw new Error(`Failed to update coach conversation: ${error.message}`);
+      return { reply: body.feedback as string, conversation_id: conversation.id };
+    }
+
+    // ------ non-clinical_case branch — existing placeholder behavior ------
     // 1. Get or create conversation
-    let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
+    const conversation = await this.getCoachConversation(learnerId, contextType, contextId);
 
     // Determine coaching style from agency level
     const agencyIndex = await this.getAgencyIndex(learnerId);

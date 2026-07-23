@@ -13,6 +13,8 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { GuideAdoptionMount } from '@/components/guide/guide-adoption-mount';
+import { BookingPageNudge } from '@/components/dashboard/booking-page-nudge';
 import { DashboardErrorBoundary } from '@/components/dashboard/dashboard-error-boundary';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
@@ -26,10 +28,16 @@ import { getClusterRankPublic, getClusterRankPrivate } from '@/lib/services/dash
 import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-service';
 import { AccountsHeroStrip } from '@/components/dashboard/accounts-hero-strip';
 import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-service';
-import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
+import { getDashboardPersona, resolvePersona } from '@/lib/services/dashboard/dashboard-role-service';
+import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
+import { LiveAgencyCard } from '@/components/dashboard/live-agency-card';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
+import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
+import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
+import { DeptMomentumCard } from '@/components/dashboard/dept-momentum-card';
 import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
+import { WorkSignalsCard } from '@/components/work-signals/work-signals-card';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -269,7 +277,19 @@ export default async function DashboardV2Page({
   // Role-aware persona resolution (spec §5). Limited = safe default for roles without a
   // specific dashboard yet — prevents director's cross-institution aggregates from leaking to
   // faculty/hod/warden/accounts/student/parent.
-  const persona = await getDashboardPersona();
+  const personaResolution = await resolvePersona();
+  const persona = personaResolution.persona;
+
+  // T8.6 — per-role widget config. The map is curated by Director via
+  // /admin/dashboard/widget-config. Each call below uses both the persona
+  // gate (security — prevents cross-institution leak) AND the widget-config
+  // gate (cosmetic — Director-controlled trim). Widget-config alone never
+  // *adds* access; it can only hide something the persona would otherwise see.
+  const allowedWidgets = new Set(
+    await getWidgetsForRole((personaResolution.role ?? '').toLowerCase() || null)
+  );
+  const showsWidget = (id: string) => allowedWidgets.has(id);
+
   const isDirector = persona === 'director';
   const isCounselor = persona === 'counselor';
   const isFaculty = persona === 'faculty';
@@ -298,10 +318,29 @@ export default async function DashboardV2Page({
           ]}
         />
 
+        {/* Platform Smart Guide — adoption surfaces (Start/Resume + next step).
+            Fail-soft server mount; renders nothing if the viewer has no lane. */}
+        <Suspense fallback={null}>
+          <GuideAdoptionMount />
+        </Suspense>
+
+        {/* Booking-page adoption nudge (Universal Booking distribution, W1
+            2026-06-20). The module is built but adoption ≈ 1 page — this is the
+            supply-side front door that prompts staff to stand up their own
+            /meet/<handle>. The component self-gates on the meetings.view
+            permission (the host population) and self-hides once the viewer's
+            page is fully live, so it's rendered for every persona here.
+            Silent boundary — a non-essential nudge must never break the dash. */}
+        <DashboardErrorBoundary label='Booking page nudge' mode='silent'>
+          <Suspense fallback={null}>
+            <BookingPageNudge />
+          </Suspense>
+        </DashboardErrorBoundary>
+
         {/* Today's Focus (actionability upgrade #2, 2026-04-21) — director only.
             Derives the single most-important thing to act on from current OHS
             components. Sits above the hero strip so the eye lands on it first. */}
-        {isDirector && (
+        {isDirector && showsWidget('todays_focus') && (
           <DashboardErrorBoundary label="Today's Focus" mode='silent'>
             <Suspense fallback={null}>
               <LiveTodaysFocus />
@@ -313,18 +352,20 @@ export default async function DashboardV2Page({
             (reads only user's own acked/unacked counts). Silent boundary: a failure
             here renders no card (errors go to DevTools + Vercel logs), since the
             brief is optional UX. */}
-        <div data-dashboard-section='morning-brief'>
-          <DashboardErrorBoundary label='Morning Brief' mode='silent'>
-            <Suspense fallback={null}>
-              <LiveMorningBrief />
-            </Suspense>
-          </DashboardErrorBoundary>
-        </div>
+        {showsWidget('morning_brief') && (
+          <div data-dashboard-section='morning-brief'>
+            <DashboardErrorBoundary label='Morning Brief' mode='silent'>
+              <Suspense fallback={null}>
+                <LiveMorningBrief />
+              </Suspense>
+            </DashboardErrorBoundary>
+          </div>
+        )}
 
         {/* Counselor Staffing Alert — Director + Counselor/Admission.
             Client component: self-fetches via Supabase client, renders only when
             top_load > 3× median OR orphan institutions > 0. No SSR penalty. */}
-        {(isDirector || isCounselor) && (
+        {(isDirector || isCounselor) && showsWidget('counselor_staffing_alert') && (
           <CounselorStaffingAlert />
         )}
 
@@ -334,28 +375,113 @@ export default async function DashboardV2Page({
             no chrome rendered for irrelevant roles. Source-of-truth gating is
             RLS at the API; H4.1 will replace the implicit "RLS gives me rows"
             check with an explicit whatsapp.connection.view_dept permission key. */}
-        <DashboardErrorBoundary label='WhatsApp Health' mode='silent'>
-          <DepartmentWhatsAppHealthCard />
-        </DashboardErrorBoundary>
+        {showsWidget('whatsapp_health') && (
+          <DashboardErrorBoundary label='WhatsApp Health' mode='silent'>
+            <DepartmentWhatsAppHealthCard />
+          </DashboardErrorBoundary>
+        )}
 
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default).
             2026-04-21: wrapped in DashboardErrorBoundary so RPC/auth failures surface as a
             visible amber card instead of silent zeros. Director sees stack trace inline. */}
-        <DashboardErrorBoundary label='Hero metrics' showDetails={isDirector}>
-          <Suspense fallback={<HeroSkeleton />}>
-            {isDirector && <LiveHeroStrip />}
-            {isCounselor && <LiveCounselorHero />}
-            {isFaculty && <LiveFacultyHero />}
-            {isHod && <LiveHodHero />}
-            {isPrincipal && <LivePrincipalHero />}
-            {isAccounts && <LiveAccountsHero />}
-            {isStudent && <LiveStudentHero />}
-            {isLimited && <LimitedHero />}
-          </Suspense>
-        </DashboardErrorBoundary>
+        {showsWidget('hero') && (
+          <DashboardErrorBoundary label='Hero metrics' showDetails={isDirector}>
+            <Suspense fallback={<HeroSkeleton />}>
+              {isDirector && <LiveHeroStrip />}
+              {isCounselor && <LiveCounselorHero />}
+              {isFaculty && <LiveFacultyHero />}
+              {/* HODs see BOTH: their department cards AND their own teaching
+                  cards (most HODs still teach). Department strip first — it is
+                  their primary lane. LiveFacultyHero degrades to empty tiles if
+                  the HOD has no staff timetable. */}
+              {isHod && (
+                <div className='space-y-4'>
+                  <LiveHodHero />
+                  <div className='space-y-2'>
+                    <h3 className='text-xs font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400'>
+                      Your teaching
+                    </h3>
+                    <LiveFacultyHero />
+                  </div>
+                </div>
+              )}
+              {isPrincipal && <LivePrincipalHero />}
+              {isAccounts && <LiveAccountsHero />}
+              {isStudent && <LiveStudentHero />}
+              {isLimited && <LimitedHero />}
+            </Suspense>
+          </DashboardErrorBoundary>
+        )}
+
+        {/* Work-signals spine (Phase 1): the facilitator's own canonical
+            work-signals, same engine + component as the My Pulse page. Faculty
+            and HODs (who also teach) see their evidenced work here on the
+            dashboard — self-scoped, presence-only, never ranked. */}
+        {showsWidget('hero') && (isFaculty || isHod) && (
+          <div className='mt-6'>
+            <WorkSignalsCard />
+          </div>
+        )}
+
+        {/* Personal AI Agency card (AI Agency Score, Part 5 · S2) — gives senior
+            staff (faculty / hod / principal / accounts) AND admin staff who
+            collapse to the 'limited' persona (staff / ceo / eao / coo / warden …)
+            a personal recognition card. Recognition/visibility only: no ranking,
+            no appraisal wording.
+
+            🛑 rule #27: this is its OWN showsWidget('ai_agency') block — it is
+            deliberately NOT nested under the 'hero' block above, because the
+            'limited' persona (the exact admin-staff population targeted here) has
+            NO 'hero' in its widget set. Nesting would make the card silently never
+            render for admin staff. The two gates are independent: the persona
+            gate (isFaculty || … || isLimited) prevents cross-scope surfaces, and
+            showsWidget('ai_agency') is the Director-controlled cosmetic trim.
+
+            Reuses the learn AgencyIndexCard unchanged; it renders an empty state
+            until the AI-Pulse → agency bridge policy is flipped — an absent score
+            is NOT a 0. Silent boundary: a non-essential recognition card must
+            never break the dashboard. */}
+        {(isFaculty || isHod || isPrincipal || isAccounts || isLimited) &&
+          showsWidget('ai_agency') && (
+            <DashboardErrorBoundary label='AI Agency' mode='silent'>
+              <div className='max-w-xl'>
+                <Suspense fallback={null}>
+                  <LiveAgencyCard />
+                </Suspense>
+              </div>
+            </DashboardErrorBoundary>
+          )}
+
+        {/* UDYOG application requirement — student self-service (BUG-004075, 4a).
+            Client island; self-hides when the learner has no UDYOG obligation.
+            Silent boundary: a non-essential nudge must never break the dashboard. */}
+        {isStudent && (
+          <DashboardErrorBoundary label='UDYOG requirement' mode='silent'>
+            <div className='max-w-xl'>
+              <UdyogStudentCard />
+            </div>
+          </DashboardErrorBoundary>
+        )}
+
+        {/* Department Instagram — engagement loop for learners (2026-07-06).
+            Two client islands that self-fetch and self-hide when the learner's
+            department has no graph-tier handle: the feed-IN card (deep-linked posts +
+            share-an-idea loop hook) and the within-college momentum leaderboard
+            (ranked on real signal + momentum, never likes/followers). Silent
+            boundaries — neither may ever break the dashboard. */}
+        {isStudent && (
+          <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+            <DashboardErrorBoundary label='Department Instagram feed' mode='silent'>
+              <DeptIgFeedCard />
+            </DashboardErrorBoundary>
+            <DashboardErrorBoundary label='Department momentum' mode='silent'>
+              <DeptMomentumCard />
+            </DashboardErrorBoundary>
+          </div>
+        )}
 
         {/* Streak badge — Director + Counselor only (spec §4.3). Silent: non-essential. */}
-        {(isDirector || isCounselor) && (
+        {(isDirector || isCounselor) && showsWidget('streak') && (
           <DashboardErrorBoundary label='Streak' mode='silent'>
             <Suspense fallback={null}>
               <StreakBadge />
@@ -364,7 +490,7 @@ export default async function DashboardV2Page({
         )}
 
         {/* Institution quick-drill chips — DIRECTOR ONLY (cross-institution scope). Silent: navigation aid only. */}
-        {isDirector && (
+        {isDirector && showsWidget('institution_chips') && (
           <DashboardErrorBoundary label='Institution chips' mode='silent'>
             <Suspense fallback={null}>
               <InstitutionChips />
@@ -375,7 +501,7 @@ export default async function DashboardV2Page({
         {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC).
             Hidden for students — they have no actionable queue items. Loud boundary:
             queue is load-bearing for the operator persona, failures must be visible. */}
-        {!isStudent && (
+        {!isStudent && showsWidget('decision_queue') && (
           <div data-dashboard-section='decision-queue'>
             <DashboardErrorBoundary label='Decision queue' showDetails={isDirector}>
               <Suspense fallback={<QueueSkeleton />}>
@@ -386,7 +512,7 @@ export default async function DashboardV2Page({
         )}
 
         {/* Team Activity Feed — all personas except student + limited (spec §4.4). Silent: ambient. */}
-        {!isStudent && !isLimited && (
+        {!isStudent && !isLimited && showsWidget('activity_feed') && (
           <DashboardErrorBoundary label='Activity feed' mode='silent'>
             <Suspense fallback={null}>
               <ActivityFeed />
@@ -394,7 +520,7 @@ export default async function DashboardV2Page({
           </DashboardErrorBoundary>
         )}
 
-        {(isDirector || isCounselor) && (
+        {(isDirector || isCounselor) && showsWidget('leaderboards') && (
           <div data-dashboard-section='leaderboards' className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
             <DashboardErrorBoundary label='SLA leaderboard' showDetails={isDirector}>
               <Suspense fallback={<LeaderboardSkeleton />}>

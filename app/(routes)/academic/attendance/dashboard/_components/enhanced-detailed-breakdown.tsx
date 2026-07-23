@@ -57,6 +57,7 @@ import {
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import type { AttendanceStats } from '@/types/attendance-dashboard';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface EnhancedDetailedBreakdownProps {
   stats: AttendanceStats[];
@@ -578,6 +579,7 @@ function ExpandableDetailedBreakdownTable({
   );
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const label = useAdaptiveLabels();
 
   // Toggle row expansion
   const toggleRowExpansion = (rowId: string) => {
@@ -719,7 +721,7 @@ function ExpandableDetailedBreakdownTable({
           <div className='relative'>
             <Input
               type='text'
-              placeholder='Search departments, semesters, sections...'
+              placeholder={`Search ${label('departments')}, ${label('semesters')}, sections...`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className='pl-8 w-80'
@@ -895,6 +897,7 @@ export function EnhancedDetailedBreakdown({
   canViewAllInstitutions,
   isLoading = false
 }: EnhancedDetailedBreakdownProps) {
+  const label = useAdaptiveLabels();
   if (isLoading) {
     return (
       <div className='space-y-4'>
@@ -964,10 +967,10 @@ export function EnhancedDetailedBreakdown({
               </div>
               <div className='text-sm text-muted-foreground'>
                 {isSingleInstitution
-                  ? 'Departments'
+                  ? label('Departments')
                   : canViewAllInstitutions
                   ? 'Institutions'
-                  : 'Departments'}
+                  : label('Departments')}
               </div>
             </div>
             <div className='text-center'>
@@ -1001,8 +1004,8 @@ export function EnhancedDetailedBreakdown({
             <h3 className='text-xl font-semibold'>Detailed Breakdown</h3>
             <p className='text-sm text-muted-foreground mt-1'>
               {isSingleInstitution
-                ? 'Department → Semester → Section breakdown with detailed attendance analytics'
-                : 'Institution → Department → Semester → Section hierarchy'}
+                ? `${label('Department')} → ${label('Semester')} → ${label('Section')} breakdown with detailed attendance analytics`
+                : `Institution → ${label('Department')} → ${label('Semester')} → ${label('Section')} hierarchy`}
             </p>
           </div>
           {isSingleInstitution && (

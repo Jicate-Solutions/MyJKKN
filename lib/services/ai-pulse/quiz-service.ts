@@ -25,6 +25,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { assertQuizIntegrity } from './quiz-integrity';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -148,9 +149,11 @@ export class QuizService {
    * Falls back to DEFAULT_QUIZ when the cycle has no quiz authored yet.
    */
   static async getQuiz(cycleId: string): Promise<CycleQuizContext | null> {
+    // startup_events has no title/end_time/session_end_time columns — the cycle
+    // name is `name` and the session-end time lives in config.ai_pulse.
     const { data, error } = await (this.supabase as any)
       .from('startup_events')
-      .select('id, title, config, end_date, end_time, session_end_time')
+      .select('id, name, config')
       .eq('id', cycleId)
       .maybeSingle();
 
@@ -166,11 +169,10 @@ export class QuizService {
 
     return {
       cycleId: data.id,
-      title: data.title ?? null,
+      title: data.name ?? null,
       recordingUrl: typeof aiPulse.recording_url === 'string' ? aiPulse.recording_url : null,
       sessionEndTime:
-        (typeof data.session_end_time === 'string' ? data.session_end_time : null) ||
-        (typeof aiPulse.session_end_time === 'string' ? (aiPulse.session_end_time as string) : null),
+        typeof aiPulse.session_end_time === 'string' ? (aiPulse.session_end_time as string) : null,
       primaryLanguage: typeof aiPulse.primary_language === 'string' ? aiPulse.primary_language : 'en',
       secondaryLanguage: typeof aiPulse.secondary_language === 'string' ? aiPulse.secondary_language : 'ta',
       quiz,
@@ -182,6 +184,11 @@ export class QuizService {
    * Read-modify-write on the config column to avoid clobbering sibling keys.
    */
   static async saveQuiz(cycleId: string, payload: QuizPayload): Promise<QuizPayload> {
+    // Refuse a quiz a knowledge-free respondent could pass. Throws with every
+    // blocking reason at once so the author fixes them in one pass.
+    // See quiz-integrity.ts for why shape validation alone is insufficient.
+    assertQuizIntegrity(payload.questions, payload.pass_threshold_live);
+
     const { data: row, error: readErr } = await (this.supabase as any)
       .from('startup_events')
       .select('config')

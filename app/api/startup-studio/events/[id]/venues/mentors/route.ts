@@ -9,7 +9,7 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
 }
 
-// Search available mentors/senior learners for venue assignment
+// Search available mentors/learning facilitators for venue assignment
 export const GET = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
   if (!isValidUuid(id)) return errorResponse('Invalid event ID format', 400)

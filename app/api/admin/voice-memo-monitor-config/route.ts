@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 // ============================================================================
 // Director's STANDING RULE (memory feedback_policy_decisions_must_be_config_rows.md):
 // every threshold/mapping/flag = a row in platform_policies. This route is the
-// READ side of the super-admin tuning UI at /admin/voice-memo-monitor (the
+// READ side of the super-admin tuning UI at /admission/settings/voice-memo-monitor (the
 // PATCH sibling [key]/route.ts is the WRITE side).
 //
 // RBAC: super_admin only (role='super_admin' OR is_super_admin=true on profile).

@@ -2,6 +2,10 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { ApprovalChainService } from '@/lib/services/approval-chain-service';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
+import {
+  detectVacancyOnVacate,
+  notifyUpgradePool,
+} from '@/lib/services/campus-living/premium-vacancy-service';
 import type { StageDefinition } from '@/types/approval-chain';
 import {
   DEFAULT_CLEARANCE_ITEMS,
@@ -616,6 +620,24 @@ export class HostelVacateRequestService {
         .select()
         .single();
       if (error) throw error;
+
+      // PR ζ — premium upgrade-vacancy detection + notification. Isolated in a
+      // try/catch so a notification failure NEVER rolls back a finalized vacate:
+      // the bed is already freed; the upgrade offer is a best-effort follow-up.
+      // A failure here is logged loudly (loud-boundary principle) and swallowed.
+      try {
+        const vacancy = await detectVacancyOnVacate(requestId);
+        if (vacancy) {
+          await notifyUpgradePool(vacancy.id);
+        }
+      } catch (notifyError) {
+        logger.error(
+          'campus-living/vacate',
+          'Premium-vacancy detect/notify failed AFTER successful finalize (vacate stands; upgrade offer not sent)',
+          notifyError,
+        );
+      }
+
       return data as HostelVacateRequest;
     } catch (error) {
       logger.error('campus-living/vacate', 'Unexpected error in finalize', error);

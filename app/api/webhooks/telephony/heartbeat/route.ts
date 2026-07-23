@@ -26,7 +26,7 @@ export const maxDuration = 30;
 
 // Notifications surface — links Director to the calls dashboard so they can
 // see what's affected. Aligned with feedback_action_config_url_target_domain_not_meta.md
-// (point at the live entity page, NOT a meta /admin/notifications surface).
+// (point at the live entity page, NOT a meta /notifications/admin surface).
 const HEARTBEAT_NOTIFICATION_URL = '/admission/counselors/calls';
 
 // Notifications recipient category for telephony outages.
@@ -81,7 +81,7 @@ async function emitCriticalNotification(
     // Insert into the canonical notifications table. Director-side fan-out is
     // handled by the existing notification dispatcher pipeline. Per
     // feedback_action_config_url_target_domain_not_meta.md, action_config.url
-    // must point at the live entity page, NOT /admin/notifications.
+    // must point at the live entity page, NOT /notifications/admin.
     const { error } = await (supabase as any)
       .from('notifications')
       .insert({

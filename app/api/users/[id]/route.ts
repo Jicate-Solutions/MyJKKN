@@ -148,7 +148,7 @@ export async function GET(
     console.log('Has departments data:', !!departmentData);
     console.log('Department data:', departmentData);
 
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         success: true,
         data,
@@ -156,6 +156,8 @@ export async function GET(
       },
       { status: 200 }
     );
+    res.headers.set('Cache-Control', 'no-store, must-revalidate');
+    return res;
   } catch (error) {
     console.error('Error in user fetch API:', error);
     return NextResponse.json(

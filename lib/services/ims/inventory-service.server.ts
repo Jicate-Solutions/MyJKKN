@@ -29,19 +29,14 @@ export class ImsInventoryServiceServer {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = (await createServerSupabaseClient()) as any;
 
-    let catQuery = supabase
+    // ims_item_categories has no institution_id column — it is a global lookup
+    // table (RLS SELECT = open to all authenticated users, same as ims_units).
+    // Do not scope by store_id or institution_id.
+    const { data: categories, error: catError } = await supabase
       .from('ims_item_categories')
       .select('id, name, code')
       .eq('is_active', true)
       .order('name');
-
-    if (storeId) {
-      catQuery = catQuery.eq('store_id', storeId);
-    } else if (institutionId) {
-      catQuery = catQuery.eq('institution_id', institutionId);
-    }
-
-    const { data: categories, error: catError } = await catQuery;
     if (catError) {
       throw new Error(`Failed to fetch categories: ${catError.message}`);
     }
@@ -87,17 +82,32 @@ export class ImsInventoryServiceServer {
     const allErrors: ImsImportError[] = [];
     const totalRows = rows.length;
 
+    // ── Validate storeId exists ───────────────────────────────────────────
+    // A stale UUID from a different Supabase project causes a FK violation on
+    // ims_items_store_id_fkey. Catch it here with a clear message instead of
+    // letting Postgres surface an opaque constraint error.
+    if (storeId) {
+      const { data: storeCheck, error: storeCheckError } = await supabase
+        .from('ims_stores')
+        .select('id')
+        .eq('id', storeId)
+        .maybeSingle();
+
+      if (storeCheckError || !storeCheck) {
+        throw new Error(
+          'The selected store could not be found. Please refresh the page and re-select your store before importing.'
+        );
+      }
+    }
+
     // ── Fetch reference data ──────────────────────────────────────────────
 
-    let catQuery = supabase
+    // ims_item_categories is a global lookup table with no institution_id column.
+    // Fetch all active categories so imports are not blocked by store-scoping.
+    const { data: categories, error: catError } = await supabase
       .from('ims_item_categories')
       .select('id, name')
       .eq('is_active', true);
-
-    if (storeId) catQuery = catQuery.eq('store_id', storeId);
-    else if (institutionId) catQuery = catQuery.eq('institution_id', institutionId);
-
-    const { data: categories, error: catError } = await catQuery;
     if (catError) {
       throw new Error(`Failed to load categories: ${catError.message}`);
     }
@@ -105,6 +115,39 @@ export class ImsInventoryServiceServer {
     const categoryByName = new Map<string, string>(
       (categories || []).map((c: any) => [c.name.toLowerCase(), c.id as string])
     );
+
+    // Auto-create any category names from the import that don't exist yet.
+    // Sanitise name → code (AUTO-<NAME>); upsert with ignoreDuplicates so
+    // re-running the same import never creates duplicate categories.
+    const missingCategoryNames = new Set<string>();
+    for (const row of rows) {
+      if (row.category_name && !categoryByName.has(row.category_name.toLowerCase())) {
+        missingCategoryNames.add(row.category_name.trim());
+      }
+    }
+
+    if (missingCategoryNames.size > 0) {
+      const toCreate = Array.from(missingCategoryNames).map((name) => ({
+        name,
+        code: `AUTO-${name.toUpperCase().replace(/[^A-Z0-9]/g, '-').substring(0, 20)}`,
+        is_active: true,
+      }));
+
+      await supabase
+        .from('ims_item_categories')
+        .upsert(toCreate, { onConflict: 'code', ignoreDuplicates: true });
+
+      // Re-fetch by name to pick up IDs whether just created or already existing.
+      const { data: freshCats } = await supabase
+        .from('ims_item_categories')
+        .select('id, name')
+        .in('name', Array.from(missingCategoryNames))
+        .eq('is_active', true);
+
+      for (const c of (freshCats || []) as any[]) {
+        categoryByName.set((c.name as string).toLowerCase(), c.id as string);
+      }
+    }
 
     const { data: units, error: unitError } = await supabase
       .from('ims_units')
@@ -165,15 +208,9 @@ export class ImsInventoryServiceServer {
       let categoryId: string | null = null;
       if (d.category_name) {
         const resolved = categoryByName.get(d.category_name.toLowerCase());
-        if (!resolved) {
-          allErrors.push({
-            row: rowNumber,
-            field: 'Category Name',
-            message: `Row ${rowNumber}: Category Name — "${d.category_name}" not found — create it first or check spelling`,
-          });
-          return;
-        }
-        categoryId = resolved;
+        // Category was auto-created above if missing; null here means creation
+        // failed (e.g. RLS blocked it) — set category_id to null and continue.
+        categoryId = resolved ?? null;
       }
 
       let baseUnitId: string | null = null;
@@ -369,6 +406,7 @@ export class ImsInventoryServiceServer {
       try {
         const summaries = stockItems.map((item) => ({
           item_id: insertedCodeMap.get(item.code.toUpperCase()),
+          opening_quantity: item.opening_stock,
           current_quantity: item.opening_stock,
           reserved_quantity: 0,
           available_quantity: item.opening_stock,

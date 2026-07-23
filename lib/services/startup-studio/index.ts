@@ -13,7 +13,9 @@ export { riskAssessmentService, RiskAssessmentService } from './risk-assessment-
 export { competitiveMatrixService, CompetitiveMatrixService } from './competitive-matrix-service';
 export { portfolioDashboardService, PortfolioDashboardService } from './portfolio-dashboard-service';
 export { marketingService, MarketingService } from './marketing-service';
-export { SF100Service } from './sf100-service';
+export { SF100Service, resolveRosterEnrollmentIds } from './sf100-service';
+export { FoundationsService } from './foundations-service';
+export type { FoundationsRosterEntry, FoundationsReviewItem } from './foundations-service';
 export { PipelineService } from './pipeline-service';
 export type {
   PipelineStage,

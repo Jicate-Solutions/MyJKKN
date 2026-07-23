@@ -36,6 +36,8 @@ import { resolveTiers, type Chip } from '@/lib/navigation/tier-rendering';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 
 interface AutoTabNavProps {
   maxDepth?: number;
@@ -48,7 +50,12 @@ function getIcon(iconName: string): LucideIcon {
   return icon ?? Icons.FileText;
 }
 
-function TabBar({ chips }: { chips: Chip[] }) {
+interface TabBarProps {
+  chips: Chip[];
+  adapt: (label: string) => string;
+}
+
+function TabBar({ chips, adapt }: TabBarProps) {
   if (chips.length < 2) return null;
   const containerRef = useRef<HTMLDivElement>(null);
   const activeHref = chips.find((c) => c.isActive)?.href ?? null;
@@ -98,7 +105,7 @@ function TabBar({ chips }: { chips: Chip[] }) {
             )}
           >
             <Icon className='h-3.5 w-3.5' />
-            {c.label}
+            {adapt(c.label)}
           </Link>
         );
       })}
@@ -113,7 +120,19 @@ export function AutoTabNav({
   className,
 }: AutoTabNavProps) {
   const pathname = usePathname();
+  const adaptFn = useAdaptiveLabels();
+  const adapt = typeof adaptFn === 'function' ? adaptFn : (label: string) => label;
   const { permissions, isSuperAdmin, isLoading } = usePermissions();
+
+  const isCampusLiving = !!pathname && pathname.startsWith('/campus-living');
+  const { data: isHosteler } = useIsHosteler(isCampusLiving);
+  // A pure hostel resident: holds my_hostel.view, is NOT staff (no dashboard.view),
+  // is super-admin-exempt, and is an actual hosteler. Such a user sees ONLY the
+  // My Hostel bucket in campus-living; admins/wardens are unaffected.
+  const residentOnlyCampusLiving =
+    isCampusLiving && !isSuperAdmin && isHosteler === true &&
+    permissions['campus_living.my_hostel.view'] === true &&
+    permissions['campus_living.dashboard.view'] !== true;
 
   if (!pathname) return null;
   if (
@@ -138,14 +157,43 @@ export function AutoTabNav({
   const sliceEnd = Math.max(0, maxDepth - 1);
   const visible = allTiers
     .slice(sliceStart, sliceEnd)
-    .map((chips) => chips.filter((c) => canShowChip(c.href)));
+    .map((chips, tierIdx) =>
+      chips.filter((c) => {
+        // My Marks has its own richer in-page switcher (MarksViewTabs with
+        // descriptions), so suppress the auto Internal/Result sub-tabs. The
+        // trailing slash keeps the "My Marks" parent chip (/learners/my-marks)
+        // in the section tier — only its children are dropped.
+        if (normalizeRoute(c.href).startsWith('/learners/my-marks/')) {
+          return false;
+        }
+        if (
+          residentOnlyCampusLiving &&
+          tierIdx === 0 &&
+          !normalizeRoute(c.href).startsWith('/campus-living/my-hostel')
+        ) {
+          return false;
+        }
+        return canShowChip(c.href);
+      })
+    )
+    // Belt-and-suspenders: even if the generated manifest or an admin-side
+    // override produces two chips with the same href, dedupe here so we
+    // never trip React's "two children with the same key" warning in TabBar.
+    .map((chips) => {
+      const seen = new Set<string>();
+      return chips.filter((c) => {
+        if (seen.has(c.href)) return false;
+        seen.add(c.href);
+        return true;
+      });
+    });
 
   if (visible.length === 0) return null;
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       {visible.map((chips, i) => (
-        <TabBar key={i} chips={chips} />
+        <TabBar key={i} chips={chips} adapt={adapt} />
       ))}
     </div>
   );

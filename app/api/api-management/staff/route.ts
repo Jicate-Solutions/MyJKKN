@@ -116,6 +116,10 @@ export async function GET(request: NextRequest) {
     // Both freeform strings, no DB CHECK constraint — passed through as-is.
     const roleType = url.searchParams.get('role_type');
     const roleKey = url.searchParams.get('role_key');
+    // tags — comma-separated list of staff tags. Matches staff carrying ANY of
+    // the requested tags (overlap / OR). Lowercased to match how the staff form
+    // stores them, so ?tags=Placement_Cell and ?tags=placement_cell behave alike.
+    const tags = url.searchParams.get('tags');
 
     // Build query
     // Category join is widened so external consumers can tell which extended-profile
@@ -172,6 +176,17 @@ export async function GET(request: NextRequest) {
 
     if (roleKey) {
       query = query.eq('role_key', roleKey);
+    }
+
+    if (tags) {
+      // Overlap (OR): return staff carrying at least one of the requested tags.
+      const tagList = tags
+        .split(',')
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+      if (tagList.length > 0) {
+        query = query.overlaps('tags', tagList);
+      }
     }
 
     // Apply pagination only if not fetching all records

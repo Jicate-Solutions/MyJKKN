@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { useTimetables } from '@/hooks/academic/use-timetables';
@@ -23,6 +23,8 @@ import {
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 interface TimetableConflict {
   timetable_id: string;
@@ -38,7 +40,9 @@ interface TimetableConflict {
   conflict_type: 'STAFF_MISMATCH' | 'NO_STAFF_PLAN';
 }
 
-export default function TimetableConflictsPage() {
+const CONFLICTS_TABS = ['staff-mismatch', 'missing-plans'] as const;
+
+function TimetableConflictsPageInner() {
   const router = useRouter();
   const [conflicts, setConflicts] = useState<TimetableConflict[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +53,7 @@ export default function TimetableConflictsPage() {
   );
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [isCheckingPermissions, setIsCheckingPermissions] = useState(true);
-  const [activeTab, setActiveTab] = useState('staff-mismatch');
+  const [activeTab, setActiveTab] = useTabParam('staff-mismatch', CONFLICTS_TABS);
   const [currentPage, setCurrentPage] = useState({
     'staff-mismatch': 1,
     'missing-plans': 1
@@ -58,6 +62,7 @@ export default function TimetableConflictsPage() {
 
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const { getAllStaffConflicts, syncStaffAssignment } = useTimetables();
+  const adapt = useAdaptiveLabels();
 
   // Check super admin permissions
   useEffect(() => {
@@ -676,7 +681,7 @@ export default function TimetableConflictsPage() {
                     Missing Staff Plans ({conflictsByType.NO_STAFF_PLAN.length})
                   </CardTitle>
                   <p className='text-sm text-muted-foreground'>
-                    Courses in timetables that don&apos;t have staff planning
+                    {adapt('Courses')} in timetables that don&apos;t have staff planning
                     configured
                   </p>
                   <div className='flex gap-2 flex-wrap'>
@@ -765,5 +770,14 @@ export default function TimetableConflictsPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function TimetableConflictsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <TimetableConflictsPageInner />
+    </Suspense>
   );
 }

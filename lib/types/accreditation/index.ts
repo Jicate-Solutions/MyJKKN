@@ -159,3 +159,71 @@ export interface CoverageMatrixRow {
   metrics_seeded: number;
   coverage_pct: number;
 }
+
+// ============================================================================
+// Quality Loops → NAAC Metric 7.3 "Quality Assurance System"
+// (Loop → accreditation bridge, PR-2 of 2)
+//
+// PR-1 (loop evidence rollup) emits one quality_evidence_mappings row per
+// measured loop cycle: body_code='NAAC', metric_code IN 7.3.d/7.3.e/7.3.f
+// (facet letters under Metric 7.3, Attribute 7 Governance and Administration,
+// per the NAAC Reforms 2024 Binary Accreditation Framework), is_auto=true,
+// metadata jsonb per the pinned contract below. These types render that
+// contract — they do not define new write shapes.
+//
+// NOTE: the pre-existing numeric row 7.3.1 (IQAC meeting frequency) is a
+// different concern and is deliberately NOT part of this set.
+// Under the outgoing framework this evidence maps to AQAR Criterion 6.5.
+// ============================================================================
+
+/** NAAC 7.3 facet codes emitted by the loop evidence rollup. */
+export const LOOP_METRIC_CODES = ['7.3.d', '7.3.e', '7.3.f'] as const;
+export type LoopMetricCode = (typeof LOOP_METRIC_CODES)[number];
+
+/** Short chip labels for the 7.3 facets. */
+export const LOOP_METRIC_LABELS: Record<LoopMetricCode, string> = {
+  '7.3.d': 'audit & feedback to system',
+  '7.3.e': 'quality circles — reserved',
+  '7.3.f': 'stakeholder satisfaction loop',
+};
+
+/** delta_summary vocabulary written by PR-1 (pinned contract). */
+export type LoopDeltaSummary = 'improved' | 'no_change' | 'worse' | 'n/a';
+
+/** metadata jsonb shape written by PR-1 (pinned contract). */
+export interface LoopEvidenceMetadata {
+  loop_key: string; // e.g. 'scf_teaching' | 'induction_session' | 'mess_menu' | ...
+  loop_name: string; // human-readable loop name
+  outcome?: Record<string, unknown>; // loop-specific numbers
+  delta_summary?: LoopDeltaSummary;
+  measured_at?: string; // ISO timestamp
+}
+
+/** One quality_evidence_mappings row tagged to a Metric 7.3 facet. */
+export interface LoopEvidenceRow {
+  id: string;
+  institution_id: string;
+  metric_code: string;
+  period_label: string | null; // 'AY 2026-27'-style academic-year label
+  mapped_at: string;
+  source_table: string;
+  is_auto: boolean;
+  metadata: LoopEvidenceMetadata | null;
+}
+
+/** Per-loop rollup rendered as a tile on the NAAC dashboard. */
+export interface QualityLoopSummary {
+  loop_key: string;
+  loop_name: string;
+  metric_code: string;
+  cycles: number; // measured cycles = row count
+  last_measured_at: string | null; // max(mapped_at)
+  deltas: {
+    improved: number;
+    no_change: number;
+    worse: number;
+    na: number;
+  };
+  /** Most recent cycle's metadata.outcome (loop-specific numbers), if any. */
+  latest_outcome: Record<string, unknown> | null;
+}

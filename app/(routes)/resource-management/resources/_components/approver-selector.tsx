@@ -96,6 +96,7 @@ export function ApproverSelector({
   disabled = false
 }: ApproverSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [roleOpen, setRoleOpen] = useState(false);
   const [roleFilter, setRoleFilter] = useState<string>(selectedRoleKey || '');
   const [institutionFilter, setInstitutionFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -162,34 +163,81 @@ export function ApproverSelector({
 
   return (
     <div className='space-y-3'>
-      {/* Step 1: Role Filter (optional) */}
+      {/* Step 1: Role Filter (optional, searchable) */}
       <div className='space-y-1.5'>
         <Label className='text-xs text-muted-foreground'>
           Filter by Role (optional)
         </Label>
-        <Select
-          value={roleFilter || 'all'}
-          onValueChange={(value) => {
-            setRoleFilter(value === 'all' ? '' : value);
-            // Clear user selection when role changes
-            if (value !== roleFilter) {
-              onClear();
-            }
-          }}
-          disabled={disabled}
-        >
-          <SelectTrigger className='h-9'>
-            <SelectValue placeholder='All roles' />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>All Roles</SelectItem>
-            {customRoles.map((role) => (
-              <SelectItem key={role.id} value={role.role_key}>
-                {role.role_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Popover open={roleOpen} onOpenChange={setRoleOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant='outline'
+              role='combobox'
+              aria-expanded={roleOpen}
+              className='w-full justify-between h-9 font-normal'
+              disabled={disabled}
+            >
+              <span className='truncate'>
+                {roleFilter ? getRoleName(roleFilter) : 'All Roles'}
+              </span>
+              <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className='w-[--radix-popover-trigger-width] p-0'
+            align='start'
+          >
+            <Command>
+              <CommandInput placeholder='Search roles...' />
+              <CommandList>
+                <CommandEmpty>No roles found.</CommandEmpty>
+                <CommandGroup>
+                  <CommandItem
+                    value='All Roles'
+                    onSelect={() => {
+                      if (roleFilter) {
+                        setRoleFilter('');
+                        onClear();
+                      }
+                      setRoleOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        'mr-2 h-4 w-4',
+                        !roleFilter ? 'opacity-100' : 'opacity-0'
+                      )}
+                    />
+                    All Roles
+                  </CommandItem>
+                  {customRoles.map((role) => (
+                    <CommandItem
+                      key={role.id}
+                      value={role.role_name}
+                      onSelect={() => {
+                        if (role.role_key !== roleFilter) {
+                          setRoleFilter(role.role_key);
+                          onClear();
+                        }
+                        setRoleOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn(
+                          'mr-2 h-4 w-4',
+                          roleFilter === role.role_key
+                            ? 'opacity-100'
+                            : 'opacity-0'
+                        )}
+                      />
+                      {role.role_name}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Role info badge */}

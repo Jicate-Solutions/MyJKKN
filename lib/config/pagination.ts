@@ -58,14 +58,29 @@ export const QUERY_TIMEOUTS = {
   normal: 15000,
   slow: 30000,
   report: 60000,
+  // Referenced by BaseService.execute{Create,Update,Delete,List,Single,Dashboard}
+  // (DEFAULT covers create/update/delete). These keys went missing in a refactor —
+  // without them the timeout is `undefined`, which setTimeout coerces to ~0ms and
+  // aborts the query on the next tick (broke the analytics dashboard, and silently
+  // broke executeListQuery/Single/Create/Update/Delete for their callers).
+  DEFAULT: 15000,
+  LIST: 15000,
+  SINGLE: 8000,
+  DASHBOARD: 30000,
 } as const;
 
 /**
  * Performance thresholds for slow query logging
  */
 export const PERFORMANCE_THRESHOLDS = {
-  warn: 1000,  // Log warning above 1s
+  warn: 1000,  // Log warning above 1s (generic default)
   error: 5000, // Log error above 5s
+  // Per-query-kind warn thresholds used by BaseService.execute* helpers. Dashboards
+  // legitimately take longer (multi-section aggregates + cold-start round-trips), so
+  // the 1s default produces false "SLOW QUERY" noise — give them headroom.
+  LIST: 1500,
+  SINGLE: 800,
+  DASHBOARD: 3000,
 } as const;
 
 /**
@@ -81,10 +96,14 @@ export async function withTimeout<T>(promise: Promise<T>, ms: number, label?: st
 /**
  * Log slow queries for monitoring
  */
-export function logSlowQuery(label: string, durationMs: number): void {
+export function logSlowQuery(
+  label: string,
+  durationMs: number,
+  warnThreshold: number = PERFORMANCE_THRESHOLDS.warn
+): void {
   if (durationMs > PERFORMANCE_THRESHOLDS.error) {
     console.error(`[SLOW QUERY] ${label}: ${durationMs}ms (threshold: ${PERFORMANCE_THRESHOLDS.error}ms)`);
-  } else if (durationMs > PERFORMANCE_THRESHOLDS.warn) {
-    console.warn(`[SLOW QUERY] ${label}: ${durationMs}ms (threshold: ${PERFORMANCE_THRESHOLDS.warn}ms)`);
+  } else if (durationMs > warnThreshold) {
+    console.warn(`[SLOW QUERY] ${label}: ${durationMs}ms (threshold: ${warnThreshold}ms)`);
   }
 }

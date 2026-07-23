@@ -12,7 +12,7 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, ArrowRight, ArrowUpDown } from 'lucide-react';
+import { TrashIcon, ArrowRight, ArrowUpDown, DownloadIcon } from 'lucide-react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -36,6 +36,8 @@ import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { LearnerExportDialog } from './learner-export-dialog';
+import type { ProfilesSearchParams } from './data-table-schema';
 
 const SORT_OPTIONS = [
   { value: 'first_name_asc',   label: 'Name (A → Z)',        sortBy: 'first_name',  sortOrder: 'asc'  },
@@ -80,8 +82,26 @@ export function ProfilesTableServer({
   const [localData, setLocalData] = useState<LearnerProfile[]>(initialData);
   const [localMetadata, setLocalMetadata] = useState(metadata);
 
+  const [showExportDialog, setShowExportDialog] = useState(false);
+
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const currentFilters: ProfilesSearchParams = {
+    page: Number(searchParams.get('page')) || 1,
+    pageSize: Number(searchParams.get('pageSize')) || 50,
+    institution_id: searchParams.get('institution_id') || undefined,
+    degree_id: searchParams.get('degree_id') || undefined,
+    department_id: searchParams.get('department_id') || undefined,
+    program_id: searchParams.get('program_id') || undefined,
+    semester_id: searchParams.get('semester_id') || undefined,
+    section_id: searchParams.get('section_id') || undefined,
+    academic_year_id: searchParams.get('academic_year_id') || undefined,
+    gender: searchParams.get('gender') || undefined,
+    lifecycle_status: searchParams.get('lifecycle_status') || undefined,
+    is_profile_complete: searchParams.get('is_profile_complete') || undefined,
+    search: searchParams.get('search') || undefined,
+  };
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission
   const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
@@ -230,6 +250,17 @@ export function ProfilesTableServer({
 
     return (
       <div className="flex items-center gap-2">
+        {/* Export button — always visible */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => setShowExportDialog(true)}
+        >
+          <DownloadIcon className="mr-2 h-4 w-4" />
+          Export
+        </Button>
+
         {/* Sort selector — always visible in the toolbar */}
         <Select value={currentSort} onValueChange={handleSortChange}>
           <SelectTrigger className="h-8 w-[165px] text-xs">
@@ -301,6 +332,14 @@ export function ProfilesTableServer({
           enableSearch: false, // Disabled - using custom advanced search instead
         }}
         renderToolbarContent={renderCustomToolbar}
+      />
+
+      {/* Export Dialog */}
+      <LearnerExportDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        filters={currentFilters}
+        statusFilter={statusFilter}
       />
 
       {/* Bulk Delete Confirmation Dialog */}

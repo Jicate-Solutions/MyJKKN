@@ -19,6 +19,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface EditSemesterPageProps {
   params: Promise<{ id: string }>;
@@ -29,6 +30,8 @@ export default function EditSemesterPage({ params }: EditSemesterPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [semester, setSemester] = useState<Semester | null>(null);
+  const adapt = useAdaptiveLabels();
+  const pageTitle = adapt('Edit Semester');
 
   useEffect(() => {
     async function fetchSemester() {
@@ -52,7 +55,7 @@ export default function EditSemesterPage({ params }: EditSemesterPageProps) {
 
   if (loading) {
     return (
-      <ContentLayout title='Edit Semester'>
+      <ContentLayout title={pageTitle}>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -62,13 +65,13 @@ export default function EditSemesterPage({ params }: EditSemesterPageProps) {
 
   if (error || !semester) {
     return (
-      <ContentLayout title='Edit Semester'>
+      <ContentLayout title={pageTitle}>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
-            {error || 'Semester not found'}
+            {error || `${adapt('Semester')} not found`}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/organizations/semesters'>Back to Semesters</Link>
+            <Link href='/organizations/semesters'>Back to {adapt('Semesters')}</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -76,7 +79,7 @@ export default function EditSemesterPage({ params }: EditSemesterPageProps) {
   }
 
   return (
-    <ContentLayout title='Edit Semester'>
+    <ContentLayout title={pageTitle}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -93,21 +96,21 @@ export default function EditSemesterPage({ params }: EditSemesterPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/semesters'>Semesters</Link>
+              <Link href='/organizations/semesters'>{adapt('Semesters')}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Edit Semester</BreadcrumbPage>
+            <BreadcrumbPage>{pageTitle}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>Edit Semester</h1>
+          <h1 className='text-2xl font-bold py-1'>{pageTitle}</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Update semester details
+            Update {adapt('semester')} details
           </p>
         </div>
 

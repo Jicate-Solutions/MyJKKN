@@ -12,7 +12,7 @@
  * @route /academic/leave-onduty/settings
  */
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -82,6 +82,7 @@ import { ApprovalFlowBuilder } from '@/components/academic/leave-onduty/approval
 import { SubCategoriesManager } from '@/components/academic/leave-onduty/sub-categories-manager';
 import { useLeaveOndutySubCategories } from '@/hooks/academic/use-leave-onduty-sub-categories';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DataTable } from '@/components/ui/data-table';
@@ -283,13 +284,16 @@ function getFlowColumns({
   return columns;
 }
 
-export default function FlowSettingsPage() {
+const SETTINGS_TABS = ['workflows', 'sub-categories'] as const;
+
+function FlowSettingsPageInner() {
   const { profile } = useAuth();
   const { isSuperAdmin, can, canAccess } = usePermissions();
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingFlowId, setEditingFlowId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [flowToDelete, setFlowToDelete] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useTabParam('workflows', SETTINGS_TABS);
 
   // Check permissions - super admin, principal, HOD, or users with specific permission
   const canManageFlows =
@@ -632,7 +636,7 @@ export default function FlowSettingsPage() {
         </div>
 
       {/* Tabs: Approval Workflows | Sub-Categories */}
-      <Tabs defaultValue="workflows" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
           <TabsTrigger value="workflows">Approval Workflows</TabsTrigger>
           <TabsTrigger value="sub-categories">Sub-Categories</TabsTrigger>
@@ -1002,5 +1006,14 @@ export default function FlowSettingsPage() {
       </AlertDialog>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function FlowSettingsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <FlowSettingsPageInner />
+    </Suspense>
   );
 }

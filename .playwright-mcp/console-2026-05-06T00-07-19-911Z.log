@@ -1,0 +1,13 @@
+[     551ms] [LOG] [Client Instrumentation Hook] Slow execution detected: 102ms (Note: Code download overhead is not included in this measurement) @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[     599ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[     773ms] [LOG] [HMR] connected @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    1195ms] [LOG] %c[Vercel Speed Insights]%c Debug mode is enabled by default in development. No requests will be sent to the server. color: rgb(120, 120, 120) color: inherit @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2297ms] [LOG] Google One Tap Debug Info: @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2298ms] [LOG] Environment: Development @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2298ms] [LOG] Current Origin: http://localhost:3001 @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2299ms] [LOG] Client ID: 994268945457-pu53dcjk7j8lui8v8f5gtu2mknol2li2.apps.googleusercontent.com @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2299ms] [LOG] Full URL: http://localhost:3001/auth/login @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2299ms] [WARNING] Running in development mode. Make sure your Google OAuth client has "http://localhost:3001" added as an authorized JavaScript origin in Google Cloud Console. @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    2321ms] [ERROR] Not signed in with the identity provider. @ http://localhost:3001/auth/login:0
+[    2733ms] [ERROR] [GSI_LOGGER]: FedCM get() rejects with NetworkError: Error retrieving a token. @ http://localhost:3001/_next/static/chunks/node_modules_%40sentry_core_build_esm_0tk.do.._.js:10576
+[    5788ms] [WARNING] The resource http://localhost:3001/_next/static/chunks/%5Broot-of-the-server%5D__0t5k06p._.css was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/auth/login:0

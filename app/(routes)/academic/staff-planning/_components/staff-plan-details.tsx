@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -42,6 +43,7 @@ export function StaffPlanDetailsPage({
   canDelete = true
 }: StaffPlanDetailsProps) {
   const router = useRouter();
+  const adapt = useAdaptiveLabels();
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
   const [courses, setCourses] = useState<StaffPlanCourse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,10 +163,10 @@ export function StaffPlanDetailsPage({
             </h1>
             <p className='text-muted-foreground'>
               {courses.length > 0
-                ? `Complete semester view with ${courses.length} courses and ${
+                ? `Complete ${adapt('semester')} view with ${courses.length} ${adapt('courses')} and ${
                     staffPlan.total_staff || 0
                   } staff assignments`
-                : 'View staff plan details and course assignments'}
+                : `View staff plan details and ${adapt('course')} assignments`}
             </p>
             {courses.length > 1 && (
               <Badge variant='secondary' className='mt-2'>
@@ -200,13 +202,13 @@ export function StaffPlanDetailsPage({
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Program</p>
+                <p className='font-medium'>{adapt('Program')}</p>
                 <p className='text-muted-foreground'>
                   {staffPlan.program?.program_name}
                 </p>
               </div>
               <div>
-                <p className='font-medium'>Semester</p>
+                <p className='font-medium'>{adapt('Semester')}</p>
                 <p className='text-muted-foreground'>
                   {staffPlan.semester?.semester_name}
                 </p>
@@ -245,10 +247,10 @@ export function StaffPlanDetailsPage({
         <Card>
           <CardHeader>
             <CardTitle>
-              Course Assignments
+              {adapt('Course')} Assignments
               {courses.length > 0 && (
                 <Badge variant='outline' className='ml-2'>
-                  {courses.length} courses
+                  {courses.length} {adapt('courses')}
                 </Badge>
               )}
             </CardTitle>
@@ -256,7 +258,7 @@ export function StaffPlanDetailsPage({
           <CardContent>
             {courses.length === 0 ? (
               <div className='text-center text-muted-foreground h-24 flex items-center justify-center'>
-                No course assignments found
+                No {adapt('course')} assignments found
               </div>
             ) : (
               <div className='space-y-6'>
@@ -304,10 +306,23 @@ export function StaffPlanDetailsPage({
                                 className='flex items-center justify-between p-3 bg-muted/50 rounded-lg'
                               >
                                 <div>
-                                  <p className='font-medium text-sm'>
-                                    {assignment.staff?.first_name}{' '}
-                                    {assignment.staff?.last_name}
-                                  </p>
+                                  <div className='flex items-center gap-1.5'>
+                                    <p className='font-medium text-sm'>
+                                      {assignment.staff?.first_name}{' '}
+                                      {assignment.staff?.last_name}
+                                    </p>
+                                    {assignment.staff?.institution_id &&
+                                      staffPlan.institution_id &&
+                                      assignment.staff.institution_id !==
+                                        staffPlan.institution_id && (
+                                        <Badge
+                                          variant='outline'
+                                          className='text-[10px] border-amber-300 text-amber-700'
+                                        >
+                                          Visiting
+                                        </Badge>
+                                      )}
+                                  </div>
                                   <p className='text-xs text-muted-foreground'>
                                     {assignment.staff?.staff_id || 'No ID'}
                                   </p>

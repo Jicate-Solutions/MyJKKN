@@ -10,7 +10,8 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { useScopedInstitutionFilter } from '@/hooks/organization/use-scoped-institution-filter';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
@@ -28,9 +29,17 @@ export function SectionFilters({
   onFilterChange,
   onClearFilters
 }: SectionFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string; counselling_code: string }>
-  >([]);
+  const adapt = useAdaptiveLabels();
+  // Super admins see all institutions + an "All" option; normal users see
+  // only their own and are auto-selected into one (no "All" option).
+  const {
+    institutions,
+    loading: institutionsLoading,
+    isSuperAdmin
+  } = useScopedInstitutionFilter({
+    selectedInstitutionId: searchParams.institution_id,
+    onFilterChange
+  });
   const [degrees, setDegrees] = useState<
     Array<{ id: string; degree_name: string }>
   >([]);
@@ -64,10 +73,6 @@ export function SectionFilters({
     async function loadAllData() {
       try {
         setLoading(true);
-
-        // Load institutions
-        const institutionsData = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(institutionsData);
 
         // Load ALL degrees (no filter)
         const { data: degreesData } = await DegreeService.getDegrees({
@@ -306,15 +311,21 @@ export function SectionFilters({
             <Select
               value={searchParams.institution_id || 'all'}
               onValueChange={handleInstitutionChange}
-              disabled={loading}
+              disabled={loading || institutionsLoading}
             >
               <SelectTrigger className='w-full'>
                 <SelectValue
-                  placeholder={loading ? 'Loading...' : 'All Institutions'}
+                  placeholder={
+                    loading || institutionsLoading
+                      ? 'Loading...'
+                      : 'All Institutions'
+                  }
                 />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Institutions</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value='all'>All Institutions</SelectItem>
+                )}
                 {institutions.map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     {inst.name} ({inst.counselling_code})
@@ -332,10 +343,10 @@ export function SectionFilters({
               disabled={!searchParams.institution_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Degrees' />
+                <SelectValue placeholder={`All ${adapt('Degrees')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Degrees</SelectItem>
+                <SelectItem value='all'>All {adapt('Degrees')}</SelectItem>
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}
@@ -353,10 +364,10 @@ export function SectionFilters({
               disabled={!searchParams.degree_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Departments' />
+                <SelectValue placeholder={`All ${adapt('Departments')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Departments</SelectItem>
+                <SelectItem value='all'>All {adapt('Departments')}</SelectItem>
                 {departments.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
                     {department.department_name}
@@ -374,10 +385,10 @@ export function SectionFilters({
               disabled={!searchParams.department_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Programs' />
+                <SelectValue placeholder={`All ${adapt('Programs')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Programs</SelectItem>
+                <SelectItem value='all'>All {adapt('Programs')}</SelectItem>
                 {programs.map((program) => (
                   <SelectItem key={program.id} value={program.id}>
                     {program.program_name}
@@ -397,10 +408,10 @@ export function SectionFilters({
               disabled={!searchParams.program_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Semesters' />
+                <SelectValue placeholder={`All ${adapt('Semesters')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Semesters</SelectItem>
+                <SelectItem value='all'>All {adapt('Semesters')}</SelectItem>
                 {semesters.map((semester) => (
                   <SelectItem key={semester.id} value={semester.id}>
                     {semester.semester_name}

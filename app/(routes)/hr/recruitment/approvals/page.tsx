@@ -1,131 +1,124 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * Job-first Recruitment Approvals (2026-07-06 redesign).
+ *
+ * ATS-style overview: every job with its pipeline counts; clicking a job opens
+ * the per-job workspace (/hr/recruitment/approvals/[jobId] — Candidates /
+ * Job Details / Notes / Analytics tabs).
+ *
+ * URL contract preserved from the old flat inbox (sidebar + permission map):
+ *   /hr/recruitment/approvals            → "Awaiting my action" (default)
+ *   /hr/recruitment/approvals?view=all   → "All pending"
+ */
+
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog';
-import { AlertCircle, AlertTriangle } from 'lucide-react';
-import { useCandidates, useApproveCandidate, useRejectCandidate } from '@/hooks/hr/use-recruitment';
-import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
-import { AlumniSignalLine } from '../_components/alumni-signal-line';
-import { usePermissions } from '@/hooks/use-permissions';
+  AlertCircle, Briefcase, ChevronRight, Clock3, Inbox, MapPin, Search, Tag, Users,
+} from 'lucide-react';
+import { useApprovalsJobOverview, useCandidates } from '@/hooks/hr/use-recruitment';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useAuth } from '@/hooks/use-auth';
+import { MyPendingCandidates } from './_components/my-pending-candidates';
 import {
-  CANDIDATE_STATUS_LABELS,
+  JOB_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
-  MONTHLY_SALARY_BAND_LABELS,
+  type ApprovalsJobOverviewRow,
   type CandidateStatus,
-  type HRRecruitmentCandidate,
+  type JobStatus,
 } from '@/types/hr-recruitment';
-import { toast } from 'sonner';
-
-const STATUS_COLORS: Record<CandidateStatus, string> = {
-  submitted:        'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-200',
-  pending_approval: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-200',
-  approved:         'bg-green-100 text-green-900 dark:bg-green-900/20 dark:text-green-200',
-  package_fixed:    'bg-blue-100 text-blue-900 dark:bg-blue-900/20 dark:text-blue-200',
-  offer_issued:     'bg-blue-100 text-blue-900 dark:bg-blue-900/20 dark:text-blue-200',
-  joined:           'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200',
-  rejected:         'bg-red-100 text-red-900 dark:bg-red-900/20 dark:text-red-200',
-  withdrawn:        'bg-gray-100 text-gray-900 dark:bg-gray-900/20 dark:text-gray-200',
-  offer_rescinded:  'bg-gray-100 text-gray-900 dark:bg-gray-900/20 dark:text-gray-200',
-  no_show:          'bg-orange-100 text-orange-900 dark:bg-orange-900/20 dark:text-orange-200',
-};
 
 type ViewMode = 'mine' | 'all';
 
+const JOB_STATUS_BADGE: Record<JobStatus, string> = {
+  draft:   'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  open:    'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300',
+  on_hold: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-300',
+  closed:  'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400',
+  filled:  'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300',
+};
+
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
 export default function RecruitmentApprovalsPage() {
-  const { isSuperAdmin, canAccess } = usePermissions();
+  // useSearchParams (in the inner component) requires a Suspense boundary.
+  return (
+    <Suspense fallback={null}>
+      <RecruitmentApprovalsInner />
+    </Suspense>
+  );
+}
 
-  const [viewMode, setViewMode] = useState<ViewMode>('mine');
+function RecruitmentApprovalsInner() {
+  const searchParams = useSearchParams();
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    searchParams.get('view') === 'all' ? 'all' : 'mine'
+  );
+  const [search, setSearch] = useState('');
 
-  // Fetch pending candidates
-  const { data, isLoading, error: fetchError } = useCandidates({
-    status: ['submitted', 'pending_approval'],
+  useEffect(() => {
+    setViewMode(searchParams.get('view') === 'all' ? 'all' : 'mine');
+  }, [searchParams]);
+
+  const { data: rows, isLoading, error } = useApprovalsJobOverview();
+  const { profile } = useAuth();
+  const userId = profile?.id;
+  const { institutions } = useInstitutionsWithAccess();
+  const institutionNameById = useMemo(
+    () => new Map(institutions.map((i) => [i.id, i.name] as const)),
+    [institutions],
+  );
+
+  // Legacy safety net: pending candidates that never came through a job.
+  // Empty today (cleaned 2026-07-06) but renders a rescue card if any reappear.
+  const { data: orphanData } = useCandidates({
+    status: ['submitted', 'pending_approval'] as CandidateStatus[],
   });
+  const orphans = (orphanData?.data ?? []).filter(
+    (c) => !(c.role_specific_details as Record<string, unknown> | null)?.job_id,
+  );
 
-  const allPending = data?.data ?? [];
+  // The 'all' view is job-first: every job, decision-first sorted (jobs needing
+  // action float up). The 'mine' view renders candidate-level rows instead (see
+  // MyPendingCandidates), so this job list only feeds 'all'.
+  const visible = useMemo(() => {
+    const all = rows ?? [];
+    const q = search.trim().toLowerCase();
+    const searched = q
+      ? all.filter((r) =>
+          r.job.title.toLowerCase().includes(q) ||
+          (r.job.job_code ?? '').toLowerCase().includes(q) ||
+          (institutionNameById.get(r.job.institution_id ?? '') ?? '').toLowerCase().includes(q))
+      : all;
+    return [...searched].sort((a, b) =>
+      b.awaiting_me - a.awaiting_me ||
+      b.in_approval - a.in_approval ||
+      b.applications_pending - a.applications_pending ||
+      new Date(b.job.created_at).getTime() - new Date(a.job.created_at).getTime());
+  }, [rows, search, institutionNameById]);
 
-  // "Awaiting my action" — filter to candidates where current_step approver_role
-  // matches a permission the user has. Uses canAccess('hr.recruitment', 'approve')
-  // as a proxy — full role matching would require a DB join we don't have client-side.
-  // TODO: Phase 1A follow-up — add `pending_for_me=true` filter to the list API.
-  const canApprove = isSuperAdmin || canAccess('hr.recruitment', 'approve');
-
-  const myPending = canApprove ? allPending : allPending.filter((c) => {
-    const step = (c.approval_chain ?? [])[c.current_step];
-    if (!step) return false;
-    // Best-effort: surface all pending if user has any recruitment approve perm
-    return true;
-  });
-
-  const displayCandidates = viewMode === 'mine' ? myPending : allPending;
-
-  // T8.5 — bulk-fetch alumni signals for all displayed candidates so each
-  // row can show JKKN history inline without N detail fetches.
-  const candidateEmails = displayCandidates.map((c) => c.email);
-  const { data: alumniMap } = useAlumniSignalBulk(candidateEmails);
-
-  // Approve flow
-  const queryClient = useQueryClient();
-  const approveMutation = useApproveCandidate();
-  const [approveId, setApproveId] = useState<string | null>(null);
-  const [approveComment, setApproveComment] = useState('');
-
-  const onApprove = async () => {
-    if (!approveId) return;
-    try {
-      await approveMutation.mutateAsync({ id: approveId, comment: approveComment.trim() || undefined });
-      toast.success('Candidate approved');
-      setApproveId(null);
-      setApproveComment('');
-    } catch (err) {
-      const message = (err as Error).message ?? '';
-      // BUG-003310 / BUG-003302 — When a different approver finished the chain (or
-      // the React Query cache was stale), the row in the list is no longer pending.
-      // Show an info toast instead of the scary red error, refresh the list, and
-      // dismiss the dialog.
-      if (
-        message.includes('already been fully approved') ||
-        message.includes('Approval chain exhausted')
-      ) {
-        toast.info('This candidate is no longer pending — refreshing the list.');
-        queryClient.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
-        setApproveId(null);
-        setApproveComment('');
-        return;
-      }
-      toast.error(message);
-    }
-  };
-
-  // Reject flow
-  const rejectMutation = useRejectCandidate();
-  const [rejectId, setRejectId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-
-  const onReject = async () => {
-    if (!rejectId || !rejectReason.trim()) return;
-    try {
-      await rejectMutation.mutateAsync({ id: rejectId, reason: rejectReason.trim() });
-      toast.success('Candidate rejected');
-      setRejectId(null);
-      setRejectReason('');
-    } catch (err) {
-      toast.error((err as Error).message);
-    }
-  };
+  // Stat strip totals (whole dataset, not the filtered view — they answer
+  // "how much is in the system", the list answers "what should I look at").
+  const totals = useMemo(() => {
+    const all = rows ?? [];
+    return {
+      jobs: all.length,
+      applicants: all.reduce((n, r) => n + r.applications_total, 0),
+      inApproval: all.reduce((n, r) => n + r.in_approval, 0),
+      awaitingMe: all.reduce((n, r) => n + r.awaiting_me, 0),
+    };
+  }, [rows]);
 
   return (
     <ContentLayout title="Recruitment Approvals">
@@ -139,231 +132,266 @@ export default function RecruitmentApprovalsPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="mt-6 space-y-4 max-w-4xl">
-        {/* Toggle */}
-        <div className="flex gap-1 border rounded-md p-1 w-fit">
-          <button
-            type="button"
-            onClick={() => setViewMode('mine')}
-            className={`px-3 py-1 rounded text-sm transition ${
-              viewMode === 'mine'
-                ? 'bg-foreground text-background font-medium'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Awaiting my action
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('all')}
-            className={`px-3 py-1 rounded text-sm transition ${
-              viewMode === 'all'
-                ? 'bg-foreground text-background font-medium'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            All pending
-          </button>
+      <div className="mt-6 space-y-4">
+        {/* Stat strip — CVViZ-style: value above, label below */}
+        <Card>
+          <CardContent className="p-0">
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border">
+              <StatTile label="All Jobs" value={totals.jobs} loading={isLoading} />
+              <StatTile label="Total Applicants" value={totals.applicants} loading={isLoading} />
+              <StatTile label="In Approval" value={totals.inApproval} loading={isLoading} />
+              <StatTile
+                label="Awaiting You"
+                value={totals.awaitingMe}
+                loading={isLoading}
+                emphasis={totals.awaitingMe > 0}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Controls row: view toggle + search */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex gap-1 border rounded-md p-1 w-fit bg-background">
+            <button
+              type="button"
+              onClick={() => setViewMode('mine')}
+              className={`px-3 py-1.5 rounded text-sm transition cursor-pointer ${
+                viewMode === 'mine'
+                  ? 'bg-foreground text-background font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Awaiting my action
+              {totals.awaitingMe > 0 && (
+                <span className={`ml-1.5 inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${
+                  viewMode === 'mine' ? 'bg-background/20 text-background' : 'bg-primary/10 text-primary'
+                }`}>
+                  {totals.awaitingMe}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('all')}
+              className={`px-3 py-1.5 rounded text-sm transition cursor-pointer ${
+                viewMode === 'all'
+                  ? 'bg-foreground text-background font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              All pending
+            </button>
+          </div>
+          <div className="relative flex-1 sm:max-w-xs sm:ml-auto">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by title, code or institution…"
+              className="pl-8 h-9"
+              aria-label="Search jobs"
+            />
+          </div>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {viewMode === 'mine' ? 'Awaiting Your Approval' : 'All Pending Candidates'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* Skeleton loading */}
-            {isLoading && (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="border rounded-md p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-2 flex-1">
-                        <div className="h-4 w-48 rounded bg-muted/60 animate-pulse" />
-                        <div className="h-3 w-72 rounded bg-muted/40 animate-pulse" />
-                        <div className="h-3 w-56 rounded bg-muted/40 animate-pulse" />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="h-8 w-24 rounded bg-muted/40 animate-pulse" />
-                        <div className="h-8 w-24 rounded bg-muted/40 animate-pulse" />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* MINE — candidate-level list with inline approve/reject */}
+        {viewMode === 'mine' && (
+          <MyPendingCandidates userId={userId} search={search} />
+        )}
 
+        {/* ALL — job-first list */}
+        {viewMode === 'all' && (
+          <>
             {/* Fetch error */}
-            {!isLoading && fetchError && (
+            {!isLoading && error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{(fetchError as Error).message}</AlertDescription>
+                <AlertDescription>{(error as Error).message}</AlertDescription>
               </Alert>
             )}
 
-            {/* Empty states */}
-            {!isLoading && !fetchError && displayCandidates.length === 0 && (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                {viewMode === 'mine'
-                  ? 'Nothing pending your approval right now.'
-                  : 'No candidates in the pipeline.'}
-              </p>
+            {/* Skeleton rows */}
+            {isLoading && (
+              <Card>
+                <CardContent className="p-0 divide-y divide-border">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="flex items-center gap-3 p-4">
+                      <div className="h-10 w-10 rounded-lg bg-muted/60 animate-pulse shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-56 rounded bg-muted/60 animate-pulse" />
+                        <div className="h-3 w-72 rounded bg-muted/40 animate-pulse" />
+                      </div>
+                      <div className="h-8 w-16 rounded bg-muted/40 animate-pulse" />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             )}
 
-            {/* Candidate rows */}
-            {!isLoading && !fetchError && displayCandidates.map((c: HRRecruitmentCandidate) => {
-              const currentStep = (c.approval_chain ?? [])[c.current_step];
-              return (
-                <div key={c.id} className="border rounded-md p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm">{c.name}</span>
-                        {c.is_emergency && (
-                          <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-300 text-xs flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Urgent
-                          </Badge>
-                        )}
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[c.status]}`}>
-                          {CANDIDATE_STATUS_LABELS[c.status]}
-                        </span>
-                      </div>
+            {/* Empty state */}
+            {!isLoading && !error && visible.length === 0 && (
+              <Card>
+                <CardContent className="py-12 flex flex-col items-center gap-2 text-center">
+                  <Inbox className="h-8 w-8 text-muted-foreground/60" />
+                  <p className="text-sm font-medium">No jobs found</p>
+                  <p className="text-xs text-muted-foreground max-w-sm">
+                    {search
+                      ? 'No job matches your search.'
+                      : 'Jobs appear here once created under Recruitment → Jobs.'}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {ROLE_CATEGORY_LABELS[c.role_category]}
-                        {c.proposed_monthly_salary_band && (
-                          <> &middot; {MONTHLY_SALARY_BAND_LABELS[c.proposed_monthly_salary_band]}</>
-                        )}
-                        {c.institution_id && (
-                          <> &middot; {c.institution_id}</>
-                        )}
-                      </p>
+            {/* Job rows */}
+            {!isLoading && !error && visible.length > 0 && (
+              <Card>
+                <CardContent className="p-0 divide-y divide-border">
+                  {visible.map((r) => (
+                    <JobRow
+                      key={r.job.id}
+                      row={r}
+                      institutionName={institutionNameById.get(r.job.institution_id ?? '')}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
 
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {c.role_title}
-                      </p>
+        {/* Legacy rescue card — pending candidates with no job link */}
+        {orphans.length > 0 && (
+          <Card className="border-amber-500/40">
+            <CardContent className="p-4 space-y-2">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                Direct submissions not linked to a job ({orphans.length})
+              </p>
+              <p className="text-xs text-muted-foreground">
+                These candidates entered the pipeline outside the job flow. Open each to act on it.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {orphans.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/hr/recruitment/candidates/${c.id}`}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {c.name} — {c.role_title}
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </ContentLayout>
+  );
+}
 
-                      {/* T8.5 — JKKN history badge (renders nothing when no match) */}
-                      <AlumniSignalLine
-                        signal={alumniMap ? alumniMap[c.email.toLowerCase().trim()] : null}
-                      />
+function StatTile({
+  label, value, loading, emphasis,
+}: { label: string; value: number; loading: boolean; emphasis?: boolean }) {
+  return (
+    <div className="px-4 py-3 sm:py-4">
+      {loading ? (
+        <div className="h-7 w-12 rounded bg-muted/60 animate-pulse" />
+      ) : (
+        <p className={`text-2xl font-semibold leading-none tabular-nums ${
+          emphasis ? 'text-primary' : 'text-foreground'
+        }`}>
+          {value}
+        </p>
+      )}
+      <p className="mt-1.5 text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
 
-                      {currentStep && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Step {c.current_step + 1}/{(c.approval_chain ?? []).length} &middot; Current approver: <span className="font-medium text-foreground">{currentStep.approver_role}</span>
-                        </p>
-                      )}
-                    </div>
+function JobRow({
+  row, institutionName,
+}: { row: ApprovalsJobOverviewRow; institutionName?: string }) {
+  const { job } = row;
+  const location = [job.city, job.state].filter(Boolean).join(', ');
 
-                    <div className="flex flex-col gap-1 shrink-0 min-w-[100px]">
-                      <Button
-                        size="sm"
-                        onClick={() => { setApproveId(c.id); setApproveComment(''); }}
-                        className="w-full"
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => { setRejectId(c.id); setRejectReason(''); }}
-                        className="w-full"
-                      >
-                        Reject
-                      </Button>
-                      <Link
-                        href={`/hr/recruitment/candidates/${c.id}`}
-                        className="text-xs text-primary hover:underline text-center"
-                      >
-                        View
-                      </Link>
-                      {/* BUG-003300 — Surface CVViz / candidate profile link inline so
-                          the approver can review the JD/CV before clicking Approve. */}
-                      {c.cvviz_url && (
-                        <a
-                          href={c.cvviz_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary hover:underline text-center"
-                        >
-                          View Profile
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
+  return (
+    <Link
+      href={`/hr/recruitment/approvals/${job.id}`}
+      className="group flex items-center gap-3 p-4 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 outline-none"
+    >
+      {/* Icon tile */}
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Briefcase className="h-5 w-5" />
       </div>
 
-      {/* Approve dialog */}
-      <Dialog open={!!approveId} onOpenChange={(open) => { if (!open) setApproveId(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Approve Candidate</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              This will advance the candidacy to the next step in the approval chain.
-            </p>
-            <div>
-              <Label htmlFor="approveComment">Comment (optional)</Label>
-              <Textarea
-                id="approveComment"
-                value={approveComment}
-                onChange={(e) => setApproveComment(e.target.value)}
-                rows={2}
-                placeholder="Any notes for the next approver…"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setApproveId(null)}>Cancel</Button>
-            <Button onClick={onApprove} disabled={approveMutation.isPending}>
-              {approveMutation.isPending ? 'Approving…' : 'Confirm Approve'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Title + meta */}
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+            {job.title}
+          </span>
+          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${JOB_STATUS_BADGE[job.status]}`}>
+            {JOB_STATUS_LABELS[job.status]}
+          </Badge>
+          {row.awaiting_me > 0 && (
+            <Badge className="text-[10px] px-1.5 py-0 bg-primary text-primary-foreground tabular-nums">
+              {row.awaiting_me} awaiting you
+            </Badge>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+          <span>{ROLE_CATEGORY_LABELS[job.role_category]}</span>
+          {institutionName && <span className="truncate">{institutionName}</span>}
+          {location && (
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3 w-3" />
+              {location}
+            </span>
+          )}
+          {job.job_code && (
+            <span className="inline-flex items-center gap-1">
+              <Tag className="h-3 w-3" />
+              {job.job_code}
+            </span>
+          )}
+        </div>
+      </div>
 
-      {/* Reject dialog */}
-      <Dialog open={!!rejectId} onOpenChange={(open) => { if (!open) setRejectId(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Candidate</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              This will reject the candidacy. The submitter will be notified.
-            </p>
-            <div>
-              <Label htmlFor="rejectReason">Rejection Reason <span className="text-destructive">*</span></Label>
-              <Textarea
-                id="rejectReason"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                rows={3}
-                required
-                placeholder="Explain why this candidate is being rejected…"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectId(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={onReject}
-              disabled={!rejectReason.trim() || rejectMutation.isPending}
-            >
-              {rejectMutation.isPending ? 'Rejecting…' : 'Confirm Reject'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </ContentLayout>
+      {/* Counts */}
+      <div className="hidden sm:flex items-center gap-6 shrink-0">
+        <CountCell icon={Users} value={row.applications_total} label="candidates" />
+        <CountCell icon={Clock3} value={row.in_approval} label="in approval" emphasis={row.in_approval > 0} />
+        <div className="hidden lg:block text-right">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Created</p>
+          <p className="text-xs text-foreground whitespace-nowrap">{fmtDate(job.created_at)}</p>
+        </div>
+      </div>
+
+      {/* Mobile compact counts */}
+      <div className="flex sm:hidden flex-col items-end gap-0.5 shrink-0 text-xs tabular-nums">
+        <span className="font-semibold">{row.applications_total} <span className="font-normal text-muted-foreground">appl.</span></span>
+        {row.in_approval > 0 && <span className="text-primary">{row.in_approval} in approval</span>}
+      </div>
+
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50 group-hover:text-foreground transition-colors" />
+    </Link>
+  );
+}
+
+function CountCell({
+  icon: Icon, value, label, emphasis,
+}: { icon: typeof Users; value: number; label: string; emphasis?: boolean }) {
+  return (
+    <div className="text-right min-w-[72px]">
+      <p className={`inline-flex items-center gap-1 text-lg font-semibold leading-none tabular-nums ${
+        emphasis ? 'text-primary' : value === 0 ? 'text-muted-foreground/50' : 'text-foreground'
+      }`}>
+        <Icon className="h-3.5 w-3.5" />
+        {value}
+      </p>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+    </div>
   );
 }

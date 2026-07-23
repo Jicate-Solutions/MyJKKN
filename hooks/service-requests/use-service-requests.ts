@@ -22,7 +22,6 @@ import type {
   UpdateServiceRequestDto,
   ProcessApprovalDto,
   ServiceRequestAnalytics,
-  ServiceRequestApproval,
 } from '@/types/service-request';
 
 // =====================================================
@@ -123,10 +122,16 @@ export function useServiceRequest(id: string) {
 }
 
 /**
- * Fetch pending approvals for the current user
+ * Fetch pending approvals for the current user.
+ *
+ * The API returns rows from service_requests (with embedded service_type,
+ * requester, institution), not wrapped ServiceRequestApproval records.
+ * Don't restore the ServiceRequestApproval[] type here — the previous
+ * mistyping caused the inbox page to reshape rows through `a.service_request`
+ * and silently drop everything.
  */
 export function usePendingApprovals(filters?: { service_type_id?: string; page?: number; limit?: number }) {
-  return useQuery<{ data: ServiceRequestApproval[]; metadata: { total: number } }>({
+  return useQuery<ServiceRequestListResponse>({
     queryKey: serviceRequestKeys.pendingApprovals(filters),
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -323,6 +328,36 @@ export function useCancelServiceRequest() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: serviceRequestKeys.all });
       toast.success('Request cancelled');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+/**
+ * Permanently delete a service request (super-admin only).
+ *
+ * The DELETE is gated by RLS (is_super_admin()); the API returns 403 for any
+ * other caller, so the onError toast surfaces the denial cleanly.
+ */
+export function useDeleteServiceRequest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/service-requests/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete request');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: serviceRequestKeys.all });
+      toast.success('Request deleted');
     },
     onError: (error: Error) => {
       toast.error(error.message);

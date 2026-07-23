@@ -6,7 +6,7 @@
  * React Query wrappers around ShiftService. Used by:
  *   - app/(routes)/hr/shifts/my/page.tsx (employee read-only view)
  *
- * The two policy-shell pages (admin/hr/shift-templates, hr/shifts) call the
+ * The two policy-shell pages (hr/admin/shift-templates, hr/shifts) call the
  * service directly inside onLoad/onSave handlers, mirroring the
  * recruitment-jobs/page.tsx pattern. These hooks exist so non-policy-shell
  * surfaces (employee dashboard, future widgets) can subscribe to shift data

@@ -17,6 +17,9 @@ import { AttendanceTrendChart } from './_components/trend-chart';
 import { CourseWiseTable } from './_components/course-wise-table';
 import { ExportActions } from './_components/export-actions';
 import { PeriodWiseAttendanceTable } from './_components/period-wise-table';
+import { PendingFeedbackBanner } from './_components/pending-feedback-banner';
+import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-confirmed-attendance-card';
+import { MyRunningScoreCard } from '@/components/session-feedback/my-running-score-card';
 import { TableSkeleton } from '@/components/Loading';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle } from 'lucide-react';
@@ -107,6 +110,17 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
       />
 
       <div className="space-y-6 mt-4">
+        {/* Present-pending nudge — self-hides when nothing is pending */}
+        <PendingFeedbackBanner />
+
+        {/* Confirmed-attendance % + early warning (advisory; hidden when enforcement is off) */}
+        <MyConfirmedAttendanceCard />
+
+        {/* Per-course exam-eligibility transparency: starts at 100, comes down
+            with each absence — the same day-one record the exam audit holds
+            departments to. Self-scoped + self-hides when empty. */}
+        <MyRunningScoreCard />
+
         {/* Semester Filter */}
         <SemesterFilter
           semesters={semesters || []}

@@ -24,6 +24,8 @@ import type {
   BatchUpdateAttendanceDto,
   CreateStudentAttendanceDto
 } from '@/types/attendance';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { VerdictAtNextClassCard } from '@/components/session-feedback/verdict-at-next-class-card';
 
 interface AttendanceRosterProps {
   rosterData: AttendanceRosterData;
@@ -46,6 +48,7 @@ export function AttendanceRoster({
   const { profile } = useAuth();
   const user = profile;
   const { userProfile, isSuperAdmin } = usePermissions();
+  const label = useAdaptiveLabels();
   const [searchTerm, setSearchTerm] = useState('');
   const [students, setStudents] = useState<AttendanceRosterStudent[]>(
     rosterData.students
@@ -54,6 +57,10 @@ export function AttendanceRoster({
   const [saving, setSaving] = useState(false);
   const [canMarkThisSlot, setCanMarkThisSlot] = useState(canMarkAttendance);
   const [checkingPermission, setCheckingPermission] = useState(false);
+  // SCF Gate-4 (verdict-at-next-class): after a successful save, ask the
+  // facilitator whether the loop's LAST improvement note for this course helped.
+  // Set only on save success; the card itself decides whether to render.
+  const [verdictCourseCode, setVerdictCourseCode] = useState<string | null>(null);
 
   // Check slot-specific permissions when enabled
   useEffect(() => {
@@ -256,6 +263,11 @@ export function AttendanceRoster({
           title: 'Success',
           description: 'Attendance saved successfully.'
         });
+        // Gate-4 hook: attendance for this course just landed — the one moment
+        // "did last time's advice work?" is both answerable and top-of-mind.
+        setVerdictCourseCode(
+          rosterData.timetable_slot.course?.course_code ?? null
+        );
       }
     } catch (error) {
       logger.error('academic/attendance', 'Error saving attendance', error);
@@ -276,6 +288,10 @@ export function AttendanceRoster({
 
   return (
     <div className='space-y-6'>
+      {/* SCF Gate-4: one-tap verdict on the loop's last note for this course.
+          Renders nothing unless an unverdicted pre-today note exists. */}
+      {verdictCourseCode && <VerdictAtNextClassCard courseCode={verdictCourseCode} />}
+
       {/* Header with period info and stats */}
       <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
         <div>
@@ -410,7 +426,7 @@ export function AttendanceRoster({
               </TableHead>
               <TableHead>Roll Number</TableHead>
               <TableHead>Student Name</TableHead>
-              <TableHead>Section</TableHead>
+              <TableHead>{label('Section')}</TableHead>
               <TableHead>Status</TableHead>
               {canMarkThisSlot && <TableHead>Action</TableHead>}
             </TableRow>

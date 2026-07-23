@@ -17,8 +17,7 @@ export async function getAdmissionYear(id: string): Promise<AdmissionYear> {
     .from('admission_years')
     .select(
       `*,
-       institution:institutions (id, name, counselling_code),
-       program:programs (id, program_id, program_name, program_duration_yrs)`
+       institution:institutions (id, name, counselling_code)`
     )
     .eq('id', id)
     .single();

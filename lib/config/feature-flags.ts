@@ -95,6 +95,26 @@ export const FEATURE_FLAGS = {
    * Turn OFF after MathWorks integration sign-off and rotate the seeded passwords.
    */
   ENABLE_LTI_TEST_LOGIN: process.env.NEXT_PUBLIC_ENABLE_LTI_TEST_LOGIN === 'true',
+
+  // ============================================
+  // PAYMENT-GATEWAY AUDIT LOGIN (Added: 2026-06-05)
+  // ============================================
+  /**
+   * Dedicated email+password login route for the Razorpay payment-gateway
+   * security audit. Mirrors ENABLE_LTI_TEST_LOGIN.
+   * When true: /auth/audit-login accepts credentials for the audit account
+   *            (test.admin@jkkn.ac.in) so Razorpay's auditors can sign in without
+   *            Google Workspace OAuth/MFA.
+   * When false: /auth/audit-login returns a "disabled" notice.
+   *
+   * The route is ADDITIONALLY restricted to an explicit email allow-list
+   * (see app/auth/audit-login/page.tsx), so flipping this flag ON cannot broaden
+   * access to any other account. The audit account is scoped to JKKN Testing
+   * Institution only (payment_audit_admin role, institution_scope='own').
+   *
+   * Turn OFF after the Razorpay security audit sign-off and rotate/disable the account.
+   */
+  ENABLE_PAYMENT_AUDIT_LOGIN: process.env.NEXT_PUBLIC_ENABLE_PAYMENT_AUDIT_LOGIN === 'true',
 } as const;
 
 // ============================================

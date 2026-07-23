@@ -17,19 +17,25 @@ export function useAttendanceStats(
   academicYearId?: string
 ) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
 
-  // Determine which institution to query
-  // For super admin: undefined = all institutions, specific id = that institution
-  // For regular users: always their own institution
+  // Determine which institution to query.
+  // Anyone who can view all institutions — a super admin OR a role holding the
+  // academic.attendance.dashboard.view_all_institutions permission, both folded
+  // into the `canViewAllInstitutions` flag the page passes in — may query across
+  // institutions; everyone else is scoped to their own. This previously ALSO
+  // required isSuperAdmin, which silently collapsed a scope='all' custom role
+  // (e.g. Executive Admin Officer) back to its own institution even though it held
+  // view_all_institutions — BUG-004284 "can't see all colleges". RLS still
+  // enforces which institutions the caller may actually read.
   const queryInstitutionId =
-    isSuperAdmin && canViewAllInstitutions
+    canViewAllInstitutions
       ? institutionId
       : profile?.institution_id || undefined;
 
-  // For super admin with undefined institutionId, query all institutions
+  // All-institutions viewer with no specific institution picked → query across all
+  // (the service omits the institution filter; RLS scopes the rows).
   const queryAllInstitutions =
-    isSuperAdmin && canViewAllInstitutions && institutionId === undefined;
+    canViewAllInstitutions && institutionId === undefined;
 
   // Format date for query
   const dateString = selectedDate.toISOString().split('T')[0];
@@ -51,7 +57,7 @@ export function useAttendanceStats(
     queryFn: () =>
       AttendanceDashboardService.getTodayAttendanceStats(
         queryAllInstitutions ? undefined : queryInstitutionId,
-        canViewAllInstitutions && isSuperAdmin,
+        canViewAllInstitutions,
         dateString,
         academicYearId
       ),
@@ -68,20 +74,119 @@ export function useAttendanceStats(
 }
 
 /**
+ * Trailing window (days, inclusive of the selected date) the confirmation split
+ * covers. Must exceed window_hours/24 for the "overdue" bucket to be meaningful
+ * (with the default window_hours=48 → 2d, 14d leaves ~12d of overdue headroom).
+ * COUPLING: if an institution ever raises session_feedback.window_hours above
+ * ~336h (14d), overdue would be structurally near-empty within this fixed span —
+ * revisit this constant (or derive it from window_hours) if that policy changes.
+ */
+const SPLIT_WINDOW_DAYS = 14;
+
+/**
+ * Hook for the post-class-feedback attendance-confirmation split.
+ * Same institution scoping as useAttendanceStats. Returns gateMode so the UI can
+ * hide the cards entirely when the policy is 'off'. Visibility-only — never
+ * affects the official attendance %. Covers a rolling SPLIT_WINDOW_DAYS window
+ * ending at the selected date (so "overdue" is not structurally always 0).
+ */
+export function useConfirmationSplit(
+  institutionId?: string,
+  canViewAllInstitutions: boolean = false,
+  selectedDate: Date = new Date(),
+  refreshTrigger: number = 0,
+  // Callers may widen the rolling window. The Feedback Confirmation tab passes 30
+  // so its cards cover the SAME span as the college tables beneath them — before
+  // this, the cards said "last 14 days" while "Responses" underneath was a 30-day
+  // number, and the two looked contradictory. The Statistics tab keeps the 14-day
+  // default, so this is a prop rather than a change to SPLIT_WINDOW_DAYS.
+  windowDays: number = SPLIT_WINDOW_DAYS
+) {
+  const { profile } = useAuth();
+
+  const queryInstitutionId = canViewAllInstitutions
+    ? institutionId
+    : profile?.institution_id || undefined;
+
+  const queryAllInstitutions =
+    canViewAllInstitutions && institutionId === undefined;
+
+  // The split covers a ROLLING window ending at the selected date, not a single
+  // day: with window_hours=48 a single-day (today) view can never produce an
+  // "overdue" mark, making that bucket structurally dead. A trailing window
+  // surfaces the accumulated confirmation gap leadership cares about.
+  // Dates are IST wall-clock via Intl (timeZone Asia/Kolkata) — NOT toISOString()
+  // (UTC) or local getDate (browser-tz-dependent) — because the RPC anchors its
+  // buckets to Asia/Kolkata; correct regardless of the admin's client TZ.
+  const istDate = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  const toDate = istDate(selectedDate);
+  const fromDate = istDate(
+    new Date(selectedDate.getTime() - (windowDays - 1) * 86_400_000)
+  );
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: [
+      'attendance-confirmation-split',
+      queryInstitutionId,
+      queryAllInstitutions,
+      fromDate,
+      toDate,
+      refreshTrigger
+    ],
+    queryFn: () =>
+      AttendanceDashboardService.getConfirmationSplit(
+        fromDate,
+        toDate,
+        queryAllInstitutions ? undefined : queryInstitutionId
+      ),
+    enabled: queryAllInstitutions || !!queryInstitutionId,
+    ...QUERY_CONFIG.DASHBOARD_DATA
+  });
+
+  return {
+    gateMode: data?.gateMode ?? 'off',
+    windowHours: data?.windowHours ?? 48,
+    windowDays,
+    split: data?.split ?? null,
+    isLoading,
+    // Surface both a thrown query error and an RPC-level error the service
+    // caught (which returns split=null) — so the UI can distinguish a load
+    // failure from a genuine empty result instead of showing fake zeros.
+    isError: !!error || !!data?.error,
+    refetch
+  };
+}
+
+/**
  * Hook for fetching pending attendance periods
  */
 export function usePendingAttendance(
   filters: DashboardFilters & { refreshTrigger?: number } = {}
 ) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+
+  // A super admin OR a role holding academic.attendance.dashboard.view_all_institutions
+  // (e.g. Executive Admin Officer, institution_scope='all') may span every college.
+  // Previously this gated on isSuperAdmin alone, which silently collapsed a scope='all'
+  // custom role back to its own institution on the Pending tab — same root cause as
+  // BUG-004284. The service omits the institution filter when none is given and lets
+  // student_attendance RLS scope the rows.
+  const canSeeAllInstitutions =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view_all_institutions');
 
   const { refreshTrigger = 0, ...restFilters } = filters;
 
   // Use provided institution or user's institution
   const queryFilters: DashboardFilters = {
     ...restFilters,
-    userInstitutionId: isSuperAdmin
+    userInstitutionId: canSeeAllInstitutions
       ? restFilters.userInstitutionId
       : profile?.institution_id || undefined
   };
@@ -92,10 +197,12 @@ export function usePendingAttendance(
     error,
     refetch
   } = useQuery({
-    queryKey: ['pending-attendance', queryFilters, refreshTrigger],
+    queryKey: ['pending-attendance', queryFilters, refreshTrigger, canSeeAllInstitutions],
     queryFn: () =>
       AttendanceDashboardService.getTodayPendingAttendance(queryFilters),
-    enabled: !!queryFilters.userInstitutionId,
+    // All-institutions viewers may query with no institution (service omits the
+    // filter, RLS scopes the rows); everyone else still requires their own institution.
+    enabled: canSeeAllInstitutions || !!queryFilters.userInstitutionId,
     // Use REALTIME_DATA config for pending attendance (needs frequent updates)
     ...QUERY_CONFIG.REALTIME_DATA,
     refetchInterval: 2 * 60 * 1000 // Override: 2 minutes for pending attendance
@@ -142,12 +249,26 @@ export function useActiveInstitutions(enabled: boolean = true) {
  */
 export function useAttendanceTrend(institutionId?: string, days: number = 7) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
 
-  // Determine which institution to query
-  const queryInstitutionId = isSuperAdmin
-    ? institutionId
-    : profile?.institution_id;
+  // A super admin OR a role holding academic.attendance.dashboard.view_all_institutions
+  // (e.g. Executive Admin Officer, institution_scope='all') may span every college —
+  // same BUG-004284 fix as the Statistics and Pending tabs. Previously this gated on
+  // isSuperAdmin alone, which silently collapsed a scope='all' custom role back to its
+  // own institution on the Trend tab.
+  const canSeeAllInstitutions =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view_all_institutions');
+
+  const queryInstitutionId = canSeeAllInstitutions
+    ? institutionId // may be undefined → all colleges
+    : profile?.institution_id; // scope='own' pinned to own institution
+
+  // All-colleges viewer with no specific institution picked → query across all.
+  // The service now omits the institution filter when none is given and lets
+  // student_attendance RLS scope the rows; the existing per-day loop then sums
+  // present/total across them into the combined overall %.
+  const canSeeAllUnscoped =
+    canSeeAllInstitutions && institutionId === undefined;
 
   const {
     data: trendData,
@@ -155,10 +276,10 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
     error,
     refetch
   } = useQuery({
-    queryKey: ['attendance-trend', queryInstitutionId, days],
+    queryKey: ['attendance-trend', queryInstitutionId, canSeeAllUnscoped, days],
     queryFn: () =>
-      AttendanceDashboardService.getAttendanceTrend(queryInstitutionId!, days),
-    enabled: !!queryInstitutionId,
+      AttendanceDashboardService.getAttendanceTrend(queryInstitutionId, days),
+    enabled: canSeeAllUnscoped || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
     refetchInterval: 10 * 60 * 1000 // Override: 10 minutes for trend (less frequent)
   });
@@ -176,7 +297,13 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
  */
 export function useAttendanceDashboard() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+
+  // Super admin OR a view_all_institutions role (e.g. Executive Admin Officer,
+  // institution_scope='all') may pick any institution / span all colleges — same
+  // BUG-004284 fix as the Statistics tab. Everyone else is pinned to their own.
+  const canSeeAllInstitutions =
+    isSuperAdmin || canAccess('academic.attendance.dashboard', 'view_all_institutions');
 
   // State for filters and selected institution (for super admin)
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<
@@ -196,7 +323,7 @@ export function useAttendanceDashboard() {
   });
 
   // Get the effective institution ID
-  const effectiveInstitutionId = isSuperAdmin
+  const effectiveInstitutionId = canSeeAllInstitutions
     ? selectedInstitutionId
     : profile?.institution_id;
 

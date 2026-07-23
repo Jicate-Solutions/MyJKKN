@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealthDashboard } from '@/hooks/health/use-health';
+import { useActivePrograms } from '@/hooks/health/use-wellness-programs';
 import { HealthConsentProvider } from '../_components/consent-gate';
 import {
   MOOD_EMOJIS,
@@ -505,31 +506,76 @@ function LeaderboardPositionCard({
 }
 
 // ============================================================================
-// Upcoming health camps placeholder
+// Active wellness programs — live card (replaces the old camps placeholder)
 // ============================================================================
 
-function HealthCampsCard() {
+function WellnessProgramsCard() {
+  const { data: programs, isLoading } = useActivePrograms();
+
   return (
-    <Card className="border-dashed border-teal-200">
+    <Card className="border-teal-200">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2 text-slate-600">
-          <Calendar className="h-4 w-4 text-teal-500" />
-          Upcoming Health Camps
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2 text-slate-600">
+            <Calendar className="h-4 w-4 text-teal-500" />
+            Active Wellness Programs
+          </CardTitle>
+          {!isLoading && programs && programs.length > 0 && (
+            <Link href="/health/programs">
+              <Badge
+                variant="outline"
+                className="text-xs border-teal-200 text-teal-700 bg-teal-50 cursor-pointer hover:bg-teal-100 transition-colors"
+              >
+                See all
+                <ChevronRight className="h-3 w-3 ml-0.5" />
+              </Badge>
+            </Link>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col items-center py-4 text-center gap-2">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-50 border border-teal-100">
-            <Moon className="h-6 w-6 text-teal-400" />
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-14 w-full rounded-xl" />
+            <Skeleton className="h-14 w-full rounded-xl" />
           </div>
-          <p className="text-sm font-medium text-slate-500">
-            No camps scheduled yet
-          </p>
-          <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
-            Health camps, dental checkups, and eye screenings will appear here
-            when your institution schedules them.
-          </p>
-        </div>
+        ) : !programs || programs.length === 0 ? (
+          <div className="flex flex-col items-center py-4 text-center gap-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-50 border border-teal-100">
+              <Moon className="h-6 w-6 text-teal-400" />
+            </div>
+            <p className="text-sm font-medium text-slate-500">
+              No programs running yet
+            </p>
+            <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+              Short daily wellness programs — yoga, mindfulness and well-being —
+              will appear here when your institution launches one.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {programs.slice(0, 3).map((program) => (
+              <Link
+                key={program.id}
+                href={`/health/programs/${program.slug}`}
+                className="flex items-center gap-3 rounded-xl border border-teal-100 bg-teal-50/50 px-3 py-2.5 hover:bg-teal-50 transition-colors"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 border border-emerald-200">
+                  <Activity className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800 truncate">
+                    {program.title}
+                  </p>
+                  {program.theme && (
+                    <p className="text-xs text-slate-400 truncate">{program.theme}</p>
+                  )}
+                </div>
+                <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
+              </Link>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -659,11 +705,20 @@ function HealthDashboardInner() {
       {/* ── 5. Leaderboard position ── */}
       <LeaderboardPositionCard rank={data?.leaderboardRank ?? null} isLoading={false} />
 
-      {/* ── 6. Upcoming health camps ── */}
-      <HealthCampsCard />
+      {/* ── 6. Active wellness programs ── */}
+      <WellnessProgramsCard />
 
-      {/* Bottom breathing room for mobile nav bars */}
-      <div className="h-4" />
+      {/* Bottom breathing room so the last card (Active Wellness Programs —
+          incl. the MindSmile entry) is never hidden behind the fixed mobile
+          bottom navbar. That nav is `min-h-[100px]` + a top border +
+          env(safe-area-inset-bottom) (~120–134px on notched phones), while
+          AdminPanelLayout only adds pb-20 (80px) to <main>. The old h-4 (16px)
+          spacer left the final card covered by the nav, which read as both
+          "can't scroll down anymore" and "MindSmile icon not appearing".
+          h-28 (112px) + the safe-area inset clears the nav on all phones;
+          lg:h-0 drops the gap on desktop where the nav is hidden.
+          Fixes BUG-004237 + BUG-004221. */}
+      <div className="h-28 lg:h-0 pb-[env(safe-area-inset-bottom)]" aria-hidden />
     </div>
   );
 }

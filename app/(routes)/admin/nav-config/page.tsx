@@ -18,7 +18,7 @@
 // commit AFTER M and P (this PR) both merge. Until then this UI is
 // wired but overrides don't take visible effect.
 //
-// Permission: super_admin / admin only (PermissionGuard).
+// Permission: super_admin / admin only (SuperAdminOnly).
 // =====================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -38,7 +38,7 @@ import { toast } from 'sonner';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { PermissionGuard } from '@/components/auth/permission-guard';
+import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
   Card,
   CardContent,
@@ -79,11 +79,11 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 
 // ---------------------------------------------------------------------------
-// Page wrapper — gated by PermissionGuard (super_admin / admin only).
+// Page wrapper — gated by SuperAdminOnly (super_admin / admin only).
 // ---------------------------------------------------------------------------
 export default function AdminNavConfigPage() {
   return (
-    <PermissionGuard module="users" action="manage">
+    <SuperAdminOnly>
       <ContentLayout title="Admin Navigation Overrides">
         <PageBreadcrumb
           items={[
@@ -94,7 +94,7 @@ export default function AdminNavConfigPage() {
         />
         <AdminNavConfigContent />
       </ContentLayout>
-    </PermissionGuard>
+    </SuperAdminOnly>
   );
 }
 
@@ -467,7 +467,7 @@ function OverrideEditorDialog({
                 id="override-href"
                 value={draft.href}
                 onChange={(e) => patch({ href: e.target.value })}
-                placeholder="/admin/notifications/recipients"
+                placeholder="/admin/retention-policies"
                 className="font-mono text-sm"
                 disabled={isEditing /* href = identity, can't change */}
                 aria-invalid={!hrefValid}

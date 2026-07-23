@@ -28,12 +28,14 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useCreateEvent, useSubmitForApproval } from '@/hooks/learners-council/use-lc-events';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { LCEvent, CreateEventDto, EventScope } from '@/types/learners-council';
 
 interface EventProposalsClientProps {
   initialProposals: LCEvent[];
   userId: string;
-  institutionId: string;
+  institutionId: string | null;
+  isSuperAdmin: boolean;
 }
 
 const statusConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -104,13 +106,22 @@ function ApprovalProgress({ event }: { event: LCEvent }) {
 function CreateEventForm({
   userId,
   institutionId,
+  isSuperAdmin,
   onSuccess,
 }: {
   userId: string;
-  institutionId: string;
+  institutionId: string | null;
+  isSuperAdmin: boolean;
   onSuccess: () => void;
 }) {
   const createEvent = useCreateEvent();
+  // Super admins can pick from any institution they can access (or leave blank
+  // for LC-wide events). Non-super-admins are locked to their profile institution.
+  const { institutions: accessibleInstitutions, loading: institutionsLoading } =
+    useInstitutionsWithAccess({ autoFetch: isSuperAdmin });
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>(
+    institutionId ?? '',
+  );
   const [form, setForm] = useState<Partial<CreateEventDto>>({
     title: '',
     description: '',
@@ -136,11 +147,20 @@ function CreateEventForm({
       return;
     }
 
+    // Resolve institution: super admin selection > profile institution > null.
+    // CRITICAL: never send '' as a UUID — Postgres rejects it with 22P02.
+    // See feedback_institution_id_or_empty_string_antipattern.md
+    const resolvedInstitutionId =
+      (selectedInstitutionId || institutionId || null) as string | null;
+
     createEvent.mutate(
       {
         data: {
           ...form,
-          institution_id: institutionId,
+          // Omit the key entirely when null so the service doesn't have to
+          // re-coerce; explicit `null` would also work because the service
+          // does `dto.institution_id || null`.
+          ...(resolvedInstitutionId ? { institution_id: resolvedInstitutionId } : {}),
         } as CreateEventDto,
         userId,
       },
@@ -229,6 +249,31 @@ function CreateEventForm({
           />
         </div>
       </div>
+
+      {isSuperAdmin && (
+        <div className="space-y-2">
+          <Label htmlFor="institution">Institution</Label>
+          <Select
+            value={selectedInstitutionId || '__none__'}
+            onValueChange={(v) => setSelectedInstitutionId(v === '__none__' ? '' : v)}
+          >
+            <SelectTrigger id="institution">
+              <SelectValue placeholder={institutionsLoading ? 'Loading…' : 'Select institution (optional)'} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">LC-Wide (No Institution)</SelectItem>
+              {accessibleInstitutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            As a super admin you may tag the event to a specific institution or leave it LC-wide.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -330,6 +375,7 @@ export function EventProposalsClient({
   initialProposals,
   userId,
   institutionId,
+  isSuperAdmin,
 }: EventProposalsClientProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [proposals, setProposals] = useState(initialProposals);
@@ -374,6 +420,7 @@ export function EventProposalsClient({
             <CreateEventForm
               userId={userId}
               institutionId={institutionId}
+              isSuperAdmin={isSuperAdmin}
               onSuccess={handleCreateSuccess}
             />
           </DialogContent>

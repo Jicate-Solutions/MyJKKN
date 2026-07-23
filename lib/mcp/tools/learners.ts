@@ -9,7 +9,10 @@ export function registerLearnersTool(server: McpServer): void {
     'myjkkn_query_learners',
     'Query learner (student) profiles. Returns student details including enrollment status, department, program, semester, section, roll number, and contact information. Filter by lifecycle status, department, or semester. Students see only their own profile. Faculty see their department students. Admins see all.',
     {
-      lifecycle_status: z.enum(['admitted', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni']).optional()
+      // 2026-05-20: Added 'enquiry', 'enquiry_submitted', 'reserved', 'account'
+      // to align with the workflow realignment. MCP clients can now filter the
+      // full pre-active funnel.
+      lifecycle_status: z.enum(['enquiry', 'enquiry_submitted', 'admitted', 'pending', 'approved', 'account', 'reserved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni']).optional()
         .describe('Filter by student lifecycle status'),
       department_id: z.string().uuid().optional()
         .describe('Filter by department UUID'),
@@ -31,12 +34,12 @@ export function registerLearnersTool(server: McpServer): void {
       try {
         const { page, limit, offset } = parsePagination(params);
 
-        // 2026-05-02 (Phase C-8): selecting FK + program_start_year join in
+        // 2026-05-02 (Phase C-8): selecting FK + admission_years.year join in
         // place of the legacy admission_year integer column. Integer derived
         // in the response shape below for back-compat with existing MCP clients.
         let query = ctx.supabase
           .from('learners_profiles')
-          .select('id, application_id, lifecycle_status, first_name, last_name, gender, institution_id, degree_id, department_id, program_id, semester_id, section_id, academic_year_id, batch_id, roll_number, register_number, college_email, student_email, is_profile_complete, admission_year_id, admission_year_obj:admission_years!admission_year_id(program_start_year), created_at, updated_at', { count: 'exact' });
+          .select('id, application_id, lifecycle_status, first_name, last_name, gender, institution_id, degree_id, department_id, program_id, semester_id, section_id, academic_year_id, batch_id, roll_number, register_number, college_email, student_email, is_profile_complete, admission_year_id, admission_year_obj:admission_years!admission_year_id(year), created_at, updated_at', { count: 'exact' });
 
         query = applyScopeFilters(query, ctx, {
           studentIdColumn: 'id',
@@ -61,9 +64,9 @@ export function registerLearnersTool(server: McpServer): void {
 
         // Derive legacy admission_year integer from FK join; strip helper.
         const items = (data ?? []).map((row: any) => {
-          const ayObj = row.admission_year_obj as { program_start_year?: number } | null;
+          const ayObj = row.admission_year_obj as { year?: number } | null;
           const { admission_year_obj: _, ...rest } = row;
-          return { ...rest, admission_year: ayObj?.program_start_year ?? null };
+          return { ...rest, admission_year: ayObj?.year ?? null };
         });
 
         logMcpToolCall(ctx, 'myjkkn_query_learners', 'learners', 200, startTime);

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useTabParam } from "@/hooks/use-tab-param";
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -70,7 +71,10 @@ const matchingRules = [
   { field: "Address", weight: 5, enabled: false },
 ];
 
+const DEDUPLICATION_TABS = ["duplicates", "rules", "history"] as const;
+
 function DeduplicationPageContent() {
+  const [activeTab, setActiveTab] = useTabParam("duplicates", DEDUPLICATION_TABS);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -323,7 +327,7 @@ function DeduplicationPageContent() {
       </div>
 
       {/* Main Content */}
-      <Tabs defaultValue="duplicates">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="duplicates" className="gap-2">
             <Copy className="h-4 w-4" />
@@ -644,7 +648,9 @@ function DeduplicationPageContent() {
 export default function DeduplicationPage() {
   return (
     <AdmissionErrorBoundary>
-      <DeduplicationPageContent />
+      <Suspense fallback={null}>
+        <DeduplicationPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }
