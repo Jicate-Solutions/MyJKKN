@@ -1,3 +1,30 @@
+## Session: 2026-07-24 (END /cnext) [pane a97f6ecd] — HOD dashboard #2299 SHIPPED+LIVE; 4 designs interviewed (SCF fixes · NotebookLM reframe · pre-session setup · attendance HR review)
+
+### Accomplished
+- **HOD dashboard redesign #2299 — MERGED + DEPLOYED + VERIFIED LIVE.** Built `components/dashboard/hod-zones.tsx` (3 job-shaped zones: NEEDS-YOU / HOW-YOU'RE-DOING / My-Pulse; AI Agency deduped to ONCE), folded in age-aware IST colours (supersedes + closed #2276), migration re-asserted the anon-revoke (unblocked the "lock anon" gate that stalled #2276). Self-gated locally → flipped Ready → 18/18 CI green → prod build clean (1434/1434 static) → Director merged (83e2ece27) → rendered live as HOD Dr. V: 3 zones, AI Agency x1, and the IST rule PROVEN LIVE (marking RED in the ~21:xx evening render vs amber in the ~08:xx morning render — same data, correct time-flip).
+- **4 designs fully interviewed → decisions locked** (full detail in the continuation brief):
+  1. **Session Feedback honesty fixes** — "all complete" banner bug, thin-data exclusion (<3 responses), honest-not-cheerleader summary, per-course breakdown, recalibrate understanding bands (Strong >=4.0), auto-close overdue after ~3-5d. Worktree `.claude/worktrees/scf-fixes` staged at current main. Band SoT = understanding-band.tsx `understandingLevel` (cross-surface — mirrored in 3 `understandingBandWord` copies; Director 2026-07-06 band-not-number).
+  2. **NotebookLM measurement reframe** — replace the saturated yes/no `notebooklm_used` (96.6% yes) with a feature CHECKLIST (audio/video overview, slide deck, mind map, report, flashcards, quiz, infographic, chat) + neutral "None"; BOTH teacher (shared) + student (used) tick; combine with the objective link+opens trace. Keep old field for the 49k historical rows.
+  3. **Pre-session setup** — post NotebookLM link/material before class (any time ahead, opens logged via resource_usage_logs, gentle student heads-up) + Live Pulse pre-build (opens at class-start-once-marked; if never marked, auto-open at class-end without present-gate; move-with-class on reschedule); any teacher of the course can prep.
+  4. **Attendance HR review UI (Rank-2)** — two-stage HOD->HR both-must-agree, practice/shadow first, one-at-a-time, reason-on-both, go-live-reject-leave-by-hand, reopen-on-stronger-evidence, weekly cadence. Substrate live (fn_att_reconcile_propose/review).
+
+### Current Status
+- **HOD dashboard**: LIVE on jkkn.ai (verified rendering as HOD). **Build**: prod green.
+- **Branch (this pane)**: feat/campus-living-fee-compute-engine — other panes' dirty tree + features.json (another pane's active M) left untouched; HOD work shipped via worktree PR #2299.
+- **Backlog**: 4 interviewed designs, NONE built yet. Next session (autobuild) starts with #1.
+
+### Lessons Learned (persisted to memory)
+- Verify an external product's CURRENT features via WebSearch before listing survey/UX options — Jan-2026 cutoff is stale (caught on NotebookLM). [[feedback_verify_live_product_features_before_advising]]
+- SCF understanding band = Director 2026-07-06 SoT, mirrored in 3 AI-route copies; 84% saturate at "Mixed" (sibling of notebooklm_used 96.6% yes) → recalibration is cross-surface. [[reference_scf_understanding_band_and_saturation]]
+
+### Next Session — Tasks (ranked, user-confirmed 2026-07-24)
+1. [P0] Session Feedback honesty fixes -> Draft PR (medium) — worktree scf-fixes ready at current main
+2. [P0] NotebookLM measurement reframe: feature-checklist + neutral None (medium)
+3. [P1] Pre-session setup: post-link-before-class + opens + Live Pulse pre-setup (large)
+4. [P1] Attendance HR review UI: two-stage HOD->HR (large)
+
+---
+
 ## Session: 2026-07-23 (END /cnext) [pane 5d42c851] — ID-CARD SYSTEM LIVE E2E: DB→API→bridge→physical card in 30s
 
 ### Accomplished (full day, both streams)
