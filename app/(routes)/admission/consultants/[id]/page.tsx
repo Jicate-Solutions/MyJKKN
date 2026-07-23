@@ -815,7 +815,7 @@ function ConsultantDetailContent() {
                 <DataTable
                   columns={referralColumns}
                   data={filteredReferrals}
-                  searchPlaceholder="Search by student, program, institution..."
+                  searchPlaceholder="Search by learner, program, institution..."
                   getRowId={(row: any) => row.id}
                   showRefresh={false}
                   tableTools={
