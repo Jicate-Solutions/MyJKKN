@@ -24,6 +24,14 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/improvement-rank-ideas?secret=${CRON_SECRET}",
+      "schedule": "43 4 * * *"
+    },
+    {
+      "path": "/api/cron/improvement-rank-ideas?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "17,47 * * * *"
+    },
+    {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },
@@ -326,6 +334,14 @@
     {
       "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",
       "schedule": "0 6 * * 6"
+    },
+    {
+      "path": "/api/cron/aipulse-prompt-grade?secret=${CRON_SECRET}",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/aipulse-prompt-graduate?secret=${CRON_SECRET}",
+      "schedule": "35 1 * * *"
     },
     {
       "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",

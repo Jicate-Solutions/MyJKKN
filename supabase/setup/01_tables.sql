@@ -824,19 +824,35 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 
 -- Billing Categories (flat, dynamic)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into a single flat table.
+-- Updated: 2026-04-28 - Dropped institution_id; categories are now GLOBAL across all institutions
+--                       (uniqueness is on category_name alone).
+-- Updated: 2026-06-22 - Added `kind` (fee head) — drives Razorpay account routing.
+-- Updated: 2026-08-01 - Added visible_to_learners + collection_type.
 CREATE TABLE IF NOT EXISTS public.billing_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
     category_name VARCHAR(150) NOT NULL,
     amount NUMERIC(15,2),
     frequency VARCHAR(20) NOT NULL,
+    -- Fee head. payment-gateway-service matches this against razorpay_accounts.fee_head,
+    -- so every category sharing a kind settles into the same institution MID.
+    kind billing_category_kind NOT NULL DEFAULT 'other',
     description TEXT,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    -- FALSE = bills/receipt lines in this category are hidden from /learners/my-bills
+    -- and the parent portal. Management side is unaffected (still billable + payable).
+    visible_to_learners BOOLEAN NOT NULL DEFAULT true,
+    -- 'government' = collected on behalf of a government body; excluded from
+    -- management collection totals on the billing dashboards.
+    collection_type TEXT NOT NULL DEFAULT 'management',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
     updated_by UUID,
-    CONSTRAINT uq_billing_categories_name_per_institution UNIQUE (institution_id, category_name)
+    CONSTRAINT uq_billing_categories_name UNIQUE (category_name),
+    CONSTRAINT chk_billing_categories_frequency
+        CHECK (frequency IN ('monthly', 'quarterly', 'yearly', 'one-time')),
+    CONSTRAINT billing_categories_collection_type_chk
+        CHECK (collection_type IN ('management', 'government'))
 );
 
 -- Billing Student Bills

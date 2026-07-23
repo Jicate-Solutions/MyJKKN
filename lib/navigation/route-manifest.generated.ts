@@ -4311,6 +4311,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/improvement-board",
+    "label": "Improvement Board",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/improvement-board/leaderboard",
+        "label": "Leaderboard",
+        "iconName": "Trophy",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/ims",
     "label": "Ims",
     "iconName": "FileText",
