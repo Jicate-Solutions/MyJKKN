@@ -155,10 +155,23 @@ export const columns: ColumnDef<StudentBill>[] = [
       const isUpgradeBill =
         bill.item_category?.category_name === 'Hostel Upgrade Fee' ||
         bill.item_category?.category_name === 'Mess Upgrade Fee';
+      const isGovernment =
+        (bill.item_category as { collection_type?: string } | undefined)
+          ?.collection_type === 'government';
       return (
         <div>
-          <div className='font-medium'>
-            {bill.item_category?.category_name || 'N/A'}
+          <div className='flex items-center gap-1.5'>
+            <span className='font-medium'>
+              {bill.item_category?.category_name || 'N/A'}
+            </span>
+            {isGovernment && (
+              <span
+                className='shrink-0 rounded border border-amber-500 px-1 text-[10px] leading-4 text-amber-700 dark:text-amber-400'
+                title='Collected on behalf of a government body — not management revenue.'
+              >
+                Govt
+              </span>
+            )}
           </div>
           {isUpgradeBill && bill.bill_description && (
             <div className='text-sm text-muted-foreground'>

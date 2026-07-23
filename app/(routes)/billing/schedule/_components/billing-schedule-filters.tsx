@@ -85,7 +85,9 @@ export function BillingScheduleFilters({
   useEffect(() => {
     async function loadCategories() {
       try {
-        const data = await BillingCategoryService.getBillingCategories();
+        // Explicit high limit — getBillingCategories() defaults to limit 10 and
+        // would silently truncate this dropdown to the first 10 of ~22.
+        const data = await BillingCategoryService.getBillingCategories({ limit: 200 });
         setCategories(data.data); // Note: service returns { data, metadata }
       } catch (error) {
         console.error('Error loading categories:', error);
@@ -221,6 +223,7 @@ export function BillingScheduleFilters({
     searchParams.status ||
     searchParams.lifecycle_status ||
     searchParams.item_category_id ||
+    searchParams.collection_type ||
     searchParams.is_recurring ||
     searchParams.amount_from ||
     searchParams.amount_to ||
@@ -443,6 +446,23 @@ export function BillingScheduleFilters({
                 {category.category_name}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        {/* Ownership of the fee — lets Accounts pull a government-only ledger. */}
+        <Select
+          value={searchParams.collection_type || 'all'}
+          onValueChange={(value) =>
+            onFilterChange('collection_type', value === 'all' ? undefined : value)
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[160px]'>
+            <SelectValue placeholder='Collection' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Collections</SelectItem>
+            <SelectItem value='management'>Management</SelectItem>
+            <SelectItem value='government'>Government</SelectItem>
           </SelectContent>
         </Select>
 

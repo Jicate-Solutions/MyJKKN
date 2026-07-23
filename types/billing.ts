@@ -23,7 +23,17 @@ export type BillingCategoryKind =
   | 'library'
   | 'other'
   | 'university_fee'
+  | 'mess'
   | 'establishment';
+
+/**
+ * Who the money ultimately belongs to.
+ *
+ * 'government' fees are collected ON BEHALF OF a government body — the cash passes
+ * through the institution but is not management revenue, so the billing dashboards
+ * report it as its own bucket. See `billing_categories.collection_type`.
+ */
+export type BillingCollectionType = 'management' | 'government';
 
 export interface BillingCategory {
   id: string;
@@ -33,6 +43,13 @@ export interface BillingCategory {
   kind: BillingCategoryKind;
   description: string | null;
   is_active: boolean;
+  /**
+   * false = this category's bills and receipt lines are hidden from the learner
+   * side (/learners/my-bills + parent portal). It stays fully billable, payable
+   * and visible to Accounts — this is a learner-presentation gate only.
+   */
+  visible_to_learners: boolean;
+  collection_type: BillingCollectionType;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -49,6 +66,11 @@ export interface CreateBillingCategoryDto {
   kind: BillingCategoryKind;
   description?: string | null;
   is_active?: boolean;
+  /** Defaults to true (visible) when omitted. */
+  visible_to_learners?: boolean;
+  // Required so a fee collected for a government body is never silently booked
+  // as management revenue — same reasoning as `kind` above.
+  collection_type: BillingCollectionType;
 }
 
 export interface UpdateBillingCategoryDto
@@ -58,6 +80,8 @@ export interface BillingCategoryFilters {
   search?: string;
   frequency?: BillingCategoryFrequency;
   isActive?: boolean;
+  collectionType?: BillingCollectionType;
+  visibleToLearners?: boolean;
   page?: number;
   limit?: number;
   // Server-side sort (consumed by the advanced DataTable's sortable column headers).
