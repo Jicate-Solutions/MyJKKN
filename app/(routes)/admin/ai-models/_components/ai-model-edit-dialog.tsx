@@ -52,6 +52,10 @@ interface FeatureRow {
   // high-volume warning (D4).
   lane?: string | null;
   month_to_date_invocations?: number;
+  // UNIFICATION follow-up (2026-07-23): false → this registry job has no model
+  // yet (provider/model_id are ''); the dialog runs in "set for the first time"
+  // mode (empty picker, POSTs to the upserting PATCH which creates the row).
+  model_set?: boolean;
 }
 
 // Anthropic's provider id in the AI provider registry (ai-providers.ts) — the
@@ -76,7 +80,9 @@ interface FormState {
 }
 
 function buildFormState(f: FeatureRow | null): FormState {
-  let provider = f?.provider ?? 'openai';
+  // Empty string = a model-less registry job governed for the first time
+  // (UNIFICATION follow-up) — treat as unset so the picker forces a fresh pick.
+  let provider = f?.provider || 'openai';
   let model_id = f?.model_id ?? '';
   // D3: a Max-lane feature can only run on the subscription Claude worker, so
   // the provider is locked to Anthropic. If a max-lane row is somehow stored on
@@ -211,7 +217,9 @@ export function AiModelEditDialog({
         throw new Error(payload.error ?? `HTTP ${res.status}`);
       }
 
-      toast.success(`${feature.display_name} updated.`);
+      toast.success(
+        `${feature.display_name} ${feature.model_set === false ? 'model set' : 'updated'}.`,
+      );
       onSaved();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed.';
@@ -225,7 +233,13 @@ export function AiModelEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle>{feature ? `Edit: ${feature.display_name}` : 'Edit AI model'}</DialogTitle>
+          <DialogTitle>
+            {feature
+              ? feature.model_set === false
+                ? `Set a model: ${feature.display_name}`
+                : `Edit: ${feature.display_name}`
+              : 'Edit AI model'}
+          </DialogTitle>
           <DialogDescription>
             Pick which provider and model run this feature. The change takes effect within
             60 seconds (or sooner — the cache invalidates immediately on save).
