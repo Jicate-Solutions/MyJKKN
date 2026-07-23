@@ -44,7 +44,7 @@ export function MyConfirmedAttendanceCard() {
         <CardContent className="flex items-start gap-3 py-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" style={{ color: BRAND }} />
           <div className="text-sm">
-            <p className="font-medium">Tracking feedback for your classes starts fresh from {fmtDate(enforcement_start)}. Your attendance itself is unaffected.</p>
+            <p className="font-medium">Tracking feedback for your sessions starts fresh from {fmtDate(enforcement_start)}. Your attendance itself is unaffected.</p>
             <p className="text-muted-foreground">
               From now on, a class counts as <strong>feedback given</strong> once you give the
               quick 10-second feedback <strong>within {CONFIRM_WINDOW_HOURS} hours</strong> of it.
