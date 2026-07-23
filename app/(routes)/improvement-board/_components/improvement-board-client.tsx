@@ -39,6 +39,35 @@ interface ImprovementBoardClientProps {
   initialIdeas: ImprovementIdeaEnriched[];
 }
 
+/**
+ * Board ordering = "AI ranks, humans adjust" (spec decision 3):
+ *   1. a human-set `score` wins (facilitators + CEO adjust priority) — higher first
+ *   2. else the latest AI rank (1 = highest priority)
+ *   3. else newest first.
+ * Ideas a facilitator has scored float above unscored ones, so a human override
+ * is always visible over the AI's suggestion.
+ */
+function byPriority(
+  a: ImprovementIdeaEnriched,
+  b: ImprovementIdeaEnriched
+): number {
+  const as = a.score;
+  const bs = b.score;
+  if (as != null || bs != null) {
+    if (as == null) return 1;
+    if (bs == null) return -1;
+    if (bs !== as) return bs - as;
+  }
+  const ar = a.ai_rank;
+  const br = b.ai_rank;
+  if (ar != null || br != null) {
+    if (ar == null) return 1;
+    if (br == null) return -1;
+    if (ar !== br) return ar - br;
+  }
+  return (b.created_at || '').localeCompare(a.created_at || '');
+}
+
 export function ImprovementBoardClient({
   userId,
   initialAreas,
@@ -81,7 +110,10 @@ export function ImprovementBoardClient({
     () =>
       BOARD_COLUMNS.map((col) => ({
         ...col,
-        items: visibleIdeas.filter((i) => i.status === col.status)
+        items: visibleIdeas
+          .filter((i) => i.status === col.status)
+          .slice()
+          .sort(byPriority)
       })),
     [visibleIdeas]
   );
@@ -217,6 +249,22 @@ export function ImprovementBoardClient({
                             <Badge variant="outline" className="text-xs">
                               {idea.area_label}
                             </Badge>
+                          )}
+
+                          {idea.ai_rank != null && (
+                            <div className="space-y-1">
+                              <Badge
+                                variant="outline"
+                                className="border-primary/25 bg-primary/10 text-primary text-xs"
+                              >
+                                AI priority #{idea.ai_rank}
+                              </Badge>
+                              {idea.ai_rank_reason && (
+                                <p className="text-muted-foreground line-clamp-2 text-xs italic">
+                                  {idea.ai_rank_reason}
+                                </p>
+                              )}
+                            </div>
                           )}
 
                           <div className="flex items-center justify-between pt-1">

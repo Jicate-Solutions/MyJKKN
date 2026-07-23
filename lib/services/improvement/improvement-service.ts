@@ -91,11 +91,29 @@ export interface ImprovementIdea {
   updated_at: string;
 }
 
+/** A row from the `improvement_idea_latest_ranking` view — the most recent AI
+ *  prioritisation run's entry for one idea (PR-2). */
+export interface ImprovementIdeaRanking {
+  idea_id: string;
+  rank: number;
+  reason: string | null;
+  impact: number | null;
+  feasibility: number | null;
+  strategic_fit: number | null;
+  model: string | null;
+}
+
 /** An idea decorated with the display fields the UI needs. */
 export interface ImprovementIdeaEnriched extends ImprovementIdea {
   area_label: string | null;
   area_key: string | null;
   author_name: string | null;
+  // Latest AI ranking (PR-2) — null until a ranking run has scored the idea.
+  ai_rank: number | null;
+  ai_rank_reason: string | null;
+  ai_impact: number | null;
+  ai_feasibility: number | null;
+  ai_strategic_fit: number | null;
 }
 
 /** A row from `improvement_idea_activity`. */
@@ -214,12 +232,13 @@ export class ImprovementService {
       const ideas = data || [];
       if (ideas.length === 0) return [];
 
-      const [areaMap, authorMap] = await Promise.all([
+      const [areaMap, authorMap, rankMap] = await Promise.all([
         this.areaLabelMap(ideas.map((i) => i.area_id)),
-        this.fetchProfileNames(ideas.map((i) => i.author_id))
+        this.fetchProfileNames(ideas.map((i) => i.author_id)),
+        this.fetchLatestRankings(ideas.map((i) => i.id))
       ]);
 
-      return ideas.map((i) => this.enrichIdea(i, areaMap, authorMap));
+      return ideas.map((i) => this.enrichIdea(i, areaMap, authorMap, rankMap));
     } catch (error) {
       logger.error(MODULE, 'Error fetching ideas', error);
       return [];
@@ -238,11 +257,12 @@ export class ImprovementService {
       if (error) throw error;
       if (!data) return null;
 
-      const [areaMap, authorMap] = await Promise.all([
+      const [areaMap, authorMap, rankMap] = await Promise.all([
         this.areaLabelMap([data.area_id]),
-        this.fetchProfileNames([data.author_id])
+        this.fetchProfileNames([data.author_id]),
+        this.fetchLatestRankings([data.id])
       ]);
-      return this.enrichIdea(data, areaMap, authorMap);
+      return this.enrichIdea(data, areaMap, authorMap, rankMap);
     } catch (error) {
       logger.error(MODULE, `Error fetching idea ${id}`, error);
       return null;
@@ -475,17 +495,50 @@ export class ImprovementService {
     return map;
   }
 
+  /** Fetch a { idea_id -> latest ranking } map from the security_invoker view.
+   *  The view is RLS-scoped to ideas the viewer can see, so a caller only ever
+   *  gets ranks for ideas already in its result set. */
+  private static async fetchLatestRankings(
+    ideaIds: (string | null)[]
+  ): Promise<Map<string, ImprovementIdeaRanking>> {
+    const map = new Map<string, ImprovementIdeaRanking>();
+    const unique = Array.from(new Set(ideaIds.filter((v): v is string => !!v)));
+    if (unique.length === 0) return map;
+
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any)
+      .from('improvement_idea_latest_ranking')
+      .select('idea_id, rank, reason, impact, feasibility, strategic_fit, model')
+      .in('idea_id', unique)) as {
+      data: ImprovementIdeaRanking[] | null;
+      error: any;
+    };
+    if (error) {
+      logger.warn(MODULE, 'Failed to resolve latest rankings', error);
+      return map;
+    }
+    for (const r of data || []) map.set(r.idea_id, r);
+    return map;
+  }
+
   private static enrichIdea(
     idea: ImprovementIdea,
     areaMap: Map<string, { label: string | null; key: string | null }>,
-    authorMap: Map<string, string | null>
+    authorMap: Map<string, string | null>,
+    rankMap: Map<string, ImprovementIdeaRanking>
   ): ImprovementIdeaEnriched {
     const area = idea.area_id ? areaMap.get(idea.area_id) : undefined;
+    const ranking = rankMap.get(idea.id);
     return {
       ...idea,
       area_label: area?.label ?? null,
       area_key: area?.key ?? null,
-      author_name: idea.author_id ? authorMap.get(idea.author_id) ?? null : null
+      author_name: idea.author_id ? authorMap.get(idea.author_id) ?? null : null,
+      ai_rank: ranking?.rank ?? null,
+      ai_rank_reason: ranking?.reason ?? null,
+      ai_impact: ranking?.impact ?? null,
+      ai_feasibility: ranking?.feasibility ?? null,
+      ai_strategic_fit: ranking?.strategic_fit ?? null
     };
   }
 }

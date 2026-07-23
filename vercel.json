@@ -24,6 +24,14 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/improvement-rank-ideas?secret=${CRON_SECRET}",
+      "schedule": "43 4 * * *"
+    },
+    {
+      "path": "/api/cron/improvement-rank-ideas?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "17,47 * * * *"
+    },
+    {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },
