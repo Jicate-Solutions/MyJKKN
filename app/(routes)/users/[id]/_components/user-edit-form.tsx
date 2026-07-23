@@ -32,6 +32,7 @@ import { Institution } from '@/types/organizations';
 import { UserService } from '@/lib/services/users/user-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useImsStoresForAssignment } from '@/hooks/ims/use-ims-stores';
 import { UpdateUserRequest } from '@/types/users';
 import { BeatLoader } from 'react-spinners';
 import { Save, User, Building2, Shield, Settings } from 'lucide-react';
@@ -43,6 +44,7 @@ const formSchema = z.object({
   role: z.string().min(1, 'Please select a role'),
   institution_id: z.string(),
   department_id: z.string().nullable(),
+  assigned_store_id: z.string().nullable(),
   designation: z.string().nullable(),
   bio: z.string().nullable(),
   gender: z.enum(['male', 'female', 'other', 'prefer_not_to_say']).nullable(),
@@ -65,6 +67,8 @@ export function UserEditForm({ user }: UserEditFormProps) {
   const [rolesLoading, setRolesLoading] = useState(true);
   const [institutionsLoading, setInstitutionsLoading] = useState(true);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const { data: stores = [], isLoading: storesLoading } =
+    useImsStoresForAssignment();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -75,6 +79,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
       role: user.role || '',
       institution_id: user.institution_id || 'none',
       department_id: user.department_id || 'none',
+      assigned_store_id: user.assigned_store_id || 'none',
       designation: user.designation || '',
       bio: user.bio || '',
       gender: user.gender || null,
@@ -159,11 +164,18 @@ export function UserEditForm({ user }: UserEditFormProps) {
         email: data.email,
         full_name: data.full_name,
         phone_number: data.phone_number || null,
-        role: data.role,
+        // Only send `role` when it actually changed. PATCH /api/users/[id]
+        // deletes ALL of a user's user_roles rows and replaces them with a
+        // single role whenever body.role differs from the stored value — so a
+        // multi-role user would silently lose their extra roles on any save
+        // that echoed the role back. Omitting it makes that path unreachable.
+        ...(data.role !== user.role ? { role: data.role } : {}),
         institution_id:
           data.institution_id === 'none' ? null : data.institution_id,
         department_id:
           data.department_id === 'none' ? null : data.department_id,
+        assigned_store_id:
+          data.assigned_store_id === 'none' ? null : data.assigned_store_id,
         designation: data.designation || null,
         bio: data.bio || null,
         gender: data.gender || null,
@@ -339,7 +351,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Building2 className='h-5 w-5' />
-                Institution & Role
+                Institution, Role & Store
               </CardTitle>
             </CardHeader>
             <CardContent className='space-y-4'>
@@ -470,6 +482,49 @@ export function UserEditForm({ user }: UserEditFormProps) {
                           )}
                         </SelectContent>
                       </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='assigned_store_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Assigned Store</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || 'none'}
+                        disabled={storesLoading || loading}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue
+                              placeholder={
+                                storesLoading
+                                  ? 'Loading stores...'
+                                  : 'Select store (optional)'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='none'>No store assigned</SelectItem>
+                          {stores.map((store) => (
+                            <SelectItem key={store.id} value={store.id}>
+                              {store.name}
+                              <span className='ml-2 text-xs text-muted-foreground'>
+                                {store.code}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        The IMS store this user manages. Takes priority over
+                        institution-based auto-resolution when they open IMS.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
