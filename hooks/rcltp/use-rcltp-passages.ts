@@ -80,6 +80,21 @@ export function useRcltpQuestions(filters: RcltpPartBQuestionFilters = {}) {
   });
 }
 
+/**
+ * Learner-safe questions read for the take-the-assessment flow. Uses the SECURITY
+ * DEFINER RPC (answer key omitted) instead of a base-table select. Never use
+ * useRcltpQuestions in a learner surface — it puts correct_answer on the wire.
+ */
+export function useRcltpQuestionsForTake(passageId: string) {
+  return useQuery({
+    queryKey: [...rcltpQuestionKeys.all, 'for-take', passageId] as const,
+    queryFn: () => RcltpPassagesService.getQuestionsForTake(passageId),
+    enabled: !!passageId,
+    placeholderData: (prev) => prev,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
 export function useRcltpPassageExposure(filters: RcltpPassageExposureFilters = {}) {
   return useQuery({
     queryKey: rcltpExposureKeys.list(filters),
