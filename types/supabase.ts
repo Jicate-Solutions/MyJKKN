@@ -12037,6 +12037,7 @@ export type Database = {
         Row: {
           amount: number | null
           category_name: string
+          collection_type: string
           created_at: string | null
           created_by: string | null
           description: string | null
@@ -12046,10 +12047,12 @@ export type Database = {
           kind: Database["public"]["Enums"]["billing_category_kind"]
           updated_at: string | null
           updated_by: string | null
+          visible_to_learners: boolean
         }
         Insert: {
           amount?: number | null
           category_name: string
+          collection_type?: string
           created_at?: string | null
           created_by?: string | null
           description?: string | null
@@ -12059,10 +12062,12 @@ export type Database = {
           kind?: Database["public"]["Enums"]["billing_category_kind"]
           updated_at?: string | null
           updated_by?: string | null
+          visible_to_learners?: boolean
         }
         Update: {
           amount?: number | null
           category_name?: string
+          collection_type?: string
           created_at?: string | null
           created_by?: string | null
           description?: string | null
@@ -12072,6 +12077,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["billing_category_kind"]
           updated_at?: string | null
           updated_by?: string | null
+          visible_to_learners?: boolean
         }
         Relationships: [
           {

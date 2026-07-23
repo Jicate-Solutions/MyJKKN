@@ -1348,8 +1348,11 @@ function ItemsEditor({
                     <div className="text-sm font-medium truncate">
                       {cat?.category_name ?? 'Unknown category'}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {cat?.frequency}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs text-muted-foreground">
+                        {cat?.frequency}
+                      </span>
+                      <CategoryTraitBadges category={cat} />
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -1449,6 +1452,9 @@ function ItemsEditor({
                         ({c.frequency}
                         {c.amount != null ? ` · default ₹${c.amount}` : ''})
                       </span>
+                      <span className="inline-flex items-center gap-1 ml-2 align-middle">
+                        <CategoryTraitBadges category={c} />
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1490,6 +1496,42 @@ function ItemsEditor({
 
 function categoryName(categories: BillingCategory[], id: string): string {
   return categories.find((c) => c.id === id)?.category_name ?? id;
+}
+
+/**
+ * Read-only markers for the two category traits that change what happens AFTER
+ * this structure is billed — a government fee is reported outside management
+ * collection, and a learner-hidden fee never shows in the learner's My Bills.
+ * Surfaced here so whoever builds a fee structure sees it before adding the item.
+ */
+function CategoryTraitBadges({ category }: { category?: BillingCategory }) {
+  if (!category) return null;
+  const isGovernment = category.collection_type === 'government';
+  const isHidden = category.visible_to_learners === false;
+  if (!isGovernment && !isHidden) return null;
+
+  return (
+    <>
+      {isGovernment && (
+        <Badge
+          variant="outline"
+          className="border-amber-500 text-amber-700 dark:text-amber-400 text-[10px] px-1.5 py-0"
+          title="Collected on behalf of a government body — reported separately from management collection."
+        >
+          Government
+        </Badge>
+      )}
+      {isHidden && (
+        <Badge
+          variant="outline"
+          className="border-muted-foreground/40 text-muted-foreground text-[10px] px-1.5 py-0"
+          title="Learners never see this fee in My Bills. Accounts still bill and collect it."
+        >
+          Hidden from learners
+        </Badge>
+      )}
+    </>
+  );
 }
 
 // ===========================================================================
