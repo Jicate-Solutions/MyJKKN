@@ -1,3 +1,21 @@
+## Session: 2026-07-23 — Import UPLOAD SCREEN built = PR #2296. Referral machine COMPLETE end-to-end.
+
+### Shipped
+- **PR #2296** (feat/referral-import-upload) — 609 additions, 0 deletions. The upload screen + enrich/promote engine.
+- Migration 20260723090000 (APPLIED to prod): fn_enrich (enrolment_status D33, amount_owed D37/D38, existing_referrer_id D36) + fn_promote (SENIOR-gated write: write-once attribution, conflict→dispute never overwrite D36, already-paid→paid ledger D34, registrar worklist=matched rows w/ enrolment_status=registrar D25).
+- **PROVEN on prod rolled-back**: write-once set referrer + auto-attribution, conflict NOT overwritten + disputed, already-paid→paid record, owed=agreed−paid=2000, enrolment computed. Zero residue.
+- Also applied staging migration 20260722090000 (was never applied — my earlier PR desc overstated; the validator was only temp-table proven). Now live.
+- UI /admission/consultants/import: parse xlsx client-side, refuse wrong-column file (D23), validate+enrich, bucketed report w/ studying-status+owed inline, D39 high-mismatch warning, SENIOR approve (D35). Example rows auto-ignored.
+
+### THE MACHINE IS COMPLETE (4 PRs, all awaiting Director merge)
+import file→validate→approve→attribution (#2296) · set rates→generate→approve→payout batch→review→approve→pay (#2258+#2261) · approve-button fix (#2219 merged) · entry_date (#2220 merged).
+Every DB step proven on real data. All engines applied to prod, DORMANT (admin-gated, dry-run/no-rates, senior-gated writes).
+
+### Open PRs for Director: #2258 (green), #2261 (18/18 green), #2296 (new). Merge all → deploy → browser-verify /import, /referral-rates, /payouts.
+### Still Director-blocked: real rates, claims file, bank/PAN for ~26 agencies, 4 approver names, already-paid list.
+### Cleanup TODO: delete superseded broken TS calculateCommission + createPayoutBatch (0 callers).
+
+---
 ## Session: 2026-07-23 — Upload-screen interview complete (D33-D40) + the conflict "no evidence" finding
 
 ### The important finding (user pushed for depth on the conflict edge case)
@@ -17,6 +35,44 @@ D33 show enrolment status inline (green attendance/feedback vs amber registrar) 
 ### Still Director-blocked: real rates, claims file, bank/PAN for ~26 agencies, 4 approver names, the already-paid list.
 
 ---
+## Session: 2026-07-23 (End /cnext) [RCLTP] — remedial-plan loop Slices 2-5 SHIPPED+MERGED; AI-Max RUN bug found (async ₹0 path broken, fix confirmed)
+
+### Accomplished
+- **Remedial-plan loop Slices 2-5 BUILT + PROVEN + MERGED** (PR #2293, merged to jicate/main; NOT deployed — Director stopped deploy).
+  - Slice 2 (generation): `lib/services/rcltp/remedial-plan-service.ts` (ground at-risk learner's real RCLTP data → English prompt → parse → recordDraft via fn_rcltp_remedial_plan_ai_draft_upsert); async ₹0 Max-lane enqueue + synchronous direct path (generate_now). Enqueue endpoint `POST /api/rcltp/remedial-plans/enqueue` (rcltp.review+institution gated). Collect cron `GET /api/cron/rcltp-remedial-plan-generate` (30-min in vercel.json). Migration `20260723070000_rcltp_remedial_plan_enqueue_rpc.sql` (fn_rcltp_remedial_plan_enqueue, service_role, anon-locked) — applied to prod.
+  - Slice 3 (UI): `/rcltp/teacher/remedial-plans` page + review dialog (shows ai_draft, fully editable, Approve→fn_rcltp_remedial_plan_approve captures edited_content). Migration `20260723073000_rcltp_at_risk_learners_rpc.sql` (fn_rcltp_at_risk_learners — **rcltp.review-gated**, decoupled from principal dashboard's report.view_all which faculty DON'T hold) — applied to prod. Tool card + route-manifest chip.
+  - Slice 4 (proof): grounded draft for [TEST] Priya (focus areas map to her actual missed umbrella questions); enqueue→queued row+ai_job; approve as faculty anithaarulmary → status=approved + edited_content≠ai_draft (5 activities→2). At-risk RPC allows reviewer/denies student 42501. **Browser render proof**: screenshot of the page + review dialog as anithaarulmary (viewport-only, fullPage:false avoids the Turbopack deadlock).
+  - Slice 5 (PR): #2293 flipped Ready → all CI gates green on non-draft (TypeCheck/terminology/reachability/Visual Proof) → Director merged.
+- **EKSAQ→MyJKKN spec rename** — PR #2298 OPEN+GREEN (docs-only): renamed 3 `specs/eksaq-rcltp-*.md`→`myjkkn-rcltp-*.md` + swept content + fixed 4 JKKN terms the sweep pulled into the diff. Cosmetic (zero user-facing EKSAQ remains anywhere).
+- **🔴 CRITICAL FINDING — the AI-Max RUN is BROKEN for remedial plans.** The Windows Max seat CLAIMED the enqueued job (claimed_by='windows') and ERRORED in 3s: `"missing required input(s): learner_id"`. Root cause: my Slice-1 input_schema declares `learner_id required=true`, but enqueueJobsLane sends `payload={prompt,_ctx}` (data in _ctx, not top-level). The seat validates required inputs against payload top-level → fails before calling Claude. The direct-path proof MASKED this (it bypasses the seat's validation). **So the ₹0 async lane — the whole point of "give Senior Learners their time back via AI Max" — does not work yet.** Fix CONFIRMED (see below).
+
+### Current Status
+- **Feature**: remedial-plan loop — code MERGED to main; **NOT deployed** (dark on jkkn.ai); **async ₹0 path BROKEN** (Max-seat input_schema error). Direct path works.
+- **Build**: PR #2293 merged green. PR #2298 open green. Main's last Vercel Production build = Ready (predates the merge → merge not yet deployed).
+- **Branch**: work shipped via worktree `.claude/worktrees/rcltp-remedial`. Migrations already applied to prod (deploy ships code, not migrations).
+
+### Lessons Learned
+- 🔴 **{{prompt}}-glue Max jobs need input_schema = prompt-only** — declaring domain keys required makes the Windows seat error "missing required input" before running the model. Direct-path proof ≠ async-lane proof. See [[reference_aimax_offload_job_build_pattern]].
+- MyJKKN runs `strictNullChecks:false` → discriminated-union `{ok:true}|{ok:false}` false-branch narrowing DOESN'T work → use FLAT result types (`{ok:boolean; ...optional}`). CI PR-scoped gate only fails on TOUCHED files (baseline errors ignored).
+- `.env.production.local`/`.env.local` values carry a LITERAL `\n` suffix → strip `\\n` or the Supabase client silently returns 0 rows (RLS applied, looks like "no data"). Persona harness strips it; a raw dev-server needs CLI-injected clean vars.
+- Delta terminology gate REACTIVATES on token sweeps (EKSAQ→MyJKKN pulled pre-existing students/teachers lines into the diff → flagged). It's BLOCKING (exit 1). Comment lines (`//`) are skipped; .md prose is checked.
+- Turbopack dev headless SCREENSHOT deadlocks on fullPage:true; `fullPage:false` (viewport) works. text-eval always works.
+
+### Next Session — Tasks (user-ranked verbatim, /cnext interview 2026-07-23 — picked ALL, carry all forward)
+1. [P0] **Fix the AI-Max run** — `UPDATE ai_job_types SET input_schema='[{"key":"prompt","type":"textarea","label":"Assembled prompt","required":true}]'::jsonb WHERE job_type='rcltp.remedial_plan_draft';` then RE-ENQUEUE a job for a [TEST] at-risk learner + watch the Windows Max seat drain it to status='done' → collect writes the draft. Proves the ₹0 async lane E2E (not just the direct path). (small)
+2. [P0] **Deploy the loop live** — /deploy-myjkkn (Step -1 audit main build → fire hook → verify /rcltp/teacher/remedial-plans on jkkn.ai). Currently merged-but-dark. (small)
+3. [P1] **Next offload: question-generation** — `rcltp.question_generation` is BUILT (app/api/rcltp/questions/generate/route.ts + teacher/questions review console) but DISABLED (enabled=false). Verify it works (same input_schema gotcha?) then enable. The next "give Senior Learners time back" win. (medium)
+4. [P1] **Merge spec-rename PR #2298** (docs-only, green). (trivial)
+5. [P2] Adoption (non-code, binding constraint) — get REAL Nattraja grade 3-4 learners scored in RCLTP; the loop has no fuel until real learners exist.
+
+### Key ids / creds
+- Nattraja institution `29c221d1-b918-4c46-9d67-857273b0b553`; Senior-Learner reviewer `anithaarulmary@jkkn.ac.in` (faculty, rcltp.review, uid 27dbf063-70a1-4afa-b040-853fb7d0bb28); principal `vidhyalyaprincipal@jkkn.ac.in`.
+- At-risk [TEST] cohort: low_band Priya/Gowri/Chitra/Lakshmi · regression Deepa/Karthik/Omar. Priya (c0ffee00-…-016) = approved; Deepa (c0ffee00-…-004) = draft.
+- Errored Max job: `9110f562-e232-466c-83b1-1bc606a686da` (the input_schema receipt).
+- Clean-env loader + apply_sql.py in scratchpad `/private/tmp/claude-501/-Users-omm-PROJECTS-MyJKKN/69a013b7-8ca0-4744-952c-276df1f29709/scratchpad/`.
+
+---
+
 ## Session: 2026-07-23 (End /cnext) [RCLTP] — 4 P0s closed + EKSAQ→MyJKKN shipped + remedial-plan loop Slice 1 live
 
 ### Accomplished

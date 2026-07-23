@@ -1,0 +1,49 @@
+TASK: Priority #1 is "Fix the AI-Max run." The RCLTP remedial-plan offload job (`rcltp.remedial_plan_draft`) is enqueued onto the ₹0 Windows AI-Max lane, but the Windows Max seat CLAIMS the job and ERRORS in ~3s with `"missing required input(s): learner_id"` — it never calls Claude. Root cause: the Slice-1 `ai_job_types.input_schema` declares `learner_id required=true`, but `enqueueJobsLane` sends `payload={prompt,_ctx}` with the domain data inside `_ctx`, not top-level, so the seat's required-input validation fails fast. Every working `{{prompt}}`-glue job (curriculum.lesson_spine_generate, pde.case_author, scf.*) uses `input_schema` = prompt-only. The fix is a one-line `ai_job_types.input_schema` UPDATE to prompt-only, then RE-ENQUEUE a real job for a `[TEST]` at-risk learner and watch the Windows Max seat drain it to `status='done'` → the collect cron writes the `status='draft'` row. This proves the ₹0 async lane end-to-end — the direct/synchronous path already works but BYPASSES the seat's validation, so it masked this bug. Fixing this is what actually gives Senior Learners their learning-studio time back for free.
+
+PROJECT: /Users/omm/PROJECTS/MyJKKN
+WORKTREE (build here, off jicate/main): /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/rcltp-remedial
+DATABASE: Supabase prod ref kvizhngldtiuufknvehv; Management API token ~/.supabase/access-token (USE A NON-DEFAULT User-Agent header — Cloudflare 403s python-urllib; curl's default is allowed). service key + ANTHROPIC_API_KEY + CRON_SECRET live in /Users/omm/PROJECTS/MyJKKN/.env.production.local (values carry a LITERAL `\n` suffix — STRIP `\\n` or the Supabase client silently returns 0 rows, looking like "no data"). Clean-env loader + `apply_sql.py` (UA-patched, dryrun|apply, COMMIT→ROLLBACK to dry-run) in scratchpad /private/tmp/claude-501/-Users-omm-PROJECTS-MyJKKN/69a013b7-8ca0-4744-952c-276df1f29709/scratchpad/
+PROGRESS: /Users/omm/PROJECTS/MyJKKN/progress.txt (TOP block is this session — exact fix SQL, all ids, ranked tasks, lessons)
+
+CURRENT STATE: Remedial-plan loop code MERGED (PR #2293 → jicate/main) but NOT deployed (dark on jkkn.ai; main's last Vercel Production build predates the merge). Async ₹0 Max-lane path BROKEN (input_schema error); direct/synchronous path works. All migrations already applied to prod (deploy ships CODE, not migrations). PR #2298 (docs-only EKSAQ→MyJKKN spec rename) OPEN + green. `rcltp.question_generation` BUILT but `enabled=false`. 0 REAL Nattraja learners scored — all synthetic `[TEST]`.
+
+VERIFY CURRENT STATE (read-only, run BEFORE any work):
+(a) Query `ai_jobs` for job `9110f562-e232-466c-83b1-1bc606a686da` — confirm status='error', error still `"missing required input(s): learner_id"`, claimed_by='windows'.
+(b) Query `ai_job_types.input_schema WHERE job_type='rcltp.remedial_plan_draft'` — confirm it STILL declares `learner_id required=true` (i.e. the fix has NOT been applied).
+(c) Confirm PR #2293 merged: `git fetch jicate main && git ls-tree jicate/main -r --name-only | grep -i 'rcltp/remedial'` shows the merged service/route files.
+(d) Check main's latest Vercel Production build status (Ready but predates merge = still dark).
+If reality differs from any of these → STOP and report; do not proceed on stale assumptions.
+
+WHAT NEEDS TO HAPPEN (ranked; #1 and #4 are independent of #2/#3):
+1. [P0] Fix the AI-Max run — apply: `UPDATE ai_job_types SET input_schema='[{"key":"prompt","type":"textarea","label":"Assembled prompt","required":true}]'::jsonb WHERE job_type='rcltp.remedial_plan_draft';` Then re-enqueue a job for a `[TEST]` at-risk learner (Deepa `c0ffee00-0000-4000-8000-000000000004`, or a low_band with no existing draft — Gowri/Chitra/Lakshmi — so the maxlane-written draft is unambiguous). Watch the Windows Max seat drain it to `status='done'` → collect cron writes the draft. Prove the ₹0 lane E2E (the Windows seat runs intermittently — may need to monitor/wait).
+2. [P0] Deploy the loop live — `/deploy-myjkkn` (Step -1 audit main build → fire hook → browser-verify `/rcltp/teacher/remedial-plans` on jkkn.ai). Currently merged-but-dark. NEVER deploy without the user.
+3. [P1] Next offload: `rcltp.question_generation` (BUILT: `app/api/rcltp/questions/generate/route.ts` + teacher/questions review console; `enabled=false`) — check it for the SAME input_schema gotcha, then enable + prove on the async lane.
+4. [P1] Merge spec-rename PR #2298 (docs-only, green). Director merges — never auto-merge institutional PR.
+5. [P2] Adoption (non-code, binding constraint): get REAL Nattraja grade 3-4 learners scored in RCLTP — the loop has no fuel until real learners exist.
+
+CONSTRAINTS & RULES: JKKN terminology zero-tolerance BLOCKING gate (teacher/faculty→Senior Learner/learning facilitator, student→learner, class→session/learning pathway) — the delta gate reactivates on token sweeps and is exit-1 in CI. Nattraja is CBSE = ENGLISH-ONLY (no Tamil pipeline/native-review). Scores are PROVISIONAL + AGGREGATE-ONLY: principal sees provisional bands, learners/parents NEVER see a per-child band/score (by design, Director-confirmed KEEP). Brand = green #0b6d41 + gold #ffde59 + cream #fbfbee (not all-green). Every new SECDEF RPC must explicitly `REVOKE EXECUTE FROM anon, PUBLIC`. `strictNullChecks:false` → discriminated-union false-branch narrowing DOESN'T work → use FLAT result types. Work in the rcltp-remedial worktree, NOT the omm-dev root. Never merge or deploy without the user.
+
+KEY FILES TO READ FIRST:
+- ~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/reference_aimax_offload_job_build_pattern.md (the input_schema gotcha + exact fix; direct-path proof ≠ async-lane proof).
+- /Users/omm/PROJECTS/MyJKKN/progress.txt (TOP block).
+- lib/services/rcltp/remedial-plan-service.ts (the enqueue payload `{prompt,_ctx}` + generateDraftDirect bypass).
+- lib/services/platform/ai-jobs-lane.ts (`enqueueJobsLane`/`collectJobsLane`; how payload top-level is validated).
+- The Slice-1 migration `supabase/migrations/20260723060000*` (the input_schema being fixed) + Slice-2 `20260723070000_rcltp_remedial_plan_enqueue_rpc.sql`.
+- ~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/reference_nattraja_vidhyalaya_rcltp_english_only.md (RCLTP state, English-only, aggregate-only, `[TEST]` cohort ids).
+
+KEY DECISIONS MADE THIS SESSION (with rationale): Chose FLAT result types over discriminated unions (`strictNullChecks:false` breaks false-branch narrowing). Chose a dedicated rcltp.review-gated `fn_rcltp_at_risk_learners` over reusing the principal dashboard's `fn_rcltp_school_dashboard` because faculty hold `rcltp.review` NOT `report.view_all` — reuse would empty the page for the Senior Learner reviewer. Chose `fullPage:false` viewport screenshot over fullPage (Turbopack dev deadlocks on fullPage:true). Director STOPPED the deploy (loop stays merged-but-dark) and declined it as the "next" — user wants the AI-Max RUN fixed FIRST, then deploy.
+
+APPROACH: Sequential, ranked order, green gate between each item. #1 is a config UPDATE (dry-run ROLLBACK first, then apply) + a real Windows-Max-seat drain OBSERVATION (the seat runs intermittently — monitor `ai_jobs` until the fresh job flips to done, or STOP-and-report if the seat is idle beyond a reasonable window). Route the build/verify through `/myjkkn-chain` BUILD DEPTH GATE. #1 and #4 do not depend on the deploy.
+
+QUALITY BAR: A re-enqueued `rcltp.remedial_plan_draft` job reaches `status='done'` (NOT error) on the Windows Max seat AND the collect cron writes a `status='draft'` row in `rcltp_remedial_plans` — the ₹0 async lane proven E2E on a `[TEST]` learner, with NO direct-path shortcut. The written draft's `ai_model` carries the `maxlane:` prefix (not `direct:`).
+
+DO NOT: Merge or deploy without the user. Touch the omm-dev root's unrelated uncommitted changes (hr/attendance, hod-hero-strip, activity-service, biometric spec, features.json — another session's work). Edit historical applied migrations. Show learners/parents a provisional band/score. Build the report-narrative / parent-message offloads (out of scope this session).
+
+VERIFY BY: The errored-job pattern is GONE — a fresh job's status flips error→done on the Windows seat; a new `rcltp_remedial_plans` draft row exists written by the maxlane collector (`ai_model` starts `maxlane:...`, not `direct:...`). Confirm via a direct `ai_jobs` + `rcltp_remedial_plans` query on prod (clean-env loader, stripped `\n`).
+
+EXECUTION DIRECTIVE (autobuild == yes):
+- PRECONDITION: run VERIFY CURRENT STATE first. If any of (a)-(d) contradicts this brief → STOP and report the delta; do NOT build on stale state.
+- Run the ranked items as an ultracode `/loop` (P0 → P1 → P2), lowest-effort-that-fits per item; green gate between each; #1 before #2 (Director's explicit ordering).
+- VERIFICATION DEPTH routed through `/myjkkn-chain` BUILD DEPTH GATE: Step -1 audit → Step 0 env-safety (REFUSE if a prod DB write would run unguarded / classifier blocks it — user runs staged scripts via `!`, do NOT hide writes to evade the guard) → Step 1 classify → Step 2 build depth → Step 2.5 Issues delta → Step 2.6 discovery re-verify → Step 2.7 bespoke CI gates (TypeCheck / terminology / reachability / Visual Proof — note CI SKIPS gates on DRAFT PRs, so self-gate locally) → Step 3 report → Step 4 flip Ready.
+- HARD STOPS: never merge, never deploy without the user. Terminal state for a code change = a Ready PR off jicate/main awaiting Director merge. For #1 the terminal state = the async lane proven done on prod + a receipt. If any gate cannot proceed unattended (Windows seat idle, CI stuck, ambiguous intent) → STOP and report with the exact blocker.
+- Obey all CLAUDE.md rules; browser-verify any UI claim (viewport-only screenshot, fullPage:false); show PROOF (command output / prod query) for every "done."
