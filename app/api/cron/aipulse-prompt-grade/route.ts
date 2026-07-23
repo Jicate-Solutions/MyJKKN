@@ -50,20 +50,20 @@ async function readPolicy(admin: Admin, key: string): Promise<unknown> {
 }
 
 // ── grading prompt (the checklist the learner is taught) ────────────────────
-const GRADE_SYSTEM_PROMPT = `You grade a student's AI "prompt" that they built from four parts:
+const GRADE_SYSTEM_PROMPT = `You grade a learner's AI "prompt" that they built from four parts:
 - ROLE: who the AI should act as ("Act as a clinical pharmacist...").
-- CONTEXT: the student's own background, goal, or a concrete example.
+- CONTEXT: the learner's own background, goal, or a concrete example.
 - TASK: what they want the AI to do.
 - OUTPUT FORMAT: the shape of the answer they want (a table, 5 bullets, a caption...).
 
-Check the student's prompt for each of the four parts. Return ONLY valid JSON, no markdown, no commentary, exactly:
+Check the learner's prompt for each of the four parts. Return ONLY valid JSON, no markdown, no commentary, exactly:
 {"has_role":true|false,"has_context":true|false,"has_task":true|false,"has_format":true|false,"score":0-100,"tips":["...","..."]}
 - score: ~25 per part present, nudged up/down for how specific and usable it is.
 - tips: 1-3 short, encouraging, specific suggestions for what to add or sharpen next time.
-- Do NOT mention marks, ranks, grades, or the institution. Speak to the student in the second person.`;
+- Do NOT mention marks, ranks, grades, or the institution. Speak to the learner in the second person.`;
 
 function buildGradePrompt(assembled: string): string {
-  return `${GRADE_SYSTEM_PROMPT}\n\nSTUDENT'S PROMPT:\n"""\n${assembled}\n"""`;
+  return `${GRADE_SYSTEM_PROMPT}\n\nLEARNER'S PROMPT:\n"""\n${assembled}\n"""`;
 }
 
 // Parse the model's JSON grade. Returns null on any failure (-> recorded as 'error').
