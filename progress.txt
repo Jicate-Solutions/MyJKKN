@@ -1,3 +1,28 @@
+## Session: 2026-07-23 (End /cnext) — MBA Improvement Board PR-1 SHIPPED (#2300) + data views live + playbook finalized
+
+### Accomplished
+- Data foundation LIVE (07-22): `mba_learner_analyst` role + 7 de-identified AGGREGATE learning views (admissions/events/finance). anon+base-table denied, PII-scan empty, functionally proven. Brief's table names were wrong 3× (funnel_stage not stage; billing_receipts not billing_invoices; events_registrations not event_registrations); fee_aging/defaulter deferred (owed-side empty).
+- Playbook FINALIZED via AskUserQuestion rounds: 8 stipend/academics + 8 rank-2 design + 4 assumption-thrash decisions locked, written into ~/Downloads/JKKN-Playbooks/mba-r2026-playbook.html.
+- **Improvement Board PR-1 SHIPPED = PR #2300** (Open/Ready/Mergeable on Jicate-Solutions/MyJKKN): 3 tables + 2 enums + propose-only SECDEF RPC (APPLIED + PROVEN on prod via rolled-back impersonation) + full UI (kanban/create/detail/leaderboard). ALL gates green (build ✓, catalog-sync, nav-config, radix, silent-failure, audit-coverage) + visual-proof screenshots. Registered in the 4-link permissions-audit chain.
+
+### Current Status
+- **Improvement Board**: PR #2300 ready to MERGE (human gate — I did not merge). Backend live on prod. PR-2/PR-3 pending.
+- **Build**: passing (npm run build ✓, compiled 111s, both routes in manifest)
+- **Branch**: worktree feat/mba-improvement-board (PR #2300). Main-repo branch: feat/campus-living-fee-compute-engine.
+
+### Lessons Learned
+- New user-facing module FAILS `npm run build` on the permissions-audit gate (invisible to tsc) until registered in a 4-link chain: ROUTE_PREFIX_TO_MODULE → MODULE_PREFIXES(table-module-map) → MODULE_CATEGORY_OVERRIDES → CARRE. Iterate via `npx tsx scripts/check-permission-audit-coverage.ts`, not full builds.
+- Worktree `origin` = JKKN-Institutions/MyJKKN (WRONG repo); production is `jicate` = Jicate-Solutions/MyJKKN. Push to jicate.
+
+### Next Session — Tasks (user-ranked via /cnext interview 07-23; autobuild armed)
+1. [P0] PR-2: AI Max-lane idea ranking (`improvement.rank_ideas`, interactive=false, output_target=job.result, sonnet) + wire board/leaderboard to it + escalation cron for stalled approved fixes (medium)
+2. [P0] PR-3: CEO Rounds log — reuse meeting_agendas/meeting_action_items; rotating-Associate summary (facilitator-approved); participation-graded attendance; Rounds-decision→Board-task link (medium)
+3. [P1] Wire up real access: grant `improvement.*` keys to MBA cohort + faculty + ceo roles; register the 46 R-2025 Associates as a cohort (small-medium)
+4. [P1] Smart-guide help fragment for /improvement-board (small)
+5. [P2] Finance Tier-1 follow-up (learning_fee_aging/defaulter) once owed-side ledger populated; clarify the "wrc" fragment (small)
+
+---
+
 ## Session: 2026-07-23 — Import UPLOAD SCREEN built = PR #2296. Referral machine COMPLETE end-to-end.
 
 ### Shipped
