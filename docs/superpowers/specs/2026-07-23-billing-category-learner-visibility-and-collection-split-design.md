@@ -1,8 +1,18 @@
 # Billing Category — Learner Visibility + Government/Management Collection Split
 
 **Date:** 2026-07-23
-**Status:** Plan awaiting approval
+**Status:** IMPLEMENTED — branch `feat/billing-category-visibility-and-collection-split`, 5 commits
 **Modules touched:** Billing, Admission CRM (Fee Structure), Learner self-service, Parent portal
+
+> **Post-implementation correction to §3/D3.** The plan estimated the unattributable
+> receipt bucket at ~13.6%, measured by receipt *count*. Measured by *rupees* it is
+> **75%**: 388 receipts carry no line items at all and account for ₹14.95 cr of the
+> ₹19.82 cr ever collected. Those same receipts also reduce no bill balance, so
+> accrual and receipt-traced figures agree per category while the headline totals
+> differ by that ₹14.95 cr. The chosen design (visible Unallocated bucket) still
+> holds and is the reason the dashboard is not misleading — but the accrual
+> `*_billed` / `*_outstanding` figures shipped alongside are the trustworthy
+> per-ownership numbers until those receipts are linked to bills.
 
 ---
 
