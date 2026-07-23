@@ -179,7 +179,7 @@ export default function ReferralImportPage() {
                         <TableRow>
                           <TableHead>#</TableHead>
                           <TableHead>Referrer</TableHead>
-                          <TableHead>Student</TableHead>
+                          <TableHead>Learner</TableHead>
                           <TableHead>Verdict</TableHead>
                           <TableHead>Studying?</TableHead>
                           <TableHead className="text-right">Owed</TableHead>
