@@ -78,6 +78,14 @@ export async function requireUser(
  * Fail-closed: if `AGENT_PRINT_TOKEN` env var is unset, EVERY request is rejected with 500.
  */
 export function requireAgentToken(request: NextRequest): AgentAuthResult {
+  // Reject header-less callers with a plain 401 BEFORE the env check — a
+  // probing client must not learn config state, and an unset env var must
+  // not turn anonymous probes into 500s.
+  const header = request.headers.get('authorization') ?? '';
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) {
+    return { ok: false, status: 401, message: 'Unauthorized: missing Bearer token' };
+  }
   const expected = process.env.AGENT_PRINT_TOKEN;
   if (!expected || expected.trim() === '') {
     return {
@@ -86,11 +94,6 @@ export function requireAgentToken(request: NextRequest): AgentAuthResult {
       message:
         'Server misconfiguration: AGENT_PRINT_TOKEN env var is not set. Refusing all agent requests.'
     };
-  }
-  const header = request.headers.get('authorization') ?? '';
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  if (!match) {
-    return { ok: false, status: 401, message: 'Unauthorized: missing Bearer token' };
   }
   const provided = match[1].trim();
   if (provided !== expected) {
@@ -113,7 +116,14 @@ export async function requireUserOrAgent(
   const agentAuth: AgentAuthResult = requireAgentToken(request);
   if (!isAuthFailure(agentAuth)) return agentAuth;
 
-  // Both paths failed — prefer 500 (server misconfig) over 401/403.
-  if (agentAuth.status === 500) return agentAuth;
+  // Both paths failed. Surface the agent-side misconfig 500 ONLY when the
+  // caller actually attempted agent auth (sent a Bearer header). A plain
+  // browser session must get the user-path 401/403 — otherwise an unset
+  // AGENT_PRINT_TOKEN turns every browser request into a 500 and the
+  // print-queue UI silently falls back to stub data.
+  const attemptedAgentAuth = /^Bearer\s+/i.test(
+    request.headers.get('authorization') ?? ''
+  );
+  if (agentAuth.status === 500 && attemptedAgentAuth) return agentAuth;
   return userAuth;
 }
