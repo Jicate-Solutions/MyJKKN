@@ -101700,6 +101700,31 @@ export type Database = {
       }
     }
     Functions: {
+      fn_attendance_dashboard_section_stats: {
+        Args: {
+          p_date: string
+          p_institution_id?: string
+          p_academic_year_id?: string
+          p_degree_id?: string
+          p_department_id?: string
+          p_program_id?: string
+          p_semester_id?: string
+          p_section_id?: string
+        }
+        Returns: {
+          institution_id: string
+          institution_name: string
+          department_id: string
+          department_name: string
+          semester_id: string
+          semester_name: string
+          section_id: string
+          section_name: string
+          total_students: number
+          present: number
+          absent: number
+        }[]
+      }
       fn_notifications_unique_users_reached: {
         Args: never
         Returns: number

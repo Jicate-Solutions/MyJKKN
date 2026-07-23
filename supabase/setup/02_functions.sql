@@ -22227,11 +22227,21 @@ GRANT EXECUTE ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) TO 
 -- fn_attendance_dashboard_section_stats
 -- Attendance Dashboard "Today's Statistics" section breakdown.
 -- Added 2026-07-21. Source of truth: supabase/migrations/20260721120000_fn_attendance_dashboard_section_stats.sql
+-- 2026-07-23: hierarchy filter params (degree/department/programme/semester/
+--   section) for the dashboard's Advanced Filters. The 3-arg form was DROPPED,
+--   not replaced -- an extended parameter list would have registered a second
+--   overload and made every PostgREST named-arg call ambiguous. See
+--   supabase/migrations/20260723120000_attendance_dashboard_section_stats_hierarchy_filters.sql
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.fn_attendance_dashboard_section_stats(
   p_date date,
   p_institution_id uuid DEFAULT NULL,
-  p_academic_year_id uuid DEFAULT NULL
+  p_academic_year_id uuid DEFAULT NULL,
+  p_degree_id uuid DEFAULT NULL,
+  p_department_id uuid DEFAULT NULL,
+  p_program_id uuid DEFAULT NULL,
+  p_semester_id uuid DEFAULT NULL,
+  p_section_id uuid DEFAULT NULL
 )
 RETURNS TABLE(
   institution_id uuid,
@@ -22285,6 +22295,14 @@ BEGIN
       AND lp.institution_id IN (SELECT a.id FROM accessible a)
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      -- Hierarchy filters. Plain var-free predicates on the already-scanned
+      -- learners_profiles row: no extra join, no subquery, so the roster plan is
+      -- unchanged apart from being more selective.
+      AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id IS NULL OR lp.program_id = p_program_id)
+      AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
+      AND (p_section_id IS NULL OR lp.section_id = p_section_id)
     GROUP BY 1, 2, 3, 4
   ),
   marks AS (
@@ -22322,10 +22340,19 @@ BEGIN
       -- rollup. It is redundant anyway: output rows come only FROM roster, which
       -- IS scoped, so a mark belonging to an inaccessible institution lands in a
       -- tally group that no roster row ever joins to and is dropped.
-      -- These two are plain scalar filters, not subqueries, so they cost nothing
+      -- These are plain scalar filters, not subqueries, so they cost nothing
       -- and still narrow the scan early.
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      -- The SAME hierarchy predicates as roster, and they MUST be repeated here.
+      -- present/absent are period-AVERAGED over the marks in this CTE, so
+      -- filtering only the roster would divide a narrowed roster by an
+      -- unfiltered period_count and silently deflate every percentage.
+      AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id IS NULL OR lp.program_id = p_program_id)
+      AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
+      AND (p_section_id IS NULL OR lp.section_id = p_section_id)
   ),
   tally AS (
     SELECT m.institution_id, m.department_id, m.semester_id, m.section_id,
@@ -22374,8 +22401,8 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) TO authenticated;
 
-COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) IS
-  'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%.';
+COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) IS
+  'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%. Optional degree/department/programme/semester/section params back the dashboard''s Advanced Filters; they narrow rows only — the returned shape is unchanged.';
