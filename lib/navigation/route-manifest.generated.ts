@@ -5870,6 +5870,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Recording Review",
             "iconName": "Mic",
             "children": []
+          },
+          {
+            "path": "/rcltp/teacher/remedial-plans",
+            "label": "RCLTP Remedial Plans",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       }

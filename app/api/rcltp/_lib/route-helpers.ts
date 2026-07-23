@@ -68,6 +68,28 @@ export async function isPlatformAdmin(auth: AuthContext): Promise<boolean> {
 }
 
 /**
+ * STAFF-actor permission guard, evaluated under the CALLER'S session client (so
+ * the multi-role OR-merge + super-admin bypass in user_has_permission apply to
+ * the real actor, never a service-role bypass). Use this to gate a service-role
+ * write route on a specific RCLTP capability (e.g. rcltp.review) BEFORE the
+ * privileged client touches data. Fails closed on any RPC error.
+ */
+export async function actorHasPermission(
+  auth: AuthContext,
+  permissionKey: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await auth.supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    if (error) return false;
+    return Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * STAFF-actor institution guard. A teacher may only act within their own
  * institution; a super_admin/admin may act across tenants. The service-role
  * write bypasses RLS, so this manual check is the multi-tenant boundary.
