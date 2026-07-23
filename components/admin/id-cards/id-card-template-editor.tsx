@@ -38,12 +38,12 @@ import {
 // Stub data — used when Agent C's routes are not live yet
 // ──────────────────────────────────────────────────────────────────────────────
 const STUB_FIELD_MAPPINGS: FieldMappingRow[] = [
-  { id: '1', card_field: 'name_line_1', db_column: 'students.full_name' },
-  { id: '2', card_field: 'roll_number', db_column: 'students.roll_number' },
-  { id: '3', card_field: 'course', db_column: 'students.course_id' },
-  { id: '4', card_field: 'department', db_column: 'students.department_id' },
-  { id: '5', card_field: 'valid_until', db_column: 'students.valid_until' },
-  { id: '6', card_field: 'qr_code', db_column: 'students.id' },
+  { id: '1', card_field: 'name_line_1', db_column: 'learners_profiles.first_name' },
+  { id: '2', card_field: 'roll_number', db_column: 'learners_profiles.roll_number' },
+  { id: '3', card_field: 'course', db_column: 'learners_profiles.program_id' },
+  { id: '4', card_field: 'department', db_column: 'learners_profiles.department_id' },
+  { id: '5', card_field: 'valid_until', db_column: 'learners_profiles.register_number' },
+  { id: '6', card_field: 'qr_code', db_column: 'learners_profiles.id' },
   { id: '7', card_field: 'photo', db_column: 'learners_profiles.student_photo_url' },
 ];
 
@@ -51,7 +51,7 @@ const STUB_PHOTO_FALLBACK: PhotoFallbackStep[] = [
   {
     id: '1',
     sort_order: 1,
-    label: 'Student uploaded photo',
+    label: 'Learner uploaded photo',
     source: 'learners_profiles.student_photo_url',
     is_active: true,
   },
@@ -358,7 +358,7 @@ export function IdCardTemplateEditor() {
             key={`mappings-${reloadTick}`}
             config={mappingConfig}
             handlers={mappingHandlers}
-            newRowDefaults={{ card_field: 'name_line_1', db_column: 'students.full_name' }}
+            newRowDefaults={{ card_field: 'name_line_1', db_column: 'learners_profiles.first_name' }}
             rowToFormValues={(row) => ({
               card_field: row.card_field,
               db_column: row.db_column,
