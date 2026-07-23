@@ -134,8 +134,18 @@ export function useStaffPlanningData(
         for (const assignment of consolidatedPlan.all_courses) {
           if (assignment.course && assignment.staff) {
             coursesSet.add(assignment.course.id);
-            staffSet.add(assignment.staff.id);
             courseDetailsMap.set(assignment.course.id, assignment.course);
+
+            // Guard (2026-06-30): never offer a non-loginable / retired "ghost"
+            // staff in the slot picker. Attendance "My Classes" resolves a teacher
+            // by staff.institution_email (getStaffIdByEmail), so a staff row with a
+            // null institution_email can NEVER see the period it is assigned to —
+            // the slot silently vanishes for the real teacher (see the duplicate
+            // "PRABHAKARAN M" incident). is_active=false rows are likewise retired.
+            const st = assignment.staff as any;
+            if (st.is_active === false || !st.institution_email) continue;
+
+            staffSet.add(assignment.staff.id);
             staffDetailsMap.set(assignment.staff.id, assignment.staff);
           }
         }

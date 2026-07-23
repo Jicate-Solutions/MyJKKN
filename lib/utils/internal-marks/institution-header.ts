@@ -2,11 +2,43 @@
 // Resolved from the institution name fetched from the DB so the
 // internal-marks PDFs render the correct college branding.
 
+export interface InstitutionPdfOfficials {
+	secretary_name: string
+	principal_name: string
+	contact_cell?: string
+	contact_web?: string
+	contact_email?: string
+}
+
 export interface InstitutionPdfHeader {
 	institution_name: string
 	institution_address: string
 	institution_accreditation: string
 	rightLogoImage: string
+	/** Left-side logo override (PNG path under /public). Defaults to /logo.png. */
+	logoImage?: string
+	/**
+	 * Extra centred lines rendered under the institution name on the engineering
+	 * CET syllabus banner (autonomous status, managing trust, approvals, NAAC).
+	 * Consumed only by the CET renderer; other PDFs ignore it.
+	 */
+	banner_lines?: string[]
+	/** Website line for the engineering CET banner (e.g. "www.engg.jkkn.in"). */
+	website?: string
+	/** Officials block rendered below the institutional banner on BoS PDFs. */
+	officials?: InstitutionPdfOfficials
+	/**
+	 * Bottom-left round seal stamp on BoS call-letter PDFs. PNG path relative
+	 * to /public. Omit when the institution has no official seal asset.
+	 */
+	sealImage?: string
+	/**
+	 * Bottom-right principal signature block on BoS call-letter PDFs. PNG
+	 * should already contain the squiggle + "PRINCIPAL" + institution +
+	 * address lines so the renderer can place it as-is. Omit when not
+	 * available — the PDF falls back to "With Warm Regards," alone.
+	 */
+	signImage?: string
 }
 
 const DEFAULT_ADDRESS = 'Komarapalayam - 638 183, Namakkal District, Tamil Nadu'
@@ -15,11 +47,23 @@ const HEADERS: Array<{ match: RegExp; header: InstitutionPdfHeader }> = [
 	{
 		match: /engineering|technology/i,
 		header: {
-			institution_name: 'J.K.K.NATARAJA COLLEGE OF ENGINEERING & TECHNOLOGY',
-			institution_address: DEFAULT_ADDRESS,
+			institution_name: 'J K K NATARAJA COLLEGE OF ENGINEERING AND TECHNOLOGY',
+			institution_address:
+				'Natarajapuram, NH-544, Komarapalayam - 638 183, Namakkal Dt., Tamil Nadu.',
 			institution_accreditation:
-				'(Approved by AICTE, New Delhi & Affiliated to Anna University, Chennai)',
-			rightLogoImage: '/jkkn_logo.png',
+				'(Approved by AICTE - New Delhi and Affiliated to Anna University - Chennai)',
+			banner_lines: [
+				'(AN AUTONOMOUS INSTITUTION)',
+				'(MANAGED BY J.K.K.RANGAMMAL CHARITABLE TRUST)',
+				'(Approved by AICTE - New Delhi and Affiliated to Anna University - Chennai)',
+				'Accredited by NAAC',
+			],
+			website: 'https://engg.jkkn.ac.in/',
+			// Green "JKKN College of Engineering & Technology" mark. Save the PNG
+			// at this path (see public/logo/engg/); until then the banner renders
+			// text-only (addImage failures are caught).
+			logoImage: '/logo/engg/jkkn_engg_logo.png',
+			rightLogoImage: '/logo/engg/jkkn_engg_logo.png',
 		},
 	},
 	{
@@ -30,6 +74,15 @@ const HEADERS: Array<{ match: RegExp; header: InstitutionPdfHeader }> = [
 			institution_accreditation:
 				'(Accredited by NAAC, Approved by AICTE, Recognized by UGC Under Section 2(f) & 12(B), Affiliated to Periyar University)',
 			rightLogoImage: '/jkkncas_logo.png',
+			officials: {
+				secretary_name: 'SMT.N.SENDAMARAAI',
+				principal_name: 'Capt.Dr.M.NALINI, M.Sc.,M.Phil.,Ph.D., Principal',
+				contact_cell: '94878 33330, 99653 63999',
+				contact_web: 'www.jkkn.ac.in',
+				contact_email: 'arts@jkkn.org',
+			},
+			sealImage: '/logo/arts/jkkn_arts_round_seal.png',
+			signImage: '/logo/arts/jkkn_arts_principal_sign.png',
 		},
 	},
 ]

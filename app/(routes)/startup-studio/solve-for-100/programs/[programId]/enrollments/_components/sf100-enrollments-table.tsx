@@ -33,8 +33,26 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, AlertCircle } from 'lucide-react';
-import { useSF100Enrollments } from '@/hooks/startup-studio';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Search,
+  AlertCircle,
+  Pencil,
+  Users,
+} from 'lucide-react';
+import { useSF100Enrollments, useUpdateSF100TeamDetails } from '@/hooks/startup-studio';
 
 interface SF100EnrollmentsTableProps {
   programId: string;
@@ -112,6 +130,142 @@ function TableSkeleton() {
           ))}
         </TableBody>
       </Table>
+    </div>
+  );
+}
+
+/**
+ * Row action: edit a team's NAME + PROBLEM statement in a dialog, plus a link
+ * into the existing member-management surface. The write is authorized server
+ * side by event_registrations RLS (team owner OR admin) — a non-owner/non-admin
+ * coordinator gets a clean 403 surfaced here as an inline error.
+ */
+function EditTeamCell({ row }: { row: any }) {
+  const router = useRouter();
+  const enrollmentId = row.original.id as string;
+  const currentName: string = row.original.team_name ?? '';
+  const currentProblem: string = row.original.problem_idea ?? '';
+
+  const [open, setOpen] = useState(false);
+  const [teamName, setTeamName] = useState(currentName);
+  const [problem, setProblem] = useState(currentProblem);
+  const [formError, setFormError] = useState<string | null>(null);
+  const mutation = useUpdateSF100TeamDetails(enrollmentId);
+
+  // Re-seed the fields from the row every time the dialog opens so stale local
+  // edits never linger and an untouched field is never blanked on save.
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setTeamName(currentName);
+      setProblem(currentProblem);
+      setFormError(null);
+    }
+    setOpen(next);
+  };
+
+  const handleSave = () => {
+    const name = teamName.trim();
+    if (name.length === 0) {
+      setFormError('Team name is required.');
+      return;
+    }
+
+    // Only send changed fields — leaves untouched values exactly as they are.
+    const payload: { team_name?: string; problem_idea?: string } = {};
+    if (name !== currentName) payload.team_name = name;
+    if (problem.trim() !== currentProblem.trim()) payload.problem_idea = problem.trim();
+
+    if (Object.keys(payload).length === 0) {
+      setOpen(false);
+      return;
+    }
+
+    setFormError(null);
+    mutation.mutate(payload, {
+      onSuccess: () => setOpen(false),
+      onError: (err: any) =>
+        setFormError(err?.message ?? 'Could not save changes. Please try again.'),
+    });
+  };
+
+  return (
+    // stopPropagation so acting on a row never triggers the row's navigation.
+    <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8"
+        onClick={() => handleOpenChange(true)}
+      >
+        <Pencil className="mr-1.5 h-3.5 w-3.5" />
+        Edit team
+      </Button>
+
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Edit team</DialogTitle>
+            <DialogDescription>
+              Update the team name and problem statement. Only the team owner or an
+              admin can save changes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="sf100-edit-team-name">Team name</Label>
+              <Input
+                id="sf100-edit-team-name"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="Team name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sf100-edit-problem">Problem statement</Label>
+              <Textarea
+                id="sf100-edit-problem"
+                value={problem}
+                onChange={(e) => setProblem(e.target.value)}
+                rows={4}
+                placeholder="What problem is this team solving?"
+              />
+            </div>
+            {formError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{formError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                router.push(`/startup-studio/solve-for-100/team/${enrollmentId}`)
+              }
+            >
+              <Users className="mr-1.5 h-3.5 w-3.5" />
+              Manage members
+            </Button>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setOpen(false)}
+                disabled={mutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleSave} disabled={mutation.isPending}>
+                {mutation.isPending ? 'Saving…' : 'Save changes'}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -213,6 +367,12 @@ export function SF100EnrollmentsTable({ programId }: SF100EnrollmentsTableProps)
           </span>
         ),
       },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        cell: ({ row }) => <EditTeamCell row={row} />,
+      },
     ],
     []
   );
@@ -312,8 +472,12 @@ export function SF100EnrollmentsTable({ programId }: SF100EnrollmentsTableProps)
                   key={row.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() =>
+                    // The enrollment detail lives at /team/[enrollmentId] (with
+                    // check-ins/paid-users/pivots/interviews sub-pages); the
+                    // /programs/[programId]/enrollments/[enrollmentId] route was
+                    // never built, so the old link 404'd on every row click.
                     router.push(
-                      `/startup-studio/solve-for-100/programs/${programId}/enrollments/${row.original.id}`
+                      `/startup-studio/solve-for-100/team/${row.original.id}`
                     )
                   }
                 >

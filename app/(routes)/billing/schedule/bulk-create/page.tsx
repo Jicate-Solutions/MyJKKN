@@ -64,7 +64,9 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { ImportBillsDialog } from './_components/import-bills-dialog';
 import toast from 'react-hot-toast';
 import type { Institution, Degree, Department, Program, Semester } from '@/types/organizations';
@@ -87,6 +89,7 @@ const bulkBillSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   item_category_id: z.string().min(1, 'Item category is required'),
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
@@ -135,6 +138,7 @@ export default function BulkCreateBillsPage() {
     isSuperAdmin,
     isLoading: permissionsLoading
   } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
 
@@ -147,11 +151,16 @@ export default function BulkCreateBillsPage() {
       // Defaulting to 0 silently passed validation when the user submitted
       // without touching the input.
       tax_amount: 0,
-      is_recurring: false
+      is_recurring: false,
+      academic_year_id: ''
     }
   });
 
   const watchedValues = form.watch();
+  const { data: academicYearsData } = useAcademicYears(
+    watchedValues.institution_id || undefined
+  );
+  const academicYears = academicYearsData?.data || [];
   const totalAmount =
     (watchedValues.quantity || 0) * (watchedValues.unit_amount || 0);
   const finalAmount = totalAmount + (watchedValues.tax_amount || 0);
@@ -237,7 +246,9 @@ export default function BulkCreateBillsPage() {
     try {
       setIsLoadingInstitutions(true);
       const institutionNames = await OrganizationService.getInstitutionNames(
-        true
+        true,
+        undefined,
+        'all'
       );
       setInstitutions(institutionNames as Institution[]);
     } catch (error) {
@@ -533,6 +544,7 @@ export default function BulkCreateBillsPage() {
                               form.setValue('program_id', undefined);
                               form.setValue('semester_id', undefined);
                               form.setValue('item_category_id', '');
+                              form.setValue('academic_year_id', '');
                               setSelectedStudents([]);
                             }}
                             value={field.value}
@@ -568,7 +580,7 @@ export default function BulkCreateBillsPage() {
                       name='degree_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Degree (optional)</FormLabel>
+                          <FormLabel>{adapt('Degree')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -590,14 +602,14 @@ export default function BulkCreateBillsPage() {
                                     !watchedValues.institution_id
                                       ? 'Select institution first'
                                       : isLoadingDegrees
-                                      ? 'Loading degrees...'
-                                      : 'All degrees'
+                                      ? `Loading ${adapt('degrees')}...`
+                                      : `All ${adapt('degrees')}`
                                   }
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value='all'>All degrees</SelectItem>
+                              <SelectItem value='all'>All {adapt('degrees')}</SelectItem>
                               {degrees.map((degree) => (
                                 <SelectItem key={degree.id} value={degree.id}>
                                   {degree.degree_name}
@@ -615,7 +627,7 @@ export default function BulkCreateBillsPage() {
                       name='department_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Department (optional)</FormLabel>
+                          <FormLabel>{adapt('Department')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -634,17 +646,17 @@ export default function BulkCreateBillsPage() {
                                 <SelectValue
                                   placeholder={
                                     !watchedValues.degree_id
-                                      ? 'Select degree first'
+                                      ? `Select ${adapt('degree')} first`
                                       : isLoadingDepartments
-                                      ? 'Loading departments...'
-                                      : 'All departments'
+                                      ? `Loading ${adapt('departments')}...`
+                                      : `All ${adapt('departments')}`
                                   }
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
                               <SelectItem value='all'>
-                                All departments
+                                All {adapt('departments')}
                               </SelectItem>
                               {departments.map((department) => (
                                 <SelectItem
@@ -666,7 +678,7 @@ export default function BulkCreateBillsPage() {
                       name='program_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Program (optional)</FormLabel>
+                          <FormLabel>{adapt('Program')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -684,16 +696,16 @@ export default function BulkCreateBillsPage() {
                                 <SelectValue
                                   placeholder={
                                     !watchedValues.department_id
-                                      ? 'Select department first'
+                                      ? `Select ${adapt('department')} first`
                                       : isLoadingPrograms
-                                      ? 'Loading programs...'
-                                      : 'All programs'
+                                      ? `Loading ${adapt('programs')}...`
+                                      : `All ${adapt('programs')}`
                                   }
                                 />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value='all'>All programs</SelectItem>
+                              <SelectItem value='all'>All {adapt('programs')}</SelectItem>
                               {programs.map((program) => (
                                 <SelectItem
                                   key={program.id}
@@ -714,7 +726,7 @@ export default function BulkCreateBillsPage() {
                       name='semester_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Semester (optional)</FormLabel>
+                          <FormLabel>{adapt('Semester')} (optional)</FormLabel>
                           <Select
                             onValueChange={(value) => {
                               const next = value === 'all' ? undefined : value;
@@ -782,6 +794,41 @@ export default function BulkCreateBillsPage() {
                                   value={category.id}
                                 >
                                   {category.category_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='academic_year_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Academic Year</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                            disabled={!watchedValues.institution_id}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !watchedValues.institution_id
+                                      ? 'Select institution first'
+                                      : 'Select academic year'
+                                  }
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {academicYears.map((ay: any) => (
+                                <SelectItem key={ay.id} value={ay.id}>
+                                  {ay.academic_year_name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -974,33 +1021,20 @@ export default function BulkCreateBillsPage() {
                         </FormLabel>
                         <FormControl>
                           <Input
-                            type='number'
-                            min='1'
-                            step='1'
+                            type='text'
                             inputMode='numeric'
+                            pattern='[0-9]*'
                             placeholder='0'
                             {...field}
                             value={field.value?.toString() ?? ''}
                             onChange={(e) => {
-                              // Empty input → undefined so zod fires its
-                              // required_error path. parseInt(..., 10) drops
-                              // any decimal a user pastes (e.g. "100.99" → 100)
-                              // so the displayed value matches what gets saved.
-                              const raw = e.target.value;
+                              const raw = e.target.value.replace(/[^0-9]/g, '');
                               if (raw === '') {
                                 field.onChange(undefined);
                                 return;
                               }
                               const parsed = parseInt(raw, 10);
                               field.onChange(Number.isNaN(parsed) ? undefined : parsed);
-                            }}
-                            onKeyDown={(e) => {
-                              // Block the user from typing a decimal point /
-                              // exponent in the first place — keeps the UI in
-                              // sync with the integer-only schema.
-                              if (['.', 'e', 'E', '+', '-'].includes(e.key)) {
-                                e.preventDefault();
-                              }
                             }}
                           />
                         </FormControl>

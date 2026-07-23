@@ -110,9 +110,36 @@ export default function ServiceTypesPage() {
   // Derive unique role set from the data so the filter dropdown is always in sync.
   const availableRoles = useMemo(() => {
     const set = new Set<string>();
-    (serviceTypes ?? []).forEach((t) => t.allowed_roles?.forEach((r) => set.add(r)));
+    // Skip the '*' wildcard ("all roles") — it's a sentinel, not a filterable role.
+    (serviceTypes ?? []).forEach((t) => t.allowed_roles?.forEach((r) => { if (r !== '*') set.add(r); }));
     return Array.from(set).sort();
   }, [serviceTypes]);
+
+  // Concrete scope targets that actually appear in the data, resolved to names.
+  // Built from the visible list (not the global org tables) so the scope-target
+  // filter only ever offers options that can return rows.
+  const scopeTargets = useMemo(() => {
+    const collect = (
+      getIds: (t: ServiceType) => string[] | null | undefined,
+      nameMap: Map<string, string>
+    ) => {
+      const seen = new Map<string, string>();
+      (serviceTypes ?? []).forEach((t) =>
+        (getIds(t) ?? []).forEach((id) => {
+          if (!seen.has(id)) seen.set(id, nameMap.get(id) ?? `${id.slice(0, 8)}…`);
+        })
+      );
+      return [...seen.entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    };
+    return {
+      institution: collect((t) => t.institution_ids, scopeLookups.institutions),
+      degree: collect((t) => t.degree_ids, scopeLookups.degrees),
+      department: collect((t) => t.department_ids, scopeLookups.departments),
+      program: collect((t) => t.program_ids, scopeLookups.programs),
+    };
+  }, [serviceTypes, scopeLookups]);
 
   // Apply filters + sort client-side in a single memoized pipeline.
   const filteredTypes = useMemo<ServiceType[]>(() => {
@@ -128,6 +155,20 @@ export default function ServiceTypesPage() {
         if (!hay.includes(q)) return false;
       }
       if (filters.scope_level !== 'all' && t.scope_level !== filters.scope_level) return false;
+      // Narrow to a specific scope target (e.g. one institution) when chosen.
+      if (filters.scope_target_id !== 'all') {
+        const targetIds =
+          filters.scope_level === 'institution'
+            ? t.institution_ids
+            : filters.scope_level === 'degree'
+            ? t.degree_ids
+            : filters.scope_level === 'department'
+            ? t.department_ids
+            : filters.scope_level === 'program'
+            ? t.program_ids
+            : null;
+        if (!targetIds || !targetIds.includes(filters.scope_target_id)) return false;
+      }
       if (
         filters.approval_workflow_type !== 'all' &&
         t.approval_workflow_type !== filters.approval_workflow_type
@@ -390,6 +431,7 @@ export default function ServiceTypesPage() {
           filters={filters}
           onChange={handleFilterChange}
           availableRoles={availableRoles}
+          scopeTargets={scopeTargets}
         />
 
         {/* Table */}

@@ -22,7 +22,7 @@ These terms are preferred but have more flexibility based on context.
 | Category | NEVER Use | ALWAYS Use | Context Notes |
 |----------|-----------|------------|---------------|
 | Learner Community | students, pupils, kids, children, trainees, student body | learners, young learners | Use "young learners" only when age context is specifically needed |
-| Teaching Staff (Academic) | faculty, teachers, professors, instructors, tutors, educators | learning facilitators | For academic/teaching roles |
+| Teaching Staff (Academic) | faculty, teachers, professors, instructors, tutors, educators, facilitators | Senior Learners | Director ruling 2026-07-14 ("Senior Learners everywhere") supersedes 2026-06-29. The teaching role, NOT a senior student; a senior-student mentor is a "peer mentor". |
 | Non-Academic Staff | staff, employees, workers | team members | For administrative and support roles |
 | Parents/Guardians | parents, guardians | learning partners, family partners | Emphasizes collaborative relationship |
 
@@ -220,7 +220,7 @@ Internal technical docs should use JKKN terminology to maintain consistency acro
 | NEVER Say | ALWAYS Say |
 |-----------|------------|
 | student | learner |
-| teacher | learning facilitator |
+| teacher | Senior Learner |
 | staff | team member |
 | classroom | learning studio |
 | lecture hall | learning auditorium |

@@ -17,6 +17,7 @@ import {
 import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 import { format } from 'date-fns';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PendingStatisticsCardsProps {
   filters: {
@@ -49,6 +50,7 @@ export function PendingStatisticsCards({
   canViewAllInstitutions,
   refreshTrigger = 0
 }: PendingStatisticsCardsProps) {
+  const label = useAdaptiveLabels();
   const [stats, setStats] = useState<PendingStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,9 +61,17 @@ export function PendingStatisticsCards({
         setLoading(true);
         setError(null);
 
+        // For a view_all_institutions viewer with no explicit institution filter, leave
+        // institution undefined so counts span every college (RLS scopes the rows).
+        // Falling back to the viewer's own institution collapsed all-colleges scope on
+        // the Pending tab — same root cause as BUG-004284 on the Statistics tab.
+        const effectiveUserInstitutionId = canViewAllInstitutions
+          ? filters.institutionId || undefined
+          : filters.institutionId || userInstitutionId;
+
         // Build filters for the API call
         const apiFilters: DashboardFilters = {
-          userInstitutionId: filters.institutionId || userInstitutionId,
+          userInstitutionId: effectiveUserInstitutionId,
           page: 1,
           limit: 1000, // Get all for counting
           sortBy: 'attendance_date',
@@ -173,7 +183,7 @@ export function PendingStatisticsCards({
       iconBg: 'bg-orange-500'
     },
     {
-      title: 'Active Sections',
+      title: `Active ${label('Sections')}`,
       value: stats.sections,
       description: 'With scheduled periods',
       icon: Users,

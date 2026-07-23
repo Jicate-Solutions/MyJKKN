@@ -9,10 +9,11 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type {
-  ServiceType,
-  CreateServiceTypeDto,
-  UpdateServiceTypeDto,
+import {
+  ALL_ROLES_WILDCARD,
+  type ServiceType,
+  type CreateServiceTypeDto,
+  type UpdateServiceTypeDto,
 } from '@/types/service-request';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
@@ -73,7 +74,11 @@ export class ServiceTypeService {
       && filters?.userRoleKeys
       && filters.userRoleKeys.length > 0;
     if (shouldFilterByAllowedRoles) {
-      query = query.overlaps('allowed_roles', filters!.userRoleKeys!);
+      // A type whose allowed_roles contains ALL_ROLES_WILDCARD ('*') is open to
+      // every authenticated user. Appending the wildcard to the comparison set
+      // makes such types overlap any requester's keys, while role-specific
+      // types still match only by the user's actual role keys.
+      query = query.overlaps('allowed_roles', [...filters!.userRoleKeys!, ALL_ROLES_WILDCARD]);
     }
 
     const { data, error } = await query;

@@ -67,6 +67,7 @@ import {
   useDeleteImsSupplier,
   useToggleImsSupplierActive,
 } from '@/hooks/ims/use-ims-settings';
+import { usePoFormats } from '@/hooks/procurement/use-po-formats';
 import type {
   ImsSupplier,
   ImsSupplierFilters,
@@ -84,6 +85,7 @@ interface SupplierFormData {
   phone: string;
   address: string;
   gstin: string;
+  default_po_format_id: string;
 }
 
 const emptyFormData: SupplierFormData = {
@@ -94,6 +96,7 @@ const emptyFormData: SupplierFormData = {
   phone: '',
   address: '',
   gstin: '',
+  default_po_format_id: '',
 };
 
 export default function SuppliersPage() {
@@ -139,6 +142,7 @@ function SuppliersPageInner() {
 
   // Queries
   const { data: suppliersList, isLoading: suppliersLoading } = useImsSuppliers(filters);
+  const { data: poFormats } = usePoFormats(institutionId, { activeOnly: true });
 
   // Mutations
   const createSupplier = useCreateImsSupplier();
@@ -164,6 +168,7 @@ function SuppliersPageInner() {
       phone: supplier.phone || '',
       address: supplier.address || '',
       gstin: supplier.gstin || '',
+      default_po_format_id: supplier.default_po_format_id || '',
     });
     setDialogOpen(true);
   };
@@ -189,6 +194,7 @@ function SuppliersPageInner() {
           phone: formData.phone || null,
           address: formData.address || null,
           gstin: formData.gstin || null,
+          default_po_format_id: formData.default_po_format_id || null,
         };
         await updateSupplier.mutateAsync({
           id: editingSupplier.id,
@@ -204,6 +210,7 @@ function SuppliersPageInner() {
           phone: formData.phone || null,
           address: formData.address || null,
           gstin: formData.gstin || null,
+          default_po_format_id: formData.default_po_format_id || null,
           is_active: true,
           institution_id: institutionId || null,
           store_id: storeId || null,
@@ -532,6 +539,32 @@ function SuppliersPageInner() {
                   setFormData((prev) => ({ ...prev, gstin: e.target.value }))
                 }
               />
+            </div>
+
+            {/* Default PO Format */}
+            <div className="space-y-2">
+              <Label htmlFor="supplier-po-format">Default PO Format</Label>
+              <Select
+                value={formData.default_po_format_id || 'none'}
+                onValueChange={(v) =>
+                  setFormData((prev) => ({ ...prev, default_po_format_id: v === 'none' ? '' : v }))
+                }
+              >
+                <SelectTrigger id="supplier-po-format">
+                  <SelectValue placeholder="Standard (default)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Standard (default)</SelectItem>
+                  {(poFormats ?? []).map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Pre-selected when a Purchase Order is generated for this vendor.
+              </p>
             </div>
           </div>
 

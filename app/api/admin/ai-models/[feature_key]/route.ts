@@ -150,6 +150,32 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       }
     }
 
+    // ── CONFIG MERGE (2026-07-14) ──────────────────────────────────────────
+    // Mirror the resolved model into the ai_job_types registry, which is now
+    // the resolver's source of truth (getModelForFeature reads the registry
+    // first). Without this mirror a model swap here would update
+    // ai_model_config but the resolver would keep reading the stale registry
+    // value. When the feature is deactivated (is_active=false) we clear the
+    // registry model so resolution falls through to the hardcoded fallback —
+    // exact parity with the pre-merge behavior where an inactive
+    // ai_model_config row resolved to the hardcoded default. Non-fatal: the
+    // ai_model_config write already succeeded; log loudly on failure.
+    const active = updated.is_active !== false;
+    const { error: mirrorErr } = await auth.supabase.rpc('fn_ai_job_type_set_model', {
+      p_job_type: feature_key,
+      p_provider: active ? updated.provider : null,
+      p_model_id: active ? updated.model_id : null,
+      p_fallback_provider: active ? updated.fallback_provider : null,
+      p_fallback_model_id: active ? updated.fallback_model_id : null,
+      p_monthly_spend_cap_inr: updated.monthly_spend_cap_inr ?? null,
+    });
+    if (mirrorErr) {
+      console.error(
+        `[ai-models] registry mirror failed for ${feature_key} (ai_model_config updated; resolver may read stale until next sync):`,
+        mirrorErr.message,
+      );
+    }
+
     // Invalidate the in-memory cache so next consumer call sees new selection
     invalidateModelCache(feature_key);
 

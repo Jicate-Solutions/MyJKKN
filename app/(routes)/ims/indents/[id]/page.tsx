@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { ImsActivityFeed } from '@/components/ims/activity-feed';
 import { useAuth } from '@/hooks/use-auth';
+import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 import {
   useImsIndent,
   useApproveImsIndent,
@@ -50,6 +51,7 @@ import {
   Building2,
   User,
   FileText,
+  Pencil,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
@@ -71,6 +73,7 @@ function IndentDetailPageInner() {
   const id = params.id as string;
   const { canAccess, isSuperAdmin } = usePermissions();
   const canApprove = isSuperAdmin || canAccess('ims.indents', 'approve');
+  const canEdit = isSuperAdmin || canAccess('ims.indents', 'edit');
   const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
   const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
 
@@ -118,6 +121,11 @@ function IndentDetailPageInner() {
   const isPendingApproval = indent.status === 'pending_approval';
   const isRequester = indent.requested_by === profile?.id;
   const canConfirmDelivery = indent.status === 'issued' && isRequester && canReceive;
+  // Edit allowed only pre-approval, by the requester (or a privileged user).
+  const isEditable =
+    (indent.status === 'draft' || indent.status === 'pending_approval') &&
+    canEdit &&
+    (isRequester || isSuperAdmin);
 
   const allItemsIssued =
     indent.items &&
@@ -161,11 +169,11 @@ function IndentDetailPageInner() {
       return;
     }
     try {
-      await issueItem.mutateAsync({ itemId, quantity: qty });
+      await issueItem.mutateAsync({ itemId, quantity: qty, userId: profile?.id || '' });
       toast.success('Item issued successfully');
       setIssueQuantities((prev) => ({ ...prev, [itemId]: 0 }));
-    } catch {
-      toast.error('Failed to issue item');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to issue item');
     }
   };
 
@@ -209,6 +217,15 @@ function IndentDetailPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isEditable && (
+              <Button
+                variant="outline"
+                onClick={() => router.push(`/ims/indents/${id}/edit`)}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            )}
             {isPendingApproval && canApprove && (
               <>
                 <Button
@@ -306,15 +323,13 @@ function IndentDetailPageInner() {
                 <p className="text-sm text-muted-foreground">Required Date</p>
                 <p className="flex items-center gap-2 font-medium">
                   <Calendar className="h-4 w-4" />
-                  {indent.required_date
-                    ? new Date(indent.required_date).toLocaleDateString()
-                    : 'Not specified'}
+                  {indent.required_date ? formatDateDMY(indent.required_date) : 'Not specified'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Created At</p>
                 <p className="font-medium">
-                  {new Date(indent.created_at).toLocaleString()}
+                  {formatDateTimeDMY(indent.created_at)}
                 </p>
               </div>
             </div>
@@ -341,7 +356,7 @@ function IndentDetailPageInner() {
                   {indent.approved_by_profile.full_name}
                   {indent.approved_at && (
                     <span className="text-muted-foreground ml-2">
-                      on {new Date(indent.approved_at).toLocaleString()}
+                      on {formatDateTimeDMY(indent.approved_at)}
                     </span>
                   )}
                 </p>

@@ -54,8 +54,15 @@ export function PendingAttendanceDataTable({
 
       // Map DataTable parameters to our service parameters
       const attendanceDate = pendingFilters?.attendanceDate || new Date().toISOString().split('T')[0];
+      // For a view_all_institutions viewer with no explicit institution filter, leave
+      // institution undefined so the service spans every college (RLS scopes the rows).
+      // Falling back to the viewer's own institution here silently collapsed all-colleges
+      // scope on the Pending tab — same root cause as BUG-004284 on the Statistics tab.
+      const effectiveUserInstitutionId = canViewAllInstitutions
+        ? pendingFilters?.institutionId || undefined
+        : pendingFilters?.institutionId || userInstitutionId;
       const filters: DashboardFilters = {
-        userInstitutionId: pendingFilters?.institutionId || userInstitutionId,
+        userInstitutionId: effectiveUserInstitutionId,
         page: params.page,
         limit: params.limit,
         sortBy: params.sort_by || 'attendance_date',

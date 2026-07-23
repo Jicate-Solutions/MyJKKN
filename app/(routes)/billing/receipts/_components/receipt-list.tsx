@@ -395,7 +395,16 @@ export function ReceiptList({
                   <TableCell>
                     {getPaymentModeBadge(receipt.payment_mode)}
                   </TableCell>
-                  <TableCell>{formatDate(receipt.receipt_date)}</TableCell>
+                  <TableCell>
+                    <div className='flex flex-col'>
+                      <span>{formatDate(receipt.receipt_date)}</span>
+                      {receipt.created_at && (
+                        <span className='text-xs text-muted-foreground'>
+                          {format(new Date(receipt.created_at), 'hh:mm a')}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div className='flex flex-col'>
                       <span className='font-medium'>{receipt.payer_name}</span>

@@ -196,6 +196,7 @@ export default function InternalMarksPage() {
             existingMarks={existingMarksData?.learners}
             institutionId={institutionId ?? ''}
             examSessionId={filters.exam_session_id ?? ''}
+            ciaSettingId={selectedSetting?.id}
             courseOfferingId={learners[0]?.course_offering_id ?? ''}
             useCourseMax={selectedSetting?.use_course_max ?? false}
             courseMaxMark={courseMaxMark}

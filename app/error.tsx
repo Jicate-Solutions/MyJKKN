@@ -13,6 +13,22 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error('Application error:', error);
+
+    const isChunkError =
+      error.message?.includes('Failed to load chunk') ||
+      error.message?.includes('Loading chunk') ||
+      error.name === 'ChunkLoadError';
+
+    if (isChunkError) {
+      const key = 'chunk-reload:root';
+      const lastReload = sessionStorage.getItem(key);
+      const now = Date.now();
+      if (!lastReload || now - Number(lastReload) > 30_000) {
+        sessionStorage.setItem(key, String(now));
+        window.location.reload();
+        return;
+      }
+    }
   }, [error]);
 
   return (

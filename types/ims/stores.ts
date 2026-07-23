@@ -30,6 +30,7 @@ export interface ImsStore {
 }
 
 export interface ImsStoreWithRelations extends ImsStore {
+  institution: { id: string; name: string } | null;
   manager: { id: string; full_name: string } | null;
 }
 

@@ -3,9 +3,15 @@
 // Admission Accreditation Report Service (PR-A3, 2026-04-17)
 //
 // Renamed from NAACReportService. Generates accreditation reports from
-// admission data — currently NAAC Criterion 2.1.1 (Average Enrollment %)
+// admission data — currently NAAC Metric 8.1.1 (Student enrolment vs
+// sanctioned intake, Binary Accreditation 2024 framework)
 // + emits fan-out evidence rows for applicable bodies:
-//   NAAC 2.1.1 + NIRF TLR_SS (enrollment data serves both)
+//   NAAC 8.1.1 + NIRF TLR_SS (enrollment data serves both)
+//
+// Re-keyed 2026-07-09 (stale-metric audit PR-7): previously emitted the
+// old-framework Criterion code '2.1.1', which is absent from the Binary
+// catalog. Prod had zero ('NAAC','2.1.1') junction rows at re-key time,
+// so no data migration was needed.
 //
 // Per Compliance Unification Program:
 // specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md PR-A3
@@ -36,8 +42,8 @@ export class AdmissionAccreditationReportService {
   private static supabase = createClientSupabaseClient();
 
   /**
-   * Generate NAAC Criteria 2.1.1 report
-   * Average Enrollment Percentage — years sourced from academic_years table
+   * Generate NAAC Metric 8.1.1 report (Binary framework)
+   * Student enrolment vs sanctioned intake — years sourced from academic_years table
    */
   static async generateEnrollmentReport(
     institutionId?: string,
@@ -160,7 +166,7 @@ export class AdmissionAccreditationReportService {
    * Emit fan-out evidence rows for enrollment data (PR-A3).
    * Called on-demand when a NAAC/NIRF report is finalized to record that the
    * enrollment snapshot was generated. Emits to quality_evidence_mappings:
-   *   - NAAC 2.1.1 (Average Enrollment Percentage)
+   *   - NAAC 8.1.1 (Student enrolment vs sanctioned intake, Binary framework)
    *   - NIRF TLR_SS (Teaching: Student Strength)
    * Same source_id semantics as PR-A5 (polymorphic — source_table is the
    * academic_years row or snapshot identifier).
@@ -178,9 +184,9 @@ export class AdmissionAccreditationReportService {
         source_id: academicYearId,
         institution_id: institutionId,
         body_code: 'NAAC',
-        metric_code: '2.1.1',
+        metric_code: '8.1.1',
         is_auto: false,
-        metadata: { source: 'admission-accreditation-report-service', metric_name: 'Average Enrollment Percentage' },
+        metadata: { source: 'admission-accreditation-report-service', metric_name: 'Student enrolment vs sanctioned intake' },
       },
       {
         source_table: 'academic_years',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, X, CheckCircle2, AlertCircle, FileSpreadsheet } from 'lucide-react';
+import { Upload, X, CheckCircle2, AlertCircle, FileSpreadsheet, Download } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -138,6 +138,93 @@ export function ImportBillsDialog({
       });
     } finally {
       setUploading(false);
+    }
+  };
+
+  /**
+   * Build and download a post-upload result workbook: a Summary sheet plus
+   * one sheet naming every learner whose bill was created and one naming
+   * every failed row with the reason. Mirrors the bulk-edit change-report
+   * pattern; xlsx is imported dynamically to stay out of the page bundle.
+   */
+  const handleDownloadReport = async () => {
+    if (!result) return;
+    try {
+      const mod: any = await import('xlsx');
+      const XLSX: any = mod.default ?? mod;
+
+      // Neutralise spreadsheet formula injection in free-text cells
+      // (names, error messages) — same guard as export-analytics.ts.
+      const sanitize = (v: unknown): unknown =>
+        typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+      const sanitizeAoa = (rows: unknown[][]) =>
+        rows.map((r) => r.map(sanitize));
+
+      const wb = XLSX.utils.book_new();
+
+      const summaryAoa = [
+        ['Bulk Bill Upload Report'],
+        ['Generated At', new Date().toLocaleString()],
+        [],
+        ['Total Rows Processed', result.totalRows],
+        ['Bills Created Successfully', result.successCount],
+        ['Rows Failed', result.errorCount]
+      ];
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet(summaryAoa),
+        'Summary'
+      );
+
+      const successAoa: unknown[][] = [
+        ['Excel Row', 'Roll Number', 'Student Name', 'Billing Category', 'Due Date', 'Billing Amount', 'Academic Year', 'Bill ID', 'Status']
+      ];
+      (result.successes ?? []).forEach((s) =>
+        successAoa.push([
+          s.row,
+          s.roll_number,
+          s.student_name,
+          s.billing_category,
+          s.due_date,
+          s.billing_amount,
+          s.academic_year ?? '',
+          s.bill_id ?? '',
+          'Bill Created'
+        ])
+      );
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet(sanitizeAoa(successAoa)),
+        'Successful Bills'
+      );
+
+      const failedAoa: unknown[][] = [
+        ['Excel Row', 'Roll Number', 'Student Name', 'Field', 'Error Reason', 'Status']
+      ];
+      result.errors.forEach((e) =>
+        failedAoa.push([
+          e.row,
+          e.roll_number ?? '',
+          e.student_name ?? '',
+          e.field ?? '',
+          e.message,
+          'Failed'
+        ])
+      );
+      XLSX.utils.book_append_sheet(
+        wb,
+        XLSX.utils.aoa_to_sheet(sanitizeAoa(failedAoa)),
+        'Failed Rows'
+      );
+
+      XLSX.writeFile(
+        wb,
+        `bill-upload-report-${new Date().toISOString().split('T')[0]}.xlsx`
+      );
+      toast.success('Report downloaded.');
+    } catch (error) {
+      console.error('[ImportBillsDialog] Report download error:', error);
+      toast.error('Failed to generate report.');
     }
   };
 
@@ -317,9 +404,50 @@ export function ImportBillsDialog({
                 </Alert>
               )}
 
+              {/* Downloadable result report — names every learner whose bill
+                  was created and every failed row with the reason. */}
+              {(result.errors.length > 0 ||
+                (result.successes && result.successes.length > 0)) && (
+                <div className='flex justify-end'>
+                  <Button variant='outline' size='sm' onClick={handleDownloadReport}>
+                    <Download className='h-4 w-4 mr-2' />
+                    Download Report (.xlsx)
+                  </Button>
+                </div>
+              )}
+
+              {result.successes && result.successes.length > 0 && (
+                <div className='border border-green-200 rounded-lg p-4 max-h-60 overflow-y-auto bg-green-50/50 dark:bg-green-900/10'>
+                  <p className='font-medium mb-3 text-sm text-green-800 dark:text-green-200'>
+                    Bills Created ({result.successes.length}):
+                  </p>
+                  <div className='space-y-2'>
+                    {result.successes.map((s, index) => (
+                      <div
+                        key={index}
+                        className='flex items-start gap-2 text-sm p-2 bg-white dark:bg-gray-800 rounded border'
+                      >
+                        <Badge variant='outline' className='mt-0.5 shrink-0 bg-green-100 text-green-800'>
+                          Row {s.row}
+                        </Badge>
+                        <div className='flex-1'>
+                          <span className='font-medium'>
+                            {s.roll_number}
+                            {s.student_name ? ` — ${s.student_name}` : ''}
+                          </span>
+                          <span className='text-gray-600 dark:text-gray-400'>
+                            {' '}· {s.billing_category} · ₹{s.billing_amount} · due {s.due_date}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {result.errors && result.errors.length > 0 && (
                 <div className='border rounded-lg p-4 max-h-80 overflow-y-auto bg-gray-50 dark:bg-gray-900'>
-                  <p className='font-medium mb-3 text-sm'>Error Details:</p>
+                  <p className='font-medium mb-3 text-sm'>Failed Rows ({result.errors.length}):</p>
                   <div className='space-y-2'>
                     {result.errors.map((error, index) => (
                       <div
@@ -330,6 +458,13 @@ export function ImportBillsDialog({
                           Row {error.row}
                         </Badge>
                         <div className='flex-1'>
+                          {(error.roll_number || error.student_name) && (
+                            <span className='font-medium'>
+                              {error.roll_number}
+                              {error.student_name ? ` — ${error.student_name}` : ''}
+                              {': '}
+                            </span>
+                          )}
                           {error.field && (
                             <span className='font-medium text-red-600 dark:text-red-400'>
                               {error.field}:{' '}

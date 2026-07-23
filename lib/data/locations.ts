@@ -797,3 +797,76 @@ export const getTaluksByDistrict = (
   const district = districts.find((d) => d.id === districtId);
   return district ? district.taluks : [];
 };
+
+/**
+ * Resolve a stored permanent_address_* value to its dropdown ID.
+ *
+ * Two storage formats coexist in production for these columns:
+ *   (a) legacy / admission-form rows store the display NAME, often
+ *       uppercase (e.g. 'TAMIL NADU', 'SALEM', 'METTUR');
+ *   (b) QR-student-form rows store the snake_case ID directly
+ *       (e.g. 'tamil_nadu', 'salem', 'mettur').
+ *
+ * Both edit surfaces (enquiry form, QR student form) bind ID-based
+ * <Select>s, so a raw name never matches an option and the field renders
+ * blank. This resolver tries an ID match first (cheap, unambiguous) then
+ * falls back to a case-insensitive NAME match. Returns '' when nothing
+ * matches so the caller can safely default.
+ */
+export const getLocationIdByName = (
+  name: string | undefined | null,
+  type: 'state' | 'district' | 'taluk',
+  stateId?: string,
+): string => {
+  if (!name) return '';
+  try {
+    const normalized = name.trim().toLowerCase();
+
+    if (type === 'state') {
+      const byId = indianStates.find((s) => s.id.toLowerCase() === normalized);
+      if (byId) return byId.id;
+      const byName = indianStates.find((s) => s.name.toLowerCase() === normalized);
+      return byName?.id ?? '';
+    }
+
+    if (type === 'district') {
+      for (const state of indianStates) {
+        const byId = getDistrictsByState(state.id).find((d) => d.id.toLowerCase() === normalized);
+        if (byId) return byId.id;
+      }
+      for (const state of indianStates) {
+        const byName = getDistrictsByState(state.id).find((d) => d.name.toLowerCase() === normalized);
+        if (byName) return byName.id;
+      }
+      return '';
+    }
+
+    // taluk
+    const search = (sid: string): string | undefined => {
+      const districts = getDistrictsByState(sid);
+      for (const district of districts) {
+        const byId = getTaluksByDistrict(sid, district.id).find((t) => t.id.toLowerCase() === normalized);
+        if (byId) return byId.id;
+      }
+      for (const district of districts) {
+        const byName = getTaluksByDistrict(sid, district.id).find((t) => t.name.toLowerCase() === normalized);
+        if (byName) return byName.id;
+      }
+      return undefined;
+    };
+
+    if (stateId) {
+      const hit = search(stateId);
+      if (hit) return hit;
+    } else {
+      for (const state of indianStates) {
+        const hit = search(state.id);
+        if (hit) return hit;
+      }
+    }
+    return '';
+  } catch (error) {
+    console.error('[locations] getLocationIdByName failed:', error, { name, type, stateId });
+    return '';
+  }
+};

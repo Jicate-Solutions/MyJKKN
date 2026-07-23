@@ -1,14 +1,51 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
+  resolveChatModel,
+  recordChatUsage
+} from '@/lib/services/platform/ai-clients/chat';
+import { getModel } from '@/lib/services/platform/ai-providers';
+import { createClient } from '@/lib/supabase/server';
+import {
   AdmissionDashboardAnalytics,
   AdmissionAIInsights
 } from '@/types/admission';
+
+// AI model config adoption (2026-07-02): the model is resolved at runtime from
+// ai_model_config via this feature key (seeded to the previously hardcoded
+// claude-sonnet-4-5 — cutover invariant, zero behavior change).
+// NOTE: this service is server-only (zero client importers, not in the barrel),
+// so the top-level import of the server-only config primitives is safe here.
+const AI_SERVICE_FEATURE_KEY = 'admission.ai_service';
+
+/** Cost in INR from the pricing registry; null when pricing/tokens missing. */
+function computeCostInr(
+  modelId: string,
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined
+): number | null {
+  const pricing = getModel('anthropic', modelId);
+  if (
+    !pricing ||
+    pricing.inputPer1KTokensInr == null ||
+    pricing.outputPer1KTokensInr == null ||
+    inputTokens == null ||
+    outputTokens == null
+  ) {
+    return null;
+  }
+  return Number(
+    (
+      (inputTokens / 1000) * pricing.inputPer1KTokensInr +
+      (outputTokens / 1000) * pricing.outputPer1KTokensInr
+    ).toFixed(6)
+  );
+}
 
 /**
  * AdmissionAIService
  *
  * Service for generating AI-powered insights from admissions analytics data
- * using Claude claude-sonnet-4-6 API.
+ * using the Claude API (model resolved from ai_model_config).
  *
  * Features:
  * - Comprehensive analysis of admissions analytics
@@ -52,36 +89,36 @@ export class AdmissionAIService {
     analytics: AdmissionDashboardAnalytics
   ): Promise<AdmissionAIInsights> {
     try {
-      const client = this.getClient();
-
-      // Prepare analytics summary for AI
+      // Prepare analytics summary for AI (the data assembly is unchanged —
+      // this is exactly the {{analytics_summary}} the seeded prompt expects).
       const analyticsSummary = this.prepareAnalyticsSummary(analytics);
 
-      // Build comprehensive prompt
-      const prompt = this.buildAnalysisPrompt(analyticsSummary, analytics);
-
-      // Call Claude API with Claude claude-sonnet-4-5
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ]
+      // ── Max lane (2026-07-13) ────────────────────────────────────────────
+      // Instead of calling Anthropic directly, enqueue an `admission.ai_service`
+      // registry job whose prompt_template + tool_set live in ai_job_types, and
+      // long-poll fn_ai_job_status for the drain's answer. We hand the AI ALL of
+      // its data via the payload (server-inject), so the job runs with NO tools —
+      // fast + reliable — and executes on the Claude Max subscription (₹0 API;
+      // usage recording happens runner-side). Mirrors the proven consumer route
+      // app/api/work-pulse/translate/route.ts. Payload key MUST match the
+      // seeded {{analytics_summary}} placeholder exactly.
+      const supabase = await createClient();
+      const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+        p_job_type: AI_SERVICE_FEATURE_KEY,
+        p_payload: { analytics_summary: analyticsSummary }
       });
-
-      // Extract text content from response
-      const textContent = response.content.find((c) => c.type === 'text');
-      if (!textContent || textContent.type !== 'text') {
-        throw new Error('No text content in Claude response');
+      if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+        const errText =
+          typeof enq?.error === 'string'
+            ? enq.error
+            : enqError?.message ?? 'could not enqueue insights job';
+        throw new Error(`[admission/ai-service] enqueue failed: ${errText}`);
       }
 
-      // Log response length for debugging
+      const answer = await this.pollForAnswer(supabase, enq.job_id);
 
-      // Parse AI response into structured insights
-      const insights = this.parseAIResponse(textContent.text);
+      // Parse the drain's answer into structured insights (unchanged parser).
+      const insights = this.parseAIResponse(answer);
 
       return {
         ...insights,
@@ -91,6 +128,71 @@ export class AdmissionAIService {
       console.error('[admission/ai-service] Error generating insights:', error);
       throw error;
     }
+  }
+
+  // Poll cadence — mirrors app/api/work-pulse/translate/route.ts (the proven
+  // ai_jobs consumer). Server-side long-poll; kept under a route's maxDuration.
+  private static readonly POLL_MS = 2_500;
+  private static readonly UNCLAIMED_DEADLINE_MS = 120_000; // drain offline → give up
+  private static readonly TOTAL_DEADLINE_MS = 285_000; // < a 300s maxDuration
+
+  /**
+   * Long-poll fn_ai_job_status until the Max drain finishes, then return the
+   * answer text. Throws on error/timeout so generateInsights' catch surfaces it.
+   */
+  private static async pollForAnswer(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    jobId: string
+  ): Promise<string> {
+    const startedAt = Date.now();
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+    while (Date.now() - startedAt < this.TOTAL_DEADLINE_MS) {
+      await sleep(this.POLL_MS);
+      const { data: st, error: stError } = await supabase.rpc(
+        'fn_ai_job_status',
+        { p_job_id: jobId }
+      );
+      if (stError || !st || typeof st.status !== 'string') continue;
+      if (st.status === 'done') {
+        const ans = this.extractAnswer((st as { result?: unknown }).result);
+        if (ans) return ans;
+        throw new Error('insights job finished with an empty result');
+      }
+      if (
+        st.status === 'error' ||
+        st.status === 'canceled' ||
+        st.status === 'not_found'
+      ) {
+        throw new Error(`insights job ${st.status}`);
+      }
+      // Never claimed within the unclaimed window → the drain is offline.
+      if (
+        st.status === 'pending' &&
+        Date.now() - startedAt > this.UNCLAIMED_DEADLINE_MS
+      ) {
+        throw new Error('insights job was not picked up (drain offline)');
+      }
+    }
+    throw new Error('insights job did not finish in time');
+  }
+
+  /**
+   * Read the answer text out of the drain's result jsonb. The generic runner
+   * returns { answer } (same contract ai-query reads); tolerate a few shapes so
+   * a completed job never falls silently to null.
+   */
+  private static extractAnswer(result: unknown): string | null {
+    if (typeof result === 'string') return result.trim() || null;
+    if (result && typeof result === 'object') {
+      const o = result as Record<string, unknown>;
+      for (const key of ['answer', 'text', 'result', 'summary']) {
+        const v = o[key];
+        if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+      }
+    }
+    return null;
   }
 
   /**
@@ -206,7 +308,7 @@ ${referenceSources
   }
 
   /**
-   * Build comprehensive analysis prompt for Claude claude-sonnet-4-6
+   * Build comprehensive analysis prompt for Claude
    */
   private static buildAnalysisPrompt(
     summary: string,

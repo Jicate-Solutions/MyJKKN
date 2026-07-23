@@ -4,21 +4,18 @@
 //
 // - useLearnerHostelProfile(learnerId): reads the side-table row for a
 //   learner. Returns null if no row exists yet (first-save state).
-// - useSaveLearnerHostelFields(): composite mutation — updates hostel_type
-//   on learners_profiles AND upserts the side-table row in one hook call.
-//   This is what the edit drawer binds to.
+// - useSaveLearnerHostelFields(): upserts the warden-writable side-table
+//   row. This is what the edit drawer binds to.
 //
 // On success, invalidates BOTH:
 //   - learnerHostelProfileKeys.detail(learnerId) — so reopening the drawer
 //     shows the freshly-saved values
-//   - learnerHosteliteKeys.all — so the Learners tab refetches because
-//     hostel_type may have changed (drives the hostel badge in that tab).
+//   - learnerHosteliteKeys.all — so the Learners tab refetches.
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { LearnerHostelProfileService } from '@/lib/services/campus-living/learner-hostel-profile-service';
 import { learnerHosteliteKeys } from '@/hooks/campus-living/use-learner-hostelites';
-import type { LearnerHostelType } from '@/types/campus-living';
 import type {
   LearnerHostelProfile,
   UpsertLearnerHostelProfileDTO,
@@ -49,7 +46,6 @@ export function useLearnerHostelProfile(
 
 export interface SaveLearnerHostelFieldsInput {
   learnerId: string;
-  hostelType: LearnerHostelType;
   profileFields: Omit<UpsertLearnerHostelProfileDTO, 'learner_id'>;
   updatedBy: string | null;
 }
@@ -63,7 +59,7 @@ export function useSaveLearnerHostelFields() {
       qc.invalidateQueries({
         queryKey: learnerHostelProfileKeys.detail(variables.learnerId),
       });
-      // Refresh the Learners tab — hostel_type badge may have changed
+      // Refresh the Learners tab.
       qc.invalidateQueries({ queryKey: learnerHosteliteKeys.all });
       toast.success('Saved.');
     },

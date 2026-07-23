@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
+import { stripXlsxComments } from '@/lib/utils/strip-xlsx-comments';
 import { z } from 'zod';
 import {
   getCellStringValue,
@@ -48,7 +49,7 @@ const imsItemRowSchema = z.object({
   purchase_unit_raw: z.string().nullable(),
   sale_unit_raw: z.string().nullable(),
   indent_unit_raw: z.string().nullable(),
-  hsn_code: z.string().max(8).nullable(),
+  hsn_code: z.string().max(20).nullable(),
   gst_rate: z.number().min(0).default(0),
   cost_price: z.number().min(0).default(0),
   mrp: z.number().min(0).default(0),
@@ -233,9 +234,25 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Load workbook ─────────────────────────────────────────────────────────
+    // Strip cell-note/comment parts first: files saved by WPS Office, Google
+    // Sheets or LibreOffice carry threaded comments that crash ExcelJS's
+    // xlsx.load() ("Cannot read properties of undefined (reading 'comments')").
+    // Comments are irrelevant to item import, so dropping them is lossless.
     const arrayBuffer = await file.arrayBuffer();
     const workbook    = new ExcelJS.Workbook();
-    await workbook.xlsx.load(arrayBuffer);
+    try {
+      const sanitized = await stripXlsxComments(arrayBuffer);
+      await workbook.xlsx.load(sanitized);
+    } catch (loadErr) {
+      console.error('[ims/inventory/import] Failed to read workbook:', loadErr);
+      return NextResponse.json(
+        {
+          error:
+            'Could not read the Excel file. Please re-save it as .xlsx (Excel 2007+) and remove any cell comments/notes, then try again.',
+        },
+        { status: 400 }
+      );
+    }
 
     const worksheet = workbook.getWorksheet('Items')
       ?? workbook.worksheets.find(ws => ws.state === 'visible')

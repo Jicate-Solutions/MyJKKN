@@ -6,6 +6,7 @@ import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
+import { getStaffScope } from '@/lib/services/staff/staff-scope';
 
 // Create admin client for database operations (bypasses RLS)
 const supabaseAdmin = createClient(
@@ -83,10 +84,21 @@ export async function PATCH(
     const isSuperAdmin =
       userProfile.is_super_admin || userProfile.role === 'super_admin';
 
-    // Get the staff record to verify ownership for faculty users
+    // Resolve staff module scope (defence-in-depth alongside the RLS
+    // policies on public.staff from Batch A).
+    const scope = isSuperAdmin
+      ? ('all_institutions' as const)
+      : await getStaffScope(supabase, session.user.id);
+
+    if (scope === 'none') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Get the target staff record (need profile_id + institution_id to
+    // enforce scope ownership rules).
     const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
       .from('staff')
-      .select('id, institution_email')
+      .select('id, profile_id, institution_id, institution_email')
       .eq('id', id)
       .single();
 
@@ -98,11 +110,15 @@ export async function PATCH(
     }
 
     // Self-edit branch: any user editing their own staff record (matched by
-    // institution_email) is allowed without staff.edit. Preserves the prior
-    // "faculty can update own profile" behaviour for any role, not just faculty.
+    // institution_email OR profile_id) is allowed without staff.edit.
+    // Preserves the prior "faculty can update own profile" behaviour for any
+    // role, not just faculty.  The institution_email check covers legacy staff
+    // rows whose profile_id was never back-filled.
     const isSelfEdit =
-      !!staffRecord.institution_email &&
-      staffRecord.institution_email === session.user.email;
+      (!!staffRecord.institution_email &&
+        staffRecord.institution_email === session.user.email) ||
+      (!!staffRecord.profile_id &&
+        staffRecord.profile_id === session.user.id);
 
     // Permission check via DB instead of hardcoded role list. Honours dynamic
     // Role Management grants for staff.edit.
@@ -113,6 +129,37 @@ export async function PATCH(
       });
       hasEditPermission = !!permResult;
     }
+
+    // Scope enforcement — runs AFTER permission + self-edit are resolved so
+    // self-edits by users with own_records scope whose staff.profile_id is
+    // NULL (legacy rows) are not wrongly blocked.
+    if (scope === 'own_records') {
+      const isOwnRecord =
+        isSelfEdit ||
+        (!!staffRecord.profile_id && staffRecord.profile_id === session.user.id);
+      if (!isOwnRecord) {
+        return NextResponse.json(
+          { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
+          { status: 403 }
+        );
+      }
+    } else if (scope === 'own_institution') {
+      // own_institution: user must have institution access for the target staff
+      // member's institution.  Uses the same helper the RLS policies use.
+      if (!isSelfEdit && hasEditPermission && staffRecord.institution_id) {
+        const { data: hasAccess } = await supabase.rpc(
+          'role_has_institution_access',
+          { check_institution_id: staffRecord.institution_id }
+        );
+        if (!hasAccess) {
+          return NextResponse.json(
+            { error: 'Forbidden', code: 'STAFF_INSTITUTION_VIOLATION' },
+            { status: 403 }
+          );
+        }
+      }
+    }
+    // all_institutions: no row-level scope gate needed.
 
     if (!hasEditPermission && !isSelfEdit) {
       return NextResponse.json(

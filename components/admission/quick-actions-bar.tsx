@@ -1,15 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import {
-  Phone,
-  MessageCircle,
-  MessageSquare,
-  Mail,
-  NotebookPen,
-  CalendarClock,
-  MoreHorizontal,
-} from 'lucide-react';
+import { Phone, MessageCircle } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,10 +43,15 @@ interface QuickActionsBarProps {
   };
   onLogCall: () => void;
   onWhatsApp: () => void;
-  onSMS: () => void;
+  // ── Phase 2 consolidation (2026-05-12) ──
+  // SMS / Note / Follow-up / Email used to live in a "⋯ More" dropdown here.
+  // Note + Follow-up are now inside the Log Call modal (Phase 1); SMS was
+  // never wired (TODO). The More button was removed. These props are kept
+  // as optional so callers don't need to be updated, but they're no-ops.
+  onSMS?: () => void;
   onEmail?: () => void;
-  onNote: () => void;
-  onFollowUp: () => void;
+  onNote?: () => void;
+  onFollowUp?: () => void;
   isWAConnected?: boolean;
 }
 
@@ -62,15 +59,19 @@ interface QuickActionsBarProps {
 // Component
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Action hierarchy (Director's audit finding #4):
+// Action hierarchy (post Phase-2 consolidation — 2026-05-12):
 //
 //   ┌──────────────────────────────────────────────┐
 //   │  📞 Call <first name>                         │   PRIMARY (full-width)
 //   └──────────────────────────────────────────────┘
-//   ┌──────────────┬──────────────┬──────────────┐
-//   │  Log Call    │   WhatsApp   │   ⋯ More     │   SECONDARY ROW
-//   └──────────────┴──────────────┴──────────────┘
-//        └─ More menu: SMS / Note / Follow-up (and Email if wired)
+//   ┌──────────────────────┬───────────────────────┐
+//   │      Log Call        │       WhatsApp        │   SECONDARY ROW
+//   └──────────────────────┴───────────────────────┘
+//
+// The ⋯ More button (SMS / Note / Follow-up / Email) was removed because
+// Note + Follow-up are now inside the Log Call modal (Phase 1) and SMS was
+// never wired up. Email re-entry can come back as a dedicated icon later if
+// needed.
 //
 // The user comes to this page to CALL the lead. Promote that.
 
@@ -78,10 +79,6 @@ export function QuickActionsBar({
   lead,
   onLogCall,
   onWhatsApp,
-  onSMS,
-  onEmail,
-  onNote,
-  onFollowUp,
   isWAConnected = true,
 }: QuickActionsBarProps) {
   // Build available phone numbers (preserved from prior implementation)
@@ -168,10 +165,11 @@ export function QuickActionsBar({
       )}
 
       {/* ──────────────────────────────────────────────────────────────────
-          SECONDARY ROW: Log Call · WhatsApp · ⋯ More (3 equal columns)
+          SECONDARY ROW: Log Call · WhatsApp (2 equal columns)
+          More menu removed in Phase 2 (2026-05-12).
           ────────────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-2">
-        {/* Log Call — disposition dialog */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Log Call — disposition + lead-update dialog (unified counselor modal) */}
         <Button
           variant="outline"
           size="sm"
@@ -204,44 +202,6 @@ export function QuickActionsBar({
             )}
           </Tooltip>
         </TooltipProvider>
-
-        {/* ⋯ More — SMS / Note / Follow-up (and Email if wired) */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5 h-9 text-xs">
-              <MoreHorizontal className="h-3.5 w-3.5" />
-              <span className="truncate">More</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[12rem]">
-            <DropdownMenuItem onClick={onSMS} className="cursor-pointer">
-              <MessageSquare className="h-4 w-4 mr-2" />
-              SMS
-            </DropdownMenuItem>
-            {onEmail && (
-              <DropdownMenuItem
-                onClick={onEmail}
-                disabled={!lead.email}
-                className="cursor-pointer"
-              >
-                <Mail className="h-4 w-4 mr-2" />
-                Email
-                {!lead.email && (
-                  <span className="ml-auto text-[10px] text-muted-foreground">no email</span>
-                )}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onNote} className="cursor-pointer">
-              <NotebookPen className="h-4 w-4 mr-2" />
-              Add Note
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onFollowUp} className="cursor-pointer">
-              <CalendarClock className="h-4 w-4 mr-2" />
-              Schedule Follow-up
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </div>
   );

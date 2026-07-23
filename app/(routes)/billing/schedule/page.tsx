@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Settings2, Filter, Receipt } from 'lucide-react';
+import { Settings2, Filter, Receipt, Pencil } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BillingScheduleDataTable } from './_components/billing-schedule-data-table';
@@ -27,7 +28,7 @@ export default function BillingSchedulePage() {
   const searchParams = useSearchParams();
   const [useAdvancedFilters, setUseAdvancedFilters] = useState(false);
   const [bulkReceiptOpen, setBulkReceiptOpen] = useState(false);
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, can } = usePermissions();
 
   // Parse current search parameters
   const search = billingScheduleSearchParamsSchema.parse(
@@ -50,7 +51,7 @@ export default function BillingSchedulePage() {
     due_date_to: search.dueDateRange?.to?.toISOString().slice(0, 10)
   };
 
-  // Handle filter changes by updating URL
+  // Handle a single filter change by updating URL
   const handleFilterChange = useCallback(
     (key: string, value: string | undefined) => {
       const params = new URLSearchParams(searchParams);
@@ -61,9 +62,26 @@ export default function BillingSchedulePage() {
         params.delete(key);
       }
 
-      // Reset page to 1 when filters change
       params.set('page', '1');
+      router.push(`/billing/schedule?${params.toString()}`);
+    },
+    [router, searchParams]
+  );
 
+  // Handle multiple filter changes in a single URL push to avoid race conditions
+  const handleBatchFilterChange = useCallback(
+    (changes: Record<string, string | undefined>) => {
+      const params = new URLSearchParams(searchParams);
+
+      for (const [key, value] of Object.entries(changes)) {
+        if (value) {
+          params.set(key, value);
+        } else {
+          params.delete(key);
+        }
+      }
+
+      params.set('page', '1');
       router.push(`/billing/schedule?${params.toString()}`);
     },
     [router, searchParams]
@@ -72,7 +90,6 @@ export default function BillingSchedulePage() {
   // Handle clearing all filters
   const handleClearFilters = useCallback(() => {
     const params = new URLSearchParams();
-    // Keep only page and pageSize
     params.set('page', '1');
     if (searchParams.get('pageSize')) {
       params.set('pageSize', searchParams.get('pageSize')!);
@@ -124,6 +141,14 @@ export default function BillingSchedulePage() {
                   Bulk Generate Receipts
                 </Button>
               )}
+              {can('billing.schedule.update') && (
+                <Button asChild variant='outline' size='sm' className='flex items-center gap-2'>
+                  <Link href='/billing/schedule/bulk-edit'>
+                    <Pencil className='h-4 w-4' />
+                    Bulk Edit
+                  </Link>
+                </Button>
+              )}
               <Button
                 variant={useAdvancedFilters ? "default" : "outline"}
                 size="sm"
@@ -154,12 +179,14 @@ export default function BillingSchedulePage() {
                   <AdvancedBillingScheduleFilters
                     searchParams={search}
                     onFilterChange={handleFilterChange}
+                    onBatchFilterChange={handleBatchFilterChange}
                     onClearFilters={handleClearFilters}
                   />
                 ) : (
                   <BillingScheduleFilters
                     searchParams={search}
                     onFilterChange={handleFilterChange}
+                    onBatchFilterChange={handleBatchFilterChange}
                     onClearFilters={handleClearFilters}
                   />
                 )}

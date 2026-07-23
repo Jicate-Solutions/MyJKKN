@@ -25,6 +25,7 @@ import { Rocket, PlusCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth-provider';
 import { useMySF100Enrollment, useSF100Programs } from '@/hooks/startup-studio';
 import { SF100TeamDetail } from '../../team/[enrollmentId]/_components/sf100-team-detail';
+import { Sf100NotificationBell } from '../../_components/sf100-notification-bell';
 
 const VALID_TABS = ['overview', 'check-ins', 'paid-users', 'interviews', 'pivots'] as const;
 type TabValue = typeof VALID_TABS[number];
@@ -114,15 +115,19 @@ export function SF100MyTeamDashboard() {
         <p className="text-sm text-muted-foreground hidden sm:block">
           Ready to update your team&apos;s progress?
         </p>
-        <Button asChild size="sm">
-          <Link href={`/startup-studio/solve-for-100/dashboard/checkin?enrollmentId=${enrollmentId}`}>
-            <PlusCircle className="h-4 w-4 mr-1.5" /> Submit Weekly Check-in
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Sf100NotificationBell />
+          <Button asChild size="sm">
+            <Link href={`/startup-studio/solve-for-100/dashboard/checkin?enrollmentId=${enrollmentId}`}>
+              <PlusCircle className="h-4 w-4 mr-1.5" /> Submit Weekly Check-in
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      {/* Rich 5-tab team detail — URL query ?tab=X controls initial tab */}
-      <SF100TeamDetail enrollmentId={enrollmentId} defaultTab={defaultTab} />
+      {/* Rich 5-tab team detail — URL query ?tab=X controls initial tab.
+          canEdit: this is the viewer's OWN team, so the Add forms show here. */}
+      <SF100TeamDetail enrollmentId={enrollmentId} defaultTab={defaultTab} canEdit />
     </div>
   );
 }

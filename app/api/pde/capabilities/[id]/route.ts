@@ -12,8 +12,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const { data, error } = await (supabase as any).from('pde_capabilities').select('*').eq('id', id).single();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    const { data: ls } = await (supabase as any).from('pde_learner_capabilities').select('status, demonstrated_at, demonstration_score').eq('capability_id', id).eq('learner_id', user.id).maybeSingle();
-    return NextResponse.json({ data: { ...data, learner_status: ls?.status || 'locked', demonstrated_at: ls?.demonstrated_at || null } });
+    const { data: ls } = await (supabase as any).from('pde_learner_capabilities').select('status, demonstrated_at, demonstration_score, capability_version, grandfathered').eq('capability_id', id).eq('learner_id', user.id).maybeSingle();
+    // Tier 2 Item 5: surface version lineage so the client can render the version badge.
+    return NextResponse.json({
+      data: {
+        ...data,
+        version: data.version ?? 1,
+        valid_until: data.valid_until ?? null,
+        superseded_by: data.superseded_by ?? null,
+        learner_status: ls?.status || 'locked',
+        demonstrated_at: ls?.demonstrated_at || null,
+        learner_capability_version: ls?.capability_version ?? null,
+        learner_grandfathered: ls?.grandfathered ?? false,
+      },
+    });
   } catch (e: any) { return NextResponse.json({ error: e.message || 'Error' }, { status: 500 }); }
 }
 

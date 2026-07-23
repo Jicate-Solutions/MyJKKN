@@ -15,6 +15,7 @@ import {
   AdminPermissionGuard,
   SuperAdminOnly,
 } from '@/components/auth/admin-permission-guard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 import type { PolicyPermission } from './types';
 
@@ -30,6 +31,13 @@ interface PolicyPageShellProps {
   explainer?: ReactNode;
   /** Permission level required to view/edit. Default: 'super_admin'. */
   permission?: PolicyPermission;
+  /**
+   * Dynamic catalog permission key (e.g. 'hr.recruitment.view'). When set it
+   * takes precedence over `permission` and gates via Role Management grants
+   * instead of hardcoded system roles — so custom roles (COO, HR Director…)
+   * that hold the key get access without being 'administrator'.
+   */
+  permissionKey?: string;
   /** Optional custom permission-denied message. */
   permissionDeniedMessage?: ReactNode;
   /** Page content (typically one of the shape primitives). */
@@ -46,6 +54,7 @@ export function PolicyPageShell({
   title,
   explainer,
   permission = 'super_admin',
+  permissionKey,
   permissionDeniedMessage,
   children,
 }: PolicyPageShellProps) {
@@ -67,6 +76,19 @@ export function PolicyPageShell({
       </div>
     </ContentLayout>
   );
+
+  if (permissionKey) {
+    const split = permissionKey.lastIndexOf('.');
+    return (
+      <PermissionGuard
+        module={permissionKey.slice(0, split)}
+        action={permissionKey.slice(split + 1)}
+        fallback={fallback}
+      >
+        {body}
+      </PermissionGuard>
+    );
+  }
 
   if (permission === 'super_admin') {
     return <SuperAdminOnly fallback={fallback}>{body}</SuperAdminOnly>;

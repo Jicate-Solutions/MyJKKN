@@ -17,12 +17,14 @@ const endpoints = [
   {
     method: 'GET',
     path: '/api/api-management/learners/profiles',
-    description: 'Get list of active learner profiles with optional filters',
+    description:
+      'Get list of learner profiles with optional filters. Defaults to active learners; pass lifecycle_status=all to fetch learners across every status, or a comma-separated list to fetch specific statuses',
     queryParams: [
       {
         name: 'lifecycle_status',
         type: 'string',
-        description: 'Comma-separated lifecycle statuses (default: active)'
+        description:
+          "Lifecycle status filter. Use 'all' for every status, or comma-separated values: enquiry, enquiry_submitted, pending, approved, account, reserved, admitted, rejected, waitlisted, active, inactive, exited, graduated, alumni (default: active)"
       },
       {
         name: 'program_id',
@@ -62,7 +64,26 @@ const endpoints = [
         description: 'Items per page (default: 50, max: 200)'
       }
     ],
-    example: `fetch('https://www.jkkn.ai/api/api-management/learners/profiles?limit=10&expand=program', {
+    example: `// Active learners (default)
+fetch('https://www.jkkn.ai/api/api-management/learners/profiles?limit=10&expand=program', {
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+
+// All learners regardless of lifecycle status
+fetch('https://www.jkkn.ai/api/api-management/learners/profiles?lifecycle_status=all&limit=10', {
+  headers: {
+    'Authorization': 'Bearer YOUR_API_KEY'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+
+// Only specific statuses (comma-separated)
+fetch('https://www.jkkn.ai/api/api-management/learners/profiles?lifecycle_status=admitted,graduated&limit=10', {
   headers: {
     'Authorization': 'Bearer YOUR_API_KEY'
   }

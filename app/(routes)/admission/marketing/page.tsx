@@ -8,5 +8,5 @@ import { redirect } from 'next/navigation';
  * tab lands here, we forward to the first real page.
  */
 export default function MarketingIndex() {
-  redirect('/admission/marketing/campaigns/monitoring');
+  redirect('/admission/marketing/campaigns');
 }

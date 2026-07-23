@@ -172,12 +172,24 @@ function slugifyEmail(email: string): string {
  * Cal.com format (packages/features/ee/api-keys/lib/apiKeys.ts):
  *   "cal_" + 32 random hex chars  (crypto.randomBytes(16).toString("hex"))
  *
+ * ⚠️ HASH FORMAT (fixed 2026-06-11): Cal.com stores + verifies sha256 of the
+ * key WITH THE "cal_" PREFIX STRIPPED — the v2 ApiKeyStrategy runs
+ * hashAPIKey(stripApiKey(bearer)) before lookup. Hashing the full plaintext
+ * produces a key Cal rejects with 401 "CustomThrottlerGuard - Invalid API
+ * Key" on the user's FIRST API call (verified live against
+ * jicate-booking-api: full-hash → 401, stripped-hash → 200). Keys minted
+ * before this fix were repaired in place (vault plaintext was always
+ * correct; only Cal's stored hash was wrong).
+ *
  * Returns { plaintext, hashedKey } — only hashedKey is stored on Cal.com's
  * ApiKey table; plaintext goes to CalApiKeyVault.set() for encrypted storage.
  */
 function generateApiKey(): { plaintext: string; hashedKey: string } {
   const plaintext = 'cal_' + crypto.randomBytes(16).toString('hex');
-  const hashedKey = crypto.createHash('sha256').update(plaintext).digest('hex');
+  const hashedKey = crypto
+    .createHash('sha256')
+    .update(plaintext.replace(/^cal_/, ''))
+    .digest('hex');
   return { plaintext, hashedKey };
 }
 
@@ -304,9 +316,9 @@ export class JicateBookingProvisionService {
             locale,
             theme,
             "emailVerified",
-            "createdDate"
+            uuid
           )
-          VALUES ($1, $2, $3, 'Asia/Kolkata', 'Monday', 'en', 'light', NOW(), NOW())
+          VALUES ($1, $2, $3, 'Asia/Kolkata', 'Monday', 'en', 'light', NOW(), gen_random_uuid())
           ON CONFLICT (email) DO UPDATE
             SET email = EXCLUDED.email
           RETURNING id, email

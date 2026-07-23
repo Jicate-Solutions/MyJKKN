@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import { LearnerHosteliteService } from '@/lib/services/campus-living/learner-hostelite-service';
 import type {
   LearnerHostelitesFilters,
-  LearnerHostelType,
 } from '@/types/campus-living';
 
 export const learnerHosteliteKeys = {
@@ -86,13 +85,8 @@ export function useRemoveLearnerFromHostel() {
 export function useAddLearnerToHostel() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      learnerId,
-      hostelType,
-    }: {
-      learnerId: string;
-      hostelType?: LearnerHostelType;
-    }) => LearnerHosteliteService.addToHostel(learnerId, hostelType),
+    mutationFn: ({ learnerId }: { learnerId: string }) =>
+      LearnerHosteliteService.addToHostel(learnerId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: learnerHosteliteKeys.all });
       toast.success('Added to hostel.');

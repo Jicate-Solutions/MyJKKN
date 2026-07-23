@@ -16,6 +16,7 @@ import { ArrowLeft } from 'lucide-react';
 import { getLearnerProfile } from '../_data/get-learner-profile';
 import { LearnerDetail } from '../_components/learner-detail';
 import { LearnerDetailActions } from '../_components/learner-detail-actions';
+import { PlacementCard } from './_components/placement-card';
 
 interface LearnerDetailPageProps {
   params: Promise<{ id: string }>;
@@ -130,6 +131,9 @@ export default async function LearnerDetailPage({ params }: LearnerDetailPagePro
             <LearnerDetailActions learner={learner} />
           </div>
         </div>
+
+        {/* Placement card — renders nothing if learner has no CDC placements */}
+        <PlacementCard learnerId={id} />
 
         <div className="flex flex-col lg:flex-row gap-8">
           <LearnerDetail learner={learner} />

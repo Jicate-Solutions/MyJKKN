@@ -130,19 +130,27 @@ export class ProfileService {
     try {
       let userIdsWithRole: string[] | null = null;
 
-      // Step 1: If role_key provided, find users with that role
+      // Step 1: If role_key provided, find users with that role.
+      //
+      // We MUST go through the get_user_ids_by_role_key SECURITY DEFINER RPC
+      // here — querying user_roles directly returns an empty set for any
+      // non-super-admin caller because the user_roles SELECT policy only
+      // grants visibility to super_admin / admin / users with 'roles.edit'.
+      // Resource owners building approver chains are typically none of those.
       if (filters.role_key) {
-        const { data: roleAssignments, error: roleError } = await (this.supabase as any)
-          .from('user_roles')
-          .select('user_id, custom_roles!inner(role_key)')
-          .eq('custom_roles.role_key', filters.role_key);
+        const { data: roleUserIds, error: roleError } = await (
+          this.supabase as any
+        ).rpc('get_user_ids_by_role_key', {
+          p_role_key: filters.role_key
+        });
 
         if (roleError) {
           console.error('[profile-service] Error fetching users by role:', roleError);
           throw roleError;
         }
 
-        userIdsWithRole = (roleAssignments || []).map((r: any) => r.user_id);
+        // RPC returns SETOF uuid -> string[] in the JS client.
+        userIdsWithRole = (roleUserIds as string[] | null) ?? [];
 
         // If no users have this role, return empty
         if (userIdsWithRole.length === 0) {

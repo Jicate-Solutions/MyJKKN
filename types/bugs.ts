@@ -3,7 +3,8 @@ export type BugReportStatus =
   | 'seen'
   | 'in_progress'
   | 'resolved'
-  | 'wont_fix';
+  | 'wont_fix'
+  | 'duplicate';
 
 export type BugReportCategory =
   | 'bug'
@@ -13,6 +14,36 @@ export type BugReportCategory =
   | 'security'
   | 'other'
   | 'question';
+
+/** AI-generated developer briefing stored at bug_reports.metadata.ai_triage
+ *  (written by POST /api/bug-reports/[id]/ai-triage, produced on the ₹0 Max lane). */
+export interface AiTriageBriefing {
+  summary: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category_verdict: string;
+  module_guess: string;
+  root_cause: string;
+  fix_steps: string[];
+  confidence: 'low' | 'medium' | 'high';
+  generated_at: string;
+  job_id: string;
+  lane: string;
+}
+
+/**
+ * Tier 2 AI re-verification verdict (bug.reverify recipe). Recommendation only —
+ * never resolves the bug or emails anyone. Persisted in
+ * bug_reports.metadata.ai_reverify.
+ */
+export interface AiReverifyVerdict {
+  verdict: 'likely_fixed' | 'still_broken' | 'inconclusive';
+  confidence: 'low' | 'medium' | 'high';
+  reasoning: string;
+  what_would_confirm: string;
+  reproducible: 'read' | 'write' | 'unknown';
+  generated_at: string;
+  job_id: string;
+}
 
 export interface BugReport {
   id: string;
@@ -29,6 +60,12 @@ export interface BugReport {
   console_logs?: any[] | null;
   status: BugReportStatus;
   resolved_at?: string | null;
+  /** Canonical bug this report duplicates (self-FK). Non-null iff marked duplicate. */
+  duplicate_of?: string | null;
+  /** display_id (BUG-xxxxx) of the canonical bug, from bug_reports_with_details. */
+  duplicate_of_display_id?: string | null;
+  /** How many open/resolved reports point at THIS bug as their canonical. */
+  duplicate_count?: number;
   similar_count?: number;
   metadata?: {
     browser?: string;

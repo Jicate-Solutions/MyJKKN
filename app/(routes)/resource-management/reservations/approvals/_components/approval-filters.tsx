@@ -1,7 +1,7 @@
 'use client';
 // app/(routes)/resource-management/reservations/approvals/_components/approval-filters.tsx
 
-import { Search, Filter, X } from 'lucide-react';
+import { Search, Filter, X, Building2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { ReservationPriority } from '@/types/reservation';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+
+const ALL_INSTITUTIONS = 'all';
 
 interface ApprovalFiltersProps {
   searchQuery: string;
@@ -21,6 +23,8 @@ interface ApprovalFiltersProps {
   onPriorityChange: (value: string) => void;
   sortBy: string;
   onSortChange: (value: string) => void;
+  institutionFilter: string;
+  onInstitutionChange: (value: string) => void;
   onClearFilters: () => void;
 }
 
@@ -31,10 +35,26 @@ export function ApprovalFilters({
   onPriorityChange,
   sortBy,
   onSortChange,
+  institutionFilter,
+  onInstitutionChange,
   onClearFilters
 }: ApprovalFiltersProps) {
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  // Only show the institution selector when the current user can access
+  // more than one institution. Single-institution users are already scoped
+  // by RLS — a one-option dropdown would just be noise.
+  const showInstitutionFilter = institutions.length > 1;
+
+  const selectedInstitution =
+    institutionFilter !== ALL_INSTITUTIONS
+      ? institutions.find((i) => i.id === institutionFilter)
+      : null;
+
   const hasActiveFilters =
-    searchQuery || priorityFilter !== 'all' || sortBy !== 'created_at';
+    !!searchQuery ||
+    priorityFilter !== 'all' ||
+    sortBy !== 'created_at' ||
+    (showInstitutionFilter && institutionFilter !== ALL_INSTITUTIONS);
 
   return (
     <div className='space-y-4'>
@@ -50,7 +70,40 @@ export function ApprovalFilters({
       </div>
 
       {/* Filter Row */}
-      <div className='grid gap-4 md:grid-cols-3'>
+      <div
+        className={`grid gap-4 ${
+          showInstitutionFilter
+            ? 'md:grid-cols-2 lg:grid-cols-4'
+            : 'md:grid-cols-3'
+        }`}
+      >
+        {/* Institution Filter (multi-institution users only) */}
+        {showInstitutionFilter && (
+          <div className='space-y-2'>
+            <label className='text-sm font-medium flex items-center gap-1'>
+              <Building2 className='h-3.5 w-3.5' />
+              Institution
+            </label>
+            <Select
+              value={institutionFilter}
+              onValueChange={onInstitutionChange}
+              disabled={institutionsLoading}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All Institutions' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_INSTITUTIONS}>All Institutions</SelectItem>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {/* Priority Filter */}
         <div className='space-y-2'>
           <label className='text-sm font-medium'>Priority</label>
@@ -103,6 +156,12 @@ export function ApprovalFilters({
             <Badge variant='secondary' className='gap-1'>
               <Filter className='h-3 w-3' />
               Search: {searchQuery}
+            </Badge>
+          )}
+          {showInstitutionFilter && selectedInstitution && (
+            <Badge variant='secondary' className='gap-1'>
+              <Building2 className='h-3 w-3' />
+              Institution: {selectedInstitution.name}
             </Badge>
           )}
           {priorityFilter !== 'all' && (

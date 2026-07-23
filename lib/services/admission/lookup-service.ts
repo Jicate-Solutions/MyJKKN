@@ -131,17 +131,15 @@ export class LookupService {
     if (error) throw error;
   }
 
-  // ---------------- accommodation_types (institution-scoped) ----------------
+  // ---------------- accommodation_types (global lookup) ----------------
 
   static async listAccommodationTypes(
-    institutionId: string,
     activeOnly = true,
   ): Promise<AdmissionFeeAccommodationType[]> {
     const supabase = createClientSupabaseClient();
     const query = supabase
       .from('accommodation_types')
       .select('*')
-      .eq('institution_id', institutionId)
       .order('sort_order', { ascending: true })
       .order('name', { ascending: true });
 
@@ -194,5 +192,17 @@ export class LookupService {
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  static async listAllActiveAccommodationTypes(): Promise<AdmissionFeeAccommodationType[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('accommodation_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return data ?? [];
   }
 }

@@ -64,7 +64,11 @@ export function UserNav() {
           setLegacyRoleName(found?.role_name ?? profile.role);
         }
       } catch (err) {
-        console.error('[user-nav] Failed to load user roles:', err);
+        // Demoted to console.warn (2026-04-28) because UserNav has a graceful
+        // fallback (sets legacyRoleName from profile.role below). A transient
+        // TypeError: Failed to fetch from a network blip should not trigger
+        // Next.js's blocking Console Error overlay on every page.
+        console.warn('[user-nav] Failed to load user roles (using legacy fallback):', err);
         if (!cancelled && profile.role) {
           setLegacyRoleName(profile.role);
         }

@@ -19,6 +19,7 @@ import { CourseMappingsSearchParams } from './data-table-schema';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserDepartmentAccess } from '@/hooks/use-user-department-access';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface CourseMappingFiltersProps {
   searchParams: CourseMappingsSearchParams;
@@ -31,6 +32,7 @@ export function CourseMappingFilters({
   onFilterChange,
   onClearFilters
 }: CourseMappingFiltersProps) {
+  const adapt = useAdaptiveLabels();
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -63,7 +65,7 @@ export function CourseMappingFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         console.error('Error loading institutions:', error);
@@ -289,10 +291,10 @@ export function CourseMappingFilters({
               disabled={!searchParams.institution_id || loading || hasDepartmentRestriction}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Degrees' />
+                <SelectValue placeholder={`All ${adapt('Degrees')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                {!hasDepartmentRestriction && <SelectItem value='all'>All Degrees</SelectItem>}
+                {!hasDepartmentRestriction && <SelectItem value='all'>All {adapt('Degrees')}</SelectItem>}
                 {degrees.map((degree) => (
                   <SelectItem key={degree.id} value={degree.id}>
                     {degree.degree_name}
@@ -310,10 +312,10 @@ export function CourseMappingFilters({
               disabled={!searchParams.degree_id || loading || hasDepartmentRestriction}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Departments' />
+                <SelectValue placeholder={`All ${adapt('Departments')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                {!hasDepartmentRestriction && <SelectItem value='all'>All Departments</SelectItem>}
+                {!hasDepartmentRestriction && <SelectItem value='all'>All {adapt('Departments')}</SelectItem>}
                 {departments.map((dept) => (
                   <SelectItem key={dept.id} value={dept.id}>
                     {dept.department_name}
@@ -331,10 +333,10 @@ export function CourseMappingFilters({
               disabled={!searchParams.department_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Programs' />
+                <SelectValue placeholder={`All ${adapt('Programs')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Programs</SelectItem>
+                <SelectItem value='all'>All {adapt('Programs')}</SelectItem>
                 {programs.map((program) => (
                   <SelectItem key={program.id} value={program.id}>
                     {program.program_name}
@@ -354,10 +356,10 @@ export function CourseMappingFilters({
               disabled={!searchParams.program_id || loading}
             >
               <SelectTrigger className='w-full'>
-                <SelectValue placeholder='All Semesters' />
+                <SelectValue placeholder={`All ${adapt('Semesters')}`} />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Semesters</SelectItem>
+                <SelectItem value='all'>All {adapt('Semesters')}</SelectItem>
                 {semesters.map((semester) => (
                   <SelectItem key={semester.id} value={semester.id}>
                     {semester.semester_name}

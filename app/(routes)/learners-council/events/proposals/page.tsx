@@ -33,12 +33,18 @@ export default async function EventProposalsPage() {
     .eq('proposed_by', profile.id)
     .order('created_at', { ascending: false });
 
+  // Super admins legitimately have no institution_id on their profile. Pass the
+  // raw nullable value (never '') so downstream code can branch correctly and
+  // never sends '' as a UUID — see feedback_institution_id_or_empty_string_antipattern.md
+  const isSuperAdmin = profile.role === 'super_admin';
+
   return (
     <div className="space-y-6">
       <EventProposalsClient
         initialProposals={myProposals || []}
         userId={profile.id}
-        institutionId={profile.institution_id || ''}
+        institutionId={profile.institution_id ?? null}
+        isSuperAdmin={isSuperAdmin}
       />
     </div>
   );

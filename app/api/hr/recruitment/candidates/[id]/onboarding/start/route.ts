@@ -29,9 +29,16 @@ async function getClient() {
 }
 
 // POST /api/hr/recruitment/candidates/[id]/onboarding/start
-// Activates the onboarding checklist for a joined candidate.
-// Reads hr_onboarding_checklists for the candidate's cadre and stamps it
-// onto the candidate's role_specific_details.onboarding_checklist field.
+// Activates the onboarding checklist for a candidate.
+//
+// 2026-07-06 flow change: onboarding is now a PRE-JOIN stage. Final approval
+// only marks the candidate 'approved'; this route stamps the checklist, each
+// assignee completes their steps, and ONLY a fully-completed checklist
+// unlocks onboard-to-staff (which creates the staff row + sets 'joined').
+// 'joined' is still accepted for legacy candidates onboarded the old way.
+
+/** Statuses eligible for the pre-join onboarding stage. */
+const ONBOARDABLE_STATUSES = ['approved', 'package_fixed', 'offer_issued', 'joined'];
 
 export async function POST(
   _request: NextRequest,
@@ -47,10 +54,16 @@ export async function POST(
     // Fetch the candidate
     const candidate = await RecruitmentService.getCandidate(supabase, id);
     if (!candidate) return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
-    if (candidate.status !== 'joined') {
+    if (!ONBOARDABLE_STATUSES.includes(candidate.status)) {
       return NextResponse.json(
-        { error: `Onboarding can only start for joined candidates. Current status: ${candidate.status}` },
+        { error: `Onboarding can only start after final approval. Current status: ${candidate.status}` },
         { status: 400 }
+      );
+    }
+    if ((candidate.role_specific_details as Record<string, unknown> | null)?.onboarding_steps) {
+      return NextResponse.json(
+        { error: 'Onboarding has already been started for this candidate.' },
+        { status: 409 }
       );
     }
 
@@ -80,6 +93,36 @@ export async function POST(
       );
     }
 
+    // Normalize both template shapes ({step} legacy / {order,title} admin-built)
+    // and resolve pinned assignee emails → profiles.id in one lookup.
+    type TemplateStep = {
+      step?: string;
+      title?: string;
+      expected_by_day?: number;
+      assigned_role?: string;
+      assigned_user_email?: string;
+    };
+    const templateSteps = (checklist.steps as TemplateStep[]) ?? [];
+
+    const assigneeEmails = Array.from(
+      new Set(
+        templateSteps
+          .map((s) => s.assigned_user_email?.toLowerCase().trim())
+          .filter((e): e is string => !!e),
+      ),
+    );
+    const emailToProfileId = new Map<string, string>();
+    if (assigneeEmails.length > 0) {
+      const serviceSupabase = createServiceRoleClient();
+      const { data: profileRows } = await serviceSupabase
+        .from('profiles')
+        .select('id, email')
+        .in('email', assigneeEmails);
+      for (const p of (profileRows ?? []) as Array<{ id: string; email: string | null }>) {
+        if (p.email) emailToProfileId.set(p.email.toLowerCase(), p.id);
+      }
+    }
+
     // Stamp checklist onto candidate's role_specific_details
     const updatedDetails = {
       ...(candidate.role_specific_details ?? {}),
@@ -87,12 +130,18 @@ export async function POST(
       onboarding_checklist_name: checklist.checklist_name,
       onboarding_started_at: new Date().toISOString(),
       onboarding_started_by: user.id,
-      onboarding_steps: (checklist.steps as Array<{ step: string }>).map((s, idx) => ({
+      onboarding_steps: templateSteps.map((s, idx) => ({
         index: idx,
-        step: s.step,
+        step: s.title ?? s.step ?? `Step ${idx + 1}`,
         completed: false,
         completed_at: null,
         completed_by: null,
+        expected_by_day: s.expected_by_day ?? null,
+        assigned_role: s.assigned_role ?? null,
+        assigned_user_email: s.assigned_user_email ?? null,
+        assigned_user_id: s.assigned_user_email
+          ? emailToProfileId.get(s.assigned_user_email.toLowerCase().trim()) ?? null
+          : null,
       })),
     };
 

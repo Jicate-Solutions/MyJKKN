@@ -9,6 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAvailableSlots } from '@/hooks/reservation/use-resource-availability';
 import type { TimeSlot } from '@/types/reservation';
+import { Input } from '@/components/ui/input';
+import { TimeSlotGeneratorService } from '@/lib/services/resource-management/time-slot-generator-service';
+import { DEFAULT_OPERATING_WINDOW, CUSTOM_RANGE_STEP_MINUTES, CUSTOM_RANGE_MIN_MINUTES } from '@/lib/services/resource-management/default-slots';
 
 interface TimeSlotPickerProps {
   resourceId: string;
@@ -16,6 +19,7 @@ interface TimeSlotPickerProps {
   onSelectSlot: (startTime: string, endTime: string) => void;
   selectedStartTime?: string;
   selectedEndTime?: string;
+  operatingHours?: { start: string; end: string };
 }
 
 export function TimeSlotPicker({
@@ -23,11 +27,13 @@ export function TimeSlotPicker({
   date,
   onSelectSlot,
   selectedStartTime,
-  selectedEndTime
+  selectedEndTime,
+  operatingHours = DEFAULT_OPERATING_WINDOW
 }: TimeSlotPickerProps) {
-  const [selectionMode, setSelectionMode] = useState<'single' | 'range'>(
-    'single'
-  );
+  const [selectionMode, setSelectionMode] = useState<'slots' | 'custom'>('slots');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [customError, setCustomError] = useState<string | null>(null);
 
   const { data: slotsData, isLoading } = useAvailableSlots(resourceId, date);
   const slots = (slotsData as TimeSlot[] | undefined) || [];
@@ -57,36 +63,43 @@ export function TimeSlotPicker({
     );
   };
 
-  // Handle slot click
+  // Handle slot click — single-select; the custom-time mode covers ranges.
   const handleSlotClick = (slot: TimeSlot) => {
     if (!slot.is_available) return;
-
-    if (selectionMode === 'single') {
-      // Single slot selection
-      onSelectSlot(slot.start_time, slot.end_time);
-    } else {
-      // Range selection
-      if (!selectedStartTime) {
-        // First click - set start
-        onSelectSlot(slot.start_time, slot.end_time);
-      } else if (!selectedEndTime) {
-        // Second click - set end
-        if (slot.start_time < selectedStartTime) {
-          // If clicked before start, swap
-          onSelectSlot(slot.start_time, selectedStartTime);
-        } else {
-          onSelectSlot(selectedStartTime, slot.end_time);
-        }
-      } else {
-        // Reset and start new selection
-        onSelectSlot(slot.start_time, slot.end_time);
-      }
-    }
+    onSelectSlot(slot.start_time, slot.end_time);
   };
 
   // Clear selection
   const handleClearSelection = () => {
     onSelectSlot('', '');
+  };
+
+  // Confirm a free-form custom time range (reuses the server-side validator).
+  const handleCustomConfirm = () => {
+    if (!customStart || !customEnd) {
+      setCustomError('Please choose a start and end time.');
+      return;
+    }
+    // TZ-safe: build instants from the local date + picked HH:MM, matching how
+    // generated slots are constructed (see time-slot-generator-service.ts).
+    const startISO = new Date(`${date}T${customStart}:00`).toISOString();
+    const endISO = new Date(`${date}T${customEnd}:00`).toISOString();
+    const config = {
+      operating_hours: { default: operatingHours },
+      slot_generation: 'custom' as const
+    };
+    const result = TimeSlotGeneratorService.validateCustomRange(
+      config,
+      startISO,
+      endISO,
+      { stepMinutes: CUSTOM_RANGE_STEP_MINUTES, minMinutes: CUSTOM_RANGE_MIN_MINUTES }
+    );
+    if (!result.valid) {
+      setCustomError(result.reason || 'Invalid time range.');
+      return;
+    }
+    setCustomError(null);
+    onSelectSlot(startISO, endISO);
   };
 
   // Group slots - Check if we have custom named slots
@@ -194,17 +207,26 @@ export function TimeSlotPicker({
         </div>
 
         {/* Slot Footer */}
-        <div className='flex items-center gap-2 mt-2 w-full'>
-          <Badge
-            variant={slot.is_available ? 'default' : 'destructive'}
-            className='text-[10px]'
-          >
-            {slot.is_available ? 'Available' : 'Booked'}
-          </Badge>
-          {slot.max_capacity && slot.max_capacity > 1 && (
-            <Badge variant='outline' className='text-[10px]'>
-              Capacity: {slot.max_capacity}
+        <div className='flex flex-col gap-1 mt-2 w-full'>
+          <div className='flex items-center gap-2'>
+            <Badge
+              variant={slot.is_available ? 'default' : 'destructive'}
+              className='text-[10px]'
+            >
+              {slot.is_available ? 'Available' : 'Booked'}
             </Badge>
+            {slot.max_capacity && slot.max_capacity > 1 && (
+              <Badge variant='outline' className='text-[10px]'>
+                Capacity: {slot.max_capacity}
+              </Badge>
+            )}
+          </div>
+          {!slot.is_available && slot.booked_by_name && (
+            <span className='text-[10px] text-muted-foreground'>
+              {slot.booked_by_name}
+              {slot.booked_by_designation ? ` · ${slot.booked_by_designation}` : ''}
+              {slot.booked_status ? ` (${slot.booked_status})` : ''}
+            </span>
           )}
         </div>
       </Button>
@@ -253,18 +275,18 @@ export function TimeSlotPicker({
           </div>
           <div className='flex items-center gap-2'>
             <Button
-              variant={selectionMode === 'single' ? 'default' : 'outline'}
+              variant={selectionMode === 'slots' ? 'default' : 'outline'}
               size='sm'
-              onClick={() => setSelectionMode('single')}
+              onClick={() => { setSelectionMode('slots'); setCustomError(null); }}
             >
-              Single Slot
+              Pick a slot
             </Button>
             <Button
-              variant={selectionMode === 'range' ? 'default' : 'outline'}
+              variant={selectionMode === 'custom' ? 'default' : 'outline'}
               size='sm'
-              onClick={() => setSelectionMode('range')}
+              onClick={() => { setSelectionMode('custom'); setCustomError(null); }}
             >
-              Time Range
+              Custom time
             </Button>
           </div>
         </div>
@@ -295,6 +317,51 @@ export function TimeSlotPicker({
           </div>
         )}
 
+        {/* Custom Time Range */}
+        {selectionMode === 'custom' && (
+          <div className='space-y-4'>
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <div className='space-y-1.5'>
+                <label className='text-sm font-medium'>Start time</label>
+                <Input
+                  type='time'
+                  step={CUSTOM_RANGE_STEP_MINUTES * 60}
+                  min={operatingHours.start}
+                  max={operatingHours.end}
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                />
+              </div>
+              <div className='space-y-1.5'>
+                <label className='text-sm font-medium'>End time</label>
+                <Input
+                  type='time'
+                  step={CUSTOM_RANGE_STEP_MINUTES * 60}
+                  min={operatingHours.start}
+                  max={operatingHours.end}
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className='text-xs text-muted-foreground'>
+              Pick any range between {operatingHours.start} and {operatingHours.end},
+              in 30-minute steps (minimum 30 minutes).
+            </p>
+            {customError && (
+              <p className='text-sm text-destructive'>{customError}</p>
+            )}
+            <Button
+              onClick={handleCustomConfirm}
+              disabled={!customStart || !customEnd}
+            >
+              Set custom time
+            </Button>
+          </div>
+        )}
+
+        {selectionMode === 'slots' && (
+          <>
         {/* Loading State */}
         {isLoading && (
           <div className='space-y-4'>
@@ -387,6 +454,8 @@ export function TimeSlotPicker({
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
       </CardContent>
     </Card>

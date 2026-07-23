@@ -1,6 +1,6 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-05-02",
+  "lastUpdated": "2026-06-02",
   "_schema": {
     "version": "2.0",
     "updated": "2026-05-02",
@@ -16,6 +16,20 @@
     "enforcement": "Specs missing `outcome_metric` block are invalid. /myjkkn-chain Q0 enforces this gate at spec-time. Cross-domain commitments mirrored to ~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md via /lock-initiative skill."
   },
   "features": [
+    {
+      "id": "startup-studio-foundations-level0",
+      "name": "Startup Studio — Foundations (Level 0): pre-Appathon founder-formation on-ramp",
+      "status": "planned",
+      "outcome_metric": {
+        "metric_name": "appathon_conversion_rate_foundations: count(distinct Foundations-completers who registered AND submitted at the next Appathon) * 100 / count(distinct Foundations-completers)",
+        "baseline_value": "TBD — measure at launch. Cold-entry Appathon submission-rate among enrollees with NO Foundations completion. Read-only query in specs/startup-studio-foundations-level0-spec-2026-06-01.md §Q0 (hand to a Supabase-MCP session / Server Claude).",
+        "threshold_90d": "Foundations-completers submit at the next Appathon at >= cold-entry baseline + 20 percentage points (provisional per Director directive 2026-06-01; re-pin after baseline measured)",
+        "kill_criterion": "If completers convert at <= baseline (zero lift) at the first post-launch Appathon, the on-ramp failed to widen the funnel — revise curriculum sequencing OR archive Level 0. Do NOT extend the timeline to mask a flat result.",
+        "verdict_date": "first Appathon within 90 days of Phase-1 merge (EVENT-GATED, provisional — Appathons are not continuous; re-pin to the actual next Appathon date at launch)",
+        "verdict_status": "PENDING — baseline not yet measured; threshold provisional (+20pp)"
+      },
+      "notes": "Spec: specs/startup-studio-foundations-level0-spec-2026-06-01.md (incl. §16 assumption-thrash). EXTENDS the sf100 worksheet engine (sf100_exercises.fields JSONB + sf100_exercise_responses.response_data JSONB + sf100-exercise-form renderer) into a NEW ss_foundations_* container (5 tables: cohorts, enrollments, worksheets, responses, response_versions). Adds Level 0 'Explorer' below Level 1 'App Builder' in progression.ts. Source curriculum: YCEO 'Think Startup' 18-session workbook. Chain gates (2026-06-01/02): prod-sweep clean; persona-design clean (3 perm keys startup_studio.foundations.{view,manage,review}, no new role; ss_ prefix already maps tables); Q1 worksheets=CRUDable table; Q3 graduation % via fn_get_policy_int('startup_studio.foundations_graduation_pct',80); engine +3 field types (matrix, markdown, image); four-test 3/4. /assumption-thrash: 12 decisions (studio-native, one canon set, submit=complete + review=quality-flag, both enrol, snapshot field-schema, versioned resubmit, private RLS, proxy-fill, auto-cert+notify, per-student-GLOBAL completion). PR-1 = migration 20260602000001_ss_foundations_substrate.sql (5 tables + RLS + 8 seeded worksheets) + permissions.ts keys. Branch feat/startup-studio-foundations-level0 off jicate/main (recovered cleanly 2026-06-22 after the original uncommitted edits were lost to branch churn). P1 ~3-4wk."
+    },
     {
       "id": "counselor-rules-engine-substrate",
       "name": "Counselor rules-engine — Phases 1-8a shipped (verdict 2026-06-30)",
@@ -195,6 +209,20 @@
         "verdict_date": "2026-08-01",
         "verdict_status": "PENDING"
       }
+    },
+    {
+      "id": "wave-5-recruitment-workflow-repair",
+      "name": "Wave 5 \u2014 Recruitment Workflow Substrate Repair (5 fixes; verdict 2026-08-14)",
+      "status": "shipped",
+      "outcome_metric": {
+        "metric_name": "Recruitment workflow stage coverage \u2014 count of distinct successful state transitions (submitted \u2192 scheduled \u2192 scored \u2192 approved \u2192 offered \u2192 joined \u2192 onboarded) executable end-to-end via authenticated UI without 500s",
+        "baseline_value": "1 of 7 stages working (only submit\u2192pending_approval pre-Wave-5; interview-scheduling 500'd because table didn't exist, scoring 500'd, jobs 500'd, onboarding-start 400'd, submit UI silently failed)",
+        "threshold_90d": "All 7 stages executable end-to-end by 2026-08-14 (90-day verdict). Measured by: a fresh test candidate walked through every stage without intervention.",
+        "kill_criterion": "If <4 stages working by 2026-08-14, recruitment module is fundamentally broken \u2014 re-audit with a fresh /assumption-thrash before scoping additional recruitment work",
+        "verdict_date": "2026-08-14",
+        "verdict_status": "PENDING (Wave 5 just shipped 2026-05-16; T4.3 period orchestration depends on this substrate being stable)"
+      },
+      "notes": "Shipped 2026-05-16 via 1 inline action + 4 parallel fullstack-developer Agent spawns + 1 \u03b2-prime re-spawn (\u03b2 stalled at 600s no-progress mid-investigation). The 5 fixes (PR numbers may shift; check Jicate-Solutions/MyJKKN PR list for the actual numbers landed today after 03:00 UTC):\n- Inline: applied dormant migration 20260509100200_create_hr_recruitment_jobs.sql to prod via Management API (table+7 indexes+4 RLS policies live)\n- Agent \u03b1 (PR #937): hr_recruitment_interviews substrate \u2014 16 cols + GIN index on panel_member_ids + 4 RLS policies. Override of spec: pulled mode/status enum values from types/hr-recruitment.ts (caught spec being stale \u2014 service writes `status='rescheduled'` which spec didn't include)\n- Agent \u03b2-prime (PR TBD): hr_recruitment_scorecards substrate \u2014 UNIQUE(interview_id, interviewer_id) + 4 RLS policies. \u03b2 stalled, \u03b2-prime shipped with pre-baked schema + RLS helpers.\n- Agent \u03b3 (PR #939): /hr/recruitment/submit form fix. Override of spec: form is plain useState (not RHF as my prompt claimed); transform is correct; real bug was silent `return` guard. Fix replaces with collect-and-toast pattern (15+/-1).\n- Agent \u03b4 (PR #938): onboarding_checklists seed migration \u2014 4 rows (Administrative Leadership / Non-Technical Admin / Supporting Technical / Teaching Faculty). Override of spec: 4 rows not 5 because cadreMap collapses 5 role_categories to 3 unique names. End-to-end verified candidate 6a53fd18 onboarding now starts.\n\nThree distinct agent overrides of my prompts all proved correct. Meta-learning: when spec disagrees with reality, agent should call it out, not silently fall in either direction (Rule 21 protected).\n\nTest artifact in prod: candidate 6a53fd18-544b-48f1-b6ce-16248ef187db ('WorkflowTest 20260516 Sample Candidate'), status=joined, with 9-step onboarding populated. Director may delete via Management API when ready; useful as audit trail until then.\n\nAlso fixed: CLAUDE.md port-drift documented (3104 design vs 3000 reality), memory feedback_dev_server_port_drift_3104_vs_3000.md saved. Wave 5 outcome metric set conservatively \u2014 7-stage coverage by 90 days is realistic given T4.3 dependency."
     }
   ]
 }

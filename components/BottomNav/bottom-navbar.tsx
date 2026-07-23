@@ -26,9 +26,14 @@ import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
-import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { GetRoleBasedPages, RolePermissionData, filterToInductionOnlyMenu } from '@/lib/sidebarMenuLink';
+import { adaptMenuLabels, adaptLabel } from '@/lib/utils/school-label-adapter';
+import { useAuth } from '@/providers/auth-provider';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionType } from '@/hooks/use-institution-type';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
+import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
+import { useIsInductionOnly } from '@/hooks/use-my-lifecycle-status';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
@@ -37,7 +42,6 @@ import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu, GROUP_TILE_GRADIENTS } from './bottom-nav-more-menu';
 import { BottomNavMinimized } from './bottom-nav-minimized';
 import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
-import { AttentionBar } from '@/components/attention-bar';
 
 /**
  * Resolve a section's icon by deriving from MODULES — single source of truth.
@@ -144,6 +148,13 @@ export function BottomNavbar() {
     userProfile
   } = usePermissions();
 
+  const { user } = useAuth();
+  const { institutionType, isLoading: institutionTypeLoading } = useInstitutionType();
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[BottomNav] institutionType:', institutionType, 'isLoading:', institutionTypeLoading);
+  }
+
   const { open: openSearch } = useCommandPalette();
   const { favorites } = usePageFavorites();
 
@@ -164,6 +175,15 @@ export function BottomNavbar() {
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
 
+  // Students: the My Hostel entry is shown only for actual hostel residents
+  // (learners_profiles accommodation = hostel). Mirrors menu.tsx so desktop
+  // sidebar and mobile bottom-nav stay in lock-step.
+  const isStudentRole = userProfile?.role === 'student';
+  const { data: isHosteler } = useIsHosteler(isStudentRole);
+  // Pre-onboarding (induction-only) learners: scope the bottom nav to My Induction
+  // + My Profile (matches the desktop sidebar + proxy whitelist).
+  const isInductionOnly = useIsInductionOnly(isStudentRole);
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -175,21 +195,50 @@ export function BottomNavbar() {
       };
     }
 
-    // Enrich permissions with dynamic expo access for assigned team members
-    const enrichedPermissions = isExpoTeamMember
-      ? { ...permissions, 'admission.marketing.expos.view': true }
-      : permissions;
+    // Enrich permissions with dynamic expo access for assigned team members.
+    // 2026-05-11: counselor roles whose Marketing access was explicitly
+    // revoked must NOT get expo visibility re-granted via team-membership
+    // enrichment. Without this carve-out, the mobile Marketing module entry
+    // re-appears for admission_counselor / learner_counselor / staff_counselor
+    // users who happen to be on any expo team. Mirrors menu.tsx logic so
+    // desktop sidebar and mobile bottom-nav stay in lock-step.
+    const EXPO_ENRICHMENT_SKIP_ROLES = new Set([
+      'admission_counselor',
+      'learner_counselor',
+      'staff_counselor',
+    ]);
+    const skipExpoEnrichment = EXPO_ENRICHMENT_SKIP_ROLES.has(userProfile.role || '');
+    const enrichedPermissions: Record<string, boolean> = { ...permissions };
+    if (isExpoTeamMember && !skipExpoEnrichment) {
+      enrichedPermissions['admission.marketing.expos.view'] = true;
+    }
+
+    // Students: gate the My Hostel entry on live hostel residency. The role-wide
+    // campus_living.my_hostel.view grant covers every student; overwrite it with
+    // user_is_hosteler() so dayscholars don't get a dead-end menu.
+    if (isStudentRole) {
+      enrichedPermissions['campus_living.my_hostel.view'] =
+        permissions['campus_living.my_hostel.view'] === true && isHosteler === true;
+    }
 
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isStudentRole, isHosteler]);
 
-  // Get filtered pages based on merged permissions
+  // Get filtered pages based on merged permissions and institution type
   const filteredPages = useMemo(() => {
-    return GetRoleBasedPages(pathname, roleData);
-  }, [pathname, roleData]);
+    const rawPages = GetRoleBasedPages(pathname, roleData);
+    const pages = isInductionOnly ? filterToInductionOnlyMenu(rawPages) : rawPages;
+
+    // Apply label adaptation for schools (Degrees → Streams, etc.)
+    // NOTE: Do NOT filter by entity type like filterMenuByEntityType does.
+    // Schools need access to organization menus, just with adapted labels.
+    // The sidebar approach (adapt labels, don't hide menus) is correct.
+    const entityType = (institutionType ?? 'institution') as any;
+    return adaptMenuLabels(pages, entityType);
+  }, [pathname, roleData, institutionType, isInductionOnly]);
 
   // Transform filtered pages into bottom nav groups.
   //
@@ -213,28 +262,56 @@ export function BottomNavbar() {
       if (g.groupLabel) filteredByLabel.set(g.groupLabel, g);
     }
 
-    // Walk MODULES section order; emit a BottomNavGroup for each section
+    // Build a BottomNavGroup from a section label + its permission-filtered
+    // menu group. Icon prefers the MODULES section icon (via getSectionIcon);
+    // for leftover sections whose groupLabel isn't in MODULES it falls back to
+    // the first menu item's own icon so the More drawer never shows a bare Home.
+    const inModules = (label: string) => MODULES.some((m) => m.section === label);
+    const toNavGroup = (
+      label: string,
+      matched: (typeof filteredPages)[number]
+    ): BottomNavGroup => ({
+      id: label.toLowerCase().replace(/\s+/g, '-') || 'default',
+      groupLabel: label,
+      icon: inModules(label) ? getSectionIcon(label) : (matched.menus[0]?.icon ?? getSectionIcon(label)),
+      menus: flattenMenuItems(matched.menus),
+      // Top-level peers BEFORE submenu flatten — used by More drawer for
+      // chevron disclosure + drill-down list. Already permission-filtered
+      // because `matched` came from `filteredPages`. See BottomNavGroup
+      // type docstring.
+      topLevelPeers: matched.menus.map((m) => ({
+        href: REDIRECT_ROUTES[m.href] || m.href,
+        label: m.label,
+        icon: m.icon,
+        active: m.active,
+      })),
+    });
+
+    // 1) Walk MODULES section order; emit a BottomNavGroup for each section
     // that has at least one accessible menu in `filteredPages`.
     const groups: BottomNavGroup[] = [];
+    const matchedLabels = new Set<string>();
     for (const [section] of getModulesBySection()) {
       const matched = filteredByLabel.get(section);
       if (!matched || matched.menus.length === 0) continue;
-      groups.push({
-        id: section.toLowerCase().replace(/\s+/g, '-') || 'default',
-        groupLabel: section,
-        icon: getSectionIcon(section),
-        menus: flattenMenuItems(matched.menus),
-        // Top-level peers BEFORE submenu flatten — used by More drawer for
-        // chevron disclosure + drill-down list. Already permission-filtered
-        // because `matched` came from `filteredPages`. See BottomNavGroup
-        // type docstring.
-        topLevelPeers: matched.menus.map((m) => ({
-          href: REDIRECT_ROUTES[m.href] || m.href,
-          label: m.label,
-          icon: m.icon,
-          active: m.active,
-        })),
-      });
+      groups.push(toNavGroup(section, matched));
+      matchedLabels.add(section);
+    }
+
+    // 2) Forward-compat safety net — MIRRORS menu.tsx:205-213 so the mobile
+    // bottom-nav stays in true lock-step with the desktop sidebar. Any labeled
+    // group that exists in the permission-filtered set but is NOT matched by a
+    // MODULES section still surfaces (trailing) instead of being silently
+    // dropped. Without this, a sidebar groupLabel that drifts from its MODULES
+    // section name — or a section with no MODULES entry at all — vanishes from
+    // the bottom bar while still rendering on desktop (the asymmetry that hid
+    // Employee Management, IMS, Meetings/Scheduling, PDE, Calendar, CDC and
+    // Feedback from mobile). Drop is impossible — surfacing the gap visibly.
+    for (const g of filteredPages) {
+      if (g.groupLabel && !matchedLabels.has(g.groupLabel) && g.menus.length > 0) {
+        groups.push(toNavGroup(g.groupLabel, g));
+        matchedLabels.add(g.groupLabel);
+      }
     }
     return groups;
   }, [filteredPages]);
@@ -248,18 +325,18 @@ export function BottomNavbar() {
       icon: Star,
       menus: favorites.map((fav) => ({
         href: fav.path,
-        label: fav.title,
+        label: adaptLabel(fav.title, institutionType ?? 'institution'),
         icon: ICON_MAP[fav.iconName] || Star,
       })),
       // Favorites are flat by definition — every favorite is a top-level
       // peer (no nested submenus). topLevelPeers === menus here.
       topLevelPeers: favorites.map((fav) => ({
         href: fav.path,
-        label: fav.title,
+        label: adaptLabel(fav.title, institutionType ?? 'institution'),
         icon: ICON_MAP[fav.iconName] || Star,
       })),
     };
-  }, [favorites]);
+  }, [favorites, institutionType]);
 
   // Primary nav groups: 3 regular + favorites (if any), or 4 regular
   const primaryNavGroups = useMemo(() => {
@@ -352,13 +429,16 @@ export function BottomNavbar() {
     }
   }, [currentActivePage, setActivePage, isLoading, setMinimized]);
 
-  // Sync activeNavId with pathname when it changes (but not while user is browsing)
+  // Sync activeNavId with pathname when it changes (but not while user is browsing).
+  // Use the primitive id string as the dep — the group object reference changes on every
+  // render (filteredPages depends on pathname), which would cause an infinite setState loop
+  // if the full object were in the deps array.
+  const currentActiveGroupId = currentActiveGroup?.id ?? null;
   useEffect(() => {
-    // Only sync when not expanded - don't override user's manual selection while browsing
-    if (!isExpanded && currentActiveGroup && currentActiveGroup.id !== activeNavId) {
-      setActiveNav(currentActiveGroup.id);
+    if (!isExpanded && currentActiveGroupId && currentActiveGroupId !== activeNavId) {
+      setActiveNav(currentActiveGroupId);
     }
-  }, [currentActiveGroup, activeNavId, setActiveNav, isExpanded]);
+  }, [currentActiveGroupId, activeNavId, setActiveNav, isExpanded]);
 
   // Handle nav item click - simplified toggle logic with atomic state update
   const handleNavClick = useCallback(
@@ -444,11 +524,12 @@ export function BottomNavbar() {
   // Always show full navbar - never minimized
   return (
     <>
-      {/* Attention Bar — Phase 2 pill above the bottom-nav strip.
-          Self-contained: fixed positioning, hidden on lg+, renders nothing
-          when the resolver returns null. Sits at z-[75] (BELOW the nav at
-          z-[80]) so the More-drawer backdrop covers it during nav interactions. */}
-      <AttentionBar />
+      {/* AttentionBar pill removed 2026-06-19 — the contextual pill that
+          floated above the bottom-nav strip is now hidden on ALL mobile
+          pages per product request. The render is intentionally omitted;
+          the underlying resolver/API and the admin UI (/system/attention-bar)
+          remain intact, so this can be restored by re-adding `<AttentionBar />`
+          here plus its import. */}
 
       {/* Backdrop when submenu expanded - only for submenu, not More menu */}
       <AnimatePresence>

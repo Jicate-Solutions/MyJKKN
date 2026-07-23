@@ -1,0 +1,93 @@
+{
+  "_doc": "Mapping of Google Sheet course labels → DB (institution_name, program_name) pairs for historical admission backfill. Used by scripts/admission/import-historical-sheets.py to populate admission_historical_pivot for 2024-25 and 2025-26 cycles. Locked 2026-06-02 via interactive Director sign-off.",
+  "_decisions": {
+    "b_ed": "Single sheet B.Ed row maps to NEW aggregate program 'B.Ed (Historical Aggregate)' in JKKN College of Education (program_id dabfdd5b-159a-4029-89c0-056859051803). Created 2026-06-02 since DB had only 11 pedagogy-specific B.Ed program_ids and sheet did not distinguish pedagogy.",
+    "ma_english_aided": "Sheet 'M.A.English' routes to JKKN College of Arts and Science (Aided)'s NEW M.A. ENGLISH program (program_id 3698dd01-884e-4e65-8a38-afb4f550106b). Created 2026-06-02 since Aided historically held this program before Self took over; Aided did not previously have an M.A. ENGLISH program_id.",
+    "self_aided_split": "B.A.English, B.Sc (Maths), M.Com., M.Sc.Mathematics exist in BOTH Self and Aided. Director-locked split: 70% Self / 30% Aided per row. Counts round to nearest integer per date.",
+    "nursing_synonyms": "Sheet 'Paediatric Nursing' → DB 'MSC (Child Health Nursing)'. Sheet 'Psychiatric Nursing' → DB 'MSC (Mental Health Nursing)'. Curriculum-standard synonyms.",
+    "lateral_entry": "Engineering Lateral Entry rows share program_id with their Year-I siblings. The importer relies on sheet category-header context ('ENGINEERING - LATERAL ENTRY - II YEAR') to flag these distinct from UG-I, but admission_years.program_start_year is the same so they aggregate into one row."
+  },
+  "mappings": [
+    {"sheet_label": "B.E - CSE", "institution": "JKKN College of Engineering and Technology", "program_name": "B.E. Computer Science and Engineering"},
+    {"sheet_label": "B.TECH - IT", "institution": "JKKN College of Engineering and Technology", "program_name": "B.Tech. Information Technology"},
+    {"sheet_label": "B.E - ECE", "institution": "JKKN College of Engineering and Technology", "program_name": "B.E. Electronics and Communication Engineering"},
+    {"sheet_label": "B.E-EEE", "institution": "JKKN College of Engineering and Technology", "program_name": "B.E. Electrical and Electronics Engineering"},
+    {"sheet_label": "B.E - EEE", "institution": "JKKN College of Engineering and Technology", "program_name": "B.E. Electrical and Electronics Engineering"},
+    {"sheet_label": "B.E - MECH", "institution": "JKKN College of Engineering and Technology", "program_name": "B.E. Mechanical Engineering"},
+    {"sheet_label": "MBA", "institution": "JKKN College of Engineering and Technology", "program_name": "Master of Business Administration"},
+    {"sheet_label": "ME - CSE", "institution": "JKKN College of Engineering and Technology", "program_name": "M.E. Computer Science and Engineering"},
+    {"sheet_label": "B.PHARM", "institution": "JKKN College of Pharmacy", "program_name": "BPHARM"},
+    {"sheet_label": "B.PHARM LE", "institution": "JKKN College of Pharmacy", "program_name": "B.PHARM LE"},
+    {"sheet_label": "PHARM.D", "institution": "JKKN College of Pharmacy", "program_name": "PHARMD"},
+    {"sheet_label": "PHARM.D (Post Baccalaureate )", "institution": "JKKN College of Pharmacy", "program_name": "PHARM D PB"},
+    {"sheet_label": "Pharmaceutical Analysis", "institution": "JKKN College of Pharmacy", "program_name": "MPHARM (Pharmaceutical Analysis)"},
+    {"sheet_label": "Pharmaceutical Chemistry", "institution": "JKKN College of Pharmacy", "program_name": "MPHARM (Pharmaceutical Chemistry)"},
+    {"sheet_label": "Pharmaceutics", "institution": "JKKN College of Pharmacy", "program_name": "MPHARM (Pharmaceutics)"},
+    {"sheet_label": "Pharmacology", "institution": "JKKN College of Pharmacy", "program_name": "MPHARM (Pharmacology)"},
+    {"sheet_label": "Pharmacy Practice", "institution": "JKKN College of Pharmacy", "program_name": "MPHARM (Pharmacy Practice)"},
+    {"sheet_label": "B.SC -Accident & Emergency Care Technology", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (AECT)"},
+    {"sheet_label": "B.SC- Cardiac Technology", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (CT)"},
+    {"sheet_label": "B.SC- Critical Care Technology", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (CCT)"},
+    {"sheet_label": "B.SC- Dialysis Technology", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (DT)"},
+    {"sheet_label": "B.Sc - Medical Record Science", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (MRS)"},
+    {"sheet_label": "B.SC - Operation Theatre & Anesthesia Techology", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (OTAT)"},
+    {"sheet_label": "B.SC- Physician Assistant", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (PA)"},
+    {"sheet_label": "B.SC- Radiology Imaging Technology", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (RIT)"},
+    {"sheet_label": "B.SC-Respiratory Therapy", "institution": "JKKN College of Allied Health Sciences", "program_name": "BSC (RT)"},
+    {"sheet_label": "BSC (N)", "institution": "JKKN College of Nursing and Research", "program_name": "BSC (Nursing)"},
+    {"sheet_label": "PBBSC (N)", "institution": "JKKN College of Nursing and Research", "program_name": "PBBSC (Nursing)"},
+    {"sheet_label": "Med & Surg. Nursing", "institution": "JKKN College of Nursing and Research", "program_name": "MSC (Medical Surgical Nursing)"},
+    {"sheet_label": "OBG & Gyn. Nursing", "institution": "JKKN College of Nursing and Research", "program_name": "MSC (Obstetrics and Gynaecological Nursing)"},
+    {"sheet_label": "Paediatric Nursing", "institution": "JKKN College of Nursing and Research", "program_name": "MSC (Child Health Nursing)"},
+    {"sheet_label": "Community Health Nursing", "institution": "JKKN College of Nursing and Research", "program_name": "MSC (Community Health Nursing)"},
+    {"sheet_label": "Psychiatric Nursing", "institution": "JKKN College of Nursing and Research", "program_name": "MSC (Mental Health Nursing)"},
+    {"sheet_label": "Endodontics", "institution": "JKKN Dental College and Hospital", "program_name": "MDS (Conservative and Endodontics)"},
+    {"sheet_label": "Orthodontics", "institution": "JKKN Dental College and Hospital", "program_name": "MDS (Orthodontics)"},
+    {"sheet_label": "Periodontics", "institution": "JKKN Dental College and Hospital", "program_name": "MDS (Periodontics)"},
+    {"sheet_label": "Prosthodontics", "institution": "JKKN Dental College and Hospital", "program_name": "MDS (Prosthodontics)"},
+    {"sheet_label": "Oral Medicine & Radiology", "institution": "JKKN Dental College and Hospital", "program_name": "MDS (Oral Medicine and Radiology)"},
+    {"sheet_label": "B.Ed", "institution": "JKKN College of Education", "program_name": "B.Ed (Historical Aggregate)"},
+    {"sheet_label": "B.B.A.", "institution": "JKKN College of Arts and Science (Self)", "program_name": "BACHELOR OF BUSINESS ADMINISTRATION"},
+    {"sheet_label": "B.C.A.", "institution": "JKKN College of Arts and Science (Self)", "program_name": "BACHELOR OF COMPUTER APPLICATIONS"},
+    {"sheet_label": "B.Com(CA)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.COM. COMPUTER APPLICATION"},
+    {"sheet_label": "B.Com ( A & F)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.COM. ACCOUNTANCY AND FINANCE"},
+    {"sheet_label": "B.Com (B & I )", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.COM. BANKING AND INSURANCE"},
+    {"sheet_label": "B.Com (FMA)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.COM.  FINANCIAL MANAGEMENT"},
+    {"sheet_label": "B.Sc.Computer Science", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. COMPUTER SCIENCE"},
+    {"sheet_label": "B.Sc.CS (AI&DS)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. COMPUTER SCIENCE (ARTIFICIAL INTELLIGENCE & DATA SCIENCE)"},
+    {"sheet_label": "B.Sc.CS (Cyber Security)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. COMPUTER SCIENCE (CYBER SECURITY)"},
+    {"sheet_label": "B.Sc. Microbiology", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. MICROBIOLOGY"},
+    {"sheet_label": "B.Sc.TFD", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. TEXTILE AND FASHION DESIGNING"},
+    {"sheet_label": "B.Sc.Visual Communication", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. VISUAL COMMUNICATION"},
+    {"sheet_label": "B.Sc. CLT", "institution": "JKKN College of Arts and Science (Self)", "program_name": "Clinical and Lab Technology"},
+    {"sheet_label": "B.Sc (Physics)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. PHYSICS"},
+    {"sheet_label": "M.Sc.Computer Science", "institution": "JKKN College of Arts and Science (Self)", "program_name": "M.Sc. COMPUTER SCIENCE"},
+    {"sheet_label": "M.Sc.Computer Science(DA)", "institution": "JKKN College of Arts and Science (Self)", "program_name": "M.Sc. COMPUTER SCIENCE (DATA ANALYTICS)"},
+    {"sheet_label": "M.A.English", "institution": "JKKN College of Arts and Science (Aided)", "program_name": "M.A. ENGLISH"}
+  ],
+  "split_mappings": [
+    {"sheet_label": "B.A.English", "splits": [
+      {"institution": "JKKN College of Arts and Science (Self)", "program_name": "B.A. ENGLISH", "fraction": 0.70},
+      {"institution": "JKKN College of Arts and Science (Aided)", "program_name": "B.A. ENGLISH", "fraction": 0.30}
+    ]},
+    {"sheet_label": "B.Sc (Maths)", "splits": [
+      {"institution": "JKKN College of Arts and Science (Self)", "program_name": "B.Sc. MATHEMATICS", "fraction": 0.70},
+      {"institution": "JKKN College of Arts and Science (Aided)", "program_name": "B.Sc. MATHEMATICS", "fraction": 0.30}
+    ]},
+    {"sheet_label": "M.Com.", "splits": [
+      {"institution": "JKKN College of Arts and Science (Self)", "program_name": "MASTER OF COMMERCE", "fraction": 0.70},
+      {"institution": "JKKN College of Arts and Science (Aided)", "program_name": "MASTER OF COMMERCE", "fraction": 0.30}
+    ]},
+    {"sheet_label": "M.Sc.Mathematics", "splits": [
+      {"institution": "JKKN College of Arts and Science (Self)", "program_name": "M.Sc. MATHEMATICS", "fraction": 0.70},
+      {"institution": "JKKN College of Arts and Science (Aided)", "program_name": "M.Sc. MATHEMATICS", "fraction": 0.30}
+    ]}
+  ],
+  "ignored_sheet_rows": [
+    "TOTAL", "Total", "GRAND TOTAL",
+    "UG", "PG",
+    "GQ", "MQ", "GQ 7.5", "STA", "STU", "C",
+    "CANCEL/ NO SC", "PRE-BOOKING",
+    "CONSULTANT", "DIRECT", "STAFF", "STUDENT", "CS III"
+  ]
+}

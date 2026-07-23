@@ -1,0 +1,13 @@
+-- 20260613150000 — Add 'establishment' to billing_category_kind enum (D2)
+--
+-- Step 1 of 2: ALTER TYPE...ADD VALUE cannot be used by DML in the same
+-- transaction (Postgres rule), so the billing_categories row is created in the
+-- next migration (20260613150100).
+--
+-- Why: the HDFC live kit has dedicated "ESTABLISHMENT FEE" merchant MIDs
+-- (e.g. JKKN DENTAL CLG AND HOSPITAL-ESTAB FEE). For a bill to route to that MID
+-- via the institution × fee-head router (20260613130000), its category.kind must
+-- be 'establishment'. This is a plain billing head for payment routing — it
+-- carries NO account-promotion gate semantics (unlike application_fee /
+-- university_fee in evaluate_learner_status_after_payment).
+ALTER TYPE public.billing_category_kind ADD VALUE IF NOT EXISTS 'establishment';

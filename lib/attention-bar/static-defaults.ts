@@ -215,12 +215,6 @@ export const STATIC_DEFAULTS: readonly StaticDefault[] = Object.freeze([
     tone: 'amber', cta: 'Open', icon: 'FileCheck2',
     href: '/billing/invoices?filter=approvals',
   }),
-  entry('/billing/invoices', 'admin', {
-    label: 'Generate invoices',
-    context: 'Run scheduled billing for the next cycle',
-    tone: 'neutral', cta: 'Generate', icon: 'FilePlus2',
-    href: '/billing/invoices/new',
-  }),
   entry('/billing/invoices', 'counselor', {
     label: 'My referred candidates\' invoices',
     context: 'Track financial close for your conversions',
@@ -341,13 +335,13 @@ export const STATIC_DEFAULTS: readonly StaticDefault[] = Object.freeze([
     label: 'Compose announcement',
     context: 'Send to roles, audiences, or institutions',
     tone: 'neutral', cta: 'Compose', icon: 'Megaphone',
-    href: '/admin/notifications/new',
+    href: '/notifications/admin/new',
   }),
   entry('/system/notifications', 'admin', {
     label: 'Review pending notifications',
     context: 'Drafts and scheduled messages',
     tone: 'amber', cta: 'Open', icon: 'Inbox',
-    href: '/admin/notifications?filter=pending',
+    href: '/notifications/admin?filter=pending',
   }),
   entry('/system/notifications', 'counselor', {
     label: 'My notifications',

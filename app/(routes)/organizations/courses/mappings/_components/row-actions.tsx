@@ -26,6 +26,7 @@ import { CourseMappingService } from '@/lib/services/organization/course-mapping
 import { toast } from 'react-hot-toast';
 import { CourseMapping } from '@/types/organizations';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -42,6 +43,7 @@ export function DataTableRowActions<TData>({
   const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const mapping = row.original as CourseMapping;
 
   // Permission checks
@@ -53,14 +55,14 @@ export function DataTableRowActions<TData>({
     setIsDeleting(true);
     try {
       await CourseMappingService.deleteCourseMapping(mapping.id);
-      toast.success('Course mapping deleted successfully');
+      toast.success(`${adapt('Course')} mapping deleted successfully`);
       router.refresh();
       if (onDelete) {
         onDelete(mapping.id);
       }
     } catch (error) {
       console.error('Error deleting course mapping:', error);
-      toast.error('Failed to delete course mapping');
+      toast.error(`Failed to delete ${adapt('course')} mapping`);
     } finally {
       setIsDeleting(false);
       setShowDeleteAlert(false);
@@ -117,8 +119,8 @@ export function DataTableRowActions<TData>({
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the
-              course mapping for &quot;{mapping.course?.course_name}&quot;.
+              This action cannot be undone. This will permanently delete the{' '}
+              {adapt('course')} mapping for &quot;{mapping.course?.course_name}&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

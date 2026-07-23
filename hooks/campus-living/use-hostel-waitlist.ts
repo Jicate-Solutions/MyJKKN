@@ -67,6 +67,22 @@ export function useUpdateHostelWaitlistEntry() {
   });
 }
 
+export function useCancelWaitlistUpgrade() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => HostelWaitlistService.cancelUpgrade(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelWaitlistKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
+      queryClient.invalidateQueries({ queryKey: ['campus-living'] });
+      toast.success('Upgrade request cancelled — category, bed and bill reverted');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to cancel upgrade: ${error.message}`);
+    },
+  });
+}
+
 export function useDeleteHostelWaitlistEntry() {
   const queryClient = useQueryClient();
   return useMutation({

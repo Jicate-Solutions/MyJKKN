@@ -9,6 +9,10 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
+import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
+import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
+import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
+import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -71,6 +75,10 @@ interface FieldChange {
 interface PreviewResult {
   exists: boolean;
   isActive: boolean;
+  // 2026-06-29: eligibility under the requested lifecycle scope. Active flow
+  // requires active; the enquiry (non-active) flow requires NOT active. The
+  // active routes ignore this field and keep reading `isActive`.
+  eligible?: boolean;
   hasAccess: boolean;
   learnerName?: string;
   changes: FieldChange[];
@@ -122,8 +130,7 @@ const FIELD_LABELS: Record<string, string> = {
   quota: 'Quota',
   student_photo_url: 'Photo URL',
   accommodation_type: 'Accommodation Type',
-  hostel_type: 'Hostel Type',
-  food_type: 'Food Type',
+  bus_required: 'Bus Required',
   reference_type: 'Reference Type',
   reference_name: 'Reference Name',
   reference_contact: 'Reference Contact',
@@ -147,7 +154,8 @@ export class BulkLearnerEditService {
     learnerId: string,
     uploadedData: any,
     userInstitutionId?: string,
-    isSuperAdmin: boolean = false
+    isSuperAdmin: boolean = false,
+    requireActive: boolean = true
   ): Promise<PreviewResult> {
     // Validate learner exists and is active
     const learnerCheck = await LearnerValidationService.validateActiveLearner(learnerId);
@@ -156,15 +164,20 @@ export class BulkLearnerEditService {
       return {
         exists: false,
         isActive: false,
+        eligible: false,
         hasAccess: false,
         changes: []
       };
     }
 
-    if (!learnerCheck.isActive) {
+    // 2026-06-29: eligibility scope. Active flow requires active; the enquiry
+    // (non-active) flow requires NOT active.
+    const isEligible = requireActive ? learnerCheck.isActive : !learnerCheck.isActive;
+    if (!isEligible) {
       return {
         exists: true,
-        isActive: false,
+        isActive: learnerCheck.isActive,
+        eligible: false,
         hasAccess: false,
         learnerName: 'Unknown',
         changes: []
@@ -178,7 +191,8 @@ export class BulkLearnerEditService {
     if (!hasAccess) {
       return {
         exists: true,
-        isActive: true,
+        isActive: learnerCheck.isActive,
+        eligible: true,
         hasAccess: false,
         learnerName: 'Unknown',
         changes: []
@@ -195,7 +209,8 @@ export class BulkLearnerEditService {
     if (error || !existingLearner) {
       return {
         exists: true,
-        isActive: true,
+        isActive: learnerCheck.isActive,
+        eligible: true,
         hasAccess: true,
         learnerName: 'Unknown',
         changes: []
@@ -245,7 +260,8 @@ export class BulkLearnerEditService {
 
     return {
       exists: true,
-      isActive: true,
+      isActive: learnerCheck.isActive,
+      eligible: true,
       hasAccess: true,
       learnerName,
       changes
@@ -260,7 +276,8 @@ export class BulkLearnerEditService {
     rows: BulkEditRow[],
     userInstitutionId?: string,
     isSuperAdmin: boolean = false,
-    userId?: string
+    userId?: string,
+    requireActive: boolean = true
   ): Promise<BulkEditResult> {
     const result: BulkEditResult = {
       success: true,
@@ -271,6 +288,15 @@ export class BulkLearnerEditService {
       updated_learners: [],
       errors: []
     };
+
+    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK)
+    // before each update. Storage is quota_id only; the `quota` TEXT column is
+    // being retired.
+    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
+    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
+    const resolveCaste = await buildCasteResolver(supabaseAdmin);
+    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
+    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
 
     for (const row of rows) {
       try {
@@ -300,11 +326,16 @@ export class BulkLearnerEditService {
           continue;
         }
 
-        if (!learnerCheck.isActive) {
+        // 2026-06-29: eligibility scope. Active flow requires active; the
+        // enquiry (non-active) flow requires NOT active.
+        const isEligible = requireActive ? learnerCheck.isActive : !learnerCheck.isActive;
+        if (!isEligible) {
           result.errors.push({
             row: row.rowNumber,
             id: learnerId,
-            error: 'Learner is not in active status'
+            error: requireActive
+              ? 'Learner is not in active status'
+              : 'Learner is an active student — edit it from the Profiles page'
           });
           result.failed++;
           continue;
@@ -340,6 +371,63 @@ export class BulkLearnerEditService {
           }
         });
 
+        // Quota arrives as a readable label; persist the FK (quota_id), not the
+        // legacy TEXT column. Drop the text key either way so it never reaches
+        // the (retired) column; only set quota_id when the label resolves.
+        if (updateData.quota !== undefined) {
+          const qid = resolveQuota(updateData.quota);
+          delete updateData.quota;
+          const qi = fieldsUpdated.indexOf('quota');
+          if (qi !== -1) fieldsUpdated.splice(qi, 1);
+          if (qid) {
+            updateData.quota_id = qid;
+            fieldsUpdated.push('quota_id');
+          }
+        }
+
+        // Community arrives as a readable label; persist the FK
+        // (community_category_id), not the legacy TEXT column.
+        if (updateData.community !== undefined) {
+          const cid = resolveCommunity(updateData.community);
+          delete updateData.community;
+          const ci = fieldsUpdated.indexOf('community');
+          if (ci !== -1) fieldsUpdated.splice(ci, 1);
+          if (cid) {
+            updateData.community_category_id = cid;
+            fieldsUpdated.push('community_category_id');
+          }
+        }
+
+        // Caste arrives as a readable label; persist the FK (caste_id), not the
+        // legacy TEXT column. Resolution is community-scoped (ambiguous names).
+        if (updateData.caste !== undefined) {
+          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
+          delete updateData.caste;
+          const xi = fieldsUpdated.indexOf('caste');
+          if (xi !== -1) fieldsUpdated.splice(xi, 1);
+          if (cstId) {
+            updateData.caste_id = cstId;
+            fieldsUpdated.push('caste_id');
+          }
+        }
+
+        // Accommodation arrives as a readable label; persist the FK
+        // (accommodation_type_id), not the legacy TEXT column. Resolution is
+        // scoped to the learner's institution.
+        if (updateData.accommodation_type !== undefined) {
+          const aid = resolveAccommodation(
+            updateData.accommodation_type,
+            learnerCheck.learner.institution_id,
+          );
+          delete updateData.accommodation_type;
+          const ai = fieldsUpdated.indexOf('accommodation_type');
+          if (ai !== -1) fieldsUpdated.splice(ai, 1);
+          if (aid) {
+            updateData.accommodation_type_id = aid;
+            fieldsUpdated.push('accommodation_type_id');
+          }
+        }
+
         // Skip if no fields to update
         if (Object.keys(updateData).length === 0) {
           result.skipped++;
@@ -349,12 +437,17 @@ export class BulkLearnerEditService {
         // Update timestamp
         updateData.updated_at = new Date().toISOString();
 
-        // Perform update
-        const { data: updatedLearner, error: updateError } = await supabaseAdmin
+        // Perform update.
+        // Extra safety: never cross the active boundary. The active flow pins to
+        // active; the enquiry (non-active) flow pins to everything-but-active.
+        let updateQuery = supabaseAdmin
           .from('learners_profiles')
           .update(updateData)
-          .eq('id', learnerId)
-          .eq('lifecycle_status', 'active') // Extra safety check
+          .eq('id', learnerId);
+        updateQuery = requireActive
+          ? updateQuery.eq('lifecycle_status', 'active')
+          : updateQuery.neq('lifecycle_status', 'active');
+        const { data: updatedLearner, error: updateError } = await updateQuery
           .select('id, first_name, last_name')
           .single();
 
@@ -427,7 +520,8 @@ export class BulkLearnerEditService {
     departmentId?: string,
     programId?: string,
     semesterId?: string,
-    sectionId?: string
+    sectionId?: string,
+    lifecycleScope: 'active' | 'non_active' = 'active'
   ): Promise<any[]> {
     console.log('[bulk-edit] Export parameters:', {
       institutionId,
@@ -457,9 +551,21 @@ export class BulkLearnerEditService {
           academic_year:academic_years(id, academic_year_name),
           regulation:regulations(id, regulation_year, regulation_code),
           batch:batches(id, batch_name),
-          admission_year_obj:admission_years!admission_year_id(program_start_year)
-        `)
-        .eq('lifecycle_status', 'active');
+          admission_year_obj:admission_years!admission_year_id(year),
+          quota_ref:quotas!quota_id(name),
+          community_ref:community_categories!community_category_id(code),
+          caste_ref:castes!caste_id(name),
+          accommodation_ref:accommodation_types!accommodation_type_id(name)
+        `);
+
+      // 2026-06-29: scope by lifecycle status. 'active' = Profiles page (default,
+      // unchanged). 'non_active' = Enquiries page (every admission lifecycle stage
+      // except active).
+      if (lifecycleScope === 'non_active') {
+        query = query.neq('lifecycle_status', 'active');
+      } else {
+        query = query.eq('lifecycle_status', 'active');
+      }
 
       // Filter by institution if specified
       if (institutionId) {
@@ -491,8 +597,10 @@ export class BulkLearnerEditService {
         query = query.eq('section_id', sectionId);
       }
 
-      // Filter by profile completeness if requested (include NULL as incomplete)
-      if (!includeComplete) {
+      // Filter by profile completeness if requested (include NULL as incomplete).
+      // Only meaningful for the active scope; enquiries are inherently incomplete
+      // and are always returned in full.
+      if (lifecycleScope === 'active' && !includeComplete) {
         query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
       }
 

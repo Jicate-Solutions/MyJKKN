@@ -430,18 +430,8 @@ export default function StudentBillDetailPage() {
                     Additional Actions
                   </h3>
                   <p className='text-sm text-muted-foreground'>
-                    {bill.status === 'paid' ? 'Process refunds if needed' : 'View related documents'}
+                    View related documents
                   </p>
-                  {bill.status === 'paid' && (
-                    <Button
-                      variant='outline'
-                      onClick={() => router.push(`/billing/refunds/new?bill_id=${bill.id}`)}
-                      className='w-full border-purple-300 text-purple-600 hover:bg-purple-50'
-                    >
-                      <ShoppingBag className='mr-2 h-4 w-4' />
-                      Process Refund
-                    </Button>
-                  )}
                 </div>
               </div>
 

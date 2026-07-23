@@ -1,0 +1,4 @@
+Timestamp,Email address,Your interests,Aspiring companies,Preferred sectors,Club picks,Three year plan,Skills,Notes
+2024-09-15 10:23:45,nonexistent-learner-1@example.com,"AI, web development, robotics","Google, Microsoft","tech, fintech","Coding Club, Robotics Club","Build a portfolio, intern at FAANG, get placed in core tech","Python:intermediate, SQL:basic, Java:basic","Looking for mentorship in ML"
+2024-09-16 14:01:22,nonexistent-learner-2@example.com,data science,"Wipro, Infosys","it_services","Data Science Club","Master Python, build 3 projects, get certified","Python:basic, R:basic",
+2024-09-17 09:45:11,,No email row should be skipped,,,,,,

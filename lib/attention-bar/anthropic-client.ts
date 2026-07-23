@@ -1,83 +1,158 @@
 /**
- * Attention Bar — Layer 4 Anthropic SDK wrapper.
+ * Attention Bar — Layer 4 action picker (Max-lane / #1998 AI-jobs registry).
  *
  * Spec: specs/attention-bar-5-layer-system.md §3 Layer 4
  *
- * Provides a thin, well-typed wrapper around `Anthropic.messages.create()`
- * with three responsibilities:
- *  1. Singleton SDK client (warm HTTPS connections across requests).
- *  2. Prompt-cache configuration (system message + tool spec marked
- *     `cache_control: { type: 'ephemeral' }`) — Anthropic's 5-min cache TTL.
- *  3. Strict tool-use forcing — the LLM MUST call `pick_action` with an
- *     enum-validated `action_id`; free-text replies are not accepted.
+ * ─────────────────────────────────────────────────────────────────────────
+ * REFERENCE CONVERSION (2026-07-13): attention_bar.assistant is moved off a
+ * direct `anthropic.messages.create()` call and onto the generic AI-jobs
+ * registry (#1998). Instead of calling Claude in-process, `pickActionViaLLM`
+ * now ENQUEUES an `attention_bar.assistant` job via `fn_ai_enqueue` — whose
+ * prompt_template + tool_set live in `ai_job_types` (seeded / aligned by the
+ * orchestrator) — then long-polls `fn_ai_job_status` for the drain's result,
+ * mirroring the proven route app/api/work-pulse/translate/route.ts and the
+ * chat consumer app/api/ai-query/route.ts.
  *
- * The wrapper returns a normalised shape: `{ action_id, reason, usage, model }`.
- * Errors (network, rate-limit, malformed tool call) bubble up; Layer 4's
- * evaluator catches and converts them into `{ matched: false }` so the
- * resolver falls through to Layer 1.
+ * This is a PAGE-CONTEXT feature: the model is handed EVERYTHING it needs in
+ * the payload (the on-screen `actions` allowlist + the situational `context`),
+ * so the job runs with tool_set=none — no tools, no DB fetch, fast + reliable.
+ *
+ * Payload contract — the seeded prompt uses `{{actions}}` and `{{context}}`,
+ * so p_payload MUST carry exactly those two keys:
+ *   - actions : JSON of the pickable allowlist (id/label/context/href/source).
+ *   - context : the page / role / recent-actions / time-of-day situation.
+ *
+ * The wrapper still returns the SAME normalised shape the rest of Layer 4
+ * expects — `{ action_id, reason, usage, model }` — so layer-4.ts, the
+ * resolver, the /api/attention-bar/resolve route, the hook, and the pill all
+ * stay byte-for-byte unchanged. Only the AI-invocation middle changed.
+ *
+ * "If slow" behaviour: this is a PASSIVE, auto-resolving UI pill, not a
+ * must-not-lose chat answer. Every failure path here (enqueue rejected, drain
+ * offline, job error, deadline, unusable answer) THROWS — and Layer 4's
+ * evaluator converts any throw into `{ matched: false }`, so the resolver
+ * simply falls through to the curated Layer 1 static default. That built-in
+ * fail-open cascade IS the graceful "if the Max lane is slow" path (superior
+ * to an inbox for an ephemeral pill); the server long-polls within the
+ * route's maxDuration exactly like the translate route.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@/lib/supabase/server';
 
-import { LAYER_4_MODEL } from './cost-rates';
 import {
-  buildSystemPrompt,
-  buildToolDefinition,
-  buildUserPrompt,
   type AllowlistEntry,
   type UserPromptInput,
 } from './llm-prompt';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Singleton client
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Registry job_type governing this feature. The prompt_template, tool_set
+ * (none) and input_schema for it live in `ai_job_types` — owned by the
+ * orchestrator, never written from here.
+ */
+const JOB_TYPE = 'attention_bar.assistant';
 
-let _client: Anthropic | null = null;
+// Poll cadence — mirrors the proven ai_jobs consumers (translate / ai-query).
+const POLL_MS = 2_000;
+const UNCLAIMED_DEADLINE_MS = 90_000; // give up if never claimed (drain offline)
+const TOTAL_DEADLINE_MS = 170_000; // kept < the resolve route's maxDuration (180)
 
-/** Read API key from env once and reuse. Throws if missing — fail fast. */
-function getClient(): Anthropic {
-  if (_client) return _client;
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      '[attention-bar] ANTHROPIC_API_KEY not set — cannot make Layer 4 calls. ' +
-        'Add it to .env.local or disable Layer 4 via quick_action_config.',
-    );
-  }
-
-  _client = new Anthropic({ apiKey });
-  return _client;
-}
-
-/** Test-only — flush the cached client so a re-read of env happens. */
-export function _resetAnthropicClient(): void {
-  _client = null;
-}
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Public types
+// Public types (unchanged — Layer 4 depends on these shapes)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PickActionResult {
-  /** The action_id the LLM selected from the allowlist. */
+  /** The action_id the model selected from the allowlist. */
   action_id: string;
-  /** Short reason the LLM gave for its selection. */
+  /** Short reason the model gave for its selection. */
   reason: string;
-  /** Anthropic usage block — used by cost-rates.computeCostUsd. */
+  /**
+   * Usage block — consumed by cost-rates.computeCostUsd in Layer 4. The Max
+   * lane runs on the Claude subscription (₹0 API); usage recording happens on
+   * the runner side, so every field here is zero and Layer 4 records cost 0.
+   */
   usage: {
     input_tokens: number;
     output_tokens: number;
     cache_read_input_tokens: number | null;
     cache_creation_input_tokens: number | null;
   };
-  /** Echo of the model that was actually used. */
+  /** Echo of the model/lane that produced the pick. */
   model: string;
 }
 
 export interface PickActionInput extends UserPromptInput {
-  /** Override timeout in ms. Default 8000. */
+  /** @deprecated timeout is now governed by the poll deadline below. Unused. */
   timeoutMs?: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Result extraction — tolerant, must return an allowlist id
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Pull a free-text answer out of the drain's result jsonb (translate-style). */
+function rawAnswer(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (result && typeof result === 'object') {
+    const o = result as Record<string, unknown>;
+    for (const key of ['answer', 'text', 'result', 'output']) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim().length > 0) return v;
+    }
+  }
+  return '';
+}
+
+/**
+ * Extract `{ action_id, reason }` from a completed job result, tolerating the
+ * shapes a tool_set=none answer can take (structured object, JSON-in-text, or
+ * a sentence that names the id). The returned action_id is ONLY trusted when
+ * it is one of the allowlist ids — Layer 4 double-checks it too
+ * (resolveTemplateFromAllowlist), and an empty id fails the caller open.
+ */
+function extractPick(
+  result: unknown,
+  allowlistIds: string[],
+): { action_id: string; reason: string } {
+  // 1. Directly-structured result { action_id, reason }.
+  if (result && typeof result === 'object') {
+    const o = result as Record<string, unknown>;
+    if (typeof o.action_id === 'string' && o.action_id.trim().length > 0) {
+      return {
+        action_id: o.action_id.trim(),
+        reason: typeof o.reason === 'string' ? o.reason : '',
+      };
+    }
+  }
+
+  const text = rawAnswer(result);
+  if (text) {
+    // 2. JSON embedded in the answer text.
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+        if (typeof parsed.action_id === 'string' && parsed.action_id.trim().length > 0) {
+          return {
+            action_id: parsed.action_id.trim(),
+            reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+          };
+        }
+      } catch {
+        // fall through to substring scan
+      }
+    }
+    // 3. Substring scan — first allowlist id that appears in the answer wins.
+    for (const id of allowlistIds) {
+      if (id && text.includes(id)) {
+        return { action_id: id, reason: text.trim().slice(0, 80) };
+      }
+    }
+  }
+
+  return { action_id: '', reason: '' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,16 +160,15 @@ export interface PickActionInput extends UserPromptInput {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Call Claude Haiku 4.5 to pick one action from the allowlist.
+ * Pick one action from the allowlist via the attention_bar.assistant Max-lane
+ * job. Builds the `{ actions, context }` payload from the on-screen data,
+ * enqueues it (auth.uid()-gated + allow_rule enforced inside fn_ai_enqueue),
+ * and long-polls for the answer.
  *
- * Throws on:
- *  - Missing ANTHROPIC_API_KEY (caller should have gated on isLayer4Enabled).
- *  - Network / 4xx / 5xx from Anthropic.
- *  - Malformed response (no tool_use block found).
- *
- * Allowlist enum on the tool definition is the first line of defence; the
- * Layer 4 evaluator double-checks the returned id against the allowlist
- * before treating the response as valid.
+ * Throws on: empty allowlist, enqueue rejection (unknown/disabled job_type,
+ * not-allowed, too-many-in-flight), drain offline, job error, deadline, or an
+ * answer with no usable allowlist id. Every throw is caught by Layer 4 and
+ * converted to matched:false → resolver falls through to Layer 1.
  */
 export async function pickActionViaLLM(
   input: PickActionInput,
@@ -103,101 +177,108 @@ export async function pickActionViaLLM(
     throw new Error('[attention-bar] pickActionViaLLM called with empty allowlist');
   }
 
-  const client = getClient();
-  const system = buildSystemPrompt();
-  const userText = buildUserPrompt(input);
-  const tool = buildToolDefinition(input.allowlist);
+  // Session client — fn_ai_enqueue is auth.uid()-gated (runs inside the
+  // /api/attention-bar/resolve request, which carries the user's session).
+  const supabase = await createClient();
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Prompt cache strategy:
-  //
-  //   System message → cacheable (stable across all calls; high reuse).
-  //   Tool spec      → cacheable WITH the system block. Anthropic caches
-  //                    everything up to and including the cache-control'd
-  //                    block, so by marking the system block we get the
-  //                    tools cached too (5-min TTL).
-  //   User message   → NOT cached. Per-request.
-  //
-  // The 5-min ephemeral cache window means consecutive calls within the
-  // same hour-bucket usually hit the cache for system+tools, paying only
-  // the user-message + output tokens.
-  // ─────────────────────────────────────────────────────────────────────
-
-  const message = await client.messages.create({
-    model: LAYER_4_MODEL,
-    max_tokens: 256,
-    // System message: array form (so we can attach cache_control).
-    system: [
-      {
-        type: 'text',
-        text: system,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    tools: [tool],
-    tool_choice: { type: 'tool', name: 'pick_action' },
-    messages: [
-      {
-        role: 'user',
-        content: userText,
-      },
-    ],
-  });
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Extract the tool_use block.
-  //
-  // With `tool_choice: { type: 'tool', name: 'pick_action' }`, the model
-  // is forced to emit exactly one tool_use block. If we don't find one,
-  // the model misbehaved — surface the error so the evaluator falls open.
-  // ─────────────────────────────────────────────────────────────────────
-
-  const toolBlock = message.content.find(
-    (b): b is Extract<typeof b, { type: 'tool_use' }> => b.type === 'tool_use',
+  // ── Build the two placeholder variables the seeded prompt expects ────────
+  // actions {{actions}} — the pickable allowlist the model must choose from.
+  const actions = JSON.stringify(
+    input.allowlist.map((e) => ({
+      id: e.id,
+      label: e.label,
+      context: e.context,
+      href: e.href,
+      source: e.source,
+    })),
+    null,
+    2,
   );
+  // context {{context}} — the on-screen situation (page, role, recents, time).
+  const recentActionsLine =
+    input.recentActions.length === 0
+      ? '(none recorded)'
+      : input.recentActions.slice(0, 5).join(' → ');
+  const context = [
+    `Page: ${input.page}`,
+    `Role: ${input.role}`,
+    `Recent actions: ${recentActionsLine}`,
+    `Time of day (ISO): ${input.timeOfDay}`,
+  ].join('\n');
 
-  if (!toolBlock || toolBlock.name !== 'pick_action') {
-    throw new Error(
-      `[attention-bar] LLM did not emit a pick_action tool_use block. ` +
-        `Stop reason: ${message.stop_reason}. ` +
-        `Block types: ${message.content.map((b) => b.type).join(',')}.`,
-    );
+  // ── Enqueue on the registry Max lane ─────────────────────────────────────
+  const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+    p_job_type: JOB_TYPE,
+    p_payload: { actions, context },
+  });
+  if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+    const errText =
+      typeof enq?.error === 'string'
+        ? enq.error
+        : enqError?.message ?? 'enqueue failed';
+    throw new Error(`[attention-bar] fn_ai_enqueue failed: ${errText}`);
   }
 
-  const toolInput = toolBlock.input as Record<string, unknown>;
-  const action_id = typeof toolInput.action_id === 'string' ? toolInput.action_id : '';
-  const reason = typeof toolInput.reason === 'string' ? toolInput.reason : '';
+  const jobId = enq.job_id as string;
+  const allowlistIds = input.allowlist.map((e) => e.id);
 
-  if (!action_id) {
-    throw new Error(
-      '[attention-bar] LLM tool_use missing action_id. ' +
-        `Got: ${JSON.stringify(toolInput)}`,
-    );
+  // ── Long-poll for the drain's result ─────────────────────────────────────
+  const startedAt = Date.now();
+  let picked: { action_id: string; reason: string } | null = null;
+  while (Date.now() - startedAt < TOTAL_DEADLINE_MS) {
+    await sleep(POLL_MS);
+    const { data: st, error: stError } = await supabase.rpc('fn_ai_job_status', {
+      p_job_id: jobId,
+    });
+    if (stError || !st || typeof st.status !== 'string') continue;
+    if (st.status === 'done') {
+      picked = extractPick((st as { result?: unknown }).result, allowlistIds);
+      break;
+    }
+    if (st.status === 'error' || st.status === 'canceled' || st.status === 'not_found') {
+      throw new Error(`[attention-bar] Max-lane job ${st.status}`);
+    }
+    // Never claimed within the unclaimed window → the drain is offline.
+    if (st.status === 'pending' && Date.now() - startedAt > UNCLAIMED_DEADLINE_MS) {
+      throw new Error('[attention-bar] Max-lane drain offline (job never claimed)');
+    }
+  }
+
+  if (!picked || !picked.action_id) {
+    throw new Error('[attention-bar] Max-lane job did not return a usable action_id');
   }
 
   return {
-    action_id,
-    reason,
+    action_id: picked.action_id,
+    reason: picked.reason,
     usage: {
-      input_tokens: message.usage.input_tokens ?? 0,
-      output_tokens: message.usage.output_tokens ?? 0,
-      cache_read_input_tokens: message.usage.cache_read_input_tokens ?? null,
-      cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? null,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: null,
+      cache_creation_input_tokens: null,
     },
-    model: message.model,
+    model: typeof enq?.job_type === 'string' ? enq.job_type : JOB_TYPE,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test seam — exposed for the smoke gate to inject a stubbed LLM
+// Test seams — exposed for the smoke gate to inject a stubbed picker
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Test seam — replace the LLM call with a stub.
+ * Test-only no-op — retained for API compatibility with earlier callers of
+ * the singleton-SDK seam. There is no in-process client to reset now that the
+ * pick runs on the Max lane.
+ */
+export function _resetAnthropicClient(): void {
+  /* no-op — kept for backward-compatible test seams */
+}
+
+/**
+ * Test seam — replace the pick call with a stub.
  *
- * The smoke gate calls this to verify allowlist enforcement WITHOUT spending
- * real API budget. Production code never invokes this. Pass `null` to clear
- * the stub.
+ * The smoke gate calls this to verify allowlist enforcement WITHOUT enqueuing
+ * a real job. Production code never invokes this. Pass `null` to clear.
  */
 let _stub: ((input: PickActionInput) => Promise<PickActionResult>) | null = null;
 
@@ -207,7 +288,7 @@ export function _setLLMStub(
   _stub = stub;
 }
 
-/** Internal: call either the stub (if set) or the real LLM. */
+/** Internal: call either the stub (if set) or the real Max-lane pick. */
 export async function callLLM(input: PickActionInput): Promise<PickActionResult> {
   if (_stub) return _stub(input);
   return pickActionViaLLM(input);

@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -34,8 +34,12 @@ import {
   Inbox,
   ArrowRight,
   RefreshCw,
+  LayoutGrid,
+  Building2,
 } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { AuditCycleService } from '@/lib/services/audit';
 import { CyclePhaseBadge } from '../_components/cycle-phase-badge';
 import type { AuditCycle } from '@/lib/types/audit';
 
@@ -52,6 +56,33 @@ function formatDate(iso: string | null | undefined) {
   }
 }
 
+/**
+ * Date range for a cycle row. The standing audit never ends and carries a
+ * far-future sentinel end_date from fn_ensure_standing_institution_audit —
+ * showing "31 Dec 2099" reads as a real deadline, so say what it means.
+ */
+function formatCycleRange(cycle: AuditCycle) {
+  if (cycle.is_standing) return `${formatDate(cycle.start_date)} — ongoing`;
+  return `${formatDate(cycle.start_date)} — ${formatDate(cycle.end_date)}`;
+}
+
+// Engagement audits (CARE/CARRE) and compliance audits (NAAC/NBA/…) both live
+// in audit_cycles. Classify each row by framework so it routes to its OWN flow:
+// engagement → the 0–4 two-scorer scoring UI, compliance → attestations/findings.
+const ENGAGEMENT_FRAMEWORKS = new Set(['CARE', 'CARRE']);
+
+function auditKind(frameworks: string[]): 'engagement' | 'compliance' {
+  return frameworks.some((f) => ENGAGEMENT_FRAMEWORKS.has(f))
+    ? 'engagement'
+    : 'compliance';
+}
+
+function auditHref(cycle: { id: string; frameworks: string[] }): string {
+  return auditKind(cycle.frameworks) === 'engagement'
+    ? `/audit/care/${cycle.id}`
+    : `/audit/cycles/${cycle.id}`;
+}
+
 export default function AuditCyclesPage() {
   const [includeClosed, setIncludeClosed] = useState(false);
   const [search, setSearch] = useState('');
@@ -63,17 +94,61 @@ export default function AuditCyclesPage() {
     refetch,
   } = useAuditCycles({ includeClosed });
 
+  // Cycle names repeat across colleges and quarters ("Q2 FY26-27 Institutional
+  // Audit" twice over), so the name alone can't tell two rows apart. Resolve the
+  // college each cycle covers and show it beside the name.
+  const { institutions } = useInstitutionsWithAccess();
+  const institutionNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of institutions) m.set(i.id, i.name);
+    return m;
+  }, [institutions]);
+
+  const scopeLabel = useCallback(
+    (cycle: AuditCycle): string | null => {
+      const ids = cycle.institution_ids;
+      if (!ids || ids.length === 0) return 'All institutions';
+      const names = ids.map((id) => institutionNameById.get(id)).filter(Boolean);
+      if (names.length === 0) return null; // names still loading
+      if (names.length === 1) return names[0]!;
+      return `${names.length} institutions`;
+    },
+    [institutionNameById]
+  );
+
+  // Self-heal: guarantee the standing "Whole Institution — Ongoing" audit exists
+  // (it holds the org-wide checks — loop health, exam integrity). Runs once on
+  // mount; if the row was ever deleted the RPC recreates it, then we refetch so
+  // it reappears in the list below.
+  const ensuredRef = useRef(false);
+  useEffect(() => {
+    if (ensuredRef.current) return;
+    ensuredRef.current = true;
+    AuditCycleService.ensureStandingAudit()
+      .then(() => refetch())
+      .catch((err) => {
+        console.error('[audit/cycles] ensureStandingAudit failed:', err);
+      });
+  }, [refetch]);
+
   const filtered = useMemo<AuditCycle[]>(() => {
     if (!cycles) return [];
     const q = search.trim().toLowerCase();
-    if (!q) return cycles;
-    return cycles.filter((c) => {
-      return (
-        c.name.toLowerCase().includes(q) ||
-        (c.description ?? '').toLowerCase().includes(q) ||
-        c.frameworks.join(' ').toLowerCase().includes(q)
-      );
-    });
+    const matched = !q
+      ? cycles
+      : cycles.filter((c) => {
+          return (
+            c.name.toLowerCase().includes(q) ||
+            (c.description ?? '').toLowerCase().includes(q) ||
+            c.frameworks.join(' ').toLowerCase().includes(q)
+          );
+        });
+    // Pin the standing whole-institution audit to the top so it never gets lost
+    // among the per-college quarterly cycles. Stable sort keeps created_at order
+    // (from the service) for every non-standing row.
+    return [...matched].sort(
+      (a, b) => Number(b.is_standing ?? false) - Number(a.is_standing ?? false),
+    );
   }, [cycles, search]);
 
   const activeCount = (cycles ?? []).filter((c) => c.phase !== 'closed').length;
@@ -97,20 +172,36 @@ export default function AuditCyclesPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Layers className="h-5 w-5 text-primary" />
-                  Audit Cycles
+                  Audits
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Time-boxed institutional audit runs. Each cycle freezes a parameter
-                  snapshot on its first draft→in-progress transition so that changes
-                  to the master catalog don&apos;t retro-contaminate past attestations.
+                  Every audit in one place — <strong>compliance</strong> cycles
+                  (NAAC/NBA and other bodies) and <strong>engagement</strong> audits
+                  (CARE/CARRE). Each row opens its own flow: engagement audits use
+                  0–4 two-scorer scoring; compliance cycles use attestations and
+                  findings.
                 </p>
               </div>
-              <Link href="/audit/cycles/new">
-                <Button size="sm">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create cycle
-                </Button>
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link href="/audit/care/coverage">
+                  <Button size="sm" variant="outline">
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Coverage map
+                  </Button>
+                </Link>
+                <Link href="/audit/care/new">
+                  <Button size="sm" variant="outline">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New CARRE audit
+                  </Button>
+                </Link>
+                <Link href="/audit/cycles/new">
+                  <Button size="sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    New compliance cycle
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -213,9 +304,32 @@ export default function AuditCyclesPage() {
                 </TableHeader>
                 <TableBody>
                   {filtered.map((c) => (
-                    <TableRow key={c.id}>
+                    <TableRow
+                      key={c.id}
+                      className={
+                        c.is_standing
+                          ? 'bg-amber-50/50 dark:bg-amber-950/20'
+                          : undefined
+                      }
+                    >
                       <TableCell>
-                        <div className="font-medium">{c.name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{c.name}</span>
+                          {c.is_standing && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                            >
+                              Standing · Whole Institution
+                            </Badge>
+                          )}
+                        </div>
+                        {!c.is_standing && scopeLabel(c) && (
+                          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                            <Building2 className="h-3 w-3 shrink-0" />
+                            {scopeLabel(c)}
+                          </div>
+                        )}
                         {c.description && (
                           <div className="text-xs text-muted-foreground line-clamp-1 max-w-md">
                             {c.description}
@@ -226,7 +340,19 @@ export default function AuditCyclesPage() {
                         <CyclePhaseBadge phase={c.phase} />
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge
+                            variant="outline"
+                            className={
+                              auditKind(c.frameworks) === 'engagement'
+                                ? 'text-[10px] border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+                                : 'text-[10px] border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200'
+                            }
+                          >
+                            {auditKind(c.frameworks) === 'engagement'
+                              ? 'Engagement'
+                              : 'Compliance'}
+                          </Badge>
                           {c.frameworks.map((f) => (
                             <Badge
                               key={f}
@@ -239,10 +365,10 @@ export default function AuditCyclesPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {formatDate(c.start_date)} — {formatDate(c.end_date)}
+                        {formatCycleRange(c)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link href={`/audit/cycles/${c.id}`}>
+                        <Link href={auditHref(c)}>
                           <Button variant="ghost" size="sm">
                             Open
                             <ArrowRight className="ml-1 h-3 w-3" />

@@ -296,13 +296,13 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
 
   // Card click target: prefer action_config.url (the underlying work-item or
   // a category-filtered notifications view) so a click jumps Director straight
-  // to the actionable destination. Fallback: /admin/notifications/<id> meta
+  // to the actionable destination. Fallback: /notifications/admin/<id> meta
   // page when no action URL is set. Same pattern as PR #512's notification-card
   // fix; applied here so the dashboard Decision Queue cards are also clickable.
   const cfg = item.action_config as { url?: string } | null | undefined;
   const _actionConfigUrl =
     typeof cfg?.url === 'string' && cfg.url.trim() ? cfg.url.trim() : null;
-  const _cardHref = _actionConfigUrl ?? `/admin/notifications/${item.notification_id}`;
+  const _cardHref = _actionConfigUrl ?? `/notifications/admin/${item.notification_id}`;
   const _cardIsExternal = /^https?:\/\//i.test(_cardHref);
 
   // Overdue items get an extra-strong border to pop visually in a long queue.

@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   BillingCategory,
   CreateBillingCategoryDto,
@@ -57,6 +58,7 @@ export class BillingCategoryService {
             category_name: data.category_name.trim(),
             amount: data.amount ?? null,
             frequency: data.frequency,
+            kind: data.kind,
             description: data.description?.trim() || null,
             is_active: data.is_active ?? true
           }
@@ -72,6 +74,14 @@ export class BillingCategoryService {
         }
         throw error;
       }
+
+      const template = BillingActivityTemplates.categoryCreated(data.category_name);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: (category as BillingCategory).id,
+        resourceName: data.category_name,
+        metadata: { sub_type: template.sub_type, amount: data.amount, frequency: data.frequency },
+      });
 
       return category as BillingCategory;
     } catch (error) {
@@ -106,6 +116,7 @@ export class BillingCategoryService {
         updateData.category_name = data.category_name.trim();
       if (data.amount !== undefined) updateData.amount = data.amount;
       if (data.frequency) updateData.frequency = data.frequency;
+      if (data.kind) updateData.kind = data.kind;
       if (data.description !== undefined)
         updateData.description = data.description?.trim() || null;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
@@ -118,6 +129,18 @@ export class BillingCategoryService {
         .single();
 
       if (error) throw error;
+
+      const changedFields = Object.keys(data).filter(k => k !== 'updated_at' && k !== 'id');
+      const template = BillingActivityTemplates.categoryUpdated(
+        (category as BillingCategory).category_name,
+        changedFields
+      );
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        resourceName: (category as BillingCategory).category_name,
+        metadata: { sub_type: template.sub_type, changed_fields: changedFields },
+      });
 
       return category as BillingCategory;
     } catch (error) {
@@ -145,12 +168,26 @@ export class BillingCategoryService {
         );
       }
 
+      const { data: cat } = await this.supabase
+        .from('billing_categories')
+        .select('category_name')
+        .eq('id', id)
+        .single();
+
       const { error } = await this.supabase
         .from('billing_categories')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      const template = BillingActivityTemplates.categoryDeleted(cat?.category_name || id);
+      logActivityForCurrentUser({
+        ...template,
+        resourceId: id,
+        resourceName: cat?.category_name || id,
+        metadata: { sub_type: template.sub_type },
+      });
     } catch (error) {
       console.error('[billing/categories] Error deleting category:', error);
       throw error;
@@ -176,6 +213,14 @@ export class BillingCategoryService {
       }
     }
 
+    if (success.length > 0) {
+      const template = BillingActivityTemplates.categoriesBulkDeleted(success.length);
+      logActivityForCurrentUser({
+        ...template,
+        metadata: { sub_type: template.sub_type, deleted_ids: success, failed_count: failed.length },
+      });
+    }
+
     return { success, failed };
   }
 
@@ -183,7 +228,7 @@ export class BillingCategoryService {
     filters: BillingCategoryFilters = {}
   ): Promise<BillingCategoryListResponse> {
     try {
-      const { search, frequency, isActive, page = 1, limit = 10 } = filters;
+      const { search, frequency, isActive, page = 1, limit = 10, sortBy, sortOrder } = filters;
 
       let query = (this.supabase as any)
         .from('billing_categories')
@@ -201,9 +246,17 @@ export class BillingCategoryService {
         query = query.eq('is_active', isActive);
       }
 
+      // Whitelist sortable columns (guards against arbitrary order-by injection from
+      // the DataTable). Default to category_name asc — the prior fixed behaviour.
+      const SORTABLE = new Set([
+        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at'
+      ]);
+      const orderColumn = sortBy && SORTABLE.has(sortBy) ? sortBy : 'category_name';
+      const ascending = orderColumn === 'category_name' ? sortOrder !== 'desc' : sortOrder === 'asc';
+
       const from = (page - 1) * limit;
       const to = from + limit - 1;
-      query = query.range(from, to).order('category_name', { ascending: true });
+      query = query.range(from, to).order(orderColumn, { ascending });
 
       const { data, count, error } = await query;
 

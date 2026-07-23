@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -399,7 +400,10 @@ function AddParentInfoDialog({ lead }: { lead: LeadWithParentsUI }) {
   );
 }
 
+const PARENT_COMMUNICATION_TABS = ['leads', 'logs', 'missing'] as const;
+
 function ParentCommunicationPageContent() {
+  const [activeTab, setActiveTab] = useTabParam('leads', PARENT_COMMUNICATION_TABS);
   const { profile, isLoading: accessLoading } = useAuth();
   const institutionId = profile?.institution_id || '';
   const [searchTerm, setSearchTerm] = useState('');
@@ -564,7 +568,7 @@ function ParentCommunicationPageContent() {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="leads" className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList>
               <TabsTrigger value="leads">Leads & Parents</TabsTrigger>
               <TabsTrigger value="logs">Communication Log</TabsTrigger>
@@ -774,7 +778,9 @@ function ParentCommunicationPageContent() {
 export default function ParentCommunicationPage() {
   return (
     <AdmissionErrorBoundary>
-      <ParentCommunicationPageContent />
+      <Suspense fallback={null}>
+        <ParentCommunicationPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

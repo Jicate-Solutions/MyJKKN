@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,11 +31,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 import {
   BosExternalExpert,
+  BosExpertCategory,
   BOS_EXPERT_CATEGORY_LABELS,
 } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { useBosInstitutionScope } from '@/hooks/bos/use-bos-institution-scope';
+import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
 
-interface Institution { id: string; name: string; }
+// The `category` column only accepts these 5 values. Member types are a broader
+// admin-managed superset (Chairman/HOD/Principal/…), so the dropdown is sourced
+// from member-type rows whose base_type is one of these expert categories.
+const EXPERT_CATEGORY_VALUES = new Set(
+  Object.keys(BOS_EXPERT_CATEGORY_LABELS) as BosExpertCategory[],
+);
 
 // ── Validation Schema ─────────────────────────────────────────────────────────
 
@@ -53,9 +63,22 @@ const expertFormSchema = z.object({
     'subject_expert',
     'industry_expert',
     'alumni',
+    'startup',
   ]),
   specialization: z.string().optional(),
   qualifications: z.string().optional(),
+  // One-way distance to the institution. Auto-doubled by the TA/DA rate
+  // engine for round-trip travel reimbursement (km × 2 × ₹5). Optional —
+  // experts without a distance get honorarium only, no TA.
+  distance_km: z
+    .union([z.string(), z.number(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v === '' || v === null || v === undefined) return null;
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    })
+    .nullable()
+    .optional(),
   is_active: z.boolean().default(true),
   notes: z.string().optional(),
 });
@@ -71,11 +94,35 @@ interface ExpertFormProps {
   onCancel: () => void;
 }
 
+// Shape returned by /api/bos/institutions (COE-sourced canonical names,
+// CAS Aided+Self deduped into one row — same source as the compositions form).
+interface BosInstitutionOption {
+  id: string;
+  name: string;
+  institution_code: string;
+  myjkkn_institution_ids: string[];
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertFormProps) {
-  const { userProfile, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  // Non-admins: own institution resolved automatically.
+  // Super-admins: disabled (returns undefined); they pick from the dropdown.
+  const { data: institutionCtx } = useInstitutionContext();
+  // Super-admin institution list for the picker dropdown — /api/bos/institutions
+  // gives the COE canonical name (e.g. "… (Autonomous)") with CAS Aided+Self
+  // already merged into a single row, matching the other BoS pickers.
+  const { data: allInstitutions = [] } = useQuery<BosInstitutionOption[]>({
+    queryKey: ['bos', 'institutions'],
+    queryFn: async () => {
+      const r = await fetch('/api/bos/institutions');
+      if (!r.ok) return [];
+      return r.json();
+    },
+    enabled: !!isSuperAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const form = useForm<ExpertFormValues>({
     resolver: zodResolver(expertFormSchema),
@@ -93,6 +140,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
           category: expert.category,
           specialization: expert.specialization ?? '',
           qualifications: expert.qualifications ?? '',
+          distance_km: expert.distance_km ?? null,
           is_active: expert.is_active,
           notes: expert.notes ?? '',
         }
@@ -109,31 +157,49 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
           category: 'subject_expert',
           specialization: '',
           qualifications: '',
+          distance_km: null,
           is_active: true,
           notes: '',
         },
   });
 
-  // Fetch institutions from COE database
-  useEffect(() => {
-    fetch('/api/bos/institutions')
-      .then((r) => r.json())
-      .then((list: Institution[]) => {
-        setInstitutions(Array.isArray(list) ? list : []);
-        if (!expert && !isSuperAdmin && Array.isArray(list) && list.length === 1) {
-          form.setValue('institutions_id', list[0].id);
-        }
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── Category options, sourced from member types ──────────────────────────
+  // Scope member types to the selected institution (CAS-expanded). The query
+  // stays disabled until an institution is resolved (scope.csv === null).
+  const selectedInstitutionId = form.watch('institutions_id');
+  const scope = useBosInstitutionScope(selectedInstitutionId || undefined);
+  const { data: memberTypes = [] } = useBosMemberTypes(scope.csv, { isActive: true });
 
-  // Fast path: set institution from profile (non-admin)
-  useEffect(() => {
-    if (!expert && !isSuperAdmin && userProfile?.institution_id) {
-      form.setValue('institutions_id', userProfile.institution_id);
+  const categoryOptions = useMemo<{ value: BosExpertCategory; label: string }[]>(() => {
+    // Member-type rows that map to a valid expert category, deduped by base_type
+    // (rows arrive pre-ordered by sort_order, so the first name wins).
+    const fromTypes: { value: BosExpertCategory; label: string }[] = [];
+    const seen = new Set<string>();
+    for (const t of memberTypes) {
+      if (!EXPERT_CATEGORY_VALUES.has(t.base_type as BosExpertCategory)) continue;
+      if (seen.has(t.base_type)) continue;
+      seen.add(t.base_type);
+      fromTypes.push({ value: t.base_type as BosExpertCategory, label: t.name });
     }
-  }, [userProfile, expert, isSuperAdmin, form]);
+
+    // Every expert category stays selectable even when the institution has no
+    // member-type row for it (e.g. no university_nominee row) — member-type
+    // rows only override the label and ordering.
+    const options = [...fromTypes];
+    for (const [value, label] of Object.entries(BOS_EXPERT_CATEGORY_LABELS) as [
+      BosExpertCategory,
+      string,
+    ][]) {
+      if (!seen.has(value)) options.push({ value, label });
+    }
+    return options;
+  }, [memberTypes]);
+
+  // Auto-set institution for non-admins once context resolves.
+  useEffect(() => {
+    if (expert || isSuperAdmin || !institutionCtx?.myjkkn_id) return;
+    form.setValue('institutions_id', institutionCtx.myjkkn_id, { shouldValidate: true });
+  }, [institutionCtx?.myjkkn_id, isSuperAdmin, expert, form]);
 
   if (permissionsLoading) {
     return (
@@ -147,31 +213,41 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-4'>
 
         {/* ── Institution selector (super admin only) ─────────────────── */}
         {isSuperAdmin && (
           <Card>
-            <CardHeader>
+            <CardHeader className='pb-3'>
               <CardTitle className='text-base'>Institution</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className='pt-0'>
               <FormField
                 control={form.control}
                 name='institutions_id'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select
+                      onValueChange={field.onChange}
+                      // Edit-mode CAS gap: the saved row may carry the sibling
+                      // UUID that isn't the option's primary id — map it to the
+                      // option that contains it so the picker doesn't go blank.
+                      value={
+                        allInstitutions.find((o) =>
+                          o.myjkkn_institution_ids.includes(field.value)
+                        )?.id ?? field.value
+                      }
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder='Select institution' />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
+                        {allInstitutions.map((opt) => (
+                          <SelectItem key={opt.id} value={opt.id}>
+                            {opt.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -186,11 +262,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Identity ─────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
+          <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Expert Identity</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-4'>
+          <CardContent className='pt-0 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-4'>
               {/* Title */}
               <FormField
                 control={form.control}
@@ -233,7 +309,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
               </div>
             </div>
 
-            <div className='grid gap-4 md:grid-cols-2'>
+            <div className='grid gap-3 md:grid-cols-2'>
               {/* Category */}
               <FormField
                 control={form.control}
@@ -248,14 +324,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {Object.entries(BOS_EXPERT_CATEGORY_LABELS).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        {categoryOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>
-                      UGC-defined category for this BoS member position.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -281,11 +354,11 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Affiliation ────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
+          <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Affiliation</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-2'>
+          <CardContent className='pt-0 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-2'>
               <FormField
                 control={form.control}
                 name='institution_name'
@@ -293,11 +366,8 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                   <FormItem>
                     <FormLabel>Institution / Company</FormLabel>
                     <FormControl>
-                      <Input placeholder='e.g. Anna University' {...field} />
+                      <Input placeholder='e.g. JKKN College of Arts and Science (Autonomous)' {...field} />
                     </FormControl>
-                    <FormDescription>
-                      Where the expert is currently employed.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -337,29 +407,58 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='qualifications'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Qualifications</FormLabel>
-                  <FormControl>
-                    <Input placeholder='e.g. MCA, M.Phil, Ph.D.' {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className='grid gap-3 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='qualifications'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Qualifications</FormLabel>
+                    <FormControl>
+                      <Input placeholder='e.g. MCA, M.Phil, Ph.D.' {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='distance_km'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Distance to Institution (km, one-way)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        inputMode='decimal'
+                        min={0}
+                        step='0.1'
+                        placeholder='e.g. 45'
+                        value={field.value ?? ''}
+                        onChange={(e) =>
+                          field.onChange(e.target.value === '' ? null : e.target.value)
+                        }
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Auto-doubled for round-trip TA at ₹5/km. Leave blank if not applicable.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </CardContent>
         </Card>
 
         {/* ── Contact ───────────────────────────────────────────────────── */}
         <Card>
-          <CardHeader>
+          <CardHeader className='pb-3'>
             <CardTitle className='text-base'>Contact Details</CardTitle>
           </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid gap-4 md:grid-cols-2'>
+          <CardContent className='pt-0 space-y-3'>
+            <div className='grid gap-3 md:grid-cols-2'>
               <FormField
                 control={form.control}
                 name='email'
@@ -369,9 +468,6 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                     <FormControl>
                       <Input type='email' placeholder='expert@institution.ac.in' {...field} />
                     </FormControl>
-                    <FormDescription>
-                      Used for call letter dispatch (Phase 5+).
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -400,9 +496,9 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
                   <FormLabel>Address</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder='Full postal address for call letters and TA/DA billing'
+                      placeholder='Full postal address'
                       className='resize-none'
-                      rows={3}
+                      rows={2}
                       {...field}
                     />
                   </FormControl>
@@ -415,7 +511,7 @@ export function ExpertForm({ expert, isSubmitting, onSubmit, onCancel }: ExpertF
 
         {/* ── Settings ──────────────────────────────────────────────────── */}
         <Card>
-          <CardContent className='p-6 space-y-4'>
+          <CardContent className='p-4 space-y-3'>
             <FormField
               control={form.control}
               name='notes'

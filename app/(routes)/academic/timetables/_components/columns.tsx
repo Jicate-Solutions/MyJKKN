@@ -9,7 +9,9 @@ import { format } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Timetable>[] = [
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Timetable>[] => {
+  const adapt = adaptLabel || ((label) => label);
+  return [
   {
     id: 'select',
     enableResizing: false,
@@ -73,7 +75,7 @@ export const columns: ColumnDef<Timetable>[] = [
   {
     accessorKey: 'program.program_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
+      <DataTableColumnHeader column={column} title={adapt('Program')} />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
@@ -83,7 +85,7 @@ export const columns: ColumnDef<Timetable>[] = [
   {
     accessorKey: 'department.department_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Department' />
+      <DataTableColumnHeader column={column} title={adapt('Department')} />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
@@ -91,10 +93,10 @@ export const columns: ColumnDef<Timetable>[] = [
     }
   },
   {
-    accessorFn: (row) => row.semesters?.semester_name || 'Semester',
+    accessorFn: (row) => row.semesters?.semester_name || adapt('Semester'),
     id: 'semester',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester / Section' />
+      <DataTableColumnHeader column={column} title={`${adapt('Semester')} / ${adapt('Section')}`} />
     ),
     cell: ({ row }) => {
       const timetable = row.original;
@@ -121,7 +123,7 @@ export const columns: ColumnDef<Timetable>[] = [
               : 'bg-purple-50 text-purple-700 border-purple-200'
           }
         >
-          {timetableType === 'semester' ? 'Semester' : 'Section'}
+          {timetableType === 'semester' ? adapt('Semester') : adapt('Section')}
         </Badge>
       );
     }
@@ -177,4 +179,5 @@ export const columns: ColumnDef<Timetable>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

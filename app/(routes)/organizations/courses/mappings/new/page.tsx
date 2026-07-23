@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -23,8 +24,16 @@ export const navMeta = {
 
 
 export default function NewCourseMappingPage() {
+  const adapt = useAdaptiveLabels();
+  const coursesLabel = adapt('Courses');
+  const courseLabel = adapt('Course');
+  const degreeLabel = adapt('degree');
+  const departmentLabel = adapt('department');
+  const programLabel = adapt('program');
+  const semesterLabel = adapt('semester');
+
   return (
-    <ContentLayout title='New Course Mapping'>
+    <ContentLayout title={`New ${courseLabel} Mapping`}>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -41,14 +50,14 @@ export default function NewCourseMappingPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/organizations/courses'>Courses</Link>
+              <Link href='/organizations/courses'>{coursesLabel}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
               <Link href='/organizations/courses/mappings'>
-                Course Mappings
+                {courseLabel} Mappings
               </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
@@ -61,10 +70,10 @@ export default function NewCourseMappingPage() {
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold'>Create Course Mapping</h1>
+          <h1 className='text-2xl font-bold'>Create {courseLabel} Mapping</h1>
           <p className='text-muted-foreground mt-1'>
-            Associate a course with an institution, degree, department, program,
-            and semester
+            Associate a {courseLabel.toLowerCase()} with an institution, {degreeLabel}, {departmentLabel}, {programLabel},
+            and {semesterLabel}
           </p>
         </div>
 

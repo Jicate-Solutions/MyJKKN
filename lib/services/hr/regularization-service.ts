@@ -128,8 +128,29 @@ const REQUEST_SELECT = `
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the hr_employees row for the current auth user.
- * Returns null if no linked hr_employees row exists.
+ * Resolve the current auth user's HR identity (their `staff` row plus the
+ * hr_organization it belongs to). Returns null when the caller has no active
+ * staff record.
+ *
+ * `id` is a **staff.id**. That is what the HR schema expects everywhere:
+ * hr_leave_applications.employee_id, hr_leave_balances.employee_id and
+ * hr_leave_encashments.employee_id all FK to `staff`, and the RLS policies
+ * match on `staff.profile_id = auth.uid()`.
+ *
+ * HISTORY — do not "simplify" this back to a table query. Until 2026-07-21
+ * this read `hr_employees`, which has held **0 rows** since
+ * 20260524083600_consolidate_hr_employees_to_staff moved all 740 active staff
+ * into `staff`. It therefore returned null for every user, and because the
+ * callers degrade to an EmptyState rather than an error, leave application and
+ * attendance regularization were silently unreachable for the whole
+ * organisation — hr_leave_applications and hr_attendance_regularizations both
+ * sat at 0 rows.
+ *
+ * The org id cannot be joined client-side: hr_staff_details and
+ * hr_organizations both gate RLS on auth_hr_organization_id(), which reads
+ * user_hr_access (1 row for 844 staff). fn_my_hr_context() is SECURITY DEFINER
+ * so it resolves past that; it is self-authorizing (pins to auth.uid(), takes
+ * no arguments), so it can only ever return the caller's own row.
  */
 export async function getCurrentEmployee(): Promise<{
   id: string;
@@ -144,20 +165,25 @@ export async function getCurrentEmployee(): Promise<{
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) return null;
 
-  const { data, error } = await supabase
-    .from('hr_employees')
-    .select(
-      'id, user_id, hr_organization_id, first_name, last_name, email, employee_code'
-    )
-    .eq('user_id', auth.user.id)
-    .eq('is_active', true)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('fn_my_hr_context').maybeSingle();
 
   if (error) {
     console.warn('[regularization-service] getCurrentEmployee error', error);
     return null;
   }
-  return data ?? null;
+  if (!data) return null;
+
+  // Map to the historical shape so call sites keep working. `user_id` is the
+  // profile id, which is what auth.uid() returns.
+  return {
+    id: data.staff_id,
+    user_id: data.profile_id,
+    hr_organization_id: data.hr_organization_id,
+    first_name: data.first_name,
+    last_name: data.last_name,
+    email: data.email,
+    employee_code: data.employee_code,
+  };
 }
 
 export async function listReasons(): Promise<RegularizationReason[]> {
@@ -311,13 +337,31 @@ export async function approveRequest(
       request.proposed_status_type_id || regStatus?.id || null;
 
     if (statusTypeId && request.employee?.id) {
+      // request.employee.id is a staff.id. This previously read `hr_employees`
+      // (0 rows since the 2026-05-24 consolidation), so employeeRow was always
+      // null and the hr_attendance_records stamp below never ran — which is
+      // one reason that table is empty. hr_staff_details is the org source;
+      // fall back to the institution→org mapping for the ~197 active staff who
+      // have no hr_staff_details row.
       const { data: employeeRow } = await supabase
-        .from('hr_employees')
-        .select('id, hr_organization_id')
+        .from('staff')
+        .select('id, institution_id, hr_staff_details(hr_organization_id)')
         .eq('id', request.employee.id)
         .maybeSingle();
 
-      if (employeeRow?.hr_organization_id) {
+      // The embed is subject to hr_staff_details RLS, which is still gated on
+      // the broken auth_hr_organization_id(). So this resolves for HR admins
+      // today and for everyone once the Phase 0b retrofit lands. Until then
+      // the block below no-ops exactly as it did before — which is preferable
+      // to stamping an attendance row against a guessed organisation.
+      const hrOrgId =
+        (
+          employeeRow as {
+            hr_staff_details?: { hr_organization_id: string | null } | null;
+          } | null
+        )?.hr_staff_details?.hr_organization_id ?? null;
+
+      if (employeeRow?.id && hrOrgId) {
         // Upsert by (employee, work_date)
         const existing = await supabase
           .from('hr_attendance_records')
@@ -345,7 +389,7 @@ export async function approveRequest(
         } else {
           await supabase.from('hr_attendance_records').insert({
             employee_id: employeeRow.id,
-            hr_organization_id: employeeRow.hr_organization_id,
+            hr_organization_id: hrOrgId,
             work_date: request.for_date,
             status_type_id: statusTypeId,
             source: 'regularization',

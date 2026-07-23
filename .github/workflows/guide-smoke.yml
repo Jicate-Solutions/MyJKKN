@@ -1,0 +1,62 @@
+name: Guide smoke (deep-links resolve)
+
+# The smart-guide content (lib/<module>/guide/content.ts) deep-links ~197 screens.
+# This gate asserts every one of those hrefs still resolves to a real route under
+# app/(routes). It catches the "guide promises /hr/admin/forms but the route moved"
+# bug class — a 404 deep-link that tsc cannot see and the nav-reachability gate
+# (which walks the sidebar, not the guide) does not cover.
+#
+# Static only: no server, no auth — composes the guide via composeGuideBook() and
+# resolves each href against the filesystem route set. The richer authed-HTTP mode
+# (catches 500s for a real session) is a local/staging tool, not this CI gate.
+#
+# Triggers on guide changes AND route page add/remove (a deleted route can orphan
+# a guide href authored elsewhere).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - 'lib/*/guide/**'
+      - 'lib/guide/**'
+      - 'app/(routes)/**/page.tsx'
+      - 'scripts/guide-smoke.ts'
+      - 'scripts/guide-labels-guard.ts'
+      - '.github/workflows/guide-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  guide-smoke:
+    name: Guide deep-links resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cache node_modules
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install deps
+        if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      - name: Guide smoke — every deep-link resolves
+        run: npm run check:guide-smoke
+
+      - name: Guide module labels — every module lane carries its own label
+        run: npm run check:guide-labels

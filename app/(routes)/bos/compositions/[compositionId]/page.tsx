@@ -1,6 +1,7 @@
 'use client';
 
-import { use, useState } from 'react';
+import { Fragment, Suspense, use, useEffect, useMemo, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -8,14 +9,18 @@ import {
   Users,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   XCircle,
   Building2,
   Mail,
   Phone,
   Plus,
   Trash2,
+  GraduationCap,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -23,175 +28,276 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-
 import { useBosComposition } from '@/hooks/bos/use-bos-compositions';
-import { useBosMembersByComposition, useAddBosMember, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
+import { useBosCommitteesByComposition } from '@/hooks/bos/use-bos-committees';
+import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
+import { useBosMembersByComposition, useRemoveBosMember } from '@/hooks/bos/use-bos-members';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
+  useBosBoardScope,
+  canEditComposition,
+  canManageMembers,
+} from '@/hooks/bos/use-bos-board-scope';
+import { useAuth } from '@/hooks/use-auth-provider';
+import { useInstitutionContextById } from '@/hooks/use-institution-context';
+import {
+  BosCommittee,
   BosMember,
   BosMemberType,
-  BOS_MEMBER_TYPE_LABELS,
+  BosMemberTypeRecord,
 } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { AddMemberDialog } from '../_components/add-member-dialog';
+import { AddCommitteeDialog } from '../_components/add-committee-dialog';
+import { BoardProgrammesCard } from '../../_components/board-programmes-card';
+import { ProgrammeOutcomesEditor } from '../../taxonomy/_components/programme-outcomes-editor';
+
+interface Regulation {
+  id: string;
+  title: string;
+  regulation_year: string;
+  regulation_code: string;
+}
 
 // ── Member type display order ─────────────────────────────────────────────────
 
 const MEMBER_GROUPS: { type: BosMemberType; label: string }[] = [
+  { type: 'principal',          label: 'Principal' },
   { type: 'chairman',           label: 'Chairman' },
+  { type: 'hod',                label: 'Head of Department' },
+  { type: 'facilitator',        label: 'Facilitators' },
   { type: 'university_nominee', label: 'University Nominees' },
+  { type: 'subject_expert',     label: 'Subject Experts' },
   { type: 'internal_member',    label: 'Internal Members' },
   { type: 'industry_expert',    label: 'Industry Experts' },
   { type: 'alumni',             label: 'Alumni Members' },
+  { type: 'startup',            label: 'Startup Members' },
 ];
 
-// ── Add Member Dialog ─────────────────────────────────────────────────────────
+// ── Member type groups (within one committee section) ───────────────────────
 
-interface AddMemberDialogProps {
-  open: boolean;
-  onClose: () => void;
-  compositionId: string;
-  institutionsId: string;
-}
+function MemberTypeGroups({
+  members,
+  memberTypes,
+  canManage,
+  onRemove,
+}: {
+  members: BosMember[];
+  /** Institution's bos_member_types rows (already ordered by sort_order). */
+  memberTypes: BosMemberTypeRecord[];
+  canManage: boolean;
+  onRemove: (id: string) => void;
+}) {
+  // Primary grouping: table-driven member types (member_type_id). Old rows
+  // whose member_type_id is null (or points at a deleted type) fall back to
+  // the legacy enum groups so nothing disappears.
+  const knownTypeIds = new Set(memberTypes.map((t) => t.id));
+  const leftovers = members.filter(
+    (m) => !m.member_type_id || !knownTypeIds.has(m.member_type_id)
+  );
 
-function AddMemberDialog({ open, onClose, compositionId, institutionsId }: AddMemberDialogProps) {
-  const addMember = useAddBosMember();
-  const [memberType, setMemberType] = useState<BosMemberType>('internal_member');
-  const [displayName, setDisplayName] = useState('');
-  const [displayDesignation, setDisplayDesignation] = useState('');
-  const [displayInstitution, setDisplayInstitution] = useState('');
-  const [email, setEmail] = useState('');
-  const [contactNo, setContactNo] = useState('');
-
-  const reset = () => {
-    setMemberType('internal_member');
-    setDisplayName('');
-    setDisplayDesignation('');
-    setDisplayInstitution('');
-    setEmail('');
-    setContactNo('');
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!displayName.trim()) { toast.error('Display name is required'); return; }
-    try {
-      await addMember.mutateAsync({
-        institutions_id: institutionsId,
-        composition_id: compositionId,
-        member_type: memberType,
-        display_name: displayName.trim(),
-        display_designation: displayDesignation.trim() || undefined,
-        display_institution: displayInstitution.trim() || undefined,
-        email: email.trim() || undefined,
-        contact_no: contactNo.trim() || undefined,
-        is_active: true,
-        sort_order: 0,
-      });
-      toast.success('Member added');
-      reset();
-      onClose();
-    } catch (err) {
-      logger.error('academic/bos', 'Failed to add member', err);
-      toast.error((err as Error).message || 'Failed to add member');
-    }
-  };
+  const sections: { key: string; label: string; items: BosMember[] }[] = [
+    ...memberTypes.map((t) => ({
+      key: t.id,
+      label: t.name,
+      items: members.filter((m) => m.member_type_id === t.id),
+    })),
+    ...MEMBER_GROUPS.map(({ type, label }) => ({
+      key: `legacy:${type}`,
+      label,
+      items: leftovers.filter((m) => m.member_type === type),
+    })),
+  ];
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
-      <DialogContent className='max-w-md'>
-        <DialogHeader>
-          <DialogTitle>Add Member</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className='space-y-4'>
-          <div className='space-y-2'>
-            <Label>Member Type <span className='text-destructive'>*</span></Label>
-            <Select value={memberType} onValueChange={(v) => setMemberType(v as BosMemberType)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(BOS_MEMBER_TYPE_LABELS).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className='space-y-2'>
-            <Label>Full Name <span className='text-destructive'>*</span></Label>
-            <Input
-              placeholder='e.g. Dr. Rajesh Kumar'
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </div>
-
-          <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-2'>
-              <Label>Designation</Label>
-              <Input
-                placeholder='e.g. Professor'
-                value={displayDesignation}
-                onChange={(e) => setDisplayDesignation(e.target.value)}
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Institution</Label>
-              <Input
-                placeholder='e.g. Anna University'
-                value={displayInstitution}
-                onChange={(e) => setDisplayInstitution(e.target.value)}
-              />
+    <div className='space-y-4'>
+      {sections.map(({ key, label, items }) => {
+        if (items.length === 0) return null;
+        return (
+          <div key={key}>
+            <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
+              {label} ({items.length})
+            </h4>
+            <div className='grid gap-2 sm:grid-cols-2'>
+              {items.map((member) => (
+                <MemberCard
+                  key={member.id}
+                  member={member}
+                  canEdit={canManage}
+                  onRemove={onRemove}
+                />
+              ))}
             </div>
           </div>
+        );
+      })}
+    </div>
+  );
+}
 
-          <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-2'>
-              <Label>Email</Label>
-              <Input
-                type='email'
-                placeholder='email@example.com'
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label>Contact No.</Label>
-              <Input
-                placeholder='+91 98765 43210'
-                value={contactNo}
-                onChange={(e) => setContactNo(e.target.value)}
-              />
-            </div>
-          </div>
+// ── Committee table ─────────────────────────────────────────────────────────
+// A composition can hold several committees. They're listed as a table (name,
+// code, member count, status) rather than a tab bar, which stays readable as
+// the count grows and shows every committee's size at a glance. Expanding a row
+// reveals that committee's members grouped by type. A virtual "General" row
+// collects members with no committee (or whose committee was deleted).
 
-          <DialogFooter>
-            <Button type='button' variant='outline' onClick={() => { reset(); onClose(); }}>
-              Cancel
-            </Button>
-            <Button type='submit' disabled={addMember.isPending}>
-              {addMember.isPending ? 'Adding...' : 'Add Member'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+const GENERAL_ROW = '__general__';
+
+function CommitteeTable({
+  committees,
+  members,
+  memberTypes,
+  canManage,
+  onRemove,
+  onAddMember,
+}: {
+  committees: BosCommittee[];
+  /** membersForGrouping — member_type_id already collapsed to canonical rows. */
+  members: BosMember[];
+  memberTypes: BosMemberTypeRecord[];
+  canManage: boolean;
+  onRemove: (id: string) => void;
+  onAddMember: () => void;
+}) {
+  const rows = useMemo(() => {
+    const knownIds = new Set(committees.map((c) => c.id));
+    const general = members.filter(
+      (m) => !m.committee_id || !knownIds.has(m.committee_id)
+    );
+    return [
+      ...committees.map((c) => ({
+        value: c.id,
+        committee: c as BosCommittee | null,
+        items: members.filter((m) => m.committee_id === c.id),
+      })),
+      ...(general.length > 0
+        ? [{ value: GENERAL_ROW, committee: null, items: general }]
+        : []),
+    ];
+  }, [committees, members]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Open the first committee once data arrives, so the card isn't a wall of
+  // collapsed rows on load. Keyed on the first row's id: it runs when the list
+  // first resolves (and if that committee changes), but not when the user
+  // collapses it — a manual collapse stays collapsed.
+  const firstValue = rows[0]?.value;
+  useEffect(() => {
+    if (firstValue) setExpanded(new Set([firstValue]));
+  }, [firstValue]);
+
+  const toggle = (value: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className='rounded-lg border'>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className='w-10' />
+            <TableHead>Committee</TableHead>
+            <TableHead className='w-28'>Code</TableHead>
+            <TableHead className='w-24 text-right'>Members</TableHead>
+            <TableHead className='w-28'>Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => {
+            const isOpen = expanded.has(r.value);
+            return (
+              <Fragment key={r.value}>
+                <TableRow
+                  className='cursor-pointer'
+                  onClick={() => toggle(r.value)}
+                >
+                  <TableCell>
+                    {isOpen ? (
+                      <ChevronDown className='h-4 w-4 text-muted-foreground' />
+                    ) : (
+                      <ChevronRight className='h-4 w-4 text-muted-foreground' />
+                    )}
+                  </TableCell>
+                  <TableCell className='font-medium'>
+                    {r.committee ? r.committee.name : 'General'}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>
+                    {r.committee?.short_code ?? '—'}
+                  </TableCell>
+                  <TableCell className='text-right tabular-nums'>
+                    {r.items.length}
+                  </TableCell>
+                  <TableCell>
+                    {!r.committee ? (
+                      <Badge variant='outline' className='text-xs'>
+                        Unassigned
+                      </Badge>
+                    ) : r.committee.is_active ? (
+                      <Badge variant='outline' className='text-xs'>
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge variant='secondary' className='text-xs'>
+                        Inactive
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+
+                {isOpen && (
+                  <TableRow className='hover:bg-transparent'>
+                    <TableCell colSpan={5} className='bg-muted/30 p-4'>
+                      {r.items.length === 0 ? (
+                        <div className='flex flex-col items-start gap-2'>
+                          <p className='text-xs text-muted-foreground'>
+                            No members in this committee yet.
+                          </p>
+                          {canManage && (
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onAddMember();
+                              }}
+                            >
+                              <Plus className='mr-2 h-4 w-4' />
+                              Add Member
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <MemberTypeGroups
+                          members={r.items}
+                          memberTypes={memberTypes}
+                          canManage={canManage}
+                          onRemove={onRemove}
+                        />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </Fragment>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -260,17 +366,134 @@ interface CompositionDetailPageProps {
   params: Promise<{ compositionId: string }>;
 }
 
-export default function CompositionDetailPage({ params }: CompositionDetailPageProps) {
+const COMPOSITION_DETAIL_TABS = ['members', 'programmes', 'outcomes'] as const;
+
+function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
   const { compositionId } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('members', COMPOSITION_DETAIL_TABS);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
+  const boardScope = useBosBoardScope();
+  const { profile } = useAuth();
   const { data: composition, isLoading: loadingComposition } = useBosComposition(compositionId);
   const { data: members = [], isLoading: loadingMembers } = useBosMembersByComposition(compositionId);
   const removeMember = useRemoveBosMember();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addCommitteeOpen, setAddCommitteeOpen] = useState(false);
 
-  const canEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
+  // Bootstrap case: the user who created this row keeps edit + member-roster
+  // access until a chairman is appointed. Without it the creator can't
+  // finish setting up their own composition.
+  const createdByMe = !!(composition?.created_by && profile?.id && composition.created_by === profile.id);
+
+  // canEdit drives header "Edit" button + the BoardProgrammesCard.
+  // canManage drives the per-member "Add"/"Remove" controls. They differ in
+  // intent today (programmes editing vs roster management) but both unlock
+  // for: super-admin, chairman of this comp, or creator of this comp.
+  const hasRolePermEdit = isSuperAdmin || canAccess('academic.bos-compositions', 'edit');
+  const canEdit = hasRolePermEdit && canEditComposition(boardScope, compositionId, createdByMe);
+  const canManage = hasRolePermEdit && canManageMembers(boardScope, compositionId, createdByMe);
+
+  // Resolve all sibling institution IDs for the COMPOSITION'S institution
+  // (not the logged-in user's). For CAS colleges, this expands a single
+  // institutions_id into the pair of Aided + Self-Financing UUIDs via the
+  // shared counselling_code. Needed so regulations/taxonomy/programmes
+  // lookups don't miss rows stored under the sibling UUID.
+  const institutionCtx = useInstitutionContextById(composition?.institutions_id);
+  const allInstitutionIds: string[] = institutionCtx.data?.myjkkn_institution_ids?.length
+    ? institutionCtx.data.myjkkn_institution_ids
+    : composition?.institutions_id ? [composition.institutions_id] : [];
+
   const isLoading = loadingComposition || loadingMembers;
+
+  const [selectedRegulationId, setSelectedRegulationId] = useState('');
+
+  // CAS-aware: a composition may be tied to one of two sibling institution
+  // UUIDs (Aided/Self-Financing), but the regulation + taxonomy rows might
+  // live under either. Pass the full sibling list so both are searched.
+  const institutionIdsCsv = allInstitutionIds.join(',');
+
+  // Committees of THIS composition (20260706 — committees are composition-owned).
+  // Members are grouped by committee below. Inactive committees are included so
+  // legacy sections still show their name.
+  const { data: committees = [] } = useBosCommitteesByComposition(compositionId);
+
+  // Member types of this institution — drive the Add Member dropdown and the
+  // per-type grouping inside each committee section. Inactive types included
+  // for display (old rows keep their label); the dialog gets active only.
+  const { data: rawMemberTypeRows = [] } = useBosMemberTypes(institutionIdsCsv || null);
+
+  // CAS colleges seed the same 10 member types under BOTH sibling institution
+  // UUIDs (20260611 seeds per institutions_id). The CAS-expanded query above
+  // then returns each type twice, so the dropdown and the group headers double
+  // up (see [[feedback_cas_institution_lookup]]). Collapse by name to a single
+  // canonical row (lowest sort_order wins) and remember which raw ids fold into
+  // it, so an existing member pointing at the dropped sibling's row still groups
+  // under the surviving one instead of falling back to a duplicate legacy group.
+  const { memberTypeRows, canonicalTypeId } = useMemo(() => {
+    const byName = new Map<string, BosMemberTypeRecord>();
+    const idMap = new Map<string, string>();
+    const sorted = [...rawMemberTypeRows].sort(
+      (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)
+    );
+    for (const t of sorted) {
+      const key = t.name.trim().toLowerCase();
+      const existing = byName.get(key);
+      if (existing) {
+        idMap.set(t.id, existing.id);   // fold this duplicate into the survivor
+      } else {
+        byName.set(key, t);
+        idMap.set(t.id, t.id);
+      }
+    }
+    return {
+      memberTypeRows: Array.from(byName.values()),
+      canonicalTypeId: idMap,
+    };
+  }, [rawMemberTypeRows]);
+
+  // Members with their member_type_id re-pointed to the canonical (deduped)
+  // type row — used only for the per-type grouping below. The originals (with
+  // real ids) are kept for removal + the Add Member dialog's exclusion set.
+  const membersForGrouping = useMemo(
+    () =>
+      members.map((m) => ({
+        ...m,
+        member_type_id: m.member_type_id
+          ? canonicalTypeId.get(m.member_type_id) ?? m.member_type_id
+          : m.member_type_id,
+      })),
+    [members, canonicalTypeId]
+  );
+
+  // Regulations for this institution (all CAS siblings)
+  const { data: regulations = [], isLoading: loadingRegs } = useQuery<Regulation[]>({
+    queryKey: ['bos', 'regulations', institutionIdsCsv],
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/regulations?institutionIds=${institutionIdsCsv}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: allInstitutionIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Taxonomy assignments — only regulations with a taxonomy can have PO/PSO
+  const { data: taxonomyAssignments = [] } = useQuery<{ regulation_id: string }[]>({
+    queryKey: ['bos', 'taxonomy-assignments', institutionIdsCsv],
+    queryFn: async () => {
+      const res = await fetch(`/api/bos/taxonomy?institutionsIds=${institutionIdsCsv}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: allInstitutionIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const assignedRegIds = new Set(taxonomyAssignments.map((a) => a.regulation_id));
+  const regulationsWithTaxonomy = regulations.filter((r) => assignedRegIds.has(r.id));
 
   const handleRemoveMember = async (memberId: string) => {
     try {
@@ -365,60 +588,134 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
         </CardContent>
       </Card>
 
-      {/* ── Members ─────────────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader className='pb-3'>
-          <div className='flex items-center justify-between'>
-            <CardTitle className='text-base'>
-              Members
-              <span className='ml-2 text-sm font-normal text-muted-foreground'>
-                ({activeMembers.length} active)
-              </span>
-            </CardTitle>
-            {canEdit && (
-              <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
-                <Plus className='mr-2 h-4 w-4' />
-                Add Member
-              </Button>
+      {/* ── Tabbed sections ─────────────────────────────────────────────── */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value='members'>
+            Members
+            {activeMembers.length > 0 && (
+              <Badge variant='secondary' className='ml-2 text-xs'>{activeMembers.length}</Badge>
             )}
-          </div>
-        </CardHeader>
-        <CardContent className='space-y-6'>
-          {members.length === 0 ? (
-            <div className='text-center py-8 text-muted-foreground'>
-              <Users className='h-8 w-8 mx-auto mb-2 opacity-40' />
-              <p className='text-sm'>No members added yet.</p>
-              {canEdit && (
-                <Button variant='link' size='sm' onClick={() => setAddDialogOpen(true)}>
-                  Add the first member →
-                </Button>
+          </TabsTrigger>
+          <TabsTrigger value='programmes'>Programmes</TabsTrigger>
+          <TabsTrigger value='outcomes'>
+            <GraduationCap className='h-3.5 w-3.5 mr-1.5' />
+            Outcomes (PO/PSO)
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Members tab */}
+        <TabsContent value='members'>
+          <Card>
+            <CardHeader className='pb-3'>
+              <div className='flex items-center justify-between'>
+                <CardTitle className='text-base'>
+                  Members
+                  <span className='ml-2 text-sm font-normal text-muted-foreground'>
+                    ({activeMembers.length} active)
+                  </span>
+                </CardTitle>
+                {canManage && (
+                  <div className='flex items-center gap-2'>
+                    <Button size='sm' variant='ghost' onClick={() => setAddCommitteeOpen(true)}>
+                      <Plus className='mr-2 h-4 w-4' />
+                      Add Committee
+                    </Button>
+                    <Button size='sm' variant='outline' onClick={() => setAddDialogOpen(true)}>
+                      <Plus className='mr-2 h-4 w-4' />
+                      Add Member
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className='space-y-6'>
+              {members.length === 0 && committees.length === 0 ? (
+                <div className='text-center py-8 text-muted-foreground'>
+                  <Users className='h-8 w-8 mx-auto mb-2 opacity-40' />
+                  <p className='text-sm'>No committees or members yet.</p>
+                  {canManage && (
+                    <Button variant='link' size='sm' onClick={() => setAddCommitteeOpen(true)}>
+                      Add the first committee →
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <CommitteeTable
+                  committees={committees}
+                  members={membersForGrouping}
+                  memberTypes={memberTypeRows}
+                  canManage={canManage}
+                  onRemove={handleRemoveMember}
+                  onAddMember={() => setAddDialogOpen(true)}
+                />
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Programmes tab */}
+        <TabsContent value='programmes'>
+          {composition.institutions_id ? (
+            <BoardProgrammesCard
+              boardId={composition.board_id}
+              institutionsId={composition.institutions_id}
+              allInstitutionIds={allInstitutionIds}
+              canEdit={canEdit}
+            />
+          ) : (
+            <p className='text-sm text-muted-foreground text-center py-8'>
+              Institution not linked to this composition.
+            </p>
+          )}
+        </TabsContent>
+
+        {/* Outcomes (PO/PSO) tab */}
+        <TabsContent value='outcomes' className='space-y-4'>
+          {loadingRegs ? (
+            <Skeleton className='h-9 w-56' />
+          ) : regulationsWithTaxonomy.length === 0 ? (
+            <div className='flex flex-col items-center gap-3 py-12 border rounded-md border-dashed text-center'>
+              <GraduationCap className='h-8 w-8 text-muted-foreground/40' />
+              <p className='text-sm text-muted-foreground'>
+                No regulations with taxonomy configured for this institution.
+              </p>
+              <Button variant='outline' size='sm' onClick={() => router.push('/bos/taxonomy')}>
+                Configure in Taxonomy →
+              </Button>
             </div>
           ) : (
-            MEMBER_GROUPS.map(({ type, label }) => {
-              const group = members.filter((m) => m.member_type === type);
-              if (group.length === 0) return null;
-              return (
-                <div key={type}>
-                  <h4 className='text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2'>
-                    {label} ({group.length})
-                  </h4>
-                  <div className='grid gap-2 sm:grid-cols-2'>
-                    {group.map((member) => (
-                      <MemberCard
-                        key={member.id}
-                        member={member}
-                        canEdit={canEdit}
-                        onRemove={handleRemoveMember}
-                      />
+            <>
+              <div className='flex items-center gap-3'>
+                <span className='text-sm font-medium shrink-0'>Regulation</span>
+                <Select value={selectedRegulationId} onValueChange={setSelectedRegulationId}>
+                  <SelectTrigger className='w-[260px]'>
+                    <SelectValue placeholder='Select regulation…' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {regulationsWithTaxonomy.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.regulation_code} — {r.title}
+                      </SelectItem>
                     ))}
-                  </div>
-                </div>
-              );
-            })
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedRegulationId ? (
+                <ProgrammeOutcomesEditor
+                  regulationId={selectedRegulationId}
+                  boardId={composition.board_id}
+                  institutionsId={composition.institutions_id}
+                />
+              ) : (
+                <p className='text-sm text-muted-foreground text-center py-6'>
+                  Select a regulation above to view and edit POs/PSOs.
+                </p>
+              )}
+            </>
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
+      </Tabs>
 
       {composition.notes && (
         <Card>
@@ -430,14 +727,52 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       )}
 
       {/* ── Add Member Dialog ───────────────────────────────────────────── */}
+      {/* AddMemberDialog resolves CAS siblings itself via useInstitutionContextById
+          (no need to pass allInstitutionIds — see FacilitatorPicker).
+          We pass the existing members (with their committee) so the pickers
+          can hide people already on the SELECTED committee — the same person
+          may sit on two different committees. The DB enforces the same rule
+          via per-(composition, committee) unique indexes (20260610). */}
       {composition.institutions_id && (
         <AddMemberDialog
           open={addDialogOpen}
           onClose={() => setAddDialogOpen(false)}
           compositionId={compositionId}
           institutionsId={composition.institutions_id}
+          committees={committees.filter((c) => c.is_active)}
+          memberTypes={memberTypeRows.filter((t) => t.is_active)}
+          existingMembers={members.map((m) => ({
+            staff_id: m.staff_id,
+            expert_id: m.expert_id,
+            committee_id: m.committee_id,
+          }))}
+        />
+      )}
+
+      {/* ── Add Committee Dialog ────────────────────────────────────────── */}
+      {/* Copy flow: pick from the master committees created at /bos/committees
+          (the unassigned template pool) and copy them into this composition —
+          the master row stays reusable by other compositions. institutionIdsCsv
+          is CAS-expanded so the pool spans both sibling UUIDs for CAS colleges,
+          while the copies anchor to this composition's own institution. */}
+      {composition.institutions_id && (
+        <AddCommitteeDialog
+          open={addCommitteeOpen}
+          onClose={() => setAddCommitteeOpen(false)}
+          compositionId={compositionId}
+          institutionsId={composition.institutions_id}
+          institutionIdsCsv={institutionIdsCsv}
         />
       )}
     </div>
+  );
+}
+
+export default function CompositionDetailPage(props: CompositionDetailPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CompositionDetailPageInner {...props} />
+    </Suspense>
   );
 }

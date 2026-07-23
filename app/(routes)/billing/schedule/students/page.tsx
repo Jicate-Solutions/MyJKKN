@@ -42,6 +42,7 @@ function BillingStudentsContent() {
       program_id: searchParams.get('program_id') || undefined,
       semester_id: searchParams.get('semester_id') || undefined,
       section_id: searchParams.get('section_id') || undefined,
+      accommodation_type: searchParams.get('accommodation_type') || undefined,
       first_name: searchParams.get('first_name') || undefined,
       last_name: searchParams.get('last_name') || undefined,
       roll_number: searchParams.get('roll_number') || undefined,
@@ -69,6 +70,7 @@ function BillingStudentsContent() {
       program_id: search.program_id,
       semester_id: search.semester_id,
       section_id: search.section_id,
+      accommodation_type: search.accommodation_type,
       is_profile_complete: search.is_profile_complete
     };
   }, [search]);
@@ -85,7 +87,8 @@ function BillingStudentsContent() {
     search.department_id ||
     search.program_id ||
     search.semester_id ||
-    search.section_id
+    search.section_id ||
+    search.accommodation_type
   );
 
   const {

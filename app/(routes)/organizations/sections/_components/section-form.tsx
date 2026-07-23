@@ -15,6 +15,7 @@ import { DepartmentService } from '@/lib/services/organization/department-servic
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -89,6 +90,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
   const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const { isSuperAdmin, userProfile } = usePermissions();
+  const adapt = useAdaptiveLabels();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(sectionSchema),
@@ -177,8 +179,13 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     const fetchInstitutions = async () => {
       try {
         setLoadingInstitutions(true);
+        // entityType:'all' → include schools/all entity types so the school
+        // appears in the super-admin dropdown AND the non-super-admin read-only
+        // display resolves correctly.
         const institutionNames = await OrganizationService.getInstitutionNames(
-          true
+          true,
+          undefined,
+          'all'
         );
         setInstitutions(institutionNames);
 
@@ -556,7 +563,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                 name='degree_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Degree *</FormLabel>
+                    <FormLabel>{adapt('Degree')} *</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -605,7 +612,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                 name='department_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department *</FormLabel>
+                    <FormLabel>{adapt('Department')} *</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -655,7 +662,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                 name='program_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Program *</FormLabel>
+                    <FormLabel>{adapt('Program')} *</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -704,7 +711,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                 name='semester_id'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Semester *</FormLabel>
+                    <FormLabel>{adapt('Semester')} *</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
@@ -749,7 +756,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                 name='section_name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Section Name *</FormLabel>
+                    <FormLabel>{adapt('Section')} Name *</FormLabel>
                     <FormControl>
                       <div className='relative'>
                         <Input
@@ -787,7 +794,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                   <div className='space-y-0.5'>
                     <FormLabel>Active Status</FormLabel>
                     <div className='text-sm text-muted-foreground'>
-                      Disable to temporarily hide this section
+                      Disable to temporarily hide this {adapt('section')}
                     </div>
                   </div>
                   <FormControl>
@@ -818,7 +825,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Section'}
+              : `Create ${adapt('Section')}`}
           </Button>
         </div>
       </form>

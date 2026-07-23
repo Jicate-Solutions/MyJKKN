@@ -29,7 +29,9 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
+import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
+import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import type { BillingReceipt } from '@/types/billing-schedule';
 
 interface StudentReceiptsTableProps {
@@ -122,10 +124,13 @@ export function StudentReceiptsTable({
   const handleDownloadReceipt = async (receiptId: string) => {
     try {
       setDownloadingReceiptId(receiptId);
-      // TODO: Implement receipt download functionality
-      console.log('Downloading receipt:', receiptId);
+      await BillingReceiptService.downloadReceiptPDF(receiptId);
+      toast.success('Receipt PDF downloaded');
     } catch (error) {
       console.error('Error downloading receipt:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to download receipt PDF'
+      );
     } finally {
       setDownloadingReceiptId(null);
     }
@@ -269,14 +274,14 @@ export function StudentReceiptsTable({
                           <TooltipTrigger asChild>
                             <Button variant='ghost' size='sm' asChild>
                               <Link
-                                href={`/billing/receipts?receipt_id=${receipt.id}`}
+                                href={`/billing/receipts/${receipt.id}`}
                               >
                                 <Eye className='h-4 w-4' />
                               </Link>
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>View Receipts</p>
+                            <p>View Receipt</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>

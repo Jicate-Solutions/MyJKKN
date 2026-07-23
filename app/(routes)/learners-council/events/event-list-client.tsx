@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   CalendarDays,
   MapPin,
@@ -157,6 +158,8 @@ function EventGrid({ events, emptyMessage }: { events: LCEvent[]; emptyMessage: 
   );
 }
 
+const EVENT_LIST_TABS = ['upcoming', 'past', 'my'] as const;
+
 export function EventListClient({
   initialUpcoming,
   upcomingCount,
@@ -167,6 +170,7 @@ export function EventListClient({
   userId,
 }: EventListClientProps) {
   const [scopeFilter, setScopeFilter] = useState<string>('all');
+  const [activeTab, setActiveTab] = useTabParam('upcoming', EVENT_LIST_TABS);
 
   const filterByScope = (events: LCEvent[]) => {
     if (scopeFilter === 'all') return events;
@@ -208,7 +212,7 @@ export function EventListClient({
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="upcoming" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full md:w-auto">
           <TabsTrigger value="upcoming" className="flex items-center gap-2">
             <CalendarCheck className="h-4 w-4" />

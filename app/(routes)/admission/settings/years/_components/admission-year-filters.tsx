@@ -52,7 +52,7 @@ export function AdmissionYearFilters({
 
   const hasActiveFilters = !!(
     searchParams.institution_id ||
-    searchParams.program_start_year ||
+    searchParams.year ||
     searchParams.status
   );
 
@@ -92,22 +92,17 @@ export function AdmissionYearFilters({
           <div className='min-w-[160px]'>
             <Select
               value={
-                searchParams.program_start_year
-                  ? String(searchParams.program_start_year)
-                  : 'all'
+                searchParams.year ? String(searchParams.year) : 'all'
               }
               onValueChange={(value) =>
-                onFilterChange(
-                  'program_start_year',
-                  value === 'all' ? undefined : value
-                )
+                onFilterChange('year', value === 'all' ? undefined : value)
               }
             >
               <SelectTrigger>
-                <SelectValue placeholder='All Start Years' />
+                <SelectValue placeholder='All Years' />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
-                <SelectItem value='all'>All Start Years</SelectItem>
+                <SelectItem value='all'>All Years</SelectItem>
                 {yearOptions.map((y) => (
                   <SelectItem key={y} value={String(y)}>
                     {y}

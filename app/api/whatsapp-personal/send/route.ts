@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp-personal-message-service';
 import { personalSendMessageAPI } from '@/lib/whatsapp/personal-api-client';
+import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -30,6 +31,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
   }
 
+  // Gate on the RESOLVED connection's department: the 'any' fallback above can
+  // route a send through a department the caller never named. Without this a
+  // dept-scoped user could send from any connected department's WhatsApp.
+  const access = await checkByowDeptAccess(user.id, whatsappConnection.department_id);
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: 'You do not have access to this department’s WhatsApp connection' },
+      { status: byowAccessHttpStatus(access) }
+    );
+  }
+
   const logEntry = await WhatsAppPersonalMessageService.logMessage({
     department_id: whatsappConnection.department_id,
     connection_id: whatsappConnection.id,
@@ -48,8 +60,9 @@ export async function POST(request: NextRequest) {
   let result: { success: boolean; messageId?: string; error?: string };
   try {
     result = await personalSendMessageAPI(to, message, {
-      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      serviceUrl,
       apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      departmentId: clientId,
     });
   } catch (error) {
     result = { success: false, error: error instanceof Error ? error.message : 'Send failed' };

@@ -19,11 +19,12 @@ export class StudentSearchServiceOptimized {
   }
 
   static async getStudentForBilling(
-    studentId: string
+    studentId: string,
+    options: { includeNonBillable?: boolean } = {}
   ): Promise<StudentForBilling> {
     // Use the regular service implementation which is correct
     const { StudentSearchService } = await import('./student-search-service');
-    return StudentSearchService.getStudentForBilling(studentId);
+    return StudentSearchService.getStudentForBilling(studentId, options);
   }
 
   static async searchStudentsByQuery(
@@ -45,8 +46,11 @@ export class StudentSearchServiceOptimized {
         `Starting optimized billing summary for student: ${studentId}`
       );
 
-      // Step 1: Get student details (simple query)
-      const student = await this.getStudentForBilling(studentId);
+      // Step 1: Get student details (read-only summary — include
+      // non-billable learners so pre-rejection bills stay viewable)
+      const student = await this.getStudentForBilling(studentId, {
+        includeNonBillable: true
+      });
 
       // Step 2: Execute all complex queries in parallel instead of sequentially
       const [billsResult, receiptsResult, invoicesResult] =

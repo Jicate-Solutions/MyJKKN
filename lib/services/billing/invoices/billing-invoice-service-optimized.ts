@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   BillingInvoice,
   CreateInvoiceDto,

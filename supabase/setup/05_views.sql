@@ -286,7 +286,6 @@ SELECT
     student_mobile,
     student_email,
     accommodation_type,
-    hostel_type,
     reference_type,
     reference_name,
     reference_contact,
@@ -354,7 +353,6 @@ SELECT
     student_mobile,
     student_email,
     accommodation_type,
-    hostel_type,
     reference_type,
     reference_name,
     reference_contact,
@@ -770,12 +768,12 @@ WHERE al.first_touch_at >= (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::timestamp
   AND al.first_touch_at IS NOT NULL
   AND al.assigned_counselor_id IS NOT NULL
   AND p.is_active = TRUE
-  AND NOT EXISTS (
-    SELECT 1 FROM hr_leave_applications hla
-    WHERE hla.employee_id = p.id
-      AND hla.status = 'approved'
-      AND CURRENT_DATE BETWEEN hla.start_date AND hla.end_date
-  )
+  -- 2026-04-28: HLA clause removed — hr_leave_applications is referenced here and
+  -- in 02_functions.sql but is undefined anywhere in source (no CREATE TABLE).
+  -- Reinstate the subquery once the table is authored:
+  --   AND NOT EXISTS (SELECT 1 FROM hr_leave_applications hla
+  --                   WHERE hla.employee_id = p.id AND hla.status = 'approved'
+  --                   AND CURRENT_DATE BETWEEN hla.start_date AND hla.end_date)
 GROUP BY al.assigned_counselor_id, p.full_name, p.avatar_url, al.institution_id, i.name
 -- Updated: 2026-05-03 — min-volume threshold moved from hardcoded 5 into
 -- platform_policies.dashboard.leaderboard.sla_min_leads. Director can tune
@@ -858,65 +856,262 @@ ORDER BY pl.pending_leads DESC NULLS LAST, i.name;
 -- SECTION: HR MODULE COMPATIBILITY VIEWS (Added: 2026-04-24)
 -- ================================================================================
 
--- ─── hr_leave_types (Compat VIEW) ─────────────────────────────────────────
--- Created: 2026-04-15 during HR Sprint 3 unification (PR #182)
--- Purpose: Backwards-compatibility shim over `leave_types` (filtered to scope='staff')
---          after the separate `hr_leave_types` table was unified into the canonical
---          `leave_types` catalog.
+-- ─── hr_leave_types (was: Compat VIEW; now a real table) ──────────────────
+-- Created as a VIEW: 2026-04-15 during HR Sprint 3 unification (PR #182), as a
+-- backwards-compat shim over `leave_types` (filtered to scope='staff').
 --
--- ⚠️  LOAD-BEARING — DO NOT DROP WITHOUT REFACTOR. Audit 2026-04-24 confirmed:
---   • 5 production DB objects still consume this VIEW directly:
---       – hr_policy_history(text,uuid,text,text)           — reads via EXECUTE format + table allowlist
---       – hr_policy_diff(text,uuid,uuid)                   — reads via EXECUTE format + table allowlist
---       – hr_policy_restore(text,uuid,uuid)                — reads via EXECUTE format + table allowlist
---       – hr_trig_populate_total_days()                    — trg_hla_populate_total_days on hr_leave_applications
---       – hr_trig_recompute_on_holiday_change()            — trg_institution_leaves_recompute on institution_leaves
---   • 9 FK references in types/supabase.ts (auto-regenerated, harmless).
---   • Zero direct query callers in application code (.ts/.tsx/.sql) — only 1 comment reference
---     in features/hr/policies/registry.ts acknowledging the unification.
---   • No RLS security drift: the VIEW has no own policies and inherits the 4 policies
---     (SELECT/INSERT/UPDATE/DELETE) on base `leave_types`, which enforce super_admin
---     OR institution_id = auth.uid()'s institution_id.
+-- SPLIT BACK OUT: 20260721120000_hr_leave_types_split.sql promoted
+-- `hr_leave_types` from this VIEW into its own real table and moved the 66
+-- staff leave-type rows into it, deleting them from `leave_types`. The
+-- previous "LOAD-BEARING — DO NOT DROP" warning above is stale: there is no
+-- VIEW left here to drop, and application code (Task 3, 2026-07-21) has been
+-- repointed at the real table.
 --
--- To retire this VIEW in the future, rewrite the 5 DB objects above to read
--- `leave_types WHERE scope='staff'` directly AND update/rename the column aliases
--- the VIEW exposes (leave_type_name→name, leave_type_code→code).
+-- The table exposes leave_type_name / leave_type_code where the old VIEW
+-- aliased them to name / code.
 --
--- Row counts (verified 2026-04-24 on prod):
---   leave_types (total):     73 rows
---   leave_types scope=staff: 66 rows
---   hr_leave_types (view):   66 rows  ← matches scope=staff filter
+-- Three policy RPCs — hr_policy_history(text,uuid,text,text),
+-- hr_policy_diff(text,uuid,uuid), hr_policy_restore(text,uuid,uuid) — still
+-- carry the literal string 'hr_leave_types' in an EXECUTE format(...) table
+-- allowlist. Verified via pg_get_functiondef that all three are fully
+-- dynamic (EXECUTE format('... FROM %I t ...', p_table_name) / to_jsonb(t.*))
+-- and reference no hardcoded column name (no `name`, `code`, or
+-- `leave_type_name` anywhere in their bodies), so they operate correctly on
+-- the real table as-is — they would simply surface the real column names.
+-- No live path reaches them for this table anyway: features/hr/policies/
+-- registry.ts:48-53 removed 'hr_leave_types' from POLICY_TABLES on
+-- 2026-04-15, and nothing in features/hr/policies/ or lib/services/hr/
+-- policy-service.ts reads .name/.code off these RPCs' output.
+
+-- ================================================================================
+-- SECTION: CAMPUS LIVING VIEWS (Added: 2026-05-29)
+-- ================================================================================
+
+-- ─── v_learner_hostelites ─────────────────────────────────────────────────
+-- Extended 2026-05-29 (migration 20260529_extend_v_learner_hostelites_cascade.sql)
+-- for the Hostel Residents → Learners advanced DataTable: adds cascade FK columns
+-- (degree/department/program/semester/section/academic_year) for filter pushdown,
+-- plus program_name and the current block's name/code for display columns.
+-- LEFT JOINs only — no hostelite row may be dropped by a null FK or missing
+-- active allocation.
 --
--- Column aliasing: The VIEW renames leave_type_name → name and leave_type_code → code.
--- Columns deliberately omitted from the VIEW surface: institution_id, scope,
--- color_code, requires_approval (these exist on base `leave_types` but weren't part
--- of the original hr_leave_types schema the VIEW is emulating).
-CREATE OR REPLACE VIEW hr_leave_types AS
+-- Recreated 2026-06-05 (migration 20260605150020_admission_year_schema_ddl.sql):
+-- admission_years lost program_id / program_end_year and renamed
+-- program_start_year → year. The OUTPUT columns program_start_year and
+-- program_end_year are UNCHANGED for consumers — they are now DERIVED:
+-- program_start_year = ay.year, program_end_year = ay.year + pr.program_duration_yrs.
+--
+-- The applied migration uses DROP VIEW + CREATE VIEW (the new cascade FK columns
+-- are inserted before existing columns, and Postgres forbids reordering an
+-- existing view's columns via CREATE OR REPLACE — 42P16). This reference mirror
+-- preserves that form. The default anon/authenticated/service_role SELECT grants
+-- are re-applied below to match Supabase's defaults.
+--
+-- Lifecycle filter (migrations 20260608130000 -> 20260608150000, revised
+-- 2026-06-08): residents = hostel AND lifecycle_status = 'active' ONLY. All
+-- non-active statuses (reserved/admitted/account/enquiry_submitted/graduated/
+-- inactive/rejected) are excluded from the Residents list AND the Generate-bills
+-- surface. lifecycle_status column exposed by migration 20260608140000.
+--
+-- academic_year_name appended 2026-06-09 (migration
+-- 20260609120000_add_academic_year_name_to_v_learner_hostelites.sql) as the LAST
+-- column for the Learners table's Academic Year display column — LEFT JOIN to
+-- academic_years (alias 'acy'; 'ay' is admission_years). Mirror kept as
+-- DROP+CREATE; the live migration uses CREATE OR REPLACE since the new column is
+-- appended at the end.
+DROP VIEW IF EXISTS public.v_learner_hostelites;
+
+CREATE VIEW public.v_learner_hostelites AS
+ SELECT lp.id, lp.first_name, lp.last_name, lp.roll_number, lp.student_email, lp.college_email,
+    lp.gender, lp.institution_id, acc.code AS accommodation_type, lp.hostel_fee, lp.dayscholar_fee,
+    lp.father_name, lp.mother_name, lp.admission_year_id, lp.degree_id, lp.department_id,
+    lp.program_id, lp.semester_id, lp.section_id, lp.academic_year_id, pr.program_name,
+    ay.year AS program_start_year,
+    (ay.year::numeric + pr.program_duration_yrs)::integer AS program_end_year,
+    CASE
+        WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - ay.year + 1, pr.program_duration_yrs::integer + 1))
+        WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM b.start_date)::integer + 1, EXTRACT(year FROM b.end_date)::integer - EXTRACT(year FROM b.start_date)::integer + 1))
+        WHEN lp.enquiry_date IS NOT NULL THEN GREATEST(1, EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM lp.enquiry_date)::integer + 1)
+        ELSE NULL::integer
+    END AS year_of_study,
+    ha.block_id AS current_block_id, ha.room_id AS current_room_id, ha.bed_id AS current_bed_id,
+    ha.id AS current_allocation_id, hb.name AS current_block_name, hb.code AS current_block_code,
+    hr.room_number AS current_room_number,
+    hbd.bed_number  AS current_bed_number,
+    CASE
+        WHEN lp.admission_year_id IS NOT NULL AND ay.year IS NOT NULL THEN 'admission_year'::text
+        WHEN lp.batch_id IS NOT NULL AND b.start_date IS NOT NULL THEN 'batch'::text
+        WHEN lp.enquiry_date IS NOT NULL THEN 'enquiry'::text
+        ELSE NULL::text
+    END AS year_source,
+    dg.degree_name, sm.semester_name, lp.lifecycle_status, acy.academic_year_name,
+    -- Current room/mess categories (admin Category Upgrade tab —
+    -- migration 20260617110000_v_learner_hostelites_add_categories.sql)
+    lp.hostel_category_id, hc.name AS hostel_category_name, hc.type AS hostel_category_type,
+    lp.mess_category_id, mc.name AS mess_category_name
+   FROM learners_profiles lp
+     LEFT JOIN accommodation_types acc ON acc.id = lp.accommodation_type_id
+     LEFT JOIN admission_years ay ON ay.id = lp.admission_year_id
+     LEFT JOIN batches b ON b.id = lp.batch_id
+     LEFT JOIN programs pr ON pr.id = lp.program_id
+     -- Bridge: hostel_allocations.learner_id is an FK to profiles.id, NOT
+     -- learners_profiles.id. profiles.learner_id = learners_profiles.id is 1:1.
+     -- (migration 20260609140000_fix_v_learner_hostelites_alloc_profiles_bridge.sql)
+     LEFT JOIN profiles palloc ON palloc.learner_id = lp.id
+     LEFT JOIN hostel_allocations ha ON ha.learner_id = palloc.id AND ha.status = 'active'::allocation_status_enum
+     LEFT JOIN hostel_blocks hb ON hb.id = ha.block_id
+     LEFT JOIN hostel_rooms hr ON hr.id = ha.room_id
+     LEFT JOIN hostel_beds  hbd ON hbd.id = ha.bed_id
+     LEFT JOIN degrees dg ON dg.id = lp.degree_id
+     LEFT JOIN semesters sm ON sm.id = lp.semester_id
+     LEFT JOIN academic_years acy ON acy.id = lp.academic_year_id
+     LEFT JOIN hostel_categories hc ON hc.id = lp.hostel_category_id
+     LEFT JOIN mess_categories mc ON mc.id = lp.mess_category_id
+  WHERE acc.code = 'hostel'::text AND lp.lifecycle_status::text = 'active'::text;
+
+GRANT ALL ON public.v_learner_hostelites TO anon, authenticated, service_role;
+
+-- ─── v_learner_hostelites_scoped ──────────────────────────────────────────
+-- Added 2026-06-24 (migration 20260624104223_scope_learner_hostelites_view_idor_fix.sql).
+-- Security wrapper over v_learner_hostelites (which bypasses RLS). The client
+-- list path (LearnerHosteliteService.listHostelites) MUST read this view, not
+-- the base view, so block-scoped wardens cannot tamper a client `block_ids`
+-- filter to read every hostelite. Scope is re-derived from auth.uid():
+--   super admin → all; warden (has user_block_access grants) → their granted
+--   blocks only (cross-institution, excludes unassigned); else → accessible
+--   institutions. security_barrier prevents predicate-pushdown leaks.
+CREATE OR REPLACE VIEW public.v_learner_hostelites_scoped
+WITH (security_barrier = true) AS
+SELECT v.*
+FROM public.v_learner_hostelites v
+WHERE
+  is_super_admin()
+  OR (
+    CASE
+      WHEN EXISTS (
+        SELECT 1 FROM public.user_block_access uba
+        WHERE uba.user_id = auth.uid()
+          AND uba.revoked_at IS NULL
+      )
+      THEN v.current_block_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1 FROM public.user_block_access uba
+             WHERE uba.user_id = auth.uid()
+               AND uba.revoked_at IS NULL
+               AND uba.block_id = v.current_block_id
+           )
+      ELSE role_has_institution_access(v.institution_id)
+    END
+  );
+
+REVOKE ALL ON public.v_learner_hostelites_scoped FROM anon;
+GRANT SELECT ON public.v_learner_hostelites_scoped TO authenticated;
+
+-- =============================================================================
+-- IMS Department Stock — added 2026-04-28
+-- Purpose: power /ims/stock/department page (replaces hardcoded placeholders).
+-- Source tables: ims_stock_issues (issued events) + ims_department_consumption
+-- (consumed events). RLS is inherited from those base tables via
+-- security_invoker = true; do not add separate policies on the view.
+-- =============================================================================
+
+-- Per-(department, item) aggregated balance.
+-- Used by: useImsDepartmentStock (table) and useImsDepartmentSummaries (cards).
+CREATE OR REPLACE VIEW ims_department_stock_summary
+WITH (security_invoker = true) AS
+WITH issued AS (
+    SELECT
+        si.department_id,
+        si.item_id,
+        si.store_id,
+        si.institution_id,
+        SUM(si.quantity)::numeric AS total_issued
+    FROM ims_stock_issues si
+    GROUP BY si.department_id, si.item_id, si.store_id, si.institution_id
+),
+consumed AS (
+    SELECT
+        dc.department_id,
+        dc.item_id,
+        dc.store_id,
+        dc.institution_id,
+        SUM(dc.quantity)::numeric AS total_consumed,
+        SUM(dc.value)::numeric    AS total_value
+    FROM ims_department_consumption dc
+    GROUP BY dc.department_id, dc.item_id, dc.store_id, dc.institution_id
+)
 SELECT
-    leave_types.id,
-    leave_types.hr_organization_id,
-    leave_types.leave_type_name AS name,
-    leave_types.leave_type_code AS code,
-    leave_types.description,
-    leave_types.is_paid,
-    leave_types.is_active,
-    leave_types.display_order,
-    leave_types.valid_from,
-    leave_types.valid_until,
-    leave_types.superseded_by,
-    leave_types.created_at,
-    leave_types.updated_at,
-    leave_types.created_by,
-    leave_types.updated_by,
-    leave_types.skip_weekends,
-    leave_types.skip_holidays,
-    leave_types.requires_documents,
-    leave_types.document_required_after_days,
-    leave_types.min_advance_notice_days,
-    leave_types.max_continuous_days,
-    leave_types.default_entitled_days,
-    leave_types.allow_half_day,
-    leave_types.allow_hourly,
-    leave_types.duration_type
-FROM leave_types
-WHERE (leave_types.scope)::text = 'staff'::text;
+    COALESCE(i.department_id,  c.department_id)  AS department_id,
+    COALESCE(i.item_id,        c.item_id)        AS item_id,
+    COALESCE(i.store_id,       c.store_id)       AS store_id,
+    COALESCE(i.institution_id, c.institution_id) AS institution_id,
+    d.department_name,
+    it.name        AS item_name,
+    it.cost_price  AS item_cost_price,
+    COALESCE(i.total_issued,    0) AS total_issued,
+    COALESCE(c.total_consumed,  0) AS total_consumed,
+    COALESCE(c.total_value,     0) AS total_value,
+    (COALESCE(i.total_issued, 0) - COALESCE(c.total_consumed, 0)) AS balance
+FROM issued i
+FULL OUTER JOIN consumed c
+    ON  i.department_id = c.department_id
+    AND i.item_id       = c.item_id
+    AND COALESCE(i.store_id::text,       '') = COALESCE(c.store_id::text,       '')
+    AND COALESCE(i.institution_id::text, '') = COALESCE(c.institution_id::text, '')
+LEFT JOIN departments d ON d.id = COALESCE(i.department_id, c.department_id)
+LEFT JOIN ims_items   it ON it.id = COALESCE(i.item_id, c.item_id);
+
+-- Chronological event stream for one (department, item) pair.
+-- Used by: useImsDepartmentItemMovements (history dialog).
+-- 'received' rows come from issues; 'consumed' rows come from consumption.
+-- 'returned' is intentionally omitted — no source table exists yet.
+CREATE OR REPLACE VIEW ims_department_item_movements
+WITH (security_invoker = true) AS
+SELECT
+    si.id,
+    'received'::text   AS type,
+    si.quantity,
+    si.notes,
+    si.created_at,
+    si.issued_by       AS created_by_id,
+    si.department_id,
+    si.item_id,
+    si.store_id,
+    si.institution_id
+FROM ims_stock_issues si
+UNION ALL
+SELECT
+    dc.id,
+    'consumed'::text   AS type,
+    dc.quantity,
+    NULL::text         AS notes,
+    dc.created_at,
+    NULL::uuid         AS created_by_id,
+    dc.department_id,
+    dc.item_id,
+    dc.store_id,
+    dc.institution_id
+FROM ims_department_consumption dc;
+
+-- ── Cohort Core — M7.4 alumni→mentor pool (Phase 7 · THE MOAT) ───────────────
+-- Migration: 20260731095000_cohort_alumni_mentor.sql (2026-07-06)
+CREATE OR REPLACE VIEW public.v_cohort_alumni_mentor_pool
+WITH (security_invoker = true) AS
+SELECT
+  m.id                                   AS membership_id,
+  m.cohort_id                            AS source_cohort_id,
+  c.kind                                 AS kind,
+  c.name                                 AS source_cohort_name,
+  c.institution_id                       AS institution_id,
+  c.academic_year                        AS academic_year,
+  m.member_type                          AS member_type,
+  m.member_ref                           AS member_ref,
+  (m.member_type IN ('student','learner','staff')) AS is_person,
+  m.updated_at                           AS graduated_at,
+  -- the captured outcome (if any) so a strong graduate can be prioritised.
+  o.outcome_snapshot->>'blended_outcome' AS blended_outcome,
+  o.outcome_snapshot->>'lift'            AS lift
+FROM public.cohort_memberships m
+JOIN public.cohorts c            ON c.id = m.cohort_id
+LEFT JOIN public.cohort_outcomes o ON o.membership_id = m.id
+WHERE m.status = 'graduated';

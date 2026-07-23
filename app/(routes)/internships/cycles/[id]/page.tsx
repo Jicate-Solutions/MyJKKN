@@ -58,6 +58,8 @@ import { useCycle, useUpdateCycle } from '@/hooks/internships/useCycles';
 import type { CycleStatus, InternshipCycle } from '@/lib/services/internships/types';
 import { CycleStatusBadge } from '../_components/cycle-status-badge';
 import { CollegeSelect, useCollegeNameMap } from '../_components/college-select';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { NoAccessAlert } from '../../_components/no-access-alert';
 
 type LifecycleAction = 'submit_approval' | 'approve' | 'cancel' | null;
 
@@ -133,6 +135,14 @@ function formatTimestamp(iso: string | null | undefined): string {
 }
 
 export default function CycleDetailPage() {
+  return (
+    <PermissionGuard module="internship.cycles" action="view" fallback={<NoAccessAlert />}>
+      <CycleDetailPageInner />
+    </PermissionGuard>
+  );
+}
+
+function CycleDetailPageInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id;

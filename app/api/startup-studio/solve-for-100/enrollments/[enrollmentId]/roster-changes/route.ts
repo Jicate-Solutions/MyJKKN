@@ -19,14 +19,23 @@ export const POST = withAuth(async (request, auth, context) => {
     return errorResponse('email is required', 400)
   }
 
-  const result = await SF100Service.requestRosterChange(enrollmentId, {
-    action: body.action,
-    email: body.email,
-    full_name: body.full_name,
-    reason: body.reason,
-    profile_id: body.profile_id,
-    learner_id: body.learner_id,
-  }, auth.user.id)
+  try {
+    const result = await SF100Service.requestRosterChange(enrollmentId, {
+      action: body.action,
+      email: body.email,
+      full_name: body.full_name,
+      reason: body.reason,
+      profile_id: body.profile_id,
+      learner_id: body.learner_id,
+    }, auth.user.id)
 
-  return createdResponse(result)
+    return createdResponse(result)
+  } catch (err) {
+    // D9 — an unresolvable (free-text-only) member is a client error, not a 500.
+    const status = (err as { status?: number })?.status
+    if (status === 400) {
+      return errorResponse((err as Error).message, 400)
+    }
+    throw err
+  }
 })

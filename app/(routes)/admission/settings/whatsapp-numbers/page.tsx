@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -48,6 +48,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Phone,
   Plus,
@@ -525,12 +526,23 @@ function SyncFromMetaButton({ institutionId, onDone }: { institutionId: string; 
 // Page Content
 // =============================================================================
 
+const WHATSAPP_NUMBERS_TABS = [
+  'business',
+  'personal',
+  'templates',
+  'template-manager',
+  'analytics',
+  'health',
+  'auto-triggers'
+] as const;
+
 function WhatsAppNumbersContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const isSuperAdmin = profile?.role === 'super_admin' || profile?.is_super_admin === true;
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useTabParam('business', WHATSAPP_NUMBERS_TABS);
   const [deleteTarget, setDeleteTarget] = useState<WAPhoneNumber | null>(null);
   const [selectedNumber, setSelectedNumber] = useState<WAPhoneNumber | null>(null);
 
@@ -621,7 +633,7 @@ function WhatsAppNumbersContent() {
             </div>
           </div>
 
-          <Tabs defaultValue="business" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList>
               <TabsTrigger value="business">Business Numbers</TabsTrigger>
               <TabsTrigger value="personal">Personal WhatsApp</TabsTrigger>
@@ -885,7 +897,11 @@ function WhatsAppNumbersContent() {
 }
 
 export default function WhatsAppNumbersPage() {
-  return <WhatsAppNumbersContent />;
+  return (
+    <Suspense fallback={null}>
+      <WhatsAppNumbersContent />
+    </Suspense>
+  );
 }
 
 // ----------------------------------------------------------------------------

@@ -808,6 +808,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
   };
 
   const handleSaveSettings = async () => {
+    if (updateForm.isPending) return;
     if (!localFormState) {
       toast.error('Form not loaded yet');
       return;
@@ -835,6 +836,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
   };
 
   const handlePublish = async () => {
+    if (updateForm.isPending) return;
     try {
       if (localFormState) {
         await updateForm.mutateAsync({
@@ -923,16 +925,25 @@ function FormBuilderContent({ formId }: { formId: string }) {
               <Link2 className="h-4 w-4 mr-2" />
               Copy Link
             </Button>
-            <Button variant="outline" size="sm" onClick={handleSaveSettings}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSaveSettings}
+              disabled={updateForm.isPending}
+            >
               <Save className="h-4 w-4 mr-2" />
-              Save Draft
+              {updateForm.isPending ? 'Saving…' : 'Save Draft'}
             </Button>
             {form.status === 'published' ? (
               <Badge className="bg-green-100 text-green-700 px-3 py-1.5">Published</Badge>
             ) : (
-              <Button size="sm" onClick={handlePublish}>
+              <Button
+                size="sm"
+                onClick={handlePublish}
+                disabled={updateForm.isPending}
+              >
                 <Send className="h-4 w-4 mr-2" />
-                Publish
+                {updateForm.isPending ? 'Publishing…' : 'Publish'}
               </Button>
             )}
           </div>
@@ -1137,7 +1148,7 @@ export default function FormBuilderPage({ params }: { params: Promise<{ id: stri
   const { id } = usePromise(params);
   return (
     <AdmissionErrorBoundary>
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission.settings.forms" action="view">
         <FormBuilderContent formId={id} />
       </PermissionGuard>
     </AdmissionErrorBoundary>

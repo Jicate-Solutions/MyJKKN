@@ -115,6 +115,9 @@ export function ResidentFormDialog({
   }, [open, mode, resident]);
 
   const isPending = createMut.isPending || updateMut.isPending;
+  // hostel-rooms-v2 PR 2 (2026-05-26): hostel_residents.institution_id dropped.
+  // institutionId variable kept for permission gating around the dialog (some
+  // wardens are scoped) but no longer included in the payload.
   const institutionId = profile?.institution_id ?? '';
   const canSubmit = !!profileId && !!residentType && !!institutionId && !isPending;
 
@@ -124,7 +127,6 @@ export function ResidentFormDialog({
 
     if (mode === 'create') {
       await createMut.mutateAsync({
-        institution_id: institutionId,
         profile_id: profileId,
         resident_type: residentType,
         id_proof_type: idProofType || null,

@@ -22,11 +22,15 @@ import {
   ThumbsDown,
   Loader2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useMessFeedback } from '@/hooks/campus-living/use-mess-feedback';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function MessFeedbackPage() {
+const MESS_FEEDBACK_TABS = ['all', 'complaints'] as const;
+
+function MessFeedbackPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('all', MESS_FEEDBACK_TABS);
   const [mealFilter, setMealFilter] = useState('all');
 
   const { profile } = useAuth();
@@ -185,7 +189,7 @@ export default function MessFeedbackPage() {
         </Card>
 
         {/* Tabs for feedback/complaints */}
-        <Tabs defaultValue="all">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="all">
               All Feedback ({recentFeedback.length})
@@ -272,5 +276,14 @@ export default function MessFeedbackPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function MessFeedbackPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MessFeedbackPageInner />
+    </Suspense>
   );
 }

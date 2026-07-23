@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { PracticalConfig, PracticalConflictCheck } from '@/types/academics';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface PracticalAttendanceSelectorProps {
   practicalConfig: PracticalConfig;
@@ -65,6 +66,7 @@ export function PracticalAttendanceSelector({
   onSelectionComplete,
   onConflictCheck
 }: PracticalAttendanceSelectorProps) {
+  const label = useAdaptiveLabels();
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [conflictCheck, setConflictCheck] = useState<{
     checking: boolean;
@@ -322,7 +324,7 @@ export function PracticalAttendanceSelector({
                   <div className='bg-white dark:bg-gray-800 rounded-lg border p-3 space-y-2'>
                     <div className='flex items-center gap-2'>
                       <BookOpen className='h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0' />
-                      <span className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>Course</span>
+                      <span className='text-xs font-medium text-muted-foreground uppercase tracking-wide'>{label('Course')}</span>
                     </div>
                     <div className='pl-6'>
                       <p className='font-semibold text-sm'>

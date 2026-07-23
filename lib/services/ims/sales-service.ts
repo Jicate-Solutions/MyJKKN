@@ -153,7 +153,7 @@ export class ImsSalesService {
       let query = this.supabase
         .from('ims_items')
         .select(
-          `id, name, code, selling_price, cost_price,
+          `id, name, code, selling_price, cost_price, image_url,
            base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
            category:ims_item_categories(name),
            stock:ims_stock_summary(available_quantity)`
@@ -181,6 +181,7 @@ export class ImsSalesService {
         available_quantity: item.stock?.[0]?.available_quantity || item.stock?.available_quantity || 0,
         unit_abbreviation: item.base_unit?.abbreviation || '',
         category_name: item.category?.name || '',
+        image_url: item.image_url || null,
       })) as ImsSellableItem[];
     } catch (error) {
       console.error('[ImsSalesService] Error in getSellableItems:', error);
@@ -405,6 +406,32 @@ export class ImsSalesService {
       });
       if (finError) {
         console.error('[ImsSalesService] Financial transaction insert failed:', finError);
+      }
+
+      // Back-link the UPI QR payment row to this sale (completes skill step 6).
+      // At QR-generation time the payment row was created with sale_id = NULL,
+      // because the sale did not exist yet. Now that we have `sale.id`, stamp it
+      // onto ims_upi_qr_payments so the audit trail is two-way:
+      //   sale.upi_qr_transaction_ref  ->  ims_upi_qr_payments.transaction_ref (forward, already works)
+      //   ims_upi_qr_payments.sale_id  ->  ims_sales.id                        (reverse, this block)
+      //
+      // Design constraints (already verified):
+      //  - Guard on `data.upi_qr_transaction_ref` (truthy), NOT payment_method ===
+      //    'upi_qr', so a 'mixed' cash+UPI sale still links its UPI row.
+      //  - Match the payment row by `transaction_ref === data.upi_qr_transaction_ref`.
+      //  - RLS allows this client-side UPDATE (policy is TO authenticated USING (true)).
+      //  - NON-FATAL: a completed sale + stock deduction must never be lost over a
+      //    missing audit pointer. Mirror the financial-transaction pattern above —
+      //    log the error and continue; do NOT throw. Also set updated_at.
+      //
+      if (data.upi_qr_transaction_ref) {
+        const { error: linkError } = await this.supabase
+          .from('ims_upi_qr_payments')
+          .update({ sale_id: sale.id, updated_at: new Date().toISOString() })
+          .eq('transaction_ref', data.upi_qr_transaction_ref);
+        if (linkError) {
+          console.error('[ImsSalesService] UPI QR sale_id back-link failed:', linkError);
+        }
       }
 
       // Phase F: log to activity trail (POS audit)

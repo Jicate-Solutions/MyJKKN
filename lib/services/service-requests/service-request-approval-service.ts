@@ -111,40 +111,21 @@ export class ServiceRequestApprovalService {
       }
     }
 
-    // Find or create the approval record for this step
-    const { data: existingApproval } = await supabase
-      .from('service_request_approvals')
-      .select('*')
-      .eq('service_request_id', requestId)
-      .eq('step_order', currentStep.step_order)
-      .eq('action', 'pending')
-      .maybeSingle();
-
-    const approvalId = existingApproval?.id;
-
-    if (approvalId) {
-      // Update existing approval record
-      await supabase
-        .from('service_request_approvals')
-        .update({
-          approver_id: approverId,
-          action: dto.action,
-          comments: dto.comments || null,
-          acted_at: new Date().toISOString(),
-        })
-        .eq('id', approvalId);
-    } else {
-      // Create new approval record
-      await supabase.from('service_request_approvals').insert({
-        service_request_id: requestId,
-        approval_step_id: currentStep.id,
-        step_order: currentStep.step_order,
-        approver_id: approverId,
-        action: dto.action,
-        comments: dto.comments || null,
-        acted_at: new Date().toISOString(),
-      });
-    }
+    // Always INSERT the action row. We used to look up a placeholder pending
+    // row first and UPDATE it, but RLS on service_request_approvals hides
+    // those placeholders from the actual approver — the lookup silently
+    // returned null and the INSERT branch fired anyway, leaving the orphan
+    // placeholder behind. With placeholder creation removed (see service-
+    // request-service.ts), the approvals table is now strictly an action log.
+    await supabase.from('service_request_approvals').insert({
+      service_request_id: requestId,
+      approval_step_id: currentStep.id,
+      step_order: currentStep.step_order,
+      approver_id: approverId,
+      action: dto.action,
+      comments: dto.comments || null,
+      acted_at: new Date().toISOString(),
+    });
 
     // Process the action
     if (dto.action === 'approved') {
@@ -217,10 +198,26 @@ export class ServiceRequestApprovalService {
           console.error('[service-requests/approvals] Webhook notification failed:', err)
         );
       }
+
+      // Bus Pass Request: write the approved route/stop onto the learner's
+      // profile so the TMS app can read who needs a bus. Privileged cross-table
+      // write → SECURITY DEFINER RPC. Failure is logged, not thrown: the
+      // approval status change already committed above.
+      if (request.service_type?.slug === 'transport-request') {
+        const { error: busPassSyncError } = await supabase.rpc(
+          'sync_bus_pass_to_learner_profile',
+          { p_request_id: request.id }
+        );
+        if (busPassSyncError) {
+          console.error(
+            '[service-requests/approvals] Bus-pass profile sync failed:',
+            busPassSyncError
+          );
+        }
+      }
     } else {
       // Advance to next step
       const nextStepOrder = currentStep.step_order + 1;
-      const nextStep = approvalSteps.find((s: any) => s.step_order === nextStepOrder);
 
       await supabase
         .from('service_requests')
@@ -231,16 +228,11 @@ export class ServiceRequestApprovalService {
         })
         .eq('id', request.id);
 
-      // Create next pending approval record
-      if (nextStep) {
-        await supabase.from('service_request_approvals').insert({
-          service_request_id: request.id,
-          approval_step_id: nextStep.id,
-          step_order: nextStep.step_order,
-          approver_id: approverId, // Placeholder
-          action: 'pending',
-        });
-      }
+      // Pending state for the next step is represented by service_requests
+      // (status='in_review', current_approval_step=N). We no longer insert a
+      // placeholder pending row in service_request_approvals — RLS hid it from
+      // the next approver and caused duplicate-action-row bugs (see comment
+      // above the INSERT in processApproval).
 
       await ServiceRequestTimelineService.addStatusChange(
         request.id,
@@ -313,12 +305,63 @@ export class ServiceRequestApprovalService {
   }
 
   /**
+   * Build the PostgREST `.or()` filter selecting the service_requests a user
+   * may approve, split into two scopes:
+   *
+   *   • Role-matched steps (approver_role === userRole): institution-scoped
+   *     when institutionId is provided — preserves multi-tenant isolation for
+   *     the broad role-based path.
+   *   • Named-approver steps (userId ∈ approver_user_ids): NOT institution-
+   *     scoped, so a user explicitly chosen as approver sees the request even
+   *     when it originates in a different institution (cross-institution
+   *     approval — mirrors the RLS named-approver policies).
+   *
+   * Returns an `or=(...)` body string, or null when neither scope matched.
+   * Keeps the coarse (service_type_id × current_approval_step) matching the
+   * callers already used: a request matches a scope if its type AND its current
+   * step both appear in that scope's step set.
+   */
+  private static buildApproverScopeFilter(
+    matchingSteps: any[],
+    userRole: string,
+    userId: string,
+    institutionId?: string
+  ): string | null {
+    const roleSteps = matchingSteps.filter((s) => s.approver_role === userRole);
+    const namedSteps = matchingSteps.filter(
+      (s) => Array.isArray(s.approver_user_ids) && s.approver_user_ids.includes(userId)
+    );
+
+    const group = (steps: any[], scoped: boolean): string | null => {
+      if (steps.length === 0) return null;
+      const typeIds = [...new Set(steps.map((s) => s.service_type_id))];
+      const stepOrders = [...new Set(steps.map((s) => s.step_order))];
+      const parts = [
+        `service_type_id.in.(${typeIds.join(',')})`,
+        `current_approval_step.in.(${stepOrders.join(',')})`,
+      ];
+      if (scoped && institutionId) {
+        parts.push(`institution_id.eq.${institutionId}`);
+      }
+      return `and(${parts.join(',')})`;
+    };
+
+    const groups = [group(roleSteps, true), group(namedSteps, false)].filter(
+      (g): g is string => g !== null
+    );
+    return groups.length > 0 ? groups.join(',') : null;
+  }
+
+  /**
    * Get requests pending approval for a user.
    *
    * A step is considered "assigned to this user" if EITHER:
    *   • the step's approver_role matches the user's role, OR
    *   • the user's id is in the step's approver_user_ids array (multi-approver
    *     mode — a specific subset of named approvers).
+   *
+   * Named-approver matches are NOT institution-scoped (cross-institution
+   * approval); role matches stay scoped to filters.institution_id.
    */
   static async getPendingApprovalsForUser(
     userRole: string,
@@ -332,11 +375,11 @@ export class ServiceRequestApprovalService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // Union of role-matched and explicit-user-id-matched steps.
-    // Supabase/PostgREST: `contains` on an array column uses the @> operator.
+    // Steps this user could act on — role match OR explicit user-id match.
+    // PostgREST: `cs` (contains) on an array column uses the @> operator.
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
-      .select('step_order, service_type_id')
+      .select('step_order, service_type_id, approver_role, approver_user_ids')
       .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) {
@@ -346,10 +389,17 @@ export class ServiceRequestApprovalService {
       };
     }
 
-    const serviceTypeIds = [...new Set(matchingSteps.map((s: any) => s.service_type_id))];
-    const stepOrders = [...new Set(matchingSteps.map((s: any) => s.step_order))];
+    const orFilter = this.buildApproverScopeFilter(
+      matchingSteps,
+      userRole,
+      userId,
+      filters?.institution_id
+    );
+    if (!orFilter) {
+      return { data: [], metadata: { total: 0, page, limit, totalPages: 0 } };
+    }
 
-    let query = supabase
+    const { data, error, count } = await supabase
       .from('service_requests')
       .select(
         `*,
@@ -359,18 +409,9 @@ export class ServiceRequestApprovalService {
         { count: 'exact' }
       )
       .in('status', ['submitted', 'in_review'])
-      .in('service_type_id', serviceTypeIds)
-      .in('current_approval_step', stepOrders);
-
-    if (filters?.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
-    }
-
-    query = query
+      .or(orFilter)
       .order('created_at', { ascending: false })
       .range(from, to);
-
-    const { data, error, count } = await query;
 
     if (error) {
       console.error('[service-requests/approvals] Failed to fetch pending approvals:', error);
@@ -392,29 +433,38 @@ export class ServiceRequestApprovalService {
    * Get count of pending approvals for badge display.
    * Matches on role OR explicit user-id assignment (see
    * getPendingApprovalsForUser for the full rationale).
+   *
+   * Optional institutionId pins the count to a single institution; callers
+   * pass profile.institution_id for non-super-admins so the badge agrees
+   * with the inbox list.
    */
   static async getPendingApprovalCount(
     userRole: string,
-    userId: string
+    userId: string,
+    institutionId?: string
   ): Promise<number> {
     const supabase = await getSupabase();
 
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
-      .select('step_order, service_type_id')
+      .select('step_order, service_type_id, approver_role, approver_user_ids')
       .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) return 0;
 
-    const serviceTypeIds = [...new Set(matchingSteps.map((s: any) => s.service_type_id))];
-    const stepOrders = [...new Set(matchingSteps.map((s: any) => s.step_order))];
+    const orFilter = this.buildApproverScopeFilter(
+      matchingSteps,
+      userRole,
+      userId,
+      institutionId
+    );
+    if (!orFilter) return 0;
 
     const { count, error } = await supabase
       .from('service_requests')
       .select('*', { count: 'exact', head: true })
       .in('status', ['submitted', 'in_review'])
-      .in('service_type_id', serviceTypeIds)
-      .in('current_approval_step', stepOrders);
+      .or(orFilter);
 
     if (error) {
       console.error('[service-requests/approvals] Failed to count pending:', error);

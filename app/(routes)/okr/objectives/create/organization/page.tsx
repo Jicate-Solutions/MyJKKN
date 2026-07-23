@@ -27,7 +27,8 @@
  * 11. Contingency - Plan B if things go off-track
  */
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -232,13 +233,15 @@ const getDefaultValues = (): OrganizationOKRFormValues => {
 // MAIN COMPONENT
 // ============================================================================
 
-export default function OrganizationOKRCreatePage() {
+const ORGANIZATION_OKR_TABS = ['section1', 'section2', 'section3', 'section4', 'section5', 'section6'] as const;
+
+function OrganizationOKRCreatePageInner() {
   const router = useRouter();
   const { profile } = useAuth();
   const createObjective = useCreateObjective();
   const createKeyResult = useCreateKeyResult();
 
-  const [activeTab, setActiveTab] = useState('section1');
+  const [activeTab, setActiveTab] = useTabParam('section1', ORGANIZATION_OKR_TABS);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
 
@@ -480,7 +483,7 @@ export default function OrganizationOKRCreatePage() {
                 {/* Navigation - 6 Tabs like tier1 */}
                 <Card>
                   <CardContent className="pt-6">
-                    <TabsList className="grid w-full grid-cols-6 h-auto">
+                    <TabsList className="flex w-full justify-start gap-1 overflow-x-auto h-auto sm:grid sm:grid-cols-6 sm:gap-0 sm:overflow-visible">
                       <TabsTrigger value="section1" className="flex-col gap-1 py-2">
                         <Target className="h-4 w-4" />
                         <span className="text-xs">Basic & Context</span>
@@ -685,7 +688,7 @@ export default function OrganizationOKRCreatePage() {
                             <FormLabel>Group-wide Impact</FormLabel>
                             <FormControl>
                               <Textarea
-                                placeholder="How will this impact each of the 9 institutions? Who benefits - Learners, Learning Senior Learners, staff, community?"
+                                placeholder="How will this impact each of the 9 institutions? Who benefits - Learners, Learning Facilitators, staff, community?"
                                 rows={3}
                                 {...field}
                               />
@@ -1791,5 +1794,14 @@ export default function OrganizationOKRCreatePage() {
         </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function OrganizationOKRCreatePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <OrganizationOKRCreatePageInner />
+    </Suspense>
   );
 }

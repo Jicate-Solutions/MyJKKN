@@ -5,6 +5,7 @@ import { getPageRegistry } from '@/lib/navigation/page-registry';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import type { PageEntry } from '@/lib/navigation/types';
 
 interface RestrictedPageResult {
@@ -56,6 +57,7 @@ export function RestrictedPageItem({
   page: PageEntry;
   permission: string;
 }) {
+  const adapt = useAdaptiveLabels();
   // Format permission for display: 'billing.invoices.view' → 'billing invoices view'
   const permissionLabel = permission.replace(/[._]/g, ' ');
 
@@ -70,7 +72,7 @@ export function RestrictedPageItem({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground truncate">{page.title}</span>
+          <span className="text-sm text-muted-foreground truncate">{adapt(page.title)}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground/50 shrink-0">
             {page.module}
           </span>

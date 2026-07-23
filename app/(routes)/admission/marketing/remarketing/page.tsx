@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   useRemarketingRules,
   useAdAccountStatus,
@@ -51,10 +52,12 @@ const SYNC_STATUS_STYLES: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
 };
 
+const REMARKETING_TABS = ['rules', 'history'] as const;
+
 function RemarketingPageContent() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
-  const [activeTab, setActiveTab] = useState('rules');
+  const [activeTab, setActiveTab] = useTabParam('rules', REMARKETING_TABS);
   const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>();
 
   const { rules, isLoading: rulesLoading, refetch } = useRemarketingRules({
@@ -352,7 +355,9 @@ function RemarketingPageContent() {
 export default function RemarketingPage() {
   return (
     <AdmissionErrorBoundary>
-      <RemarketingPageContent />
+      <Suspense fallback={null}>
+        <RemarketingPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

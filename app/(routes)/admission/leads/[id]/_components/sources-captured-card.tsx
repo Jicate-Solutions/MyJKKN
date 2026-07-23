@@ -8,10 +8,11 @@
 // RPC on every capture event.
 // ════════════════════════════════════════════════════════════════════════════
 
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Layers, Clock } from 'lucide-react';
+import { Layers, Clock, Megaphone, Globe2 } from 'lucide-react';
 import { useSourceCaptures } from '@/hooks/admission/use-source-captures';
 import { SourceBadge } from '../../_components/source-badge';
 
@@ -113,6 +114,27 @@ export function SourcesCapturedCard({ leadId }: SourcesCapturedCardProps) {
                         First touch
                       </Badge>
                     )}
+                    {/* Campaign attribution badge — surfaces when the
+                        capture was made through a /c/{token} share link */}
+                    {cap.campaign_link?.campaign && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0 h-4 font-normal bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900"
+                      >
+                        <Megaphone className="mr-1 h-2.5 w-2.5" />
+                        Campaign
+                      </Badge>
+                    )}
+                    {cap.campaign_link?.campaign?.scope === 'global' && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] px-1.5 py-0 h-4 font-normal"
+                        title="Cross-institution campaign"
+                      >
+                        <Globe2 className="mr-1 h-2.5 w-2.5" />
+                        Global
+                      </Badge>
+                    )}
                     {cap.utm_source && (
                       <Badge
                         variant="outline"
@@ -124,6 +146,29 @@ export function SourcesCapturedCard({ leadId }: SourcesCapturedCardProps) {
                     )}
                   </div>
 
+                  {/* Campaign details block — only renders for campaign-attributed captures */}
+                  {cap.campaign_link?.campaign && (
+                    <div className="mt-1.5 rounded-md border border-violet-200/60 bg-violet-50/40 px-3 py-2 text-xs dark:border-violet-900/60 dark:bg-violet-950/20">
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <span className="text-muted-foreground">Campaign:</span>
+                        <Link
+                          href={`/admission/marketing/campaigns/${cap.campaign_link.campaign.id}`}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {cap.campaign_link.campaign.name}
+                        </Link>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">Link:</span>
+                        <span className="font-medium text-foreground">
+                          {cap.campaign_link.name}
+                        </span>
+                        <code className="text-muted-foreground/80">
+                          /c/{cap.campaign_link.token}
+                        </code>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     <span title={formatAbsolute(cap.captured_at)}>
@@ -133,7 +178,7 @@ export function SourcesCapturedCard({ leadId }: SourcesCapturedCardProps) {
                     <span>{formatAbsolute(cap.captured_at)}</span>
                   </div>
 
-                  {cap.source_detail && (
+                  {cap.source_detail && !cap.campaign_link?.campaign && (
                     <p className="mt-1 text-sm text-foreground/80">
                       {cap.source_detail}
                     </p>

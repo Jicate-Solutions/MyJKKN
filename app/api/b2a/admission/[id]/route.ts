@@ -93,7 +93,9 @@ export async function GET(
     permanent_address_pin_code: string | null;
     permanent_address_state: string | null;
     accommodation_type: string | null;
-    hostel_type: string | null;
+    bus_required: boolean | null;
+    transport_route_id: string | null;
+    transport_stop_id: string | null;
     reference_type: string | null;
     reference_name: string | null;
     reference_contact: string | null;
@@ -120,14 +122,14 @@ export async function GET(
       .select(
         'id, first_name, last_name, student_email, student_mobile, lifecycle_status, application_id, ' +
         'father_name, father_occupation, father_mobile, mother_name, mother_occupation, mother_mobile, ' +
-        'date_of_birth, gender, religion, community, caste, annual_income, ' +
-        'last_school, board_of_study, quota, entry_type, ' +
+        'date_of_birth, gender, religion, annual_income, ' +
+        'last_school, board_of_study, entry_type, quota_id, ' +
         'permanent_address_street, permanent_address_taluk, permanent_address_district, ' +
         'permanent_address_pin_code, permanent_address_state, ' +
-        'accommodation_type, hostel_type, reference_type, reference_name, reference_contact, ' +
+        'accommodation_type_id, bus_required, transport_route_id, transport_stop_id, reference_type, reference_name, reference_contact, ' +
         'counseling_applied, counseling_number, first_graduate, ' +
         'degree_id, department_id, program_id, institution_id, ' +
-        'created_at, updated_at'
+        'created_at, updated_at, quota_obj:quotas!quota_id(name), community_obj:community_categories!community_category_id(code), caste_obj:castes!caste_id(name), accommodation_obj:accommodation_types!accommodation_type_id(name)'
       )
       .eq('id', id);
 
@@ -153,7 +155,16 @@ export async function GET(
         );
       }
     } else {
-      record = data as unknown as AdmissionDetail;
+      // Flatten the quota FK join back to a readable `quota` string so the
+      // B2A response shape is unchanged (quota TEXT column retired).
+      const { quota_obj, community_obj, caste_obj, accommodation_obj, ...restData } = data as any;
+      record = {
+        ...restData,
+        quota: (quota_obj as { name?: string } | null)?.name ?? null,
+        community: (community_obj as { code?: string } | null)?.code ?? null,
+        caste: (caste_obj as { name?: string } | null)?.name ?? null,
+        accommodation_type: (accommodation_obj as { name?: string } | null)?.name ?? null,
+      } as unknown as AdmissionDetail;
     }
   } catch {
     statusCode = 500;

@@ -15,12 +15,26 @@ import { logActivityForCurrentUser, AdmissionFeesActivityTemplates }
  * action).
  */
 export class AccountTransitionService {
-  static async transitionToAccount(payload: AccountTransitionPayload): Promise<AccountTransitionResult> {
+  static async transitionToAccount(payload: AccountTransitionPayload & {
+    /** Optional per-Confirm session UUID. When provided, the RPC dedupes
+     *  on it — rapid double-clicks pass the same key and the RPC returns
+     *  the stored result instead of re-firing. Generated client-side by
+     *  AccountVerificationDialog. */
+    idempotency_key?: string;
+    /** Optional admin-entered notes captured in the verification dialog.
+     *  Stored on learners_profiles.account_verification_notes for audit. */
+    notes?: string;
+  }): Promise<AccountTransitionResult> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await supabase.rpc('admission_account_transition_with_bills', {
       p_learner_id: payload.learner_id,
       p_required_documents: payload.required_documents,
       p_received_documents: payload.received_documents,
+      // 2026-05-21 (Phase 2 of verification rollout): new optional params.
+      // Existing callers that don't pass these continue to work — the RPC
+      // defaults both to NULL.
+      p_idempotency_key: payload.idempotency_key ?? null,
+      p_notes: payload.notes ?? null,
     });
     if (error) throw error;
     const result = data as AccountTransitionResult;

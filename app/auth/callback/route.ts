@@ -7,8 +7,68 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { Profile } from '@/types/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
-import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
+import { StudentValidationService, INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/services/auth/student-validation-service';
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
+
+/**
+ * Path W ignition — fire-and-forget. Auto-provisions an invisible Cal.com backing
+ * identity (user + per-user API key, encrypted in profiles via CalApiKeyVault) for
+ * every authenticated MyJKKN user on login, so booking/calendar works with the MyJKKN
+ * identity and NO separate Cal.com login. Idempotent (fast-path returns if already done).
+ *
+ * Self-catching: NEVER throws. A Cal outage or missing env degrades to "no provisioning
+ * this login" — login + redirect are never blocked. Dynamic import keeps the `pg`-backed
+ * provision module off the route's static graph (loads only when ignition actually fires).
+ */
+async function igniteCalProvision(
+  userId: string,
+  email: string | null | undefined,
+  name?: string | null
+): Promise<void> {
+  if (!email) return;
+  try {
+    const { JicateBookingProvisionService } = await import(
+      '@/lib/services/integrations/jicate-booking-provision-service'
+    );
+    const result = await JicateBookingProvisionService.ensureProvisioned({
+      myjkknUserId: userId,
+      email,
+      name: name ?? undefined,
+    });
+    if (result.action === 'created') {
+      console.warn(
+        `[jicate-booking/provision] (non-blocking) provisioned cal_user_id=${result.cal_user_id} for ${userId}`
+      );
+    }
+  } catch (error) {
+    console.error('[jicate-booking/provision] (non-blocking) ensureProvisioned failed:', error);
+  }
+}
+
+/**
+ * Schedule the ignition so its cross-DB provisioning write SURVIVES the response.
+ *
+ * A bare `void igniteCalProvision()` before NextResponse.redirect() is NOT safe on
+ * Vercel Node.js serverless: the instance can be reclaimed once the response flushes,
+ * truncating the in-flight two-phase write (Cal.com users/ApiKey CTE → MyJKKN vault.set)
+ * and orphaning an unrecoverable key. We register the promise with the platform via
+ * `waitUntil` (the same idiom the webhook routes use) so the instance stays alive until
+ * provisioning finishes. Awaiting only the (cached) module import adds ~0ms to login.
+ * Non-Vercel/local: the import throws → run unregistered (no instance-reclaim there).
+ */
+async function scheduleCalProvision(
+  userId: string,
+  email: string | null | undefined,
+  name?: string | null
+): Promise<void> {
+  const work = igniteCalProvision(userId, email, name);
+  try {
+    const { waitUntil } = await import('@vercel/functions');
+    waitUntil(work);
+  } catch {
+    void work;
+  }
+}
 
 
 export async function GET(request: NextRequest) {
@@ -197,83 +257,44 @@ export async function GET(request: NextRequest) {
             try {
               const oldProfileId = emailProfile.id;
 
-              // Step 1: Detach NO ACTION FK references before deleting old profile.
-              // These tables reference profiles.id with ON DELETE NO ACTION which blocks deletion.
-
-              // 1a. Delete bug_report_participants (participation log - safe to lose on migration)
-              const { error: brrError } = await adminClient
-                .from('bug_report_participants')
-                .delete()
-                .eq('user_id', oldProfileId);
-              if (brrError) console.warn(`[Auth Migration] Could not delete bug_report_participants:`, brrError);
-
-              // 1b. Null out event_registrations.owner_id (preserve the registration, just unlink)
+              // Capture event ownership so it can be re-linked to the new
+              // profile id after migration. The RPC below nulls these as part
+              // of its generic nullable-FK detach, so we snapshot them first.
               const { data: affectedRegs } = await adminClient
                 .from('event_registrations')
                 .select('id')
                 .eq('owner_id', oldProfileId);
-              if (affectedRegs && affectedRegs.length > 0) {
-                await adminClient
-                  .from('event_registrations')
-                  .update({ owner_id: null } as any)
-                  .eq('owner_id', oldProfileId);
-              }
-
-              // 1c. Null out event_team_members.profile_id (preserve membership, just unlink)
               const { data: affectedMembers } = await adminClient
                 .from('event_team_members')
                 .select('id')
                 .eq('profile_id', oldProfileId);
-              if (affectedMembers && affectedMembers.length > 0) {
-                await adminClient
-                  .from('event_team_members')
-                  .update({ profile_id: null } as any)
-                  .eq('profile_id', oldProfileId);
+
+              // Delegate the swap to migrate_pre_registered_profile_to_auth —
+              // the SAME robust RPC the pre-registered path uses. It dynamically
+              // detaches EVERY blocking FK to profiles.id (notifications.created_by
+              // and 280+ others), re-attaches staff, and re-inserts user_roles
+              // idempotently. The previous hand-rolled delete only knew about 3 FK
+              // tables and threw on the rest (e.g. orphan school-student profiles
+              // referenced by notifications), which dropped the user into the
+              // approved-learner path and a duplicate-email/learner_id failure.
+              // Routing every email-matched migration through the RPC makes login
+              // self-heal for ANY pre-created/mismatched profile regardless of how
+              // it was provisioned or what is_pre_registered says.
+              console.log(`[Auth Migration] Migrating profile ${oldProfileId} → ${user.id} via RPC`);
+              const { error: rpcError } = await adminClient.rpc(
+                'migrate_pre_registered_profile_to_auth',
+                {
+                  p_old_profile_id: oldProfileId,
+                  p_new_auth_id: user.id
+                } as any
+              );
+
+              if (rpcError) {
+                console.error('[Auth Migration] Migration RPC failed:', rpcError);
+                throw rpcError;
               }
 
-              // Step 2: Delete the old profile (CASCADE drops user_roles, activity_logs, etc.)
-              console.log(`[Auth Migration] Deleting old profile: ${oldProfileId}`);
-              const { error: deleteError } = await adminClient
-                .from('profiles')
-                .delete()
-                .eq('id', oldProfileId);
-
-              if (deleteError) {
-                console.error('[Auth Migration] Delete old profile failed:', deleteError);
-                throw deleteError;
-              }
-
-              // Step 3: Create new profile with Google auth user ID (preserving all fields)
-              // Note: learner_id included so trigger auto_assign_student_role fires correctly
-              const legacyProfileData = {
-                id: user.id,
-                email: emailProfile.email ?? null,
-                full_name: emailProfile.full_name ?? null,
-                role: emailProfile.role,
-                phone_number: emailProfile.phone_number ?? null,
-                institution_id: emailProfile.institution_id ?? null,
-                department_id: emailProfile.department_id ?? null,
-                gender: emailProfile.gender ?? null,
-                designation: emailProfile.designation ?? null,
-                profile_completed: emailProfile.profile_completed ?? false,
-                is_active: emailProfile.is_active ?? true,
-                is_pre_registered: false,
-                bio: emailProfile.bio ?? null,
-                avatar_url: emailProfile.avatar_url ?? null,
-                learner_id: (emailProfile as any).learner_id ?? null
-              };
-
-              console.log(`[Auth Migration] Creating new profile with auth ID: ${user.id}`);
-              const { error: insertError } = await adminClient
-                .from('profiles')
-                .insert(legacyProfileData as any);
-
-              if (insertError) {
-                console.error('[Auth Migration] Insert new profile failed:', insertError);
-                throw insertError;
-              }
-
-              // Step 4: Re-link event records to the new profile ID
+              // Re-link event records to the new profile ID (RPC nulled them).
               if (affectedRegs && affectedRegs.length > 0) {
                 const regIds = affectedRegs.map((r: any) => r.id);
                 await adminClient
@@ -291,11 +312,13 @@ export async function GET(request: NextRequest) {
                 console.log(`[Auth Migration] Re-linked ${memberIds.length} event team member(s)`);
               }
 
-              migratedProfile = {
-                ...emailProfile,
-                id: user.id,
-                is_pre_registered: false
-              };
+              // Re-fetch the freshly inserted profile (RPC writes with auth.users id).
+              const { data: newProfile } = (await adminClient
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle()) as { data: Profile | null; error: any };
+              migratedProfile = newProfile;
 
               console.log(
                 `✓ Successfully migrated profile for ${user.email} to Google auth`
@@ -358,12 +381,17 @@ export async function GET(request: NextRequest) {
       if (!actualProfile) {
         console.log('[Auth Callback] No profile found for user — checking approved learner path');
 
-        // Check for an approved/active/graduated learner matching this email
+        // Check for a learner matching this email who is eligible for a login.
+        // 'approved'/'active'/'graduated' get FULL access; the pre-onboarding
+        // induction statuses (enquiry, enquiry_submitted, reserved, admitted) get
+        // RESTRICTED induction-only access (scoped down by proxy.ts). The
+        // auto_link_profile_to_approved_learner trigger gates on this SAME list.
+        // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
         const { data: approvedLearner } = await adminClient
           .from('learners_profiles')
           .select('id, institution_id, department_id, lifecycle_status')
           .ilike('college_email', user.email ?? '')
-          .in('lifecycle_status', ['approved', 'active', 'graduated'])
+          .in('lifecycle_status', ['approved', 'active', 'graduated', ...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES])
           .maybeSingle();
 
         if (!approvedLearner) {
@@ -418,6 +446,10 @@ export async function GET(request: NextRequest) {
         // Log login activity for new (legitimate) user
         await logLoginActivity({ ...newProfile, role: 'student' });
 
+        // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
+        // New-learner profile has no full_name yet → name falls back to email local-part.
+        await scheduleCalProvision(user.id, newProfile.email ?? user.email);
+
         // Create session tracking record
         try {
           const sessionInfo = await SessionTrackingService.createSession({
@@ -438,7 +470,14 @@ export async function GET(request: NextRequest) {
           console.error('[Auth Callback] Session tracking failed for new learner (non-blocking):', sessionError);
         }
 
-        return NextResponse.redirect(new URL('/auth/complete-profile', origin));
+        // Pre-onboarding (induction-only) learners land directly on My Induction
+        // (the profile-completion nudge lives there). Everyone else completes
+        // their profile first.
+        const isInductionOnlyLearner = (INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES as readonly string[])
+          .includes(approvedLearner.lifecycle_status);
+        return NextResponse.redirect(
+          new URL(isInductionOnlyLearner ? '/learners/my-induction' : '/auth/complete-profile', origin)
+        );
       }
 
       // Check if user account is active
@@ -454,6 +493,10 @@ export async function GET(request: NextRequest) {
 
       // Log login activity for existing user
       await logLoginActivity(actualProfile);
+
+      // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
+      // user.email is the authenticated email (always present); full_name from the profile.
+      await scheduleCalProvision(user.id, user.email, actualProfile?.full_name);
 
       // Create session tracking record for engagement analytics
       console.log('[Auth Callback] 🎯 Attempting to create analytics session...');
@@ -526,7 +569,12 @@ export async function GET(request: NextRequest) {
             isGraduated: validation.isGraduated
           });
 
-          if (!validation.allowed) {
+          if (validation.accessTier === 'induction_only') {
+            // Pre-onboarding learner — restricted to induction. Do NOT sign out;
+            // land them on My Induction (proxy.ts enforces the scope thereafter).
+            destination = '/learners/my-induction';
+            console.log('[Auth Callback] 🎓 Induction-only learner, redirecting to:', destination);
+          } else if (!validation.allowed) {
             // Student blocked due to lifecycle status - sign out and show error
             console.log('[Auth Callback] Student blocked, reason:', validation.reason);
             await supabase.auth.signOut();

@@ -221,14 +221,22 @@ function NewLeadPageContent() {
   // is gone; the shared <AdmissionYearSelect> owns fetch + placeholder copy +
   // rich-label rendering.
 
-  // Entry date — auto-populated to today (local timezone, not UTC)
-  const [entryDate] = useState<string>(() => {
+  // Entry date — defaults to today (local timezone, not UTC). Admission-global
+  // users and super admins may backdate it, which is required when entering
+  // historical referrals from a prior academic year.
+  const todayLocal = () => {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
-  });
+  };
+  const [entryDate, setEntryDate] = useState<string>(todayLocal);
+
+  // Floor for backdating. Deliberately not open-ended: a mistyped year (2015
+  // for 2025) would otherwise be accepted silently and file the lead under the
+  // wrong admission year. 2025-01-01 covers the whole 2025-26 intake.
+  const ENTRY_DATE_MIN = '2025-01-01';
 
   // Fetch programs when institution changes
   useEffect(() => {
@@ -277,12 +285,14 @@ function NewLeadPageContent() {
 
   // (Admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
-  // Clear admission_year_id when the primary program changes (old value no longer applies).
+  // Clear admission_year_id when the institution changes — admission years are
+  // institution-scoped, so switching institution invalidates the old value and
+  // re-triggers <AdmissionYearSelect autoSelectCurrent> for the new institution.
   useEffect(() => {
     setFormData((prev) =>
       prev.admission_year_id ? { ...prev, admission_year_id: '' } : prev
     );
-  }, [selectedProgramId]);
+  }, [selectedInstitutionId]);
 
 
   // Group programs by degree for organized display
@@ -569,6 +579,11 @@ function NewLeadPageContent() {
 
   // Determine if user can change institution (super admin or has access to multiple)
   const canSelectInstitution = isSuperAdmin || isAdmissionGlobalUser || institutions.length > 1;
+
+  // Only admission-global users and super admins may backdate the entry date.
+  // Note the deliberate absence of `institutions.length > 1` here: being able to
+  // pick an institution is not a reason to be able to rewrite when a lead arrived.
+  const canBackdateEntryDate = isSuperAdmin || isAdmissionGlobalUser;
   const selectedInstitutionName = institutions.find((i) => i.id === institutionId)?.name;
 
   return (
@@ -710,10 +725,25 @@ function NewLeadPageContent() {
                           id="entry_date"
                           type="date"
                           value={entryDate}
-                          disabled
-                          className="bg-muted"
+                          min={ENTRY_DATE_MIN}
+                          max={todayLocal()}
+                          onChange={(e) => {
+                            // `min`/`max` constrain the picker but a typed value
+                            // can still fall outside the range, so clamp here too.
+                            const v = e.target.value;
+                            if (!v) return setEntryDate(todayLocal());
+                            if (v < ENTRY_DATE_MIN) return setEntryDate(ENTRY_DATE_MIN);
+                            if (v > todayLocal()) return setEntryDate(todayLocal());
+                            setEntryDate(v);
+                          }}
+                          disabled={!canBackdateEntryDate}
+                          className={canBackdateEntryDate ? undefined : 'bg-muted'}
                         />
-                        <p className="text-xs text-muted-foreground">Auto-set to today&apos;s date</p>
+                        <p className="text-xs text-muted-foreground">
+                          {canBackdateEntryDate
+                            ? `Defaults to today. Can be backdated to ${ENTRY_DATE_MIN} for historical entries.`
+                            : "Auto-set to today's date"}
+                        </p>
                       </div>
                     </div>
                   </CardContent>
@@ -897,13 +927,12 @@ function NewLeadPageContent() {
                       )}
                     </div>
 
-                    {/* Admission Year — shared cascading picker (2026-04-23) */}
+                    {/* Admission Year — shared institution-scoped picker (2026-04-23) */}
                     <AdmissionYearSelect
                       institutionId={institutionId}
-                      programId={selectedProgramId}
                       value={formData.admission_year_id}
                       onChange={(value) => handleChange('admission_year_id', value)}
-                      placeholderNoProgram="Select the Interested Program first"
+                      autoSelectCurrent
                     />
                   </CardContent>
                 </Card>

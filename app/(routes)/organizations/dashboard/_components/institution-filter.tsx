@@ -24,7 +24,10 @@ export function InstitutionFilter({
   const { institutions, loading: institutionsLoading } =
     useInstitutionsWithAccess({
       isActive: true,
-      autoFetch: !!user
+      autoFetch: !!user,
+      // entityType:'all' → include schools; access filter still scopes normal
+      // users to their own institutions (super admin sees all).
+      entityType: 'all'
     });
 
   const isLoading = authLoading || institutionsLoading;

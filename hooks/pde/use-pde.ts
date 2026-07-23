@@ -17,6 +17,12 @@ import type {
   SendCoachMessageInput, CoachContextType,
 } from '@/types/pde';
 import type { LearnNotifyBody } from '@/types/learn';
+import type {
+  PDECategoryKey,
+  PDEDemonstrationStatus,
+  PDEReviewQueueRow,
+  ValidateDemonstrationInput,
+} from '@/lib/types/pde-demonstrations';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Notification integration — fire-and-forget dispatch to /api/learn/notify.
@@ -62,6 +68,7 @@ export const pdeQueryKeys = {
   engagementSummary: (learnerId: string, courseId?: string) =>
     [...pdeQueryKeys.engagement(), 'summary', learnerId, courseId] as const,
   atRisk: (courseId?: string) => [...pdeQueryKeys.engagement(), 'at-risk', courseId] as const,
+  atRiskHistory: () => [...pdeQueryKeys.engagement(), 'at-risk', 'history'] as const,
   // Certificates
   certificates: () => [...pdeQueryKeys.all, 'certificates'] as const,
   certificate: (id: string) => [...pdeQueryKeys.certificates(), id] as const,
@@ -81,6 +88,10 @@ export const pdeQueryKeys = {
   capabilityList: (category?: string) => [...pdeQueryKeys.capabilities(), 'list', category] as const,
   capabilityDetail: (id: string) => [...pdeQueryKeys.capabilities(), 'detail', id] as const,
   learnerCapabilities: (learnerId: string) => [...pdeQueryKeys.capabilities(), 'learner', learnerId] as const,
+  // Faculty review (durable-value taxonomy)
+  reviewQueueRoot: () => [...pdeQueryKeys.all, 'review-queue'] as const,
+  reviewQueue: (category?: string, status?: string) =>
+    [...pdeQueryKeys.all, 'review-queue', category ?? null, status ?? null] as const,
   // Phase 2: Build Arena
   buildSessions: () => [...pdeQueryKeys.all, 'build-sessions'] as const,
   learnerBuildSessions: (learnerId: string, questId?: string) =>
@@ -278,6 +289,20 @@ export function useAtRiskLearners(courseId?: string) {
   });
 }
 
+/**
+ * Flag history recorded by /api/cron/pde-at-risk-flag. Kept separate from
+ * useAtRiskLearners so the live surface still renders if the log is empty
+ * (cron never ran, or a fresh deploy before the migration is applied).
+ */
+export function useAtRiskHistory() {
+  return useQuery({
+    queryKey: pdeQueryKeys.atRiskHistory(),
+    queryFn: () => PDEService.getAtRiskHistory(),
+    staleTime: 5 * 60 * 1000,
+    retry: false, // absent table/view before migration → fail quietly, not 3x
+  });
+}
+
 // ============================================
 // Certificate Hooks
 // ============================================
@@ -448,6 +473,37 @@ export function useCapabilities(category?: string) {
     queryKey: pdeQueryKeys.capabilityList(category),
     queryFn: () => PDEService.getCapabilities(category),
     staleTime: 5 * 60 * 1000, // Capabilities rarely change
+  });
+}
+
+// ============================================
+// Faculty Review Hooks (durable-value taxonomy)
+// ============================================
+
+/**
+ * Faculty review queue. `category` is a durable-value PDECategoryKey; `status`
+ * narrows to one demonstration status (omit for all reviewable statuses).
+ */
+export function useReviewQueue(
+  category?: PDECategoryKey,
+  status?: PDEDemonstrationStatus
+) {
+  return useQuery<PDEReviewQueueRow[]>({
+    queryKey: pdeQueryKeys.reviewQueue(category, status),
+    queryFn: () => PDEService.getReviewQueue({ category, status }),
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Record a validation decision; refreshes every review-queue view on success. */
+export function useValidateDemonstration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ValidateDemonstrationInput) =>
+      PDEService.validateDemonstration(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.reviewQueueRoot() });
+    },
   });
 }
 

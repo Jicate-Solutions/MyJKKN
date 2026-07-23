@@ -6,6 +6,131 @@ import { profileCache } from './lib/auth/profile-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
+import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+import {
+  SCHOOL_PORTAL_SESSION_COOKIE,
+  verifySchoolPortalSession,
+} from './lib/auth/school-portal-jwt';
+import {
+  EXTERNAL_SESSION_COOKIE,
+  verifyExternalSession,
+} from './lib/auth/external-jwt';
+
+// Parent Portal pages that are reachable WITHOUT a parent_session (the auth
+// funnel). Everything else under /parent/* requires a valid parent_session JWT.
+// NOTE: /api/parent/* auth is enforced in-route via resolveParentScope(). Those
+// routes (like all /api/*) pass through this proxy and are force-set to
+// no-store by the isPublicPath() branch in proxy() — a `public, s-maxage` cache
+// is keyed by URL, not by the session cookie, so it would serve one user's data
+// to another across browsers AND devices.
+const PARENT_PUBLIC_PATHS = new Set([
+  '/parent',
+  '/parent/onboarding',
+  '/parent/login',
+  '/parent/register',
+  '/parent/forgot',
+]);
+
+// Once authenticated, these auth-funnel pages redirect straight to the dashboard.
+const PARENT_REDIRECT_WHEN_AUTHED = new Set([
+  '/parent',
+  '/parent/login',
+  '/parent/register',
+]);
+
+async function handleParentPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(PARENT_SESSION_COOKIE)?.value;
+  const claims = await verifyParentSession(token);
+
+  if (claims && PARENT_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(new URL('/parent/dashboard', request.url));
+  }
+
+  if (!claims && !PARENT_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/parent/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
+
+// Schools Network HM Portal — same dual-auth shape as the parent portal:
+// HMs are NOT in auth.users, so /schools-portal/* must be reachable without
+// a Supabase session. The login + verify pages are unauthenticated; the
+// dashboard / update-contact pages require a school_portal_session JWT.
+//
+// API auth for /api/schools-portal/* is enforced in-route via
+// resolveHmSession() (see lib/services/schools-portal/session-guard.ts) —
+// /api/* paths short-circuit isPublicPath() and don't need a per-route
+// gate in this proxy.
+const SCHOOL_PORTAL_PUBLIC_PATHS = new Set([
+  '/schools-portal',
+  '/schools-portal/login',
+  '/schools-portal/verify',
+]);
+
+const SCHOOL_PORTAL_REDIRECT_WHEN_AUTHED = new Set([
+  '/schools-portal',
+  '/schools-portal/login',
+]);
+
+async function handleSchoolsPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(SCHOOL_PORTAL_SESSION_COOKIE)?.value;
+  const claims = await verifySchoolPortalSession(token);
+
+  if (claims && SCHOOL_PORTAL_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(
+      new URL('/schools-portal/dashboard', request.url),
+    );
+  }
+
+  if (!claims && !SCHOOL_PORTAL_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/schools-portal/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
+
+// SF100 External Mentor/Investor Portal — same isolated dual-auth shape as the
+// parent portal. External mentors/investors are NOT in auth.users, so /external/*
+// must be reachable without a Supabase session. The login page is unauthenticated;
+// everything else under /external/* requires an sf100_external_session JWT.
+// API auth for /api/startup-studio/external/* is enforced in-route via
+// getExternalSession(); /api/* short-circuits isPublicPath() and needs no gate here.
+const EXTERNAL_PORTAL_PUBLIC_PATHS = new Set(['/external', '/external/login']);
+const EXTERNAL_PORTAL_REDIRECT_WHEN_AUTHED = new Set(['/external/login']);
+
+async function handleExternalPortal(request: NextRequest, currentPath: string) {
+  const token = request.cookies.get(EXTERNAL_SESSION_COOKIE)?.value;
+  const claims = await verifyExternalSession(token);
+
+  if (claims && EXTERNAL_PORTAL_REDIRECT_WHEN_AUTHED.has(currentPath)) {
+    return NextResponse.redirect(new URL('/external', request.url));
+  }
+
+  if (!claims && !EXTERNAL_PORTAL_PUBLIC_PATHS.has(currentPath)) {
+    const url = new URL('/external/login', request.url);
+    url.searchParams.set('redirectedFrom', currentPath);
+    return NextResponse.redirect(url);
+  }
+
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, must-revalidate');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  return res;
+}
 
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
@@ -15,6 +140,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/complete-profile',
   '/auth/test-login', // Dev-only test login page for role permission testing
   '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
+  '/auth/audit-login', // Feature-flagged email+password login for the Razorpay payment-gateway audit
   '/auth/dev-login', // Dev-only magic-link exchange (gated by NEXT_PUBLIC_ENABLE_DEV_LOGIN)
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
@@ -25,6 +151,11 @@ const PUBLIC_PATHS_SET = new Set([
   '/browserconfig.xml',
   '/pwa-test.html',
   '/refer', // Agent referral form — public, no login
+  '/privacy', // Privacy Policy — public, required for Meta App Review
+  '/terms', // Terms of Use — public, required for Meta App Review
+  '/data-deletion', // Data Deletion instructions — public, required for Meta App Review
+  '/meet', // Universal Booking directory — public, no login (U4)
+  '/employers/submit', // CDC employer self-submit vacancy form — public, no login
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
@@ -32,6 +163,19 @@ const PUBLIC_PATHS_SET = new Set([
 // Public path prefixes (for dynamic routes like /apply/[slug])
 const PUBLIC_PATH_PREFIXES = [
   '/apply/', // Public admission form builder pages — no login
+  '/book/', // Public routed-booking pages (/book/[slug]) — no login (Path W #10)
+  '/meet/', // Universal Booking personal pages (/meet/[handle]) — no login (U4)
+  '/c/', // Public campaign link shortener pages — no login
+  '/student-form/', // Student self-fill form via QR (token-validated server-side) — no login
+  '/m/', // Family Moments gift cards (/m/[token]) — parent-facing, no login (Father's Day 2026).
+  //        NOTE: deliberately NOT '/moments/' — that prefix is the AUTHENTICATED
+  //        teacher/admin module (submit, campaigns) and must stay behind login.
+  '/api/public/moments/', // Family Moments engagement tracking — token-keyed, no login
+  '/p/', // Wellness Programs public patient page (/p/[token]) — QR-scanned, no login (token-validated server-side)
+  '/api/public/health-programs/', // Wellness Programs public view tracking — token-keyed, no login
+  '/api/calendar/feed/', // ICS calendar feed — token-keyed bearer secret, no login (Google Calendar polls this)
+  '/verify/', // Public certificate verification (/verify/[number]) — QR-scanned by recruiters, no login. Also the LinkedIn "See credential" target. Page under app/verify/ is public-by-design but was never allowlisted (307→login bug); pde_certificates was empty so it stayed latent.
+  '/proof/', // Verified Skills Record verify-links (/proof/[token]) — employer-facing, no login; token-validated server-side (fn_vsr_shared_record), learner-revocable.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -57,9 +201,77 @@ const isPublicPath = (path: string): boolean => {
   return false;
 };
 
+// Pre-onboarding (induction-only) learners — admission-funnel statuses (enquiry,
+// enquiry_submitted, reserved, admitted) — may reach ONLY these authenticated
+// paths; everything else redirects to /learners/my-induction. Mirrors the
+// guest/driver scoping pattern below. NOTE: /auth/* and /auth/complete-profile are
+// already public (short-circuit in isPublicPath above), so they don't need listing
+// here. Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+const INDUCTION_ONLY_EXACT_PATHS = new Set([
+  '/learners/my-profile', // profile completion — the My Induction nudge target
+  '/unauthorized',
+  '/error'
+]);
+const INDUCTION_ONLY_PREFIXES = ['/learners/my-induction'];
+const isInductionOnlyAllowedPath = (path: string): boolean => {
+  if (INDUCTION_ONLY_EXACT_PATHS.has(path)) return true;
+  for (const prefix of INDUCTION_ONLY_PREFIXES) {
+    if (path === prefix || path.startsWith(prefix + '/')) return true;
+  }
+  return false;
+};
+
+// Legacy drip-sequence routes relocated to /automations/ (2026-05-12).
+// Keep these 301s for at least one release cycle / 90 days so external
+// bookmarks and stale links resolve.
+const LEGACY_CAMPAIGN_REDIRECTS: Record<string, string> = {
+  '/admission/marketing/campaigns/monitoring':
+    '/admission/marketing/automations/monitoring',
+  '/admission/marketing/campaigns/roi':
+    '/admission/marketing/automations/roi',
+  '/admission/marketing/campaigns/segments':
+    '/admission/marketing/automations/segments',
+};
+
 export async function proxy(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
+
+    const legacyTarget = LEGACY_CAMPAIGN_REDIRECTS[currentPath];
+    if (legacyTarget) {
+      const url = request.nextUrl.clone();
+      url.pathname = legacyTarget;
+      return NextResponse.redirect(url, 301);
+    }
+
+    // Parent Portal — fully isolated dual-auth domain. Gate /parent/* with the
+    // parent_session JWT and return early, BEFORE the staff Supabase flow runs
+    // (a parent has no Supabase session and would otherwise be bounced to the
+    // staff /auth/login).
+    if (currentPath === '/parent' || currentPath.startsWith('/parent/')) {
+      return handleParentPortal(request, currentPath);
+    }
+
+    // Schools Network HM Portal — same dual-auth shape as the parent portal.
+    // HMs sign in via magic link (no Supabase session). Gate /schools-portal/*
+    // with the school_portal_session JWT before the staff Supabase flow runs.
+    if (
+      currentPath === '/schools-portal' ||
+      currentPath.startsWith('/schools-portal/')
+    ) {
+      return handleSchoolsPortal(request, currentPath);
+    }
+
+    // SF100 External Mentor/Investor Portal — same isolated dual-auth shape.
+    // External mentors/investors have no Supabase session; gate /external/* with
+    // the sf100_external_session JWT before the staff Supabase flow runs.
+    if (currentPath === '/external' || currentPath.startsWith('/external/')) {
+      return handleExternalPortal(request, currentPath);
+    }
+
+    // NOTE: /api/parent/* (and every other /api/*) is handled by the
+    // isPublicPath() branch below, which now forces no-store for all API routes
+    // — see the SECURITY comment there. No per-prefix special-casing needed.
 
     // Helper: inject preconnect hints to speed up Supabase and Google connections
     const addPreconnectHeaders = (response: NextResponse) => {
@@ -93,8 +305,20 @@ export async function proxy(request: NextRequest) {
     // Skip proxy for public paths BEFORE creating Supabase client
     if (isPublicPath(currentPath)) {
       const res = NextResponse.next();
-      // Allow short CDN caching for public paths (was: no-store blocking CDN)
-      res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      // SECURITY (secure-by-default): isPublicPath() returns true for ALL /api/*
+      // routes — but "skip the staff auth flow" is NOT the same as "safe to cache
+      // publicly". A `public, s-maxage` header is keyed by URL, not by the auth
+      // cookie, so a shared browser/CDN serves one user's response to another
+      // (across devices). That caused the parent-portal cross-account leak.
+      // Therefore: API routes default to no-store; only non-API public paths
+      // (marketing pages, static assets) get the short CDN cache. A genuinely
+      // cacheable API endpoint opts in explicitly by setting its own
+      // Cache-Control header in-route (e.g. /api/parent/attachment).
+      if (currentPath.startsWith('/api')) {
+        res.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+      } else {
+        res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+      }
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       res.headers.set('X-App-Version', appVersion);
       return addPreconnectHeaders(res);
@@ -113,20 +337,39 @@ export async function proxy(request: NextRequest) {
             return cookie?.value ?? '';
           },
           async set(name: string, value: string, options: CookieOptions) {
-            res.cookies.set({ name, value });
+            // CRITICAL: forward Supabase's cookie options (maxAge, path,
+            // sameSite, secure) verbatim. Dropping them downgrades the
+            // persistent auth cookie to a session cookie on every token
+            // refresh, which is why iOS PWA users were logged out on every
+            // app-close. Sister code in lib/supabase/server.ts already does
+            // this correctly — proxy.ts was the outlier.
+            res.cookies.set({ name, value, ...options });
           },
           async remove(name: string, options: CookieOptions) {
-            res.cookies.delete(name);
+            // Match Supabase's expected delete semantics: write an empty
+            // value with maxAge: 0 carrying the same path/domain so the
+            // browser actually evicts the cookie scope-correctly.
+            res.cookies.set({ name, value: '', ...options, maxAge: 0 });
           }
         }
       }
     );
 
-    // Get and verify user - this sends a request to Supabase Auth server every time
+    // Get and verify user - this sends a request to Supabase Auth server every time.
+    // Mobile networks (LTE handoffs, cell switches, weak signal) routinely produce
+    // a single transient 5xx or network error here. Without a retry, that one
+    // failure logs the user out. Match the profile-fetch retry pattern below
+    // (single retry after 200 ms) — cheap, bounded, eliminates the largest class
+    // of "logged out for no reason" mobile failures.
+    let authResult = await supabase.auth.getUser();
+    if (authResult.error && !authResult.data.user) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      authResult = await supabase.auth.getUser();
+    }
     const {
       data: { user },
       error: userError
-    } = await supabase.auth.getUser();
+    } = authResult;
 
     if (userError) {
       // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
@@ -251,7 +494,18 @@ export async function proxy(request: NextRequest) {
           isGraduated: validation.isGraduated
         });
 
-        if (!validation.allowed) {
+        if (validation.accessTier === 'induction_only') {
+          // Pre-onboarding learner — RESTRICTED to the induction whitelist. They
+          // are legitimately logged in (do NOT sign out); just scope them down to
+          // My Induction (+ feedback) + profile completion, redirecting everything
+          // else. Same shape as the guest/driver redirect below.
+          if (!isInductionOnlyAllowedPath(currentPath)) {
+            console.log('[Proxy] 🎓 Induction-only learner - redirecting', currentPath, '→ /learners/my-induction');
+            return NextResponse.redirect(new URL('/learners/my-induction', request.url));
+          }
+          console.log('[Proxy] 🎓 Induction-only learner - allowing:', currentPath);
+          // Whitelisted path — fall through and let the middleware continue.
+        } else if (!validation.allowed) {
           // Student blocked due to lifecycle status
           console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
@@ -411,7 +665,9 @@ export const config = {
     '/students/:path*',
     '/guest/:path*',
     '/driver/:path*',
+    '/parent/:path*',
+    '/schools-portal/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/dev-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
   ]
 };

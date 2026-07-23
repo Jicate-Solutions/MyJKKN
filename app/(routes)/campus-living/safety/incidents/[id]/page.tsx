@@ -18,10 +18,13 @@ import {
   Camera,
   CheckCircle2,
   Loader2,
+  Wrench,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
 import {
   useHostelIncident,
   useUpdateHostelIncident,
+  useConfirmIncidentAsMaintenanceLog,
 } from '@/hooks/campus-living/use-hostel-incidents';
 
 interface IncidentDetailPageProps {
@@ -30,9 +33,12 @@ interface IncidentDetailPageProps {
 
 export default function IncidentDetailPage({ params }: IncidentDetailPageProps) {
   const { id } = use(params);
+  const { profile } = useAuth();
   const { data, isLoading, error } = useHostelIncident(id);
   const updateIncident = useUpdateHostelIncident();
+  const confirmAsMaintenanceLog = useConfirmIncidentAsMaintenanceLog();
   const [actionNote, setActionNote] = useState('');
+  const [confirmNote, setConfirmNote] = useState('');
   const incident = data as any;
 
   if (isLoading) {
@@ -125,6 +131,29 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
     }, {
       onSuccess: () => toast.success(`Marked as ${label}`),
     });
+  };
+
+  const handleConfirmAsMaintenanceLog = () => {
+    if (!profile?.id) {
+      toast.error('You must be signed in to confirm this incident.');
+      return;
+    }
+    if (!incident?.resource_id) {
+      toast.error(
+        'This incident has no linked resource — set resource_id first.',
+      );
+      return;
+    }
+    confirmAsMaintenanceLog.mutate(
+      {
+        incidentId: id,
+        confirmedByUserId: profile.id,
+        note: confirmNote.trim() || undefined,
+      },
+      {
+        onSuccess: () => setConfirmNote(''),
+      },
+    );
   };
 
   const actions: Array<{ action: string; by?: string; date?: string }> =
@@ -355,6 +384,49 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
                 </Button>
               </CardContent>
             </Card>
+
+            {/*
+              Maintenance bridge — visible only when this incident is
+              already linked to a resource (resource_id !== null). Promotes
+              the incident into a resource_maintenance_logs row so it shows
+              up in the resource's full maintenance history.
+              See specs/campus-living-rm-integration.md PR-2.
+            */}
+            {incident.resource_id && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Wrench className="h-4 w-4" />
+                    Maintenance Bridge
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    This incident is linked to a hostel resource. Confirming
+                    creates a maintenance log so wardens can track the work
+                    against the resource&apos;s history.
+                  </p>
+                  <Textarea
+                    placeholder="Optional note for the maintenance log..."
+                    rows={2}
+                    value={confirmNote}
+                    onChange={(e) => setConfirmNote(e.target.value)}
+                    disabled={confirmAsMaintenanceLog.isPending || isMutating}
+                  />
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    onClick={handleConfirmAsMaintenanceLog}
+                    disabled={confirmAsMaintenanceLog.isPending || isMutating}
+                  >
+                    {confirmAsMaintenanceLog.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Confirm + Create Maintenance Log
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>

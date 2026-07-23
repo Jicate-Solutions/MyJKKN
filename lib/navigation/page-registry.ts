@@ -14,6 +14,7 @@ import {
   // ~14 sections, leaving the bottom-nav More drawer visually generic).
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
+  ShoppingCart,
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
@@ -196,9 +197,13 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['whatsapp', 'message', 'chat', 'whatsapp marketing'],
     description: 'WhatsApp marketing chat and messaging'
   },
-  '/admission/marketing/campaigns/monitoring': {
-    keywords: ['campaign', 'marketing campaign', 'sms campaign', 'email campaign'],
-    description: 'Monitor active marketing campaigns'
+  '/admission/marketing/campaigns': {
+    keywords: ['campaign', 'marketing campaign', 'acquisition', 'attribution', 'funnel'],
+    description: 'Acquisition campaigns with per-link attribution analytics'
+  },
+  '/admission/marketing/automations/monitoring': {
+    keywords: ['automation', 'drip campaign', 'sequence', 'sms campaign', 'email campaign'],
+    description: 'Monitor active marketing automations and drip sequences'
   },
   '/admission/marketing/expos': {
     keywords: ['expo', 'exhibition', 'education fair', 'campus visit'],
@@ -238,9 +243,21 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['my attendance', 'absence record', 'attendance percentage'],
     description: 'View your attendance records and percentage'
   },
+  '/learners/my-marks': {
+    keywords: ['my marks', 'internal marks', 'cia marks', 'assessment marks', 'semester results', 'student marks'],
+    description: 'View your internal assessment marks and semester results'
+  },
+  '/learners/my-marks/internal': {
+    keywords: ['internal marks', 'cia marks', 'assessment marks', 'continuous internal assessment'],
+    description: 'View your internal continuous assessment marks'
+  },
   '/learners/my-profile': {
     keywords: ['my profile', 'student profile', 'personal details'],
     description: 'View and update your profile'
+  },
+  '/learners/my-bills': {
+    keywords: ['my bills', 'fees', 'fee bills', 'dues', 'outstanding', 'balance', 'receipts', 'payment history', 'student fees'],
+    description: 'View your fee bills, balances, and payment history'
   },
   '/learners/leave-onduty/my-applications': {
     keywords: ['apply leave', 'onduty request', 'leave application'],
@@ -304,6 +321,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['billing report', 'fee report', 'collection report', 'financial report'],
     description: 'Generate billing and financial reports'
   },
+  '/billing/activities': {
+    keywords: ['billing activity', 'audit trail', 'billing log', 'transaction history', 'billing audit', 'who did what'],
+    description: 'View audit trail of all billing operations'
+  },
   // Resource Management
   '/resource-management/analytics-dashboard': {
     keywords: ['resource stats', 'asset dashboard', 'utilization'],
@@ -355,11 +376,11 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     description: 'Configure available service request types'
   },
   // Administration
-  '/admin/notifications': {
+  '/notifications/admin': {
     keywords: ['notification', 'announcement', 'broadcast', 'alert', 'push'],
     description: 'Manage and send notifications'
   },
-  '/admin/notifications/new': {
+  '/notifications/admin/new': {
     keywords: ['send notification', 'new announcement', 'broadcast message'],
     description: 'Send a new notification or announcement'
   },
@@ -375,7 +396,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['audit', 'system logs', 'change history', 'who changed'],
     description: 'View system audit trail and change history'
   },
-  '/admin/lifecycle': {
+  '/learners/lifecycle': {
     keywords: ['lifecycle', 'student journey', 'enrollment to graduation'],
     description: 'Lifecycle analytics from enrollment to graduation'
   },
@@ -443,7 +464,7 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['bug leaderboard', 'top reporters', 'bug hunters'],
     description: 'Bug reporting leaderboard'
   },
-  '/admin/ai-query-tools': {
+  '/ai-query/admin': {
     keywords: ['ai tools', 'query tools', 'ai registry'],
     description: 'Manage AI query tool registry'
   },
@@ -624,6 +645,7 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   // Section-icon coverage (used by getSectionIcon in BottomNav)
   LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
   Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
+  ShoppingCart,
 };
 
 function getIconName(icon: LucideIcon): string {

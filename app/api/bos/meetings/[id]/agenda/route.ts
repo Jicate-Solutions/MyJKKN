@@ -45,11 +45,22 @@ export async function POST(
     }
 
     const { id: meetingId } = await params;
-    const body: Omit<CreateBosAgendaItemDto, 'meeting_id' | 'item_number' | 'sort_order'> =
+    const body: Omit<CreateBosAgendaItemDto, 'meeting_id' | 'item_number' | 'sort_order' | 'institutions_id'> =
       await request.json();
 
     if (!body.item_title?.trim()) {
       return NextResponse.json({ error: 'item_title is required' }, { status: 400 });
+    }
+
+    // Resolve institutions_id from the parent meeting row
+    const { data: meeting, error: meetingError } = await supabase
+      .from('bos_meetings')
+      .select('institutions_id')
+      .eq('id', meetingId)
+      .single();
+
+    if (meetingError || !meeting) {
+      return NextResponse.json({ error: 'Meeting not found' }, { status: 404 });
     }
 
     // Auto-assign item_number (count of existing items + 1) and sort_order
@@ -64,6 +75,7 @@ export async function POST(
       .from('bos_agenda_items')
       .insert({
         ...body,
+        institutions_id: meeting.institutions_id,
         meeting_id: meetingId,
         item_number: nextNumber,
         sort_order: nextNumber,

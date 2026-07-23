@@ -1,0 +1,14 @@
+export { BudgetVsActualsTab } from './budget-vs-actuals';
+export { TrainingBudgetTab } from './training-budget';
+export { CompetencyMatrixTab } from './competency-matrix';
+export { SkillsMatrixTab } from './skills-matrix';
+export { TimesheetSummaryTab } from './timesheet-summary';
+export { ResourceUtilizationTab } from './resource-utilization';
+export { CapacityPlanningTab } from './capacity-planning';
+export { ComplianceReadinessTab } from './compliance-readiness';
+export { DiversityMetricsTab } from './diversity-metrics';
+export { EngagementPulseTab } from './engagement-pulse';
+export { RecruitmentAnalyticsTab } from './recruitment-analytics';
+export { BenchStrengthTab } from './bench-strength';
+export { CrossInstitutionTab } from './cross-institution';
+export { PredictiveModelsTab } from './predictive-models';

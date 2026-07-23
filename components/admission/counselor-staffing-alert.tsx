@@ -13,7 +13,7 @@
  *     leads + 0 active counselors (config row)
  *
  * All thresholds are loaded from the staffing_alert_thresholds table via
- * useStaffingThreshold(). Edit them at /admin/counselors/alert-thresholds
+ * useStaffingThreshold(). Edit them at /admission/counselors/admin/alert-thresholds
  * (super_admin only). Defaults match prior hardcoded behaviour.
  *
  * Director's STANDING RULE — every policy decision = config-table row + super_admin UI.
