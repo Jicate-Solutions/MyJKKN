@@ -143,13 +143,13 @@ function buildPrompt(topicLabel: string, prior: Record<string, unknown> | null):
       improveBlock =
         `\n\nYour MOST RECENT version of this subject's prompts was copied by FEWER learners than an earlier version. ` +
         `Here is that earlier, better-performing "build" prompt: "${priorPrompt}". ` +
-        `It was copied by ${copiesWord(prior?.prior_copies)} students, and their engagement ${liftWord(prior?.prior_lift)}. ` +
+        `It was copied by ${copiesWord(prior?.prior_copies)} learners, and their engagement ${liftWord(prior?.prior_lift)}. ` +
         `Go BACK toward this earlier version and improve from HERE — do NOT continue from your last attempt. ` +
         `Make it sharper, simpler, and more hands-on so more students actually use it, and do NOT repeat the same build idea.`;
     } else {
       improveBlock =
         `\n\nLAST CYCLE you wrote this "build" prompt for this subject: "${priorPrompt}". ` +
-        `It was copied by ${copiesWord(prior?.prior_copies)} students, and their engagement ${liftWord(prior?.prior_lift)}. ` +
+        `It was copied by ${copiesWord(prior?.prior_copies)} learners, and their engagement ${liftWord(prior?.prior_lift)}. ` +
         `Make this cycle's prompts sharper, simpler, and more hands-on so more students actually use them — and do NOT repeat the same build idea.`;
     }
   }
