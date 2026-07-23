@@ -30,17 +30,16 @@ export const LEARNER_HIDDEN_LINE_LABEL = 'Other fees';
  */
 export const LEARNER_HIDDEN_LINE_ID = '__hidden__';
 
-/** Minimal structural type — works for the SSR, browser and service-role clients. */
-type CategoryReader = {
-  from: (table: 'billing_categories') => {
-    select: (columns: string) => {
-      eq: (
-        column: string,
-        value: boolean
-      ) => PromiseLike<{ data: { id: string }[] | null; error: unknown }>;
-    };
-  };
-};
+/**
+ * Any Supabase client — SSR, browser or service-role.
+ *
+ * Typed loosely on purpose. Threading the full generated `Database` generic
+ * through this helper made TS give up with TS2589 ("type instantiation is
+ * excessively deep and possibly infinite") at the my-bills call site, where the
+ * client is already carrying a large inferred query type. The helper only ever
+ * performs one two-column read, so there is nothing here worth that cost.
+ */
+type CategoryReader = { from: (table: string) => any };
 
 /**
  * Ids of every category that must not reach a learner. One query against a
@@ -63,7 +62,7 @@ export async function getLearnerHiddenCategoryIds(
     throw error;
   }
 
-  return new Set((data ?? []).map((c) => c.id));
+  return new Set(((data ?? []) as { id: string }[]).map((c) => c.id));
 }
 
 /**

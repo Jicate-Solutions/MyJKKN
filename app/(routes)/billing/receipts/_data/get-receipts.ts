@@ -139,7 +139,12 @@ export async function getReceipts(
   }
 
   return {
-    data: (data as BillingReceipt[]) || [],
+    // Double cast: supabase-js parses the select string at COMPILE time, so the
+    // conditional ownership embed above makes it a dynamic string it cannot
+    // parse — it infers ParserError rather than a row type. The query itself is
+    // valid (verified against the live REST API); only the static inference is
+    // defeated.
+    data: (data as unknown as BillingReceipt[]) || [],
     metadata: {
       total: count || 0,
       page,
