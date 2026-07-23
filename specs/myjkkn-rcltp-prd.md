@@ -6,7 +6,7 @@
 
 ## 1. In one paragraph
 
-RCLTP is a **reading-assessment + adaptive-learning module for school children (grades 1–10)**, built inside MyJKKN first and designed to be lifted out later as a standalone Jicate product for other schools. Children read passages **aloud** (voice-scored) and answer **comprehension** questions; the system scores them, places them in bands (**Emergent → Transitional → Proficient → Super Proficient**), assigns **adaptive weekly practice**, builds **vocabulary (VBB)**, and reports to **students, parents, teachers, and school heads**. **v1 is English end-to-end.** Language is **per-tenant pluggable** — English is the base; local languages (Tamil for JKKN, Telugu/Hindi for MyJKKN's region) are added later (content + speech engine) when a school's medium of instruction requires them, with no rebuild.
+RCLTP is a **reading-assessment + adaptive-learning module for young learners (grades 1–10)**, built inside MyJKKN first and designed to be lifted out later as a standalone Jicate product for other schools. Young learners read passages **aloud** (voice-scored) and answer **comprehension** questions; the system scores them, places them in bands (**Emergent → Transitional → Proficient → Super Proficient**), assigns **adaptive weekly practice**, builds **vocabulary (VBB)**, and reports to **learners, parents, Senior Learners, and school heads**. **v1 is English end-to-end.** Language is **per-tenant pluggable** — English is the base; local languages (Tamil for JKKN, Telugu/Hindi for MyJKKN's region) are added later (content + speech engine) when a school's medium of instruction requires them, with no rebuild.
 
 ---
 
