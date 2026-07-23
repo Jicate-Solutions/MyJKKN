@@ -35,6 +35,7 @@ import {
   getProviderRegistry,
   type ModelOption,
 } from '@/lib/services/platform/ai-providers';
+import { isSafetyJudge, isBelowSonnet } from '@/lib/constants/ai-safety-judge';
 
 interface FeatureRow {
   feature_key: string;
@@ -85,6 +86,12 @@ function buildFormState(f: FeatureRow | null): FormState {
     provider = MAX_LANE_PROVIDER;
     model_id = '';
   }
+  // Safety-judge FLOOR: if a safety-critical judge row is somehow stored on a
+  // below-Sonnet model (legacy bad data), clear it so the picker forces a valid
+  // Sonnet/Opus re-pick instead of silently keeping the sub-floor model.
+  if (isSafetyJudge(f?.feature_key) && isBelowSonnet(provider, model_id)) {
+    model_id = '';
+  }
   return {
     provider,
     model_id,
@@ -133,9 +140,16 @@ export function AiModelEditDialog({
   const isOpusHighVolume =
     form.model_id.toLowerCase().includes('opus') && monthlyInvocations >= 100;
 
+  // Safety-judge FLOOR: this feature must never run below Sonnet. Hide
+  // below-Sonnet models from the picker (offer only Sonnet/Opus). Same
+  // isBelowSonnet predicate the PATCH route enforces server-side.
+  const isSafetyJudgeFeature = isSafetyJudge(feature?.feature_key);
+
   const providerModels = useMemo<ModelOption[]>(() => {
-    return getProviderRegistry(form.provider)?.models ?? [];
-  }, [form.provider]);
+    const models = getProviderRegistry(form.provider)?.models ?? [];
+    if (!isSafetyJudgeFeature) return models;
+    return models.filter((m) => !isBelowSonnet(form.provider, m.id));
+  }, [form.provider, isSafetyJudgeFeature]);
 
   const fallbackProviderModels = useMemo<ModelOption[]>(() => {
     if (!form.fallback_provider) return [];
@@ -257,6 +271,11 @@ export function AiModelEditDialog({
             {form.model_id && (
               <p className="text-xs text-muted-foreground">
                 {providerModels.find((m) => m.id === form.model_id)?.notes ?? 'Reference pricing in the registry — actual cost is recorded per call.'}
+              </p>
+            )}
+            {isSafetyJudgeFeature && (
+              <p className="text-xs text-muted-foreground">
+                Safety-critical judge — cannot run below Sonnet.
               </p>
             )}
           </div>
