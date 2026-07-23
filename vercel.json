@@ -328,6 +328,10 @@
       "schedule": "0 6 * * 6"
     },
     {
+      "path": "/api/cron/aipulse-prompt-grade?secret=${CRON_SECRET}",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/aipulse-prompt-graduate?secret=${CRON_SECRET}",
       "schedule": "35 1 * * *"
     },
