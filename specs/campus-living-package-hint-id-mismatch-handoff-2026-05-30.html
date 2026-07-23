@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Campus Living · Package Hint id-mismatch · Handoff to Boobalan · 2026-05-30</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root { --ink:#0b1320; --muted:#5b6776; --line:#e6e8ec; --green:#0b6d41; --red:#b42318; --amber:#b54708; --bg:#fafafa; }
+  *{box-sizing:border-box}
+  body { font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color:var(--ink); background:var(--bg); margin:0; }
+  main { max-width: 920px; margin:0 auto; padding: 56px 32px 96px; }
+  h1 { font-size: 32px; margin: 0 0 4px; letter-spacing:-0.01em;}
+  .sub { color:var(--muted); margin: 0 0 24px; font-size: 14px; }
+  h2 { font-size: 21px; margin: 38px 0 12px; padding-top:22px; border-top:1px solid var(--line);}
+  h3 { font-size: 16.5px; margin: 22px 0 8px; }
+  p, li { font-size: 15.5px; }
+  ul, ol { margin: 6px 0 12px 0; padding-left: 22px; }
+  table { border-collapse:collapse; width:100%; margin:12px 0 20px; font-size: 14px; }
+  th, td { text-align:left; padding: 9px 12px; border-bottom:1px solid var(--line); vertical-align: top;}
+  th { background:#f3f4f6; font-weight:600;}
+  code { font: 12.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; background:#f3f4f6; padding: 1.5px 6px; border-radius:4px; color:#0b1320; }
+  pre { background:#0b1320; color:#e6e8ec; padding:14px 16px; border-radius:10px; overflow:auto; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  pre code { background:transparent; color:inherit; padding:0; }
+  .verdict { padding: 14px 18px; border-radius: 10px; border:1px solid; margin: 16px 0; font-weight:500; }
+  .verdict.red { color: var(--red); border-color:#fecdca; background:#fef3f2; }
+  .verdict.amber { color: var(--amber); border-color:#fedf89; background:#fffaeb; }
+  .rec { display:inline-block; font-size:11.5px; font-weight:700; padding:1.5px 8px; border-radius:99px; background:#ecfdf3; color:var(--green); margin-left:8px; vertical-align:middle; letter-spacing:.02em;}
+  .footer { margin-top: 44px; font-size: 13px; color:var(--muted); border-top:1px solid var(--line); padding-top: 16px;}
+  .owner-banner { background:#0b6d41; color:#fff; border-radius:10px; padding:14px 18px; margin:8px 0 24px; font-size:14.5px;}
+  .owner-banner b { color:#d3f5e3;}
+  .sev { display:inline-block; font-size:12px; padding:2px 9px; border-radius:99px; background:#fffaeb; color:var(--amber); font-weight:600;}
+  .opt { border:1px solid var(--line); border-radius:10px; padding:4px 18px 14px; margin:14px 0; background:#fff;}
+  .opt.rec-card { border-color:#abefc6; background:#f6faf8;}
+  .ok { color: var(--green); font-weight:600;}
+</style>
+</head>
+<body>
+<main>
+  <h1>Admission Package → Allocation Hint Card — id-type mismatch</h1>
+  <p class="sub">Campus Living · handoff to <b>Boobalan</b> · prepared 2026-05-30 · discovered verifying PR #1141 live on jkkn.ai</p>
+
+  <div class="owner-banner">
+    <b>Owner:</b> Boobalan (learner identity chain / learner-schema). &nbsp;<b>Severity:</b> <span class="sev">Medium</span> — a shipped feature is <b>dormant</b> (never fires). No data corruption, no crash. &nbsp;<b>Found by:</b> Claude (Mac session).
+  </div>
+
+  <h2>TL;DR</h2>
+  <p>The allocation <b>package hint card</b> (shipped in PR #1141, Task 3) can <b>never render</b>, because it
+     looks up the learner's package using the wrong id type:</p>
+  <ul>
+    <li>The allocation page passes a <code>learners_profiles.id</code> to <code>getPackageForLearner(...)</code>.</li>
+    <li>But <code>learner_package_assignment.learner_id</code> is keyed by <code>profiles.id</code> (FK → <code>profiles</code>).</li>
+    <li><code>getPackageForLearner</code> does <b>no translation</b> — it queries <code>learner_package_assignment.learner_id = &lt;the id passed&gt;</code>.</li>
+    <li>A <code>learners_profiles.id</code> can never equal a <code>profiles.id</code>, so the lookup always returns <code>null</code> → the hint card never shows.</li>
+  </ul>
+  <div class="verdict red">This is a substrate inconsistency from PR ε (#1127), <b>not</b> from #1141. The hint-card wiring (#1141) is type-correct; it just sits on a table keyed differently from the rest of campus-living.</div>
+
+  <h2>Evidence (all verified live against prod, 2026-05-30)</h2>
+  <table>
+    <tr><th>Fact</th><th>How it was verified</th></tr>
+    <tr><td><code>learner_package_assignment.learner_id</code> FK → <code>profiles</code></td><td>Insert with a <code>learners_profiles.id</code> failed: <code>violates foreign key constraint "learner_package_assignment_learner_id_fkey" … not present in table "profiles"</code></td></tr>
+    <tr><td><code>v_learner_hostelites.id = lp.id</code> (<code>learners_profiles.id</code>)</td><td><code>pg_get_viewdef('v_learner_hostelites')</code> → <code>SELECT lp.id, …</code></td></tr>
+    <tr><td>Allocation page passes that view's <code>id</code> as <code>learner_id</code></td><td><code>allocations/new/page.tsx</code>: <code>handleChange('learner_id', student.id)</code> where <code>student</code> ∈ <code>useLearnerHostelites</code> (→ the view)</td></tr>
+    <tr><td>Resolver does not translate</td><td><code>admission-package-service.ts</code> <code>getPackageForLearner</code>: <code>.eq('learner_id', learnerId)</code> — raw</td></tr>
+    <tr><td>Every other campus-living table uses <code>learners_profiles.id</code></td><td><code>hostel_allocations.learner_id</code>, the hostelite view, the eligibility tables all key on <code>learners_profiles.id</code></td></tr>
+  </table>
+  <p>Example learner (SANJAY C): <code>learners_profiles.id = c957bf9e-…</code>, his <code>profiles.id = 0f9b69c1-…</code>.
+     The page sends <code>c957bf9e…</code>; the table can only hold <code>0f9b69c1…</code>.</p>
+  <p><b>There are currently 0 rows</b> in <code>learner_package_assignment</code> and <b>0</b> <code>admission_packages</code> —
+     so <span class="ok">there is no data to migrate</span>; whichever fix you pick is data-safe today.</p>
+
+  <h2>Two fixes — your call (you own this chain)</h2>
+
+  <div class="opt">
+    <h3>Option A — service-layer translation (no schema change)</h3>
+    <p>Treat the incoming id as a <code>learners_profiles.id</code> and translate to <code>profiles.id</code> inside the service:</p>
+    <ul>
+      <li><code>getPackageForLearner(learnerId, …)</code>: first <code>select id from profiles where learner_id = :learnerId</code>, then query <code>learner_package_assignment.learner_id = &lt;that profiles.id&gt;</code>.</li>
+      <li><code>assignPackageToLearner(dto)</code>: same translation before insert (so the admission side stores <code>profiles.id</code>).</li>
+    </ul>
+    <p><b>Pros:</b> zero schema/migration, doesn't touch your tables' shapes. <b>Cons:</b> keeps the table inconsistent with the rest of campus-living; every future caller must remember the translation.</p>
+  </div>
+
+  <div class="opt rec-card">
+    <h3>Option B — realign the FK <span class="rec">RECOMMENDED</span></h3>
+    <p>Migrate <code>learner_package_assignment.learner_id</code> to reference <b><code>learners_profiles.id</code></b>, matching
+       <code>hostel_allocations</code> and everything else in campus-living. Then <code>getPackageForLearner</code> works with the
+       id the allocation page already passes — <b>no translation, no further code change</b>.</p>
+    <p>Because the table is empty, this is a clean <code>DROP CONSTRAINT … ; ADD CONSTRAINT … REFERENCES learners_profiles(id)</code>
+       with no data backfill. Also update <code>assignPackageToLearner</code> callers (admission side) to pass <code>learners_profiles.id</code>.</p>
+    <p><b>Why recommended:</b> it removes the inconsistency at the root and makes the hint card "just work" with no service hacks. Option A is the safe fallback if you'd rather not touch the FK.</p>
+  </div>
+
+  <h2>How to verify a fix (repro recipe)</h2>
+  <ol>
+    <li>Insert a throwaway package (Pharmacy <code>5736d86f-…</code>, room <code>00fad18b-…</code> Classic, year <code>c2d71268-…</code>).</li>
+    <li>Insert a <code>learner_package_assignment</code> for SANJAY for the current year with a chosen mess — using whichever id your fix expects (<code>profiles.id</code> for A, <code>learners_profiles.id</code> for B).</li>
+    <li>On jkkn.ai → <code>/campus-living/allocations/new</code>, search "SANJAY", select him. Expect the <b>"Admission package on file"</b> hint card to appear (package name, flat price, bundled room category, chosen mess) and the mess select to pre-fill.</li>
+    <li>Delete the assignment, then the package (eligibility CASCADEs; assignment is NO ACTION so delete it first).</li>
+  </ol>
+
+  <h2>Files</h2>
+  <ul>
+    <li><code>lib/services/campus-living/admission-package-service.ts</code> — <code>getPackageForLearner</code>, <code>assignPackageToLearner</code></li>
+    <li><code>app/(routes)/campus-living/allocations/new/page.tsx</code> — consumes <code>usePackageForLearner(formData.learner_id, …)</code></li>
+    <li><code>hooks/campus-living/use-admission-packages.ts</code> — <code>usePackageForLearner</code></li>
+    <li>(Option B only) a new migration under <code>supabase/migrations/</code> to swap the FK</li>
+  </ul>
+
+  <div class="footer">
+    The hint-card code is <b>forward-compatible</b>: it's a fail-open conditional that simply renders nothing today.
+    Once the id types line up (either fix), it starts working with no change to #1141's code.
+    <br/>Markdown source: <code>specs/campus-living-package-hint-id-mismatch-handoff-2026-05-30.md</code>
+  </div>
+</main>
+</body>
+</html>

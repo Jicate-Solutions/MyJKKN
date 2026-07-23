@@ -1,24 +1,27 @@
 'use client';
 
 /**
- * AI Pulse — 4-AND Engagement Gate Progress
+ * AI Pulse — Engagement Gate Progress (honest 2-of-3, 2026-06-18)
  *
- * Real-time visualisation of which of the 4 gates the learner has hit.
- * "3 of 4 gates passed" when 3/4 are green; cycle outcome metric counts
- * a learner as ENGAGED iff all 4 are green (the AND, not the OR).
+ * Real-time visualisation of the 3 real engagement signals a learner has hit:
+ * joined / stayed / passed the quiz. A learner counts as ENGAGED at 2 of these 3.
+ * Polls are NOT shown here — they're not part of the verdict (see
+ * isEngagedFromGates); learners answer polls in the polls panel, not this card.
  *
  * Pure presentational — receives signals via props and renders. The page
  * orchestrator (live-session-shell) computes the gate status via
  * `evaluateGates()` from the service.
  */
 
-import { Check, Circle, Clock, MessageCircleQuestion, LogIn, ScrollText } from 'lucide-react';
+import { Check, Circle, Clock, LogIn, ScrollText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import type { GateStatus } from '@/lib/services/ai-pulse/live-session-service';
 
 interface EngagementProgressProps {
   gates: GateStatus;
+  /** Policy-driven async make-up window (hours). Falls back to 48 if absent. */
+  asyncWindowHours?: number;
   className?: string;
 }
 
@@ -29,7 +32,7 @@ interface GateRow {
   Icon: React.ComponentType<{ className?: string }>;
 }
 
-export function EngagementProgress({ gates, className }: EngagementProgressProps) {
+export function EngagementProgress({ gates, asyncWindowHours = 48, className }: EngagementProgressProps) {
   const rows: GateRow[] = [
     {
       label: 'Joined within 5 minutes',
@@ -38,20 +41,14 @@ export function EngagementProgress({ gates, className }: EngagementProgressProps
       Icon: LogIn,
     },
     {
-      label: 'Responded to ≥ 3 polls',
-      description: 'Champion issues 3–5 polls during the session. Submit at least 3.',
-      passed: gates.polls_responded_ok,
-      Icon: MessageCircleQuestion,
-    },
-    {
       label: 'Stayed until the end',
-      description: 'Leave the tab open until 7:30 PM IST so the final heartbeat fires.',
+      description: 'Be present through to the end — taking the live quiz when it opens confirms this.',
       passed: gates.stayed_until_end,
       Icon: Clock,
     },
     {
       label: 'Passed the quiz',
-      description: 'Quiz opens after the session. Pass mark = 60%.',
+      description: 'Quiz opens after the session. Pass mark is policy-set (default 40% live, 60% async make-up).',
       passed: gates.quiz_passed,
       Icon: ScrollText,
     },
@@ -121,13 +118,13 @@ export function EngagementProgress({ gates, className }: EngagementProgressProps
 
         {gates.is_engaged ? (
           <div className="rounded-md border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 px-3 py-2 text-sm text-green-800 dark:text-green-300">
-            All 4 gates passed — you count as engaged for this cycle.
+            You count as engaged for this cycle.
           </div>
         ) : (
           <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-300">
-            Engagement requires <strong>all four</strong> gates (AND, not OR).
-            Missed live? An async make-up window stays open for 48 hours after
-            the session ends.
+            Engagement requires <strong>at least 2 of these 3</strong> gates.
+            Missed live? An async make-up window stays open for {asyncWindowHours} hours
+            after the session ends.
           </div>
         )}
       </CardContent>

@@ -59,13 +59,22 @@ interface UpdateResult {
   userCreated?: boolean;
 }
 
+// 2026-05-20: STATUS_OPTIONS updated for the workflow realignment.
+// The bulk dropdown now lets officers move learners through any pre-active stage.
 const STATUS_OPTIONS = [
   {
-    value: 'admitted',
-    label: 'Admitted',
+    value: 'enquiry',
+    label: 'Enquiry',
     icon: HelpCircle,
-    color: 'text-gray-500',
-    description: 'Mark as enquiry (initial stage)',
+    color: 'text-blue-500',
+    description: 'Mark as enquiry (initial counselor stage)',
+  },
+  {
+    value: 'enquiry_submitted',
+    label: 'Enquiry Submitted',
+    icon: HelpCircle,
+    color: 'text-purple-500',
+    description: 'Learner has completed the QR self-fill form',
   },
   {
     value: 'pending',
@@ -80,6 +89,13 @@ const STATUS_OPTIONS = [
     icon: Landmark,
     color: 'text-amber-500',
     description: 'Send to accounts team for billing and payment processing',
+  },
+  {
+    value: 'admitted',
+    label: 'Admitted',
+    icon: HelpCircle,
+    color: 'text-emerald-500',
+    description: 'Manually mark as admitted (post-threshold). Usually auto-applied on payment.',
   },
   {
     value: 'rejected',

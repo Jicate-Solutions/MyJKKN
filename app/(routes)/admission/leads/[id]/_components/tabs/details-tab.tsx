@@ -107,7 +107,7 @@ export function DetailsTab({
               <dt className="text-sm text-muted-foreground">Admission Year</dt>
               <dd className="font-medium">
                 {lead.admission_year?.admission_year_name
-                  ? `${lead.admission_year.admission_year_name} (${lead.admission_year.program_start_year}–${lead.admission_year.program_end_year})`
+                  ? `${lead.admission_year.admission_year_name} (${lead.admission_year.year})`
                   : lead.academic_year /* legacy fallback for historical rows */
                     || '-'}
               </dd>

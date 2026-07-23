@@ -42,7 +42,10 @@ const ID_BASED_SAMPLE_DATA = [
     department_id: '[Enter Department ID (teaching only)]',
     // Required: one of the valid custom_roles.role_key values (e.g. faculty, accounts, librarian)
     role_key: '[Enter role_key]',
-    is_active: 'true'
+    is_active: 'true',
+    // Optional: 'true' / 'false' / blank. Blank = derive from category's allows_login.
+    // Set to 'false' for view-only labour staff (no login, emails optional).
+    login_enabled: ''
   }
 ];
 
@@ -72,7 +75,10 @@ const NAME_BASED_SAMPLE_DATA = [
     department_name: '[Enter exact Department Name (teaching only)]',
     // Required: one of the valid custom_roles.role_key values
     role_key: '[Enter role_key]',
-    is_active: 'true'
+    is_active: 'true',
+    // Optional: 'true' / 'false' / blank. Blank = derive from category's allows_login.
+    // Set to 'false' for view-only labour staff (no login, emails optional).
+    login_enabled: ''
   }
 ];
 
@@ -97,7 +103,8 @@ const COLUMN_WIDTHS = {
   R: 40, // category_id or category_name
   S: 40, // institution_id or institution_name
   T: 40, // department_id or department_name
-  U: 10 // is_active
+  U: 10, // is_active
+  V: 18 // login_enabled
 };
 
 const ID_BASED_INSTRUCTIONS = [
@@ -134,6 +141,16 @@ const ID_BASED_INSTRUCTIONS = [
   ['8. Pincode'],
   ['9. Institution Email - Email address provided by the institution'],
   ['10. Is Active - Values: true, false (default is true)'],
+  ['11. Login Enabled - Values: true, false, or blank (defaults from category)'],
+  [''],
+  ['View-Only / Labour Staff:'],
+  ['- Use login_enabled=false for staff who should NOT log in to MyJKKN'],
+  ['  (drivers, security, cooking masters, attenders, hostel staff, etc.)'],
+  ['- For view-only staff, email and institution_email can be left blank'],
+  ['- Phone is STILL required (used to generate a unique system identifier)'],
+  ['- The category default applies when login_enabled is blank — toggle a'],
+  ['  category to "Login default OFF" in Staff > Categories admin'],
+  ['- View-only staff cannot log in via Google OAuth regardless of role_key'],
   [''],
   ['Date Format Notes:'],
   ['- Multiple date formats are accepted and automatically converted'],
@@ -192,6 +209,16 @@ const NAME_BASED_INSTRUCTIONS = [
   ['8. Pincode'],
   ['9. Institution Email - Email address provided by the institution'],
   ['10. Is Active - Values: true, false (default is true)'],
+  ['11. Login Enabled - Values: true, false, or blank (defaults from category)'],
+  [''],
+  ['View-Only / Labour Staff:'],
+  ['- Use login_enabled=false for staff who should NOT log in to MyJKKN'],
+  ['  (drivers, security, cooking masters, attenders, hostel staff, etc.)'],
+  ['- For view-only staff, email and institution_email can be left blank'],
+  ['- Phone is STILL required (used to generate a unique system identifier)'],
+  ['- The category default applies when login_enabled is blank — toggle a'],
+  ['  category to "Login default OFF" in Staff > Categories admin'],
+  ['- View-only staff cannot log in via Google OAuth regardless of role_key'],
   [''],
   ['Date Format Notes:'],
   ['- Multiple date formats are accepted and automatically converted'],
@@ -314,6 +341,11 @@ export default function DownloadStaffTemplateButton() {
     }
 
     exampleData.push(['is_active', 'true', 'true or false']);
+    exampleData.push([
+      'login_enabled',
+      'false',
+      'Optional — true / false / blank. Blank = derive from category. Set false for view-only labour staff'
+    ]);
 
     return exampleData;
   };
@@ -391,6 +423,12 @@ export default function DownloadStaffTemplateButton() {
           type: 'list',
           operator: 'equal',
           formula1: '"true,false"'
+        },
+        V: {
+          // login_enabled
+          type: 'list',
+          operator: 'equal',
+          formula1: '"true,false,"'
         }
       };
 
@@ -418,13 +456,16 @@ export default function DownloadStaffTemplateButton() {
 
       const filledExampleWs = XLSX.utils.aoa_to_sheet(filledExampleData);
 
-      // Add filled example based on template type
+      // Add filled example based on template type. Two rows:
+      //   Row 1 = a regular login-enabled teaching/non-teaching staff
+      //   Row 2 = a view-only labour staff (blank emails, login_enabled=false)
       if (templateType === 'id') {
         if (
           categories.length > 0 &&
           institutions.length > 0 &&
           departments.length > 0
         ) {
+          const nonTeachingCat = categories.find((c) => !c.is_teaching);
           const exampleData = [
             {
               ...ID_BASED_SAMPLE_DATA[0],
@@ -434,6 +475,21 @@ export default function DownloadStaffTemplateButton() {
                 departments.find(
                   (d: any) => d.institution_id === institutions[0].id
                 )?.id || departments[0].id
+            },
+            {
+              ...ID_BASED_SAMPLE_DATA[0],
+              first_name: 'Ramesh',
+              last_name: 'Kumar',
+              email: '',
+              institution_email: '',
+              staff_id: 'STAFF-DRV-001',
+              designation: 'Driver',
+              phone: '9876543210',
+              category_id: (nonTeachingCat?.id) || categories[0].id,
+              institution_id: institutions[0].id,
+              department_id: '',
+              role_key: 'driver',
+              login_enabled: 'false'
             }
           ];
           XLSX.utils.sheet_add_json(filledExampleWs, exampleData, {
@@ -446,6 +502,7 @@ export default function DownloadStaffTemplateButton() {
           institutions.length > 0 &&
           departments.length > 0
         ) {
+          const nonTeachingCat = categories.find((c) => !c.is_teaching);
           const exampleData = [
             {
               ...NAME_BASED_SAMPLE_DATA[0],
@@ -455,6 +512,21 @@ export default function DownloadStaffTemplateButton() {
                 departments.find(
                   (d: any) => d.institution_id === institutions[0].id
                 )?.department_name || departments[0].department_name
+            },
+            {
+              ...NAME_BASED_SAMPLE_DATA[0],
+              first_name: 'Ramesh',
+              last_name: 'Kumar',
+              email: '',
+              institution_email: '',
+              staff_id: 'STAFF-DRV-001',
+              designation: 'Driver',
+              phone: '9876543210',
+              category_name: nonTeachingCat?.name || categories[0].name,
+              institution_name: institutions[0].name,
+              department_name: '',
+              role_key: 'driver',
+              login_enabled: 'false'
             }
           ];
           XLSX.utils.sheet_add_json(filledExampleWs, exampleData, {

@@ -1,0 +1,172 @@
+name: Module Config Audits
+
+# Resurrects the four checks orphaned when build-check.yml was disabled.
+#
+# History: build-check.yml bundled six checks behind a full-repo `tsc --noEmit`
+# first step. The repo's legacy type-error baseline made that step always-red,
+# so the whole workflow was disabled_manually (~2026-04-10) — which silently
+# killed the four checks below. They ran NOWHERE between then and this file
+# (gap surfaced in the 2026-06-11 gate audit). Nav reachability was already
+# re-homed to nav-reachability-gate.yml; the type check was superseded by
+# typecheck-pr-scoped.yml. This workflow carries the remaining four WITHOUT
+# the tsc step that poisoned the bundle.
+#
+# Lesson encoded: one check per failure-class per workflow. A noisy check in a
+# bundle gets the whole bundle disabled.
+#
+# Check 4 (bug-module classifier) is DELTA-ONLY: while the check was dead,
+# 27 module slugs went missing from the classifier CASE (verified on main
+# 2026-06-11 — their bugs classify as 'other'). Failing every PR for that
+# legacy backlog would get this workflow disabled too, so it fails only on
+# NEW missing slugs the PR introduces — same ratchet discipline as
+# typecheck-pr-scoped.yml and hub-page-reachability-pr-scoped.yml. The
+# backlog fix (SQL CASE + badge entries + prod migration) is tracked
+# separately.
+#
+# Note: check:admission-counselor-membership was removed from package.json
+# sometime after the disable, but scripts/check-admission-counselor-membership.mjs
+# still exists — invoked directly via node here.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  # Merge queue (2026-07-11): full-tree checks + delta classifier re-run on
+  # the queue's merged tree so a combination of individually-green PRs can't
+  # land a broken main. Inert until the merge queue is enabled on the repo.
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+jobs:
+  config-audits:
+    name: Module Config Audits
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # base SHA needed for classifier delta
+
+      # Minutes diet (2026-06-12): docs/screenshots/.github-only PRs cannot
+      # change nav configs, MODULES, permissions, or the SQL classifier —
+      # skip the npm install + all checks. Job still reports SUCCESS so the
+      # required-check status stays satisfied.
+      - name: Skip if diff cannot affect module config
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # merge_group has no base_ref; the group's parent SHA is already in
+          # history (checkout of the merge head with fetch-depth 0).
+          if [[ -n "$MG_BASE_SHA" ]]; then
+            DIFF_BASE="$MG_BASE_SHA"
+          else
+            git fetch origin "$BASE_REF" --quiet
+            DIFF_BASE="origin/$BASE_REF"
+          fi
+          CHANGED=$(git diff --name-only "$DIFF_BASE...HEAD")
+          NON_DOCS=$(echo "$CHANGED" | grep -vE '\.(md|mdx|txt|png|jpe?g|gif|svg|webp|pdf)$|^\.screenshots/|^docs/|^specs/|^\.github/|^LICENSE$|^\.gitignore$' || true)
+          if [[ -z "$NON_DOCS" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docs/screenshots/.github-only diff — module config untouched. Install + audits skipped (Actions minutes saved)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.scope.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # npm download cache intentionally NOT used: the node_modules cache
+          # (seeded from main) makes it dead weight on hits; lockfile-change
+          # misses pay a one-off cold install instead (rare, acceptable).
+
+      # node_modules cache: keyed on the lockfile — a hit skips npm ci.
+      - name: Cache node_modules
+        if: steps.scope.outputs.skip != 'true'
+        id: nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.scope.outputs.skip != 'true' && steps.nm.outputs.cache-hit != 'true'
+        run: npm ci --no-audit --no-fund
+
+      # Sidebar health reads the route manifest; regenerate from the PR's
+      # filesystem so the check sees the PR's actual pages.
+      - name: Regenerate route manifest
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run gen:routes
+
+      # Catches sidebar config drift (entries pointing at deleted pages).
+      # Passes on main as of 2026-06-11.
+      - name: Check sidebar coverage
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run check:sidebar
+
+      # Catches modules that fail permission-audit-coverage thresholds.
+      # Passes on main as of 2026-06-11.
+      - name: Check audit coverage
+        if: steps.scope.outputs.skip != 'true'
+        run: npm run check:audit-coverage
+
+      # Passes on main as of 2026-06-11 (no drift found).
+      - name: Check admission-counselor membership contract
+        if: steps.scope.outputs.skip != 'true'
+        run: node scripts/check-admission-counselor-membership.mjs
+
+      # Verifies bug_reports.module_name CASE in supabase/setup/01_tables.sql
+      # covers every slug in MODULES (lib/navigation/modules.ts). Without this,
+      # adding a new top-level module silently misclassifies its bugs as 'other'.
+      # DELTA-ONLY: compares missing-slug sets between PR base and head; fails
+      # only if the PR ADDS missing slugs. 27 legacy missing slugs on main
+      # (2026-06-11) are baseline — not this PR's fault, not gated here.
+      - name: Check bug-module classifier parity (delta-only)
+        if: steps.scope.outputs.skip != 'true'
+        env:
+          # pull_request → PR base; merge_group → the queue group's parent SHA.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+
+          extract_missing() {
+            # The script prints missing slugs as lines like "  ✗ slug" (with
+            # ANSI colors). Strip ANSI, keep the slug column, sorted unique.
+            sed $'s/\x1b\\[[0-9;]*m//g' | grep -E '^  ✗ ' | awk '{print $2}' | sort -u
+          }
+
+          # HEAD audit (script exits 1 on any missing — tolerated, we diff below)
+          node scripts/check-bug-module-classifier.mjs > /tmp/clf-head.txt 2>&1 || true
+          extract_missing < /tmp/clf-head.txt > /tmp/clf-head-missing.txt
+
+          # BASE audit (defensive stash mirrors hub-page-reachability gate)
+          git stash --include-untracked --quiet || true
+          git checkout -q "$BASE_SHA"
+          node scripts/check-bug-module-classifier.mjs > /tmp/clf-base.txt 2>&1 || true
+          extract_missing < /tmp/clf-base.txt > /tmp/clf-base-missing.txt
+          git checkout -q -
+
+          comm -13 /tmp/clf-base-missing.txt /tmp/clf-head-missing.txt > /tmp/clf-new.txt
+          new_count=$(wc -l < /tmp/clf-new.txt | tr -d ' ')
+          base_count=$(wc -l < /tmp/clf-base-missing.txt | tr -d ' ')
+
+          if [ "$new_count" -eq 0 ]; then
+            echo "::notice::No NEW classifier drift introduced (baseline: $base_count legacy missing slugs, tracked separately)."
+            exit 0
+          fi
+
+          echo "::error::This PR introduces $new_count NEW module slug(s) missing from the bug classifier — their bugs will classify as 'other':"
+          while IFS= read -r slug; do
+            echo "::error title=Missing classifier entry::Slug '$slug' is in MODULES but not in the bug_reports CASE (supabase/setup/01_tables.sql) or badge moduleConfig. Run: node scripts/check-bug-module-classifier.mjs for the exact WHEN clauses to add."
+          done < /tmp/clf-new.txt
+          exit 1

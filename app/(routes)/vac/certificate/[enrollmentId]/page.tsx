@@ -38,11 +38,11 @@ import toast from 'react-hot-toast';
 function CertificateView({
   enrollment,
   userName,
-  isSeniorLearner,
+  isPeerMentor,
 }: {
   enrollment: VACEnrollmentWithDetails;
   userName: string;
-  isSeniorLearner: boolean;
+  isPeerMentor: boolean;
 }) {
   const completionDate = enrollment.completed_at
     ? new Date(enrollment.completed_at).toLocaleDateString('en-IN', {
@@ -130,16 +130,16 @@ function CertificateView({
           </div>
         </div>
 
-        {/* Senior Learner endorsement */}
-        {isSeniorLearner && (
+        {/* Peer Mentor endorsement */}
+        {isPeerMentor && (
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mt-2">
             <ShieldCheck className="h-5 w-5 text-amber-600" />
             <div className="text-left">
               <p className="text-sm font-semibold text-amber-800">
-                Senior Learner Endorsement
+                Peer Mentor Endorsement
               </p>
               <p className="text-xs text-amber-600">
-                All 6 CASE tracks completed - Qualified for Senior Learner status
+                All 6 CASE tracks completed - Qualified for Peer Mentor status
               </p>
             </div>
           </div>
@@ -200,7 +200,7 @@ export default function CertificatePage({
   }, [enrollments, enrollmentId]);
 
   // Check if all 6 CASE tracks are completed
-  const isSeniorLearner = useMemo(() => {
+  const isPeerMentor = useMemo(() => {
     if (!caseProgress) return false;
     return (caseProgress as CASELearnerProgress).tracks_completed >= 6;
   }, [caseProgress]);
@@ -332,13 +332,13 @@ export default function CertificatePage({
         align: 'center',
       });
 
-      // Senior learner endorsement
-      if (isSeniorLearner) {
+      // Peer mentor endorsement
+      if (isPeerMentor) {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(139, 92, 15);
         doc.text(
-          'Senior Learner Endorsement - All 6 CASE Tracks Completed',
+          'Peer Mentor Endorsement - All 6 CASE Tracks Completed',
           pageWidth / 2,
           detailY + 12,
           { align: 'center' }
@@ -372,7 +372,7 @@ export default function CertificatePage({
       console.error('[vac/certificate] PDF generation failed:', error);
       toast.error('Failed to generate PDF');
     }
-  }, [enrollment, userName, isSeniorLearner]);
+  }, [enrollment, userName, isPeerMentor]);
 
   const handlePrint = useCallback(() => {
     window.print();
@@ -479,7 +479,7 @@ export default function CertificatePage({
         <CertificateView
           enrollment={enrollment}
           userName={userName}
-          isSeniorLearner={isSeniorLearner}
+          isPeerMentor={isPeerMentor}
         />
       </div>
     </ContentLayout>

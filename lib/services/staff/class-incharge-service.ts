@@ -136,6 +136,43 @@ export class ClassInchargeService {
   }
 
   /**
+   * Whether a staff member is a class incharge eligible to mark day-wise
+   * (session_wise) attendance — either via an active section-level
+   * class_incharges assignment, or as the class_incharge_id on at least one
+   * active session_wise timetable. Period-wise timetables are excluded because
+   * their attendance is marked by subject/course-mapping staff, not the incharge.
+   * Used to admit incharges to the attendance marking flow regardless of role.
+   */
+  static async isStaffIncharge(staffId: string): Promise<boolean> {
+    if (!staffId) return false;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sb = this.supabase as any;
+      const [sectionRes, timetableRes] = await Promise.all([
+        sb
+          .from('class_incharges')
+          .select('id')
+          .eq('staff_id', staffId)
+          .eq('is_active', true)
+          .limit(1),
+        sb
+          .from('timetables')
+          .select('id')
+          .eq('class_incharge_id', staffId)
+          .eq('attendance_mode', 'session_wise')
+          .eq('is_active', true)
+          .limit(1)
+      ]);
+      const hasSection = (sectionRes.data?.length ?? 0) > 0;
+      const hasSessionTimetable = (timetableRes.data?.length ?? 0) > 0;
+      return hasSection || hasSessionTimetable;
+    } catch (error) {
+      console.error('[class-incharge-service] Error checking incharge status:', error);
+      return false;
+    }
+  }
+
+  /**
    * Assign a staff member as class incharge for a section.
    */
   static async assignIncharge(dto: AssignInchargeDto): Promise<ClassIncharge> {

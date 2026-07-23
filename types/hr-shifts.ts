@@ -5,7 +5,7 @@
  *
  * Mirrors the schema in supabase/migrations/20260510004200_create_hr_shift_templates_and_assignments.sql
  * verbatim — no inference. The service (lib/services/hr/shift-service.ts) and
- * UI pages (app/(routes)/admin/hr/shift-templates/page.tsx,
+ * UI pages (app/(routes)/hr/admin/shift-templates/page.tsx,
  * app/(routes)/hr/shifts/page.tsx, app/(routes)/hr/shifts/my/page.tsx) read
  * these types as their source of truth.
  */

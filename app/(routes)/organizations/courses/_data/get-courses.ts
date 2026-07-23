@@ -4,7 +4,8 @@
 
 
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { ensureCoeMirrorFresh } from '@/lib/services/coe-sync';
 
 
 
@@ -21,6 +22,21 @@ export interface CoursesFilters {
 export async function getCourses(filters: CoursesFilters = {}) { // 1 hour cache
 
   const supabase = await createClient();
+
+  // On-demand mirror: for a COE-mastered institution (CAS, Engineering) this
+  // refreshes the local courses table from COE before we read it, so the list
+  // is current without the user re-entering anything. TTL-throttled + self-
+  // guards on course_master_source, so MyJKKN-mastered institutions are nearly
+  // free, and any COE failure is swallowed (a stale mirror never blocks the page).
+  // Writes go through the service-role client (the RLS read client can't upsert).
+  if (filters.institutionId) {
+    try {
+      await ensureCoeMirrorFresh(createServiceRoleClient(), filters.institutionId);
+    } catch {
+      /* non-fatal — proceed with whatever is already mirrored */
+    }
+  }
+
   const page = filters.page || 1;
   const pageSize = filters.pageSize || 10;
   const from = (page - 1) * pageSize;

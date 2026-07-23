@@ -18,9 +18,8 @@ import {
 const READABLE_COLUMNS = [
   ...STUDENT_WRITABLE_COLUMNS.basic,
   ...STUDENT_WRITABLE_COLUMNS.academic,
+  ...STUDENT_WRITABLE_COLUMNS.course,
   ...STUDENT_WRITABLE_COLUMNS.contact,
-  // Pre-filled from conversion bridge — student sees but doesn't edit:
-  'institution_id',
 ];
 
 export async function GET(
@@ -63,7 +62,7 @@ export async function PATCH(
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  if (!['basic', 'academic', 'contact'].includes(body.section)) {
+  if (!['basic', 'academic', 'course', 'accommodation', 'contact'].includes(body.section)) {
     return NextResponse.json({ error: 'Invalid section' }, { status: 400 });
   }
 

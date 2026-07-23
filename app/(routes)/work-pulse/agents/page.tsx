@@ -7,6 +7,7 @@ import { getPatterns, getAgentBoardStats } from './_data/get-patterns';
 import { WorkPulseService } from '@/lib/services/work-pulse/work-pulse-service';
 import { WpPatternTier } from '@/types/work-pulse';
 import { TierSection } from './_components/tier-section';
+import { RunAnalysisButton } from './_components/run-analysis-button';
 
 const TIERS: WpPatternTier[] = ['S', 'A', 'B', 'C'];
 
@@ -50,11 +51,14 @@ export default async function AgentBoardPage() {
 
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold py-1">Agent Opportunity Board</h1>
-          <p className="text-sm text-muted-foreground">
-            AI-discovered automation opportunities ranked by impact
-          </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold py-1">Agent Opportunity Board</h1>
+            <p className="text-sm text-muted-foreground">
+              AI-discovered automation opportunities ranked by impact
+            </p>
+          </div>
+          <RunAnalysisButton />
         </div>
 
         {/* Stats Cards */}

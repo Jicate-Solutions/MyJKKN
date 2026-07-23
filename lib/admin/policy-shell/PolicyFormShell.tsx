@@ -122,13 +122,17 @@ export function PolicyFormShell({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      {/* flex column + capped height so the body scrolls while header/footer
+          stay pinned. `flex` overrides DialogContent's default `grid`. */}
+      <DialogContent className="flex max-h-[90dvh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        {/* min-h-0 is required for a flex child to shrink below its content
+            height so overflow-y-auto actually scrolls. */}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-2 pr-1">
           {fields.map((f) => {
             if (f.visibleWhen && !f.visibleWhen(values)) return null;
             return (
@@ -136,6 +140,7 @@ export function PolicyFormShell({
                 key={f.name}
                 field={f}
                 value={values[f.name]}
+                values={values}
                 onChange={(v) => update(f.name, v)}
                 institutions={institutions}
               />
@@ -168,6 +173,8 @@ export function PolicyFormShell({
 interface FieldRendererProps {
   field: FieldSchema;
   value: unknown;
+  /** All current form values — needed for fields with dynamicOptions (cascades). */
+  values: Record<string, unknown>;
   onChange: (value: unknown) => void;
   institutions?: ReadonlyArray<{ id: string; name: string }>;
 }
@@ -175,6 +182,7 @@ interface FieldRendererProps {
 function FieldRenderer({
   field,
   value,
+  values,
   onChange,
   institutions,
 }: FieldRendererProps) {
@@ -206,7 +214,7 @@ function FieldRenderer({
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{field.englishLabel}</Label>
-      {renderInput(field, value, onChange, institutions, id)}
+      {renderInput(field, value, onChange, institutions, id, values)}
       {field.englishHint && (
         <p className="text-xs text-muted-foreground">{field.englishHint}</p>
       )}
@@ -225,6 +233,7 @@ function renderInput(
   onChange: (v: unknown) => void,
   _institutions: ReadonlyArray<{ id: string; name: string }> | undefined,
   id: string,
+  values: Record<string, unknown>,
 ) {
   // _institutions is reserved for a future scope-with-institution variant that
   // renders the institution dropdown inline. Today, pages add a sibling
@@ -273,7 +282,9 @@ function renderInput(
 
     case 'enum':
     case 'enum-with-hint': {
-      const options = field.options ?? [];
+      const options = field.dynamicOptions
+        ? field.dynamicOptions(values)
+        : field.options ?? [];
       const selected = options.find((o) => o.value === value);
       return (
         <>

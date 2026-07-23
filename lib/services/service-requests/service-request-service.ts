@@ -9,14 +9,15 @@
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type {
-  ServiceRequest,
-  ServiceRequestStatus,
-  CreateServiceRequestDto,
-  UpdateServiceRequestDto,
-  ServiceRequestFilters,
-  ServiceRequestListResponse,
-  ServiceRequestAnalytics,
+import {
+  ALL_ROLES_WILDCARD,
+  type ServiceRequest,
+  type ServiceRequestStatus,
+  type CreateServiceRequestDto,
+  type UpdateServiceRequestDto,
+  type ServiceRequestFilters,
+  type ServiceRequestListResponse,
+  type ServiceRequestAnalytics,
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
 
@@ -93,12 +94,33 @@ export class ServiceRequestService {
       throw new Error('User profile not found');
     }
 
-    if (
-      serviceType.allowed_roles &&
-      serviceType.allowed_roles.length > 0 &&
-      !serviceType.allowed_roles.includes(profile.role) &&
-      profile.role !== 'super_admin'
-    ) {
+    // Authorize against the requester's FULL role-key set — the legacy
+    // profiles.role column PLUS every dynamic custom role assigned via
+    // user_roles. This MUST mirror the visibility filter in
+    // ServiceTypeService.getServiceTypes (which uses the same combined set):
+    // ~99% of users carry their real role through user_roles, so checking only
+    // profiles.role here would reject users who can SEE the type but whose
+    // eligibility comes from a custom role — the "visible but can't submit" bug.
+    const roleKeys = new Set<string>();
+    if (profile.role) roleKeys.add(profile.role);
+
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('custom_roles(role_key)')
+      .eq('user_id', userId);
+    for (const ur of (userRoles as any[]) || []) {
+      const key = ur.custom_roles?.role_key;
+      if (key) roleKeys.add(key);
+    }
+
+    const allowedRoles: string[] = serviceType.allowed_roles || [];
+    const roleAllowed =
+      allowedRoles.length === 0                              // no role restriction configured
+      || allowedRoles.includes(ALL_ROLES_WILDCARD)           // '*' = any authenticated user
+      || allowedRoles.some((r) => roleKeys.has(r))           // user holds an allowed role
+      || roleKeys.has('super_admin');
+
+    if (!roleAllowed) {
       throw new Error('You are not allowed to create this type of request');
     }
 
@@ -143,7 +165,7 @@ export class ServiceRequestService {
     }
 
     // 4. Build requester context
-    let requesterContext: Record<string, any> = {
+    const requesterContext: Record<string, any> = {
       role: profile.role,
       email: profile.email,
     };
@@ -228,21 +250,71 @@ export class ServiceRequestService {
       'Request created'
     );
 
-    // If submitted, create first approval record
-    if (initialStatus === 'submitted' && serviceType.approval_steps?.length > 0) {
-      const firstStep = serviceType.approval_steps
-        .sort((a: any, b: any) => a.step_order - b.step_order)[0];
+    // NOTE: we used to insert a placeholder "pending" row in
+    // service_request_approvals here with approver_id = userId (the submitter).
+    // That row was supposed to be UPDATED later by the actual approver via
+    // processApproval()'s maybeSingle() + UPDATE path. In practice the
+    // approver could never see the placeholder — RLS on the table only allows
+    // approver_id = auth.uid() OR requester_id = auth.uid() OR super_admin,
+    // and the actual approver matches none of those. maybeSingle() silently
+    // returned null and the code fell through to INSERT, creating a duplicate.
+    // Pending state is already represented by service_requests.status +
+    // current_approval_step; the approvals table is now the action log only.
 
-      await supabase.from('service_request_approvals').insert({
-        service_request_id: request.id,
-        approval_step_id: firstStep.id,
-        step_order: firstStep.step_order,
-        approver_id: userId, // Placeholder - will be resolved by role
-        action: 'pending',
-      });
+    const noApprovalSteps = (serviceType.approval_steps || []).length === 0;
+    if (initialStatus === 'submitted' && noApprovalSteps && serviceType.auto_fulfill_on_approval) {
+      await this.finalizeAutoApproval(request.id, serviceType, userId, 'submitted');
+      return await this.getRequest(request.id);
     }
 
     return request;
+  }
+
+  /**
+   * Finalize a request that needs no approval: mark fulfilled and run any
+   * post-approval side effects (transport profile sync). Used when a service
+   * type has auto_fulfill_on_approval=true and zero approval steps.
+   */
+  private static async finalizeAutoApproval(
+    requestId: string,
+    serviceType: any,
+    userId: string,
+    fromStatus: ServiceRequestStatus
+  ): Promise<void> {
+    const supabase = await getSupabase();
+    const now = new Date().toISOString();
+
+    const updateData: Record<string, any> = {
+      status: 'fulfilled',
+      approved_at: now,
+      fulfilled_at: now,
+      current_approval_step: 0,
+      updated_by: userId,
+    };
+    if (serviceType.validity_period_days) {
+      const expires = new Date();
+      expires.setDate(expires.getDate() + serviceType.validity_period_days);
+      updateData.validity_expires_at = expires.toISOString();
+    }
+
+    await supabase.from('service_requests').update(updateData).eq('id', requestId);
+
+    await ServiceRequestTimelineService.addStatusChange(
+      requestId,
+      userId,
+      fromStatus,
+      'fulfilled' as ServiceRequestStatus,
+      'Auto-approved — no approval required'
+    );
+
+    if (serviceType.slug === 'transport-request') {
+      const { error } = await supabase.rpc('sync_bus_pass_to_learner_profile', {
+        p_request_id: requestId,
+      });
+      if (error) {
+        console.error('[service-requests] Auto-approve bus-pass sync failed:', error);
+      }
+    }
   }
 
   /**
@@ -341,21 +413,8 @@ export class ServiceRequestService {
       throw new Error(`Failed to submit request: ${error.message}`);
     }
 
-    // Create first pending approval record
-    const approvalSteps = request.service_type?.approval_steps || [];
-    if (approvalSteps.length > 0) {
-      const firstStep = approvalSteps.sort(
-        (a: any, b: any) => a.step_order - b.step_order
-      )[0];
-
-      await supabase.from('service_request_approvals').insert({
-        service_request_id: id,
-        approval_step_id: firstStep.id,
-        step_order: firstStep.step_order,
-        approver_id: userId, // Placeholder
-        action: 'pending',
-      });
-    }
+    // (Placeholder pending row removed — see createRequest for rationale.
+    //  Pending state lives on service_requests.status + current_approval_step.)
 
     await ServiceRequestTimelineService.addStatusChange(
       id,
@@ -364,6 +423,13 @@ export class ServiceRequestService {
       'submitted',
       'Request submitted for approval'
     );
+
+    const st = request.service_type;
+    const noApprovalSteps = (st?.approval_steps || []).length === 0;
+    if (noApprovalSteps && st?.auto_fulfill_on_approval) {
+      await this.finalizeAutoApproval(id, st, userId, 'submitted');
+      return await this.getRequest(id);
+    }
 
     return data;
   }
@@ -420,6 +486,45 @@ export class ServiceRequestService {
     );
 
     return data;
+  }
+
+  /**
+   * Permanently delete a service request (super-admin only).
+   *
+   * Authority is RLS: the additive `service_requests_delete_super_admin` policy
+   * (is_super_admin()) is the ONLY policy that permits a DELETE on this table.
+   * A non-super-admin who can SEE a request (e.g. its own requester) passes the
+   * existence check below, but the DELETE then matches 0 rows under RLS — we
+   * surface that as a 403 rather than a misleading success. Child rows
+   * (approvals, timeline, attachments) are removed via ON DELETE CASCADE.
+   */
+  static async deleteRequest(id: string): Promise<void> {
+    const supabase = await getSupabase();
+
+    const { data: existing, error: fetchError } = await supabase
+      .from('service_requests')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !existing) {
+      throw new Error('Service request not found');
+    }
+
+    const { data: deleted, error } = await supabase
+      .from('service_requests')
+      .delete()
+      .eq('id', id)
+      .select('id');
+
+    if (error) {
+      console.error('[service-requests] Failed to delete request:', error);
+      throw new Error(`Failed to delete request: ${error.message}`);
+    }
+
+    if (!deleted || deleted.length === 0) {
+      throw new Error('Only super administrators can delete service requests');
+    }
   }
 
   /**

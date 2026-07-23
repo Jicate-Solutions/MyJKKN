@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCertificate } from '@/hooks/pde/use-pde';
+import { AddToLinkedInButton } from '@/components/linkedin/add-to-linkedin-button';
 import { downloadCertificatePDF } from '@/lib/utils/certificate-pdf';
 import type { CertificateData } from '@/lib/utils/certificate-pdf';
 import type { FinksDimension } from '@/types/pde';
@@ -311,6 +312,19 @@ export default function PDECertificatePage({
               <Download className="h-4 w-4 mr-2" />
               {isDownloading ? 'Generating...' : 'Download PDF'}
             </Button>
+            {/* Add this credential to a LinkedIn profile — pure URL, no API/OAuth.
+                Learn certs are PDE certs → already covered by the unified /verify
+                resolver + cancellation state; this only surfaces the button. */}
+            <AddToLinkedInButton
+              cert={{
+                name:
+                  certificate.course_name ||
+                  certificate.certificate_type.replace(/_/g, ' '),
+                certId: certificate.certificate_number,
+                certUrl: verificationUrl,
+                issuedAt: certificate.issued_at,
+              }}
+            />
           </div>
         </div>
 

@@ -1,0 +1,261 @@
+# AI Pulse loop manifest — DISCOVERY PASS 2026-07-13. Every fact below was
+# verified read-only (git show jicate/main:<path> / prod information_schema /
+# pg_proc / live row counts). The sim and walk have NOT been executed yet —
+# the first /loops regress|walk run must confirm the asserts and append traps.
+# SECOND-PASS VERIFY 2026-07-13 (independent re-derivation): re-confirmed
+# pg_proc fns, dials, gates staleness, permissions, edges, counts. Fixed two
+# seed bugs found against live receipts: (1) status 'published' violates
+# startup_events_status_check (all real cycles are 'draft'); (2) seed_input was
+# missing the event_registrations + event_team_members inserts without which
+# NO sentinel dept-grain outcome row is ever written. Added principal persona.
+#
+# REGISTRY DISCREPANCY (verified 2026-07-13): loop_registry.ai-pulse says
+# gates {"g":"on","a":"on","m":"off","f":"off"} (row created 2026-07-10), but
+# the measure/verdict/confound/feed-forward fns ALL exist in pg_proc
+# (migration 20260709093000_ai_pulse_measure_verdict_loop.sql, PR #1919) and
+# the measure cron writes daily (ai_routine_schedules.last_status
+# "measured 1, skipped 39, recorded 40" on 2026-07-12). m is stale-off;
+# a passing sim from this manifest is the evidence to flip it.
+loop_key: ai-pulse
+name: AI Pulse
+prod_ref: kvizhngldtiuufknvehv
+# class=cadence, tier 3, domain=platform. Cycle spine: 6 dispatcher-fired
+# crons (ai_routine_schedules, all enabled, verified 2026-07-13):
+#   ai-pulse-tick 07:00 daily · rotation-tick 08:00 daily · anomaly-scan 09:15
+#   daily · weekly-digest Tue 09:45 · measure-verdict 10:15 daily ·
+#   pde-bridge 10:30 daily. None are in vercel.json — all via
+#   /api/cron/ai-routine-dispatcher.
+
+tables:
+  input: ai_pulse_live_attendance    # signal enters here — 425 rows; UNIQUE (event_id, profile_id, day_type); FKs: event_id→startup_events, profile_id→profiles
+  action: ai_pulse_cycle_outcomes    # measure + verdict rows — 40 rows (34 dept-grain + 6 program-grain); UNIQUE (cycle_id, dept_id) NULLS NOT DISTINCT
+  # Supporting cast (all verified in information_schema 2026-07-13):
+  #   cycles      = startup_events WHERE config->>'kind'='ai_pulse'  (7 rows)
+  #   artifacts   = event_submissions (funnel stage 2; ~0 rows per migration header — the funnel dies at no_domain_sync)
+  #   treatments  = ai_pulse_interventions (0 rows to date; appended by
+  #                 lib/services/ai-pulse/dept-heatmap-service.ts intervene, append-only RLS)
+  #   dials       = ai_pulse_policies (measure_min_age_days=3, measure_min_attendance=5,
+  #                 measure_baseline_window=3, measure_min_rtm_pairs=5, ig_reach_threshold=500,
+  #                 engaged_attendance_target_pct=70, agency_yield_target_pct=10 — all read live 2026-07-13)
+
+sim:
+  sentinel: ZZAUDIT
+  # Measure fn EXISTS and has known-delta semantics (raw_lift = engaged_rate −
+  # baseline_rate, round 4): fn_ai_pulse_measure_cycle_outcomes(p_min_age_days int)
+  # — verified in pg_proc + full body read from jicate/main migration
+  # 20260709093000. service_role-only EXECUTE; via Mgmt API (postgres) is fine.
+  #
+  # Seeding shape (all inside ONE BEGIN…ROLLBACK):
+  #  * profiles.id has NO FK to auth.users (pg_constraint count=0, verified) and
+  #    `id` is the only no-default NOT NULL → sentinel profiles are insertable.
+  #  * departments no-default NOT NULLs: institution_id, degree_id,
+  #    department_code, department_name → borrow a real institution_id+degree_id.
+  #  * startup_events: only `name` is no-default NOT NULL; needs
+  #    config {'kind':'ai_pulse'}, demo_date (timestamptz), status<>'cancelled'.
+  #  * dept-grain rows exist ONLY for depts with TEAMS: units_d's FROM base is
+  #    reg_dept (event_registrations + event_team_members) — attendance alone
+  #    never creates a dept outcome row. Seed 1 registration + members per cycle.
+  #    event_registrations no-default NOT NULLs: event_id, team_name, owner_id,
+  #    institution_id. event_team_members: registration_id, email (UNIQUE per reg).
+  #  * engaged = 2-of-3 gates (fn_ai_pulse_is_engaged): simplest engaged signals
+  #    jsonb = {"joined_within_5min":true,"quiz_passed":true}; not-engaged = '{}'.
+  #  * both cycles need attendance_count >= measure_min_attendance (5) — seed 6.
+  seed_input: |
+    -- 0) sentinel dept + 6 sentinel profiles in it (borrow real inst+degree)
+    WITH src AS (SELECT institution_id, degree_id FROM public.departments LIMIT 1),
+    dept AS (
+      INSERT INTO public.departments (institution_id, degree_id, department_code, department_name)
+      SELECT institution_id, degree_id, 'ZZAUDIT', 'ZZAUDIT AI Pulse Sim Dept' FROM src
+      RETURNING id, institution_id)
+    INSERT INTO public.profiles (id, department_id, institution_id, email, full_name)
+    SELECT gen_random_uuid(), dept.id, dept.institution_id,
+           'zzaudit' || g || '@example.invalid', 'ZZAUDIT Sim ' || g
+    FROM dept, generate_series(1,6) g;
+    -- 1) two sentinel cycles: A (baseline, -14d) and B (measured, -7d).
+    --    status MUST be one of the CHECK values (draft/registration_open/
+    --    registration_closed/build_day/demo_day/closed) — 'published' VIOLATES
+    --    startup_events_status_check (pg_constraint verified 2026-07-13; all 7
+    --    real ai_pulse cycles are 'draft'). Use 'draft'.
+    INSERT INTO public.startup_events (name, status, demo_date, config)
+    VALUES ('ZZAUDIT-PULSE-A', 'draft', current_date - 14,
+            '{"kind":"ai_pulse","ai_pulse":{"session_end_time":"19:30"}}'::jsonb),
+           ('ZZAUDIT-PULSE-B', 'draft', current_date - 7,
+            '{"kind":"ai_pulse","ai_pulse":{"session_end_time":"19:30"}}'::jsonb);
+    -- 2) one team per cycle whose members are the 6 sentinel profiles —
+    --    WITHOUT this the sentinel dept gets NO dept-grain outcome row at all
+    --    (units_d builds FROM reg_dept; attendance alone is invisible there).
+    --    Attribution reads event_team_members.profile_id -> profiles.department_id;
+    --    the measurer applies NO member-status filter (unlike the submit route).
+    WITH reg AS (
+      INSERT INTO public.event_registrations (event_id, team_name, owner_id, institution_id)
+      SELECT e.id, 'ZZAUDIT-TEAM-' || e.name, p.id, p.institution_id
+      FROM public.startup_events e,
+           (SELECT id, institution_id FROM public.profiles
+             WHERE full_name LIKE 'ZZAUDIT Sim %' ORDER BY email LIMIT 1) p
+      WHERE e.name LIKE 'ZZAUDIT-PULSE-%'
+      RETURNING id
+    )
+    INSERT INTO public.event_team_members (registration_id, profile_id, email)
+    SELECT reg.id, p.id, p.email
+    FROM reg, public.profiles p
+    WHERE p.full_name LIKE 'ZZAUDIT Sim %';
+    -- 3) attendance: cycle A 3 of 6 engaged; cycle B 3 of 6 (no-change start).
+    INSERT INTO public.ai_pulse_live_attendance (event_id, profile_id, day_type, engagement_signals, institution_id)
+    SELECT e.id, p.id, 'live_session',
+           CASE WHEN row_number() OVER (PARTITION BY e.id ORDER BY p.email) <= 3
+                THEN '{"joined_within_5min":true,"quiz_passed":true}'::jsonb
+                ELSE '{}'::jsonb END,
+           p.institution_id
+    FROM public.startup_events e, public.profiles p
+    WHERE e.name LIKE 'ZZAUDIT-PULSE-%' AND p.full_name LIKE 'ZZAUDIT Sim %';
+  seed_action: |
+    -- No backdated action row needed: the measure fn CREATES the outcome rows
+    -- itself (unlike SCF, where the suggestion row pre-exists). The "action"
+    -- being graded is the cycle; run the verifier after seed_input.
+  verifier: "public.fn_ai_pulse_measure_cycle_outcomes(0)"   # 0 = min_age override so -7d cycle is matured
+  asserts:
+    # assert on the sentinel-dept row of cycle B:
+    #   SELECT raw_lift, engaged_rate, baseline_rate, measure_status
+    #   FROM ai_pulse_cycle_outcomes o
+    #   JOIN startup_events e ON e.id=o.cycle_id AND e.name='ZZAUDIT-PULSE-B'
+    #   JOIN departments d ON d.id=o.dept_id AND d.department_code='ZZAUDIT';
+    no_change: "0.0000"          # 3/6 engaged both cycles → engaged_rate 0.5000 both, raw_lift 0.0000
+    known_delta: { seed: "UPDATE cycle-B attendance to all 6 engaged", expect: "0.5000" }  # 1.0000 − 0.5000
+  reset_between_deltas: |
+    DELETE FROM public.ai_pulse_cycle_outcomes
+    WHERE cycle_id IN (SELECT id FROM public.startup_events WHERE name LIKE 'ZZAUDIT-PULSE-%');
+    UPDATE public.ai_pulse_live_attendance a
+    SET engagement_signals = '{"joined_within_5min":true,"quiz_passed":true}'::jsonb
+    FROM public.startup_events e
+    WHERE a.event_id = e.id AND e.name = 'ZZAUDIT-PULSE-B';
+  notes:
+    - Assert on raw_lift, NEVER net_effect — with only 1 sentinel dept the RTM
+      regression has pairs=1 < measure_min_rtm_pairs(5), so rtm_expected_rate is
+      NULL and dept-grain measure_status lands 'insufficient_rtm_data' (raw_lift
+      still written). Expect that status, not 'measured'.
+    - Do NOT assert at program grain (dept_id IS NULL) — its baseline joins prior
+      PROGRAM rows of REAL cycles (r2.dept_id IS NOT DISTINCT FROM NULL), so real
+      data contaminates the known delta. The sentinel DEPT lane is clean.
+    - The fn also measures every REAL unmeasured matured row in the same call
+      (rows_written includes them) — harmless inside ROLLBACK; never assert on
+      the fn's returned counts, only on the sentinel rows.
+    - Cycle A (no prior) must land measure_status='insufficient_baseline' — a
+      free extra assert that the never-fabricate rule holds.
+    - "Teams gate: a dept with attendance but NO event_registrations+members rows
+      gets NO dept-grain row at all (units_d FROM base is reg_dept)."
+    - Idempotency gates on measure_status='measured' in candidate filter AND the
+      UPDATE WHERE — re-running on 'insufficient_*' rows re-measures them.
+    - "status column: any value except 'cancelled' passes the cyc filter, BUT the
+      CHECK constraint only allows draft/registration_open/registration_closed/
+      build_day/demo_day/closed — 'cancelled' isn't even legal, so the filter
+      never bites. Seed 'draft' (what all 7 real cycles use, verified 2026-07-13).
+      demo_date is timestamptz, cast ::date inside."
+    - "event_team_members.status has a NOT NULL default and the measurer does NOT
+      filter on it — omitting status in the member seed is safe (verified: the
+      reg_dept CTE in migration 20260709093000 joins members with no status check)."
+
+confound:
+  verdict_column: human_verdict     # 'intervened' | 'partial' | 'not_intervened'
+  # fn_ai_pulse_loop_confound_check(uuid) exists (pg_proc verified) but its WHERE
+  # requires an authenticated context (is_super_admin()/is_admin()/
+  # role_has_institution_access) — as postgres via Mgmt API it returns 0 rows.
+  # Run the equivalent SQL directly instead (dept grain only; never mix grains):
+  query: |
+    SELECT COALESCE(o.human_verdict,'(unset)') AS verdict, count(*) AS n,
+           round(avg(o.net_effect),4) AS avg_net_effect,
+           round(avg(o.raw_lift),4)   AS avg_raw_lift,
+           round(stddev_samp(o.net_effect),4) AS sd_net_effect
+    FROM public.ai_pulse_cycle_outcomes o
+    WHERE o.dept_id IS NOT NULL
+      AND o.measure_status IN ('measured','insufficient_rtm_data')
+    GROUP BY 1 ORDER BY 1;
+  min_rows: 10
+  # Fuel status 2026-07-13 (re-verified live): human_verdict is NULL on ALL 40
+  # rows, and only 1 dept row is in measured/insufficient_rtm_data (dept grain:
+  # 28 insufficient_data + 5 insufficient_baseline + 1 insufficient_rtm_data).
+  # ai_pulse_interventions
+  # has 0 rows. Verdict today = "insufficient fuel" — the confound check cannot
+  # conclude anything until HOD/principal verdicts start landing.
+
+feed_forward:
+  reader: fn_ai_pulse_prior_dept_outcome     # service_role-only; pg_proc verified
+  # Consumer (verified on jicate/main): app/api/cron/ai-pulse-weekly-digest/route.ts
+  # calls the reader per department, cites prior human_verdict + net_effect, and
+  # escalates "intervened but net_effect inside the noise band" as
+  # no-measurable-lift (loop_noise_band_pct dial = 5).
+  derive_at_run: true
+  trigger:
+    kind: cron_get
+    path: /api/cron/ai-pulse-weekly-digest   # CRON_SECRET auth (Bearer or ?secret=)
+    persona: service (CRON_SECRET)
+  pass_criteria: [cites_prior_verdict, cites_net_effect, escalates_no_effect_interventions]
+  notes:
+    - "WARNING: the digest route has NO dry-run parameter (grep verified) — firing
+      it inserts REAL bell notifications (notifications + user_notifications) for
+      every HOD/principal recipient, idempotency-keyed
+      ai_pulse_weekly_digest:<cycleId>:<userId>. Tier B proof therefore needs
+      explicit per-run permission AND a plan for the notification residue
+      (idempotency rows are per-recipient no-ops on re-fire, but the FIRST fire
+      is a real user-visible message). Until a dry-run flag exists, prefer the
+      read-only half-proof: run the reader's SQL as service role and diff its
+      output against the digest code path."
+
+walk:
+  personas:
+    student: test.student@jkkn.ac.in       # role student: ai_pulse.view + aiPulse:view.self/submit.* (custom_roles verified)
+    hod: test.hod@jkkn.ac.in               # role hod: ai_pulse.view + aiPulse:dept.heatmap + aiPulse:dept.intervene
+    principal: test.principal@jkkn.ac.in   # role principal: ai_pulse.view + aiPulse:dept.heatmap + aiPulse:dept.intervene (custom_roles verified 2026-07-13)
+    superadmin: test.superadmin@jkkn.ac.in # bypass
+    # DO NOT use test.faculty — its role is staff_counselor, which holds NO
+    # ai_pulse/aiPulse permission (custom_roles verified 2026-07-13; even
+    # ai_pulse.view=false, so it only works as a negative-access probe).
+  hops:
+    - { as: student, do: open_assert, page: /ai-pulse,
+        expect: "landing renders current-cycle card (route perm ai_pulse.view — student role has it)" }
+    - { as: student, do: open_assert, page: /ai-pulse/my-pulse,
+        expect: "My Pulse card renders (MENU_PERMISSIONS '/ai-pulse/my-pulse' = aiPulse:view.self)" }
+    - { as: hod, do: open_assert, page: /ai-pulse/dept,
+        expect: "heatmap grid renders — page gates on aiPulse:dept.heatmap with explicit 403 card, not a redirect" }
+    - { as: principal, do: open_assert, page: /ai-pulse/dept,
+        expect: "heatmap renders for principal too (aiPulse:dept.heatmap=true; institution-wide roll-up lane)" }
+    - { as: superadmin, do: open_assert, page: /ai-pulse/admin/anomalies,
+        expect: "anomaly review list renders (aiPulse:anomaly.review; superadmin bypass)" }
+    - { as: hod, do: rpc, fn: fn_ai_pulse_set_verdict,
+        args: "(<sentinel cycle_id>, <sentinel dept_id>, 'intervened', 'ZZAUDIT walk')",
+        precondition: "seed via service role: sentinel dept + cycle + one ai_pulse_cycle_outcomes
+          row whose institution_id = test.hod's institution (hod scope='own';
+          the fn checks role_has_institution_access on the OUTCOME row's institution)",
+        assert_db: "human_verdict='intervened', human_verdict_by=test.hod uid, human_verdict_at set",
+        note: "NO UI calls fn_ai_pulse_set_verdict as of 2026-07-13 (git grep on
+          jicate/main: only the measure-verdict cron + migrations reference it;
+          weekly-digest consumes fn_ai_pulse_prior_dept_outcome, not this) — this hop is
+          an authenticated RPC, not a click. When a verdict UI ships, replace with
+          the real click target." }
+    - { as: superadmin, do: sql_read,
+        detail: "confound query above — sentinel verdict bucket 'intervened' appears with n=1" }
+  forbidden:
+    - dept-heatmap Intervene button SEND (notifies the real HOD + AI Pulse Champions and appends ai_pulse_interventions — dialog itself says it cannot be undone)
+    - firing /api/cron/ai-pulse-weekly-digest (real bell notifications to HODs/principals; no dry-run)
+    - firing /api/cron/ai-pulse-pde-bridge (writes real PDE evidence rows; pde_bridge_enabled=true as of 2026-07-13)
+    - firing /api/cron/ai-pulse-tick (nudge/consequence pipeline)
+    - student domain-sync submit against a REAL cycle (upserts the team's real event_submissions row; requires accepted team membership — test.student is likely not in a rotation team; if this hop is ever added, seed a sentinel cycle + team first)
+  cleanup: |
+    DELETE FROM public.ai_pulse_cycle_outcomes  WHERE cycle_id IN (SELECT id FROM public.startup_events WHERE name LIKE 'ZZAUDIT%');
+    DELETE FROM public.ai_pulse_live_attendance WHERE event_id IN (SELECT id FROM public.startup_events WHERE name LIKE 'ZZAUDIT%');
+    DELETE FROM public.event_team_members       WHERE registration_id IN (SELECT id FROM public.event_registrations WHERE team_name LIKE 'ZZAUDIT%');
+    DELETE FROM public.event_registrations      WHERE team_name LIKE 'ZZAUDIT%';
+    DELETE FROM public.startup_events           WHERE name LIKE 'ZZAUDIT%';
+    DELETE FROM public.departments              WHERE department_code = 'ZZAUDIT';
+    DELETE FROM public.profiles                 WHERE full_name LIKE 'ZZAUDIT Sim %';
+    -- verify in a SEPARATE call: every sentinel count = 0; ai_pulse_cycle_outcomes
+    -- total back to pre-walk (organic daily measure cron may add rows at 10:15 IST —
+    -- compare sentinel counts, not totals, if the walk spans that slot).
+  notes:
+    - ai_pulse_cycle_outcomes has NO authenticated INSERT/UPDATE/DELETE policy
+      (by design) — walk seeding of an outcome row must go through the Mgmt API
+      (service role), sentinel-tagged.
+    - RLS SELECT on outcomes = is_super_admin() OR is_admin() OR
+      (aiPulse:dept.heatmap AND role_has_institution_access(institution_id)) —
+      seeded rows must carry the persona's institution or the hod sees nothing.
+
+registry_gates_hint: '{"g":"on","a":"on","m":"off","f":"off"}'  # CURRENT row (stale: m should flip on after first passing sim; f after feed-forward Tier B proof)

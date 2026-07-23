@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse , connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { selectInBatches } from '@/lib/utils/supabase-batched-in';
 
 
 // Create admin client for user management
@@ -94,14 +95,17 @@ export async function GET() {
       throw staffError;
     }
 
-    // Get existing profiles with all relevant fields
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
-      .from('profiles')
-      .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
-      .in(
-        'email',
-        allStaff.map((s) => s.institution_email)
-      );
+    // Get existing profiles with all relevant fields.
+    // Batched: ~800+ staff emails in one .in() builds a >31KB URL the Supabase
+    // gateway rejects with HTTP 400 ("Bad Request"). See selectInBatches.
+    const { data: existingProfiles, error: profilesError } = await selectInBatches(
+      allStaff.map((s) => s.institution_email),
+      (chunk) =>
+        supabaseAdmin
+          .from('profiles')
+          .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
+          .in('email', chunk)
+    );
 
     if (profilesError) {
       throw profilesError;
@@ -116,11 +120,13 @@ export async function GET() {
     const profileIds = existingProfiles.map((p) => p.id);
     const { data: primaryUserRolesRaw } =
       profileIds.length > 0
-        ? await supabaseAdmin
-            .from('user_roles')
-            .select('user_id, custom_roles!inner(role_key)')
-            .in('user_id', profileIds)
-            .eq('is_primary', true)
+        ? await selectInBatches(profileIds, (chunk) =>
+            supabaseAdmin
+              .from('user_roles')
+              .select('user_id, custom_roles!inner(role_key)')
+              .in('user_id', chunk)
+              .eq('is_primary', true)
+          )
         : { data: [] as any[] };
     const primaryRoleByUserId = new Map<string, string>();
     for (const ur of primaryUserRolesRaw || []) {
@@ -128,11 +134,13 @@ export async function GET() {
       if (roleKey) primaryRoleByUserId.set((ur as any).user_id, roleKey);
     }
 
-    // Get existing auth users
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
-    const existingAuthEmails = new Set(
-      authUsers.users.map((user) => user.email)
-    );
+    // NOTE: We no longer enumerate auth.users here. GoTrue admin listUsers is
+    // paginated (50/page default) AND can't be fully walked in this project —
+    // a malformed auth.users row makes it fail with "Database error finding
+    // users" past offset ~1100. The only thing it fed was a has_auth_user
+    // display flag that the UI never rendered, so it was dead, broken weight.
+    // The check below relies solely on the profiles table, which is the source
+    // of truth for "does this staff member have a profile".
 
     // Create a map of profiles by email for easy lookup
     const profilesByEmail = new Map(
@@ -197,14 +205,6 @@ export async function GET() {
       }
     }
 
-    const staffWithAuthButNoProfile = staffWithoutProfiles.filter((staff) =>
-      existingAuthEmails.has(staff.institution_email)
-    );
-
-    const staffWithoutAuthOrProfile = staffWithoutProfiles.filter(
-      (staff) => !existingAuthEmails.has(staff.institution_email)
-    );
-
     // Total needing sync = profiles missing + profiles incomplete
     const totalNeedingSync =
       staffWithoutProfiles.length + staffWithIncompleteProfiles.length;
@@ -216,9 +216,7 @@ export async function GET() {
         with_complete_profiles: staffWithCompleteProfiles.length,
         with_incomplete_profiles: staffWithIncompleteProfiles.length,
         without_profiles: staffWithoutProfiles.length,
-        total_needing_sync: totalNeedingSync,
-        with_auth_but_no_profile: staffWithAuthButNoProfile.length,
-        without_auth_or_profile: staffWithoutAuthOrProfile.length
+        total_needing_sync: totalNeedingSync
       },
       details: {
         staff_with_complete_profiles: staffWithCompleteProfiles.map((s) => ({
@@ -273,8 +271,7 @@ export async function GET() {
         staff_without_profiles: staffWithoutProfiles.map((s) => ({
           staff_id: s.id,
           name: `${s.first_name} ${s.last_name}`.trim(),
-          email: s.institution_email,
-          has_auth_user: existingAuthEmails.has(s.institution_email)
+          email: s.institution_email
         }))
       }
     });

@@ -16,8 +16,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const SELECT_WITH_RELATIONS = `
   *,
-  institution:institutions (id, name, counselling_code),
-  program:programs (id, program_id, program_name, program_duration_yrs)
+  institution:institutions (id, name, counselling_code)
 `;
 
 export class AdmissionYearService {
@@ -36,7 +35,7 @@ export class AdmissionYearService {
       if (error) {
         if (error.code === '23505') {
           throw new Error(
-            'An admission year already exists for this program and start year'
+            'An admission year already exists for this institution and year'
           );
         }
         throw error;
@@ -65,7 +64,7 @@ export class AdmissionYearService {
       if (error) {
         if (error.code === '23505') {
           throw new Error(
-            'An admission year already exists for this program and start year'
+            'An admission year already exists for this institution and year'
           );
         }
         throw error;
@@ -144,12 +143,8 @@ export class AdmissionYearService {
         query = query.eq('institution_id', userInstitutionId);
       }
 
-      if (filters.program_id) {
-        query = query.eq('program_id', filters.program_id);
-      }
-
-      if (filters.program_start_year !== undefined) {
-        query = query.eq('program_start_year', filters.program_start_year);
+      if (filters.year !== undefined) {
+        query = query.eq('year', filters.year);
       }
 
       if (filters.search) {
@@ -223,7 +218,7 @@ export class AdmissionYearService {
 
       if (!includeInactive) query = query.eq('is_active', true);
 
-      const { data, error } = await query.order('program_start_year', {
+      const { data, error } = await query.order('year', {
         ascending: false
       });
 
@@ -235,26 +230,19 @@ export class AdmissionYearService {
     }
   }
 
-  static async getAdmissionYearsByProgram(
-    programId: string,
-    includeInactive: boolean = false
-  ): Promise<AdmissionYear[]> {
+  static async listAllActiveYearNames(): Promise<
+    Array<{ id: string; admission_year_name: string }>
+  > {
     try {
-      let query = this.supabase
+      const { data, error } = await this.supabase
         .from('admission_years')
-        .select(SELECT_WITH_RELATIONS)
-        .eq('program_id', programId);
-
-      if (!includeInactive) query = query.eq('is_active', true);
-
-      const { data, error } = await query.order('program_start_year', {
-        ascending: false
-      });
-
+        .select('id, admission_year_name')
+        .eq('is_active', true)
+        .order('year', { ascending: false });
       if (error) throw error;
-      return (data as AdmissionYear[]) || [];
+      return (data ?? []) as Array<{ id: string; admission_year_name: string }>;
     } catch (error) {
-      logger.error('admissions', 'Error fetching admission years by program', error);
+      logger.error('admissions', 'Error fetching all active year names', error);
       throw error;
     }
   }

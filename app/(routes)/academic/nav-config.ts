@@ -30,6 +30,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/academic/years'],
     },
     {
+      label: 'Parent Portal',
+      icon: 'Megaphone',
+      href: '/academic/parent-portal',
+      matchPaths: ['/academic/parent-portal'],
+    },
+    {
       label: 'Regulations',
       icon: 'Bookmark',
       href: '/academic/regulations',
@@ -116,6 +122,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/attendance/mark'],
         },
         {
+          label: 'Day Attendance',
+          icon: 'CalendarCheck',
+          href: '/academic/attendance/day',
+          matchPaths: ['/academic/attendance/day'],
+        },
+        {
           label: 'Pending',
           icon: 'Hourglass',
           href: '/academic/attendance/pending',
@@ -142,6 +154,12 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Question Papers',
+      icon: 'FileText',
+      href: '/academic/question-papers',
+      matchPaths: ['/academic/question-papers'],
+    },
+    {
       label: 'Assessment',
       icon: 'GraduationCap',
       href: '/academic/internal-marks',
@@ -155,6 +173,21 @@ const config: ModuleNavConfig = {
           icon: 'PenLine',
           href: '/academic/internal-marks',
           exact: true,
+        },
+        {
+          label: 'IA Monitor',
+          icon: 'GaugeCircle',
+          href: '/academic/internal-marks/monitor',
+        },
+        {
+          label: 'Attendance vs Marks',
+          icon: 'Scale',
+          href: '/academic/internal-marks/attendance-insight',
+        },
+        {
+          label: 'Exam IA Audit',
+          icon: 'ClipboardCheck',
+          href: '/academic/internal-marks/exam-audit',
         },
         {
           label: 'Internal Marks Report',
@@ -269,6 +302,38 @@ const config: ModuleNavConfig = {
           icon: 'FileStack',
           href: '/academic/privileges/templates',
           matchPaths: ['/academic/privileges/templates'],
+        },
+      ],
+    },
+    {
+      label: 'OBE',
+      icon: 'Target',
+      href: '/academic/obe',
+      matchPaths: ['/academic/obe'],
+      children: [
+        {
+          label: 'Dashboard',
+          icon: 'LayoutDashboard',
+          href: '/academic/obe',
+          exact: true,
+        },
+        {
+          label: 'Regulation Config',
+          icon: 'Settings',
+          href: '/academic/obe/regulation-config',
+          matchPaths: ['/academic/obe/regulation-config'],
+        },
+        {
+          label: 'Program Outcomes',
+          icon: 'Target',
+          href: '/academic/obe/po-pso',
+          matchPaths: ['/academic/obe/po-pso'],
+        },
+        {
+          label: 'CO-PO Mapping',
+          icon: 'Grid3x3',
+          href: '/academic/obe/co-po-mapping',
+          matchPaths: ['/academic/obe/co-po-mapping'],
         },
       ],
     },

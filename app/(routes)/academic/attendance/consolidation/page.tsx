@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Building2, Users } from 'lucide-react';
-import toast from 'react-hot-toast';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
@@ -37,7 +36,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ReportGenerationForm } from './_components/report-generation-form';
@@ -49,33 +47,36 @@ export default function AttendanceConsolidationPage() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin } = usePermissions([], { waitForLoad: false });
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
     isActive: true,
     autoFetch: !!profile
   });
 
-  // Auto-select institution based on role
+  // Auto-select institution based on accessible-institution scope.
+  // Trust the accessible-institution list (which already honors custom-role
+  // scope), NOT isSuperAdmin: a custom role with scope='all' is not a super
+  // admin but can still access multiple institutions and must be able to pick
+  // among them to generate a report.
   useEffect(() => {
-    if (!selectedInstitutionId && !institutionsLoading && profile) {
-      if (!isSuperAdmin && profile?.institution_id) {
-        // Non-super admin: auto-select their institution
-        setSelectedInstitutionId(profile.institution_id);
-      } else if (isSuperAdmin) {
-        // Super admin: can select "All Institutions" or specific one
-        // Start with null to show all institutions
-        setSelectedInstitutionId(null);
-      } else if (!isSuperAdmin && institutions.length > 0 && !profile.institution_id) {
-        // User without institution_id but has access to institutions
-        setSelectedInstitutionId(institutions[0].id);
-      }
+    if (selectedInstitutionId || institutionsLoading || !profile) return;
+
+    if (institutions.length === 1) {
+      // Single accessible institution: auto-select it (no selector needed)
+      setSelectedInstitutionId(institutions[0].id);
+    } else if (institutions.length > 1) {
+      // Multiple accessible institutions (super admin or multi-institution
+      // custom role): default to "All Institutions"
+      setSelectedInstitutionId(null);
     }
-  }, [profile, institutions, institutionsLoading, selectedInstitutionId, isSuperAdmin]);
+  }, [profile, institutions, institutionsLoading, selectedInstitutionId]);
 
   const isLoading = authLoading || institutionsLoading;
 
-  // Only super admin can see institution selector
-  const showInstitutionSelector = isSuperAdmin && institutions.length > 0;
+  // Show the institution selector whenever the user can access more than one
+  // institution — super admins AND custom roles with multi-institution scope.
+  // (Gating on isSuperAdmin alone silently hid the selector from scope='all'
+  // custom roles, locking them to a single institution.)
+  const showInstitutionSelector = institutions.length > 1;
 
   // Loading state
   if (isLoading) {
@@ -154,21 +155,10 @@ export default function AttendanceConsolidationPage() {
   };
 
   const handleCreateClick = () => {
-    // Validate that we have a valid institution ID
-    const institutionId = selectedInstitutionId || profile?.institution_id;
-
-    if (!institutionId) {
-      toast.error('Please select an institution before creating a report');
-      return;
-    }
-
+    // Institution is now picked inside the generation form itself (the page
+    // selector only filters the list below), so the dialog always opens.
     setShowCreateDialog(true);
   };
-
-  // Get current institution name for display
-  const currentInstitutionName = selectedInstitutionId
-    ? institutions.find((i) => i.id === selectedInstitutionId)?.name
-    : 'All Institutions';
 
   return (
     <PermissionGuard module="academic.attendance.consolidation" action="view">
@@ -277,15 +267,10 @@ export default function AttendanceConsolidationPage() {
               <DialogTitle>Generate Consolidation Report</DialogTitle>
               <DialogDescription>
                 Configure and generate a new attendance consolidation report
-                {!isSuperAdmin && selectedInstitutionId && (
-                  <span className="block mt-1 text-xs">
-                    Report will be generated for: <strong>{currentInstitutionName}</strong>
-                  </span>
-                )}
               </DialogDescription>
             </DialogHeader>
             <ReportGenerationForm
-              institutionId={selectedInstitutionId || profile?.institution_id!}
+              institutionId={selectedInstitutionId || profile?.institution_id || ''}
               onSuccess={handleSuccess}
             />
           </DialogContent>

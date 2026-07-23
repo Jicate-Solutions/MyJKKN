@@ -6,12 +6,15 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
-  BugReportEmailService,
-  type BugResolvedEmailData
-} from '@/lib/services/email/bug-report-email-service';
+  sendResolutionEmailAndLog,
+  cascadeStatusToDuplicates,
+  recordClusterOutcome
+} from '@/lib/bug-reports/resolve-cascade';
 
 const updateStatusSchema = z.object({
-  status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix'])
+  status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix', 'duplicate']),
+  // Required when status === 'duplicate': the canonical bug this report duplicates.
+  duplicate_of: z.string().uuid().optional()
 });
 
 export async function GET(
@@ -92,7 +95,7 @@ export async function PATCH(
   try {
     const supabase = await createServerSupabaseClient();
     const json = await request.json();
-    const { status } = updateStatusSchema.parse(json);
+    const { status, duplicate_of: duplicateOfInput } = updateStatusSchema.parse(json);
 
     // Check if user is authenticated
     const {
@@ -109,7 +112,7 @@ export async function PATCH(
     // Check if user is admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
@@ -120,7 +123,7 @@ export async function PATCH(
       );
     }
 
-    if (!['super_admin', 'administrator'].includes(profile.role)) {
+    if ((!(profile as any).is_super_admin && !['super_admin', 'administrator', 'ceo'].includes(profile.role))) {
       return NextResponse.json(
         { error: 'Only administrators can update bug report status' },
         { status: 403 }
@@ -130,9 +133,72 @@ export async function PATCH(
     // Use admin client for the update
     const adminSupabase = createAdminClient();
 
-    const updateData: { status: string; resolved_at?: string } = { status };
-    if (status === 'resolved') {
+    const updateData: {
+      status: string;
+      resolved_at?: string | null;
+      duplicate_of?: string | null;
+    } = { status };
+
+    if (status === 'duplicate') {
+      // --- Mark-as-duplicate: validate the canonical target -----------------
+      if (!duplicateOfInput) {
+        return NextResponse.json(
+          { error: 'duplicate_of is required when marking a bug as duplicate' },
+          { status: 400 }
+        );
+      }
+
+      const { data: target, error: targetError } = await (
+        adminSupabase.from('bug_reports') as any
+      )
+        .select('id, display_id, duplicate_of')
+        .eq('id', duplicateOfInput)
+        .maybeSingle();
+
+      if (targetError || !target) {
+        return NextResponse.json(
+          { error: 'Canonical bug report not found' },
+          { status: 404 }
+        );
+      }
+
+      // Flatten chains: if the chosen target is itself a duplicate, point at
+      // its canonical instead. Combined with the children-guard below this
+      // makes cycles impossible (every duplicate points at a root canonical).
+      const canonicalId: string = target.duplicate_of ?? target.id;
+
+      if (canonicalId === reportId) {
+        return NextResponse.json(
+          { error: 'A bug report cannot be a duplicate of itself' },
+          { status: 400 }
+        );
+      }
+
+      const { count: childCount } = await (
+        adminSupabase.from('bug_reports') as any
+      )
+        .select('id', { count: 'exact', head: true })
+        .eq('duplicate_of', reportId);
+
+      if ((childCount ?? 0) > 0) {
+        return NextResponse.json(
+          {
+            error: `This bug has ${childCount} duplicate(s) pointing to it. Re-point or resolve them before marking it as a duplicate.`
+          },
+          { status: 400 }
+        );
+      }
+
+      updateData.duplicate_of = canonicalId;
+      updateData.resolved_at = null;
+    } else if (status === 'resolved') {
       updateData.resolved_at = new Date().toISOString();
+      // Keep duplicate_of on resolve so the group stays visible in history.
+    } else {
+      // Moving to an active status un-parks the bug: clear the duplicate link
+      // and any stale resolution timestamp.
+      updateData.duplicate_of = null;
+      updateData.resolved_at = null;
     }
 
     const { data, error } = await (adminSupabase.from('bug_reports') as any)
@@ -143,9 +209,21 @@ export async function PATCH(
 
     if (error) throw error;
 
-    // Fire resolution email notification (non-blocking — does not affect response)
+    if (status === 'duplicate') {
+      // Leave a visible trail in both chat threads (non-blocking).
+      void postDuplicateMessages(adminSupabase, user.id, data, updateData.duplicate_of!);
+    }
+
+    // Cascade + notifications (non-blocking — does not affect response)
     if (status === 'resolved') {
       void sendResolutionEmailAndLog(adminSupabase, reportId, data);
+      void cascadeStatusToDuplicates(adminSupabase, reportId, 'resolved');
+      // Learn (#3): snapshot the fixed cluster's outcome ledger row.
+      void recordClusterOutcome(adminSupabase, reportId);
+    } else if (status === 'wont_fix') {
+      // Duplicates of a won't-fix canonical are the same issue — close them
+      // too, silently (no "resolved" email for a wont_fix outcome).
+      void cascadeStatusToDuplicates(adminSupabase, reportId, 'wont_fix');
     }
 
     return NextResponse.json(data);
@@ -162,61 +240,61 @@ export async function PATCH(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: when a canonical bug is closed, close every report parked as its
+// duplicate. Resolved cascades also email each duplicate's reporter (reusing
+// the same Resend service + email log used for the canonical's reporter).
+// Runs after the response is returned — failures are logged, never thrown.
+// ---------------------------------------------------------------------------
+/**
+ * Learn (self-improving loop #3): when a bug that belongs to a duplicate
+ * cluster resolves, snapshot/refresh that cluster's outcome-ledger row
+ * (root-cause category, files, fix pattern, verify tally, reporter 👍/👎).
+ * Non-blocking; a failure never affects the resolve itself.
+ */
+
+
+// ---------------------------------------------------------------------------
+// Helper: leave a system chat message on both sides of a duplicate link so
+// the reporter and the canonical thread both see what happened.
+// ---------------------------------------------------------------------------
+async function postDuplicateMessages(
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  actorUserId: string,
+  duplicateReport: any,
+  canonicalId: string
+): Promise<void> {
+  try {
+    const { data: canonical } = await (
+      adminSupabase.from('bug_reports') as any
+    )
+      .select('display_id')
+      .eq('id', canonicalId)
+      .maybeSingle();
+
+    await (adminSupabase as any).from('bug_report_messages').insert([
+      {
+        bug_report_id: duplicateReport.id,
+        sender_user_id: actorUserId,
+        message_text: `This report was marked as a duplicate of ${canonical?.display_id ?? 'another report'}. You'll be notified when the original is resolved.`,
+        is_internal: false
+      },
+      {
+        bug_report_id: canonicalId,
+        sender_user_id: actorUserId,
+        message_text: `${duplicateReport.display_id} was marked as a duplicate of this report.`,
+        is_internal: false
+      }
+    ]);
+  } catch (err) {
+    // Chat trail is best-effort; the duplicate link itself already succeeded.
+    logger.warn('bug-reports/api', 'Failed to post duplicate chat messages', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helper: fetch reporter details, send email, log result
 // Runs after the response is returned — failures are logged, never thrown.
 // ---------------------------------------------------------------------------
-async function sendResolutionEmailAndLog(
-  adminSupabase: ReturnType<typeof createAdminClient>,
-  reportId: string,
-  updatedReport: any
-): Promise<void> {
-  try {
-    // Fetch enriched report data (reporter email, name, institution)
-    const { data: detail, error: detailError } = await (
-      adminSupabase.from('bug_reports_with_details') as any
-    )
-      .select(
-        'display_id, reporter_email, reporter_name, description, page_url, institution_name, resolved_at'
-      )
-      .eq('id', reportId)
-      .single();
-
-    if (detailError || !detail) {
-      logger.warn('bug-reports/email', 'Could not fetch report details for email', { reportId });
-      return;
-    }
-
-    if (!detail.reporter_email) {
-      logger.warn('bug-reports/email', 'Reporter has no email — skipping notification', { reportId });
-      return;
-    }
-
-    const emailData: BugResolvedEmailData = {
-      reportId,
-      displayId: detail.display_id,
-      reporterEmail: detail.reporter_email,
-      reporterName: detail.reporter_name,
-      description: detail.description,
-      pageUrl: detail.page_url,
-      institutionName: detail.institution_name,
-      resolvedAt: detail.resolved_at ?? updatedReport.resolved_at ?? new Date().toISOString()
-    };
-
-    const result = await BugReportEmailService.sendBugResolvedEmail(emailData);
-
-    // Log the email send attempt to bug_report_email_logs
-    await (adminSupabase as any).from('bug_report_email_logs').insert({
-      bug_report_id: reportId,
-      recipient_email: detail.reporter_email,
-      email_type: 'resolved_notification',
-      status: result.skipped ? 'skipped' : result.success ? 'sent' : 'failed',
-      resend_id: result.resendId ?? null,
-      error_message: result.error ?? result.skipReason ?? null
-    });
-  } catch (err) {
-    logger.error('bug-reports/email', 'Unexpected error in sendResolutionEmailAndLog', err);
-  }
-}
 
 export async function DELETE(
   request: Request,
@@ -243,11 +321,11 @@ export async function DELETE(
     // Check if user is super admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile || profile.role !== 'super_admin') {
+    if (profileError || !profile || (!(profile as any).is_super_admin && profile.role !== 'super_admin')) {
       return NextResponse.json(
         { error: 'Only super administrators can delete bug reports' },
         { status: 403 }

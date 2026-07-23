@@ -20,7 +20,10 @@ import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import type { Department, Semester, Degree, Program, Section } from '@/types/organizations';
 import type { AcademicYear } from '@/types/academics';
-import type { StudentSearchFilters } from '@/types/billing-schedule';
+import {
+  ACCOMMODATION_TYPE_OPTIONS,
+  type StudentSearchFilters
+} from '@/types/billing-schedule';
 
 interface StudentSearchFiltersProps {
   filters: StudentSearchFilters;
@@ -65,7 +68,8 @@ export function StudentSearchFilters({
     department_id: filters.department_id,
     program_id: filters.program_id,
     semester_id: filters.semester_id,
-    section_id: filters.section_id
+    section_id: filters.section_id,
+    accommodation_type: filters.accommodation_type
   });
 
   // Load hierarchical data based on local filter selections
@@ -287,7 +291,8 @@ export function StudentSearchFilters({
       department_id: undefined,
       program_id: undefined,
       semester_id: undefined,
-      section_id: undefined
+      section_id: undefined,
+      accommodation_type: undefined
     });
     // Also clear the actual filters
     onFilterChange({
@@ -300,7 +305,8 @@ export function StudentSearchFilters({
       department_id: undefined,
       program_id: undefined,
       semester_id: undefined,
-      section_id: undefined
+      section_id: undefined,
+      accommodation_type: undefined
     });
   };
 
@@ -314,7 +320,8 @@ export function StudentSearchFilters({
     filters.department_id ||
     filters.program_id ||
     filters.semester_id ||
-    filters.section_id;
+    filters.section_id ||
+    filters.accommodation_type;
 
   const hasLocalChanges =
     searchInput !== (filters.first_name || '') ||
@@ -326,7 +333,8 @@ export function StudentSearchFilters({
     localFilters.department_id !== filters.department_id ||
     localFilters.program_id !== filters.program_id ||
     localFilters.semester_id !== filters.semester_id ||
-    localFilters.section_id !== filters.section_id;
+    localFilters.section_id !== filters.section_id ||
+    localFilters.accommodation_type !== filters.accommodation_type;
 
   return (
     <div className='space-y-4 mb-6'>
@@ -518,8 +526,8 @@ export function StudentSearchFilters({
         </Select>
       </div>
 
-      {/* Third Filter Row - Semester and Section */}
-      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+      {/* Third Filter Row - Semester, Section and Accommodation */}
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
         {/* Semester Filter */}
         <Select
           value={localFilters.semester_id || 'all'}
@@ -573,6 +581,29 @@ export function StudentSearchFilters({
             {sections.map((section) => (
               <SelectItem key={section.id} value={section.id}>
                 {section.section_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Accommodation Type Filter (independent of academic hierarchy) */}
+        <Select
+          value={localFilters.accommodation_type || 'all'}
+          onValueChange={(value) =>
+            handleLocalFilterChange(
+              'accommodation_type',
+              value === 'all' ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='All accommodation types' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All accommodation types</SelectItem>
+            {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>

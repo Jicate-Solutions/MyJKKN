@@ -2,9 +2,10 @@
  * HR Module TypeScript Types (Sprint 1 redesigned schema)
  *
  * Architecture:
- * - JKKN full-time employees live in `staff` (canonical) + `hr_staff_details` (HR extension)
- * - Non-staff employment types (guest, student_ta, vendor_monitored) live in `hr_employees`
- * - Single list view is a UNION of both
+ * - All employees live in `staff` (canonical) + `hr_staff_details` (HR extension)
+ * - hr_employees table has been consolidated into staff (see migration
+ *   20260524083600_consolidate_hr_employees_to_staff.sql)
+ * - Non-staff types (guest, student_ta, vendor_monitored) are now also managed via staff
  *
  * Shadow-tenant pattern: jkknkb/MyJKKN/Architecture/shadow-tenant-pattern.md
  */
@@ -64,7 +65,7 @@ export interface HRDesignation {
   updated_at: string;
 }
 
-// === Employment Types (5 total, 1 via staff + 4 via hr_employees) ===
+// === Employment Types (all via staff + hr_staff_details after consolidation) ===
 export type HREmploymentType =
   | 'full_time'           // JKKN staff — lives in staff + hr_staff_details
   | 'guest'               // External guest lecturer
@@ -96,49 +97,23 @@ export interface HRStaffDetailsInsert
 
 export type HRStaffDetailsUpdate = Partial<HRStaffDetails>;
 
-// === hr_employees — non-staff types only (guest, student_ta, vendor_monitored) ===
+// === Non-staff employment type (kept for filter/display logic) ===
 export type HRNonStaffEmploymentType = Exclude<HREmploymentType, 'full_time'>;
 
-export interface HREmployee {
-  id: string;
-  hr_organization_id: string;
-  employment_type: HRNonStaffEmploymentType;
-  learner_profile_id: string | null;
-  vendor_name: string | null;
-  employee_code: string;
-  first_name: string;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
-  designation_id: string | null;
-  cadre_id: string | null;
-  reports_to_employee_id: string | null;
-  date_of_exit: string | null;
-  is_active: boolean;
-  deactivated_at: string | null;
-  deactivation_reason: string | null;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-  updated_by: string | null;
-}
+// NOTE: HREmployee interface removed — hr_employees table consolidated into staff.
+// Non-staff types (guest, student_ta, vendor_monitored, unpaid_volunteer) now
+// also use the staff table. Legacy code that referenced HREmployee should use
+// the staff table directly or the HRPersonView unified interface.
+//
+// HREmployeeInsert and HREmployeeUpdate also removed.
+// Use staff insert/update patterns instead.
 
-export interface HREmployeeInsert
-  extends Partial<Omit<HREmployee, 'id' | 'created_at' | 'updated_at'>> {
-  hr_organization_id: string;
-  employment_type: HRNonStaffEmploymentType;
-  employee_code: string;
-  first_name: string;
-}
-
-export type HREmployeeUpdate = Partial<HREmployee>;
-
-// === Unified view: "HR Person" — represents either a staff-backed row or a hr_employees row ===
+// === Unified view: "HR Person" — now always backed by staff table ===
 export interface HRPersonView {
-  source: 'staff' | 'hr_employees';
-  // Stable id used for routing; for staff source it's staff.id, for hr_employees it's hr_employees.id
+  source: 'staff';
+  // Stable id used for routing — always staff.id after consolidation
   id: string;
-  hr_organization_id: string;
+  hr_organization_id: string | null;
   organization_name: string | null;
   employment_type: HREmploymentType;
   employee_code: string | null;
@@ -149,11 +124,13 @@ export interface HRPersonView {
   designation_name: string | null;
   cadre_name: string | null;
   department_id: string | null;
+  department_name: string | null;
+  institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;
-  // Source-specific raw rows for detail page joins
   staff_id?: string;
-  hr_employee_id?: string;
+  // Human-facing staff code (staff.staff_id), distinct from the routing id.
+  staff_code: string | null;
 }
 
 // === Filters ===
@@ -163,15 +140,13 @@ export interface HRPersonFilters {
   cadre_id?: string;
   designation_id?: string;
   department_id?: string;
+  institution_id?: string;
   is_active?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;
-  // When false, the list endpoint skips full-time staff rows entirely.
-  // Used by /hr/employees (scoped to non-staff: guests, vendors, TAs, volunteers).
-  // Full-time staff are managed on /staff/list; showing them in both places caused
-  // visible-but-not-real duplication (the two URLs showed the same 393 rows).
-  include_staff?: boolean;
+  // When true, the service returns ALL matching rows (no pagination) for export.
+  exportAll?: boolean;
 }
 
 // === API response ===
@@ -183,6 +158,25 @@ export interface HRPersonListResponse {
     pageSize: number;
     totalPages: number;
   };
+}
+
+// === Detail view for /hr/employees/[id] — names resolved, read-only ===
+export interface HRPersonDetailView {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  staff_code: string | null;
+  institution_name: string | null;
+  department_name: string | null;
+  date_of_joining: string | null;
+  is_active: boolean;
+  hr_employee_code: string | null;
+  organization_name: string | null;
+  designation_name: string | null;
+  cadre_name: string | null;
+  reports_to_name: string | null;
 }
 
 // === Display labels ===
@@ -201,7 +195,6 @@ export interface HRAdditionalRole {
   id: string;
   hr_organization_id: string;
   staff_id: string | null;
-  hr_employee_id: string | null;
   role_type: string;                       // Extensible text (HOD, IQAC Coordinator, etc.)
   role_category: HRAdditionalRoleCategory | null;
   department_id: string | null;
@@ -243,6 +236,16 @@ export type LeaveApplicationStatus =
 
 export type LeaveDurationType = 'full' | 'first_half' | 'second_half' | 'hourly';
 
+/**
+ * Which Time Off tab a leave type is requested from.
+ *
+ * Declared here rather than in hr-leave-types.ts because that module already
+ * imports from this one; defining it there and importing back would make the
+ * two files circular. hr-leave-types.ts re-exports it, exactly as it does for
+ * LeaveDurationType.
+ */
+export type LeaveRequestCategory = 'leave' | 'short_time_off' | 'compensatory_off';
+
 export interface LeaveApprovalStep {
   step_order: number;
   approver_role: string;
@@ -252,6 +255,33 @@ export interface LeaveApprovalStep {
   decided_by?: string | null;
   comment?: string | null;
   escalate_after_hours: number;
+  // ----- Recruitment-only extensions (2026-07-06 dynamic flows) -------------
+  // Optional so legacy chains and leave chains are untouched.
+  /** 'review' = notes + mark reviewed; 'final' = grants final approval. Legacy chains: absent → last step acts as final. */
+  step_type?: 'review' | 'final';
+  /** When true, this step's approver must complete an interview before marking reviewed. */
+  interview_required?: boolean;
+  /** hr_recruitment_interviews.id linked to this step (re-pointed on reschedule). */
+  interview_id?: string | null;
+  // ----- Override audit (2026-07-16) --------------------------------------
+  // Set when a step is actioned by an authorized OVERRIDE (super-admin or a
+  // holder of hr.recruitment.approve.override) instead of the step's own
+  // pinned user / role. Optional → legacy and leave chains untouched.
+  /** True when this step was approved via override, not by its intended approver. */
+  overridden?: boolean;
+  /** profiles.id of the user who performed the override. */
+  overridden_by?: string | null;
+  /** ISO timestamp of the override. */
+  overridden_at?: string | null;
+  /** The pinned user this step was originally routed to (null if role-only). */
+  intended_approver_user_id?: string | null;
+  /** The role this step was originally routed to. */
+  intended_approver_role?: string | null;
+  // ----- Comment edit audit (2026-07-16) -----
+  /** profiles.id of who last edited this step's review comment. */
+  edited_by?: string | null;
+  /** ISO timestamp of the last comment edit. */
+  edited_at?: string | null;
 }
 
 export interface LeaveDocument {
@@ -321,12 +351,37 @@ export interface HRLeaveBalance {
   updated_at: string;
 }
 
+/**
+ * A listed application with its type embedded.
+ *
+ * `hr_leave_types` is nullable by design: the embed is a LEFT join, so a row
+ * whose type the caller cannot read under RLS still appears (with no label)
+ * rather than vanishing from the user's own list.
+ */
+export interface HRLeaveApplicationWithType extends HRLeaveApplication {
+  hr_leave_types: {
+    leave_type_name: string;
+    leave_type_code: string;
+    request_category: LeaveRequestCategory;
+    color_code: string;
+  } | null;
+}
+
 export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   leave_type_name: string;
   leave_type_code: string;
   duration_type: LeaveDurationType;
   allow_half_day: boolean;
   allow_hourly: boolean;
+  /**
+   * Which Time Off tab this balance belongs to. Carried through from
+   * hr_leave_types so each tab can filter without a second round trip —
+   * the Leave tab must not offer Permission or Compensatory Off.
+   */
+  request_category: LeaveRequestCategory;
+  max_continuous_days: number | null;
+  min_advance_notice_days: number;
+  requires_documents: boolean;
 }
 
 export interface HRLeaveEncashment {
@@ -359,11 +414,20 @@ export interface HRLeaveBlackout {
   created_at: string;
 }
 
+/**
+ * Mirrors hr_leave_application_comments. Corrected 2026-07-21: this declared
+ * `author_id` / `body`, which are not columns on that table — the real names
+ * are `commenter_id` / `comment`. The service inserted the wrong names (every
+ * POST 42703'd) and the detail page read them back as `undefined`, so comments
+ * were broken in both directions.
+ */
 export interface HRLeaveApplicationComment {
   id: string;
   application_id: string;
-  author_id: string;
-  body: string;
+  hr_organization_id: string;
+  commenter_id: string;
+  comment: string;
+  parent_comment_id: string | null;
   created_at: string;
 }
 

@@ -2,10 +2,9 @@
 
 // Edit drawer for the Learners tab on /campus-living/residents.
 //
-// Scope: the 5 hostel fields on the side-table `learner_hostel_profiles`
-// + the `hostel_type` column on `learners_profiles`. NOT admission fields,
-// NOT personal details — those are owned by admission/academics and shown
-// here as read-only context only.
+// Scope: the 5 hostel fields on the side-table `learner_hostel_profiles`.
+// NOT admission fields, NOT personal details — those are owned by
+// admission/academics and shown here as read-only context only.
 //
 // See specs/warden-edit-hostel-fields-spec.md for the full contract.
 //
@@ -33,32 +32,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type {
-  LearnerHostelite,
-  LearnerHostelType,
-} from '@/types/campus-living';
+import type { LearnerHostelite } from '@/types/campus-living';
 
 interface Props {
   learner: LearnerHostelite | null;
   onClose: () => void;
 }
 
-// Sentinel used by the hostel_type Select because Radix Select refuses
-// empty-string values. '__none__' maps to null on save.
-const HOSTEL_TYPE_NONE = '__none__';
-
 interface FormState {
-  hostel_type: LearnerHostelType;
   emergency_contact_name: string;
   emergency_contact_phone: string;
   emergency_contact_relation: string;
@@ -68,7 +52,6 @@ interface FormState {
 
 function emptyForm(): FormState {
   return {
-    hostel_type: null,
     emergency_contact_name: '',
     emergency_contact_phone: '',
     emergency_contact_relation: '',
@@ -115,7 +98,6 @@ export function EditHosteliteDrawer({ learner, onClose }: Props) {
       return;
     }
     setForm({
-      hostel_type: learner.hostel_type ?? null,
       emergency_contact_name: hostelProfile?.hostel_emergency_contact_name ?? '',
       emergency_contact_phone: hostelProfile?.hostel_emergency_contact_phone ?? '',
       emergency_contact_relation:
@@ -153,7 +135,6 @@ export function EditHosteliteDrawer({ learner, onClose }: Props) {
     try {
       await saveMut.mutateAsync({
         learnerId: learner.id,
-        hostelType: form.hostel_type,
         profileFields: {
           hostel_emergency_contact_name: form.emergency_contact_name,
           // Stripped of non-digits — DB stores digits only.
@@ -173,10 +154,6 @@ export function EditHosteliteDrawer({ learner, onClose }: Props) {
       // Toast is surfaced by the mutation hook; leave drawer open.
     }
   }
-
-  // Select value sentinel mapping — hostel_type null/'' → __none__ for Radix.
-  const selectValue =
-    !form.hostel_type || form.hostel_type === '' ? HOSTEL_TYPE_NONE : form.hostel_type;
 
   return (
     // modal={false} — keeps the rest of the page interactive while the
@@ -267,30 +244,6 @@ export function EditHosteliteDrawer({ learner, onClose }: Props) {
             <section className='space-y-4'>
               <div className='text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
                 Hostel fields
-              </div>
-
-              <div className='space-y-2'>
-                <Label htmlFor='ehd-hostel-type'>Hostel type</Label>
-                <Select
-                  value={selectValue}
-                  onValueChange={(v) =>
-                    setForm((f) => ({
-                      ...f,
-                      hostel_type:
-                        v === HOSTEL_TYPE_NONE ? null : (v as LearnerHostelType),
-                    }))
-                  }
-                  disabled={saveMut.isPending}
-                >
-                  <SelectTrigger id='ehd-hostel-type'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={HOSTEL_TYPE_NONE}>Not set</SelectItem>
-                    <SelectItem value='AC HOSTEL'>AC HOSTEL</SelectItem>
-                    <SelectItem value='NON-AC HOSTEL'>NON-AC HOSTEL</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>

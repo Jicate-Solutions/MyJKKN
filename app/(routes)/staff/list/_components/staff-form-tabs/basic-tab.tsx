@@ -91,7 +91,7 @@ export function BasicTab(props: BasicTabProps) {
           />
         </div>
 
-        {canEnableExtended && (
+        {canEnableExtended ? (
           <FormField
             control={form.control}
             name="has_extended_profile"
@@ -109,6 +109,13 @@ export function BasicTab(props: BasicTabProps) {
               </FormItem>
             )}
           />
+        ) : (
+          <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+            Achievements, mentoring, research, and academic tabs are available
+            for employment categories that have &quot;Extended Profile&quot; enabled.
+            To add these details, update the employment category in{' '}
+            <span className="font-medium">Staff &gt; Categories</span>.
+          </div>
         )}
       </section>
 

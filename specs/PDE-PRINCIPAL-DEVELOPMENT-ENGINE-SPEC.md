@@ -283,8 +283,8 @@ POST   /api/pde/assessments/auto-generate      -- Generate from content
 
 | Page | Role | Description |
 |------|------|-------------|
-| `/admin/pde/assessments/create` | Admin | Assessment builder (drag-drop questions) |
-| `/admin/pde/assessments/[id]` | Admin | Edit, view submission stats |
+| `/pde/admin/assessments/create` | Admin | Assessment builder (drag-drop questions) |
+| `/pde/admin/assessments/[id]` | Admin | Edit, view submission stats |
 | `/learn/assess/[id]` | Learner | Take assessment (timer, progress, submit) |
 | `/learn/assess/[id]/results` | Learner | Score, explanations, retry |
 
@@ -1114,11 +1114,11 @@ POST   /api/pde/lti/grade-passback             Receive grades
 
 | Page | Phase | Description |
 |------|-------|-------------|
-| `/admin/pde/assessments` | 1 | Manage all assessments |
-| `/admin/pde/certificates` | 1 | Batch generation |
-| `/admin/pde/quests` | 2 | Institution-wide quest management |
-| `/admin/pde/capabilities` | 2 | Capability tree configuration |
-| `/admin/pde/analytics` | 3 | Institution-wide PDE metrics |
+| `/pde/admin/assessments` | 1 | Manage all assessments |
+| `/pde/admin/certificates` | 1 | Batch generation |
+| `/pde/admin/quests` | 2 | Institution-wide quest management |
+| `/pde/admin/capabilities` | 2 | Capability tree configuration |
+| `/pde/admin/analytics` | 3 | Institution-wide PDE metrics |
 
 ### Public Pages
 

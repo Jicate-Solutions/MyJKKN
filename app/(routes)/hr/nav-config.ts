@@ -24,6 +24,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/hr'],
     },
     {
+      label: 'Intelligence',
+      icon: 'Brain',
+      href: '/hr/intelligence',
+      matchPaths: ['/hr/intelligence'],
+    },
+    {
       label: 'Recruitment',
       icon: 'UserPlus',
       href: '/hr/recruitment',
@@ -36,7 +42,7 @@ const config: ModuleNavConfig = {
           exact: true,
         },
         {
-          label: 'Submit Candidate',
+          label: 'Apply for Jobs',
           icon: 'FilePlus',
           href: '/hr/recruitment/submit',
           matchPaths: ['/hr/recruitment/submit'],
@@ -53,12 +59,10 @@ const config: ModuleNavConfig = {
           href: '/hr/recruitment/jobs',
           matchPaths: ['/hr/recruitment/jobs'],
         },
-        {
-          label: 'Candidates',
-          icon: 'Users',
-          href: '/hr/recruitment/candidates',
-          matchPaths: ['/hr/recruitment/candidates'],
-        },
+        // Candidates list page not yet built (only [id] detail exists).
+        // Re-add this nav entry when app/(routes)/hr/recruitment/candidates/page.tsx
+        // ships. Removed 2026-05-11 so the nav-config-href-audit gate ships
+        // as-enforcing.
         {
           label: 'My Submissions',
           icon: 'ClipboardList',
@@ -68,34 +72,39 @@ const config: ModuleNavConfig = {
       ],
     },
     {
-      label: 'Leave',
+      // Time Off workspace. Leave / Compensatory Off / Short Time Off /
+      // Approvals are TABS within these routes, not separate nav entries —
+      // listing every tab here would duplicate the in-page tab bar. Approvals
+      // is intentionally absent: its visibility is a runtime capability
+      // (hr_can_approve_leave), which a static nav config cannot express.
+      label: 'Time Off',
       icon: 'CalendarDays',
-      href: '/hr/leave',
+      href: '/hr/leave/requests',
       matchPaths: ['/hr/leave'],
       children: [
         {
-          label: 'Overview',
-          icon: 'CalendarDays',
-          href: '/hr/leave',
-          exact: true,
-        },
-        {
-          label: 'Apply',
+          label: 'Leave',
           icon: 'FilePlus',
-          href: '/hr/leave/apply',
-          matchPaths: ['/hr/leave/apply'],
+          href: '/hr/leave/requests',
+          matchPaths: ['/hr/leave/requests', '/hr/leave/apply', '/hr/leave/my-applications', '/hr/leave/balance'],
         },
         {
-          label: 'Approve',
+          label: 'Compensatory Off',
+          icon: 'CalendarCheck',
+          href: '/hr/leave/compensatory-off',
+          matchPaths: ['/hr/leave/compensatory-off'],
+        },
+        {
+          label: 'Short Time Off',
+          icon: 'Timer',
+          href: '/hr/leave/short-time-off',
+          matchPaths: ['/hr/leave/short-time-off'],
+        },
+        {
+          label: 'Approvals',
           icon: 'ClipboardCheck',
-          href: '/hr/leave/approve',
-          matchPaths: ['/hr/leave/approve'],
-        },
-        {
-          label: 'Balance',
-          icon: 'Wallet',
-          href: '/hr/leave/balance',
-          matchPaths: ['/hr/leave/balance'],
+          href: '/hr/leave/approvals',
+          matchPaths: ['/hr/leave/approvals', '/hr/leave/approve'],
         },
         {
           label: 'Calendar',
@@ -109,16 +118,13 @@ const config: ModuleNavConfig = {
           href: '/hr/leave/encashment',
           matchPaths: ['/hr/leave/encashment'],
         },
-        {
-          label: 'My Applications',
-          icon: 'ClipboardList',
-          href: '/hr/leave/my-applications',
-          matchPaths: ['/hr/leave/my-applications'],
-        },
       ],
     },
     {
-      label: 'Employees',
+      // Deliberately NOT 'Employee List' — that label belongs to the /staff/list
+      // sidebar entry (the write surface). This read-only lens has no sidebar
+      // entry of its own and is reachable only as this chip.
+      label: 'HR Directory',
       icon: 'UsersRound',
       href: '/hr/employees',
       matchPaths: ['/hr/employees'],
@@ -128,6 +134,18 @@ const config: ModuleNavConfig = {
       icon: 'UserCog',
       href: '/hr/onboarding',
       matchPaths: ['/hr/onboarding'],
+    },
+    {
+      label: 'My Assets',
+      icon: 'Laptop',
+      href: '/hr/my-assets',
+      matchPaths: ['/hr/my-assets'],
+    },
+    {
+      label: 'Offboarding',
+      icon: 'LogOut',
+      href: '/hr/offboarding',
+      matchPaths: ['/hr/offboarding'],
     },
     {
       label: 'Attendance',
@@ -152,6 +170,12 @@ const config: ModuleNavConfig = {
           icon: 'ShieldCheck',
           href: '/hr/attendance/regularize/approvals',
           matchPaths: ['/hr/attendance/regularize/approvals'],
+        },
+        {
+          label: 'Import Punches',
+          icon: 'Upload',
+          href: '/hr/attendance/import',
+          matchPaths: ['/hr/attendance/import'],
         },
       ],
     },
@@ -202,10 +226,40 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Performance Reviews',
+      icon: 'ClipboardCheck',
+      href: '/hr/performance-reviews',
+      matchPaths: ['/hr/performance-reviews'],
+      children: [
+        {
+          label: 'My Appraisal',
+          icon: 'ClipboardCheck',
+          href: '/hr/performance-reviews',
+          exact: true,
+        },
+        {
+          label: 'Team Reviews',
+          icon: 'UsersRound',
+          href: '/hr/performance-reviews/team',
+          matchPaths: ['/hr/performance-reviews/team'],
+        },
+      ],
+    },
+    {
       label: 'Policies',
       icon: 'ShieldCheck',
       href: '/hr/policies',
       matchPaths: ['/hr/policies'],
+    },
+    {
+      // 2026-06-10 admin-cluster relocation: /admin/hr → /hr/admin.
+      // No explicit children — the deeper admin pages auto-surface via the
+      // manifest walk (deeperTiersFromManifest), mirroring how the old
+      // /admin auto-nav exposed them.
+      label: 'Admin',
+      icon: 'Settings',
+      href: '/hr/admin',
+      matchPaths: ['/hr/admin', '/hr/admin/leave-types', '/hr/admin/leave-balances'],
     },
   ],
 };

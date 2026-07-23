@@ -12,9 +12,10 @@ interface CoeInstitution {
 }
 
 interface InstitutionOption {
-  id: string;                    // MyJKKN UUID (used as FK in bos_* tables)
-  name: string;                  // Display name sourced from COE (authoritative)
+  id: string;                       // Primary MyJKKN UUID (first in the list)
+  name: string;                     // Display name sourced from COE (authoritative)
   institution_code: string;
+  myjkkn_institution_ids: string[]; // All related MyJKKN UUIDs (>1 for CAS Aided+Self)
 }
 
 // ── GET /api/bos/institutions ─────────────────────────────────────────────────
@@ -38,37 +39,38 @@ export async function GET() {
     const coe = CoeRestClient.create();
     const coeInstitutions = await coe.get<CoeInstitution[]>('/api/v1/institutions');
 
-    // Flatten: one row per (COE institution × MyJKKN UUID), then dedupe by `id`.
-    // The same MyJKKN UUID can appear under multiple COE institutions' mapping arrays
-    // (data-entry artifact); we keep the first occurrence so the dropdown shows
-    // each MyJKKN institution exactly once.
-    const dedupedById = new Map<string, InstitutionOption>();
+    // Group by COE institution (institution_code|name) — one row per COE unit.
+    // CAS has ONE COE entry whose myjkkn_institution_ids contains TWO MyJKKN UUIDs
+    // (Aided + Self-Financed); both are captured in myjkkn_institution_ids so
+    // downstream callers (programs dropdown) can fetch programs for all variants.
+    const grouped = new Map<string, InstitutionOption>();
     for (const ci of coeInstitutions ?? []) {
-      for (const myjkknId of ci.myjkkn_institution_ids ?? []) {
-        if (!myjkknId || dedupedById.has(myjkknId)) continue;
-        dedupedById.set(myjkknId, {
-          id: myjkknId,
+      const key = `${ci.institution_code}|${ci.name}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: (ci.myjkkn_institution_ids ?? [])[0] ?? '',
           name: ci.name,
           institution_code: ci.institution_code,
+          myjkkn_institution_ids: [...(ci.myjkkn_institution_ids ?? [])],
         });
+      } else {
+        // Merge IDs from duplicate COE entries (data-entry artifact).
+        const existing = grouped.get(key)!;
+        for (const id of ci.myjkkn_institution_ids ?? []) {
+          if (id && !existing.myjkkn_institution_ids.includes(id)) {
+            existing.myjkkn_institution_ids.push(id);
+          }
+        }
       }
     }
 
-    // Secondary dedupe: same display (institution_code|name) → keep first.
-    // Guards against COE-side data where two distinct rows share name/code.
-    const dedupedByDisplay = new Map<string, InstitutionOption>();
-    for (const row of dedupedById.values()) {
-      const key = `${row.institution_code}|${row.name}`;
-      if (!dedupedByDisplay.has(key)) dedupedByDisplay.set(key, row);
-    }
-
-    const flattened = Array.from(dedupedByDisplay.values());
+    const flattened = Array.from(grouped.values()).filter((o) => !!o.id);
 
     // Non-admin scope → only the caller's own institution.
     const visible = scope.isSuperAdmin
       ? flattened
       : scope.institutionsId
-        ? flattened.filter((r) => r.id === scope.institutionsId)
+        ? flattened.filter((r) => r.myjkkn_institution_ids.includes(scope.institutionsId!))
         : [];
 
     visible.sort((a, b) => a.name.localeCompare(b.name));

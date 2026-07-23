@@ -34,8 +34,8 @@ const FIELD_METADATA: FieldMetadata[] = [
   { field: 'date_of_birth', label: 'Date of Birth', section: 'Basic Details' },
   { field: 'gender', label: 'Gender', section: 'Basic Details' },
   { field: 'religion', label: 'Religion', section: 'Basic Details' },
-  { field: 'community', label: 'Community', section: 'Basic Details' },
-  { field: 'caste', label: 'Caste', section: 'Basic Details' },
+  { field: 'community_category_id', label: 'Community', section: 'Basic Details' },
+  { field: 'caste_id', label: 'Caste', section: 'Basic Details' },
   { field: 'father_name', label: "Father's Name", section: 'Basic Details' },
   { field: 'mother_name', label: "Mother's Name", section: 'Basic Details' },
   { field: 'blood_group', label: 'Blood Group', section: 'Basic Details' },
@@ -72,18 +72,36 @@ const FIELD_METADATA: FieldMetadata[] = [
   // Accommodation Preferences Tab
   { field: 'accommodation_type', label: 'Accommodation Type', section: 'Accommodation Preferences' },
   {
-    field: 'hostel_type',
-    label: 'Hostel Type',
+    field: 'hostel_category_id',
+    label: 'Hostel Room Category',
     section: 'Accommodation Preferences',
     isConditional: true,
-    condition: (learner) => learner.accommodation_type === 'Hostel',
+    condition: (learner) => learner.accommodation_type === 'HOSTEL',
   },
   {
-    field: 'food_type',
-    label: 'Food Type',
+    field: 'mess_category_id',
+    label: 'Mess Category',
     section: 'Accommodation Preferences',
     isConditional: true,
-    condition: (learner) => learner.accommodation_type === 'Hostel',
+    condition: (learner) => learner.accommodation_type === 'HOSTEL',
+  },
+  {
+    field: 'transport_route_id',
+    label: 'Route',
+    section: 'Accommodation Preferences',
+    isConditional: true,
+    condition: (learner) =>
+      learner.accommodation_type === 'DAY SCHOLAR' &&
+      (learner as { bus_required?: boolean | null }).bus_required === true,
+  },
+  {
+    field: 'transport_stop_id',
+    label: 'Boarding Point',
+    section: 'Accommodation Preferences',
+    isConditional: true,
+    condition: (learner) =>
+      learner.accommodation_type === 'DAY SCHOLAR' &&
+      (learner as { bus_required?: boolean | null }).bus_required === true,
   },
 ];
 

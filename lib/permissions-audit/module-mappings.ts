@@ -49,6 +49,16 @@ const MODULE_CATEGORY_OVERRIDES: Record<string, string> = {
   Privileges: 'academic',
   'Lifecycle Analytics': 'admin',
   'PDE Learning': 'pde',
+  // Social Media catalog landed 2026-06-11 (`social.*` keys in
+  // lib/constants/permissions.ts). All seven social/Meta surface modules
+  // roll up into the single 'social' category.
+  Instagram: 'social',
+  'Social Facebook': 'social',
+  'Social Lead Ads': 'social',
+  'Social Messenger': 'social',
+  'Social Ads': 'social',
+  'Integrations Meta Pixel': 'social',
+  'Integrations Meta Audiences': 'social',
 };
 
 const PERMISSION_CATEGORY_KEYS = new Set(PERMISSION_CATEGORIES.map((c) => c.key));
@@ -75,6 +85,22 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // (/ai-pulse landing page) but the substrate tables ship in PR #747+.
   // CATEGORY_ONLY_MODULES until then.
   ['AI Pulse', 'system'],
+  // Global Calendar module (Phases 1-5, merged 2026-06-23): has the 'calendar'
+  // PERMISSION_CATEGORIES entry + sidebar routes but no tables in
+  // table-module-map, so it's category-only like Documents/AI Pulse above.
+  ['Calendar', 'calendar'],
+  // Feedback dashboard (/feedback, 2026-06-26): reads the universal feedback
+  // spine (feedback_events). Has the 'feedback' PERMISSION_CATEGORIES entry +
+  // sidebar route but no tables in table-module-map, so it's category-only.
+  ['Feedback', 'feedback'],
+  // Foundation & Competitive-Exam Programme (2026-07-06): has the 'foundation'
+  // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
+  // table-module-map, so it's category-only like Calendar/Feedback above.
+  ['Foundation Programme', 'foundation'],
+  // Centralized Procurement (2026-07): has the 'procurement' PERMISSION_CATEGORIES
+  // entry + sidebar routes; procurement_* tables aren't in table-module-map, so
+  // it's category-only like the entries above.
+  ['Procurement', 'procurement'],
 ];
 
 /**
@@ -108,16 +134,47 @@ export function getAllAuditModuleNames(): string[] {
  * `/admin/bug-reports`) MUST come before broader ones (e.g. `/admin`).
  */
 export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = [
+  // Reference / Masters hub (registry-driven catalogs, 2026-07-11)
+  ['/reference', 'Reference'],
+  // Projects module (menu-visibility gap fix 2026-07-12 — first
+  // MENU_PERMISSIONS entry for /projects needed a module mapping too)
+  ['/projects', 'Projects'],
+  // My Kit — store-kit self view (PR-K2 2026-07-12); module home is IMS
+  ['/my-kit', 'IMS'],
   // /admin/* — sub-prefixes first
   ['/admin/bug-reports', 'Bug Reports'],
-  ['/admin/notifications', 'Notifications'],
-  ['/admin/lifecycle', 'Lifecycle Analytics'],
+  // /admin/notifications relocated to /notifications/admin (2026-06-11
+  // admin-cluster relocation wave-2) — no broader '/notifications' base
+  // mapping exists, so the override is rewritten rather than dropped.
+  ['/notifications/admin', 'Notifications'],
+  // /admin/lifecycle relocated to /learners/lifecycle (2026-06-11 admin-cluster
+  // relocation wave-2) — sub-prefix kept BEFORE the broader ['/learners', ...]
+  // mapping below so the dashboard keeps its own module identity.
+  ['/learners/lifecycle', 'Lifecycle Analytics'],
   ['/admin/lti', 'System'],
-  ['/admin/pde', 'PDE Learning'],
+  ['/pde/admin', 'PDE Learning'],
+  // /pde/* catch-all — covers /pde/faculty/* and /pde/learn/* (the case-based
+  // learning surfaces). Must come after the more-specific /pde/admin above so
+  // the linear scan keeps that explicit mapping; both roll up to PDE Learning.
+  ['/pde', 'PDE Learning'],
   ['/admin/page-metadata', 'System'],
   ['/admin/saml', 'System'],
-  ['/admin/ai-query-tools', 'System'],
+  // /admin/ai-query-tools relocated to /ai-query/admin (2026-06-11 admin-cluster
+  // relocation wave-2) — covered by the base ['/ai-query', 'System'] mapping
+  // below; override dropped.
   ['/admin/reset-driver-passwords', 'System'],
+  // /admin/hr relocated to /hr/admin (2026-06-10 admin-cluster relocation) —
+  // covered by the base ['/hr', 'Staff'] mapping below; override dropped.
+  // Meta surface modules (catalog consolidation 2026-05-30, κ).
+  // /admission/social/* — sub-prefixes BEFORE the /admission catch-all below.
+  ['/admission/social/facebook', 'Social Facebook'], // β PR #1150
+  ['/admission/social/lead-ads', 'Social Lead Ads'], // γ PR #1154
+  ['/admission/social/ads', 'Social Ads'], // ζ PR #1152
+  // Meta integrations — relocated /admin/integrations/* → /admission/social/*
+  // (2026-06-11 admin-cluster relocation wave-2). Sub-prefixes BEFORE the
+  // /admission catch-all below.
+  ['/admission/social/meta-pixel', 'Integrations Meta Pixel'], // ε PR #1151
+  ['/admission/social/meta-audiences', 'Integrations Meta Audiences'], // η PR #1155
   ['/admin', 'System'], // catch-all for any future /admin/*
 
   // Module-prefixed sidebar entries (sorted longest-first to be safe).
@@ -128,20 +185,39 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/service-requests', 'Service Requests'],
   ['/startup-studio', 'Startup Studio'],
   ['/campus-living', 'Campus Living'],
+  ['/procurement', 'Procurement'], // Centralized Procurement (procurement.* perms)
   ['/accreditation', 'System'],
   ['/audit-trail', 'System'],
+  // Clinical internships module (super_admin-gated "Internship Module" sidebar
+  // group: cycles, sites/hospitals, preceptors, vehicles). No dedicated
+  // permission catalog or table-module entry yet, so it rolls up to System like
+  // /accreditation and /bos. Distinct from /cdc/internships (CDC career
+  // placements, gated by cdc.internships.*) — different first URL segment, so
+  // this prefix can't swallow it.
+  ['/internships', 'System'],
   ['/work-pulse', 'Work Pulse'],
   ['/ai-pulse', 'AI Pulse'],
   ['/my-bug-reports', 'Bug Reports'],
   ['/bug-leaderboard', 'Bug Reports'],
+  // /admission/inbox/* — sub-prefixes BEFORE /admission catch-all (κ 2026-05-30).
+  ['/admission/inbox/messenger', 'Social Messenger'], // δ PR #1149
+  ['/admission/inbox/instagram', 'Instagram'], // ι PR #1153 — shares ig_* substrate with /social/instagram
   ['/admission', 'Admission'],
   ['/organizations', 'Organization'],
   ['/documents', 'Documents'],
   ['/solutions', 'System'],
   ['/learners', 'Learners'],
+  ['/moments', 'Learners'], // Family Moments — parent engagement (Father's Day 2026)
+  ['/my-proof', 'Learners'], // Verified Skills Record — learner self view (learners.proof.view)
   ['/academic', 'Academic'],
+  ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
+  ['/rcltp', 'Academic'], // MyJKKN RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
+  // Global Calendar module (/calendar, /calendar/holidays, /calendar/settings) —
+  // gated by calendar.* perms. Single prefix covers all three via longest-match.
+  ['/calendar', 'Calendar'],
+  ['/feedback', 'Feedback'], // Feedback spine dashboard (feedback.view); category-only module
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
@@ -155,6 +231,12 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],
   ['/bos', 'System'],
+  ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  ['/internships', 'Internship'], // Internship Module — operational cycles/sites/preceptors/vehicles routes (PR #1209)
+  // Instagram monitoring substrate (Phase 1B, 2026-05-30): /social/instagram/*
+  // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
+  // into the Instagram module. Listed before broader prefixes to be safe.
+  ['/social/instagram', 'Instagram'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.
@@ -192,6 +274,13 @@ export const MODULE_WITHOUT_CATEGORY = new Set<string>([
   'Chatbot', // chatbot tables exist; no permission catalog yet
   'Expo', // expo tables exist; no permission catalog yet
   'Marathon', // marathon tables exist; no permission catalog yet
+  // 'Instagram' + the six Meta surface modules (PRs #1149–#1155) — removed
+  // 2026-06-11. The Social Media catalog (`social.*` keys) landed in
+  // lib/constants/permissions.ts; all seven map to the 'social' category
+  // via MODULE_CATEGORY_OVERRIDES above.
+  // 'CDC' — removed 2026-05-21. CDC permission catalog now lives in
+  // lib/constants/permissions.ts (cdc.* keys for 10 sub-modules). Audit
+  // dashboard should report against those keys instead of em-dashing the row.
 ]);
 
 // ── 4. Permission-key module display helpers ─────────────────────────────

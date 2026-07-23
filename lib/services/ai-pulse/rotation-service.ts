@@ -445,12 +445,15 @@ export class RotationService {
   }
 
   /**
-   * Escalate an absence — increments an absence counter / fires a notification
-   * for the Champion + Department Head to review.
+   * Escalate an absence — fires a notification to the real review audience:
+   *   - Champion + Co-Champion: profiles holding the ai_pulse_champion role
+   *     (custom_roles.role_key = 'ai_pulse_champion' → user_roles)
+   *   - The section's department HOD, if resolvable
+   *     (sections.department_id → profiles.role = 'hod' + matching department)
    *
-   * For the DRAFT cut, this writes a lightweight notification row via the
-   * existing notifications surface (or no-op if absent — see catch). Wave B.5
-   * (anomaly-service) is the long-term home for absence escalation rules.
+   * Best-effort, never throws — attendance was already saved by
+   * markAttendance(). Insert shape follows the real notifications schema
+   * (created_by + targeting.user_ids), matching the friday-reflection cron.
    */
   static async escalateAbsence(args: {
     cycle_id: string;
@@ -464,27 +467,100 @@ export class RotationService {
     const userId = auth.user?.id;
     if (!userId) throw new Error('Not authenticated.');
 
-    // Best-effort write — existing notifications table is the layer-0 inbox.
-    // If the table or RLS blocks us, log and return false rather than throwing,
-    // because attendance was already saved by markAttendance().
     try {
-      const { error } = await sb.from('notifications').insert({
-        recipient_id: userId, // self-loop for now; B.5 routes to Champion + HOD
-        title: 'AI Pulse absence escalated',
-        body: `Learner missed the live session in section ${args.section_id} (cycle ${args.cycle_id}).`,
-        category: 'ai_pulse',
-        metadata: {
-          kind: 'ai_pulse_absence_escalation',
-          cycle_id: args.cycle_id,
-          section_id: args.section_id,
-          team_member_id: args.team_member_id,
-          learner_id: args.learner_id,
-          reason: args.reason ?? null,
-        },
-      });
-      if (error) {
+      const recipientIds = new Set<string>();
+
+      // (a) Champion + Co-Champion via the ai_pulse_champion role.
+      const { data: champRoles } = await sb
+        .from('custom_roles')
+        .select('id')
+        .eq('role_key', 'ai_pulse_champion')
+        .eq('is_active', true);
+      const roleIds = ((champRoles ?? []) as Array<{ id: string }>).map((r) => r.id);
+      if (roleIds.length > 0) {
+        const { data: userRoles } = await sb
+          .from('user_roles')
+          .select('user_id')
+          .in('role_id', roleIds);
+        for (const ur of (userRoles ?? []) as Array<{ user_id: string | null }>) {
+          if (ur.user_id) recipientIds.add(ur.user_id);
+        }
+      }
+
+      // (b) The section's department HOD — best-effort resolution.
+      const { data: section } = await sb
+        .from('sections')
+        .select('department_id')
+        .eq('id', args.section_id)
+        .maybeSingle();
+      if (section?.department_id) {
+        const { data: hods } = await sb
+          .from('profiles')
+          .select('id')
+          .eq('role', 'hod')
+          .eq('department_id', section.department_id)
+          .eq('is_active', true);
+        for (const h of (hods ?? []) as Array<{ id: string }>) {
+          recipientIds.add(h.id);
+        }
+      }
+
+      if (recipientIds.size === 0) {
+        logger.warn(
+          'ai-pulse/rotation',
+          'escalation skipped — no Champion/HOD recipients resolved',
+          { section_id: args.section_id },
+        );
+        return { escalated: false };
+      }
+
+      // Capture the new notification id so we can write the per-recipient
+      // bell links below (.select('id').single()).
+      const { data: notification, error } = await sb
+        .from('notifications')
+        .insert({
+          title: 'AI Pulse absence escalated',
+          body: `Learner missed the live session in section ${args.section_id} (cycle ${args.cycle_id}).`,
+          created_by: userId,
+          targeting: { user_ids: Array.from(recipientIds) },
+          category: 'ai_pulse',
+          kind: 'work_item',
+          metadata: {
+            kind: 'ai_pulse_absence_escalation',
+            cycle_id: args.cycle_id,
+            section_id: args.section_id,
+            team_member_id: args.team_member_id,
+            learner_id: args.learner_id,
+            reason: args.reason ?? null,
+            marked_by: userId,
+          },
+        })
+        .select('id')
+        .single();
+      if (error || !notification) {
         logger.warn('ai-pulse/rotation', 'escalation notification skipped', error);
         return { escalated: false };
+      }
+
+      // The bell reads `user_notifications !inner notifications` — a
+      // notifications row with targeting.user_ids alone never surfaces.
+      // Insert one user_notifications link per resolved recipient so the
+      // escalation actually appears in the Champion/HOD bell. Best-effort
+      // (mirrors app/api/cron/ai-pulse-tick/route.ts §5): a failed link
+      // insert logs but does not fail the escalation.
+      const links = Array.from(recipientIds).map((uid) => ({
+        notification_id: notification.id,
+        user_id: uid,
+      }));
+      const { error: linkErr } = await sb
+        .from('user_notifications')
+        .insert(links);
+      if (linkErr) {
+        logger.warn(
+          'ai-pulse/rotation',
+          'escalation bell links skipped',
+          linkErr,
+        );
       }
       return { escalated: true };
     } catch (e) {

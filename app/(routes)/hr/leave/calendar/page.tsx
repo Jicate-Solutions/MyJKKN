@@ -9,6 +9,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { HrInstitutionSelect } from '@/components/hr/hr-institution-select';
 import { useLeaveCalendar } from '@/hooks/hr/use-leave';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 
@@ -22,6 +23,7 @@ function lastDayOfMonth() {
 }
 
 export default function TeamCalendarPage() {
+  const [institutionId, setInstitutionId] = useState('');
   const [hrOrgId, setHrOrgId] = useState('');
   const [startDate, setStartDate] = useState(firstDayOfMonth());
   const [endDate, setEndDate] = useState(lastDayOfMonth());
@@ -48,10 +50,14 @@ export default function TeamCalendarPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid md:grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="hrOrgId">HR Organization ID</Label>
-                <Input id="hrOrgId" value={hrOrgId} onChange={(e) => setHrOrgId(e.target.value)} placeholder="uuid" />
-              </div>
+              <HrInstitutionSelect
+                id="institution"
+                value={institutionId}
+                onChange={(instId, orgId) => {
+                  setInstitutionId(instId);
+                  setHrOrgId(orgId);
+                }}
+              />
               <div>
                 <Label htmlFor="startDate">From</Label>
                 <Input id="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />

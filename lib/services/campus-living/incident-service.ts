@@ -363,6 +363,158 @@ export class IncidentService {
     }
   }
 
+  // ── Confirm incident + promote to RM maintenance log ──────────────
+  /**
+   * Warden confirmation flow: when an incident has a non-null `resource_id`,
+   * the warden can promote it into a `resource_maintenance_logs` row so the
+   * incident appears in the resource's full maintenance history.
+   *
+   * Behaviour:
+   *  - Loads the incident; throws if not found.
+   *  - Throws if `incident.resource_id` is null — the UI should hide the
+   *    button in that case (incidents without a resource stay
+   *    Campus-Living-only per the integration spec).
+   *  - INSERTs a `resource_maintenance_logs` row with
+   *    maintenance_type='corrective', priority derived from severity,
+   *    title/description copied from the incident, scheduled_date = today.
+   *  - UPDATEs the incident status to `'action_taken'` and stamps
+   *    `action_taken` with a back-reference to the new log id.
+   *  - Returns `{ incident, maintenance_log_id }`.
+   *
+   * ADDITIVE — does not touch `hostel_maintenance_requests` or the
+   * deprecated `MaintenanceService` (deferred to PR-3).
+   *
+   * See specs/campus-living-rm-integration.md PR-2.
+   */
+  static async confirmAndCreateMaintenanceLog(
+    incidentId: string,
+    confirmedByUserId: string,
+    note?: string,
+  ): Promise<{ incident: HostelIncident; maintenance_log_id: string }> {
+    try {
+      const supabase = createClientSupabaseClient();
+
+      // Load incident (with new resource_id column)
+      const { data: incident, error: loadError } = await supabase
+        .from('hostel_incidents')
+        .select('*')
+        .eq('id', incidentId)
+        .maybeSingle();
+
+      if (loadError) {
+        logger.error('campus-living/incidents', 'Failed to load incident for confirm', loadError);
+        throw loadError;
+      }
+      if (!incident) {
+        throw new Error(`Incident ${incidentId} not found`);
+      }
+
+      const inc = incident as HostelIncident;
+      const resourceId = inc.resource_id;
+      if (!resourceId) {
+        throw new Error(
+          'This incident has no linked resource. Set a resource_id before confirming as a maintenance log.',
+        );
+      }
+
+      // Map IncidentSeverity (minor/moderate/major/critical) onto
+      // MaintenancePriority (1..4) from types/maintenance.ts.
+      const priorityForSeverity: Record<string, number> = {
+        minor: 1,
+        moderate: 2,
+        major: 3,
+        critical: 4,
+      };
+      const priority = priorityForSeverity[inc.severity] ?? 2;
+
+      // scheduled_date is DATE NOT NULL — use today (YYYY-MM-DD)
+      const today = new Date().toISOString().slice(0, 10);
+
+      const logTitle = `[Incident ${inc.incident_number}] ${inc.title}`.slice(0, 255);
+      const logDescription = [
+        inc.description,
+        note ? `\n\nWarden confirmation note: ${note}` : '',
+      ]
+        .filter(Boolean)
+        .join('');
+
+      // INSERT resource_maintenance_logs.
+      // NOT NULL columns per prod schema (probed 2026-05-19):
+      //   resource_id, maintenance_type, title, scheduled_date, created_by.
+      const { data: log, error: insertError } = await supabase
+        .from('resource_maintenance_logs')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .insert({
+          resource_id: resourceId,
+          maintenance_type: 'corrective',
+          title: logTitle,
+          description: logDescription,
+          scheduled_date: today,
+          status: 'scheduled',
+          priority,
+          notes: `Auto-created from hostel incident ${inc.incident_number}.`,
+          created_by: confirmedByUserId,
+        } as any)
+        .select('id')
+        .single();
+
+      if (insertError) {
+        logger.error(
+          'campus-living/incidents',
+          'Failed to create resource_maintenance_logs row from incident',
+          insertError,
+        );
+        throw insertError;
+      }
+
+      const maintenanceLogId = (log as { id: string }).id;
+
+      // Update incident: status=action_taken, stamp back-reference
+      const stampedAction = [
+        `Confirmed as RM work order — maintenance log ${maintenanceLogId} created`,
+        note ? `(${note})` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      const { data: updatedIncident, error: updateError } = await supabase
+        .from('hostel_incidents')
+        .update({
+          status: 'action_taken' as IncidentStatus,
+          action_taken: stampedAction,
+        })
+        .eq('id', incidentId)
+        .select()
+        .single();
+
+      if (updateError) {
+        logger.error(
+          'campus-living/incidents',
+          'Failed to update incident after maintenance log creation',
+          updateError,
+        );
+        throw updateError;
+      }
+
+      logger.info(
+        'campus-living/incidents',
+        `Incident ${incidentId} confirmed; maintenance log ${maintenanceLogId} created`,
+      );
+
+      return {
+        incident: updatedIncident as HostelIncident,
+        maintenance_log_id: maintenanceLogId,
+      };
+    } catch (error) {
+      logger.error(
+        'campus-living/incidents',
+        'Unexpected error in confirmAndCreateMaintenanceLog',
+        error,
+      );
+      throw error;
+    }
+  }
+
   // ── Notify parents ────────────────────────────────────────────────
   static async markParentsNotified(id: string) {
     try {

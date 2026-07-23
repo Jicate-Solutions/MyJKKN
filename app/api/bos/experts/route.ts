@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { BosExpertFilters, CreateBosExpertDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveBosBoardScope, guardInstitutionWrite, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/experts ─────────────────────────────────────────────────────
 // Returns a paginated, filtered list of external experts for the institution.
@@ -14,14 +14,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-experts.view but on no
+    // board (not a principal, member of nothing) may read all institutions'
+    // experts. VIEW ONLY — POST still goes through guardInstitutionWrite.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-experts.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
 
     // 2. Parse query params
     const { searchParams } = new URL(request.url);
+
+    // Cross-institution lookup mode for the BoS Composition "Add Member"
+    // picker. External experts are intentionally shareable across boards,
+    // so when this flag is set we drop the institution scope on read.
+    // Writes (POST/PUT/DELETE) still go through guardInstitutionWrite.
+    const allInstitutions = searchParams.get('allInstitutions') === 'true';
+
     const filters: BosExpertFilters = {
-      institutionsId: scope.isSuperAdmin
-        ? (searchParams.get('institutionsId') ?? undefined)
-        : (scope.institutionsId ?? undefined),
+      institutionsId: allInstitutions
+        ? undefined
+        : seeAll
+          ? (searchParams.get('institutionsId') ?? undefined)
+          : (scope.institutionsId ?? undefined),
       category: searchParams.get('category') as BosExpertFilters['category'] ?? undefined,
       isActive: searchParams.has('isActive')
         ? searchParams.get('isActive') === 'true'
@@ -38,7 +53,9 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // 3. Query MyJKKN database
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_external_experts')
       .select('*', { count: 'exact' });
 

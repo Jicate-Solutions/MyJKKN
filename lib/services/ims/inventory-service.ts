@@ -72,6 +72,19 @@ export interface ImsUnitRow {
   abbreviation: string;
 }
 
+/** Shape returned by getItemsForSelect — used by useImsItemsForSelect and the indent form (Teammate C). */
+export interface ImsItemForSelect {
+  id: string;
+  name: string;
+  code: string;
+  gst_rate: number;
+  hsn_code: string | null;
+  indent_unit_id: string | null;
+  base_unit_id: string | null;
+  indent_unit: { id: string; name: string; abbreviation: string } | null;
+  base_unit: { id: string; name: string; abbreviation: string } | null;
+}
+
 export class ImsInventoryService {
   private static get supabase() {
     // IMS tables are not yet in the Supabase-generated Database type.
@@ -141,7 +154,7 @@ export class ImsInventoryService {
         const itemIds = enrichedData.map((i) => i.id);
         let stockQuery = this.supabase
           .from('ims_stock_summary')
-          .select('item_id, current_quantity, available_quantity')
+          .select('item_id, current_quantity, available_quantity, opening_quantity')
           .in('item_id', itemIds);
 
         if (filters.store_id) {
@@ -154,7 +167,11 @@ export class ImsInventoryService {
         const stockMap = new Map(
           (stockData || []).map((s) => [
             s.item_id,
-            { current_quantity: s.current_quantity, available_quantity: s.available_quantity },
+            {
+              current_quantity: s.current_quantity,
+              available_quantity: s.available_quantity,
+              opening_quantity: s.opening_quantity ?? 0,
+            },
           ])
         );
         enrichedData = enrichedData.map((item) => ({
@@ -291,15 +308,22 @@ export class ImsInventoryService {
 
   /**
    * Lightweight item list for dropdown selects.
+   * Includes unit IDs and joined unit objects so the indent form can auto-populate
+   * the unit field when the user picks an item (Teammate C dependency).
    */
   static async getItemsForSelect(
     storeId: string,
     institutionId?: string
-  ): Promise<{ id: string; name: string; code: string; gst_rate: number; hsn_code: string | null }[]> {
+  ): Promise<ImsItemForSelect[]> {
     try {
       let query = this.supabase
         .from('ims_items')
-        .select('id, name, code, gst_rate, hsn_code')
+        .select(
+          `id, name, code, gst_rate, hsn_code,
+           indent_unit_id, base_unit_id,
+           indent_unit:ims_units!ims_items_indent_unit_id_fkey(id, name, abbreviation),
+           base_unit:ims_units!ims_items_base_unit_id_fkey(id, name, abbreviation)`
+        )
         .eq('is_active', true)
         .order('name');
 
@@ -313,7 +337,7 @@ export class ImsInventoryService {
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []) as ImsItemForSelect[];
     } catch (error) {
       console.error('[ImsInventoryService] Error in getItemsForSelect:', error);
       throw error;

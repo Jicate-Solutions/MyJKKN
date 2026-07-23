@@ -109,7 +109,7 @@ export function UserInstitutionAccessManager() {
       setLoading(true);
       const [usersData, institutionsData, accessData] = await Promise.all([
         UserService.getUsers({ page: 1, limit: 1000 }),
-        OrganizationService.getInstitutionNames(true),
+        OrganizationService.getInstitutionNames(true, undefined, 'all'),
         UserInstitutionAccessService.getUserInstitutionAccessRecords()
       ]);
 

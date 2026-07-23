@@ -10,6 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class BillingReceiptService {
   private static supabase = createClientSupabaseClient();
@@ -149,6 +150,9 @@ export class BillingReceiptService {
 
         if (itemsError) {
           logger.error('billing/receipts', 'Receipt items creation error', itemsError);
+          // Rollback: delete the orphaned receipt header to prevent ghost receipts
+          await client.from('billing_receipts').delete().eq('id', receipt.id);
+          logger.warn('billing/receipts', 'Rolled back receipt header after items failure', { receiptId: receipt.id });
           throw itemsError;
         }
 
@@ -164,6 +168,27 @@ export class BillingReceiptService {
       }
 
       trackUsage({ module: 'billing/receipts', feature: 'create_receipt', eventType: 'create' });
+
+      const studentNameReceipt = `${receipt.student?.first_name || ''} ${receipt.student?.last_name || ''}`.trim() || 'Unknown';
+      const templateReceipt = BillingActivityTemplates.receiptCreated(
+        receiptNumber,
+        studentNameReceipt,
+        receiptData.payment_amount
+      );
+      logActivityForCurrentUser({
+        ...templateReceipt,
+        resourceId: receipt.id,
+        resourceName: receiptNumber,
+        institutionId: receiptData.institution_id,
+        metadata: {
+          sub_type: templateReceipt.sub_type,
+          student_id: receiptData.student_id,
+          payment_mode: receiptData.payment_mode,
+          payment_amount: receiptData.payment_amount,
+          bill_count: receiptData.receipt_items?.length || 0,
+        },
+      });
+
       return receipt;
     } catch (error) {
       logger.error('billing/receipts', 'Error creating receipt', error);
@@ -202,6 +227,15 @@ export class BillingReceiptService {
         .single();
 
       if (error) throw error;
+
+      const templateUpdate = BillingActivityTemplates.receiptUpdated((data as any)?.receipt_number || id);
+      logActivityForCurrentUser({
+        ...templateUpdate,
+        resourceId: id,
+        resourceName: (data as any)?.receipt_number,
+        metadata: { sub_type: templateUpdate.sub_type, updated_fields: Object.keys(receiptData) },
+      });
+
       return data;
     } catch (error) {
       console.error('Error updating receipt:', error);
@@ -219,6 +253,13 @@ export class BillingReceiptService {
         .eq('id', id);
 
       if (error) throw error;
+
+      const templateDelete = BillingActivityTemplates.receiptDeleted(id);
+      logActivityForCurrentUser({
+        ...templateDelete,
+        resourceId: id,
+        metadata: { sub_type: templateDelete.sub_type },
+      });
     } catch (error) {
       console.error('Error deleting receipt:', error);
       throw new Error(
@@ -410,32 +451,16 @@ export class BillingReceiptService {
 
   static async downloadReceiptPDF(id: string): Promise<void> {
     try {
-      // Get receipt data
+      // Fetch the full receipt (items + refunds) so the PDF is complete
+      // regardless of which surface initiated the download.
       const receipt = await this.getBillingReceipt(id);
 
-      // Generate PDF content (this would typically use a PDF library like jsPDF or Puppeteer)
-      // For now, we'll create a simple HTML representation and trigger download
-      const pdfContent = this.generateReceiptHTML(receipt);
-
-      // Create a blob and download it
-      const blob = new Blob([pdfContent], { type: 'text/html' });
-      const url = window.URL.createObjectURL(blob);
-
-      // Create a temporary link and trigger download
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `receipt-${receipt.receipt_number}.html`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Clean up the URL
-      window.URL.revokeObjectURL(url);
-
-      console.log(
-        'Receipt PDF download initiated for:',
-        receipt.receipt_number
+      // jsPDF is browser-only and heavy — load it lazily so it stays out of
+      // the initial bundle (matches lib/utils/ims-receipt-pdf.ts).
+      const { downloadReceiptPdf } = await import(
+        '@/lib/utils/billing/receipt-pdf'
       );
+      downloadReceiptPdf(receipt);
     } catch (error) {
       console.error('Error downloading receipt PDF:', error);
       throw new Error(
@@ -444,294 +469,6 @@ export class BillingReceiptService {
           : 'Failed to download receipt PDF'
       );
     }
-  }
-
-  private static generateReceiptHTML(receipt: BillingReceipt): string {
-    const formatCurrency = (amount: number) => {
-      return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      }).format(amount);
-    };
-
-    const formatDate = (date: string) => {
-      return new Date(date).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      });
-    };
-
-    // Calculate refund totals
-    const processedRefunds =
-      receipt.refunds?.filter((r) => r.approval_status === 'processed') || [];
-    const totalProcessedRefunds = processedRefunds.reduce(
-      (sum, r) => sum + r.refund_amount,
-      0
-    );
-    const hasProcessedRefunds = processedRefunds.length > 0;
-    const netReceiptAmount = receipt.payment_amount - totalProcessedRefunds;
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Receipt ${receipt.receipt_number}</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .receipt-info { margin-bottom: 20px; }
-        .section { margin-bottom: 20px; }
-        .section h3 { border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        .info-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-        .amount { font-size: 18px; font-weight: bold; color: #2563eb; }
-        .refunded-amount { color: #dc2626; text-decoration: line-through; }
-        .net-amount { color: #16a34a; font-weight: bold; }
-        .refund-summary { background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 5px; margin: 15px 0; }
-        .refund-positive { background-color: #f0fdf4; border-color: #bbf7d0; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f5f5f5; }
-        .total-row { font-weight: bold; background-color: #f9f9f9; }
-        .refund-row { background-color: #fef2f2; color: #dc2626; }
-        .net-row { background-color: #f0fdf4; color: #16a34a; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Payment Receipt</h1>
-        <h2>${receipt.institution?.name || 'Institution'}</h2>
-        <p>Receipt #${receipt.receipt_number}</p>
-    </div>
-
-    <div class="section">
-        <h3>Receipt Information</h3>
-        <div class="info-row">
-            <span>Receipt Date:</span>
-            <span>${formatDate(receipt.receipt_date)}</span>
-        </div>
-        <div class="info-row">
-            <span>Payment Date:</span>
-            <span>${formatDate(receipt.payment_paid_date)}</span>
-        </div>
-        <div class="info-row">
-            <span>Payment Mode:</span>
-            <span>${receipt.payment_mode.toUpperCase()}</span>
-        </div>
-        ${
-          receipt.payment_reference_number
-            ? `
-        <div class="info-row">
-            <span>Reference Number:</span>
-            <span>${receipt.payment_reference_number}</span>
-        </div>
-        `
-            : ''
-        }
-        <div class="info-row">
-            <span>Original Amount:</span>
-            <span class="amount ${
-              hasProcessedRefunds ? 'refunded-amount' : ''
-            }">${formatCurrency(receipt.payment_amount)}</span>
-        </div>
-        ${
-          hasProcessedRefunds
-            ? `
-        <div class="info-row">
-            <span>Total Refunded:</span>
-            <span style="color: #dc2626;">-${formatCurrency(
-              totalProcessedRefunds
-            )}</span>
-        </div>
-        <div class="info-row">
-            <span>Net Amount:</span>
-            <span class="net-amount">${formatCurrency(netReceiptAmount)}</span>
-        </div>
-        `
-            : ''
-        }
-    </div>
-
-    <div class="section">
-        <h3>Student Information</h3>
-        <div class="info-row">
-            <span>Name:</span>
-            <span>${receipt.student?.first_name || 'N/A'} ${receipt.student?.last_name || ''}</span>
-        </div>
-        ${
-          receipt.student?.roll_number
-            ? `
-        <div class="info-row">
-            <span>Roll Number:</span>
-            <span>${receipt.student.roll_number}</span>
-        </div>
-        `
-            : ''
-        }
-        <div class="info-row">
-            <span>Email:</span>
-            <span>${receipt.student?.college_email || 'N/A'}</span>
-        </div>
-    </div>
-
-    <div class="section">
-        <h3>Payer Information</h3>
-        <div class="info-row">
-            <span>Payer Name:</span>
-            <span>${receipt.payer_name}</span>
-        </div>
-        ${
-          receipt.payer_contact
-            ? `
-        <div class="info-row">
-            <span>Contact:</span>
-            <span>${receipt.payer_contact}</span>
-        </div>
-        `
-            : ''
-        }
-    </div>
-
-    ${
-      receipt.receipt_items && receipt.receipt_items.length > 0
-        ? `
-    <div class="section">
-        <h3>Payment Details</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Description</th>
-                    <th>Due Date</th>
-                    <th>Bill Amount</th>
-                    <th>Amount Paid</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${receipt.receipt_items
-                  .map(
-                    (item) => `
-                <tr>
-                    <td>${
-                      item.bill?.bill_description ||
-                      item.bill?.category?.category_name ||
-                      'N/A'
-                    }</td>
-                    <td>${
-                      item.bill?.due_date
-                        ? formatDate(item.bill.due_date)
-                        : 'N/A'
-                    }</td>
-                    <td>${
-                      item.bill?.final_amount
-                        ? formatCurrency(item.bill.final_amount)
-                        : 'N/A'
-                    }</td>
-                    <td>${formatCurrency(item.amount_paid)}</td>
-                </tr>
-                `
-                  )
-                  .join('')}
-                <tr class="total-row">
-                    <td colspan="3">Total Paid</td>
-                    <td>${formatCurrency(receipt.payment_amount)}</td>
-                </tr>
-                ${
-                  hasProcessedRefunds
-                    ? `
-                <tr class="refund-row">
-                    <td colspan="3">Total Refunded</td>
-                    <td>-${formatCurrency(totalProcessedRefunds)}</td>
-                </tr>
-                <tr class="net-row">
-                    <td colspan="3">Net Amount</td>
-                    <td>${formatCurrency(netReceiptAmount)}</td>
-                </tr>
-                `
-                    : ''
-                }
-            </tbody>
-        </table>
-    </div>
-    `
-        : ''
-    }
-
-    ${
-      hasProcessedRefunds && receipt.refunds
-        ? `
-    <div class="section">
-        <h3>Refund Details</h3>
-        <div class="refund-summary">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Refund Date</th>
-                        <th>Category</th>
-                        <th>Method</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${receipt.refunds
-                      .filter((r) => r.approval_status === 'processed')
-                      .map(
-                        (refund) => `
-                    <tr>
-                        <td>${formatDate(refund.refund_date)}</td>
-                        <td>${refund.refund_category
-                          .replace('_', ' ')
-                          .toUpperCase()}</td>
-                        <td>${refund.refund_method
-                          .replace('_', ' ')
-                          .toUpperCase()}</td>
-                        <td>₹${refund.refund_amount.toLocaleString()}</td>
-                        <td>PROCESSED</td>
-                    </tr>
-                    `
-                      )
-                      .join('')}
-                </tbody>
-            </table>
-            <div style="margin-top: 10px; text-align: center;">
-                <p><strong>Total Refunded: ${formatCurrency(
-                  totalProcessedRefunds
-                )}</strong></p>
-                <p style="color: #16a34a;"><strong>Net Receipt Amount: ${formatCurrency(
-                  netReceiptAmount
-                )}</strong></p>
-            </div>
-        </div>
-    </div>
-    `
-        : ''
-    }
-
-    ${
-      receipt.payment_remarks
-        ? `
-    <div class="section">
-        <h3>Remarks</h3>
-        <p>${receipt.payment_remarks}</p>
-    </div>
-    `
-        : ''
-    }
-
-    <div class="section" style="margin-top: 40px; text-align: center; font-size: 12px; color: #666;">
-        <p>This is a computer-generated receipt.</p>
-        <p>Generated on: ${new Date().toLocaleString('en-IN')}</p>
-        ${
-          hasProcessedRefunds
-            ? '<p style="color: #dc2626; font-weight: bold;">Note: This receipt has been partially or fully refunded.</p>'
-            : ''
-        }
-    </div>
-</body>
-</html>
-    `;
   }
 
   static async bulkGenerateReceipts(
@@ -1195,5 +932,111 @@ export class BillingReceiptService {
         balance_amount: balance
       };
     });
+  }
+
+  /**
+   * Count outstanding bills matching the bulk-receipt template filters.
+   *
+   * Uses Supabase's `count: 'exact', head: true` mode so it returns the
+   * count without serializing any rows. Mirrors the filter logic in
+   * getOutstandingBillsForBulk exactly — kept in lock-step so the preview
+   * count in the dialog never drifts from what the actual download would
+   * produce.
+   *
+   * Note: this does NOT apply the 5000-row cap that the download method
+   * uses. The dialog uses the true count to decide whether to show a
+   * "first 5000 only" warning before the user hits Download.
+   */
+  static async countOutstandingBillsForBulk(
+    filters: {
+      institution_id?: string;
+      item_category_id?: string;
+      degree_id?: string;
+      department_id?: string;
+      program_id?: string;
+      semester_id?: string;
+      section_id?: string;
+      academic_year_id?: string;
+      due_date_from?: string;
+      due_date_to?: string;
+    },
+    supabaseClient?: SupabaseClient
+  ): Promise<number> {
+    const client = this.getClient(supabaseClient);
+
+    // Only join learners_profiles when a hierarchy filter ACTUALLY needs it.
+    // Without this conditional, the count query forces a full inner-join
+    // even for "give me the system-wide total" requests, which can blow
+    // past the 15s client deadline on a large bills table for no reason —
+    // every bill has a learner, so the join doesn't filter anything.
+    const needsLearnerJoin = !!(
+      filters.degree_id ||
+      filters.department_id ||
+      filters.program_id ||
+      filters.semester_id ||
+      filters.section_id ||
+      filters.academic_year_id
+    );
+
+    let query = needsLearnerJoin
+      ? client
+          .from('billing_student_bills')
+          .select(
+            `id, student:learners_profiles!inner (id)`,
+            { count: 'exact', head: true }
+          )
+      : client
+          .from('billing_student_bills')
+          .select('id', { count: 'exact', head: true });
+
+    query = query.in('status', ['unpaid', 'partially_paid']);
+
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.item_category_id) {
+      query = query.eq('item_category_id', filters.item_category_id);
+    }
+    if (filters.due_date_from) {
+      query = query.gte('due_date', filters.due_date_from);
+    }
+    if (filters.due_date_to) {
+      query = query.lte('due_date', filters.due_date_to);
+    }
+    // Hierarchy filters only apply when the join is part of the SELECT.
+    // The `needsLearnerJoin` flag above guarantees that branch.
+    if (needsLearnerJoin) {
+      if (filters.degree_id) {
+        query = query.eq('student.degree_id', filters.degree_id);
+      }
+      if (filters.department_id) {
+        query = query.eq('student.department_id', filters.department_id);
+      }
+      if (filters.program_id) {
+        query = query.eq('student.program_id', filters.program_id);
+      }
+      if (filters.semester_id) {
+        query = query.eq('student.semester_id', filters.semester_id);
+      }
+      if (filters.section_id) {
+        query = query.eq('student.section_id', filters.section_id);
+      }
+      if (filters.academic_year_id) {
+        query = query.eq('student.academic_year_id', filters.academic_year_id);
+      }
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+      logger.error(
+        'billing/receipts',
+        'countOutstandingBillsForBulk failed',
+        error
+      );
+      throw error;
+    }
+
+    return count ?? 0;
   }
 }

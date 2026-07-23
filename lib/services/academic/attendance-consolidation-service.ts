@@ -1,5 +1,16 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getErrorMessage } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  deriveDailyStatus,
+  dailyStatusToDays,
+} from '@/lib/utils/academic/attendance-sessions';
+import { getPolicyBool } from '@/lib/policies/get-policy-client';
+import { POLICY_KEYS } from '@/lib/policies/keys';
+import type {
+  EffectiveAttendanceRow,
+  EffectiveAttendanceCoupling,
+} from '@/types/session-feedback';
 import type {
   AttendanceConsolidationReport,
   CreateConsolidationReportDto,
@@ -11,6 +22,9 @@ import type {
   ReportSummary,
   GroupAttendanceSummary,
   StudentAttendanceSummary,
+  SubjectwiseCourseColumn,
+  SubjectwiseGroup,
+  SubjectwiseStudentRow,
 } from '@/types/attendance';
 
 /**
@@ -29,6 +43,83 @@ import type {
 export class AttendanceConsolidationService {
   private static get supabase() {
     return createClientSupabaseClient();
+  }
+
+  /**
+   * PR-D — DERIVED "effective attendance %" coupling (DARK, compliance-gated).
+   * =====================================================================
+   * Returns a per-learner comparison of the OFFICIAL attendance %
+   * (present/(present+absent)) vs an EFFECTIVE % that only counts present marks
+   * the learner CONFIRMED with post-class feedback — so present-but-no-feedback
+   * lowers the effective %.
+   *
+   * SAFETY (non-negotiable):
+   *  - This is a READ-ONLY, recomputable derivation. It NEVER writes
+   *    student_attendance.attendance_data or any official attendance figure.
+   *  - It is GATED behind session_feedback.attendance_coupling_enabled, seeded
+   *    FALSE. While OFF this method computes NOTHING (returns { enabled:false,
+   *    rows:[] }) and the official attendance %/eligibility is entirely untouched.
+   *  - It is deliberately NOT wired into generateReportData / calculateReportData
+   *    (the official-% path). Enabling it and consuming the effective % on an
+   *    eligibility surface requires legal/compliance sign-off first (spec R2).
+   *
+   * @param institutionId scope; omit for the caller's RLS-permitted scope.
+   */
+  static async getEffectiveAttendanceCoupling(
+    from: string,
+    to: string,
+    scope?: {
+      institutionId?: string | null;
+      programId?: string | null;
+      departmentId?: string | null;
+      sectionId?: string | null;
+    }
+  ): Promise<EffectiveAttendanceCoupling> {
+    // Fail-safe: any policy-read failure is treated as OFF (feature dark).
+    let enabled = false;
+    try {
+      enabled = await getPolicyBool(
+        POLICY_KEYS.SESSION_FEEDBACK_ATTENDANCE_COUPLING_ENABLED,
+        false,
+        scope?.institutionId ?? null
+      );
+    } catch (e) {
+      logger.warn(
+        'academic/attendance-consolidation',
+        'attendance_coupling_enabled policy read failed; treating coupling as OFF',
+        e
+      );
+      return { enabled: false, rows: [] };
+    }
+
+    if (!enabled) {
+      return { enabled: false, rows: [] };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_scf_effective_attendance',
+      {
+        p_from: from,
+        p_to: to,
+        p_institution_id: scope?.institutionId ?? null,
+        p_program_id: scope?.programId ?? null,
+        p_department_id: scope?.departmentId ?? null,
+        p_section_id: scope?.sectionId ?? null,
+      }
+    );
+
+    if (error) {
+      logger.error(
+        'academic/attendance-consolidation',
+        'fn_scf_effective_attendance failed',
+        error
+      );
+      // Fail-safe: never surface a partial/erroring effective % as authoritative.
+      return { enabled: true, rows: [] };
+    }
+
+    return { enabled: true, rows: (data ?? []) as EffectiveAttendanceRow[] };
   }
 
   /**
@@ -145,12 +236,21 @@ export class AttendanceConsolidationService {
         return true;
       }
 
-      // Calculate statistics based on groupBy type
-      const reportData = await this.calculateReportData(
-        attendanceRecords,
-        params,
-        institutionId
-      );
+      // Calculate statistics based on the selected template (Added: 2026-07-04)
+      // 'subjectwise' = Camu-style students x courses % (A/T) matrix;
+      // anything else (incl. old rows without the key) = original summary.
+      const reportData =
+        params.template === 'subjectwise'
+          ? await this.calculateSubjectwiseData(
+              attendanceRecords,
+              params,
+              institutionId
+            )
+          : await this.calculateReportData(
+              attendanceRecords,
+              params,
+              institutionId
+            );
 
       // Update report with generated data
       await this.updateReport(reportId, {
@@ -169,9 +269,12 @@ export class AttendanceConsolidationService {
       logger.error('academic/attendance-consolidation', 'Error generating report data', error);
 
       // Update status to failed
+      // Fixed: 2026-07-04 - Supabase errors are plain objects, not Error
+      // instances; instanceof always fell through to "Unknown error" and
+      // hid the real failure from the UI.
       await this.updateReport(reportId, {
         status: 'failed',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorMessage: getErrorMessage(error),
       });
 
       return false;
@@ -188,49 +291,108 @@ export class AttendanceConsolidationService {
     params: ConsolidationReportParams
   ) {
     try {
-      let query = this.supabase
-        .from('student_attendance')
-        .select(`
-          *,
-          section:sections(id, section_name),
-          program:programs(id, program_name),
-          semester:semesters(id, semester_name),
-          department:departments(id, department_name)
-        `)
-        .eq('institution_id', institutionId)
-        .gte('attendance_date', dateFrom)
-        .lte('attendance_date', dateTo);
+      // Fixed: 2026-07-04 - student_attendance has no FK to timetables, so the
+      // former `timetable:timetables(attendance_mode)` embed made PostgREST
+      // reject the whole query (PGRST200) and every report since 2026-06-11
+      // failed. attendance_mode is now resolved in a separate batched query.
+      // Also paginate: PostgREST caps responses at 1000 rows, which silently
+      // truncated long date ranges.
+      const PAGE_SIZE = 1000;
+      const allRecords: any[] = [];
 
-      // Apply filters - filter out empty strings to avoid UUID errors
-      if (params.sections && params.sections.length > 0) {
-        const validSections = params.sections.filter(id => id && id.trim() !== '');
-        if (validSections.length > 0) {
-          query = query.in('section_id', validSections);
+      for (let offset = 0; ; offset += PAGE_SIZE) {
+        let query = this.supabase
+          .from('student_attendance')
+          .select(`
+            *,
+            section:sections(id, section_name),
+            program:programs(id, program_name),
+            semester:semesters(id, semester_name),
+            department:departments(id, department_name)
+          `)
+          .eq('institution_id', institutionId)
+          .gte('attendance_date', dateFrom)
+          .lte('attendance_date', dateTo);
+
+        // Apply filters - filter out empty strings to avoid UUID errors
+        if (params.degrees && params.degrees.length > 0) {
+          const validDegrees = params.degrees.filter(id => id && id.trim() !== '');
+          if (validDegrees.length > 0) {
+            query = query.in('degree_id', validDegrees);
+          }
+        }
+
+        if (params.departments && params.departments.length > 0) {
+          const validDepartments = params.departments.filter(id => id && id.trim() !== '');
+          if (validDepartments.length > 0) {
+            query = query.in('department_id', validDepartments);
+          }
+        }
+
+        if (params.sections && params.sections.length > 0) {
+          const validSections = params.sections.filter(id => id && id.trim() !== '');
+          if (validSections.length > 0) {
+            query = query.in('section_id', validSections);
+          }
+        }
+
+        if (params.semesters && params.semesters.length > 0) {
+          const validSemesters = params.semesters.filter(id => id && id.trim() !== '');
+          if (validSemesters.length > 0) {
+            query = query.in('semester_id', validSemesters);
+          }
+        }
+
+        if (params.programs && params.programs.length > 0) {
+          const validPrograms = params.programs.filter(id => id && id.trim() !== '');
+          if (validPrograms.length > 0) {
+            query = query.in('program_id', validPrograms);
+          }
+        }
+
+        const { data, error } = await query
+          .order('attendance_date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+          logger.error('academic/attendance-consolidation', 'Failed to fetch attendance records', error);
+          throw error;
+        }
+
+        allRecords.push(...(data || []));
+        if (!data || data.length < PAGE_SIZE) break;
+      }
+
+      // Resolve attendance_mode for session_wise detection (no FK = no embed)
+      const timetableIds = Array.from(
+        new Set(allRecords.map((r) => r.timetable_id).filter(Boolean))
+      );
+      const modeByTimetableId = new Map<string, string | null>();
+      for (let i = 0; i < timetableIds.length; i += 100) {
+        const chunk = timetableIds.slice(i, i + 100);
+        const { data: timetableRows, error: timetableError } = await this.supabase
+          .from('timetables')
+          .select('id, attendance_mode')
+          .in('id', chunk);
+
+        if (timetableError) {
+          logger.error('academic/attendance-consolidation', 'Failed to fetch timetable attendance modes', timetableError);
+          throw timetableError;
+        }
+
+        for (const row of timetableRows || []) {
+          modeByTimetableId.set(row.id, row.attendance_mode);
         }
       }
 
-      if (params.semesters && params.semesters.length > 0) {
-        const validSemesters = params.semesters.filter(id => id && id.trim() !== '');
-        if (validSemesters.length > 0) {
-          query = query.in('semester_id', validSemesters);
-        }
+      for (const record of allRecords) {
+        record.timetable = record.timetable_id
+          ? { attendance_mode: modeByTimetableId.get(record.timetable_id) ?? null }
+          : null;
       }
 
-      if (params.programs && params.programs.length > 0) {
-        const validPrograms = params.programs.filter(id => id && id.trim() !== '');
-        if (validPrograms.length > 0) {
-          query = query.in('program_id', validPrograms);
-        }
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        logger.error('academic/attendance-consolidation', 'Failed to fetch attendance records', error);
-        throw error;
-      }
-
-      return data;
+      return allRecords;
     } catch (error) {
       logger.error('academic/attendance-consolidation', 'Error fetching attendance records', error);
       throw error;
@@ -248,6 +410,13 @@ export class AttendanceConsolidationService {
     // Group data based on groupBy parameter
     const groups = new Map<string, any>();
 
+    // Course scoping (Added: 2026-07-04) - course lives only inside the JSONB
+    // period slots, so it is filtered here rather than in SQL.
+    const courseFilter =
+      params.courses && params.courses.length > 0
+        ? new Set(params.courses.filter((id) => id && id.trim() !== ''))
+        : null;
+
     // Process each attendance record
     for (const record of attendanceRecords) {
       const attendanceData = record.attendance_data || {};
@@ -257,6 +426,7 @@ export class AttendanceConsolidationService {
       const periodSlots = Object.values(attendanceData);
 
       for (const slot of periodSlots as any[]) {
+        if (courseFilter && !courseFilter.has(slot.course_id)) continue;
         const students = slot.students || [];
 
         for (const student of students) {
@@ -266,6 +436,14 @@ export class AttendanceConsolidationService {
 
           // Determine group based on groupBy type
           switch (params.groupBy) {
+            case 'department':
+              groupKey = record.department?.id || 'unknown';
+              groupName = record.department?.department_name || 'Unknown Department';
+              break;
+            case 'course':
+              groupKey = slot.course_id || 'unknown';
+              groupName = slot.course_name || 'Unknown Course';
+              break;
             case 'program':
               groupKey = record.program?.id || 'unknown';
               groupName = record.program?.program_name || 'Unknown Program';
@@ -311,6 +489,10 @@ export class AttendanceConsolidationService {
               presentPeriodsCount: 0,
               absentPeriodsCount: 0,
               absentDates: new Set<string>(), // Still track dates for absent details feature
+              // Updated: 2026-06-10 - Per-date session tallies for session_wise
+              // day-level full/half/absent derivation.
+              isSessionWise: false,
+              sessionDays: new Map<string, { present: number; total: number }>(),
             });
           }
 
@@ -324,16 +506,36 @@ export class AttendanceConsolidationService {
             studentData.absentDates.add(record.attendance_date); // Track date for absent details
           }
 
+          // Updated: 2026-06-10 - For session_wise (school day-wise) timetables,
+          // tally per-date session presence so we can derive a full/half/absent
+          // daily status (both present = full, one = half, none = absent).
+          const recordSessionWise =
+            (record.timetable as any)?.attendance_mode === 'session_wise';
+          if (recordSessionWise) {
+            studentData.isSessionWise = true;
+            const date = record.attendance_date;
+            const day =
+              studentData.sessionDays.get(date) || { present: 0, total: 0 };
+            day.total++;
+            if (student.status === 'Present') day.present++;
+            studentData.sessionDays.set(date, day);
+          }
+
           // Track working days at group level
           group.dates.add(record.attendance_date);
         }
       }
     }
 
+    // Day-wise (session_wise) attendance now lives in student_attendance too
+    // (attendance_data keyed 'FN'/'AN'), so it is already counted by the loop
+    // above — the per-date session tally branch derives full/half/absent. No
+    // separate merge is needed.
+
     logger.info('academic/attendance-consolidation', 'Attendance records processed', {
       totalGroups: groups.size,
       totalRecords: attendanceRecords.length,
-      note: 'Period-wise attendance tracking enabled'
+      note: 'Period-wise + day-wise attendance tracking enabled'
     });
 
     // Enrich student data (fetch names, roll numbers)
@@ -353,10 +555,39 @@ export class AttendanceConsolidationService {
         const totalPresent = studentData.presentPeriodsCount;
         const totalAbsent = studentData.absentPeriodsCount;
         const totalPeriods = totalPresent + totalAbsent;
-        const attendancePercentage =
+        let attendancePercentage =
           totalPeriods > 0
             ? (totalPresent / totalPeriods) * 100
             : 0;
+
+        // Updated: 2026-06-10 - For session_wise students, classify each day as
+        // full / half / absent and weight half as 0.5 of a day. This is robust
+        // even when only one of the two sessions was recorded on a given day.
+        let fullDays: number | undefined;
+        let halfDays: number | undefined;
+        let absentDays: number | undefined;
+        if (studentData.isSessionWise && studentData.sessionDays.size > 0) {
+          fullDays = 0;
+          halfDays = 0;
+          absentDays = 0;
+          let weightedDays = 0;
+          for (const [, day] of studentData.sessionDays as Map<
+            string,
+            { present: number; total: number }
+          >) {
+            const status = deriveDailyStatus({
+              fnPresent: day.present >= 1,
+              anPresent: day.present >= 2,
+            });
+            if (status === 'full') fullDays++;
+            else if (status === 'half') halfDays++;
+            else absentDays++;
+            weightedDays += dailyStatusToDays(status);
+          }
+          const daysCounted = fullDays + halfDays + absentDays;
+          attendancePercentage =
+            daysCounted > 0 ? (weightedDays / daysCounted) * 100 : 0;
+        }
 
         const studentSummary: StudentAttendanceSummary = {
           studentId,
@@ -378,6 +609,11 @@ export class AttendanceConsolidationService {
           totalPresent,
           totalAbsent,
           attendancePercentage: Math.round(attendancePercentage * 100) / 100,
+          // Session_wise day-level breakdown (undefined for period_wise students)
+          isSessionWise: studentData.isSessionWise || undefined,
+          fullDays,
+          halfDays,
+          absentDays,
         };
 
         // Include absent details if requested
@@ -454,6 +690,246 @@ export class AttendanceConsolidationService {
       summary,
       groups: groupSummaries.sort((a, b) => a.groupName.localeCompare(b.groupName)),
     };
+  }
+
+  /**
+   * SUBJECTWISE (Camu-format) TEMPLATE — Added: 2026-07-04
+   * Builds one matrix block per group (default: section): students as rows,
+   * courses as columns, each cell = attended/marked period counts per course.
+   * Mirrors the Camu "Attendance Summary Subjectwise %" report.
+   */
+  private static async calculateSubjectwiseData(
+    attendanceRecords: any[],
+    params: ConsolidationReportParams,
+    institutionId: string
+  ): Promise<ConsolidationReportData> {
+    const courseFilter =
+      params.courses && params.courses.length > 0
+        ? new Set(params.courses.filter((id) => id && id.trim() !== ''))
+        : null;
+
+    // Matrix blocks make sense per department/semester/section only; anything
+    // else falls back to the Camu default of one matrix per section.
+    const groupBy = ['department', 'semester', 'section'].includes(params.groupBy)
+      ? params.groupBy
+      : 'section';
+
+    const groups = new Map<string, any>();
+    const allDates = new Set<string>();
+    const allCourseIds = new Set<string>();
+    const academicYearIds = new Set<string>();
+
+    for (const record of attendanceRecords) {
+      const periodSlots = Object.values(record.attendance_data || {});
+      if (record.academic_year_id) academicYearIds.add(record.academic_year_id);
+
+      let groupKey: string;
+      let groupName: string;
+      switch (groupBy) {
+        case 'department':
+          groupKey = record.department?.id || 'unknown';
+          groupName = record.department?.department_name || 'Unknown Department';
+          break;
+        case 'semester':
+          groupKey = record.semester?.id || 'unknown';
+          groupName = record.semester?.semester_name || 'Unknown Semester';
+          break;
+        default:
+          groupKey = record.section?.id || 'unknown';
+          groupName = record.section?.section_name || 'Unknown Section';
+      }
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          groupId: groupKey,
+          groupName,
+          groupType: groupBy,
+          students: new Map<string, any>(),
+          // courseId -> periods marked for the course in this group (header "(T)")
+          courseTotals: new Map<string, number>(),
+          courseNames: new Map<string, string>(),
+        });
+      }
+      const group = groups.get(groupKey);
+
+      for (const slot of periodSlots as any[]) {
+        if (courseFilter && !courseFilter.has(slot.course_id)) continue;
+        const students = slot.students || [];
+        if (students.length === 0) continue;
+
+        // Legacy/manual slots without a course bucket under "General"
+        const courseId = slot.course_id || 'general';
+        allCourseIds.add(courseId);
+        if (!group.courseNames.has(courseId)) {
+          group.courseNames.set(courseId, slot.course_name || 'General');
+        }
+        group.courseTotals.set(
+          courseId,
+          (group.courseTotals.get(courseId) || 0) + 1
+        );
+        allDates.add(record.attendance_date);
+
+        for (const student of students) {
+          const studentId = student.student_id;
+          if (!group.students.has(studentId)) {
+            group.students.set(studentId, {
+              studentId,
+              studentName: studentId, // enriched below
+              perCourse: new Map<string, { present: number; total: number }>(),
+              overallPresent: 0,
+              overallTotal: 0,
+            });
+          }
+          const row = group.students.get(studentId);
+          const cell = row.perCourse.get(courseId) || { present: 0, total: 0 };
+          // Same semantics as the summary template: Present = attended,
+          // Absent = marked but missed, OnDuty excluded from both A and T.
+          if (student.status === 'Present') {
+            cell.present++;
+            cell.total++;
+            row.overallPresent++;
+            row.overallTotal++;
+          } else if (student.status === 'Absent') {
+            cell.total++;
+            row.overallTotal++;
+          }
+          row.perCourse.set(courseId, cell);
+        }
+      }
+    }
+
+    // Drop groups that ended up empty after course filtering
+    for (const [key, group] of groups) {
+      if (group.students.size === 0) groups.delete(key);
+    }
+
+    // Names / roll numbers / hierarchy via the shared learner lookup
+    await this.enrichStudentData(groups, institutionId);
+
+    // Resolve course codes (the Camu column headers) — codes are not in the JSONB
+    const courseLookup = new Map<
+      string,
+      { course_code: string; course_name: string }
+    >();
+    const courseIdList = Array.from(allCourseIds).filter((id) => id !== 'general');
+    for (let i = 0; i < courseIdList.length; i += 100) {
+      const chunk = courseIdList.slice(i, i + 100);
+      const { data: courseRows, error: courseError } = await this.supabase
+        .from('courses')
+        .select('id, course_code, course_name')
+        .in('id', chunk);
+      if (courseError) {
+        logger.error('academic/attendance-consolidation', 'Failed to fetch course codes', courseError);
+        throw courseError;
+      }
+      for (const c of courseRows || []) {
+        courseLookup.set(c.id, {
+          course_code: c.course_code,
+          course_name: c.course_name,
+        });
+      }
+    }
+
+    // Academic year name(s) for the report header line
+    let academicYearName: string | undefined;
+    if (academicYearIds.size > 0) {
+      const { data: ayRows, error: ayError } = await this.supabase
+        .from('academic_years')
+        .select('id, academic_year_name')
+        .in('id', Array.from(academicYearIds).slice(0, 100));
+      if (ayError) {
+        logger.error('academic/attendance-consolidation', 'Failed to fetch academic years', ayError);
+      }
+      academicYearName =
+        (ayRows || [])
+          .map((ay) => (ay.academic_year_name || '').trim())
+          .filter(Boolean)
+          .join(', ') || undefined;
+    }
+
+    // Build the final SubjectwiseGroup[] payload + overall summary numbers
+    const subjectwiseGroups: SubjectwiseGroup[] = [];
+    let totalPresentOverall = 0;
+    let totalAbsentOverall = 0;
+    const distinctStudents = new Set<string>();
+
+    for (const [, group] of groups) {
+      const courses: SubjectwiseCourseColumn[] = Array.from(
+        group.courseTotals.entries() as Iterable<[string, number]>
+      )
+        .map(([courseId, totalPeriods]) => ({
+          courseId,
+          courseCode:
+            courseLookup.get(courseId)?.course_code ||
+            (courseId === 'general' ? 'GEN' : courseId.slice(0, 8)),
+          courseName:
+            courseLookup.get(courseId)?.course_name ||
+            group.courseNames.get(courseId) ||
+            'General',
+          totalPeriods,
+        }))
+        .sort((a, b) =>
+          a.courseCode.localeCompare(b.courseCode, undefined, { numeric: true })
+        );
+
+      const students: SubjectwiseStudentRow[] = [];
+      let firstStudent: any = null;
+      for (const [, row] of group.students) {
+        if (!firstStudent) firstStudent = row;
+        distinctStudents.add(row.studentId);
+        totalPresentOverall += row.overallPresent;
+        totalAbsentOverall += row.overallTotal - row.overallPresent;
+        students.push({
+          studentId: row.studentId,
+          studentName: row.studentName,
+          rollNumber: row.rollNumber,
+          perCourse: Object.fromEntries(row.perCourse),
+          overallPresent: row.overallPresent,
+          overallTotal: row.overallTotal,
+        });
+      }
+      students.sort((a, b) =>
+        (a.rollNumber || a.studentName || '').localeCompare(
+          b.rollNumber || b.studentName || '',
+          undefined,
+          { numeric: true }
+        )
+      );
+
+      subjectwiseGroups.push({
+        groupId: group.groupId,
+        groupName: group.groupName,
+        groupType: group.groupType,
+        degreeName: firstStudent?.degreeName,
+        departmentName: firstStudent?.departmentName,
+        programName: firstStudent?.programName,
+        semesterName: firstStudent?.semesterName,
+        sectionName:
+          group.groupType === 'section'
+            ? group.groupName
+            : firstStudent?.sectionName,
+        academicYearName,
+        courses,
+        students,
+      });
+    }
+
+    subjectwiseGroups.sort((a, b) => a.groupName.localeCompare(b.groupName));
+
+    const totalPeriodsOverall = totalPresentOverall + totalAbsentOverall;
+    const summary: ReportSummary = {
+      totalStudents: distinctStudents.size,
+      totalWorkingDays: allDates.size,
+      averageAttendance:
+        totalPeriodsOverall > 0
+          ? Math.round(((totalPresentOverall / totalPeriodsOverall) * 100) * 100) / 100
+          : 0,
+      totalPresent: totalPresentOverall,
+      totalAbsent: totalAbsentOverall,
+      dateRange: { from: params.dateFrom, to: params.dateTo },
+    };
+
+    return { summary, groups: [], subjectwiseGroups };
   }
 
   /**

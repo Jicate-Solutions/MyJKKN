@@ -47,6 +47,10 @@ export interface ResolvedModel {
   fallback_provider: string | null;
   fallback_model_id: string | null;
   monthly_spend_cap_inr: number | null;
+  /** True when spend-cap enforcement swapped model_id to the degrade model. */
+  over_cap?: boolean;
+  /** The configured model that was swapped away from (over_cap only). */
+  capped_from_model_id?: string;
 }
 
 export interface RecordUsageInput {
@@ -64,6 +68,10 @@ export interface RecordUsageInput {
 // ---------------------------------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
+
+// Cheapest anthropic chat model — what an over-cap anthropic feature degrades
+// to. Must exist in the ai-providers pricing registry.
+const CAP_DEGRADE_MODEL_ID = 'claude-haiku-4-5';
 
 interface CacheEntry {
   value: ResolvedModel;
@@ -106,36 +114,129 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
     // Use service-role client so this works from server routes regardless of
     // user session. RLS blocks anonymous reads; service-role bypasses.
     const supabase = createServiceRoleClient();
-    const { data, error } = await supabase
-      .from('ai_model_config')
+
+    // ── CONFIG MERGE (2026-07-14) ──────────────────────────────────────────
+    // The ai_job_types registry (#1998) is the SOURCE OF TRUTH for model
+    // governance. Resolve from it FIRST, keying on model_id presence — on the
+    // registry `enabled` is the generic-drain runnable flag, NOT a model-active
+    // flag, so it must NEVER gate model resolution (a config-carrier feature
+    // that runs via its own cron/route is enabled=false but still has a live
+    // model here). ai_model_config remains the FALLBACK source while the
+    // cutover bakes; it is also the only holder of config_json — which no
+    // resolution consumer currently reads, so registry rows resolve it null.
+    let resolved: ResolvedModel | null = null;
+
+    const { data: reg, error: regError } = await supabase
+      .from('ai_job_types')
       .select(
-        'feature_key, provider, model_id, config_json, fallback_provider, fallback_model_id, monthly_spend_cap_inr, is_active',
+        'job_type, provider, model_id, fallback_provider, fallback_model_id, monthly_spend_cap_inr',
       )
-      .eq('feature_key', featureKey)
-      .eq('is_active', true)
+      .eq('job_type', featureKey)
+      .not('model_id', 'is', null)
       .maybeSingle();
 
-    if (error) {
-      console.error('[ai-model-config] getModelForFeature read error:', error);
-      return getHardcodedFallback(featureKey);
-    }
-
-    if (!data) {
-      console.warn(
-        `[ai-model-config] No row for feature_key=${featureKey}, using hardcoded fallback`,
+    if (regError) {
+      // Don't hard-fail on a registry read hiccup — fall through to the legacy
+      // ai_model_config read below so resolution keeps working.
+      console.error(
+        `[ai-model-config] ${featureKey}: registry read error (falling back to ai_model_config):`,
+        regError.message,
       );
-      return getHardcodedFallback(featureKey);
+    } else if (reg && reg.provider && reg.model_id) {
+      resolved = {
+        feature_key: featureKey,
+        provider: reg.provider,
+        model_id: reg.model_id,
+        config_json: null,
+        fallback_provider: reg.fallback_provider,
+        fallback_model_id: reg.fallback_model_id,
+        monthly_spend_cap_inr: reg.monthly_spend_cap_inr,
+      };
     }
 
-    const resolved: ResolvedModel = {
-      feature_key: data.feature_key,
-      provider: data.provider,
-      model_id: data.model_id,
-      config_json: (data.config_json as Record<string, unknown> | null) ?? null,
-      fallback_provider: data.fallback_provider,
-      fallback_model_id: data.fallback_model_id,
-      monthly_spend_cap_inr: data.monthly_spend_cap_inr,
-    };
+    // FALLBACK: legacy ai_model_config (pre-merge source; still authoritative
+    // for config_json and for any feature not yet carrying a model in the
+    // registry).
+    if (!resolved) {
+      const { data, error } = await supabase
+        .from('ai_model_config')
+        .select(
+          'feature_key, provider, model_id, config_json, fallback_provider, fallback_model_id, monthly_spend_cap_inr, is_active',
+        )
+        .eq('feature_key', featureKey)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[ai-model-config] getModelForFeature read error:', error);
+        return getHardcodedFallback(featureKey);
+      }
+
+      if (!data) {
+        console.warn(
+          `[ai-model-config] No registry or ai_model_config row for feature_key=${featureKey}, using hardcoded fallback`,
+        );
+        return getHardcodedFallback(featureKey);
+      }
+
+      resolved = {
+        feature_key: data.feature_key,
+        provider: data.provider,
+        model_id: data.model_id,
+        config_json: (data.config_json as Record<string, unknown> | null) ?? null,
+        fallback_provider: data.fallback_provider,
+        fallback_model_id: data.fallback_model_id,
+        monthly_spend_cap_inr: data.monthly_spend_cap_inr,
+      };
+    }
+
+    // Spend-cap ENFORCEMENT (Director decision 2026-07-11: the cap box is
+    // real, not decorative). When month-to-date spend has crossed the row's
+    // cap, an anthropic feature degrades to the cheapest chat model instead
+    // of going dark — answers keep flowing, cost stops climbing. Non-anthropic
+    // features keep their model (a chat-model swap would break their modality:
+    // whisper/gemini/gpt rows), so the cap stays advisory there. Runs only on
+    // cache miss → ≤60s enforcement lag per instance; any check failure is
+    // fail-open (never block AI because the ledger was unreachable).
+    if (
+      resolved.monthly_spend_cap_inr !== null &&
+      resolved.monthly_spend_cap_inr > 0 &&
+      resolved.provider === 'anthropic' &&
+      resolved.model_id !== CAP_DEGRADE_MODEL_ID
+    ) {
+      // `supabase` here IS the service-role client from above — the RPC is
+      // service_role-only by grant, so this must never be swapped for a
+      // user-session client.
+      const { data: spend, error: spendError } = await supabase.rpc(
+        'fn_ai_feature_mtd_spend',
+        { p_feature_key: featureKey },
+      );
+      if (spendError) {
+        // Fail-open by design (never block AI on a ledger hiccup) but NEVER
+        // silently: an always-erroring check would mean caps are quietly
+        // unenforced (deep-review finding #2).
+        console.error(
+          `[ai-model-config] ${featureKey}: spend-cap check errored (cap NOT enforced this cycle):`,
+          spendError.message,
+        );
+      }
+      const mtd = typeof spend === 'number' ? spend : Number(spend);
+      if (!spendError && Number.isFinite(mtd) && mtd >= resolved.monthly_spend_cap_inr) {
+        console.warn(
+          `[ai-model-config] ${featureKey}: MTD spend ₹${mtd.toFixed(0)} >= cap ` +
+            `₹${resolved.monthly_spend_cap_inr} — degrading ${resolved.model_id} → ${CAP_DEGRADE_MODEL_ID}`,
+        );
+        resolved.over_cap = true;
+        resolved.capped_from_model_id = resolved.model_id;
+        resolved.model_id = CAP_DEGRADE_MODEL_ID;
+        // Also neutralize the row's fallback pair: a consumer honoring
+        // fallback_model_id could otherwise re-escalate an over-cap feature
+        // straight back to an expensive model (deep-review finding).
+        if (resolved.fallback_provider === 'anthropic') {
+          resolved.fallback_model_id = CAP_DEGRADE_MODEL_ID;
+        }
+      }
+    }
 
     setCached(featureKey, resolved);
     return resolved;
@@ -219,8 +320,32 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'voice_memo.transcribe': fallback(featureKey, 'groq', 'whisper-large-v3'),
     'voice_memo.sentiment': fallback(featureKey, 'google', 'gemini-2.5-flash-lite'),
     'admission.briefing': fallback(featureKey, 'openai', 'gpt-4o-mini'),
-    'admission.ai_insights': fallback(featureKey, 'openai', 'gpt-4o-mini'),
+    'admission.ai_insights': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
     'ai_pulse.anomaly_detection': fallback(featureKey, 'openai', 'gpt-4o-mini'),
+    // Adoption program 2026-07-02 — each entry mirrors the model the call site
+    // hardcoded before adoption (cutover invariant: degraded mode == old behavior).
+    'scf.generate_suggestions': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'scf.learner_notes': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'session_feedback.escalation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'session_feedback.suggest_improvement': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'feedback.classify': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'induction.generate_playbook': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'induction.session_effectiveness': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'cdc.career_guidance': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
+    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
+    'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
+    'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
+    // rcltp generate route is MyJKKN-gated scaffold (no model in code yet) —
+    // forward-default to the platform workhorse.
+    'rcltp.question_generation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
+    'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
+    'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
+    'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
+    // Procurement PDF extraction (2026-07-11) — mirrors the pre-adoption hardcode
+    // in lib/procurement/*-pdf-extract.ts (cutover invariant: degraded == old behavior).
+    'procurement.quotation_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
+    'procurement.invoice_extract': fallback(featureKey, 'anthropic', 'claude-opus-4-8'),
   };
 
   return FALLBACKS[featureKey] ?? fallback(featureKey, 'openai', 'gpt-4o-mini');

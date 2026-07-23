@@ -30,6 +30,7 @@ import {
 import { Degree } from '@/types/organizations';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -46,6 +47,7 @@ export function DataTableRowActions<TData>({
   const queryClient = useQueryClient();
   const degree = row.original as Degree;
   const { canAccess, isSuperAdmin } = usePermissions();
+  const adapt = useAdaptiveLabels();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const canEdit = isSuperAdmin || canAccess('organizations.degrees', 'edit');
@@ -57,12 +59,12 @@ export function DataTableRowActions<TData>({
       await DegreeService.deleteDegree(degree.id);
     },
     onSuccess: () => {
-      toast.success('Degree deleted successfully.');
+      toast.success(`${adapt('Degree')} deleted successfully.`);
       queryClient.invalidateQueries({ queryKey: ['degrees'] });
       setShowDeleteDialog(false);
     },
     onError: (error) => {
-      toast.error('Failed to delete degree', {
+      toast.error(`Failed to delete ${adapt('degree')}`, {
         duration: 5000
       });
     }
@@ -122,7 +124,7 @@ export function DataTableRowActions<TData>({
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the
-              degree &quot;{degree.degree_name}&quot; and remove all associated
+              {' '}{adapt('degree')} &quot;{degree.degree_name}&quot; and remove all associated
               data.
             </AlertDialogDescription>
           </AlertDialogHeader>

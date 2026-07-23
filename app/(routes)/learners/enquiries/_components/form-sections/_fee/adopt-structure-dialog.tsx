@@ -95,7 +95,12 @@ export function AdoptStructureDialog({
     setLoading(true);
     Promise.all([
       isFullDims(dims)
-        ? FeeStructureService.findByDimensions(dims as FeeStructureMatrixDimensions)
+        ? FeeStructureService.findByDimensions(
+            dims as FeeStructureMatrixDimensions,
+            // community_category_id is a SEPARATE second arg — see
+            // fee-resolution-service.ts for the full explanation of why.
+            (dims as FeeStructureMatrixDimensions).community_category_id,
+          )
         : Promise.resolve(null),
       BillingCategoryService.getActiveBillingCategories(),
     ])

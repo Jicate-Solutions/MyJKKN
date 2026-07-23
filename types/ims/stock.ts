@@ -7,6 +7,8 @@ export type ImsLocationType = 'central_store' | 'department';
 export interface ImsStockSummary {
   id: string;
   item_id: string;
+  /** Quantity recorded at item-creation time ("Opening stock" batch). Admin-manageable via ImsStockService.updateOpeningQuantity. */
+  opening_quantity: number;
   current_quantity: number;
   reserved_quantity: number;
   available_quantity: number;
@@ -168,6 +170,26 @@ export interface ImsDepartmentStockFilters {
   institution_id?: string;
   department_id?: string;
   search?: string;
+}
+
+/** Direct store → department issue, bypassing the indent request/approve cycle. */
+export interface CreateImsDepartmentIssueDto {
+  department_id: string;
+  item_id: string;
+  quantity: number;
+  notes?: string;
+  store_id?: string | null;
+  institution_id?: string;
+}
+
+/** Records stock a department has used up, reducing its balance. */
+export interface CreateImsDepartmentConsumptionDto {
+  department_id: string;
+  item_id: string;
+  quantity: number;
+  notes?: string;
+  store_id?: string | null;
+  institution_id?: string;
 }
 
 export interface CreateImsStockAdjustmentDto {

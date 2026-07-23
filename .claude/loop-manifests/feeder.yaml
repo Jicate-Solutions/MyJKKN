@@ -1,0 +1,59 @@
+# Feeder loop manifest — sim verified live 2026-07-03 (memory:
+# project_schools_network_feeder_moat_loop). Machinery VERIFIED self-improving;
+# fuel accrues as visit cycles run.
+loop_key: feeder
+name: Feeder Momentum Loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  input: learners_profiles          # enrolment per admission cycle is the outcome signal
+  action: schools                   # + school_visit_assignments (the re-ranked visit list IS the action)
+
+sim:
+  sentinel: "ZZTEST MOATLOOP HSS"   # school_name sentinel (proven 2026-07-03)
+  seed_input: |
+    -- Seed learners under the sentinel school for the PRIOR cycle, then the
+    -- CURRENT cycle. TRAP: learner rows must carry institution_id = the
+    -- admission year's institution (trigger validate_learner_admission_year_scope).
+    -- Derive columns at run time from learners_profiles NOT-NULLs.
+    derive_at_run: true
+  seed_action: |
+    -- The "action" is the ranked visit list itself; no action row to seed.
+  verifier: "public.fn_schools_network_feeders(...)"  # p_sort='priority' ranks biggest DROP first
+  asserts:
+    no_change: "cycle_delta = 0 when both cycles seeded equal"
+    known_delta: { seed: "3 prior-cycle learners, then 5 current", expect: "cycle_delta = +2, rank drops out of top slice" }
+  reset_between_deltas: |
+    -- delete the current-cycle sentinel learners; rank must RETURN to the
+    -- prior position exactly (reversibility assert — passed 2026-07-03 at #50).
+  notes:
+    - prior cycle = next-lower year WITH learners (gap-year safe) — do not
+      assume year-1.
+    - canonical school key resolves through schools_network_feeder_aliases
+      BEFORE grouping — a sentinel name must not collide with an alias.
+    - investment aggregates are deliberately NOT in the fn (Director ruling,
+      load-bearing comment) — do not flag as a hole.
+
+confound:
+  verdict_column: null              # no human verdict; the counterfactual is
+  query: |                          # schools NOT visited with similar deltas
+    -- compare next-cycle delta of visited vs not-visited schools at similar
+    -- prior deltas (school_visit_assignments done vs never-assigned).
+    derive_at_run: true
+  min_rows: 20
+
+feed_forward:
+  reader: "the priority-sorted panel itself (rank = the fed-forward decision)"
+  trigger: { kind: read_only, detail: "re-rank is computed per read; no generation step" }
+  pass_criteria: [rank_moves_because_measured_delta_moved]
+
+walk:
+  personas: { coordinator: "an assigned school_jkkn_owner test account", admin: test.superadmin@jkkn.ac.in }
+  hops:
+    - { as: admin, do: open_assert, page: /admission/schools-network, expect: "sentinel school ranked by seeded delta" }
+    - { as: coordinator, do: open_assert, page: /admission/schools-network/worklist, expect: "assignment visible when assigned" }
+  forbidden: [visit nudges (real user_notifications), auto_assign runs]
+  cleanup: |
+    -- delete sentinel learners + school row; verify feeder panel rank restored.
+
+registry_gates_hint: '{"g":"on","a":"on","m":"on","f":"on"}'

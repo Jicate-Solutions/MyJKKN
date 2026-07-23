@@ -31,12 +31,30 @@ export function stringToDate(dateStr: string | null | undefined): Date | null {
   return !isNaN(date.getTime()) ? date : null;
 }
 
+// Supabase returns plain JSON objects (not Error instances) from
+// `{ data, error } = await supabase.from(...).insert(...).select()`. When a
+// service throws that object directly (`if (error) throw error`), the catcher
+// sees a plain object — `instanceof Error` is false. Without this branch the
+// real PostgREST message ("Another active fee structure already covers
+// community … — archive first", "duplicate key value violates unique
+// constraint", RLS denials, etc.) is dropped and callers fall back to generic
+// strings like "Failed to create fee structure". See PostgrestBuilder.js:127:
+//   error = JSON.parse(body);   // returns a plain object, not PostgrestError
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
   if (typeof error === 'string') {
     return error;
+  }
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string' &&
+    (error as { message: string }).message.length > 0
+  ) {
+    return (error as { message: string }).message;
   }
   return 'An unexpected error occurred';
 }

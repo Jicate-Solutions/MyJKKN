@@ -17,6 +17,13 @@ interface FavoriteStarProps {
   module: string;
   iconName: string;
   size?: 'sm' | 'md';
+  /**
+   * When true, render as a labelled pill ("Favorite" / "Favorited") instead of
+   * an icon-only star. Use in prominent spots (page header) where the control
+   * must be obviously discoverable. Defaults to false so compact contexts
+   * (sidebar rows, menus) stay icon-only.
+   */
+  showLabel?: boolean;
   className?: string;
 }
 
@@ -30,6 +37,7 @@ export function FavoriteStar({
   module,
   iconName,
   size = 'md',
+  showLabel = false,
   className,
 }: FavoriteStarProps) {
   const { isFavorite, addFavorite, removeFavorite } = usePageFavorites();
@@ -47,7 +55,47 @@ export function FavoriteStar({
   };
 
   const iconSize = size === 'sm' ? 14 : 18;
+  // Accessible name + native tooltip — without this the button renders as
+  // "(no name)" for screen readers and gives no hover hint on what it does.
+  const label = favorited ? 'Remove from favorites' : 'Add to favorites';
 
+  const star = (
+    <Star
+      size={iconSize}
+      className={cn(
+        'transition-all',
+        favorited && 'fill-current',
+        isUpdating && 'animate-pulse'
+      )}
+    />
+  );
+
+  // ── Labelled pill variant: an unmistakable "Favorite" / "Favorited" button ──
+  if (showLabel) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleToggle}
+        disabled={isUpdating}
+        aria-label={label}
+        aria-pressed={favorited}
+        title={label}
+        className={cn(
+          'h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors',
+          favorited
+            ? 'border-yellow-400/60 bg-yellow-50 text-yellow-600 hover:bg-yellow-100 dark:border-yellow-400/40 dark:bg-yellow-400/10 dark:text-yellow-300'
+            : 'text-muted-foreground hover:border-yellow-400/60 hover:text-yellow-600 dark:hover:text-yellow-300',
+          className
+        )}
+      >
+        {star}
+        <span>{favorited ? 'Favorited' : 'Favorite'}</span>
+      </Button>
+    );
+  }
+
+  // ── Icon-only variant (compact contexts: sidebar rows, menus) ──
   return (
     <TooltipProvider>
       <Tooltip delayDuration={200}>
@@ -57,6 +105,9 @@ export function FavoriteStar({
             size="icon"
             onClick={handleToggle}
             disabled={isUpdating}
+            aria-label={label}
+            aria-pressed={favorited}
+            title={label}
             className={cn(
               'shrink-0 transition-colors',
               size === 'sm' ? 'h-7 w-7' : 'h-9 w-9',
@@ -66,19 +117,10 @@ export function FavoriteStar({
               className
             )}
           >
-            <Star
-              size={iconSize}
-              className={cn(
-                'transition-all',
-                favorited && 'fill-current',
-                isUpdating && 'animate-pulse'
-              )}
-            />
+            {star}
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {favorited ? 'Remove from favorites' : 'Add to favorites'}
-        </TooltipContent>
+        <TooltipContent side="bottom">{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

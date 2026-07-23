@@ -34,7 +34,7 @@
  *   `/admission/leads?status=applied` stays `?status=applied&admission_year=...`).
  *
  * @param url        Resolved destination URL (from policy reader)
- * @param year       Selected admission year (program_start_year) or null
+ * @param year       Selected admission year (admission_years.year) or null
  * @param institutionIds Scoped institution IDs or undefined for all-access
  */
 export function appendDashboardScope(

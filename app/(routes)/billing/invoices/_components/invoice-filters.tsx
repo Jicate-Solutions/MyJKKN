@@ -35,7 +35,7 @@ export function InvoiceFilters({
   const loadInstitutions = async () => {
     try {
       setIsLoadingInstitutions(true);
-      const data = await OrganizationService.getInstitutionNames(true);
+      const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
       setInstitutions(data as Institution[]);
     } catch (error) {
       console.error('Error loading institutions:', error);

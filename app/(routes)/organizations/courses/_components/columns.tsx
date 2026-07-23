@@ -10,7 +10,16 @@ import { BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 
-export const columns: ColumnDef<Course>[] = [
+/**
+ * Column factory for the courses table. Headers adapt to the institution type
+ * (e.g. "Course Name" → "Subject Name" for schools). Since `useAdaptiveLabels()`
+ * is a hook, the table passes its live `adapt` function in here. Defaults to an
+ * identity function so columns still render unadapted if called without one.
+ */
+export function getCourseColumns(
+  adapt: (label: string) => string = (label) => label
+): ColumnDef<Course>[] {
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -40,7 +49,7 @@ export const columns: ColumnDef<Course>[] = [
   {
     accessorKey: 'course_code',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Course Code' />
+      <DataTableColumnHeader column={column} title={`${adapt('Course')} Code`} />
     ),
     cell: ({ row }) => {
       const course = row.original;
@@ -59,7 +68,7 @@ export const columns: ColumnDef<Course>[] = [
   {
     accessorKey: 'course_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Course Name' />
+      <DataTableColumnHeader column={column} title={`${adapt('Course')} Name`} />
     ),
     cell: ({ row }) => {
       return (
@@ -130,4 +139,5 @@ export const columns: ColumnDef<Course>[] = [
     enableHiding: false,
     size: 60
   }
-];
+  ];
+}

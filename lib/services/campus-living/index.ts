@@ -22,6 +22,7 @@ export { MessMealService } from './mess-meal-service';
 export { MessBillingService } from './mess-billing-service';
 export { MessFeedbackService } from './mess-feedback-service';
 export { MessWasteService } from './mess-waste-service';
+export { MessRatingService } from './mess-rating-service';
 
 // ── Safety & Security ───────────────────────────────────────────────
 export { VisitorService } from './visitor-service';

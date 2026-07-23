@@ -100,9 +100,13 @@ const SelectContent = React.forwardRef<
       <SelectPrimitive.Content
         ref={ref}
         className={cn(
-          'relative z-50 max-h-[min(var(--radix-select-content-available-height),400px)] min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+          'relative z-[200] max-h-[min(var(--radix-select-content-available-height),400px)] min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
           position === 'popper' &&
-            'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
+            // max-w: long option labels (e.g. programme names) must never push
+            // the popup wider than the viewport on phones. Radix computes the
+            // collision-aware available width; the 100vw fallback guards the
+            // first paint before the var is set.
+            'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1 max-w-[min(var(--radix-select-content-available-width,100vw),calc(100vw-1rem))]',
           className
         )}
         position={position}
@@ -111,7 +115,11 @@ const SelectContent = React.forwardRef<
         <div
           ref={scrollRef}
           className={cn(
-            'p-1 max-h-[20rem] overflow-y-auto overscroll-contain',
+            // Height must track the real viewport space (Radix's collision-aware
+            // available-height var), capped at 20rem. A fixed 20rem alone gets
+            // clipped by the parent's overflow-hidden on short mobile viewports
+            // (landscape / keyboard open), leaving the last options unreachable.
+            'p-1 max-h-[min(var(--radix-select-content-available-height,20rem),20rem)] overflow-y-auto overscroll-contain',
             position === 'popper' &&
               'w-full min-w-[var(--radix-select-trigger-width)]'
           )}

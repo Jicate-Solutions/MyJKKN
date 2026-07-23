@@ -8,7 +8,9 @@ import { Semester } from '@/types/organizations';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 
-export const columns: ColumnDef<Semester>[] = [
+export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Semester>[] => {
+  const adapt = adaptLabel || ((label) => label);
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -34,7 +36,7 @@ export const columns: ColumnDef<Semester>[] = [
   {
     accessorKey: 'semester_code',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester Code' />
+      <DataTableColumnHeader column={column} title={`${adapt('Semester')} Code`} />
     ),
     cell: ({ row }) => {
       const semester = row.original;
@@ -47,7 +49,7 @@ export const columns: ColumnDef<Semester>[] = [
   {
     accessorKey: 'semester_name',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester Name' />
+      <DataTableColumnHeader column={column} title={`${adapt('Semester')} Name`} />
     ),
     cell: ({ row }) => {
       const semester = row.original;
@@ -84,7 +86,7 @@ export const columns: ColumnDef<Semester>[] = [
   {
     accessorKey: 'program',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
+      <DataTableColumnHeader column={column} title={adapt('Program')} />
     ),
     cell: ({ row }) => {
       const semester = row.original;
@@ -144,4 +146,5 @@ export const columns: ColumnDef<Semester>[] = [
     minSize: 60,
     maxSize: 80
   }
-];
+  ];
+};

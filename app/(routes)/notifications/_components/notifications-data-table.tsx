@@ -60,7 +60,7 @@ export function NotificationsDataTable({
         priority: notification.priority,
         category: notification.category
       });
-      router.push(`/admin/notifications/new?${params.toString()}`);
+      router.push(`/notifications/admin/new?${params.toString()}`);
     },
     [router]
   );
@@ -134,7 +134,7 @@ export function NotificationsDataTable({
       <div className='flex items-center gap-2'>
         {canCreateNotification && (
           <Button
-            onClick={() => router.push('/admin/notifications/new')}
+            onClick={() => router.push('/notifications/admin/new')}
             size='sm'
             className='h-8'
           >

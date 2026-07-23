@@ -28,8 +28,9 @@ export function getOnboardingColumns(opts: {
   toggleAllOnPage: (ids: string[], value: boolean) => void;
   pageRowIds: string[];
   generatingIds: Set<string>;
+  returnToUrl?: string;
 }): ColumnDef<OnboardingLearner>[] {
-  const { selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds } = opts;
+  const { selectedIds, toggleSelected, toggleAllOnPage, pageRowIds, generatingIds, returnToUrl } = opts;
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selectedIds.has(id));
   const someOnPageSelected =
@@ -71,7 +72,7 @@ export function getOnboardingColumns(opts: {
             {/* Name links to the learner detail page. Using next/link gives
                 prefetching + ctrl-click new-tab for free. */}
             <Link
-              href={`/learners/profiles/${learner.id}`}
+              href={`/billing/schedule/students/${learner.id}${returnToUrl ? `?returnTo=${encodeURIComponent(returnToUrl)}` : ''}`}
               className="font-medium text-green-600 hover:underline dark:text-green-400"
             >
               {learner.first_name} {learner.last_name || ''}
@@ -177,7 +178,7 @@ export function getOnboardingColumns(opts: {
       id: 'actions',
       header: 'Actions',
       size: 60,
-      cell: ({ row }) => <OnboardingRowActions learner={row.original} />,
+      cell: ({ row }) => <OnboardingRowActions learner={row.original} returnToUrl={returnToUrl} />,
     },
   ];
 }

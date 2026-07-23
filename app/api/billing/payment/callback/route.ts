@@ -50,6 +50,173 @@ export async function POST(request: NextRequest) {
       logger.dev('billing/payment-callback', 'No form data in POST request');
     }
 
+    // ------------------------------------------------------------------
+    // Razorpay callback branch (hosted checkout).
+    // Razorpay's hosted checkout POSTs razorpay_order_id, razorpay_payment_id,
+    // razorpay_signature to this callback_url. Detect that and route through
+    // the signature-verification + dual-inquiry path.
+    // ------------------------------------------------------------------
+    if (formData) {
+      const razorpayOrderId = formData.get('razorpay_order_id')?.toString();
+      const razorpayPaymentId = formData.get('razorpay_payment_id')?.toString();
+      const razorpaySignature = formData.get('razorpay_signature')?.toString();
+
+      if (razorpayOrderId && razorpayPaymentId && razorpaySignature) {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const supabase = createServiceRoleClient();
+
+        const { data: txn } = await (supabase as any)
+          .from('payment_transactions')
+          .select('id, student_id, institution_id, total_amount')
+          .eq('razorpay_order_id', razorpayOrderId)
+          .single();
+
+        if (!txn) {
+          logger.warn('billing/payment-callback', 'Razorpay callback for unknown order', { razorpayOrderId });
+          return NextResponse.redirect(new URL('/billing/schedule/students', baseUrl), 303);
+        }
+
+        // Log callback received for audit trail (mirrors HDFC path)
+        await PaymentAuditService.logCallbackReceived(
+          txn.id,
+          txn.student_id,
+          txn.institution_id,
+          'razorpay_hosted',
+          ipAddress,
+          userAgent
+        );
+
+        const verification = await PaymentGatewayService.verifyPaymentWithGateway(txn.id, {
+          paymentId: razorpayPaymentId,
+          signature: razorpaySignature,
+        });
+
+        const processResult = await PaymentGatewayService.processVerifiedPayment(
+          txn.id,
+          verification,
+          'razorpay',
+          ipAddress,
+          userAgent
+        );
+
+        const redirectPage =
+          verification.verified && verification.status === 'success'
+            ? '/billing/payment/success'
+            : '/billing/payment/failed';
+
+        const redirectUrl = new URL(redirectPage, baseUrl);
+        redirectUrl.searchParams.set('transaction_id', txn.id);
+        if (processResult.receiptId) {
+          redirectUrl.searchParams.set('receipt_id', processResult.receiptId);
+        }
+        redirectUrl.searchParams.set('razorpay_order_id', razorpayOrderId);
+        redirectUrl.searchParams.set('razorpay_payment_id', razorpayPaymentId);
+        if (verification.amount) {
+          redirectUrl.searchParams.set('amount', verification.amount.toString());
+        }
+        redirectUrl.searchParams.set('verified', verification.verified.toString());
+        redirectUrl.searchParams.set('verified_status', verification.status);
+        redirectUrl.searchParams.set('provider', 'razorpay');
+
+        const processingTime = Date.now() - startTime;
+        logger.info('billing/payment-callback', 'Razorpay callback processed', {
+          transactionId: txn.id,
+          verifiedStatus: verification.status,
+          receiptCreated: !!processResult.receiptId,
+          processingTimeMs: processingTime,
+        });
+
+        return NextResponse.redirect(redirectUrl, 303);
+      }
+
+      // ----------------------------------------------------------------
+      // Razorpay hosted checkout FAILURE callback.
+      // On a failed payment Razorpay does NOT post the signed success trio;
+      // it posts error[code]/error[description]/error[source]/error[step]/
+      // error[reason] and error[metadata] (a JSON string with order_id /
+      // payment_id). Without this branch the request falls through to the
+      // legacy lookup, finds nothing, and wrongly lands on the bills list.
+      // ----------------------------------------------------------------
+      const errorCode = formData.get('error[code]')?.toString();
+      const errorMetadataRaw = formData.get('error[metadata]')?.toString();
+      if (errorCode || errorMetadataRaw || razorpayOrderId) {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const supabase = createServiceRoleClient();
+
+        let failedOrderId = razorpayOrderId;
+        let failedPaymentId = razorpayPaymentId;
+        if (errorMetadataRaw) {
+          try {
+            const meta = JSON.parse(errorMetadataRaw);
+            failedOrderId = failedOrderId || meta?.order_id;
+            failedPaymentId = failedPaymentId || meta?.payment_id;
+          } catch {
+            // metadata wasn't JSON; fall back to bracketed keys below.
+          }
+        }
+        failedOrderId =
+          failedOrderId || formData.get('error[metadata][order_id]')?.toString();
+        failedPaymentId =
+          failedPaymentId || formData.get('error[metadata][payment_id]')?.toString();
+
+        const failedRedirect = new URL('/billing/payment/failed', baseUrl);
+        failedRedirect.searchParams.set('provider', 'razorpay');
+        if (errorCode) failedRedirect.searchParams.set('reason', errorCode);
+
+        if (failedOrderId) {
+          const { data: txn } = await (supabase as any)
+            .from('payment_transactions')
+            .select('id, student_id, institution_id, status')
+            .eq('razorpay_order_id', failedOrderId)
+            .single();
+
+          if (txn) {
+            failedRedirect.searchParams.set('transaction_id', txn.id);
+
+            // Persist the failure (audit: failed responses must be stored),
+            // but never overwrite an already-final status.
+            if (!['success', 'refunded'].includes(txn.status)) {
+              await (supabase as any)
+                .from('payment_transactions')
+                .update({
+                  status: 'failed',
+                  razorpay_payment_id: failedPaymentId ?? null,
+                  gateway_response: {
+                    error_code: errorCode ?? null,
+                    error_description: formData.get('error[description]')?.toString() ?? null,
+                    error_source: formData.get('error[source]')?.toString() ?? null,
+                    error_step: formData.get('error[step]')?.toString() ?? null,
+                    error_reason: formData.get('error[reason]')?.toString() ?? null,
+                  },
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', txn.id);
+
+              await PaymentAuditService.logCallbackReceived(
+                txn.id,
+                txn.student_id,
+                txn.institution_id,
+                'razorpay_hosted_failed',
+                ipAddress,
+                userAgent,
+              );
+            }
+          } else {
+            logger.warn('billing/payment-callback', 'Razorpay failure callback for unknown order', {
+              failedOrderId,
+            });
+          }
+        }
+
+        logger.info('billing/payment-callback', 'Razorpay failure callback processed', {
+          failedOrderId,
+          errorCode,
+        });
+
+        return NextResponse.redirect(failedRedirect, 303);
+      }
+    }
+
     // Extract our transaction_id from URL params (set when creating payment session)
     let ourTransactionId = searchParams.get('transaction_id');
 

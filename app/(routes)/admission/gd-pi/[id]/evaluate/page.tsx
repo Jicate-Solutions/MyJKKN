@@ -117,7 +117,7 @@ function EvaluateContent({ params }: { params: Promise<{ id: string }> }) {
   };
 
   return (
-    <PermissionGuard module="admission" action="edit">
+    <PermissionGuard module="admission" action="gd_pi.evaluate">
       <ContentLayout title="Evaluate Candidates">
         <div className="space-y-6">
           <Breadcrumb>

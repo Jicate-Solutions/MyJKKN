@@ -179,7 +179,8 @@ export class LearnerAdvancedAnalyticsService {
 
     let query = supabase
       .from('learners_profiles')
-      .select('permanent_address_district, permanent_address_taluk, accommodation_type');
+      // accommodation_type TEXT retired — read the FK's code instead.
+      .select('permanent_address_district, permanent_address_taluk, accommodation_ref:accommodation_types!accommodation_type_id(code)');
 
     if (filters.institutionId) {
       query = query.eq('institution_id', filters.institutionId);
@@ -245,7 +246,7 @@ export class LearnerAdvancedAnalyticsService {
       .sort((a, b) => b.count - a.count);
 
     // Hostel vs Day Scholar ratios
-    const hostelCount = learners.filter(l => l.accommodation_type?.toLowerCase() === 'hostel').length;
+    const hostelCount = learners.filter(l => (l as { accommodation_ref?: { code?: string } }).accommodation_ref?.code === 'hostel').length;
     const dayScholarCount = totalLearners - hostelCount;
 
     const hostelStudentRatio = totalLearners > 0 ? (hostelCount / totalLearners) * 100 : 0;

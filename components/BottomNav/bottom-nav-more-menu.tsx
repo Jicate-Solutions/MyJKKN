@@ -10,6 +10,7 @@ import { BottomNavItem } from './bottom-nav-item';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   Sheet,
   SheetContent,
@@ -50,7 +51,13 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   'Learners Council':        'bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-700',
 
   // People / HR — warm rose
-  'Human Resources':         'bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700',
+  // 'Employee Management' key removed 2026-07-20: that groupLabel was retired
+  // when /staff merged into the HR Management group as the "Employee" row.
+  'HR Management':           'bg-gradient-to-br from-rose-500 via-red-500 to-rose-800',
+  // 'Employee Self Service' key removed 2026-07-21 (same day it was added):
+  // that groupLabel was retired when self-service became a "Self Service" row
+  // INSIDE HR Management rather than its own section. A row inherits the
+  // group's tile, so it needs no gradient of its own.
 
   // Living / Wellness — amber / orange
   'Campus Living':           'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700',
@@ -88,6 +95,9 @@ export function BottomNavMoreMenu({
 }: BottomNavMoreMenuProps) {
   const pathname = usePathname();
   const { favorites, isLoading: favoritesLoading } = usePageFavorites();
+  // Favorites store canonical titles; adapt on display so a school user sees
+  // "Streams" not "Degrees" (matches the sidebar Favorites section).
+  const adapt = useAdaptiveLabels();
 
   const { open: openCommandPalette } = useCommandPalette();
 
@@ -315,7 +325,7 @@ export function BottomNavMoreMenu({
                       )}
                     >
                       <Icon className="h-4 w-4" strokeWidth={2} />
-                      <span className="whitespace-nowrap">{fav.title}</span>
+                      <span className="whitespace-nowrap">{adapt(fav.title)}</span>
                     </button>
                   );
                 })}

@@ -26,6 +26,7 @@ import {
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
+import { generateSyntheticEmail } from './synthetic-email';
 
 interface CreateStaffDto {
   first_name: string;
@@ -34,7 +35,9 @@ interface CreateStaffDto {
   date_of_birth: string;
   marital_status: 'single' | 'married' | 'divorced' | 'widow';
   blood_group?: string;
-  email: string;
+  // Optional for view-only staff (login_enabled=false). Service generates a
+  // deterministic synthetic email at @nolog.jkkn.local when blank.
+  email?: string;
   phone: string;
   staff_id?: string;
   profile_picture?: string;
@@ -44,13 +47,19 @@ interface CreateStaffDto {
   pincode?: string;
   date_of_joining: string;
   designation: string;
-  institution_email: string;
+  // Optional for view-only staff (same generation rule as email).
+  institution_email?: string;
   category_id: string;
   institution_id: string;
   // Nullable: teaching staff require it, non-teaching must leave null
   department_id?: string | null;
   role_key: string;
+  // Optional free-form labels (lowercased) for external-API filtering.
+  tags?: string[];
   is_active: boolean;
+  // Default true. Set false to mark this staff as "view-only" — they cannot
+  // log in and their linked profile is deactivated by the DB trigger.
+  login_enabled?: boolean;
 }
 
 interface UpdateStaffDto extends Partial<CreateStaffDto> {
@@ -82,6 +91,37 @@ export class StaffService {
           `Role "${data.role_key}" cannot be assigned via staff onboarding`
         );
       }
+
+      // View-only / labour staff: generate deterministic synthetic emails when
+      // login_enabled=false and emails are blank. Synthetic domain is
+      // @nolog.jkkn.local so Google OAuth (restricted to @jkkn.ac.in) cannot
+      // match — and the DB trigger flips the linked profile to is_active=false.
+      // Added: 2026-05-15. Spec: 2026-05-15-staff-bulk-upload-labour-employees-design.md
+      const loginEnabled = data.login_enabled !== false; // default true
+      if (!loginEnabled) {
+        if (!data.email || data.email.trim() === '') {
+          data.email = generateSyntheticEmail('personal', data.staff_id, data.phone);
+        }
+        if (!data.institution_email || data.institution_email.trim() === '') {
+          data.institution_email = generateSyntheticEmail('institution', data.staff_id, data.phone);
+        }
+      } else {
+        // Login staff require personal email. Institution email is optional —
+        // many non-teaching staff (drivers, lab techs, admin assistants) don't
+        // have @jkkn.ac.in addresses. The DB trigger already handles
+        // institution_email IS NULL gracefully (skips profile-link).
+        // Fixes: BUG-003989, BUG-003980, BUG-003962.
+        if (!data.email) {
+          throw new Error('Email is required for login-enabled staff');
+        }
+        // Normalize blank institution_email to null so Postgres UNIQUE index
+        // doesn't collide on ''.
+        if (!data.institution_email || data.institution_email.trim() === '') {
+          data.institution_email = null as any;
+        }
+      }
+      // Persist the flag through to the DB (default true if undefined).
+      data.login_enabled = loginEnabled;
 
       // Normalize empty optional unique fields to null so Postgres UNIQUE
       // doesn't treat '' as a colliding value across rows.
@@ -221,16 +261,25 @@ export class StaffService {
       }
 
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
-      // The trigger creates/updates a profile when staff with institution_email is created
+      // The trigger creates/updates a profile when staff with institution_email is created.
+      // For view-only staff (login_enabled=false) the trigger flips the profile to
+      // is_active=false and is_login_disabled=true (added 2026-05-15).
+      const isViewOnly = (staff as any)?.login_enabled === false;
       if (staff?.institution_email) {
         console.log(
-          `✓ Staff created successfully. Profile will be auto-created by database trigger for ${staff.institution_email}`
+          `✓ Staff created successfully. Profile auto-created by trigger for ${staff.institution_email}${
+            isViewOnly ? ' (view-only — deactivated)' : ''
+          }`
         );
 
         if (!suppressToast) {
-          toast.success(
-            `Staff created successfully! User can now login with Google using ${staff.institution_email}`
-          );
+          if (isViewOnly) {
+            toast.success(`View-only staff added — no login created`);
+          } else {
+            toast.success(
+              `Staff created successfully! User can now login with Google using ${staff.institution_email}`
+            );
+          }
         }
       } else {
         console.log(
@@ -260,6 +309,9 @@ export class StaffService {
       // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
       // (mirrors the same coercion in createStaff).
       if ((data as any).staff_id === '') (data as any).staff_id = null;
+      // Normalize blank institution_email to null (mirrors createStaff fix
+      // for BUG-003989 — institution email is optional for all staff).
+      if ((data as any).institution_email === '') (data as any).institution_email = null;
 
       // Get the current staff data before update
       let currentStaff: any = null;
@@ -314,7 +366,13 @@ export class StaffService {
           error = null;
         } catch (apiError) {
           console.error('[staff-service] API route update also failed:', apiError);
-          // Re-throw the original error if API also fails
+          // Surface the API error instead of the generic PGRST116 so the user
+          // sees a meaningful message (e.g. "Forbidden" or "Insufficient
+          // permissions") rather than "JSON object requested, multiple (or no)
+          // rows returned".
+          if (apiError instanceof Error) {
+            throw apiError;
+          }
         }
       }
 
@@ -586,14 +644,14 @@ export class StaffService {
       }
 
       // Faculty users can only view their own staff record
-      if (userProfile?.role === 'faculty' && userProfile.email) {
+      if (userProfile?.role === 'faculty' && userProfile.id) {
         console.log(
-          '[staff-service] Applied faculty self-only filter for:',
-          userProfile.email
+          '[staff-service] Applied self-only record filter for profile:',
+          userProfile.id
         );
         return await this.getStaffForFacultyUser(
           effectiveFilters,
-          userProfile.email
+          userProfile.id
         );
       }
 
@@ -622,10 +680,13 @@ export class StaffService {
     }
   }
 
-  // Faculty users see only their own staff record matched by institution_email
+  // Faculty users see only their own staff record, matched by profile_id
+  // (auth.uid()) — not institution_email, which can silently diverge from
+  // the user's auth login email and hide their own row. Mirrors the
+  // own_records scope in app/api/staff/route.ts.
   private static async getStaffForFacultyUser(
     filters: StaffFilters,
-    userEmail: string
+    profileId: string
   ): Promise<StaffListResponse> {
     try {
       const startTime = performance.now();
@@ -652,7 +713,7 @@ export class StaffService {
       );
 
       // Filter to only the faculty user's own record
-      query = query.eq('institution_email', userEmail);
+      query = query.eq('profile_id', profileId);
 
       const { data: staff, error, count } = await query;
 
@@ -894,6 +955,27 @@ export class StaffService {
   }
 
   /**
+   * Distinct tags currently in use across staff, powering the tags-input
+   * autocomplete. Optionally scoped to one institution. Backed by the
+   * staff_distinct_tags SECURITY DEFINER RPC (returns label strings only).
+   */
+  static async getDistinctTags(institutionId?: string): Promise<string[]> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'staff_distinct_tags',
+        { p_institution_id: institutionId ?? null }
+      );
+      if (error) throw error;
+      return (data as string[] | null) ?? [];
+    } catch (error) {
+      console.error('[staff-service] Error fetching distinct tags:', error);
+      // Non-fatal: suggestions are a convenience; an empty list just means the
+      // user types tags free-form without autocomplete.
+      return [];
+    }
+  }
+
+  /**
    * Get staff using API route (bypasses RLS for performance)
    * Use this method for components that need to fetch large numbers of staff
    * like the staff search selector
@@ -911,6 +993,7 @@ export class StaffService {
       if (filters.isActive !== undefined) params.append('isActive', String(filters.isActive));
       if (filters.limit) params.append('limit', String(filters.limit));
       if (filters.page) params.append('page', String(filters.page));
+      if (filters.for_teaching_assignment) params.append('for_teaching_assignment', 'true');
 
       const response = await fetch(`/api/staff?${params.toString()}`);
 
@@ -1175,16 +1258,26 @@ export class StaffService {
     // Get staff with/without profiles
     const { data: profiles, error: profileError } = await supabase
       .from('profiles')
-      .select('email');
+      .select('email, is_active');
 
     if (profileError) throw profileError;
 
-    const profileEmails = new Set(profiles?.map((p: any) => p.email) || []);
+    const profileActiveByEmail = new Map(
+      (profiles || []).map((p: any) => [p.email, p.is_active])
+    );
     const staffWithProfiles =
       staff?.filter(
-        (s: any) => s.institution_email && profileEmails.has(s.institution_email)
+        (s: any) => s.institution_email && profileActiveByEmail.has(s.institution_email)
       ).length || 0;
     const staffWithoutProfiles = totalStaff - staffWithProfiles;
+    // Profiles the staff-sync trigger deactivated (e.g. view-only/no-login
+    // staff), distinct from inactiveStaff which tracks staff.is_active.
+    const inactiveProfiles =
+      staff?.filter(
+        (s: any) =>
+          s.institution_email &&
+          profileActiveByEmail.get(s.institution_email) === false
+      ).length || 0;
 
     return {
       totalStaff,
@@ -1194,7 +1287,8 @@ export class StaffService {
       profileCompletionRate,
       averageTenure,
       staffWithProfiles,
-      staffWithoutProfiles
+      staffWithoutProfiles,
+      inactiveProfiles
     };
   }
 

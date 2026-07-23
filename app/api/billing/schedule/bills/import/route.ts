@@ -7,7 +7,11 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
-import type { ImportError, ImportResult } from '@/lib/utils/mappings/student-bill-excel-mappings';
+import type {
+  ImportError,
+  ImportResult,
+  ImportSuccessRow
+} from '@/lib/utils/mappings/student-bill-excel-mappings';
 
 /**
  * POST /api/billing/schedule/bills/import
@@ -23,6 +27,8 @@ import type { ImportError, ImportResult } from '@/lib/utils/mappings/student-bil
  *   D Due Date         (required)  → ISO yyyy-mm-dd
  *   E Billing Amount   (required)  → number ≥ 0
  *   F Remarks          (optional)
+ *   G Academic Year    (optional)  → resolves to academic_years.id, scoped to
+ *                                    the student's institution; blank → NULL
  *
  * Response: { success, successCount, errorCount, totalRows, errors[] }
  */
@@ -36,7 +42,8 @@ const billRowSchema = z.object({
   bill_description: z.string().optional().nullable(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Due date must be yyyy-mm-dd'),
   billing_amount: z.number().nonnegative('Billing amount must be ≥ 0'),
-  remarks: z.string().optional().nullable()
+  remarks: z.string().optional().nullable(),
+  academic_year_name: z.string().optional().nullable()
 });
 
 type CleanedRow = z.infer<typeof billRowSchema>;
@@ -151,6 +158,9 @@ export async function POST(request: NextRequest) {
     const dataRows = rows.slice(1); // drop header
     const errors: ImportError[] = [];
     const cleanedRows: Array<{ rowNumber: number; cleaned: CleanedRow }> = [];
+    // Count every non-blank row once so totalRows reconciles with
+    // successes + failures regardless of which stage a row dies in.
+    let attemptedRowCount = 0;
 
     // -- Pre-flight: parse, type-coerce, schema-validate per row -------
     for (let i = 0; i < dataRows.length; i++) {
@@ -162,6 +172,7 @@ export async function POST(request: NextRequest) {
         (c) => c === null || c === undefined || String(c).trim() === ''
       );
       if (isBlank) continue;
+      attemptedRowCount++;
 
       const parsed = {
         roll_number: cellToString(cells[0]),
@@ -169,14 +180,16 @@ export async function POST(request: NextRequest) {
         bill_description: cellToString(cells[2]) || undefined,
         due_date: cellToISODate(cells[3]) ?? '',
         billing_amount: cellToNumber(cells[4]),
-        remarks: cellToString(cells[5]) || undefined
+        remarks: cellToString(cells[5]) || undefined,
+        academic_year_name: cellToString(cells[6]) || undefined
       };
 
       if (parsed.billing_amount === null) {
         errors.push({
           row: rowNumber,
           field: 'Billing Amount',
-          message: 'Billing amount is missing or not a number.'
+          message: 'Billing amount is missing or not a number.',
+          roll_number: parsed.roll_number || undefined
         });
         continue;
       }
@@ -191,7 +204,8 @@ export async function POST(request: NextRequest) {
           errors.push({
             row: rowNumber,
             field: issue.path.join('.') || undefined,
-            message: issue.message
+            message: issue.message,
+            roll_number: parsed.roll_number || undefined
           });
         }
         continue;
@@ -201,15 +215,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (cleanedRows.length === 0) {
-      const totalAttempted = dataRows.filter(
-        (r) => !r.every((c) => c === null || c === undefined || String(c).trim() === '')
-      ).length;
       return NextResponse.json<ImportResult>({
         success: false,
         successCount: 0,
         errorCount: errors.length,
-        totalRows: totalAttempted,
-        errors
+        totalRows: attemptedRowCount,
+        errors,
+        successes: []
       });
     }
 
@@ -223,19 +235,56 @@ export async function POST(request: NextRequest) {
 
     const { data: students } = await supabase
       .from('learners_profiles')
-      .select('id, roll_number, institution_id')
+      .select('id, roll_number, institution_id, first_name, last_name')
       .in('roll_number', uniqueRollNumbers);
 
-    const studentByRoll = new Map<string, { id: string; institution_id: string | null }>();
+    const studentByRoll = new Map<
+      string,
+      { id: string; institution_id: string | null; name: string }
+    >();
     (students ?? []).forEach((s: any) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
       // If the same roll number appears for multiple students, keep the first
       // and surface ambiguity as a per-row error below.
       if (!studentByRoll.has(s.roll_number)) {
-        studentByRoll.set(s.roll_number, { id: s.id, institution_id: s.institution_id });
+        studentByRoll.set(s.roll_number, {
+          id: s.id,
+          institution_id: s.institution_id,
+          name
+        });
       } else {
         // Mark the roll as ambiguous by using a sentinel
-        studentByRoll.set(s.roll_number, { id: '__AMBIGUOUS__', institution_id: null });
+        studentByRoll.set(s.roll_number, {
+          id: '__AMBIGUOUS__',
+          institution_id: null,
+          name: ''
+        });
       }
+    });
+
+    // Batch-load academic years for the institutions in play. Years are
+    // per-institution, so the same name (e.g. "2024-2025") repeats across
+    // institutions with different ids — we key resolution by institution.
+    const institutionIds = Array.from(
+      new Set(
+        Array.from(studentByRoll.values())
+          .map((s) => s.institution_id)
+          .filter((x): x is string => Boolean(x))
+      )
+    );
+    const { data: acadYears } = await supabase
+      .from('academic_years')
+      .select('id, academic_year_name, institution_id')
+      .in(
+        'institution_id',
+        institutionIds.length ? institutionIds : ['00000000-0000-0000-0000-000000000000']
+      );
+    const acadYearByInstName = new Map<string, string>();
+    (acadYears ?? []).forEach((y: any) => {
+      acadYearByInstName.set(
+        `${y.institution_id}::${String(y.academic_year_name).trim().toLowerCase()}`,
+        y.id
+      );
     });
 
     const { data: categories } = await supabase
@@ -252,7 +301,9 @@ export async function POST(request: NextRequest) {
 
     // -- Build insert rows for entries that pass lookup ----------------
     const insertRows: any[] = [];
-    const passedRowNumbers: number[] = [];
+    // Per-row learner detail kept in lockstep with insertRows (same index)
+    // so successes can be echoed back — and named — after the batch insert.
+    const pendingSuccesses: ImportSuccessRow[] = [];
 
     for (const { rowNumber, cleaned } of cleanedRows) {
       const studentMatch = studentByRoll.get(cleaned.roll_number);
@@ -260,7 +311,8 @@ export async function POST(request: NextRequest) {
         errors.push({
           row: rowNumber,
           field: 'Roll Number',
-          message: `No student found with roll number "${cleaned.roll_number}".`
+          message: `No student found with roll number "${cleaned.roll_number}".`,
+          roll_number: cleaned.roll_number
         });
         continue;
       }
@@ -268,7 +320,8 @@ export async function POST(request: NextRequest) {
         errors.push({
           row: rowNumber,
           field: 'Roll Number',
-          message: `Roll number "${cleaned.roll_number}" matches multiple students — please disambiguate before importing.`
+          message: `Roll number "${cleaned.roll_number}" matches multiple students — please disambiguate before importing.`,
+          roll_number: cleaned.roll_number
         });
         continue;
       }
@@ -276,7 +329,9 @@ export async function POST(request: NextRequest) {
         errors.push({
           row: rowNumber,
           field: 'Roll Number',
-          message: `Student "${cleaned.roll_number}" has no institution attached — fix the student record first.`
+          message: `Student "${cleaned.roll_number}" has no institution attached — fix the student record first.`,
+          roll_number: cleaned.roll_number,
+          student_name: studentMatch.name
         });
         continue;
       }
@@ -286,9 +341,31 @@ export async function POST(request: NextRequest) {
         errors.push({
           row: rowNumber,
           field: 'Billing Category',
-          message: `Billing category "${cleaned.billing_category_name}" does not exist or is inactive.`
+          message: `Billing category "${cleaned.billing_category_name}" does not exist or is inactive.`,
+          roll_number: cleaned.roll_number,
+          student_name: studentMatch.name
         });
         continue;
+      }
+
+      // Resolve the optional academic year against this student's institution.
+      // Blank → null ("Unspecified"); a non-blank, unmatched name rejects the row.
+      let academicYearId: string | null = null;
+      if (cleaned.academic_year_name) {
+        const resolved = acadYearByInstName.get(
+          `${studentMatch.institution_id}::${cleaned.academic_year_name.trim().toLowerCase()}`
+        );
+        if (!resolved) {
+          errors.push({
+            row: rowNumber,
+            field: 'Academic Year',
+            message: `Academic year "${cleaned.academic_year_name}" not found for this student's institution.`,
+            roll_number: cleaned.roll_number,
+            student_name: studentMatch.name
+          });
+          continue;
+        }
+        academicYearId = resolved;
       }
 
       const totalAmount = cleaned.billing_amount; // quantity defaults to 1, no tax in this flow
@@ -296,6 +373,7 @@ export async function POST(request: NextRequest) {
         student_id: studentMatch.id,
         institution_id: studentMatch.institution_id,
         item_category_id: categoryId,
+        academic_year_id: academicYearId,
         bill_description: cleaned.bill_description || null,
         due_date: cleaned.due_date,
         quantity: 1,
@@ -308,7 +386,15 @@ export async function POST(request: NextRequest) {
         is_recurring: false,
         created_by: user.id
       });
-      passedRowNumbers.push(rowNumber);
+      pendingSuccesses.push({
+        row: rowNumber,
+        roll_number: cleaned.roll_number,
+        student_name: studentMatch.name,
+        billing_category: cleaned.billing_category_name,
+        due_date: cleaned.due_date,
+        billing_amount: cleaned.billing_amount,
+        academic_year: cleaned.academic_year_name || null
+      });
     }
 
     if (insertRows.length === 0) {
@@ -316,8 +402,9 @@ export async function POST(request: NextRequest) {
         success: false,
         successCount: 0,
         errorCount: errors.length,
-        totalRows: cleanedRows.length,
-        errors
+        totalRows: attemptedRowCount,
+        errors,
+        successes: []
       });
     }
 
@@ -329,29 +416,41 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('[bills/import] Insert error:', insertError);
-      // Surface the DB error against the first attempted row so the user
-      // sees something actionable rather than a silent server error.
-      errors.push({
-        row: passedRowNumbers[0] ?? 0,
-        message: `Database insert failed: ${insertError.message}`
-      });
+      // The batch insert is all-or-nothing, so every pending row failed —
+      // surface each learner so the failure report names them all.
+      for (const pending of pendingSuccesses) {
+        errors.push({
+          row: pending.row,
+          message: `Database insert failed: ${insertError.message}`,
+          roll_number: pending.roll_number,
+          student_name: pending.student_name
+        });
+      }
       return NextResponse.json<ImportResult>({
         success: false,
         successCount: 0,
         errorCount: errors.length,
-        totalRows: cleanedRows.length,
-        errors
+        totalRows: attemptedRowCount,
+        errors,
+        successes: []
       });
     }
 
     const successCount = inserted?.length ?? insertRows.length;
+    // PostgREST returns inserted rows in input order, so index i of
+    // `inserted` is the bill created from insertRows[i] / pendingSuccesses[i].
+    const successes: ImportSuccessRow[] = pendingSuccesses.map((s, i) => ({
+      ...s,
+      bill_id: inserted?.[i]?.id
+    }));
 
     return NextResponse.json<ImportResult>({
       success: errors.length === 0,
       successCount,
       errorCount: errors.length,
-      totalRows: cleanedRows.length,
-      errors
+      totalRows: attemptedRowCount,
+      errors,
+      successes
     });
   } catch (error) {
     console.error('[billing/schedule/bills/import] Error:', error);

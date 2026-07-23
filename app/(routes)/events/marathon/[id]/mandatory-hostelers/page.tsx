@@ -185,9 +185,11 @@ export default function MandatoryHostelersPage() {
           mother_mobile,
           institution_id,
           lifecycle_status,
-          institutions!institution_id(name)
+          institutions!institution_id(name),
+          accommodation_ref:accommodation_types!inner(code)
         `)
-        .eq('accommodation_type', 'HOSTEL');
+        // accommodation_type TEXT retired — filter hostelers by the FK's code.
+        .eq('accommodation_ref.code', 'hostel');
 
       if (learnerError) throw learnerError;
 

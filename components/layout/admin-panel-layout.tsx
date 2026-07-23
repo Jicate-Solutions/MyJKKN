@@ -32,9 +32,15 @@ export default function AdminPanelLayout({
         className={cn(
           'min-h-[calc(100vh_-_56px)] bg-background transition-[margin-left] ease-in-out duration-300',
           isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
-          // Add bottom padding on mobile to prevent content overlap with bottom nav
+          // Bottom padding on mobile to clear the bottom-nav strip (~76px:
+          // icons + label + safe-area). The AttentionBar pill that used to
+          // stack ~58px above the nav was removed 2026-06-19, so `pb-20`
+          // (80px) — which clears the nav alone — is sufficient again.
+          // (Was `pb-36`/144px while the AttentionBar occupied the extra
+          // space above the nav; see BUG-003930, BUG-003931.)
           isMobile && 'pb-20'
         )}
+        suppressHydrationWarning
       >
         <PushNotificationBanner />
         <Suspense>
@@ -48,6 +54,7 @@ export default function AdminPanelLayout({
           // Hide footer on mobile when bottom nav is present
           isMobile && 'hidden'
         )}
+        suppressHydrationWarning
       >
         <Footer />
       </footer>

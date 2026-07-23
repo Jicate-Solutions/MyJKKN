@@ -212,7 +212,7 @@ async function pulseOneConnection(
       }
     );
 
-    // Step 6b: H4 — dispatch in-app notifications to senior_learner_advisor +
+    // Step 6b: H4 — dispatch in-app notifications to learning_facilitator_advisor +
     // hod within the dept's institution. Look up dept name + institution_id,
     // then fan out via byow-notification-service. Wrapped defensively — a
     // notification failure must NOT abort pulse processing for sibling

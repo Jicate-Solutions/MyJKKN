@@ -15,7 +15,23 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Types
-export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'whatsapp' | 'stage_change' | 'task';
+export type ActivityType =
+  | 'call'
+  | 'email'
+  | 'meeting'
+  | 'note'
+  | 'sms'
+  | 'whatsapp'
+  | 'stage_change'
+  | 'task'
+  | 'checklist_marked'
+  // Audit activities — written by service-layer hooks, not by user-driven UI.
+  // Surface on the timeline so officers can see the lead's full provenance.
+  | 'lead_created'
+  | 'moved_to_counselor'
+  | 'moved_to_account_verified'
+  | 'enquiry_submitted'
+  | 'student_section_filled';
 
 export interface LeadActivity {
   id: string;
@@ -52,6 +68,17 @@ export interface TimelineEntry {
   metadata: Record<string, unknown>;
   icon?: string;
   color?: string;
+  /**
+   * Author of the activity / stage change. Resolved via a single batched
+   * profile lookup inside getEnhancedTimeline — undefined when the row's
+   * created_by/changed_by is null (system actions) or when the user has
+   * been deleted (orphan UUID). Display order: full_name → email → 'System'.
+   */
+  author?: {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+  } | null;
 }
 
 export interface CreateActivityInput {
@@ -119,49 +146,35 @@ export class ActivityService {
   }
 
   /**
-   * Create a new activity and update last_activity_at on the lead
+   * Create a new activity and bump last_activity_at on the lead — in ONE
+   * round-trip via the create_lead_activity SECURITY DEFINER RPC. Replaces the
+   * former 3 serial calls (auth.getUser + INSERT under RLS + a separate
+   * admission_leads UPDATE through the heavy adm_leads_update RLS cascade). The
+   * RPC captures auth.uid() server-side for created_by, re-checks authorization
+   * (mirrors the activity-table RLS), and sets last_contact_at only for genuine
+   * contact activity types.
    */
   static async createActivity(input: CreateActivityInput): Promise<LeadActivity> {
-    // Get current user
-    const { data: { user } } = await this.supabase.auth.getUser();
+    const subject =
+      input.title ||
+      input.activity_type
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (l: string) => l.toUpperCase());
 
     const { data, error } = await this.supabase
-      .from('admission_lead_activities')
-      .insert({
-        lead_id: input.lead_id,
-        activity_type: input.activity_type,
-        subject: input.title || input.activity_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-        description: input.description || null,
-        outcome: input.outcome || null,
-        scheduled_at: input.scheduled_at || null,
-        created_by: user?.id || null,
+      .rpc('create_lead_activity', {
+        p_lead_id: input.lead_id,
+        p_activity_type: input.activity_type,
+        p_subject: subject,
+        p_description: input.description ?? null,
+        p_outcome: input.outcome ?? null,
+        p_scheduled_at: input.scheduled_at ?? null,
       })
-      .select()
       .single();
 
     if (error) {
       console.error('[admission/activities] Failed to create activity:', error);
       throw new Error('Failed to create activity');
-    }
-
-    // Update last_activity_at on the lead (best-effort, don't throw if this fails)
-    const now = new Date().toISOString();
-    const contactTypes = new Set(['call', 'email', 'meeting', 'sms', 'whatsapp']);
-    const leadUpdate: Record<string, string> = {
-      last_activity_at: now,
-      updated_at: now,
-    };
-    // Only set last_contact_at for actual contact activities, not notes/tasks/stage_changes
-    if (contactTypes.has(input.activity_type)) {
-      leadUpdate.last_contact_at = now;
-    }
-    const { error: leadError } = await this.supabase
-      .from('admission_leads')
-      .update(leadUpdate)
-      .eq('id', input.lead_id);
-
-    if (leadError) {
-      console.warn('[admission/activities] Could not update last_activity_at on lead:', leadError.message);
     }
 
     return this.normalizeActivity(data);
@@ -235,6 +248,33 @@ export class ActivityService {
   // ============================================================================
 
   /**
+   * Map a LeadActivity to a TimelineEntry. Shared by getEnhancedTimeline and the
+   * optimistic create in hooks/admission/use-activities.ts so an optimistically
+   * inserted note renders with the exact same shape/icon/color as the server
+   * version (and reconciles seamlessly on refetch).
+   */
+  static activityToTimelineEntry(
+    activity: LeadActivity,
+    author: TimelineEntry['author'] = null,
+  ): TimelineEntry {
+    return {
+      id: activity.id,
+      type: 'activity',
+      timestamp: activity.created_at,
+      title: activity.subject || this.getActivityTitle(activity.activity_type),
+      description: activity.description,
+      metadata: {
+        activity_type: activity.activity_type,
+        outcome: activity.outcome || null,
+        scheduled_at: activity.scheduled_at || null,
+      },
+      icon: this.getActivityIcon(activity.activity_type),
+      color: this.getActivityColor(activity.activity_type),
+      author,
+    };
+  }
+
+  /**
    * Get combined timeline (activities + stage changes)
    */
   static async getEnhancedTimeline(leadId: string): Promise<TimelineEntry[]> {
@@ -257,22 +297,40 @@ export class ActivityService {
     const activities = activitiesResult.status === 'fulfilled' ? activitiesResult.value : [];
     const stageHistory = stageHistoryResult.status === 'fulfilled' ? stageHistoryResult.value : [];
 
-    // Transform activities to timeline entries.
-    // Use stored title first (e.g. 'Follow-up Scheduled'), fall back to computed type label.
-    const activityEntries: TimelineEntry[] = activities.map((activity) => ({
-      id: activity.id,
-      type: 'activity' as const,
-      timestamp: activity.created_at,
-      title: activity.subject || this.getActivityTitle(activity.activity_type),
-      description: activity.description,
-      metadata: {
-        activity_type: activity.activity_type,
-        outcome: activity.outcome || null,
-        scheduled_at: activity.scheduled_at || null,
-      },
-      icon: this.getActivityIcon(activity.activity_type),
-      color: this.getActivityColor(activity.activity_type),
-    }));
+    // Batched author lookup. Collect every unique user UUID across both
+    // streams (activities.created_by + stage_history.changed_by), fetch their
+    // profiles in ONE query, then attach `author` to each entry below. Avoids
+    // PostgREST embed (which would require an FK constraint on created_by
+    // that doesn't exist — see route.ts comment for the audit-table soft-FK
+    // rationale).
+    const userIds = Array.from(
+      new Set([
+        ...activities.map((a) => a.created_by).filter((id): id is string => !!id),
+        ...stageHistory.map((s) => s.changed_by).filter((id): id is string => !!id),
+      ]),
+    );
+
+    let profileById: Record<string, { id: string; full_name: string | null; email: string | null }> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await this.supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', userIds);
+      profileById = Object.fromEntries(
+        ((profiles ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map(
+          (p) => [p.id, p],
+        ),
+      );
+    }
+
+    const authorFor = (uid: string | null) =>
+      uid ? profileById[uid] ?? { id: uid, full_name: null, email: null } : null;
+
+    // Transform activities to timeline entries via the shared mapper (also used
+    // by the optimistic insert in use-activities.ts so shapes stay identical).
+    const activityEntries: TimelineEntry[] = activities.map((activity) =>
+      this.activityToTimelineEntry(activity, authorFor(activity.created_by)),
+    );
 
     // Transform stage changes to timeline entries
     const stageEntries: TimelineEntry[] = stageHistory.map((entry) => ({
@@ -290,6 +348,7 @@ export class ActivityService {
       },
       icon: 'git-branch',
       color: 'indigo',
+      author: authorFor(entry.changed_by),
     }));
 
     // Combine and sort by timestamp (newest first)
@@ -337,6 +396,7 @@ export class ActivityService {
       whatsapp: 'WhatsApp Message',
       stage_change: 'Stage Changed',
       task: 'Task',
+      checklist_marked: 'Checklist Updated',
     };
     return titles[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
@@ -351,6 +411,12 @@ export class ActivityService {
       whatsapp: 'message-circle',
       stage_change: 'git-branch',
       task: 'check-circle',
+      checklist_marked: 'check-circle',
+      lead_created: 'user-plus',
+      moved_to_counselor: 'user-plus',
+      moved_to_account_verified: 'check-circle',
+      enquiry_submitted: 'file-text',
+      student_section_filled: 'file-text',
     };
     return icons[type] || 'activity';
   }
@@ -365,6 +431,12 @@ export class ActivityService {
       whatsapp: 'green',
       stage_change: 'indigo',
       task: 'emerald',
+      checklist_marked: 'emerald',
+      lead_created: 'blue',
+      moved_to_counselor: 'emerald',
+      moved_to_account_verified: 'orange',
+      enquiry_submitted: 'purple',
+      student_section_filled: 'emerald',
     };
     return colors[type] || 'gray';
   }

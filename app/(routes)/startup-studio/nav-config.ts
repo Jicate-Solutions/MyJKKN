@@ -20,6 +20,34 @@ const config: ModuleNavConfig = {
   module: 'startup-studio',
   groups: [
     {
+      label: 'Foundations',
+      icon: 'Compass',
+      href: '/startup-studio/foundations',
+      // Pre-Appathon founder-formation on-ramp (Level 0). Covers /foundations,
+      // /my-journey, /[worksheetId], /review, /cohorts via startsWith.
+      matchPaths: ['/startup-studio/foundations'],
+      children: [
+        {
+          label: 'My Journey',
+          icon: 'Footprints',
+          href: '/startup-studio/foundations/my-journey',
+          matchPaths: ['/startup-studio/foundations/my-journey'],
+        },
+        {
+          label: 'Review',
+          icon: 'ClipboardCheck',
+          href: '/startup-studio/foundations/review',
+          matchPaths: ['/startup-studio/foundations/review'],
+        },
+        {
+          label: 'Cohorts',
+          icon: 'Users',
+          href: '/startup-studio/foundations/cohorts',
+          matchPaths: ['/startup-studio/foundations/cohorts'],
+        },
+      ],
+    },
+    {
       label: 'Portfolio',
       icon: 'Gauge',
       href: '/startup-studio/portfolio',

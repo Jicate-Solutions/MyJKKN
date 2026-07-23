@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 // GET /api/pde/assessments/[id]/results?submissionId=xxx
 // Returns graded answers + Fink's taxonomy breakdown
@@ -40,8 +40,13 @@ export async function GET(
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
 
-    // Fetch questions for this assessment
-    const { data: questions, error: qErr } = await (supabase as any)
+    // Fetch questions for this assessment. Learners no longer hold SELECT on
+    // pde_assessment_questions (pde_questions_read RLS tighten), and grading +
+    // the results view require the answer key. Submission ownership is already
+    // enforced above (the session-client read is RLS-scoped to the caller's own
+    // submission), so reading the key with the service-role client is safe.
+    const svc = createServiceRoleClient();
+    const { data: questions, error: qErr } = await (svc as any)
       .from('pde_assessment_questions')
       .select('*')
       .eq('assessment_id', assessmentId)
@@ -65,7 +70,11 @@ export async function GET(
         is_correct: isCorrect,
         points: isCorrect ? (q.points || 1) : 0,
         max_points: q.points || 1,
-        fink_category: q.fink_category || null,
+        // Real column is `finks_dimension` (Fink's Taxonomy dimension). The
+        // legacy `fink_category` column never existed → breakdown silently
+        // collapsed to "uncategorized". Output key kept as `fink_category`
+        // for API-contract stability.
+        fink_category: q.finks_dimension || null,
         explanation: q.explanation || null,
       };
     });
@@ -96,7 +105,10 @@ export async function GET(
         assessment_id: assessmentId,
         learner_id: submission.learner_id,
         attempt_number: submission.attempt_number,
-        score_pct: submission.score_pct ?? (maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0),
+        // Real score column is `final_score` (numeric 0-100). The legacy
+        // `score_pct` column never existed → this branch was always undefined
+        // and silently fell through to the recomputed value.
+        score_pct: submission.final_score ?? (maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0),
         total_points: totalPoints,
         max_points: maxPoints,
         time_spent_seconds: submission.time_spent_seconds,

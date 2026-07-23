@@ -36,7 +36,9 @@ export function PeriodFilters({
     async function loadInstitutions() {
       try {
         setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
+        // entityType:'all' → include schools/all entity types. This filter is
+        // rendered for super admin only, so no userId scoping is needed.
+        const data = await OrganizationService.getInstitutionNames(true, undefined, 'all');
         setInstitutions(data);
       } catch (error) {
         logger.error('academic/periods', 'Error loading institutions', error);

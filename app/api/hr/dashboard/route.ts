@@ -8,7 +8,10 @@ export const dynamic = 'force-dynamic';
  *   hr_organization_id=<uuid>               (optional; HR Officer uses their own, super admin = null)
  *   institution_id=<uuid>                   (optional; for institution-scoped banners)
  *
- * Role detection is server-side via profiles.role (+ is_super_admin).
+ * Role detection is server-side via the union of profiles.role and
+ * user_roles (+ is_super_admin), so secondary HR-operator roles (e.g.
+ * a COO who is also an HR Admin) get the operational layout instead of
+ * silently falling into the Director fallback.
  * Non-HR users → 403 (route-level gate; page-level redirect to /dashboard
  * with toast is the UX per decision #13, but the API is still denied).
  *
@@ -29,31 +32,55 @@ export const GET = withAuth(async (request, auth) => {
     const supabase = auth.supabase;
     const userId = auth.user.id;
 
-    // Resolve viewer role from profile (auth.user.role is the legacy single-role
-    // string; we still need is_super_admin from profiles for layout branching).
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, is_super_admin, institution_id')
-      .eq('id', userId)
-      .maybeSingle();
+    // Resolve viewer role from BOTH profile.role (legacy single role) AND
+    // user_roles (multi-role system). A user can hold hr_admin as a secondary
+    // role while their profiles.role is something else entirely (e.g. coo +
+    // hr_admin); reading profile.role alone silently drops them into the
+    // Director fallback layout. Same antipattern as the staff picker bug
+    // documented in feedback_staff_picker_must_query_staff_table_not_role_allowlist.
+    const [{ data: profile }, { data: userRoles }] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('role, is_super_admin, institution_id')
+        .eq('id', userId)
+        .maybeSingle(),
+      supabase
+        .from('user_roles')
+        .select('is_primary, custom_roles!inner(role_key)')
+        .eq('user_id', userId),
+    ]);
 
     const isSuperAdmin = !!profile?.is_super_admin;
-    const role = (profile?.role as string | undefined) ?? '';
+    const profileRole = (profile?.role as string | undefined) ?? '';
+    const userRoleKeys: string[] = Array.isArray(userRoles)
+      ? userRoles
+          .map((r: any) => r?.custom_roles?.role_key)
+          .filter((k: any): k is string => typeof k === 'string')
+      : [];
+    // Full role set the caller holds. profileRole is included for users on
+    // the legacy single-role path who don't have a user_roles row yet.
+    const allRoleKeys = new Set<string>(
+      [profileRole, ...userRoleKeys].filter(Boolean)
+    );
 
     // Layout branching (NOT a gate): which dashboard layout does this role see?
-    // Role-keys that map to the operational HR Officer layout (4 daily quadrants).
-    // Everyone else with the permission sees the strategic Director layout.
-    // `hr_officer` is intentionally absent — no custom_roles row exists on prod; it
-    // only survives here as the internal `ViewerRole` bucket label.
+    // Any user holding any HR_OPERATOR role — primary or secondary — gets the
+    // operational HR Officer layout. Everyone else with hr.dashboard.view
+    // permission sees the strategic Director layout.
     const HR_OPERATOR_ROLES = new Set(['hr_admin', 'hr_manager', 'hr_head']);
+    const hasHrOperatorRole = [...allRoleKeys].some((k) =>
+      HR_OPERATOR_ROLES.has(k)
+    );
     const viewer_role: ViewerRole = isSuperAdmin
       ? 'super_admin'
-      : HR_OPERATOR_ROLES.has(role)
+      : hasHrOperatorRole
       ? 'hr_officer'
       : 'director';
 
-    // display_role gives the UI a human label matching the exact role_key,
-    // since viewer_role normalises hr_head/hr_admin/hr_manager → 'hr_officer'.
+    // display_role gives the UI a human label matching the exact role_key.
+    // Prefer the HR-relevant role label when the user holds multiple roles
+    // (so a COO who is also HR Admin sees "HR Admin" on the HR dashboard,
+    // not "COO"). Fall back to profile.role label, then to viewer_role.
     const ROLE_DISPLAY_LABELS: Record<string, string> = {
       super_admin: 'Super Admin',
       hr_head: 'HR Head',
@@ -63,8 +90,12 @@ export const GET = withAuth(async (request, auth) => {
       director: 'Director',
       admin: 'Admin',
     };
+    const hrRelevantRole = ['hr_head', 'hr_admin', 'hr_manager'].find((k) =>
+      allRoleKeys.has(k)
+    );
     const display_role =
-      ROLE_DISPLAY_LABELS[role] ??
+      (hrRelevantRole && ROLE_DISPLAY_LABELS[hrRelevantRole]) ??
+      ROLE_DISPLAY_LABELS[profileRole] ??
       viewer_role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
     const url = new URL(request.url);

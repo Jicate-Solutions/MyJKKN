@@ -1,6 +1,7 @@
 'use client';
 
-import { use, useState } from 'react';
+import { Suspense, use, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -104,12 +105,15 @@ interface QuestEnrollment {
 // Main Page
 // ============================================
 
-export default function QuestDetailPage({
+const QUEST_DETAIL_TABS = ['overview', 'requirements', 'team', 'submissions'] as const;
+
+function QuestDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id: questId } = use(params);
+  const [tab, setTab] = useTabParam('overview', QUEST_DETAIL_TABS);
   const router = useRouter();
   const { profile: user } = useAuth();
 
@@ -291,7 +295,7 @@ export default function QuestDetailPage({
         </div>
 
         {/* Tabbed content */}
-        <Tabs defaultValue="overview" className="space-y-4">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="requirements">Requirements</TabsTrigger>
@@ -598,5 +602,16 @@ export default function QuestDetailPage({
         </div>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function QuestDetailPage(props: {
+  params: Promise<{ id: string }>;
+}) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <QuestDetailPageInner {...props} />
+    </Suspense>
   );
 }

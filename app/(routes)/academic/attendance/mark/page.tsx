@@ -45,6 +45,7 @@ import {
   useConsolidatedAttendance
 } from '@/hooks/academic/use-attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { CycleCalculationService } from '@/lib/services/academic/cycle-calculation-service';
 import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-service';
 import type { LeaveBlockInfo } from '@/types/leaves';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -209,7 +210,7 @@ export default function AttendanceMarkPage() {
         // Build query
         // Updated: 2025-10-09 - Added timetable_format to query for batch timetable support
         // Updated: 2026-03-10 - Include semesters join to eliminate separate semester query
-        let query = supabase
+        const query = supabase
           .from('timetables')
           .select(
             `
@@ -234,10 +235,13 @@ export default function AttendanceMarkPage() {
           )
           .eq('id', timetableId);
 
-        // Only filter by institution for non-super admins
-        if (!isSuperAdmin && profile?.institution_id) {
-          query = query.eq('institution_id', profile.institution_id);
-        }
+        // Updated: 2026-07-06 (cross-institution teaching) - Do NOT filter the
+        // timetable load by profile.institution_id. A visiting staff (assigned
+        // via staff planning to a sister institution's timetable) belongs to a
+        // DIFFERENT institution than the timetable, and this filter made the
+        // load fail with "Failed to load class information". Row access is
+        // still gated by timetables RLS, and save authorization is enforced
+        // separately by validateStaffAssignment.
 
         // Fetch timetable data with all related information
         const { data: timetableData, error: timetableError } =
@@ -692,6 +696,22 @@ export default function AttendanceMarkPage() {
             }
           }
           dayKey = foundKey || date;
+        } else if (timetableFormat === 'cycle') {
+          // Added: 2026-06-17 - Cycle timetables key timetable_data by "cycle-N"
+          // (e.g. "cycle-3"), NOT by weekday. Without this the assigned-faculty
+          // lookup fell through to the WEDNESDAY key, found nothing, and showed
+          // "No faculty assigned to this timetable slot". Resolve the active
+          // cycle for the date via the canonical RPC (working-day counting,
+          // Sunday/holiday skipping) used by the timetable grid's "Today" badge.
+          const cycleNum =
+            timetableId && date
+              ? await CycleCalculationService.getCycleForDate(timetableId, date)
+              : null;
+          if (!cycleNum) {
+            logger.warn('academic/attendance/mark', 'No active cycle for date', { date, timetableId });
+            return;
+          }
+          dayKey = `cycle-${cycleNum}`;
         } else {
           dayKey = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
         }
@@ -1138,7 +1158,14 @@ export default function AttendanceMarkPage() {
 
     // Updated: 2025-10-09 - Allow semester-level timetables to proceed without specific section
     // For multi-section periods, we'll use the first section from section_ids array
+    // Updated: 2026-07-20 - For practical periods the batch selection is the authoritative
+    // section source: the parent slot carries no section_id/section_ids, so mirror the
+    // student-load path (see loadStudents) and the section_ids save param below — otherwise
+    // saving a practical batch fails with "Missing section information".
     const effectiveSectionId =
+      (practicalSelection?.section_ids && practicalSelection.section_ids.length > 0
+        ? practicalSelection.section_ids[0]
+        : null) ||
       contextData?.section_id ||
       sectionId ||
       (contextData?.section_ids && contextData.section_ids.length > 0
@@ -1221,8 +1248,11 @@ export default function AttendanceMarkPage() {
               `${staff.first_name || ''} ${
                 staff.last_name || ''
               }`.trim() || markerName;
+            // institution_email first: it is the auth/login identity every
+            // downstream email-join (feedback, SCF notes, verdict card,
+            // Facilitator Pulse) keys on; staff.email is a personal contact.
             markerEmail =
-              staff.email || staff.institution_email || markerEmail;
+              staff.institution_email || staff.email || markerEmail;
           }
         } catch (error) {
           logger.warn('academic/attendance/mark', 'Could not fetch staff details, using profile data', error);
@@ -1291,7 +1321,12 @@ export default function AttendanceMarkPage() {
 
       // Updated: 2025-10-09 - Allow semester-level timetables with multi-section support
       // Use first section from section_ids array for multi-section periods
+      // Updated: 2026-07-20 - Practical periods derive their section from the selected batch
+      // (practicalSelection), matching loadStudents and the section_ids save param below.
       const effectiveSectionId =
+        (practicalSelection?.section_ids && practicalSelection.section_ids.length > 0
+          ? practicalSelection.section_ids[0]
+          : null) ||
         contextData?.section_id ||
         sectionId ||
         (contextData?.section_ids && contextData.section_ids.length > 0
@@ -1313,7 +1348,7 @@ export default function AttendanceMarkPage() {
           faculty_name:
             staff.full_name ||
             `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
-          faculty_email: staff.email || staff.institution_email || '',
+          faculty_email: staff.institution_email || staff.email || '',
           is_primary: staff.is_primary || false
         }));
       } else if (assignedStaff.length === 1) {
@@ -1324,7 +1359,7 @@ export default function AttendanceMarkPage() {
           faculty_name:
             faculty.full_name ||
             `${faculty.first_name || ''} ${faculty.last_name || ''}`.trim(),
-          faculty_email: faculty.email || faculty.institution_email || ''
+          faculty_email: faculty.institution_email || faculty.email || ''
         };
       }
 
@@ -1446,9 +1481,16 @@ export default function AttendanceMarkPage() {
 
         // Redirect to report details page after delay
         setTimeout(() => {
-          // Redirect to report details page using the attendance record ID
+          // Redirect to report details page using the attendance record ID.
+          // Updated: 2026-07-21 - Land on the period we just marked/edited. The record
+          // holds every period marked that day, so without ?period= the report opened on
+          // period_details[0] — after editing period 6 you were shown period 1, which
+          // reads as "my edit went to the wrong period".
           if (result.id) {
-            router.push(`/academic/attendance/reports/${result.id}`);
+            const reportUrl = periodId
+              ? `/academic/attendance/reports/${result.id}?period=${encodeURIComponent(periodId)}`
+              : `/academic/attendance/reports/${result.id}`;
+            router.push(reportUrl);
           } else {
             // Fallback to reports list page if no ID is available
             const params = new URLSearchParams({
@@ -2580,7 +2622,8 @@ export default function AttendanceMarkPage() {
           students={students}
           attendanceData={attendanceData}
           contextData={contextData}
-          courseName={courseName || undefined}
+          courseName={practicalSelection?.course_name || courseName || undefined}
+          batchName={practicalSelection?.batch_name}
           periodName={periodName || undefined}
           date={date || undefined}
           startTime={startTime || undefined}

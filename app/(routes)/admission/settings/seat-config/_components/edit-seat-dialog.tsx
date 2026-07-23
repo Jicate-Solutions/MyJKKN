@@ -13,13 +13,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, Save } from 'lucide-react';
-import type { AdmissionYearRow } from './seat-config-columns';
+import type { ProgramSeatRow } from './seat-config-columns';
 
 interface EditSeatDialogProps {
-  row: AdmissionYearRow | null;
+  row: ProgramSeatRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (row: AdmissionYearRow, newValue: number) => Promise<void>;
+  onSave: (row: ProgramSeatRow, newValue: number) => Promise<void>;
 }
 
 export function EditSeatDialog({
@@ -52,19 +52,14 @@ export function EditSeatDialog({
         <DialogHeader>
           <DialogTitle className='text-base'>Edit Seat Count</DialogTitle>
           <DialogDescription className='text-xs'>
-            {row?.admission_year_name}
-            {row?.program_name ? ` › ${row.program_name}` : ''}
+            {row?.program_name}
+            {row?.program_code ? ` › ${row.program_code}` : ''}
           </DialogDescription>
         </DialogHeader>
 
         <div className='space-y-4 py-2'>
-          <div className='space-y-1 text-xs text-muted-foreground'>
-            <div>
-              Cohort: {row?.program_start_year} → {row?.program_end_year}
-            </div>
-          </div>
           <div className='space-y-2'>
-            <Label htmlFor='seat-input'>Sanctioned Seats (this cohort)</Label>
+            <Label htmlFor='seat-input'>Sanctioned Intake</Label>
             <Input
               id='seat-input'
               type='number'
@@ -79,7 +74,7 @@ export function EditSeatDialog({
               autoFocus
             />
             <p className='text-xs text-muted-foreground'>
-              Seat count for this specific admission year and program cohort.
+              Sanctioned seat count for this program.
             </p>
           </div>
         </div>

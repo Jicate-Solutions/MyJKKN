@@ -11,6 +11,8 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
+// 2026-06-19: gate the admission-settings subtree by each route's declared permission.
+import { RoutePermissionGuard } from '@/components/auth/route-permission-guard';
 
 const settingsTabs: SectionTab[] = [
   { href: '/admission/settings', icon: Settings, label: 'General', exact: true },
@@ -26,6 +28,7 @@ const settingsTabs: SectionTab[] = [
     label: 'Assignment Rules',
   },
   { href: '/admission/settings/sources', icon: Radio, label: 'Lead Sources' },
+  { href: '/admission/settings/statuses', icon: Workflow, label: 'Statuses' },
   { href: '/admission/settings/seat-config', icon: Armchair, label: 'Seat Config' },
   { href: '/admission/settings/templates', icon: FileText, label: 'Templates' },
   {
@@ -37,9 +40,9 @@ const settingsTabs: SectionTab[] = [
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <RoutePermissionGuard>
       <SectionSubNav tabs={settingsTabs} />
       {children}
-    </>
+    </RoutePermissionGuard>
   );
 }

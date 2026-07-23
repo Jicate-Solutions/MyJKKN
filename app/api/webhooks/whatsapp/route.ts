@@ -27,8 +27,10 @@ function getServiceClient() {
 function verifySignature(rawBody: string, signatureHeader: string | null): boolean {
   const appSecret = process.env.WHATSAPP_WEBHOOK_SECRET;
   if (!appSecret) {
-    logger.warn('admissions/wa-webhook', 'WHATSAPP_WEBHOOK_SECRET not set — skipping signature check');
-    return true; // Allow in dev; enforce in production
+    // Fail closed: an unverified POST can forge inbound WhatsApp events.
+    // The secret MUST be set in every environment.
+    logger.error('admissions/wa-webhook', 'WHATSAPP_WEBHOOK_SECRET not set — rejecting webhook');
+    return false;
   }
 
   if (!signatureHeader) {

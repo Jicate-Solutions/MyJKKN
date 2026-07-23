@@ -3,7 +3,6 @@ import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import {
   Serwist,
   NetworkOnly,
-  NetworkFirst,
   CacheFirst,
   StaleWhileRevalidate,
   ExpirationPlugin,
@@ -30,17 +29,19 @@ const serwist = new Serwist({
       handler: new NetworkOnly(),
     },
     {
+      // SECURITY (2026-06-03): every /api/* response is per-user and
+      // RLS/identity-scoped. This used to be a NetworkFirst "api-cache" keyed by
+      // URL only (no auth/Vary) with a 10s network timeout — when a slow endpoint
+      // (e.g. the admission leads list) tripped the timeout, the SW served a
+      // STALE/FOREIGN cached body, so one counselor saw another counselor's leads
+      // on hard refresh. NetworkOnly means /api/* is never written to Cache
+      // Storage, closing that cross-user leak across every module (not just
+      // admission). /api/auth/* is already NetworkOnly above; this generalises it.
+      // Trade-off: no offline read of live API data — acceptable, tenant data must
+      // never be served stale. Responses also send Cache-Control: private,no-store
+      // (lib/api-helpers/no-store-response.ts) as defense-in-depth.
       matcher: /\/api\/.*/,
-      handler: new NetworkFirst({
-        cacheName: "api-cache",
-        plugins: [
-          new ExpirationPlugin({
-            maxEntries: 32,
-            maxAgeSeconds: 60,
-          }),
-        ],
-        networkTimeoutSeconds: 10,
-      }),
+      handler: new NetworkOnly(),
     },
     {
       matcher: /\/auth\/.*/,

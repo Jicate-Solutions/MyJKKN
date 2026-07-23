@@ -33,7 +33,7 @@ import { Badge } from '@/components/ui/badge';
 
 const API_ENDPOINTS = {
   learners: [
-    { value: '/api/api-management/learners/profiles', label: 'Learners - Profiles (Active)' },
+    { value: '/api/api-management/learners/profiles', label: 'Learners - Profiles' },
     { value: '/api/api-management/learners/profiles/[id]', label: 'Learners - Profile by ID' },
     { value: '/api/api-management/learners/enquiries', label: 'Learners - Enquiries' },
     { value: '/api/api-management/learners/enquiries/[id]', label: 'Learners - Enquiry by ID' },
@@ -76,7 +76,7 @@ const API_ENDPOINTS = {
 // Query parameters for each endpoint
 const QUERY_PARAMETERS: Record<string, Array<{ value: string; label: string; description: string }>> = {
   '/api/api-management/learners/profiles': [
-    { value: 'lifecycle_status', label: 'lifecycle_status', description: 'Comma-separated lifecycle statuses (default: active)' },
+    { value: 'lifecycle_status', label: 'lifecycle_status', description: "'all' for every status, or comma-separated statuses e.g. admitted,graduated (default: active)" },
     { value: 'program_id', label: 'program_id', description: 'Filter by program ID (UUID)' },
     { value: 'semester_id', label: 'semester_id', description: 'Filter by semester ID (UUID)' },
     { value: 'section_id', label: 'section_id', description: 'Filter by section ID (UUID)' },

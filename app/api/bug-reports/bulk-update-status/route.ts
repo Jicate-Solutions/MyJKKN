@@ -36,14 +36,14 @@ export async function POST(request: Request) {
     // Check if user has admin permissions
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
     if (
       profileError ||
       !profile ||
-      !['admin', 'super_admin'].includes(profile.role)
+      (!(profile as any).is_super_admin && !['super_admin', 'administrator', 'ceo'].includes(profile.role))
     ) {
       return NextResponse.json(
         { error: 'Admin permissions required to update bug report status' },
@@ -62,9 +62,14 @@ export async function POST(request: Request) {
     const updateData: any = { status };
     if (status === 'resolved') {
       updateData.resolved_at = new Date().toISOString();
+      // Keep duplicate_of on resolve so duplicate groups stay visible in history.
     } else {
       // Clear resolved_at if status is changed from resolved to something else
       updateData.resolved_at = null;
+      if (status !== 'wont_fix') {
+        // Moving to an active status un-parks the bug from any duplicate group.
+        updateData.duplicate_of = null;
+      }
     }
 
     // Update bug reports status
@@ -78,15 +83,49 @@ export async function POST(request: Request) {
       throw updateError;
     }
 
-    // Fire bulk resolution emails (non-blocking)
+    // Cascade: closing canonical bugs also closes reports parked as their
+    // duplicates. Resolved duplicates get the same reporter email as directly
+    // resolved bugs; wont_fix cascades silently.
+    let cascadedIds: string[] = [];
+    if (status === 'resolved' || status === 'wont_fix') {
+      const { data: children, error: childrenError } = await (
+        adminSupabase.from('bug_reports') as any
+      )
+        .select('id')
+        .in('duplicate_of', reportIds)
+        .eq('status', 'duplicate');
+
+      if (!childrenError && children && children.length > 0) {
+        cascadedIds = children.map((c: any) => c.id);
+        const { error: cascadeError } = await (
+          adminSupabase.from('bug_reports') as any
+        )
+          .update({
+            status,
+            resolved_at: status === 'resolved' ? new Date().toISOString() : null
+          })
+          .in('id', cascadedIds);
+
+        if (cascadeError) {
+          logger.error('bug-reports/api', 'Bulk duplicate cascade failed', cascadeError);
+          cascadedIds = [];
+        }
+      }
+    }
+
+    // Fire bulk resolution emails (non-blocking) — canonical reporters AND
+    // the reporters of any cascaded duplicates.
     if (status === 'resolved') {
-      void sendBulkResolutionEmails(adminSupabase, reportIds);
+      void sendBulkResolutionEmails(adminSupabase, [...reportIds, ...cascadedIds]);
     }
 
     return NextResponse.json({
       success: true,
-      message: `${reportIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully`,
+      message: `${reportIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully${
+        cascadedIds.length > 0 ? ` (+${cascadedIds.length} duplicate(s) closed with them)` : ''
+      }`,
       updatedCount: reportIds.length,
+      cascadedCount: cascadedIds.length,
       status
     });
   } catch (error) {

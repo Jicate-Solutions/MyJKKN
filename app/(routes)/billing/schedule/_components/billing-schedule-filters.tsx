@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -21,24 +20,34 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { BillingScheduleSearchParams } from './data-table-schema';
+import {
+  ACCOMMODATION_TYPE_OPTIONS,
+  LIFECYCLE_STATUS_FILTER_OPTIONS
+} from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { DateRange } from 'react-day-picker';
 
 interface BillingScheduleFiltersProps {
   searchParams: BillingScheduleSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
+  onBatchFilterChange: (changes: Record<string, string | undefined>) => void;
   onClearFilters: () => void;
 }
 
 export function BillingScheduleFilters({
   searchParams,
   onFilterChange,
+  onBatchFilterChange,
   onClearFilters
 }: BillingScheduleFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const {
+    institutions,
+    loading: loadingInstitutions,
+  } = useInstitutionsWithAccess({ isActive: true });
+  const hasMultiInstitutionAccess = institutions.length > 1;
+
   const [categories, setCategories] = useState<
     Array<{ id: string; category_name: string }>
   >([]);
@@ -60,23 +69,18 @@ export function BillingScheduleFilters({
   const [sections, setSections] = useState<
     Array<{ id: string; section_name: string }>
   >([]);
-  const [loading, setLoading] = useState(false);
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
+  const { canAccess } = usePermissions();
 
+  // Auto-pin institution for single-institution users.
   useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        console.error('Error loading institutions:', error);
-      } finally {
-        setLoading(false);
-      }
+    if (
+      !loadingInstitutions &&
+      institutions.length === 1 &&
+      !searchParams.institution_id
+    ) {
+      onFilterChange('institution_id', institutions[0].id);
     }
-    loadInstitutions();
-  }, []);
+  }, [institutions, searchParams.institution_id, onFilterChange, loadingInstitutions]);
 
   useEffect(() => {
     async function loadCategories() {
@@ -89,24 +93,6 @@ export function BillingScheduleFilters({
     }
     loadCategories();
   }, []);
-
-  // Auto-set institution filter for non-super admin users
-  useEffect(() => {
-    if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading
-    ) {
-      onFilterChange('institution_id', userProfile.institution_id);
-    }
-  }, [
-    userProfile,
-    isSuperAdmin,
-    searchParams.institution_id,
-    onFilterChange,
-    loading
-  ]);
 
   useEffect(() => {
     async function loadDegrees() {
@@ -216,24 +202,6 @@ export function BillingScheduleFilters({
     loadAcademicYears();
   }, [searchParams.institution_id]);
 
-  // Auto-set institution filter for non-super admin users
-  useEffect(() => {
-    if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading
-    ) {
-      onFilterChange('institution_id', userProfile.institution_id);
-    }
-  }, [
-    userProfile,
-    isSuperAdmin,
-    searchParams.institution_id,
-    onFilterChange,
-    loading
-  ]);
-
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range?.from || range?.to) {
       onFilterChange(
@@ -251,6 +219,7 @@ export function BillingScheduleFilters({
   const hasActiveFilters = !!(
     searchParams.institution_id ||
     searchParams.status ||
+    searchParams.lifecycle_status ||
     searchParams.item_category_id ||
     searchParams.is_recurring ||
     searchParams.amount_from ||
@@ -261,29 +230,28 @@ export function BillingScheduleFilters({
     searchParams.department_id ||
     searchParams.program_id ||
     searchParams.semester_id ||
-    searchParams.section_id
+    searchParams.section_id ||
+    searchParams.accommodation_type
   );
 
   return (
     <div className='space-y-4'>
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
-          {isSuperAdmin && (
+          {hasMultiInstitutionAccess && (
             <Select
               value={searchParams.institution_id || 'all'}
               onValueChange={(value) => {
                 const newValue = value === 'all' ? undefined : value;
-                onFilterChange('institution_id', newValue);
-                // Clear dependent filters
-                if (!newValue) {
-                  onFilterChange('degree_id', undefined);
-                  onFilterChange('department_id', undefined);
-                  onFilterChange('program_id', undefined);
-                  onFilterChange('semester_id', undefined);
-                  onFilterChange('section_id', undefined);
-                  onFilterChange('academic_year_id', undefined);
-                  onFilterChange('item_category_id', undefined);
-                }
+                onBatchFilterChange({
+                  institution_id: newValue,
+                  degree_id: undefined,
+                  department_id: undefined,
+                  program_id: undefined,
+                  semester_id: undefined,
+                  section_id: undefined,
+                  academic_year_id: undefined,
+                });
               }}
             >
               <SelectTrigger className='w-full sm:w-[200px]'>
@@ -304,14 +272,13 @@ export function BillingScheduleFilters({
             value={searchParams.degree_id || 'all'}
             onValueChange={(value) => {
               const newValue = value === 'all' ? undefined : value;
-              onFilterChange('degree_id', newValue);
-              // Clear dependent filters
-              if (!newValue) {
-                onFilterChange('department_id', undefined);
-                onFilterChange('program_id', undefined);
-                onFilterChange('semester_id', undefined);
-                onFilterChange('section_id', undefined);
-              }
+              onBatchFilterChange({
+                degree_id: newValue,
+                department_id: undefined,
+                program_id: undefined,
+                semester_id: undefined,
+                section_id: undefined,
+              });
             }}
             disabled={!searchParams.institution_id}
           >
@@ -332,13 +299,12 @@ export function BillingScheduleFilters({
             value={searchParams.department_id || 'all'}
             onValueChange={(value) => {
               const newValue = value === 'all' ? undefined : value;
-              onFilterChange('department_id', newValue);
-              // Clear dependent filters
-              if (!newValue) {
-                onFilterChange('program_id', undefined);
-                onFilterChange('semester_id', undefined);
-                onFilterChange('section_id', undefined);
-              }
+              onBatchFilterChange({
+                department_id: newValue,
+                program_id: undefined,
+                semester_id: undefined,
+                section_id: undefined,
+              });
             }}
             disabled={!searchParams.degree_id}
           >
@@ -359,12 +325,11 @@ export function BillingScheduleFilters({
             value={searchParams.program_id || 'all'}
             onValueChange={(value) => {
               const newValue = value === 'all' ? undefined : value;
-              onFilterChange('program_id', newValue);
-              // Clear dependent filters
-              if (!newValue) {
-                onFilterChange('semester_id', undefined);
-                onFilterChange('section_id', undefined);
-              }
+              onBatchFilterChange({
+                program_id: newValue,
+                semester_id: undefined,
+                section_id: undefined,
+              });
             }}
             disabled={!searchParams.department_id}
           >
@@ -394,11 +359,10 @@ export function BillingScheduleFilters({
           value={searchParams.semester_id || 'all'}
           onValueChange={(value) => {
             const newValue = value === 'all' ? undefined : value;
-            onFilterChange('semester_id', newValue);
-            // Clear dependent filters
-            if (!newValue) {
-              onFilterChange('section_id', undefined);
-            }
+            onBatchFilterChange({
+              semester_id: newValue,
+              section_id: undefined,
+            });
           }}
           disabled={!searchParams.program_id}
         >
@@ -450,6 +414,7 @@ export function BillingScheduleFilters({
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
             <SelectItem value='all'>All Academic Years</SelectItem>
+            <SelectItem value='unspecified'>Unspecified</SelectItem>
             {academicYears.map((year) => (
               <SelectItem key={year.id} value={year.id}>
                 {year.academic_year_name}
@@ -466,7 +431,7 @@ export function BillingScheduleFilters({
               value === 'all' ? undefined : value
             )
           }
-          disabled={loading}
+          disabled={loadingInstitutions}
         >
           <SelectTrigger className='w-full sm:w-[200px]'>
             <SelectValue placeholder='Select category' />
@@ -502,6 +467,28 @@ export function BillingScheduleFilters({
         </Select>
 
         <Select
+          value={searchParams.lifecycle_status || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'lifecycle_status',
+              value === 'all' ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[160px]'>
+            <SelectValue placeholder='Learner status' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Learner Status</SelectItem>
+            {LIFECYCLE_STATUS_FILTER_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
           value={searchParams.is_recurring || 'all'}
           onValueChange={(value) =>
             onFilterChange(
@@ -517,6 +504,28 @@ export function BillingScheduleFilters({
             <SelectItem value='all'>All Types</SelectItem>
             <SelectItem value='false'>One-time</SelectItem>
             <SelectItem value='true'>Recurring</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.accommodation_type || 'all'}
+          onValueChange={(value) =>
+            onFilterChange(
+              'accommodation_type',
+              value === 'all' ? undefined : value
+            )
+          }
+        >
+          <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectValue placeholder='Accommodation type' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Accommodation</SelectItem>
+            {ACCOMMODATION_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

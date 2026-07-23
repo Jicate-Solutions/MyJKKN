@@ -7,6 +7,25 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { HDFCEventClient } from './hdfc-event-client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { EventPaymentTransaction } from '@/types/events';
+import { getActiveProviderName, getPaymentProvider } from '@/lib/services/payments/factory';
+import { toPaise } from '@/lib/services/payments/amount';
+import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
+
+export interface EventInitiatePaymentResult {
+  payment_url: string;
+  transaction_id: string;
+  // --- Razorpay migration additions (Task 23) ---
+  provider?: 'hdfc_smartgateway' | 'razorpay';
+  transaction_ref?: string;
+  razorpay_order_id?: string;
+  razorpay_key_id?: string;
+  amount_paise?: number;
+  customer?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+  };
+}
 
 // ============================================================================
 // EventPaymentService
@@ -37,7 +56,29 @@ export class EventPaymentService {
     payerPhone: string;
     discountCode?: string;
     returnUrl: string;
-  }): Promise<{ payment_url: string; transaction_id: string }> {
+    /**
+     * Optional server callback URL the gateway redirects to after payment.
+     * When omitted, defaults to the marathon callback (backward compatible).
+     * Other event types (e.g. tournaments) pass their own callback route here;
+     * `transaction_ref` is appended automatically.
+     */
+    callbackUrl?: string;
+    /**
+     * Overrides registration.institution_id for BOTH Razorpay account
+     * resolution and the institution_id recorded on the transaction row.
+     * Tournaments pass their host event's institution_id here so entry fees
+     * settle into the HOST institution's account regardless of the
+     * registrant's own institution (or lack of one, for guests). Omit to
+     * keep today's behavior (marathon does not pass this).
+     */
+    institutionIdOverride?: string | null;
+    /**
+     * Fee head (billing_categories.kind) for Razorpay account resolution at
+     * order-creation. Omit to resolve the institution's default account
+     * (marathon does not pass this).
+     */
+    feeHead?: string | null;
+  }): Promise<EventInitiatePaymentResult> {
     const supabase = createServiceRoleClient();
 
     logger.info('events/payment', 'Initiating event payment', {
@@ -67,17 +108,59 @@ export class EventPaymentService {
     }
 
     // Step 2: Generate unique transaction reference
-    // Format: E{YYYYMMDDHHMMSS}{XXXXX} — 20 chars, alphanumeric, non-sequential
     const transactionRef = this.generateTransactionRef();
 
-    // Step 3: Create event_payment_transactions row
-    const { data: transaction, error: txnError } = await supabase
+    const resolvedInstitutionId =
+      params.institutionIdOverride !== undefined
+        ? params.institutionIdOverride
+        : registration.institution_id;
+
+    // ----------------------------------------------------------------------
+    // getActiveProviderName('events') is always 'razorpay' or throws (HDFC
+    // SmartGateway decommissioned) — this branch always runs. The old HDFC
+    // session-creation code that used to follow it (Steps 3-5) has been
+    // removed as dead code. handleCallback() below is UNCHANGED and still
+    // HDFC-only — it is out of scope here (see Global Constraints).
+    // ----------------------------------------------------------------------
+    if (getActiveProviderName('events') !== 'razorpay') {
+      throw new Error('No payment provider configured for events');
+    }
+
+    const provider = await getPaymentProvider('events', {
+      institutionId: resolvedInstitutionId ?? undefined,
+      feeHead: params.feeHead ?? null,
+      purpose: 'create-order',
+    });
+    const rzpAccountId = (provider as { accountId?: string }).accountId ?? null;
+    const amountPaise = toPaise(params.amount);
+
+    const order = await provider.createOrder({
+      transactionRef,
+      amountPaise,
+      currency: 'INR',
+      module: 'events',
+      notes: {
+        registration_id: params.registrationId,
+        event_id: params.eventId,
+        transaction_ref: transactionRef,
+        institution_id: resolvedInstitutionId ?? '',
+      },
+      description: `Event Registration - ${registration.participant_name || 'Participant'}`,
+      customer: {
+        name: params.payerName,
+        email: params.payerEmail,
+        phone: params.payerPhone,
+      },
+    });
+
+    const { data: txn, error: txnError } = await (supabase as any)
       .from('event_payment_transactions')
       .insert({
         event_id: params.eventId,
         registration_id: params.registrationId,
         transaction_ref: transactionRef,
         amount: params.amount,
+        amount_paise: amountPaise,
         currency: 'INR',
         status: 'initiated',
         payer_name: params.payerName,
@@ -85,60 +168,239 @@ export class EventPaymentService {
         payer_phone: params.payerPhone,
         discount_code: params.discountCode || null,
         discount_amount: 0,
-        institution_id: registration.institution_id,
+        institution_id: resolvedInstitutionId,
+        provider: 'razorpay',
+        razorpay_order_id: order.gatewayOrderId,
+        razorpay_account_id: rzpAccountId,
+        gateway_session_id: order.gatewayOrderId,
+        gateway_response: order.raw,
+        return_url: params.returnUrl,
       })
       .select('id')
       .single();
 
-    if (txnError || !transaction) {
-      logger.error('events/payment', 'Failed to create payment transaction', txnError);
+    if (txnError || !txn) {
+      logger.error('events/payment', 'Failed to create Razorpay event transaction', txnError);
       throw new Error('Failed to create payment transaction');
     }
 
-    // Step 4: Call HDFC to create session
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const callbackUrl = `${appUrl}/api/events/marathon/${params.eventId}/payment/callback?transaction_ref=${transactionRef}`;
-
-    let hdfcResult: { payment_url: string; session_id: string };
-    try {
-      hdfcResult = await HDFCEventClient.createSession({
-        transactionRef,
-        amount: params.amount,
-        customerName: params.payerName,
-        customerEmail: params.payerEmail,
-        customerPhone: params.payerPhone,
-        returnUrl: callbackUrl,
-        description: `Event Registration - ${registration.participant_name || 'Participant'}`,
-      });
-    } catch (hdfcError) {
-      // Mark transaction as failed if HDFC session creation fails
-      await supabase
-        .from('event_payment_transactions')
-        .update({ status: 'failed', gateway_response: { error: String(hdfcError) } })
-        .eq('id', transaction.id);
-
-      logger.error('events/payment', 'HDFC session creation failed', hdfcError);
-      throw new Error('Failed to create payment session with gateway');
-    }
-
-    // Step 5: Update transaction with gateway_session_id
-    await supabase
-      .from('event_payment_transactions')
-      .update({
-        gateway_session_id: hdfcResult.session_id,
-        status: 'processing',
-      })
-      .eq('id', transaction.id);
-
-    logger.info('events/payment', 'Payment initiated successfully', {
-      transactionId: transaction.id,
+    logger.info('events/payment', 'Razorpay event payment initiated', {
+      transactionId: txn.id,
       transactionRef,
+      razorpayOrderId: order.gatewayOrderId,
     });
 
     return {
-      payment_url: hdfcResult.payment_url,
-      transaction_id: transaction.id,
+      payment_url: '',
+      transaction_id: txn.id,
+      provider: 'razorpay',
+      transaction_ref: transactionRef,
+      razorpay_order_id: order.gatewayOrderId,
+      razorpay_key_id: order.clientKeyId,
+      amount_paise: amountPaise,
+      customer: {
+        name: params.payerName,
+        email: params.payerEmail,
+        phone: params.payerPhone,
+      },
     };
+  }
+
+  // ==========================================================================
+  // 2b. Verify + Settle a Razorpay Hosted-Checkout Callback
+  // ==========================================================================
+
+  /**
+   * Verifies a Razorpay hosted-checkout POST-back (signature + dual inquiry)
+   * and settles the transaction + registration on success. Idempotent: if
+   * the async webhook already settled this transaction first, this is a
+   * no-op that still returns success so the payer sees a correct
+   * confirmation page.
+   *
+   * Razorpay-only — this does not touch HDFC. Marathon's callback route is
+   * unchanged and continues to call handleCallback() below.
+   */
+  static async verifyAndSettleRazorpayPayment(params: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  }): Promise<{
+    success: boolean;
+    registrationId: string | null;
+    transactionId: string | null;
+    returnUrl: string | null;
+  }> {
+    const supabase = createServiceRoleClient();
+
+    const { data: transaction, error: txnError } = await (supabase as any)
+      .from('event_payment_transactions')
+      .select('id, registration_id, status, razorpay_account_id, return_url')
+      .eq('razorpay_order_id', params.razorpayOrderId)
+      .single();
+
+    if (txnError || !transaction) {
+      logger.warn('events/payment', 'Razorpay callback for unknown order', {
+        razorpayOrderId: params.razorpayOrderId,
+      });
+      return { success: false, registrationId: null, transactionId: null, returnUrl: null };
+    }
+
+    // Idempotency: the webhook may have already settled this transaction.
+    if (transaction.status === 'success') {
+      return {
+        success: true,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    const provider = (await getPaymentProvider('events', {
+      accountId: transaction.razorpay_account_id ?? undefined,
+    })) as RazorpayProvider;
+
+    const signatureValid = provider.verifySignature({
+      gatewayOrderId: params.razorpayOrderId,
+      gatewayPaymentId: params.razorpayPaymentId,
+      signature: params.razorpaySignature,
+    });
+
+    if (!signatureValid) {
+      logger.error('events/payment', 'SECURITY: Razorpay signature verification failed', {
+        transactionId: transaction.id,
+        razorpayOrderId: params.razorpayOrderId,
+      });
+      const { error: markFailedError } = await supabase
+        .from('event_payment_transactions')
+        .update({ status: 'failed' })
+        .eq('id', transaction.id);
+      if (markFailedError) {
+        logger.error(
+          'events/payment',
+          'Failed to mark transaction failed after signature mismatch',
+          markFailedError
+        );
+      }
+      return {
+        success: false,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    // Dual inquiry (GET /orders + GET /payments) — mandatory per the Razorpay
+    // security audit; never settle off the signature alone.
+    const status = await provider.dualInquiry(params.razorpayOrderId, params.razorpayPaymentId);
+
+    if (status.status !== 'captured' && status.status !== 'authorized') {
+      const { error: markFailedError } = await supabase
+        .from('event_payment_transactions')
+        .update({ status: 'failed', gateway_response: status.raw })
+        .eq('id', transaction.id);
+      if (markFailedError) {
+        logger.error(
+          'events/payment',
+          'Failed to mark transaction failed after unsettled dual inquiry status',
+          markFailedError
+        );
+      }
+      return {
+        success: false,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    const now = new Date().toISOString();
+    const { error: settleError } = await supabase
+      .from('event_payment_transactions')
+      .update({
+        status: 'success',
+        razorpay_payment_id: params.razorpayPaymentId,
+        gateway_response: status.raw,
+        paid_at: now,
+      })
+      .eq('id', transaction.id);
+
+    if (settleError) {
+      logger.error('events/payment', 'CRITICAL: failed to settle transaction after verified Razorpay payment', {
+        transactionId: transaction.id,
+        error: settleError,
+      });
+      return {
+        success: false,
+        registrationId: transaction.registration_id,
+        transactionId: transaction.id,
+        returnUrl: transaction.return_url,
+      };
+    }
+
+    if (transaction.registration_id) {
+      const { error: regError } = await supabase
+        .from('events_registrations')
+        .update({
+          payment_status: 'paid',
+          payment_method: 'razorpay',
+          payment_reference: params.razorpayPaymentId,
+        })
+        .eq('id', transaction.registration_id);
+
+      if (regError) {
+        logger.error('events/payment', 'CRITICAL: transaction settled but registration payment_status update failed', {
+          transactionId: transaction.id,
+          registrationId: transaction.registration_id,
+          error: regError,
+        });
+        return {
+          success: false,
+          registrationId: transaction.registration_id,
+          transactionId: transaction.id,
+          returnUrl: transaction.return_url,
+        };
+      }
+    }
+
+    logger.info('events/payment', 'Razorpay callback verified and settled', {
+      transactionId: transaction.id,
+      registrationId: transaction.registration_id,
+    });
+
+    return {
+      success: true,
+      registrationId: transaction.registration_id,
+      transactionId: transaction.id,
+      returnUrl: transaction.return_url,
+    };
+  }
+
+  /**
+   * Marks a Razorpay order's transaction as failed from a hosted-checkout
+   * error callback. Never overwrites an already-terminal status (success or
+   * a prior failed) so a late/duplicate error POST can't clobber real data.
+   */
+  static async markRazorpayOrderFailed(
+    razorpayOrderId: string,
+    error: { code: string | null; description: string | null }
+  ): Promise<void> {
+    const supabase = createServiceRoleClient();
+    const { data: transaction } = await (supabase as any)
+      .from('event_payment_transactions')
+      .select('id, status')
+      .eq('razorpay_order_id', razorpayOrderId)
+      .single();
+    if (!transaction || ['success', 'failed'].includes(transaction.status)) return;
+    const { error: updateError } = await supabase
+      .from('event_payment_transactions')
+      .update({ status: 'failed', gateway_response: error })
+      .eq('id', transaction.id);
+    if (updateError) {
+      logger.warn('events/payment', 'Failed to mark Razorpay order as failed', {
+        razorpayOrderId,
+        error: updateError,
+      });
+    }
   }
 
   // ==========================================================================

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -1098,7 +1099,10 @@ function RemindersSkeleton() {
 // MAIN PAGE CONTENT
 // ============================================================================
 
+const REMINDERS_TABS = ['reminders', 'rules', 'history'] as const;
+
 function AdmissionRemindersPageContent() {
+  const [activeTab, setActiveTab] = useTabParam('reminders', REMINDERS_TABS);
   const { profile } = useAuth();
   const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
   const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
@@ -1368,7 +1372,7 @@ function AdmissionRemindersPageContent() {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="reminders" className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList>
               <TabsTrigger value="reminders">
                 Reminders
@@ -1499,7 +1503,9 @@ function AdmissionRemindersPageContent() {
 export default function AdmissionRemindersPage() {
   return (
     <AdmissionErrorBoundary>
-      <AdmissionRemindersPageContent />
+      <Suspense fallback={null}>
+        <AdmissionRemindersPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

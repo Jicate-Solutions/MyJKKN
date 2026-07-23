@@ -35,6 +35,17 @@ const ALWAYS_VISIBLE = new Set([
   '/admin/bug-reports',             // Always-visible parent — line ~3007
   '/my-bug-reports',                // Student self-service bug reports
   '/bug-leaderboard',               // Public bug leaderboard
+  '/learner/idp',                   // My Development Plan — ungated student self-service (isStudentPortalRoute)
+  // 2026-07-12: mirror the runtime rules this checker didn't know about —
+  // these routes ARE visible at runtime despite having no MENU_PERMISSIONS
+  // entry, so flagging them was a false alarm.
+  '/guide',                         // explicit `return true` in GetRoleBasedPages
+  '/my-induction-sessions',         // explicit `return true` (resource-person self-service)
+  '/my-induction-feedback',         // isStudentPortalRoute (senior peer mentor lane)
+  '/learners/class-feedback',       // isStudentPortalRoute
+  '/learners/my-bills',             // isStudentPortalRoute (/learners/my- prefix)
+  '/learners/my-induction',         // isStudentPortalRoute (/learners/my- prefix)
+  '/learners/my-marks',             // isStudentPortalRoute (/learners/my- prefix)
 ]);
 
 // UUID normalization — mirror of normalizeRoute() in sidebarMenuLink.ts. When

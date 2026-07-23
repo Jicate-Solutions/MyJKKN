@@ -1,7 +1,9 @@
 'use client';
 
 
+import { Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -139,10 +141,18 @@ function ConsultantDetailSkeleton() {
   );
 }
 
+const CONSULTANT_DETAIL_TABS = [
+  'details',
+  'commission-structure',
+  'referrals',
+  'commissions'
+] as const;
+
 function ConsultantDetailContent() {
   const params = useParams();
   const router = useRouter();
   const consultantId = params.id as string;
+  const [activeTab, setActiveTab] = useTabParam('details', CONSULTANT_DETAIL_TABS);
 
   // UUID validation for Next.js PPR compatibility
   const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(consultantId);
@@ -365,7 +375,7 @@ function ConsultantDetailContent() {
       </div>
 
       {/* Details Tabs */}
-      <Tabs defaultValue="details" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="commission-structure">Commission Structure</TabsTrigger>
@@ -706,7 +716,7 @@ function ConsultantDetailContent() {
                             style: 'currency',
                             currency: 'INR',
                             maximumFractionDigits: 0
-                          }).format(commission.final_amount)}
+                          }).format(commission.net_amount)}
                         </TableCell>
                         <TableCell>
                           <Badge className={getCommissionStatusColor(commission.status)}>
@@ -753,7 +763,9 @@ export default function ConsultantDetailPage() {
           </BreadcrumbList>
         </Breadcrumb>
         <div className="mt-6">
-          <ConsultantDetailContent />
+          <Suspense fallback={null}>
+            <ConsultantDetailContent />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

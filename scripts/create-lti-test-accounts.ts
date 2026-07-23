@@ -287,6 +287,19 @@ async function upsertLearnerProfile(
   institutionId: string,
   ctx: Awaited<ReturnType<typeof pickStudentAcademicContext>>
 ) {
+  // community / accommodation_type TEXT columns are retired (FK-only) — resolve
+  // the FKs for the synthetic test row.
+  const { data: communityRow } = await supabase
+    .from('community_categories')
+    .select('id')
+    .eq('code', 'BC')
+    .maybeSingle();
+  const { data: accommodationRow } = await supabase
+    .from('accommodation_types')
+    .select('id')
+    .eq('code', 'dayscholar')
+    .maybeSingle();
+
   // Synthetic test data for NOT NULL columns (clearly marked TEST- to prevent real-data confusion)
   const payload: Record<string, any> = {
     lifecycle_status: 'active',
@@ -297,7 +310,7 @@ async function upsertLearnerProfile(
     date_of_birth: '2000-01-01',
     gender: 'Male',
     religion: 'Hindu',
-    community: 'BC',
+    community_category_id: communityRow?.id ?? null,
     entry_type: 'regular',
 
     father_name: 'TEST-FATHER',
@@ -319,7 +332,7 @@ async function upsertLearnerProfile(
     permanent_address_pin_code: '637301',
     permanent_address_state: 'Tamil Nadu',
 
-    accommodation_type: 'dayscholar',
+    accommodation_type_id: accommodationRow?.id ?? null,
 
     institution_id: institutionId,
     ...(ctx ?? {}),

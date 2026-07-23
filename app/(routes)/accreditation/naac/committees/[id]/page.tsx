@@ -74,6 +74,7 @@ import {
 } from '@/hooks/accreditation/use-naac-committees';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CommitteeMemberRole } from '@/lib/services/accreditation/accreditation-committee-service';
+import { MeetingsSection } from './_components/meetings-section';
 import { toast } from 'sonner';
 
 const ROLE_LABELS: Record<CommitteeMemberRole, string> = {
@@ -96,8 +97,7 @@ const ROLE_ACCENT: Record<CommitteeMemberRole, string> = {
 
 interface ProfileLite {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
+  full_name: string | null;
   email: string | null;
   role: string | null;
   institution_id: string | null;
@@ -111,7 +111,7 @@ function useProfileLookup(userIds: string[]) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email, role, institution_id')
+        .select('id, full_name, email, role, institution_id')
         .in('id', userIds);
       if (error) throw error;
       return ((data ?? []) as ProfileLite[]).reduce<Record<string, ProfileLite>>(
@@ -162,6 +162,8 @@ export default function NAACCommitteeDetailPage({
   const canView = isSuperAdmin || can('accreditation.naac.committees.view');
   const canManageMembers =
     isSuperAdmin || can('accreditation.naac.committees.members.manage');
+  const canManageMeetings =
+    isSuperAdmin || can('accreditation.naac.committees.meetings.manage');
   const canEdit = isSuperAdmin || can('accreditation.naac.committees.edit');
   const canDelete = isSuperAdmin || can('accreditation.naac.committees.delete');
 
@@ -377,6 +379,9 @@ export default function NAACCommitteeDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {/* Meetings — Loop Review (IQAC Meeting Loop, PR 2/3) */}
+        <MeetingsSection committee={committee} canManage={canManageMeetings} />
       </div>
     </ContentLayout>
   );
@@ -384,8 +389,7 @@ export default function NAACCommitteeDetailPage({
 
 function profileName(p: ProfileLite | undefined): string | null {
   if (!p) return null;
-  const parts = [p.first_name, p.last_name].filter(Boolean);
-  return parts.length ? parts.join(' ') : p.email ?? null;
+  return p.full_name?.trim() || (p.email ?? null);
 }
 
 // ----------------------------------------------------------------------------
@@ -418,9 +422,9 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email, role, institution_id')
+        .select('id, full_name, email, role, institution_id')
         .or(
-          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`,
+          `full_name.ilike.%${q}%,email.ilike.%${q}%`,
         )
         .limit(10);
       if (error) throw error;

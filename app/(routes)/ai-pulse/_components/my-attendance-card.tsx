@@ -68,8 +68,8 @@ export function MyAttendanceCard({ attendance, streak }: MyAttendanceCardProps) 
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground">
-          Engagement requires 4 signals: joined within 5 min, responded to polls,
-          stayed until end, and passed the quiz. Async make-up rescues a miss.
+          Engagement needs at least 2 of 3 signals: joined within 5 min, stayed
+          until the end, and passed the quiz. Async make-up rescues a miss.
         </p>
       </CardContent>
     </Card>

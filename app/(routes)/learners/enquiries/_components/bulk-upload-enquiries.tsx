@@ -374,8 +374,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
               // SECTION 7: Accommodation
               accommodation_type: sanitizeValue(mappedData.accommodation_type, 'text', 'accommodation_type'),
-              hostel_type: sanitizeValue(mappedData.hostel_type, 'text', 'hostel_type'),
-              food_type: sanitizeValue(mappedData.food_type, 'text', 'food_type'),
 
               // SECTION 8: Previous Education (Required)
               last_school: sanitizeValue(mappedData.last_school, 'text'),
@@ -792,8 +790,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
             // Accommodation
             accommodation_type: data.accommodation_type,
-            hostel_type: data.hostel_type,
-            food_type: data.food_type,
 
             // Previous Education (Required)
             last_school: data.last_school || 'Not Provided',
@@ -827,8 +823,10 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
             reference_contact: data.reference_contact,
 
             // Enquiry specific
+            // 2026-05-20: Bulk-uploaded enquiries enter at lifecycle_status='enquiry'
+            // (was 'admitted'). 'admitted' is now reserved for post-threshold learners.
             enquiry_date: data.enquiry_date || new Date().toISOString().split('T')[0],
-            lifecycle_status: 'admitted' as const,
+            lifecycle_status: 'enquiry' as const,
             is_profile_complete: false,
           };
 
@@ -1321,8 +1319,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
                         {/* SECTION 7: Accommodation */}
                         <TableHead className="min-w-[130px]">Accommodation*</TableHead>
-                        <TableHead className="min-w-[100px]">Hostel Type</TableHead>
-                        <TableHead className="min-w-[80px]">Food Type</TableHead>
 
                         {/* SECTION 8: Previous Education */}
                         <TableHead className="min-w-[150px]">Last School*</TableHead>
@@ -1435,8 +1431,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
                           {/* SECTION 7: Accommodation */}
                           <TableCell className="text-xs">{row.sanitizedData.accommodation_type || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.hostel_type || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.food_type || '-'}</TableCell>
 
                           {/* SECTION 8: Previous Education */}
                           <TableCell className="text-xs">{row.sanitizedData.last_school || '-'}</TableCell>

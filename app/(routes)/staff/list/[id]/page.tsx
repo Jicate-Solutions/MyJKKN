@@ -3,7 +3,7 @@
 // app/(routes)/staff/[id]/page.tsx
 
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -22,8 +22,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { StaffAvatar } from '@/components/staff/staff-avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -33,9 +34,19 @@ interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
+const STAFF_EXTENDED_PROFILE_TABS = [
+  'academic',
+  'experience',
+  'research',
+  'achievements',
+  'mentoring',
+  'faqs'
+] as const;
+
+function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   const { id } = use(params);
   const router = useRouter();
+  const [activeTab, setActiveTab] = useTabParam('academic', STAFF_EXTENDED_PROFILE_TABS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
@@ -43,6 +54,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   const {
     canAccess,
     isSuperAdmin,
+    userProfile,
     isLoading: permissionsLoading
   } = usePermissions([], { waitForLoad: true });
 
@@ -80,10 +92,6 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
     fetchStaff();
   }, [id, permissionsLoaded, isSuperAdmin, canAccess, router]);
 
-  const getInitials = (firstName: string, lastName: string) => {
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
-  };
-
   // Show loading when permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
@@ -110,7 +118,19 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
     );
   }
 
-  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // Detail-page Edit is purely a UI affordance — RLS + the API's
+  // STAFF_OWN_RECORD_VIOLATION check already prevent unauthorized PATCH.
+  // We hide the button entirely (instead of rendering it disabled) for
+  // users without `staff.edit`, so an `own_records` user viewing their own
+  // row without edit perm doesn't see a button that would 403 on click.
+  // Self-edit mirrors the API's isSelfEdit allowance (app/api/staff/[id]/route.ts)
+  // — a user viewing their own staff record can edit it even without the
+  // blanket `staff.edit` permission (BUG-002565: button never appeared for
+  // own-record users whose role doesn't grant staff.edit).
+  const isSelfEdit =
+    (!!staff.institution_email && staff.institution_email === userProfile?.email) ||
+    (!!(staff as any).profile_id && (staff as any).profile_id === userProfile?.id);
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || isSelfEdit;
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
 
@@ -172,17 +192,12 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
                 </Link>
               </Button>
             )}
-            {canEditStaff ? (
+            {canEditStaff && (
               <Button asChild>
                 <Link href={`/staff/list/${id}/edit`}>
                   <PenSquare className='mr-2 h-4 w-4' />
                   Edit Employee
                 </Link>
-              </Button>
-            ) : (
-              <Button variant='outline' disabled className='opacity-50'>
-                <PenSquare className='mr-2 h-4 w-4' />
-                Edit Employee
               </Button>
             )}
           </div>
@@ -195,12 +210,13 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='flex items-center gap-4'>
-              <Avatar className='h-20 w-20'>
-                <AvatarImage src={staff.profile_picture || undefined} />
-                <AvatarFallback className='text-lg'>
-                  {getInitials(staff.first_name, staff.last_name)}
-                </AvatarFallback>
-              </Avatar>
+              <StaffAvatar
+                src={staff.profile_picture}
+                firstName={staff.first_name}
+                lastName={staff.last_name}
+                className='h-20 w-20'
+                fallbackClassName='text-lg'
+              />
               <div className='space-y-1'>
                 <div className='flex items-center gap-2'>
                   <h2 className='text-xl font-semibold'>
@@ -331,7 +347,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
               <CardTitle>Extended Profile</CardTitle>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue='academic'>
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className='flex-wrap h-auto'>
                   <TabsTrigger value='academic'>Academic</TabsTrigger>
                   <TabsTrigger value='experience'>Experience</TabsTrigger>
@@ -499,6 +515,15 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function StaffDetailsPage(props: StaffDetailsPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <StaffDetailsPageInner {...props} />
+    </Suspense>
   );
 }
 

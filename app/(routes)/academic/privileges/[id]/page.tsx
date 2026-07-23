@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -62,6 +62,7 @@ import {
   useSearchReviewerCandidates,
 } from '@/hooks/academic/use-privileges';
 import toast from 'react-hot-toast';
+import { useTabParam } from '@/hooks/use-tab-param';
 import type { PrivilegeMemberStatus, PrivilegeMember, PrivilegeReview } from '@/types/privileges';
 
 const memberStatusConfig: Record<
@@ -82,7 +83,9 @@ const groupStatusConfig: Record<string, { label: string; className: string }> = 
   archived: { label: 'Archived', className: 'bg-gray-100 text-gray-800 hover:bg-gray-100' },
 };
 
-export default function PrivilegeGroupDetailPage() {
+const PRIVILEGE_GROUP_TABS = ['members', 'privileges', 'reviews', 'committee'] as const;
+
+function PrivilegeGroupDetailPageInner() {
   const router = useRouter();
   const params = useParams();
   const groupId = params.id as string;
@@ -106,6 +109,7 @@ export default function PrivilegeGroupDetailPage() {
 
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [activeTab, setActiveTab] = useTabParam('members', PRIVILEGE_GROUP_TABS);
 
   // Handle both array and paginated response shapes
   const membersList: PrivilegeMember[] = Array.isArray(membersData)
@@ -259,7 +263,7 @@ export default function PrivilegeGroupDetailPage() {
         </Card>
 
         {/* Tabs */}
-        <Tabs defaultValue="members">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="members" className="gap-1.5">
               <Users className="h-4 w-4" />
@@ -655,5 +659,14 @@ export default function PrivilegeGroupDetailPage() {
         </Dialog>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function PrivilegeGroupDetailPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <PrivilegeGroupDetailPageInner />
+    </Suspense>
   );
 }

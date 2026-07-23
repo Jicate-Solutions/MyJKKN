@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import type { FieldErrors } from 'react-hook-form';
@@ -48,6 +48,8 @@ import { RoleService } from '@/lib/services/roles/role-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
 import { fullStaffSchema, extendedStaffSchema, type StaffFormValues } from './staff-form-schema';
+import { TagsInput } from './tags-input';
+import { useStaffTags } from '@/hooks/staff/use-staff-tags';
 import { TabbedFormShell, type TabSpec } from '@/components/forms';
 import { BasicTab } from './staff-form-tabs/basic-tab';
 import { AcademicTab } from './staff-form-tabs/academic-tab';
@@ -94,6 +96,12 @@ function buildDefaults(staff?: Staff) {
     institution_id: staff?.institution_id || '',
     department_id: staff?.department_id || '',
     is_active: staff?.is_active ?? true,
+    // 2026-05-15: view-only / labour staff flag. Defaults true (login user).
+    // The form auto-derives from selected category's allows_login when the
+    // user hasn't manually toggled it.
+    login_enabled: staff?.login_enabled ?? true,
+    // Optional free-form labels for external-API filtering. Empty = untagged.
+    tags: staff?.tags ?? [],
     // Extended-profile defaults — keep RHF from seeing `undefined` for any of
     // these fields (which would silently fail Zod required-checks once the
     // user toggles `has_extended_profile=true`).
@@ -206,7 +214,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; category_name: string; is_teaching: boolean; shows_extended_profile?: boolean }>
+    Array<{ id: string; category_name: string; is_teaching: boolean; shows_extended_profile?: boolean; allows_login?: boolean }>
   >([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
 
@@ -221,6 +229,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     resolver: zodResolver(fullStaffSchema),
     defaultValues: buildDefaults(staff)
   });
+
+  // Distinct tags already used across staff — powers the tags-input autocomplete.
+  // Global (not institution-scoped) so the same vocabulary is suggested everywhere.
+  const { data: tagSuggestions = [] } = useStaffTags();
 
   // Watch institution_id for departments loading
   const watchedInstitutionId = form.watch('institution_id');
@@ -268,37 +280,58 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // Separate useEffect for initial data loading
   useEffect(() => {
     async function loadInitialData() {
-      try {
-        // Always use the direct query (RLS handles per-role visibility).
-        // We apply a client-side filter below for own-scoped roles instead of
-        // going through the get_user_accessible_institutions RPC, which avoids
-        // a timing issue where the RPC round-trip completes after the user has
-        // already attempted to submit the form.
-        const [rawInstitutions, categoriesData, rolesData] = await Promise.all([
-          OrganizationService.getInstitutionNames(true, undefined, 'all'),
-          // Fixed: 2026-04-16 — CategoryService.getCategories defaults to limit=10,
-          // which silently truncated the dropdown when active categories grew past 10.
-          // Pass a generous limit so every active category appears in the select.
-          CategoryService.getCategories({ isActive: true, limit: 100 }),
-          RoleService.getStaffAssignableRoles()
-        ]);
+      // Always use the direct query (RLS handles per-role visibility).
+      // We apply a client-side filter below for own-scoped roles instead of
+      // going through the get_user_accessible_institutions RPC, which avoids
+      // a timing issue where the RPC round-trip completes after the user has
+      // already attempted to submit the form.
+      //
+      // Fixed: 2026-07-12 — these 3 fetches were run via Promise.all, which
+      // fails atomically: if any single one rejected (e.g. a transient roles
+      // query error), the catch block swallowed it into one toast and NONE
+      // of institutions/categories/roles got set — even the ones that had
+      // already resolved successfully. That made the Institution dropdown
+      // (and, since it depends on a loaded category, the Department field)
+      // appear to "vanish" whenever an unrelated fetch failed. Promise.allSettled
+      // lets each list populate independently of the others' outcome.
+      const [institutionsResult, categoriesResult, rolesResult] = await Promise.allSettled([
+        OrganizationService.getInstitutionNames(true, undefined, 'all'),
+        // Fixed: 2026-04-16 — CategoryService.getCategories defaults to limit=10,
+        // which silently truncated the dropdown when active categories grew past 10.
+        // Pass a generous limit so every active category appears in the select.
+        CategoryService.getCategories({ isActive: true, limit: 100 }),
+        RoleService.getStaffAssignableRoles()
+      ]);
 
+      if (institutionsResult.status === 'fulfilled') {
         // For own-scoped roles (HOD, etc.) restrict to the user's primary institution.
         // The direct SELECT may return extra institutions via legacy RLS policies
         // (institutions_select_faculty_hod_principal), so we filter client-side.
+        const rawInstitutions = institutionsResult.value;
         const institutionsData = isInstitutionScoped && profile?.institution_id
           ? rawInstitutions.filter((i) => i.id === profile.institution_id)
           : rawInstitutions;
-
         setInstitutions(institutionsData);
-        setCategories(categoriesData.data as any);
-        setRoles(rolesData);
-
-        setIsInitialLoad(false);
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-        toast.error('Failed to load initial data');
+      } else {
+        console.error('Error loading institutions:', institutionsResult.reason);
+        toast.error('Failed to load institutions');
       }
+
+      if (categoriesResult.status === 'fulfilled') {
+        setCategories(categoriesResult.value.data as any);
+      } else {
+        console.error('Error loading employment categories:', categoriesResult.reason);
+        toast.error('Failed to load employment categories');
+      }
+
+      if (rolesResult.status === 'fulfilled') {
+        setRoles(rolesResult.value);
+      } else {
+        console.error('Error loading staff-assignable roles:', rolesResult.reason);
+        toast.error('Failed to load roles');
+      }
+
+      setIsInitialLoad(false);
     }
 
     // isInstitutionScoped in deps: usePermissions() fetches roles async, so on first
@@ -381,6 +414,26 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     }
   }, [selectedCategory, form]);
 
+  // 2026-05-15: Auto-derive login_enabled from selected category's allows_login
+  // unless the user has manually toggled the switch. This lets HR pick a labour
+  // category (e.g. Driver toggled to allows_login=false in Categories admin) and
+  // have the login switch auto-flip OFF — without forcing them to remember to do it.
+  const userToggledLoginEnabled = useRef(false);
+  useEffect(() => {
+    if (userToggledLoginEnabled.current) return;
+    if (!selectedCategory) return;
+    if (typeof selectedCategory.allows_login !== 'boolean') return;
+    const current = form.getValues('login_enabled');
+    if (current !== selectedCategory.allows_login) {
+      form.setValue('login_enabled', selectedCategory.allows_login, {
+        shouldDirty: true
+      });
+    }
+  }, [selectedCategory, form]);
+
+  // Watch login_enabled so email / institution_email inputs can disable themselves.
+  const loginEnabled = form.watch('login_enabled');
+
   const onInvalid = (errors: FieldErrors<FormValues>) => {
     const firstErrorField = getFirstErrorField(errors, staffFieldOrder);
     if (!firstErrorField) {
@@ -457,12 +510,21 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         cat?.is_teaching === false ? null : values.department_id || null;
 
       // Format dates to ISO strings
+      // 2026-05-15: for view-only staff (login_enabled=false) pass emails as
+      // undefined so StaffService.createStaff invokes generateSyntheticEmail().
+      // For login staff keep the historical fallback (empty string → 'required'
+      // error from the service, which validates non-empty for login staff).
+      const isViewOnlyStaff = values.login_enabled === false;
       const formattedValues = {
         ...values,
         department_id: normalizedDepartmentId,
         date_of_birth: values.date_of_birth.toISOString(),
         date_of_joining: values.date_of_joining.toISOString(),
-        institution_email: values.institution_email || ''
+        email: isViewOnlyStaff ? (values.email || undefined) : values.email,
+        // Institution email is optional for ALL staff (BUG-003989/3980/3962).
+        // Normalize blank to undefined so the service receives null instead
+        // of '' which would collide on the UNIQUE index.
+        institution_email: values.institution_email || undefined
       };
 
       if (isEditing && staff) {
@@ -622,12 +684,21 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           name='email'
           render={({ field }) => (
             <FormItem data-field='email'>
-              <FormLabel>Personal Email <span className='text-destructive'>*</span></FormLabel>
+              <FormLabel>
+                Personal Email{' '}
+                {loginEnabled && <span className='text-destructive'>*</span>}
+              </FormLabel>
               <FormControl>
                 <Input
                   type='email'
-                  placeholder='Enter personal email'
+                  placeholder={
+                    loginEnabled
+                      ? 'Enter personal email'
+                      : 'Auto-generated for view-only staff'
+                  }
+                  disabled={!loginEnabled}
                   {...field}
+                  value={field.value ?? ''}
                 />
               </FormControl>
               <FormMessage />
@@ -795,6 +866,30 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name='tags'
+          render={({ field }) => (
+            <FormItem className='md:col-span-2' data-field='tags'>
+              <FormLabel>Tags</FormLabel>
+              <FormControl>
+                <TagsInput
+                  value={field.value ?? []}
+                  onChange={field.onChange}
+                  suggestions={tagSuggestions}
+                  placeholder='e.g. placement_cell, nss — type and press Enter'
+                />
+              </FormControl>
+              <p className='text-xs text-muted-foreground'>
+                Optional labels for grouping staff (saved in lowercase). Used to
+                fetch specific staff categories via the API
+                (<code>?tags=placement_cell,nss</code>).
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
       </div>
     </div>
   );
@@ -835,7 +930,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               <FormControl>
                 <Input
                   type='email'
-                  placeholder='Enter institution email'
+                  placeholder={
+                    loginEnabled
+                      ? 'Enter institution email'
+                      : 'Auto-generated for view-only staff'
+                  }
+                  disabled={!loginEnabled}
                   {...field}
                   value={field.value || ''}
                 />
@@ -1054,6 +1154,35 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               <Switch
                 checked={field.value}
                 onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name='login_enabled'
+        render={({ field }) => (
+          <FormItem
+            className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'
+            data-field='login_enabled'
+          >
+            <div className='space-y-0.5'>
+              <FormLabel>Login user — can sign in to MyJKKN</FormLabel>
+              <div className='text-sm text-muted-foreground'>
+                Off = view-only staff. Emails optional and auto-generated;
+                profile is deactivated. Phone is still required. Default flips
+                from the selected category&apos;s &quot;Login default&quot;.
+              </div>
+            </div>
+            <FormControl>
+              <Switch
+                checked={field.value}
+                onCheckedChange={(v) => {
+                  userToggledLoginEnabled.current = true;
+                  field.onChange(v);
+                }}
               />
             </FormControl>
           </FormItem>

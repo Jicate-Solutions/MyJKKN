@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Users, GraduationCap } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 
 interface SectionSelectionModalProps {
   open: boolean;
@@ -33,13 +34,14 @@ export function SectionSelectionModal({
   startTime,
   endTime
 }: SectionSelectionModalProps) {
+  const label = useAdaptiveLabels();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='sm:max-w-[600px]'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2 text-xl'>
             <Users className='h-6 w-6 text-primary' />
-            Select Section to Mark Attendance
+            Select {label('Section')} to Mark Attendance
           </DialogTitle>
           <DialogDescription className='space-y-2 pt-2'>
             <div className='flex items-center gap-2 text-sm'>
@@ -67,7 +69,7 @@ export function SectionSelectionModal({
 
           <div className='space-y-2'>
             <label className='text-sm font-medium text-muted-foreground uppercase tracking-wide'>
-              Available Sections ({sections.length})
+              Available {label('Sections')} ({sections.length})
             </label>
             <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3'>
               {sections.map((section, index) => (
@@ -88,7 +90,7 @@ export function SectionSelectionModal({
                       variant='secondary'
                       className='text-xs font-semibold'
                     >
-                      Section
+                      {label('Section')}
                     </Badge>
                     <span className='text-2xl font-bold'>{section.name}</span>
                   </div>

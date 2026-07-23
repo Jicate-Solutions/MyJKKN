@@ -232,9 +232,9 @@ export class VenuesService extends BaseService {
     };
   }
 
-  // Get available mentors/senior learners for assignment
+  // Get available mentors/learning facilitators for assignment
   // Includes all profiles (admin picks mentors by name search) since there is
-  // no senior_learner flag on profiles. Without a search term, returns
+  // no learning-facilitator flag on profiles. Without a search term, returns
   // admin/staff/super_admin users by default for a manageable initial list.
   static async getAvailableMentors(eventId: string, search?: string) {
     let query = this.supabase
@@ -243,7 +243,7 @@ export class VenuesService extends BaseService {
       .eq('is_active', true);
 
     if (search && search.trim().length > 0) {
-      // When searching, look across ALL active profiles so senior learners are included
+      // When searching, look across ALL active profiles so learning facilitators are included
       const escaped = search.replace(/[%_]/g, '');
       query = query.or(`full_name.ilike.%${escaped}%,email.ilike.%${escaped}%`);
     } else {

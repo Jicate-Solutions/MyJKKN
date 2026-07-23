@@ -13,8 +13,6 @@ import {
   EXCEL_BLOOD_GROUP,
   EXCEL_ENTRY_TYPE,
   EXCEL_ACCOMMODATION,
-  EXCEL_HOSTEL_TYPE,
-  EXCEL_FOOD_TYPE,
   EXCEL_QUOTA,
   EXCEL_SCHOLARSHIP_TYPE,
   EXCEL_BOARD_OF_STUDY,
@@ -414,8 +412,6 @@ export async function GET(request: NextRequest) {
 
       // SECTION 7: Accommodation
       { header: '* Accommodation Type', key: 'accommodation_type', width: 18 },
-      { header: 'Hostel Type', key: 'hostel_type', width: 15 },
-      { header: 'Food Type', key: 'food_type', width: 12 },
 
       // SECTION 8: Previous Education
       { header: '* Last School', key: 'last_school', width: 30 },
@@ -535,8 +531,6 @@ export async function GET(request: NextRequest) {
       entry_type: EXCEL_ENTRY_TYPE[0],
       scholarship_type: EXCEL_SCHOLARSHIP_TYPE[0],
       accommodation_type: EXCEL_ACCOMMODATION[0],
-      hostel_type: EXCEL_HOSTEL_TYPE[0],
-      food_type: EXCEL_FOOD_TYPE[0],
       last_school: 'St. Mary\'s High School',
       board_of_study: EXCEL_BOARD_OF_STUDY[0],
       tenth_max_marks: '500',
@@ -552,7 +546,6 @@ export async function GET(request: NextRequest) {
       neet_score: '',
       counseling_applied: EXCEL_BOOLEAN[0],
       quota: EXCEL_QUOTA[0],
-      category: 'General',
       reference_type: EXCEL_REFERENCE_TYPE[0], // Use first reference type from list
       reference_name: 'Dr. Kumar',
       reference_contact: '9999999999'
@@ -698,8 +691,6 @@ export async function GET(request: NextRequest) {
       'EntryType',
       'ScholarshipType',
       'AccommodationType',
-      'HostelType',
-      'FoodType',
       'Quota',
       'BoardOfStudy',
       'TwelfthGroup',
@@ -735,8 +726,6 @@ export async function GET(request: NextRequest) {
       EXCEL_ENTRY_TYPE.length,
       EXCEL_SCHOLARSHIP_TYPE.length,
       EXCEL_ACCOMMODATION.length,
-      EXCEL_HOSTEL_TYPE.length,
-      EXCEL_FOOD_TYPE.length,
       EXCEL_QUOTA.length,
       EXCEL_BOARD_OF_STUDY.length,
       EXCEL_TWELFTH_GROUP.length,
@@ -845,8 +834,6 @@ export async function GET(request: NextRequest) {
       rowData.push(EXCEL_ENTRY_TYPE[i] || null);
       rowData.push(EXCEL_SCHOLARSHIP_TYPE[i] || null);
       rowData.push(EXCEL_ACCOMMODATION[i] || null);
-      rowData.push(EXCEL_HOSTEL_TYPE[i] || null);
-      rowData.push(EXCEL_FOOD_TYPE[i] || null);
       rowData.push(EXCEL_QUOTA[i] || null);
       rowData.push(EXCEL_BOARD_OF_STUDY[i] || null);
       rowData.push(EXCEL_TWELFTH_GROUP[i] || null);
@@ -887,9 +874,7 @@ export async function GET(request: NextRequest) {
     const entryTypeCol = bloodGroupCol + 1;
     const scholarshipTypeCol = entryTypeCol + 1;
     const accommodationCol = scholarshipTypeCol + 1;
-    const hostelTypeCol = accommodationCol + 1;
-    const foodTypeCol = hostelTypeCol + 1;
-    const quotaCol = foodTypeCol + 1;
+    const quotaCol = accommodationCol + 1;
     const boardOfStudyCol = quotaCol + 1;
     const twelfthGroupCol = boardOfStudyCol + 1;
     const referenceTypeCol = twelfthGroupCol + 1;
@@ -1132,30 +1117,8 @@ export async function GET(request: NextRequest) {
         error: `Please select: ${EXCEL_ACCOMMODATION.join(', ')}`
       };
 
-      // Column 39 (AM): Hostel Type dropdown
-      worksheet.getCell(row, 39).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [`Lists!$${getColLetter(hostelTypeCol)}$2:$${getColLetter(hostelTypeCol)}$${EXCEL_HOSTEL_TYPE.length + 1}`],
-        showErrorMessage: true,
-        errorStyle: 'warning',
-        errorTitle: 'Invalid Input',
-        error: 'Please select from dropdown'
-      };
-
-      // Column 40 (AN): Food Type dropdown
+      // Column 40 (AN): Board of Study dropdown
       worksheet.getCell(row, 40).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [`Lists!$${getColLetter(foodTypeCol)}$2:$${getColLetter(foodTypeCol)}$${EXCEL_FOOD_TYPE.length + 1}`],
-        showErrorMessage: true,
-        errorStyle: 'warning',
-        errorTitle: 'Invalid Input',
-        error: 'Please select from dropdown'
-      };
-
-      // Column 42 (AP): Board of Study dropdown
-      worksheet.getCell(row, 42).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(boardOfStudyCol)}$2:$${getColLetter(boardOfStudyCol)}$${EXCEL_BOARD_OF_STUDY.length + 1}`],
@@ -1165,8 +1128,8 @@ export async function GET(request: NextRequest) {
         error: 'Please select from dropdown'
       };
 
-      // Column 46 (AT): 12th Group dropdown
-      worksheet.getCell(row, 46).dataValidation = {
+      // Column 44 (AR): 12th Group dropdown
+      worksheet.getCell(row, 44).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(twelfthGroupCol)}$2:$${getColLetter(twelfthGroupCol)}$${EXCEL_TWELFTH_GROUP.length + 1}`],
@@ -1176,8 +1139,8 @@ export async function GET(request: NextRequest) {
         error: `Please select: ${EXCEL_TWELFTH_GROUP.join(', ')}`
       };
 
-      // Column 54 (BB): Counseling Applied (Boolean)
-      worksheet.getCell(row, 54).dataValidation = {
+      // Column 52 (AZ): Counseling Applied (Boolean)
+      worksheet.getCell(row, 52).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(booleanCol)}$2:$${getColLetter(booleanCol)}$${EXCEL_BOOLEAN.length + 1}`],
@@ -1187,8 +1150,8 @@ export async function GET(request: NextRequest) {
         error: `Please select: ${EXCEL_BOOLEAN.join(', ')}`
       };
 
-      // Column 55 (BC): Quota dropdown
-      worksheet.getCell(row, 55).dataValidation = {
+      // Column 53 (BA): Quota dropdown
+      worksheet.getCell(row, 53).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(quotaCol)}$2:$${getColLetter(quotaCol)}$${EXCEL_QUOTA.length + 1}`],
@@ -1198,8 +1161,8 @@ export async function GET(request: NextRequest) {
         error: 'Please select from dropdown'
       };
 
-      // Column 57 (BE): Reference Type dropdown
-      worksheet.getCell(row, 57).dataValidation = {
+      // Column 55 (BC): Reference Type dropdown
+      worksheet.getCell(row, 55).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(referenceTypeCol)}$2:$${getColLetter(referenceTypeCol)}$${EXCEL_REFERENCE_TYPE.length + 1}`],
@@ -1229,7 +1192,7 @@ export async function GET(request: NextRequest) {
       '   • Education: Last School, Board, 10th Marks (Max/Obtained/%), 12th Group, 12th Marks (Max/Obtained/%)',
       '',
       '2. OPTIONAL FIELDS:',
-      '   • College Email, Admission Year, Regulation, Batch, Blood Group, Hostel Type, Food Type',
+      '   • College Email, Admission Year, Regulation, Batch, Blood Group',
       '   • Entrance Exam details (Medical/Engineering Cutoff, NEET Roll Number/Score)',
       '   • Counseling details, Transport details, Reference details',
       '',

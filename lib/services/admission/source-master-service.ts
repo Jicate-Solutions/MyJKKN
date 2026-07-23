@@ -24,10 +24,12 @@ export type LeadSourceEnum =
   | 'publisher'
   | 'google_ads'
   | 'facebook_ads'
+  | 'youtube_ads'
   | 'other'
   | 'inbound_call'
   | 'gate_entry'
-  | 'whatsapp';
+  | 'whatsapp'
+  | 'learner_creator_content';
 
 export interface SourceMaster {
   id: string;

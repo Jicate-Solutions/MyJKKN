@@ -8,17 +8,10 @@
 // `campus_living.residents.edit` permission gate; the admission columns on
 // learners_profiles stay under admission's RLS policies).
 //
-// `hostel_type` is an intentional exception — it lives on
-// learners_profiles.hostel_type (billing reads from there) and is updated
-// via `updateHostelType` below, not through this table. The drawer's Save
-// button calls `saveHostelFields` which bundles both writes so the UX
-// reads as one atomic save even though it's two queries underneath.
-//
 // See specs/warden-edit-hostel-fields-spec.md for rationale.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
-import type { LearnerHostelType } from '@/types/campus-living';
 import type {
   LearnerHostelProfile,
   UpsertLearnerHostelProfileDTO,
@@ -111,58 +104,13 @@ export class LearnerHostelProfileService {
     }
   }
 
-  // ── Update hostel_type on learners_profiles ──────────────────────────
-  // hostel_type stays on learners_profiles (not in the side-table) because
-  // billing reads from there. This helper exists so the drawer can update
-  // both surfaces from one Save click.
-  //
-  // hostelType === null → clears the column back to NULL ("Not set").
-  static async updateHostelType(
-    learnerId: string,
-    hostelType: LearnerHostelType,
-  ): Promise<void> {
-    try {
-      if (!learnerId) {
-        throw new Error('learnerId is required for updateHostelType');
-      }
-      const supabase = createClientSupabaseClient();
-      // Treat empty string as null for consistency with the rest of the
-      // codebase (LearnerHostelType allows both).
-      const value = hostelType && hostelType !== '' ? hostelType : null;
-      const { error } = await supabase
-        .from('learners_profiles')
-        .update({ hostel_type: value })
-        .eq('id', learnerId);
-
-      if (error) {
-        logger.error(LOG_MODULE, 'updateHostelType failed', error);
-        throw error;
-      }
-    } catch (error) {
-      logger.error(LOG_MODULE, 'Unexpected error in updateHostelType', error);
-      throw error;
-    }
-  }
-
   // ── Composite save (what the drawer actually calls) ──────────────────
-  // Runs hostel_type update + profile upsert. Two queries, not a single
-  // transaction — Supabase JS client doesn't expose client-side tx, and
-  // for this form the failure modes are benign:
-  //   - If updateHostelType succeeds but upsertProfile fails, the user
-  //     sees an error toast and retries; hostel_type change is already
-  //     persisted (billing-safe).
-  //   - If upsertProfile succeeds but updateHostelType fails (much less
-  //     likely since it's the first call), same outcome — user retries.
-  //
-  // If future usage shows this is too fragile, move both writes into a
-  // SECURITY DEFINER function on the DB side.
+  // Upserts the warden-writable side-table row.
   static async saveHostelFields(input: {
     learnerId: string;
-    hostelType: LearnerHostelType;
     profileFields: Omit<UpsertLearnerHostelProfileDTO, 'learner_id'>;
     updatedBy: string | null;
   }): Promise<LearnerHostelProfile> {
-    await this.updateHostelType(input.learnerId, input.hostelType);
     return this.upsertProfile(
       { learner_id: input.learnerId, ...input.profileFields },
       input.updatedBy,

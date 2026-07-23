@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
       priority: 'normal',
       category: `doctrines:${FRIDAY_REFLECTION_ANCHOR.key}`,
       // 2026-04-25: doctrines:* are cron-emitted operational reminders, not user-composed
-      // announcements. Tagging as work_item keeps them out of /admin/notifications page
+      // announcements. Tagging as work_item keeps them out of /notifications/admin page
       // (which filters to kind='announcement'). User dashboard surfaces still pick them up.
       kind: 'work_item',
       idempotency_key: idempKey,

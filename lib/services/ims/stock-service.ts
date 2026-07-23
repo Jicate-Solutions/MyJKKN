@@ -257,7 +257,7 @@ export class ImsStockService {
   /**
    * Get items where current_quantity <= reorder_level.
    */
-  static async getLowStockItems(institution_id: string, storeId?: string): Promise<ImsLowStockItem[]> {
+  static async getLowStockItems(storeId: string, institution_id?: string): Promise<ImsLowStockItem[]> {
     try {
       let query = this.supabase
         .from('ims_stock_summary')
@@ -265,7 +265,7 @@ export class ImsStockService {
           `item_id, current_quantity,
            item:ims_items(
              id, name, code, reorder_level,
-             base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation)
+             base_unit:ims_units!base_unit_id(abbreviation)
            )`
         );
 
@@ -297,7 +297,80 @@ export class ImsStockService {
 
       return lowStock as ImsLowStockItem[];
     } catch (error) {
-      console.error('[ImsStockService] Error in getLowStockItems:', error);
+      const pgErr = error as any;
+      const errMsg = pgErr?.message ?? String(error);
+      const errCode = pgErr?.code ? ` [${pgErr.code}]` : '';
+      console.error(`[ImsStockService] Error in getLowStockItems:${errCode}`, errMsg);
+      throw error;
+    }
+  }
+
+  // ─── Opening Quantity ─────────────────────────────────────────────────────
+
+  /**
+   * Admin override: set opening_quantity on the stock-summary row for an item.
+   *
+   * This is a DIRECT column update — it does NOT create an adjustment record and
+   * does NOT change current_quantity / available_quantity. It is the admin's way
+   * of correcting the "as-entered" opening value displayed in the Items table.
+   *
+   * Resolves the stock-summary row via (item_id, store_id). If no summary row
+   * exists yet (item was created without opening stock) a minimal row is inserted.
+   *
+   * @param itemId         UUID of the ims_items row
+   * @param newValue       The new opening_quantity (must be >= 0)
+   * @param storeId        UUID of the ims_stores row that scopes this summary
+   * @param institutionId  UUID of the institution (required when inserting a new row)
+   */
+  static async updateOpeningQuantity(
+    itemId: string,
+    newValue: number,
+    storeId: string,
+    institutionId: string
+  ): Promise<void> {
+    if (newValue < 0) {
+      throw new Error('Opening quantity cannot be negative');
+    }
+
+    try {
+      const { data: existing, error: fetchError } = await this.supabase
+        .from('ims_stock_summary')
+        .select('id')
+        .eq('item_id', itemId)
+        .eq('store_id', storeId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      if (existing) {
+        const { error: updateError } = await this.supabase
+          .from('ims_stock_summary')
+          .update({
+            opening_quantity: newValue,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+
+        if (updateError) throw updateError;
+      } else {
+        // No summary row yet — create a minimal one (stock will be at 0 until a batch is added)
+        const { error: insertError } = await this.supabase
+          .from('ims_stock_summary')
+          .insert({
+            item_id: itemId,
+            store_id: storeId,
+            institution_id: institutionId,
+            opening_quantity: newValue,
+            current_quantity: 0,
+            available_quantity: 0,
+            reserved_quantity: 0,
+            total_value: 0,
+          });
+
+        if (insertError) throw insertError;
+      }
+    } catch (error) {
+      console.error('[ImsStockService] Error in updateOpeningQuantity:', error);
       throw error;
     }
   }
@@ -413,12 +486,16 @@ export class ImsStockService {
           console.warn('[ImsStockService] stock_summary update failed:', updateError);
         }
       } else {
+        const isOpeningStock = data.notes === 'Opening stock';
         const { error: insertError } = await this.supabase
           .from('ims_stock_summary')
           .insert({
             item_id:            data.item_id,
             store_id:           data.store_id ?? null,
             institution_id:     data.institution_id,
+            // Set opening_quantity only when this is the opening stock batch;
+            // subsequent batches (GRN, manual add) do not affect the opening baseline.
+            opening_quantity:   isOpeningStock ? data.quantity : 0,
             current_quantity:   data.quantity,
             available_quantity: data.quantity,
             reserved_quantity:  0,

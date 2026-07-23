@@ -2,7 +2,7 @@
 // app/(routes)/staff/list/page.tsx
 
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +25,8 @@ import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 import { StaffFilters as StaffFiltersType, Staff } from '@/types/staff';
+import { StaffProfileCompletionCard } from './_components/staff-profile-completion-card';
+import { calculateStaffProfileCompletion } from '@/lib/utils/staff-profile-completion';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Users, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -34,8 +36,20 @@ export default function StaffPage() {
   const {
     canAccess,
     isSuperAdmin,
-    isLoading: permissionsLoading
+    isLoading: permissionsLoading,
+    getModuleScope
   } = usePermissions();
+
+  // Effective module scope for the current user on the staff module. Mirrors
+  // the SQL `get_user_module_scope('staff')` function so the UI hides
+  // toolbar/filter chrome that would 403 on the API side for `own_records`
+  // users (faculty, librarians, admission counselors, etc.). RLS already
+  // enforces the row filter — this is pure UI polish.
+  // `getModuleScope` returns a string once permissions have loaded; during
+  // the `permissionsLoading` branch above we never reach this calculation,
+  // so it's safe to treat the value as authoritative here.
+  const staffScope = permissionsLoading ? null : getModuleScope('staff');
+  const isOwnRecordsScope = staffScope === 'own_records';
 
   // Filter state for server-side filtering
   const [filters, setFilters] = useState<StaffFiltersType>({
@@ -65,6 +79,15 @@ export default function StaffPage() {
   // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
   const staffList = staffData?.data || [];
+
+  // For `own_records` users (faculty, librarians, etc.) the list is a single
+  // row — their own staff record. Compute its completion so they get the same
+  // profile-completion bar learners see on /learners/my-profile.
+  const ownRecord = isOwnRecordsScope ? staffList[0] : undefined;
+  const ownRecordCompletion = useMemo(
+    () => (ownRecord ? calculateStaffProfileCompletion(ownRecord) : null),
+    [ownRecord]
+  );
 
   // Memoized filter change handler to prevent unnecessary re-renders
   const handleFilterChange = useCallback(
@@ -207,30 +230,48 @@ export default function StaffPage() {
                 </div>
                 <div>
                   <h1 className='text-2xl font-semibold'>
-                    Employee Management
+                    Employee List
                   </h1>
                   <p className='text-muted-foreground'>
                     Full-time JKKN staff — teaching, facilitators, and
-                    non-teaching. Guests, vendors, TAs, and volunteers live
-                    in the <Link href='/hr/employees' className='underline'>HR Non-Staff Workforce</Link> page.
+                    non-teaching. The HR module&apos;s read-only{' '}
+                    <Link href='/hr/employees' className='underline'>HR Directory</Link>{' '}
+                    shows all staff with HR context.
                   </p>
                 </div>
               </div>
             </div>
 
+            {/* Profile completion bar — own_records users (faculty et al.) see
+                a personal completion summary for their single staff record,
+                mirroring the learner /learners/my-profile experience. */}
+            {!isLoading && isOwnRecordsScope && ownRecord && ownRecordCompletion && (
+              <StaffProfileCompletionCard
+                completion={ownRecordCompletion}
+                canEdit={canEditStaff}
+                editHref={`/staff/list/${ownRecord.id}/edit`}
+              />
+            )}
+
             {/* Action Buttons — gated by permissions:
                   - Download Template / Bulk Upload Images: read-only or edit-level
                   - Bulk Upload Staff: requires create permission
-                  - Create Missing Profiles: super_admin maintenance action */}
-            <div className='flex flex-wrap items-center gap-2 mb-6'>
-              {canViewStaff && <DownloadStaffTemplateButton />}
-              {canCreateStaff && <BulkUploadStaff />}
-              {isSuperAdmin && <CreateMissingProfilesButton />}
-              {canEditStaff && <BulkUploadStaffImages />}
-            </div>
+                  - Create Missing Profiles: super_admin maintenance action
+                Hidden entirely for `own_records` users — their list is
+                a single row, so bulk template/upload/maintenance actions
+                are meaningless. */}
+            {!isOwnRecordsScope && (
+              <div className='flex flex-wrap items-center gap-2 mb-6'>
+                {canViewStaff && <DownloadStaffTemplateButton />}
+                {canCreateStaff && <BulkUploadStaff />}
+                {isSuperAdmin && <CreateMissingProfilesButton />}
+                {canEditStaff && <BulkUploadStaffImages />}
+              </div>
+            )}
 
-            {/* Advanced Search */}
-            {!isLoading && (
+            {/* Advanced Search — meaningless for a one-row table, so we
+                hide it for `own_records` scope. */}
+            {!isLoading && !isOwnRecordsScope && (
               <div className='mb-6'>
                 <AdvancedSearch
                   onSearch={handleSearch}
@@ -289,8 +330,8 @@ export default function StaffPage() {
               </div>
             )}
 
-            {/* Filters */}
-            {!isLoading && (
+            {/* Filters — hidden for `own_records` scope (one-row table) */}
+            {!isLoading && !isOwnRecordsScope && (
               <StaffFilters
                 filters={filters}
                 onFilterChange={handleFilterChange}
@@ -313,6 +354,7 @@ export default function StaffPage() {
                 onPageSizeChange={handlePageSizeChange}
                 onRefresh={handleRefresh}
                 canEdit={canEditStaff}
+                scope={staffScope}
               />
             )}
 

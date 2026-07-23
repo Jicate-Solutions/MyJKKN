@@ -2,7 +2,7 @@
 
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -20,7 +20,8 @@ import {
   TrendingDown,
   AlertCircle,
   IndianRupee,
-  CreditCard
+  CreditCard,
+  Home
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -48,14 +49,28 @@ import {
 import { StudentBillsTable } from './_components/student-bills-table';
 import { StudentTransactionHistory } from './_components/student-transaction-history';
 import { StudentReceiptsTable } from './_components/student-receipts-table';
+import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
+import { StudentRefundHistory } from './_components/student-refund-history';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { toast } from 'react-hot-toast';
 
 export default function StudentBillingDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const studentId = params.id as string;
   const { profile } = useAuth();
+
+  // 2026-05-21: tab is now URL-driven so the receipt-create flow can
+  // deep-link the user back here onto the Receipts tab. Only three valid
+  // tab values; fall back to 'bills' on anything else (or no param).
+  const initialTab = ((): 'bills' | 'receipts' | 'transactions' => {
+    const t = searchParams.get('tab');
+    if (t === 'receipts' || t === 'transactions') return t;
+    return 'bills';
+  })();
+
+  const returnTo = searchParams.get('returnTo') || undefined;
 
   // Check if user is a student
   const isStudent = profile?.role === 'student';
@@ -68,7 +83,10 @@ export default function StudentBillingDetailPage() {
     data: student,
     isLoading: isLoadingStudent,
     error: studentError
-  } = useStudentForBilling(studentId);
+    // Read-only page: load the learner even when their lifecycle left the
+    // billable set (rejected/withdrawn) — their existing bills must stay
+    // viewable for cancellation/refund work.
+  } = useStudentForBilling(studentId, { includeNonBillable: true });
 
   const {
     data: billingSummary,
@@ -259,6 +277,14 @@ export default function StudentBillingDetailPage() {
     );
   }
 
+  // Task 12: sum of billing_student_bills.refunded_amount disbursed via the
+  // refund-request workflow (fn_disburse_refund_request) — separate from the
+  // legacy billing_refunds table already netted into summary.paid_amount.
+  const totalRefundedAmount = billingSummary.bills.reduce(
+    (sum, bill) => sum + Number(bill.refunded_amount ?? 0),
+    0
+  );
+
   return (
     <ContentLayout title='Student Billing Details'>
       <div className='space-y-4 sm:space-y-6'>
@@ -291,25 +317,64 @@ export default function StudentBillingDetailPage() {
               <ArrowLeft className='h-4 w-4' />
             </Button>
             <div className='min-w-0 flex-1'>
-              <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate'>
-                {[student.first_name, student.last_name]
-                  .filter(Boolean)
-                  .join(' ') || 'N/A'}
-              </h1>
+              <div className='flex flex-wrap items-center gap-2'>
+                <h1 className='text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate'>
+                  {[student.first_name, student.last_name]
+                    .filter(Boolean)
+                    .join(' ') || 'N/A'}
+                </h1>
+                {/* 2026-05-21: lifecycle badge so accounts team sees the
+                 *  learner's current state (account → reserved → admitted →
+                 *  active) alongside the name without flipping to enquiry. */}
+                {student.lifecycle_status && (
+                  <Badge
+                    variant='outline'
+                    className={(() => {
+                      switch (student.lifecycle_status) {
+                        case 'account':
+                          return 'bg-amber-50 text-amber-800 border-amber-200';
+                        case 'reserved':
+                          return 'bg-purple-50 text-purple-700 border-purple-200';
+                        case 'admitted':
+                          return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        case 'active':
+                          return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                        default:
+                          return 'bg-muted text-muted-foreground border-input';
+                      }
+                    })()}
+                  >
+                    {student.lifecycle_status
+                      .split('_')
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(' ')}
+                  </Badge>
+                )}
+              </div>
               <p className='text-sm text-muted-foreground mt-1 sm:block'>
                 Student billing information and transaction history
               </p>
             </div>
           </div>
 
-          {/* Schedule Bill Button - Full width on mobile - Hidden for students */}
-          {!isStudent && canCreateBills && (
-            <Button asChild className='w-full sm:w-auto sm:self-start'>
-              <Link href={`/billing/schedule/new?student_id=${studentId}`}>
-                <Plus className='mr-2 h-4 w-4' />
-                Schedule Bill
-              </Link>
-            </Button>
+          {/* Header Actions - Full width on mobile - Hidden for students */}
+          {!isStudent && (
+            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:self-start'>
+              {canCreateBills && (
+                <Button asChild className='w-full sm:w-auto'>
+                  <Link href={`/billing/schedule/new?student_id=${studentId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}>
+                    <Plus className='mr-2 h-4 w-4' />
+                    Schedule Bill
+                  </Link>
+                </Button>
+              )}
+              <RefundInitiateDialog
+                studentId={studentId}
+                institutionId={student.institution_id}
+                institutionName={student.institution?.name || 'Unknown Institution'}
+                studentName={[student.first_name, student.last_name].filter(Boolean).join(' ')}
+              />
+            </div>
           )}
         </div>
 
@@ -379,6 +444,17 @@ export default function StudentBillingDetailPage() {
                     </div>
                   </div>
                   <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <Calendar className='h-4 w-4 text-cyan-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Academic Year
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.academic_year?.academic_year_name || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
                     <GraduationCap className='h-4 w-4 text-purple-600 shrink-0' />
                     <div className='min-w-0 flex-1'>
                       <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
@@ -439,19 +515,47 @@ export default function StudentBillingDetailPage() {
           </CardContent>
         </Card>
 
+        {/* Accommodation Information Card */}
+        <Card className='overflow-hidden'>
+          <CardHeader className='bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950 dark:to-teal-950'>
+            <CardTitle className='flex items-center gap-2 text-lg'>
+              <Home className='h-5 w-5' />
+              Accommodation
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='p-4 sm:p-6'>
+            <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+              <Home className='h-4 w-4 text-emerald-600 shrink-0' />
+              <div className='min-w-0 flex-1'>
+                <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                  Accommodation Type
+                </p>
+                <p className='text-sm text-muted-foreground truncate'>
+                  {student.accommodation_type?.name || 'N/A'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Student Summary Cards */}
         <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
-          <Card>
-            <CardContent className='p-3 sm:p-4'>
-              <div className='flex items-center justify-between'>
-                <div className='min-w-0 flex-1'>
-                  <p className='text-sm text-muted-foreground'>Total Bills</p>
-                  <p className='text-xl sm:text-2xl font-bold'>
-                    {billingSummary.summary.total_bills}
-                  </p>
-                </div>
-                <FileText className='h-6 w-6 sm:h-8 sm:w-8 text-blue-600 shrink-0' />
+          <Card className='hover:shadow-md transition-shadow'>
+            <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+              <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                Total Fees
+              </CardTitle>
+              <IndianRupee className='h-4 w-4 text-blue-600' />
+            </CardHeader>
+            <CardContent>
+              <div className='text-xl sm:text-2xl font-bold text-blue-600'>
+                {formatCurrency(
+                  billingSummary.bills.reduce((sum, bill) => sum + (bill.status !== 'superseded' ? bill.final_amount : 0), 0)
+                )}
               </div>
+              <p className='text-xs text-muted-foreground'>
+                {billingSummary.summary.total_bills} bill{billingSummary.summary.total_bills !== 1 ? 's' : ''}
+              </p>
             </CardContent>
           </Card>
 
@@ -474,7 +578,8 @@ export default function StudentBillingDetailPage() {
                         ?.filter((r) => r.approval_status === 'processed')
                         .reduce((sum, r) => sum + r.refund_amount, 0) || 0;
 
-                    const netPaidAmount = billingSummary.summary.paid_amount;
+                    const netPaidAmount =
+                      billingSummary.summary.paid_amount - totalRefundedAmount;
                     const isFullyRefunded =
                       totalProcessedRefunds > 0 && netPaidAmount <= 0;
                     const hasRefunds = totalProcessedRefunds > 0;
@@ -574,15 +679,34 @@ export default function StudentBillingDetailPage() {
               <p className='text-xs text-muted-foreground'>Past due date</p>
             </CardContent>
           </Card>
+
+          {/* Task 12: only shown once a refund-workflow disbursement has
+           *  actually posted refunded_amount onto a bill. */}
+          {totalRefundedAmount > 0 && (
+            <Card className='hover:shadow-md transition-shadow'>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  Refunded
+                </CardTitle>
+                <IndianRupee className='h-4 w-4 text-red-600' />
+              </CardHeader>
+              <CardContent>
+                <div className='text-xl sm:text-2xl font-bold text-red-600'>
+                  {formatCurrency(totalRefundedAmount)}
+                </div>
+                <p className='text-xs text-muted-foreground'>Disbursed refunds</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Billing Details Tabs - Enhanced for Mobile */}
         <Card className='overflow-hidden'>
           <CardContent className='p-0'>
-            <Tabs defaultValue='bills' className='w-full'>
+            <Tabs defaultValue={initialTab} className='w-full'>
               {/* Tab Header with Filter */}
               <div className='flex flex-col gap-4 p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
                   <TabsTrigger value='bills' className='text-xs sm:text-sm'>
                     Bills
                   </TabsTrigger>
@@ -691,6 +815,9 @@ export default function StudentBillingDetailPage() {
             </Tabs>
           </CardContent>
         </Card>
+
+        {/* Refund Requests — only renders once this student has ≥1 request */}
+        <StudentRefundHistory studentId={studentId} />
 
         {/* Payment Selection Modal */}
         <PaymentSelectionModal

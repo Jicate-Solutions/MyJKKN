@@ -26,13 +26,47 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SCHOLARSHIP_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
+import {
+  SCHOLARSHIP_TYPE_OPTIONS,
+  BOARD_OF_STUDY_OPTIONS,
+} from '@/lib/constants/learner-dropdown-values';
+import {
+  NEW_TWELFTH_SUBJECTS,
+  TWELFTH_GROUP_LABEL_MAP,
+  type TwelfthGroupKey,
+} from '@/lib/utils/mappings/enquiry-excel-mappings';
+import {
+  LastSchoolField,
+  type LastSchoolFetchers,
+} from '@/components/learners/last-school-field';
+import { SchoolMasterService } from '@/lib/services/school-master-service';
+
+// Admin-side data adapters for the Last School cascade (authenticated
+// Supabase reads; the public student-form injects token-endpoint fetchers).
+const schoolMasterFetchers: LastSchoolFetchers = {
+  fetchDistricts: () => SchoolMasterService.getDistricts(),
+  fetchSchools: ({ district, search }) =>
+    SchoolMasterService.getSchools({ board: 'state_board', district, search, limit: 50 }),
+  matchExactName: (name, district) =>
+    SchoolMasterService.findByExactName(name, {
+      board: 'state_board',
+      district: district ?? undefined,
+    }),
+};
 
 interface AcademicInformationProps {
   form: UseFormReturn<any>;
+  degreeType?: 'ug' | 'pg';
 }
 
-export function AcademicInformationSection({ form }: AcademicInformationProps) {
+export function AcademicInformationSection({ form, degreeType }: AcademicInformationProps) {
+  const isPG = degreeType === 'pg';
+
+  // Last School cascade inputs (board drives district→school for state_board)
+  const boardOfStudy = useWatch({ control: form.control, name: 'board_of_study' });
+  const lastSchoolId = useWatch({ control: form.control, name: 'last_school_id' });
+  const schoolDistrict = useWatch({ control: form.control, name: 'school_district' });
+
   // ============================================
   // AUTO-CALCULATION: 10th Marks Percentage
   // ============================================
@@ -75,13 +109,16 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
 
   useEffect(() => {
     // Engineering Cutoff: ((Physics + Chemistry) / 2) + Mathematics
+    // Only auto-fill when all three subjects are present. For streams without
+    // Mathematics (e.g. PCB / Bio-Botany dental students), leave the field
+    // alone so the student can leave it blank or enter a value manually.
+    // BUG-003929: previously cleared the field on every render for non-engg
+    // streams, making it impossible for biology-group students to save.
     if (physicsMarks && chemistryMarks && mathsMarks) {
       const engineeringCutoff = (
         (Number(physicsMarks) + Number(chemistryMarks)) / 2 + Number(mathsMarks)
       ).toFixed(2);
       form.setValue('engineering_cutoff_marks', engineeringCutoff);
-    } else {
-      form.setValue('engineering_cutoff_marks', '');
     }
 
     // Medical Cutoff (Biology): ((Physics + Chemistry) / 2) + Biology
@@ -99,9 +136,8 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
         Number(zoologyMarks) / 2
       ).toFixed(2);
       form.setValue('medical_cutoff_marks', medicalCutoff);
-    } else {
-      form.setValue('medical_cutoff_marks', '');
     }
+    // Same rationale as engineering: don't clear manually entered values.
   }, [physicsMarks, chemistryMarks, mathsMarks, biologyMarks, botanyMarks, zoologyMarks, form]);
 
   // ============================================
@@ -485,262 +521,347 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
           </div>
         );
 
-      default:
-        // No specific group selected - show common subjects
-        return null;
+      default: {
+        // 2026-05-22: 15 new streams render from NEW_TWELFTH_SUBJECTS map.
+        // PCB-extension streams (pcbcs/pcbn/pcbhs/pcbce/pcbnd/pcbbc/pcbmb) share
+        // the existing subjects.biology JSONB key, so the Medical Cutoff
+        // useEffect above fires for them with no extra wiring.
+        const subjects = NEW_TWELFTH_SUBJECTS[twelfthGroup as TwelfthGroupKey];
+        if (!subjects) return null;
+        return (
+          <div className="grid gap-4 md:grid-cols-2">
+            {subjects.map(({ key, label }) => (
+              <FormField
+                key={key}
+                control={form.control}
+                name={`twelfth_marks.subjects.${key}`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{label} Marks</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder={`${label} marks`}
+                        {...field}
+                        value={field.value || ''}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
+          </div>
+        );
+      }
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Last School Information */}
+      {/* College / School Information — always visible.
+          Board renders FIRST: for State Board it drives the District → School
+          cascade inside LastSchoolField (manual entry stays available). */}
       <div className="grid gap-4 md:grid-cols-2">
+        {!isPG && (
+          <FormField
+            control={form.control}
+            name="board_of_study"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Board of Study</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select board" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {BOARD_OF_STUDY_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
         <FormField
           control={form.control}
           name="last_school"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Last School/College Attended</FormLabel>
+              <FormLabel>{isPG ? 'College Name & Place' : 'Last School/College Attended'}</FormLabel>
               <FormControl>
-                <Input placeholder="Enter school/college name" {...field} />
+                <LastSchoolField
+                  board={boardOfStudy}
+                  isPG={isPG}
+                  value={field.value || ''}
+                  schoolId={lastSchoolId || null}
+                  district={schoolDistrict || null}
+                  onChange={({ name, schoolId, district }) => {
+                    field.onChange(name);
+                    form.setValue('last_school_id', schoolId ?? '', { shouldDirty: true });
+                    form.setValue('school_district', district ?? '', { shouldDirty: true });
+                  }}
+                  fetchers={schoolMasterFetchers}
+                  placeholder={isPG ? 'Enter college name and place' : 'Enter school/college name'}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-
-        <FormField
-          control={form.control}
-          name="board_of_study"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Board of Study</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value || ''}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select board" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="state_board">State Board</SelectItem>
-                  <SelectItem value="cbse">CBSE</SelectItem>
-                  <SelectItem value="icse">ICSE</SelectItem>
-                  <SelectItem value="matriculation">Matriculation</SelectItem>
-                  <SelectItem value="anglo_indian">Anglo Indian</SelectItem>
-                  <SelectItem value="others">Others</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
       </div>
 
-      {/* 10th Standard Marks */}
-      <div className="space-y-4 border-t pt-4">
-        <h3 className="text-lg font-semibold">10th Standard Marks</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          <FormField
-            control={form.control}
-            name="tenth_marks.max_marks"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Maximum Marks</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="e.g., 500" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+      {/* PG-specific fields: Previous Course/Degree + Percentage */}
+      {isPG && (
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-lg font-semibold">Previous Qualification</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="twelfth_marks.course_name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Previous Course / Degree</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., B.Sc Computer Science" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormDescription>Enter the UG degree you completed</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-          <FormField
-            control={form.control}
-            name="tenth_marks.obtained_marks"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Obtained Marks</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="e.g., 450" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="tenth_marks.percentage"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Percentage</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="e.g., 90" {...field} value={field.value || ''} readOnly />
-                </FormControl>
-                <FormDescription>Auto-calculated if marks entered</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-      </div>
-
-      {/* 12th Standard Marks */}
-      <div className="space-y-4 border-t pt-4">
-        <h3 className="text-lg font-semibold">12th Standard / Diploma Marks</h3>
-        <FormField
-          control={form.control}
-          name="twelfth_marks.group"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Group/Stream</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value || ''}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select group" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="science">Science (General)</SelectItem>
-                  <SelectItem value="pcbm">PCBM (Physics, Chemistry, Biology, Mathematics)</SelectItem>
-                  <SelectItem value="pccs">PCCS (Physics, Chemistry, Computer Science, Mathematics)</SelectItem>
-                  <SelectItem value="pcbz">PCBZ (Physics, Chemistry, Botany, Zoology)</SelectItem>
-                  <SelectItem value="commerce">Commerce (General)</SelectItem>
-                  <SelectItem value="cseca">CSECA (Computer Science, Economics, Commerce, Accountancy)</SelectItem>
-                  <SelectItem value="heca">HECA (History, Economics, Commerce, Accountancy)</SelectItem>
-                  <SelectItem value="seca">SECA (Statistics, Economics, Commerce, Accountancy)</SelectItem>
-                  <SelectItem value="arts">Arts</SelectItem>
-                  <SelectItem value="vocational">Vocational</SelectItem>
-                  <SelectItem value="diploma">Diploma</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <FormField
-            control={form.control}
-            name="twelfth_marks.max_marks"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Maximum Marks</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="e.g., 600" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="twelfth_marks.obtained_marks"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Obtained Marks</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="e.g., 540" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="twelfth_marks.percentage"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Percentage</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="e.g., 90" {...field} value={field.value || ''} readOnly />
-                </FormControl>
-                <FormDescription>Auto-calculated if marks entered</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        {/* Dynamic Subject-wise Marks based on selected group */}
-        {twelfthGroup && (
-          <div className="border-t pt-4">
-            <h4 className="text-sm font-semibold mb-4">Subject-wise Marks</h4>
-            {renderSubjectFields()}
-            {twelfthGroup && (
-              <FormDescription className="mt-2">
-                Cutoff marks will be calculated automatically based on subject marks
-              </FormDescription>
-            )}
+            <FormField
+              control={form.control}
+              name="twelfth_marks.percentage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Previous Degree Percentage</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 85" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
-        )}
-      </div>
-
-      {/* Competitive Exam Details */}
-      <div className="space-y-4 border-t pt-4">
-        <h3 className="text-lg font-semibold">Competitive Exam Details (if applicable)</h3>
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="neet_roll_number"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>NEET Roll Number</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter NEET roll number" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="neet_score"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>NEET Score</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="Enter NEET score" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="medical_cutoff_marks"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Medical Cutoff Marks</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="Enter cutoff marks" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="engineering_cutoff_marks"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Engineering Cutoff Marks</FormLabel>
-                <FormControl>
-                  <Input type="number" placeholder="Enter cutoff marks" {...field} value={field.value || ''} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
         </div>
-      </div>
+      )}
 
-      {/* Counseling Information */}
+      {/* UG-only: 10th Standard Marks */}
+      {!isPG && (
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-lg font-semibold">10th Standard Marks</h3>
+          <div className="grid gap-4 md:grid-cols-3">
+            <FormField
+              control={form.control}
+              name="tenth_marks.max_marks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Maximum Marks</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 500" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="tenth_marks.obtained_marks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Obtained Marks</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 450" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="tenth_marks.percentage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Percentage</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 90" {...field} value={field.value || ''} readOnly />
+                  </FormControl>
+                  <FormDescription>Auto-calculated if marks entered</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* UG-only: 12th Standard Marks */}
+      {!isPG && (
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-lg font-semibold">12th Standard / Diploma Marks</h3>
+          <FormField
+            control={form.control}
+            name="twelfth_marks.group"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Group/Stream</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select group" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {(Object.entries(TWELFTH_GROUP_LABEL_MAP) as Array<[TwelfthGroupKey, string]>).map(
+                      ([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <FormField
+              control={form.control}
+              name="twelfth_marks.max_marks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Maximum Marks</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 600" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="twelfth_marks.obtained_marks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Obtained Marks</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 540" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="twelfth_marks.percentage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Percentage</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="e.g., 90" {...field} value={field.value || ''} readOnly />
+                  </FormControl>
+                  <FormDescription>Auto-calculated if marks entered</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          {/* Dynamic Subject-wise Marks based on selected group */}
+          {twelfthGroup && (
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-semibold mb-4">Subject-wise Marks</h4>
+              {renderSubjectFields()}
+              {twelfthGroup && (
+                <FormDescription className="mt-2">
+                  Cutoff marks will be calculated automatically based on subject marks
+                </FormDescription>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* UG-only: Competitive Exam Details */}
+      {!isPG && (
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-lg font-semibold">Competitive Exam Details (if applicable)</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="neet_roll_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>NEET Roll Number</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter NEET roll number" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="neet_score"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>NEET Score</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="Enter NEET score" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="medical_cutoff_marks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Medical Cutoff Marks</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="Enter cutoff marks" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="engineering_cutoff_marks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Engineering Cutoff Marks</FormLabel>
+                  <FormControl>
+                    <Input type="number" placeholder="Enter cutoff marks" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Counseling Information — always visible */}
       <div className="space-y-4 border-t pt-4">
         <h3 className="text-lg font-semibold">Counseling Information</h3>
         <div className="grid gap-4 md:grid-cols-3">
@@ -769,7 +890,6 @@ export function AcademicInformationSection({ form }: AcademicInformationProps) {
             )}
           />
 
-          {/* Counseling Number - Show only if counseling_applied is true */}
           {counselingApplied && (
             <FormField
               control={form.control}

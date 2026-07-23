@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { Suspense, use, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -66,13 +66,17 @@ import {
   VALIDATION_TYPE_LABELS,
 } from '@/hooks/solutions/use-products';
 import type { ValidationType } from '@/hooks/solutions/use-products';
+import { useTabParam } from '@/hooks/use-tab-param';
 
 interface ProductDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function ProductDetailPage({ params }: ProductDetailPageProps) {
+const PRODUCT_DETAIL_TABS = ['validations', 'ip', 'solutions', 'financial', 'rdif'] as const;
+
+function ProductDetailPageInner({ params }: ProductDetailPageProps) {
   const { id } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('validations', PRODUCT_DETAIL_TABS);
 
   const { data: product, isLoading, error } = useProduct(id);
   const { data: rdifPrerequisites } = useRDIFPrerequisites();
@@ -275,7 +279,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
         </Card>
 
         {/* Main Content Tabs */}
-        <Tabs defaultValue="validations" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="validations">TRL Validations</TabsTrigger>
             <TabsTrigger value="ip">IP & Patents</TabsTrigger>
@@ -795,6 +799,15 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
         </DialogContent>
       </Dialog>
     </ContentLayout>
+  );
+}
+
+export default function ProductDetailPage(props: ProductDetailPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProductDetailPageInner {...props} />
+    </Suspense>
   );
 }
 

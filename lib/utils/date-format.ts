@@ -39,7 +39,12 @@ export function formatDateShort(input: DateInput): string {
 }
 
 /**
- * Format a date + time as "12/04/2026, 14:30" (24-hour, DD/MM/YYYY).
+ * Format a date + time as "12/04/2026, 02:30 PM" (12-hour with am/pm,
+ * DD/MM/YYYY). Switched from 24-hour to 12-hour on 2026-05-20 per product
+ * request — every consumer is a user-facing admission UI surface (activity
+ * tabs, comms log, checklist, lead detail) where AM/PM reads more naturally
+ * than 14:30. The `en-GB` locale keeps the date part as DD/MM/YYYY; `hour12`
+ * flips the time into 12-hour with locale-correct AM/PM markers.
  */
 export function formatDateTimeDMY(input: DateInput): string {
   if (!input) return '—';
@@ -51,6 +56,6 @@ export function formatDateTimeDMY(input: DateInput): string {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hour12: true,
   });
 }

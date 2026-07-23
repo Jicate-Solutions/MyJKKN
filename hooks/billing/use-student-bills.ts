@@ -244,6 +244,93 @@ export function useBulkDeleteStudentBills() {
   });
 }
 
+// Hook to cancel a single student bill
+export function useCancelStudentBill() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      StudentBillService.cancelStudentBill(id, reason),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: studentBillKeys.lists() });
+      queryClient.invalidateQueries({
+        queryKey: studentBillKeys.detail(data.id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentBillKeys.byStudent(data.student_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentBillKeys.unpaidByStudent(data.student_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentBillKeys.outstanding(data.student_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.summary(data.student_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.detail(data.student_id)
+      });
+
+      toast.success('Bill cancelled successfully');
+    },
+    onError: (error: any) => {
+      console.error('Error cancelling student bill:', error);
+      toast.error(error.message || 'Failed to cancel student bill');
+    }
+  });
+}
+
+// Hook to bulk cancel student bills
+export function useBulkCancelStudentBills() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ ids, reason }: { ids: string[]; reason?: string }) =>
+      StudentBillService.bulkCancelStudentBills(ids, reason),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: studentBillKeys.lists() });
+
+      result.success.forEach((id) => {
+        queryClient.invalidateQueries({
+          queryKey: studentBillKeys.detail(id)
+        });
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: [...studentBillKeys.all, 'by-student']
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...studentBillKeys.all, 'unpaid']
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...studentBillKeys.all, 'outstanding']
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.summaries()
+      });
+      queryClient.invalidateQueries({
+        queryKey: studentSearchKeys.details()
+      });
+
+      const successCount = result.success.length;
+      const failedCount = result.failed.length;
+
+      if (successCount > 0) {
+        toast.success(`${successCount} bill(s) cancelled successfully`);
+      }
+
+      if (failedCount > 0) {
+        toast.error(`Failed to cancel ${failedCount} bill(s)`);
+      }
+    },
+    onError: (error: any) => {
+      console.error('Error bulk cancelling student bills:', error);
+      toast.error(error.message || 'Failed to cancel student bills');
+    }
+  });
+}
+
 // Hook to bulk create student bills
 //
 // Accepts an optional `onProgress(done, total)` callback so callers can render

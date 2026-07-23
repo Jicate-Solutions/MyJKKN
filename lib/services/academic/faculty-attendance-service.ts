@@ -95,63 +95,70 @@ export class FacultyAttendanceService {
         .eq('id', staffId)
         .single()) as { data: StaffBasic | null; error: any };
 
-      if (staffError || !staffData) {
+      // A DB error here (e.g. statement timeout 57014) must NOT masquerade as
+      // "no classes" — throw so the caller can offer a Retry. A genuine
+      // staff-not-found (no error, no row) is a real empty result.
+      if (staffError) throw staffError;
+      if (!staffData) {
         logger.error('academic/faculty-attendance', 'Staff not found', staffError);
         return { periods: [], searchContext: {} };
       }
 
       logger.dev('academic/faculty-attendance', 'Staff found', { staffId: staffData.id, institutionId: staffData.institution_id });
 
-      // Updated: 2026-03-10 - Pick the academic year that contains the target date
-      // Previously used order('start_date', desc).limit(1) which could pick a future academic year
-      const { data: academicYears, error: yearError } = (await this.supabase
-        .from('academic_years')
-        .select('id, academic_year_name, start_date, end_date')
-        .eq('institution_id', staffData.institution_id)
-        .eq('is_active', true)
-        .lte('start_date', targetDate)
-        .gte('end_date', targetDate)
-        .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
+      // Updated: 2026-06-29 - Do NOT derive the academic year from the target date
+      // and hard-filter timetables on it. A timetable's validity is defined by its
+      // OWN start_date/end_date window (+ format-specific selected_dates), NOT by the
+      // calendar bounds of the academic_year row it is tagged with. Timetables are
+      // routinely scheduled into a window that crosses the academic-year boundary —
+      // e.g. "SEM VIII 25-26" is tagged academic_year 2025-26 (which ends 2026-05-31)
+      // yet runs Jun–Oct 2026, a window the academic_years calendar assigns to
+      // 2026-27. The previous code resolved the academic year from the target date
+      // (→ 2026-27) and filtered timetables with .eq('academic_year_id', …); since the
+      // tag (2025-26) and the date-derived year (2026-27) disagreed, this matched
+      // ZERO timetables and EVERY assigned faculty saw "No classes scheduled for
+      // today" — regardless of role. (Admins were unaffected because their search
+      // supplies academic_year_id explicitly from the chosen criteria.) We now scope
+      // only by institution + is_active and let isDateInTimetableRange() below do the
+      // per-format date gating it already implements. The matched timetable's own
+      // academic_year_id is captured for searchContext instead of a date-derived guess.
 
-      let academicYear: AcademicYearBasic;
-
-      if (yearError || !academicYears || academicYears.length === 0) {
-        // Fallback: if no academic year contains the target date, use the most recent one
-        const { data: fallbackYears } = (await this.supabase
-          .from('academic_years')
-          .select('id, academic_year_name')
-          .eq('institution_id', staffData.institution_id)
-          .eq('is_active', true)
-          .order('start_date', { ascending: false })
-          .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
-
-        if (!fallbackYears || fallbackYears.length === 0) {
-          logger.error('academic/faculty-attendance', 'No active academic year found', yearError);
-          return { periods: [], searchContext: {} };
-        }
-
-        logger.warn('academic/faculty-attendance', 'No academic year contains target date, using most recent', {
-          targetDate, fallbackYear: fallbackYears[0].academic_year_name
-        });
-
-        academicYear = fallbackYears[0];
-      } else {
-        academicYear = academicYears[0];
+      // Cross-institution teaching (2026-07-06): a staff member may be assigned
+      // via staff planning to teach in sister institutions (e.g. Dental faculty
+      // taking AHS/Pharmacy classes). Widen the timetable scope from the staff's
+      // own institution to every institution they teach in (own ∪ staff-plan
+      // institutions). This must be a SECURITY DEFINER RPC — staff_plan_courses
+      // SELECT RLS hides other institutions' plans from the browser client.
+      let teachingInstitutionIds: string[] = [staffData.institution_id];
+      const { data: teachingInstitutions, error: teachingInstError } = await (
+        this.supabase as any
+      ).rpc('fn_staff_teaching_institutions', { p_staff_id: staffId });
+      if (teachingInstError) {
+        logger.warn(
+          'academic/faculty-attendance',
+          'fn_staff_teaching_institutions failed; falling back to own institution',
+          teachingInstError
+        );
+      } else if (
+        Array.isArray(teachingInstitutions) &&
+        teachingInstitutions.length > 0
+      ) {
+        teachingInstitutionIds = teachingInstitutions;
       }
 
-      logger.dev('academic/faculty-attendance', 'Academic year found', { id: academicYear.id, name: academicYear.academic_year_name });
-
-      // Get timetables with all related data in a single query (LEFT JOINs to avoid excluding timetables with null FKs)
       const { data: timetables, error: timetableError } = (await this.supabase
         .from('timetables')
         .select(`
           id,
+          institution_id,
+          academic_year_id,
           timetable_format,
           start_date,
           end_date,
           selected_dates,
           section_id,
           semester_id,
+          attendance_mode,
           timetable_data,
           periods,
           sections(id, section_name),
@@ -160,13 +167,16 @@ export class FacultyAttendanceService {
           programs(id, program_name),
           degrees(id, degree_name)
         `)
-        .eq('institution_id', staffData.institution_id)
-        .eq('academic_year_id', academicYear.id)
+        .in('institution_id', teachingInstitutionIds)
         .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
-      if (timetableError || !timetables || timetables.length === 0) {
+      // Distinguish a real fetch failure (throw → caller shows a Retry) from a
+      // legitimately empty timetable set (return empty → "No classes scheduled").
+      // Previously a statement timeout (57014) here was swallowed as "no classes",
+      // producing the false "no periods showing though I have class" reports.
+      if (timetableError) throw timetableError;
+      if (!timetables || timetables.length === 0) {
         logger.warn('academic/faculty-attendance', 'No timetables found', {
-          timetableError,
           timetablesLength: timetables?.length || 0
         });
         return { periods: [], searchContext: {} };
@@ -177,6 +187,10 @@ export class FacultyAttendanceService {
       // Extract all unique course IDs first, then batch fetch
       const courseIds = new Set<string>();
       const facultyPeriods: AttendancePeriodOption[] = [];
+      // Academic year of the first timetable this staff actually teaches on the
+      // target date. Used for searchContext (the marking flow re-reads the real
+      // academic_year_id from the timetable record itself, so this is advisory).
+      let resolvedAcademicYearId: string | null = null;
 
       for (const timetable of timetables) {
         // Check if this date is valid for this timetable
@@ -190,14 +204,25 @@ export class FacultyAttendanceService {
 
         if (!isDateValid) continue;
 
+        // Updated: 2026-06-11 - Day-wise (session_wise) timetables are NOT marked
+        // per-period; their attendance is FN/AN day-wise (shown separately as the
+        // day marker in "My Classes"). Skip them here so they never surface as
+        // period cards for the incharge/faculty.
+        if ((timetable as any).attendance_mode === 'session_wise') continue;
+
         const timetableData = timetable.timetable_data as TimetableDataStructure | null;
         const periodsRaw = timetable.periods as any;
 
-        // Helper: resolve period definition from either array or object format
+        // Helper: resolve period definition from either array or object format.
+        // Array entries carry the identifier as `id` OR `period_id` depending on
+        // which timetable builder wrote them (AHS timetables use `period_id`
+        // only) — match both, or every slot silently drops at the lookup.
         const findPeriodDef = (periodId: string): any => {
           if (!periodsRaw) return null;
           if (Array.isArray(periodsRaw)) {
-            return periodsRaw.find((p: any) => p.id === periodId);
+            return periodsRaw.find(
+              (p: any) => p.id === periodId || p.period_id === periodId
+            );
           }
           if (typeof periodsRaw === 'object' && periodsRaw[periodId]) {
             return { id: periodId, ...periodsRaw[periodId] };
@@ -304,6 +329,22 @@ export class FacultyAttendanceService {
               dayData![periodId] = slotData;
             });
           }
+        } else if (timetable.timetable_format === 'cycle') {
+          // Added: 2026-06-17 - Cycle timetables key timetable_data by "cycle-N"
+          // (e.g. "cycle-3"), NOT by weekday. Without this branch they fell into
+          // the day-of-week lookup below, found nothing, and the faculty saw "No
+          // classes scheduled for today" even when assigned in the active cycle.
+          // Resolve which cycle is active on targetDate via the canonical
+          // Postgres function — it advances only on working days and skips
+          // Sundays/holidays, exactly like the grid's "Today: Cycle N" badge.
+          const { data: cycleNum, error: cycleErr } = await this.supabase.rpc(
+            'get_cycle_for_date',
+            { p_timetable_id: timetable.id, p_date: targetDate }
+          );
+          if (cycleErr || !cycleNum) continue; // null = Sunday/holiday → no classes
+          const cycleKey = `cycle-${cycleNum}`;
+          if (!timetableData[cycleKey]) continue;
+          dayData = timetableData[cycleKey];
         } else {
           // Regular timetables use day-of-week keys
           if (!timetableData[dayOfWeek]) continue;
@@ -330,7 +371,32 @@ export class FacultyAttendanceService {
               subSlot.staff_ids.includes(staffId)
             );
 
-          if (!isAssignedToSlot && !isAssignedToSubSlot) continue;
+          // Added: 2026-06-29 - Practical periods (period_mode='practical') store
+          // their staff per BATCH inside practical_config.batches[].staff_mapping —
+          // an object keyed by course_id whose VALUES are arrays of staff_ids — NOT
+          // in staff_ids / primary_staff_id / sub_slots. Without this check a
+          // practical period never matched its assigned faculty and silently
+          // vanished from "My Classes" while standard periods in the same timetable
+          // showed correctly.
+          const practicalBatches =
+            slot.period_mode === 'practical' &&
+            slot.practical_config && Array.isArray(slot.practical_config.batches)
+              ? slot.practical_config.batches
+              : [];
+          const isAssignedToPractical = practicalBatches.some((batch: any) => {
+            const mapping = batch?.staff_mapping;
+            if (!mapping || typeof mapping !== 'object') return false;
+            return Object.values(mapping).some(
+              (list: any) => Array.isArray(list) && list.includes(staffId)
+            );
+          });
+
+          if (!isAssignedToSlot && !isAssignedToSubSlot && !isAssignedToPractical) continue;
+
+          // Capture the academic year from the first timetable the staff teaches.
+          if (!resolvedAcademicYearId) {
+            resolvedAcademicYearId = (timetable as any).academic_year_id || null;
+          }
 
           // Find period definition (handles both array and object format)
           const periodDef = findPeriodDef(periodId);
@@ -372,7 +438,9 @@ export class FacultyAttendanceService {
                 id: timetableSlotId,
                 timetable_slot_id: timetableSlotId,
                 timetable_id: timetable.id,
-                institution_id: staffData.institution_id,
+                // Timetable's institution, not the staff's — they differ for
+                // cross-institution (visiting) teaching assignments.
+                institution_id: timetable.institution_id ?? staffData.institution_id,
                 period_name: `${periodDef.period_name} - ${groupName}`,
                 start_time: this.formatTo12Hour(periodDef.start_time || ''),
                 end_time: this.formatTo12Hour(periodDef.end_time || ''),
@@ -407,7 +475,7 @@ export class FacultyAttendanceService {
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
               timetable_id: timetable.id,
-              institution_id: staffData.institution_id,
+              institution_id: timetable.institution_id ?? staffData.institution_id,
               period_name: periodDef.period_name,
               start_time: this.formatTo12Hour(periodDef.start_time || ''),
               end_time: this.formatTo12Hour(periodDef.end_time || ''),
@@ -415,6 +483,48 @@ export class FacultyAttendanceService {
               course: slot.course_id ? { id: slot.course_id } : undefined,
               sections: [{ id: resolvedSectionId, name: (timetable.sections as any)?.section_name || '' }],
               section_ids: slot.section_ids || (resolvedSectionId ? [resolvedSectionId] : []),
+              degree_name: (timetable.degrees as any)?.degree_name,
+              program_name: (timetable.programs as any)?.program_name,
+              department_name: (timetable.departments as any)?.department_name,
+              semester_name: (timetable.semesters as any)?.semester_name,
+              section_name: (timetable.sections as any)?.section_name || ''
+            } as any);
+          } else if (isAssignedToPractical) {
+            // Practical period — emit ONE card (mirrors the admin search path).
+            // The mark page reads practical_config from the slot and drives
+            // batch/course selection at runtime, so we carry period_mode +
+            // practical_config to switch the UI into practical mode. The course
+            // shown is the one this staff teaches (first matching batch mapping),
+            // enriched with code/name by the batch fetch below.
+            const timetableSlotId = slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`;
+
+            let practicalCourseId: string | undefined;
+            for (const batch of practicalBatches) {
+              const mapping = batch?.staff_mapping || {};
+              for (const [courseId, list] of Object.entries(mapping)) {
+                if (Array.isArray(list) && list.includes(staffId)) {
+                  practicalCourseId = courseId;
+                  break;
+                }
+              }
+              if (practicalCourseId) break;
+            }
+            if (practicalCourseId) courseIds.add(practicalCourseId);
+
+            facultyPeriods.push({
+              id: timetableSlotId,
+              timetable_slot_id: timetableSlotId,
+              timetable_id: timetable.id,
+              institution_id: timetable.institution_id ?? staffData.institution_id,
+              period_name: periodDef.period_name,
+              start_time: this.formatTo12Hour(periodDef.start_time || ''),
+              end_time: this.formatTo12Hour(periodDef.end_time || ''),
+              period_type: 'regular',
+              period_mode: 'practical',
+              practical_config: slot.practical_config,
+              course: practicalCourseId ? { id: practicalCourseId } : undefined,
+              sections: [],
+              section_ids: [],
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,
@@ -471,7 +581,7 @@ export class FacultyAttendanceService {
       // Create search context
       const searchContext: any = {
         institution_id: staffData.institution_id,
-        academic_year_id: academicYear.id,
+        academic_year_id: resolvedAcademicYearId,
         attendance_date: targetDate
       };
 
@@ -485,8 +595,12 @@ export class FacultyAttendanceService {
         searchContext
       };
     } catch (error) {
+      // Surface the failure instead of returning an empty schedule: an empty
+      // return is indistinguishable from a genuine "no classes today" and is what
+      // produced the false "No classes scheduled" reports under load/timeout. The
+      // caller (My Classes) catches this and offers a Retry.
       logger.error('academic/faculty-attendance', 'Error fetching faculty periods', error);
-      return { periods: [], searchContext: {} };
+      throw error;
     }
   }
 
@@ -507,6 +621,16 @@ export class FacultyAttendanceService {
     // Handle 'regular' and 'date-range' formats the same way
     // Both use start_date and end_date to define the valid range
     if ((format === 'date-range' || format === 'regular') && startDate && endDate) {
+      const start = new Date(startDate + 'T00:00:00');
+      const end = new Date(endDate + 'T00:00:00');
+      return target >= start && target <= end;
+    }
+
+    // Added: 2026-06-17 - Handle 'cycle' format. Cycle timetables rotate through
+    // N cycles within an overall start/end window; here we only gate on that
+    // window. Which cycle is active on the date (and Sunday/holiday skipping) is
+    // resolved later via get_cycle_for_date in getFacultyTodayPeriods.
+    if (format === 'cycle' && startDate && endDate) {
       const start = new Date(startDate + 'T00:00:00');
       const end = new Date(endDate + 'T00:00:00');
       return target >= start && target <= end;
@@ -676,11 +800,15 @@ export class FacultyAttendanceService {
           const timetableData = timetable.timetable_data as TimetableDataStructure | null;
           const periodsRaw = timetable.periods as any;
 
-          // Helper: resolve period definition from either array or object format
+          // Helper: resolve period definition from either array or object format.
+          // Array entries carry the identifier as `id` OR `period_id` (AHS
+          // timetables use `period_id` only) — match both.
           const findPeriodDef = (pId: string): any => {
             if (!periodsRaw) return null;
             if (Array.isArray(periodsRaw)) {
-              return periodsRaw.find((p: any) => p.id === pId);
+              return periodsRaw.find(
+                (p: any) => p.id === pId || p.period_id === pId
+              );
             }
             if (typeof periodsRaw === 'object' && periodsRaw[pId]) {
               return { id: pId, ...periodsRaw[pId] };

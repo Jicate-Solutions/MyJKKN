@@ -9,6 +9,25 @@ import type {
   BillingInvoice
 } from '@/types/billing-schedule';
 
+// ============================================================================
+// Lifecycle statuses where a student is billable.
+// ----------------------------------------------------------------------------
+// Post-2026-05-21 workflow realignment, the lifecycle flows:
+//   account   → bills generated for the joining cycle
+//   reserved  → one cycle's bills paid, seat held
+//   admitted  → joining confirmed
+//   active    → post-joining, regular semester billing
+//
+// All four states have outstanding or paid bills that the billing module
+// must surface. Earlier code hardcoded ['active'] (or ['active','account'])
+// in five different spots — every post-realignment learner in 'reserved' or
+// 'admitted' silently 404'd from the billing schedule student detail page
+// with PGRST116 (single-row fetch returned 0 rows).
+//
+// Centralized here so the next realignment is one edit instead of five.
+// ============================================================================
+const BILLABLE_LIFECYCLE_STATUSES = ['account', 'reserved', 'admitted', 'active'] as const;
+
 // Helper type for raw Supabase response
 type RawStudentData = {
   id: string;
@@ -25,6 +44,12 @@ type RawStudentData = {
   program_id: string;
   semester_id: string;
   section_id: string;
+  // 2026-05-21: surfaced so the billing detail page can show the learner's
+  // current lifecycle (account / reserved / admitted / active) next to
+  // the bill totals. Selected by getStudentForBilling only.
+  lifecycle_status?: string;
+  // Accommodation type. Selected by getStudentForBilling only.
+  accommodation_type_id?: string;
   institution?: any;
   academic_year?: any;
   degree?: any;
@@ -32,6 +57,7 @@ type RawStudentData = {
   program?: any;
   semester?: any;
   section?: any;
+  accommodation_type?: any;
 };
 
 export class StudentSearchService {
@@ -82,6 +108,9 @@ export class StudentSearchService {
         id: rawData.section_id,
         section_name: ''
       },
+      accommodation_type_id: rawData.accommodation_type_id,
+      accommodation_type: rawData.accommodation_type || undefined,
+      lifecycle_status: rawData.lifecycle_status,
       outstanding_amount: outstandingAmount
     };
   }
@@ -117,7 +146,7 @@ export class StudentSearchService {
         `,
           { count: 'exact' }
         )
-        .eq('lifecycle_status', 'active')
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES])
         .eq('is_profile_complete', true);
 
       // Apply filters
@@ -148,6 +177,24 @@ export class StudentSearchService {
 
       if (filters.section_id) {
         query = query.eq('section_id', filters.section_id);
+      }
+
+      // Accommodation-type filter. The UI sends a catalog *code* (e.g. 'hostel');
+      // resolve it to the global accommodation_type_id(s) and filter the
+      // (left-joined) FK column directly. Using .in() avoids the
+      // PostgREST "can't filter an embedded resource without !inner" pitfall.
+      if (filters.accommodation_type) {
+        const accommodationTypeIds = await this.resolveAccommodationTypeIds(
+          filters.accommodation_type
+        );
+        // A real code always resolves to at least one id; the empty-array guard
+        // forces a no-match instead of silently returning every student.
+        query = query.in(
+          'accommodation_type_id',
+          accommodationTypeIds.length > 0
+            ? accommodationTypeIds
+            : ['00000000-0000-0000-0000-000000000000']
+        );
       }
 
       if (filters.first_name) {
@@ -207,10 +254,11 @@ export class StudentSearchService {
   }
 
   static async getStudentForBilling(
-    studentId: string
+    studentId: string,
+    options: { includeNonBillable?: boolean } = {}
   ): Promise<StudentForBilling> {
     try {
-      const { data, error } = await this.supabase
+      let query = this.supabase
         .from('learners_profiles')
         .select(
           `
@@ -220,6 +268,8 @@ export class StudentSearchService {
           father_name,
           student_mobile,
           college_email,
+          lifecycle_status,
+          accommodation_type_id,
           institution_id,
           academic_year_id,
           degree_id,
@@ -233,12 +283,22 @@ export class StudentSearchService {
           department:departments!department_id(id, department_name),
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name),
-          section:sections!section_id(id, section_name)
+          section:sections!section_id(id, section_name),
+          accommodation_type:accommodation_types!accommodation_type_id(id, code, name)
         `
         )
-        .eq('id', studentId)
-        .in('lifecycle_status', ['active', 'account'])
-        .single();
+        .eq('id', studentId);
+
+      // Billing pickers/creation flows only work with billable learners, but
+      // the read-only detail page must load ANY learner — bills raised before
+      // a learner became rejected/withdrawn still need to be viewable
+      // (cancel/refund), and filtering here made those pages throw PGRST116
+      // ("students not found") for everyone.
+      if (!options.includeNonBillable) {
+        query = query.in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES]);
+      }
+
+      const { data, error } = await query.single();
 
       if (error) throw error;
 
@@ -256,8 +316,11 @@ export class StudentSearchService {
     studentId: string
   ): Promise<StudentBillingSummary> {
     try {
-      // Get student details
-      const student = await this.getStudentForBilling(studentId);
+      // Get student details (read-only summary — include non-billable
+      // learners so bills raised before rejection/withdrawal stay viewable)
+      const student = await this.getStudentForBilling(studentId, {
+        includeNonBillable: true
+      });
 
       // Get all bills for the student
       const billsQuery: any = this.supabase
@@ -265,12 +328,15 @@ export class StudentSearchService {
         .select(
           `
           *,
+          creator:profiles!fk_billing_student_bills_created_by(id, full_name),
           item_category:billing_categories(
             id,
             category_name,
+            kind,
             amount,
             frequency
           ),
+          academic_year:academic_years(id, academic_year_name),
           receipt_items:billing_receipt_items(
             *,
             receipt:billing_receipts(*)
@@ -289,6 +355,7 @@ export class StudentSearchService {
         .select(
           `
           *,
+          creator:profiles!fk_billing_receipts_created_by(id, full_name),
           receipt_items:billing_receipt_items(
             *,
             bill:billing_student_bills(*)
@@ -312,6 +379,7 @@ export class StudentSearchService {
             .select(
               `
             *,
+            creator:profiles!fk_billing_discounts_created_by(id, full_name),
             bill:billing_student_bills(*)
           `
             )
@@ -331,6 +399,7 @@ export class StudentSearchService {
           .select(
             `
             *,
+            creator:profiles!fk_billing_refunds_created_by(id, full_name),
             receipt:billing_receipts(*)
           `
           )
@@ -474,6 +543,29 @@ export class StudentSearchService {
     }
   }
 
+  /**
+   * Resolve an accommodation-type catalog code (e.g. 'hostel') to the matching
+   * accommodation_type_id(s). The catalog is global (one row per code).
+   * Returns [] on error (caller forces no-match).
+   */
+  private static async resolveAccommodationTypeIds(
+    code: string
+  ): Promise<string[]> {
+    try {
+      const query = this.supabase
+        .from('accommodation_types')
+        .select('id')
+        .eq('code', code);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map((row: { id: string }) => row.id);
+    } catch (error) {
+      console.error('Error resolving accommodation type ids:', error);
+      return [];
+    }
+  }
+
   static async getStudentsByInstitution(
     institutionId: string,
     limit: number = 50
@@ -499,7 +591,7 @@ export class StudentSearchService {
         `
         )
         .eq('institution_id', institutionId)
-        .eq('lifecycle_status', 'active')
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES])
         .order('first_name', { ascending: true })
         .limit(limit);
 
@@ -556,7 +648,7 @@ export class StudentSearchService {
           section:sections!section_id(id, section_name)
         `
         )
-        .eq('lifecycle_status', 'active');
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES]);
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
@@ -613,7 +705,7 @@ export class StudentSearchService {
           department:departments(id, department_name)
         `
         )
-        .eq('lifecycle_status', 'active');
+        .in('lifecycle_status', [...BILLABLE_LIFECYCLE_STATUSES]);
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId);

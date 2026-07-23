@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { Suspense, useState, useMemo, useCallback } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -66,7 +67,9 @@ interface ReportFilterState {
   course_codes: string[]; // multi-select (Course Wise tab only)
 }
 
-export default function InternalMarksReportPage() {
+const REPORT_TABS = ['course-wise', 'consolidated'] as const;
+
+function InternalMarksReportPageInner() {
   const { isSuperAdmin, canAccess, isLoading: isLoadingPermissions } = usePermissions();
   const { profile } = useAuth();
   const canView = isLoadingPermissions || isSuperAdmin || canAccess('academic.internal-marks', 'view');
@@ -101,7 +104,7 @@ export default function InternalMarksReportPage() {
     const inst = institutions.find((i) => i.id === institutionId);
     return getInstitutionHeader(inst?.name);
   }, [institutions, institutionId]);
-  const [activeTab, setActiveTab] = useState<'course-wise' | 'consolidated'>('course-wise');
+  const [activeTab, setActiveTab] = useTabParam('course-wise', REPORT_TABS);
   const [isExporting, setIsExporting] = useState(false);
 
   // Upstream reference data
@@ -116,9 +119,16 @@ export default function InternalMarksReportPage() {
     limit: 200,
   });
   const selectedProgram = programsData?.data?.find((p) => p.program_id === filters.program_code);
-  const filteredPrograms = (programsData?.data ?? []).filter((p) =>
-    selectedSetting ? selectedSetting.program_codes.includes(p.program_id) : true
-  );
+  const filteredPrograms = (programsData?.data ?? []).filter((p) => {
+    if (!selectedSetting) return true;
+    // COE's /api/v1/cia-settings scopes each setting by a program_codes ARRAY;
+    // the shared CiaSettings type only declares the legacy singular program_code,
+    // so read the array shape defensively (mirrors lib/services/exam-audit/compute.ts).
+    const settingProgramCodes =
+      (selectedSetting as { program_codes?: string[] | null }).program_codes ??
+      (selectedSetting.program_code ? [selectedSetting.program_code] : []);
+    return settingProgramCodes.includes(p.program_id);
+  });
 
   // Course-mapping + registrations = filteredMapping (only courses with regular students)
   const { data: courseMapping, isLoading: isLoadingMapping } = useCourseMapping({
@@ -900,6 +910,14 @@ export default function InternalMarksReportPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function InternalMarksReportPage() {
+  return (
+    <Suspense fallback={null}>
+      <InternalMarksReportPageInner />
+    </Suspense>
   );
 }
 
