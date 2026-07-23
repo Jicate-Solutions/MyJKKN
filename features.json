@@ -33,16 +33,16 @@
     {
       "id": "ai-model-autocompare-loop",
       "name": "Feature A — auto-compare model-quality loop (switch → judge old vs new → warn)",
-      "status": "in-progress",
+      "status": "self-verified",
       "outcome_metric": {
         "metric_name": "count(model_switch_evaluations WHERE status='verdict_ready') — switches that reached a real old-vs-new verdict",
         "baseline_value": "0 (substrate applied 2026-07-23; no collect loop running yet)",
         "threshold_90d": "≥1 real switch reaches a verdict via ≥20 judged comparisons by 2026-10-23",
-        "kill_criterion": "If the collect loop never accumulates comparisons (drain old-model-run not built), the loop is inert — decide whether the box-dependent piece is worth the free-seat cost",
+        "kill_criterion": "If the collect loop never accumulates comparisons after deploy, the loop is inert — decide whether the free-seat replay cost is worth it (drain also ETIMEDOUTs on large prompts).",
         "verdict_date": "2026-10-23",
-        "verdict_status": "PENDING — substrate + switch-detection live; judge template fixed (unverified, job 20cc459f); COLLECT (old-model-run) + UI NOT built"
+        "verdict_status": "ON TRACK — SHIPPED + DEPLOYED + verified live 2026-07-23 (PR #2310 merged). Collect loop proven E2E (a real scf.freetext_carry switch recorded a genuine old_better comparison via the cron; RPC verdict flip proven rolled-back). Cron scheduled (vercel.json 9,39). Metric increments once a REAL switch reaches ~20 comparisons."
       },
-      "notes": "Draft PR #2310. Substrate (model_switch_evaluations/comparisons + model_compare.judge + fn_model_switch_record_comparison) APPLIED to prod. Switch-detection in fn_ai_job_type_set_model APPLIED + proven. Judge {{prompt}} template bug fixed live. Next: verify judge, build drain old-model-run + collect-cron, warning UI, prove RPC tally. Memory: project_per_job_model_selection_maxlane (Follow-on features section)."
+      "notes": "PR #2310 MERGED + DEPLOYED + verified live (cron 401, switches 401, /admin/ai-models 200 as super_admin, both card+usage-panel render). Full loop: switch-detection (130001) → discover recent NEW-model source jobs → replay OLD model via model_compare.replay pinned by payload._model_override (honored in fn_ai_claim 130003 — NO drain change; proven on live drain w/ haiku) → model_compare.judge ({{prompt}} fix codified 130002) → fn_model_switch_record_comparison (service_role-only) → conservative verdict. Cron /api/cron/model-compare-collect (state machine = model_switch_replays table; glue-guarded; per-run capped; in vercel.json 9,39). Warning UI on /admin/ai-models pixel-verified (amber new_worse / yellow tie). Recommendation-only, never auto-reverts. npm run build green. Memory: project_per_job_model_selection_maxlane (STATUS)."
     },
     {
       "id": "counselor-rules-engine-substrate",

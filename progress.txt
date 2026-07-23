@@ -65,9 +65,10 @@
 - Headless screenshot deadlocks on Turbopack DEV but works fine against `next start` (production) — the route to an autonomous pixel eyeball.
 
 ### Next Session — Tasks
-1. ✅ DONE — #2310 merged + deployed + verified live this session.
-2. Make a REAL model switch on /admin/ai-models for a glue max job → confirm the card shows it "collecting N/20", then a verdict after ~20 real runs (cron ticks 9,39). This is the live-adoption proof of the outcome metric.
-3. (Optional) raise the drain's spawnSync timeout on the Windows box so large-prompt replays (pde.case_author ~2010 chars) don't ETIMEDOUT — otherwise those job types can't be auto-compared (small-prompt types like scf.freetext_carry work fine).
+1. [P0] **Unify the "AI Models" + "AI Studio" tabs on /admin/ai-models** (large). Director noticed they overlap. Reality (queried): "AI Models" = `ai_model_config` (25 rows, feature_key); "AI Studio" = `ai_job_types` (45 rows, job_type = the SOURCE OF TRUTH since 2026-07-14). Overlap = 25; 0 unique to AI Models; 20 jobs ONLY in AI Studio. So AI Models is a legacy SUBSET mirror. Plan: one registry-backed screen (ai_job_types, all 45) WITH the AI Models tab's usage/cost panel bolted on; retire ai_model_config to the fallback-only role it already plays. Rewire reads cleanly (getModelForFeature + fn_ai_claim already read ai_job_types first — the wiring is done; only the UI is un-merged). This also resolves where the Model Switch Watch card lives (task 3).
+2. [P1] Feature A live-adoption: make a REAL model switch on a glue max job → confirm the card shows "collecting N/20", then a verdict after ~20 real runs (cron ticks 9,39). Live proof of the outcome metric. (small — mostly waiting)
+3. [P1] Model Switch Watch card placement (own tab vs inline) — likely SUBSUMED by task 1's unification. Currently inline on AI Models tab, hidden when no switches. (small)
+4. [P2] Raise the Windows drain spawnSync timeout so large-prompt jobs (pde.case_author ~2010 chars) can be auto-compared without ETIMEDOUT (small-prompt types like scf.freetext_carry already work). (small, box-side)
 
 ---
 
