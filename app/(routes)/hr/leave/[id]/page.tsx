@@ -120,9 +120,9 @@ export default function ApplicationDetailPage() {
               <div className="space-y-2">
                 {comments.map((c) => (
                   <div key={c.id} className="border-l-2 border-muted pl-3 py-1">
-                    <p className="text-sm">{c.body}</p>
+                    <p className="text-sm">{c.comment}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {c.author_id} · {new Date(c.created_at).toLocaleString()}
+                      {new Date(c.created_at).toLocaleString()}
                     </p>
                   </div>
                 ))}

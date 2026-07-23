@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Plus, Pencil, Archive, ArchiveRestore } from 'lucide-react';
@@ -11,8 +12,10 @@ import { useAdmissionStatuses, useArchiveAdmissionStatus, useRestoreAdmissionSta
 import type { AdmissionStatus, AdmissionStatusScope } from '@/types/admission-status';
 import { StatusFormDialog } from './status-form-dialog';
 
+const STATUS_SCOPE_TABS = ['lead', 'learner'] as const;
+
 export function StatusesDataTable() {
-  const [scope, setScope] = useState<AdmissionStatusScope>('learner');
+  const [scope, setScope] = useTabParam('learner', STATUS_SCOPE_TABS);
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<AdmissionStatus | null>(null);
   const [creating, setCreating] = useState(false);

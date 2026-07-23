@@ -36,7 +36,10 @@ import {
   type DashboardFilterState
 } from './_components/dashboard-filters';
 import { useActiveInstitutions } from '@/hooks/academic/use-attendance-dashboard';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { format } from 'date-fns';
+
+const ATTENDANCE_DASHBOARD_TABS = ['statistics', 'pending', 'feedback'] as const;
 
 function AttendanceDashboardContent() {
   const { profile } = useAuth();
@@ -65,6 +68,10 @@ function AttendanceDashboardContent() {
     attendanceDate?: string;
   }>({});
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [activeTab, setActiveTab] = useTabParam(
+    'statistics',
+    ATTENDANCE_DASHBOARD_TABS
+  );
 
   // Initialize filters based on user permissions and role
   useEffect(() => {
@@ -244,8 +251,8 @@ function AttendanceDashboardContent() {
         </div>
 
         {/* Main Content Tabs */}
-        <Tabs defaultValue='statistics' className='space-y-4'>
-          <TabsList className='grid w-full grid-cols-3'>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-4'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='statistics' className='flex items-center gap-2'>
               <TrendingUp className='h-4 w-4' />
               {isHistoricalData
@@ -606,7 +613,13 @@ export default function AttendanceDashboardPage() {
     isSuperAdmin || canAccess('academic.attendance.dashboard', 'view');
 
   if (canViewDashboard) {
-    return <AttendanceDashboardContent />;
+    // Suspense boundary required: AttendanceDashboardContent calls useTabParam()
+    // which reads useSearchParams() for the deep-linkable / favoritable ?tab=.
+    return (
+      <Suspense fallback={null}>
+        <AttendanceDashboardContent />
+      </Suspense>
+    );
   }
 
   // (3b) Permissions loaded and the user genuinely lacks the grant — the

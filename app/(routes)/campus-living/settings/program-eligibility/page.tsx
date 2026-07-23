@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -31,7 +32,10 @@ import {
   eligibilityMatchesFilters,
 } from './_components/eligibility-filters';
 
-export default function ProgramEligibilityPage() {
+const PROGRAM_ELIGIBILITY_TABS = ['category', 'rooms'] as const;
+
+function ProgramEligibilityPageInner() {
+  const [activeTab, setActiveTab] = useTabParam('category', PROGRAM_ELIGIBILITY_TABS);
   const [addOpen, setAddOpen] = useState(false);
   const [addRoomRuleOpen, setAddRoomRuleOpen] = useState(false);
   const [filters, setFilters] = useState(EMPTY_ELIGIBILITY_FILTERS);
@@ -110,7 +114,7 @@ export default function ProgramEligibilityPage() {
               </p>
             </div>
 
-            <Tabs defaultValue='category' className='w-full'>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
               <TabsList>
                 <TabsTrigger value='category'>Category Eligibility</TabsTrigger>
                 <TabsTrigger value='rooms'>Physical Rooms</TabsTrigger>
@@ -186,5 +190,14 @@ export default function ProgramEligibilityPage() {
       </div>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+export default function ProgramEligibilityPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProgramEligibilityPageInner />
+    </Suspense>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -22,12 +23,14 @@ import { CompletenessBanner } from './_components/completeness-banner';
 const ALL = '__all__';
 const ONE_TIME = '__one_time__';
 
-export default function BlockEconomicsSettingsPage() {
+const COST_KIND_TABS = ['opex', 'capex'] as const;
+
+function BlockEconomicsSettingsPageInner() {
   const { isSuperAdmin, isLoading } = usePermissions();
   const { years } = useHostelYearOptions();
 
   const [blockId, setBlockId] = useState<string>(ALL);
-  const [costKind, setCostKind] = useState<CostKind>('opex');
+  const [costKind, setCostKind] = useTabParam('opex', COST_KIND_TABS);
   const [yearValue, setYearValue] = useState<string>(ALL);
 
   // The completeness banner needs a concrete year. Default it to the current
@@ -129,5 +132,14 @@ export default function BlockEconomicsSettingsPage() {
         </Card>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function BlockEconomicsSettingsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <BlockEconomicsSettingsPageInner />
+    </Suspense>
   );
 }

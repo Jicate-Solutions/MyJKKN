@@ -6,11 +6,62 @@
 // Created: 2026-06-22 (Sports Tournament PR1).
 
 import type { SportLevel } from '@/types/health-sports';
-import type { Event } from '@/types/events';
+import type { Event, EventStatus } from '@/types/events';
 
 // ============================================================================
 // Enums & Constants
 // ============================================================================
+
+// ─── Tournament status model (2026-07-15) ───────────────────────────────────
+// A tournament deliberately uses only TWO of the shared EventStatus values:
+//   'draft' — closed. The public register page blocks 'draft', so Draft is what
+//             closes registration (it replaces Cancel for tournaments).
+//   'live'  — open for registration; surfaced to students. Labelled "Active".
+//
+// The other EventStatus values (planning / preparation / execution / post_event
+// / archived / cancelled) are NOT removed: `events` is shared with marathon,
+// induction, startup-studio and others that still use them, and they remain in
+// the events_status_check constraint. Tournaments simply never offer them.
+//
+// IMPORTANT: do NOT gate tournament transitions on EVENT_STATUS_TRANSITIONS —
+// its draft entry is ['planning','cancelled'], so draft→live would be rejected
+// ("Invalid status transition"). Gate on TOURNAMENT_STATUS_TRANSITIONS below.
+// (Front-end-only status changes that miss a server-side allow-list are a known
+// recurring bug class in this repo.)
+
+/** The DB value a tournament stores while it is open. Shown to users as "Active". */
+export const TOURNAMENT_ACTIVE_STATUS = 'live' as const satisfies EventStatus;
+
+/** The only two statuses a tournament may be set to. */
+export const TOURNAMENT_STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
+  { value: TOURNAMENT_ACTIVE_STATUS, label: 'Active' },
+] as const satisfies readonly { value: EventStatus; label: string }[];
+
+/**
+ * Tournament-only transitions. Legacy rows (created before the 2-state model)
+ * are tolerated so they can be moved onto it rather than being stranded.
+ */
+export const TOURNAMENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
+  draft: ['live'],
+  live: ['draft'],
+  planning: ['draft', 'live'],
+  preparation: ['draft', 'live'],
+  execution: ['draft', 'live'],
+  post_event: ['draft', 'live'],
+  archived: ['draft', 'live'],
+  cancelled: ['draft', 'live'],
+};
+
+/** Draft vs Active — every non-draft tournament status reads as Active. */
+export function tournamentStatusLabel(status: string): string {
+  return status === 'draft' ? 'Draft' : 'Active';
+}
+
+/** True when the tournament is open (i.e. anything that isn't a draft). */
+export function isTournamentActive(status: string): boolean {
+  return status !== 'draft';
+}
 
 /** How a division's matches are organised. Matches the DB CHECK constraint. */
 export type TournamentFormat = 'knockout' | 'round_robin' | 'league' | 'pools_ko';

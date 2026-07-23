@@ -35,12 +35,17 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
   course_code: string;
   course_name: string;
   coursePartLabel?: string;
+  /** Course master category (e.g. "Theory", "Practical", "Theory + Practical") —
+   *  decides whether the PDF prints the theory units, the practical experiments,
+   *  or both sections. */
+  courseCategory?: string;
   /** Structured L-T-P-C from the course master (engineering CET header). */
   workload?: { theory?: number; tutorial?: number; practical?: number; credit?: number };
 }> {
   let course_code = syllabus.course_code;
   let course_name = syllabus.course_name;
   let coursePartLabel: string | undefined;
+  let courseCategory: string | undefined;
   let workload: { theory?: number; tutorial?: number; practical?: number; credit?: number } | undefined;
   try {
     let match: Record<string, unknown> | null = null;
@@ -74,6 +79,9 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
       const composed = (match.course_type_code as string | undefined)
         ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? undefined));
       if (composed) coursePartLabel = composed;
+      if (typeof match.course_category === 'string' && match.course_category) {
+        courseCategory = match.course_category;
+      }
 
       const num = (v: unknown) => (v == null || v === '' ? undefined : Number(v));
       workload = {
@@ -86,7 +94,28 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
   } catch {
     // non-fatal — fall back to the stored snapshot
   }
-  return { course_code, course_name, coursePartLabel, workload };
+  return { course_code, course_name, coursePartLabel, courseCategory, workload };
+}
+
+/**
+ * Decides which course-content sections the PDF should print, from the course
+ * master category. A combined "Theory + Practical" course prints BOTH (theory
+ * first). When the category is missing or names none of the three modes
+ * (e.g. "Field Work"), we fall back to the syllabus's own is_practical view
+ * flag — the same fallback the Content-tab editor uses — so nothing authored is
+ * dropped.
+ */
+function resolveContentModes(
+  courseCategory: string | undefined,
+  content: BosCourseSyllabus['course_content'],
+): { includeTheory: boolean; includePractical: boolean } {
+  const cat = (courseCategory || '').toLowerCase();
+  const namesAMode = cat.includes('theory') || cat.includes('practical') || cat.includes('project');
+  if (cat && namesAMode) {
+    return { includeTheory: cat.includes('theory'), includePractical: cat.includes('practical') };
+  }
+  const isPractical = !!content?.is_practical;
+  return { includeTheory: !isPractical, includePractical: isPractical };
 }
 
 // ── PDF Download Button ───────────────────────────────────────────────────────
@@ -94,9 +123,15 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
 export function SyllabusPdfDownloadButton({
   syllabus,
   institutionName,
+  isCas = false,
+  isCet = false,
 }: {
   syllabus: BosCourseSyllabus;
   institutionName?: string;
+  /** Arts-&-Science (CAS) institution → render unit content as a flowing paragraph. */
+  isCas?: boolean;
+  /** CET (Engineering) institution → always render the Engineering PDF format. */
+  isCet?: boolean;
 }) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
@@ -135,14 +170,17 @@ export function SyllabusPdfDownloadButton({
       // AND the Engineering college banner/logo — even though they are managed
       // under the A&S autonomous college's BoS. The hosting institution is NOT a
       // reliable signal, so detect from the syllabus itself:
-      //   1. an explicit `stream` of "Engineering", or
-      //   2. an Anna University course code (2–3 letters + 4 digits, e.g.
+      //   1. the syllabus is hosted under CET itself — every CET course uses this
+      //      format, and the code/stream heuristics below miss autonomous CET
+      //      codes such as "CP25C22" (letters inside the digit block), or
+      //   2. an explicit `stream` of "Engineering", or
+      //   3. an Anna University course code (2–3 letters + 4 digits, e.g.
       //      "EC3354") — a shape A&S codes like "24UUCSDSE01" never match, so it
       //      is a safe fallback when the Stream field was left blank.
       const isEngineeringStream = /engineering/i.test(syllabus.stream ?? '');
       const isAnnaUnivCode = /^[A-Z]{2,3}\d{4}$/.test((syllabus.course_code ?? '').trim());
       const variant: 'default' | 'engineering' =
-        isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
+        isCet || isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
 
       // Force the Engineering header (name/accreditation/right logo) for the CET
       // variant; otherwise resolve branding from the hosting institution's name.
@@ -154,8 +192,9 @@ export function SyllabusPdfDownloadButton({
 
       // Resolve live course code/name + part (Core-I / Allied-II) from COE,
       // anchored on the stable course_id so a COE rename is reflected.
-      const { course_code: liveCode, course_name: liveName, coursePartLabel, workload } =
+      const { course_code: liveCode, course_name: liveName, coursePartLabel, courseCategory, workload } =
         await resolveCourseForReport(syllabus);
+      const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
       // A&S prefixes course_name with course_type_code ("Major-I-Programming in
       // Python"); the engineering/CET header shows the bare name to match the
@@ -199,6 +238,9 @@ export function SyllabusPdfDownloadButton({
 
       generateCourseSyllabusPDF({
         variant,
+        // CAS (Arts & Science) prints unit content as one flowing paragraph per
+        // unit; engineering/other keep the stacked heading + per-chapter lines.
+        unitLayout: isCas && variant !== 'engineering' ? 'paragraph' : 'stacked',
         ltpc,
         total_periods,
         institution_name: header.institution_name,
@@ -217,10 +259,11 @@ export function SyllabusPdfDownloadButton({
         objectives: objectivesContent?.objectives ?? [],
         clos: outcomesContent?.clos ?? [],
         k_values: kValues,
-        units: syllabus.course_content?.units ?? [],
-        practical_topics: syllabus.course_content?.is_practical
+        units: contentModes.includeTheory ? (syllabus.course_content?.units ?? []) : [],
+        practical_topics: contentModes.includePractical
           ? (syllabus.course_content?.topics ?? [])
           : undefined,
+        number_practical_topics: syllabus.course_content?.number_practical_topics,
         instruction: syllabus.course_content?.instruction,
         textbooks: syllabus.textbooks?.primary ?? [],
         references: syllabus.textbooks?.references ?? [],
@@ -368,8 +411,9 @@ export function SyllabusDocxDownloadButton({
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
-      const { course_code: liveCode, course_name: liveName, coursePartLabel } =
+      const { course_code: liveCode, course_name: liveName, coursePartLabel, courseCategory } =
         await resolveCourseForReport(syllabus);
+      const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
       // Mirror the PDF: prefix course_name with course_type_code.
       const displayCourseName = coursePartLabel
@@ -391,10 +435,11 @@ export function SyllabusDocxDownloadButton({
         objectives: objectivesContent?.objectives ?? [],
         clos: outcomesContent?.clos ?? [],
         k_values: kValues,
-        units: syllabus.course_content?.units ?? [],
-        practical_topics: syllabus.course_content?.is_practical
+        units: contentModes.includeTheory ? (syllabus.course_content?.units ?? []) : [],
+        practical_topics: contentModes.includePractical
           ? (syllabus.course_content?.topics ?? [])
           : undefined,
+        number_practical_topics: syllabus.course_content?.number_practical_topics,
         instruction: syllabus.course_content?.instruction,
         textbooks: syllabus.textbooks?.primary ?? [],
         references: syllabus.textbooks?.references ?? [],
@@ -529,8 +574,10 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
     { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
     profile?.id ?? null,
   );
+  // Edit / Create Revision: creator or board chairman (or super-admin).
   const canEdit = boardOwnership;
-  const canDelete = boardOwnership;
+  // Delete: SUPER-ADMIN ONLY (policy 2026-07-16). Creator/chairman cannot delete.
+  const canDelete = boardScope.isSuperAdmin;
 
   const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

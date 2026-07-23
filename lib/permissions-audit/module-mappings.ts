@@ -49,6 +49,7 @@ const MODULE_CATEGORY_OVERRIDES: Record<string, string> = {
   Privileges: 'academic',
   'Lifecycle Analytics': 'admin',
   'PDE Learning': 'pde',
+  'Improvement Board': 'improvement', // display name 'Improvement Board' → 'improvement' category key
   // Social Media catalog landed 2026-06-11 (`social.*` keys in
   // lib/constants/permissions.ts). All seven social/Meta surface modules
   // roll up into the single 'social' category.
@@ -211,7 +212,8 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/my-proof', 'Learners'], // Verified Skills Record — learner self view (learners.proof.view)
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
-  ['/rcltp', 'Academic'], // EKSAQ RCLTP reading-assessment module (rcltp.* perms)
+  ['/improvement-board', 'Improvement Board'], // MBA teaching-enterprise (improvement.* + ceo_rounds.* perms)
+  ['/rcltp', 'Academic'], // MyJKKN RCLTP reading-assessment module (rcltp.* perms)
   ['/faculty', 'Academic'],
   ['/billing', 'Billing'],
   // Global Calendar module (/calendar, /calendar/holidays, /calendar/settings) —

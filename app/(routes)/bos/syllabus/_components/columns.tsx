@@ -7,7 +7,15 @@ import { Badge } from '@/components/ui/badge';
 import { BosCourseSyllabus } from '@/types/bos';
 import { DataTableRowActions, SyllabusPdfDownloadButton, SyllabusDocxDownloadButton, SyllabusCloneButton } from './row-actions';
 
-function buildColumns(institutionName?: string): ColumnDef<BosCourseSyllabus>[] {
+function buildColumns(
+  institutionName?: string,
+  // MyJKKN institution UUIDs belonging to CAS (Arts & Science). A syllabus whose
+  // institutions_id is in this set gets the flowing-paragraph unit layout in its PDF.
+  casInstitutionIds?: Set<string>,
+  // MyJKKN institution UUIDs belonging to CET (Engineering). A syllabus whose
+  // institutions_id is in this set always renders the Engineering PDF format.
+  cetInstitutionIds?: Set<string>,
+): ColumnDef<BosCourseSyllabus>[] {
   return [
     {
       id: 'select',
@@ -99,7 +107,12 @@ function buildColumns(institutionName?: string): ColumnDef<BosCourseSyllabus>[] 
       header: 'Actions',
       cell: ({ row }) => (
         <div className='flex items-center gap-1'>
-          <SyllabusPdfDownloadButton syllabus={row.original} institutionName={institutionName} />
+          <SyllabusPdfDownloadButton
+            syllabus={row.original}
+            institutionName={institutionName}
+            isCas={casInstitutionIds?.has(row.original.institutions_id) ?? false}
+            isCet={cetInstitutionIds?.has(row.original.institutions_id) ?? false}
+          />
           <SyllabusDocxDownloadButton syllabus={row.original} institutionName={institutionName} />
           <SyllabusCloneButton syllabus={row.original} />
           <DataTableRowActions row={row} />
@@ -115,8 +128,12 @@ function buildColumns(institutionName?: string): ColumnDef<BosCourseSyllabus>[] 
 /** Static export kept for backward-compat callers that don't need institutionName. */
 export const columns = buildColumns();
 
-export function createSyllabusColumns(institutionName?: string): ColumnDef<BosCourseSyllabus>[] {
-  return buildColumns(institutionName);
+export function createSyllabusColumns(
+  institutionName?: string,
+  casInstitutionIds?: Set<string>,
+  cetInstitutionIds?: Set<string>,
+): ColumnDef<BosCourseSyllabus>[] {
+  return buildColumns(institutionName, casInstitutionIds, cetInstitutionIds);
 }
 
 export function getColumns({

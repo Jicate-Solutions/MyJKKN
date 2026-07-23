@@ -7,10 +7,11 @@
 // PermissionGuard + TeamNav) is owned by ../../layout.tsx; this page renders
 // only the body so it nests cleanly under the Team Management layout.
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,9 +39,16 @@ interface SourceAssignmentPageProps {
   params: Promise<{ id: string }>;
 }
 
+const SOURCE_ALLOCATION_TABS = ['counselors', 'distribution'] as const;
+
 export default function SourceAssignmentPage({ params }: SourceAssignmentPageProps) {
   const { id } = use(params);
-  return <SourceAssignmentContent id={id} />;
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <SourceAssignmentContent id={id} />
+    </Suspense>
+  );
 }
 
 function SourceAssignmentContent({ id }: { id: string }) {
@@ -48,6 +56,7 @@ function SourceAssignmentContent({ id }: { id: string }) {
     queryKey: ['admission-sources-master', id],
     queryFn: () => SourceMasterService.getById(id),
   });
+  const [activeTab, setActiveTab] = useTabParam('counselors', SOURCE_ALLOCATION_TABS);
 
   return (
     <div className="space-y-6">
@@ -195,7 +204,7 @@ function SourceAssignmentContent({ id }: { id: string }) {
             institutionId={source.institution_id}
           />
 
-          <Tabs defaultValue="counselors" className="space-y-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList>
               <TabsTrigger value="counselors">Counselors</TabsTrigger>
               <TabsTrigger value="distribution">Lead Distribution</TabsTrigger>

@@ -7408,6 +7408,27 @@ CREATE POLICY events_induction_speaker_read ON public.events
   FOR SELECT TO authenticated
   USING (public.fn_induction_is_event_speaker(id));
 
+-- ── Tournament per-event organizer reads (2026-07-22) ──
+-- Migration: supabase/migrations/20260722130000_events_tournament_role_read_rls.sql
+-- The tournament counterpart of the induction policy above. In-charges, committee
+-- members and checked-in volunteers are authorized per event by the module's RPCs,
+-- but `events` itself is read client-side (EventBaseService.getEvent), and its only
+-- SELECT paths were institution-match or is_public+non-draft. A cross-institution
+-- student committee member therefore got PGRST116 -> null -> "Tournament not found".
+-- All three fn_* are SECURITY DEFINER and hard-code auth.uid(), so no recursion and
+-- each caller only ever learns their own role. Additive SELECT-only.
+DROP POLICY IF EXISTS events_tournament_role_read ON public.events;
+CREATE POLICY events_tournament_role_read ON public.events
+  FOR SELECT TO authenticated
+  USING (
+    event_type = 'sports_tournament'
+    AND (
+      public.fn_is_event_incharge(id)
+      OR public.fn_is_event_committee_member(id)
+      OR public.fn_is_event_volunteer(id)
+    )
+  );
+
 DROP POLICY IF EXISTS induction_programs_speaker_view ON public.induction_programs;
 CREATE POLICY induction_programs_speaker_view ON public.induction_programs
   FOR SELECT TO authenticated
@@ -7767,30 +7788,53 @@ FOR SELECT USING (
   AND staff_is_visiting_in_accessible_institution(staff.id)
 );
 
--- Visiting teachers can read the academic structure of institutions they teach in
+-- Visiting teachers can read the academic structure of institutions they teach in.
+-- courses is large (~3790 rows); the per-row staff_teaches_in_institution(institution_id)
+-- caused a full-scan statement timeout (57014). Use a once-evaluated hashed sublink instead.
+-- (sections/semesters/degrees stay on the per-row form — those tables are small.)
 DROP POLICY IF EXISTS "courses_select_visiting_teacher" ON public.courses;
 CREATE POLICY "courses_select_visiting_teacher" ON public.courses
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
+-- Permission-based read. Var-free checks are hoisted to one-time evaluation
+-- (scalar sub-selects for booleans, hashed sublink for the institution set) so the
+-- unbounded courses scan no longer re-runs role_has_institution_access() per row (57014).
+DROP POLICY IF EXISTS "courses_select_permission" ON public.courses;
+CREATE POLICY "courses_select_permission" ON public.courses
+FOR SELECT USING (
+  (SELECT is_super_admin())
+  OR (SELECT is_admin())
+  OR (
+    (SELECT user_has_permission('organizations.courses.view'::text))
+    AND institution_id IN (SELECT unnest(public._user_accessible_institutions()))
+  )
+);
+
+-- Visiting-teacher policies: the per-row staff_teaches_in_institution(institution_id)
+-- full-scanned these tables (esp. student_attendance, which grows daily) and hit the
+-- 8s statement_timeout (57014) -> "attendance not loading". Replaced with the once-
+-- evaluated hashed sublink institution_id IN (SELECT unnest(staff_teaching_institution_ids())),
+-- and the Var-free permission check hoisted via (SELECT user_has_permission(...)).
+-- Migration: optimize_attendance_visiting_teacher_rls_perf.sql (2026-07-16).
 DROP POLICY IF EXISTS "sections_select_visiting_teacher" ON public.sections;
 CREATE POLICY "sections_select_visiting_teacher" ON public.sections
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "semesters_select_visiting_teacher" ON public.semesters;
 CREATE POLICY "semesters_select_visiting_teacher" ON public.semesters
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "degrees_select_visiting_teacher" ON public.degrees;
 CREATE POLICY "degrees_select_visiting_teacher" ON public.degrees
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "departments_select_visiting_teacher" ON public.departments;
 CREATE POLICY "departments_select_visiting_teacher" ON public.departments
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 DROP POLICY IF EXISTS "programs_select_visiting_teacher" ON public.programs;
 CREATE POLICY "programs_select_visiting_teacher" ON public.programs
-FOR SELECT USING (staff_teaches_in_institution(institution_id));
+FOR SELECT USING (institution_id IN (SELECT unnest(public.staff_teaching_institution_ids())));
 
 -- student_attendance: permission-gated visiting read/write (covers visiting
 -- staff whose profile role is hod / custom — the legacy faculty-role path
@@ -7798,25 +7842,25 @@ FOR SELECT USING (staff_teaches_in_institution(institution_id));
 DROP POLICY IF EXISTS "student_attendance_select_visiting_teacher" ON public.student_attendance;
 CREATE POLICY "student_attendance_select_visiting_teacher" ON public.student_attendance
 FOR SELECT USING (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 );
 
 DROP POLICY IF EXISTS "student_attendance_insert_visiting_teacher" ON public.student_attendance;
 CREATE POLICY "student_attendance_insert_visiting_teacher" ON public.student_attendance
 FOR INSERT WITH CHECK (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 );
 
 DROP POLICY IF EXISTS "student_attendance_update_visiting_teacher" ON public.student_attendance;
 CREATE POLICY "student_attendance_update_visiting_teacher" ON public.student_attendance
 FOR UPDATE USING (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 ) WITH CHECK (
-  user_has_permission('academic.attendance.mark')
-  AND staff_teaches_in_institution(institution_id)
+  (SELECT user_has_permission('academic.attendance.mark'))
+  AND institution_id IN (SELECT unnest(public.staff_teaching_institution_ids()))
 );
 
 -- ============================================================================
@@ -8074,3 +8118,25 @@ CREATE POLICY hostel_attendance_select_permission ON public.hostel_attendance
         OR (user_has_permission('campus_living.attendance.view')
             AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
     );
+
+-- hr_leave_types (migration 20260721120000_hr_leave_types_split.sql) — staff
+-- leave-type catalog, split out of the shared leave_types table. Reads are
+-- gated on org membership (own hr_organization_id) or the manage permission;
+-- writes require the manage permission outright.
+ALTER TABLE public.hr_leave_types ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hlt_select ON public.hr_leave_types
+  FOR SELECT TO authenticated
+  USING (
+    hr_organization_id IN (
+      SELECT o.id FROM public.hr_organizations o
+      JOIN public.staff s ON s.institution_id = o.institution_id
+      WHERE s.profile_id = auth.uid()
+    )
+    OR public.user_has_permission('hr.leave.types.manage')
+  );
+
+CREATE POLICY hlt_write ON public.hr_leave_types
+  FOR ALL TO authenticated
+  USING      (public.user_has_permission('hr.leave.types.manage'))
+  WITH CHECK (public.user_has_permission('hr.leave.types.manage'));

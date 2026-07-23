@@ -42,6 +42,9 @@ import {
 import { CALENDAR_FEEDS } from '@/types/calendar';
 import { getErrorMessage } from '@/lib/utils';
 import type { CalendarCategory } from '@/types/calendar';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const CALENDAR_SETTINGS_TABS = ['feeds', 'categories', 'overrides'] as const;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -65,6 +68,9 @@ export function SettingsAdmin() {
   const { toast } = useToast();
   const { isSuperAdmin, canAccess } = usePermissions();
   const canManage = isSuperAdmin || canAccess('calendar.config', 'manage');
+
+  // URL-synced main tab (deep-linkable / favoritable).
+  const [activeTab, setActiveTab] = useTabParam('feeds', CALENDAR_SETTINGS_TABS);
 
   // All hooks unconditionally at top-level
   const { data: feedSettings = [] } = useFeedSettings();
@@ -211,7 +217,7 @@ export function SettingsAdmin() {
         </p>
       </div>
 
-      <Tabs defaultValue="feeds">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="feeds">Feeds</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>

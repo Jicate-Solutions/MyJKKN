@@ -1,5 +1,7 @@
 'use client';
 
+import { Suspense } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,13 +12,18 @@ import { ImsPageGuard } from '@/components/ims/ims-page-guard';
 export default function TransfersPage() {
   return (
     <ImsPageGuard module="ims.transfers" action="view">
-      <TransfersPageInner />
+      <Suspense fallback={null}>
+        <TransfersPageInner />
+      </Suspense>
     </ImsPageGuard>
   );
 }
 
+const TRANSFERS_TABS = ['outgoing', 'incoming'] as const;
+
 function TransfersPageInner() {
   const { storeId, institutionId, isStoreSelected, isResolving } = useImsStoreContext();
+  const [activeTab, setActiveTab] = useTabParam('outgoing', TRANSFERS_TABS);
 
   if (isResolving || !isStoreSelected) {
     return (
@@ -38,7 +45,7 @@ function TransfersPageInner() {
           </p>
         </div>
 
-        <Tabs defaultValue="outgoing">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="outgoing">My Requests</TabsTrigger>
             <TabsTrigger value="incoming">Incoming Requests</TabsTrigger>

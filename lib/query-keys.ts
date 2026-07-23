@@ -294,6 +294,20 @@ export const academicKeys = {
       detail: (filters?: Record<string, unknown>) =>
         [...academicKeys.internalMarks.report.all, 'detail', filters] as const
     }
+  },
+
+  // IA Question Papers (proxied to COE /api/v1/ia/*)
+  questionPapers: {
+    all: ['academic', 'question-papers'] as const,
+
+    list: (filters?: Record<string, unknown>) =>
+      [...academicKeys.questionPapers.all, 'list', filters] as const,
+
+    detail: (id: string) =>
+      [...academicKeys.questionPapers.all, 'detail', id] as const,
+
+    templates: (institutionId: string) =>
+      [...academicKeys.questionPapers.all, 'templates', institutionId] as const
   }
 };
 

@@ -10,17 +10,28 @@ import type {
   ClusterRankHodsPublic
 } from '@/lib/services/dashboard/cluster-rank-service';
 import { Users, ClipboardCheck, AlertTriangle, CalendarClock, Trophy, Medal } from 'lucide-react';
+import { AgencyRecognitionTile } from './agency-recognition-tile';
 
-// ── Tile colour classes (duplicated per spec; do NOT import from hero-strip) ──
-const TILE_COLORS = {
-  attendance: {
-    good: 'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100',
-    bad: 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100'
-  },
-  compliance: 'border-blue-400/40 bg-blue-50/60 dark:bg-blue-950/30 text-blue-950 dark:text-blue-100',
-  grievance: 'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100',
-  leave: 'border-purple-400/40 bg-purple-50/60 dark:bg-purple-950/30 text-purple-950 dark:text-purple-100'
+// ── Semantic status → tile colour (parallel to faculty-hero-strip.tsx; helpers
+//    duplicated by design — other strip files stay untouched). Colour follows the
+//    metric's STATE, never decoration:
+//      green = good / encourage · amber = heads-up · red = act-now
+//      neutral = no data yet, or a purely informational tile (not pass/fail).
+//    Colour is never the only signal — each tile also carries its icon, a status
+//    dot, and a status subtitle (accessible for red/green colour-vision). ──
+const STATUS_TILE = {
+  green: 'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100',
+  amber: 'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100',
+  red: 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100',
+  neutral: 'border-neutral-200 bg-white/90 dark:bg-neutral-900/80 dark:border-neutral-800 text-neutral-900 dark:text-neutral-100'
 } as const;
+const BAND_DOT = {
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  red: 'bg-rose-500',
+  neutral: 'bg-neutral-400'
+} as const;
+type Status = keyof typeof STATUS_TILE;
 
 function TileSkeleton() {
   return (
@@ -73,8 +84,8 @@ export default function HodHeroStrip() {
 
   if (loading) {
     return (
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'>
-        {[0, 1, 2, 3, 4, 5].map((i) => (
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 sm:gap-4'>
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
           <TileSkeleton key={i} />
         ))}
       </div>
@@ -86,10 +97,28 @@ export default function HodHeroStrip() {
   // Doctrines v1: tile 1 swapped from standalone attendance → composite DHS.
   // Attendance surfaces as the largest DHS component (dept_attendance).
   const dhs = metrics.department_health_score;
-  const dhsBandClass =
-    dhs?.band === 'green' ? TILE_COLORS.attendance.good
-    : dhs?.band === 'amber' ? TILE_COLORS.compliance
-    : TILE_COLORS.attendance.bad;
+  // No data → neutral (previously rendered red/bad); amber band → amber
+  // (previously rendered blue via the 'compliance' style).
+  const dhsStatus: Status =
+    !dhs || dhs.score == null || dhs.score <= 0 ? 'neutral'
+    : dhs.band === 'green' ? 'green'
+    : dhs.band === 'amber' ? 'amber'
+    : 'red';
+  // Marking: more sections marked = better. Grievances / leave-approvals: fewer =
+  // better, and ZERO is the good (green) state — not a warning. Sensible defaults,
+  // easy to tune.
+  const markingStatus: Status =
+    metrics.marking_compliance_pct >= 80 ? 'green'
+    : metrics.marking_compliance_pct >= 40 ? 'amber'
+    : 'red';
+  const grievanceStatus: Status =
+    metrics.open_grievances === 0 ? 'green'
+    : metrics.open_grievances <= 2 ? 'amber'
+    : 'red';
+  const leaveStatus: Status =
+    metrics.pending_leave_approvals === 0 ? 'green'
+    : metrics.pending_leave_approvals <= 4 ? 'amber'
+    : 'red';
   const dhsComponentsLine = dhs?.components
     ? (['dept_attendance', 'faculty_marking', 'grievance_resolution'] as const)
         .filter((k) => dhs.components[k] !== null && dhs.components[k] !== undefined)
@@ -134,14 +163,11 @@ export default function HodHeroStrip() {
         : callerScore != null
           ? `OHS ${callerScore}`
           : 'Cluster leaderboard';
-  const clusterBandClass =
-    cluster === null || cluster.forbidden || callerRank === null
-      ? TILE_COLORS.leave
-      : callerRank <= 3
-        ? 'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100'
-        : callerRank <= 5
-          ? 'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100'
-          : 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100';
+  const clusterStatus: Status =
+    cluster === null || cluster.forbidden || callerRank === null ? 'neutral'
+    : callerRank <= 3 ? 'green'
+    : callerRank <= 5 ? 'amber'
+    : 'red';
 
   // ── Task 7b — HOD DHS cluster rank tile (peers see peers) ──
   const hodRank = hodCluster?.caller_rank ?? null;
@@ -170,24 +196,24 @@ export default function HodHeroStrip() {
         : hodScore != null
           ? `DHS ${hodScore}`
           : 'HOD leaderboard';
-  const hodBandClass =
-    hodCluster === null || hodCluster.forbidden || hodRank === null
-      ? TILE_COLORS.leave
-      : hodRank <= 3
-        ? 'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100'
-        : hodRank <= 10
-          ? 'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100'
-          : 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100';
+  const hodStatus: Status =
+    hodCluster === null || hodCluster.forbidden || hodRank === null ? 'neutral'
+    : hodRank <= 3 ? 'green'
+    : hodRank <= 10 ? 'amber'
+    : 'red';
 
   return (
-    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'>
+    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 sm:gap-4'>
       {/* Tile 1 — Department Health Score (DHS) */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${dhsBandClass}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${STATUS_TILE[dhsStatus]}`}
       >
-        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
-          <Users className='h-3.5 w-3.5' />
-          Dept Health
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+            <Users className='h-3.5 w-3.5' />
+            Dept Health
+          </div>
+          <span className={`h-2 w-2 rounded-full ${BAND_DOT[dhsStatus]}`} aria-hidden />
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
           {dhs && dhs.score > 0 ? dhs.score : '--'}
@@ -202,11 +228,14 @@ export default function HodHeroStrip() {
 
       {/* Tile 2 — Faculty Marking Compliance */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${TILE_COLORS.compliance}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${STATUS_TILE[markingStatus]}`}
       >
-        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
-          <ClipboardCheck className='h-3.5 w-3.5' />
-          Marking Compliance
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+            <ClipboardCheck className='h-3.5 w-3.5' />
+            Marking Compliance
+          </div>
+          <span className={`h-2 w-2 rounded-full ${BAND_DOT[markingStatus]}`} aria-hidden />
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
           {metrics.marking_compliance_pct}%
@@ -216,11 +245,14 @@ export default function HodHeroStrip() {
 
       {/* Tile 3 — Open Grievances */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${TILE_COLORS.grievance}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${STATUS_TILE[grievanceStatus]}`}
       >
-        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
-          <AlertTriangle className='h-3.5 w-3.5' />
-          Open Grievances
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+            <AlertTriangle className='h-3.5 w-3.5' />
+            Open Grievances
+          </div>
+          <span className={`h-2 w-2 rounded-full ${BAND_DOT[grievanceStatus]}`} aria-hidden />
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
           {metrics.open_grievances}
@@ -232,11 +264,14 @@ export default function HodHeroStrip() {
 
       {/* Tile 4 — Pending Leave Approvals */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${TILE_COLORS.leave}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${STATUS_TILE[leaveStatus]}`}
       >
-        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
-          <CalendarClock className='h-3.5 w-3.5' />
-          Leave Approvals
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+            <CalendarClock className='h-3.5 w-3.5' />
+            Leave Approvals
+          </div>
+          <span className={`h-2 w-2 rounded-full ${BAND_DOT[leaveStatus]}`} aria-hidden />
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
           {metrics.pending_leave_approvals}
@@ -250,11 +285,14 @@ export default function HodHeroStrip() {
 
       {/* Tile 5 — Cluster Rank */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${clusterBandClass}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${STATUS_TILE[clusterStatus]}`}
       >
-        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
-          <Trophy className='h-3.5 w-3.5' />
-          Cluster Rank
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+            <Trophy className='h-3.5 w-3.5' />
+            Cluster Rank
+          </div>
+          <span className={`h-2 w-2 rounded-full ${BAND_DOT[clusterStatus]}`} aria-hidden />
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
           {clusterValue}
@@ -279,11 +317,14 @@ export default function HodHeroStrip() {
 
       {/* Tile 6 — HOD DHS Cluster Rank (Task 7b: peers see peers) */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${hodBandClass}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${STATUS_TILE[hodStatus]}`}
       >
-        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
-          <Medal className='h-3.5 w-3.5' />
-          HOD DHS Rank
+        <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+            <Medal className='h-3.5 w-3.5' />
+            HOD DHS Rank
+          </div>
+          <span className={`h-2 w-2 rounded-full ${BAND_DOT[hodStatus]}`} aria-hidden />
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
           {hodValue}
@@ -305,6 +346,9 @@ export default function HodHeroStrip() {
           </div>
         )}
       </div>
+
+      {/* Tile 7 — Own AI-agency recognition signal (self-only /api/pde/agency). */}
+      <AgencyRecognitionTile />
     </div>
   );
 }

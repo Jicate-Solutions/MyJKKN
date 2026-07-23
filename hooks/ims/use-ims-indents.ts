@@ -103,11 +103,14 @@ export function useRejectImsIndent() {
 export function useIssueImsIndentItem() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ itemId, quantity }: { itemId: string; quantity: number }) =>
-      ImsIndentService.issueItem(itemId, quantity),
+    mutationFn: ({ itemId, quantity, userId }: { itemId: string; quantity: number; userId: string }) =>
+      ImsIndentService.issueItem(itemId, quantity, userId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
       queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
       queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-department-stock'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-department-summaries'] });
     },
   });
 }

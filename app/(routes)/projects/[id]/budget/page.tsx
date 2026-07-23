@@ -15,7 +15,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F6.
  */
 
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -30,6 +30,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, IndianRupee, GitBranch } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useBudgetLines, useBudgetChanges, useBudgetCategories } from '@/hooks/projects/use-budget';
 import { BudgetSummary } from '@/components/projects/budget/budget-summary';
 import { BudgetTable } from '@/components/projects/budget/budget-table';
@@ -37,7 +38,9 @@ import { BudgetChangesList } from '@/components/projects/budget/budget-changes-l
 
 type BudgetTab = 'lines' | 'changes';
 
-export default function ProjectBudgetPage() {
+const BUDGET_TABS = ['lines', 'changes'] as const;
+
+function ProjectBudgetPageInner() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id ?? '';
 
@@ -46,7 +49,7 @@ export default function ProjectBudgetPage() {
   const { data: changes = [], isLoading: changesLoading } = useBudgetChanges(projectId);
   const { data: categories = [] } = useBudgetCategories();
 
-  const [tab, setTab] = useState<BudgetTab>('lines');
+  const [tab, setTab] = useTabParam<BudgetTab>('lines', BUDGET_TABS);
 
   const projectTitle = project?.title ?? 'Project';
   const isLoading = projectLoading || linesLoading;
@@ -142,5 +145,14 @@ export default function ProjectBudgetPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ProjectBudgetPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectBudgetPageInner />
+    </Suspense>
   );
 }

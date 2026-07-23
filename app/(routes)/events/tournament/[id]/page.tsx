@@ -27,7 +27,6 @@ import {
 } from '@/components/ui/select';
 import {
   Loader2,
-  Plus,
   Trophy,
   Calendar,
   MapPin,
@@ -40,6 +39,7 @@ import {
   Building2,
   ExternalLink,
   Copy,
+  Pencil,
   Layers,
   Swords,
   Wallet,
@@ -54,7 +54,11 @@ import {
   useUpdateTournamentStatus,
 } from '@/hooks/events/use-tournaments';
 import type { EventStatus } from '@/types/events';
-import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
+import {
+  TOURNAMENT_ACTIVE_STATUS,
+  isTournamentActive,
+  tournamentStatusLabel,
+} from '@/types/tournament';
 import {
   useTournamentEntries,
   useMarkEntryPaid,
@@ -64,10 +68,12 @@ import {
 import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import { TEAM_SPORTS } from '@/types/health-sports';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
-import { AddEntryDialog } from './_components/add-entry-dialog';
 import { DivisionFixtures } from './_components/fixtures-section';
 import { InchargePanel } from './_components/incharge-panel';
-import { RegistrationFormBuilder } from './_components/registration-form-builder';
+import { RegistrationFormCard } from './_components/registration-form-card';
+import { DivisionFeeBadge } from './_components/division-fee-badge';
+// Reuses the list page's dialog — one editor, so the two entry points can't drift.
+import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -98,18 +104,11 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge className={map[status] ?? 'bg-gray-100 text-gray-600'}>{status}</Badge>;
 }
 
-const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
-  draft: 'Draft',
-  planning: 'Planning',
-  preparation: 'Preparation',
-  execution: 'Execution',
-  live: 'Live',
-  post_event: 'Post Event',
-  archived: 'Archived',
-  cancelled: 'Cancelled',
-};
-
-/** Status badge + transition dropdown (mirror of marathon's EventStatusControl). */
+/**
+ * Draft <-> Active. Tournaments run a 2-state model (see TOURNAMENT_STATUS_* in
+ * types/tournament.ts): Draft closes public registration, Active opens it. The
+ * shared 8-state event lifecycle is never offered here.
+ */
 function TournamentStatusControl({
   eventId,
   status,
@@ -120,34 +119,38 @@ function TournamentStatusControl({
   canManage: boolean;
 }) {
   const updateStatus = useUpdateTournamentStatus();
-  const allowedTransitions = canManage ? EVENT_STATUS_TRANSITIONS[status] ?? [] : [];
+  const active = isTournamentActive(status);
+  const target: EventStatus = active ? 'draft' : TOURNAMENT_ACTIVE_STATUS;
 
   return (
     <div className="flex items-center gap-2">
-      <Badge variant="outline" className="text-[10px] uppercase">
-        {EVENT_STATUS_LABELS[status] ?? status}
-        {status === 'live' && (
-          <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
+      <Badge
+        variant="outline"
+        className={`text-[10px] uppercase ${
+          active ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400' : ''
+        }`}
+      >
+        {tournamentStatusLabel(status)}
+        {active && (
+          <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
         )}
       </Badge>
-      {allowedTransitions.length > 0 && (
-        <Select
-          onValueChange={(newStatus) =>
-            updateStatus.mutate({ id: eventId, status: newStatus as EventStatus })
-          }
+      {canManage && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
           disabled={updateStatus.isPending}
+          onClick={() => updateStatus.mutate({ id: eventId, status: target })}
+          title={
+            active
+              ? 'Close public registration and hide this tournament from learners'
+              : 'Open this tournament for public registration'
+          }
         >
-          <SelectTrigger className="h-7 w-[140px] text-xs">
-            <SelectValue placeholder="Change status…" />
-          </SelectTrigger>
-          <SelectContent>
-            {allowedTransitions.map((s) => (
-              <SelectItem key={s} value={s}>
-                → {EVENT_STATUS_LABELS[s] ?? s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+          {active ? 'Move to Draft' : 'Make Active'}
+        </Button>
       )}
     </div>
   );
@@ -309,8 +312,7 @@ export default function TournamentManagePage() {
   const withdraw = useWithdrawEntry(id);
   const payLink = useGeneratePaymentLink(id);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogDivision, setDialogDivision] = useState<string | undefined>(undefined);
+  const [editOpen, setEditOpen] = useState(false);
   const [rzp, setRzp] = useState<{
     orderId: string;
     keyId: string;
@@ -371,7 +373,7 @@ export default function TournamentManagePage() {
     return { active: active.length, payment, played, totalMatches: matches.length, divisionRows };
   }, [entries, matches, divisions, entriesByDivision]);
 
-  if (loadingT) {
+  if (loadingT || access.isLoading) {
     return (
       <ContentLayout title="Tournament">
         <div className="flex h-64 items-center justify-center">
@@ -387,6 +389,27 @@ export default function TournamentManagePage() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             Tournament not found, or you don&apos;t have access to it.
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
+
+  // PER-EVENT authorization (2026-07-21). RoutePermissionGuard's fallbackCheck admits
+  // anyone holding a role on ANY tournament (fn_has_any_tournament_role), so entering
+  // the subtree does NOT imply access to THIS tournament. access.canView was computed
+  // for exactly this but never enforced — so an in-charge of tournament A could open
+  // tournament B and read its EventLogistics (sponsors ₹, budget, committees,
+  // incidents) and every entrant's payment status, all rendered read-only but visible.
+  // RLS does not cover this: event_sponsors / event_budget_items are readable far more
+  // broadly than the tournament access model implies.
+  if (!access.canView) {
+    return (
+      <ContentLayout title="Tournament">
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            You don&apos;t have access to this tournament. Ask a sports coordinator to add
+            you as an in-charge or committee member.
           </CardContent>
         </Card>
       </ContentLayout>
@@ -509,6 +532,11 @@ export default function TournamentManagePage() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {canManage && (
+                  <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                    <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -554,8 +582,8 @@ export default function TournamentManagePage() {
         canAssign={access.canAssignIncharge}
       />
 
-      {/* ── Registration Form builder ────────────────────────────────────── */}
-      <RegistrationFormBuilder eventId={id} canManage={canManage} />
+      {/* ── Registration form (builder lives on its own page) ─────────────── */}
+      <RegistrationFormCard eventId={id} canManage={canManage} />
 
       {/* ── KPI row ─────────────────────────────────────────────────────── */}
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -613,7 +641,8 @@ export default function TournamentManagePage() {
       {divisions.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            No divisions yet. Add divisions from the tournament edit screen, then register entries here.
+            No divisions yet. Divisions are set up when a tournament is created; use Edit above to
+            change one. Learners then register themselves through the public registration link.
           </CardContent>
         </Card>
       ) : (
@@ -640,17 +669,9 @@ export default function TournamentManagePage() {
                       {d.format.replace('_', ' ')}
                     </Badge>
                   </CardTitle>
-                  {canManage && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setDialogDivision(d.id);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Plus className="mr-1 h-3.5 w-3.5" /> Add Entry
-                    </Button>
-                  )}
+                  {/* Entry fee lives on the division, not the registration form —
+                      surfaced here so pricing is visible/editable where organizers work. */}
+                  <DivisionFeeBadge division={d} eventId={id} canManage={canManage} />
                 </CardHeader>
                 <CardContent className="pt-0">
                   {loadingE ? (
@@ -758,12 +779,13 @@ export default function TournamentManagePage() {
         canEditTasks={canManage || access.isTaskOnly}
       />
 
-      <AddEntryDialog
-        eventId={id}
-        divisions={divisions}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        defaultDivisionId={dialogDivision}
+      {/* onSaved is a no-op: useUpdateTournament/useUpdateDivision already
+          invalidate this page's detail query. */}
+      <EditTournamentDialog
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        tournament={tournament}
+        onSaved={() => {}}
       />
     </ContentLayout>
   );

@@ -340,12 +340,14 @@ export class HRDashboardService {
     supabase: SupabaseClient,
     hrOrgId: string | null
   ): Promise<DashboardKPI[]> {
-    // Active leave types — unified catalog with scope='staff' (per PR #182 unification).
-    const { count: leaveTypeCount, error: ltErr } = await supabase
-      .from('leave_types')
+    // Active leave types — staff catalog lives in hr_leave_types (Task 1 split
+    // it out of the shared leave_types table; that table has no scope column).
+    let leaveTypes = supabase
+      .from('hr_leave_types')
       .select('id', { count: 'exact', head: true })
-      .eq('scope', 'staff')
       .eq('is_active', true);
+    if (hrOrgId) leaveTypes = leaveTypes.eq('hr_organization_id', hrOrgId);
+    const { count: leaveTypeCount, error: ltErr } = await leaveTypes;
     if (ltErr) throw ltErr;
 
     // Active approval flows

@@ -34,6 +34,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProgramResponses } from '@/hooks/health/use-wellness-programs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   FIELD_TYPE_LABELS,
   normalizeForm,
@@ -265,10 +266,13 @@ function IndividualView({
   );
 }
 
+const RESPONSES_TABS = ['summary', 'individual'] as const;
+
 export function ResponsesViewer({ programId }: ResponsesViewerProps) {
   const router = useRouter();
   const { data, isLoading, error } = useProgramResponses(programId);
   const [activeDayId, setActiveDayId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useTabParam('summary', RESPONSES_TABS);
 
   // Group response rows under the day they belong to, keeping day order.
   const daysWithResponses = useMemo(() => {
@@ -410,7 +414,7 @@ export function ResponsesViewer({ programId }: ResponsesViewerProps) {
       </div>
 
       {/* Summary / Individual tabs */}
-      <Tabs defaultValue="summary" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="summary" className="gap-1.5">
             <BarChart3 className="h-4 w-4" />

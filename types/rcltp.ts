@@ -678,3 +678,108 @@ export interface UpdateRcltpQuestionReviewDto {
   reviewed_at?: string | null;
   ai_meta?: Json | null;
 }
+
+// ---------------------------------------------------------------------------
+// 7. SCHOOL-HEAD (PRINCIPAL) DASHBOARD — fn_rcltp_school_dashboard RPC (Phase 4e)
+//    Read-only aggregate for /rcltp/principal. Every array below is EMPTY until
+//    EKSAQ scoring produces rcltp_assessment_results rows. `provisional` is
+//    always `true` today (no validated composite-score formula exists yet) —
+//    callers MUST render a "Provisional — pending EKSAQ validation" banner
+//    whenever any array is non-empty. Shape is hand-written (not generated)
+//    per the file-header convention above: the RPC is not in types/supabase.ts.
+// ---------------------------------------------------------------------------
+
+/** One row of `bandDistribution` — learner count per proficiency band. */
+export interface RcltpBandDistRow {
+  band: RcltpBand;
+  count: number;
+}
+
+/** One row of `cycleProgress` — average overall score per assessment cycle. */
+export interface RcltpCycleRow {
+  cycle: number;
+  avgOverall: number;
+  count: number;
+}
+
+/** One row of `atRisk` — a learner flagged for additional reading support. */
+export interface RcltpAtRiskRow {
+  learnerId: string;
+  name: string;
+  roll: string;
+  band: RcltpBand;
+  overall: number;
+  reason: 'low_band' | 'regression' | 'other';
+}
+
+/** One row of `sectionComparison` — average overall score per class/section. */
+export interface RcltpSectionRow {
+  sectionId: string;
+  section: string;
+  grade: number;
+  avgOverall: number;
+  count: number;
+}
+
+/** Full return shape of `fn_rcltp_school_dashboard(p_institution_id)`. */
+export interface RcltpSchoolDashboard {
+  provisional: boolean;
+  totals: {
+    scoredSittings: number;
+    learners: number;
+  };
+  bandDistribution: RcltpBandDistRow[];
+  cycleProgress: RcltpCycleRow[];
+  atRisk: RcltpAtRiskRow[];
+  sectionComparison: RcltpSectionRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Remedial-plan draft loop — the AI-drafted, Senior-Learner-approved remedial
+// reading plan for an at-risk learner (shared by the server generator and the
+// client review UI; keep the shape single-sourced here).
+// ---------------------------------------------------------------------------
+
+/** One focus area — a comprehension skill to strengthen, tied to the learner's data. */
+export interface RcltpRemedialFocusArea {
+  area: string;
+  why: string;
+}
+
+/** One remedial activity a Senior Learner runs one-on-one with the learner. */
+export interface RcltpRemedialActivity {
+  title: string;
+  detail: string;
+  cadence: string;
+}
+
+/** The plan content stored in `ai_draft` (and, once edited, `edited_content`). */
+export interface RcltpRemedialPlanDraft {
+  summary: string;
+  focus_areas: RcltpRemedialFocusArea[];
+  activities: RcltpRemedialActivity[];
+  target_band: string;
+}
+
+export type RcltpRemedialPlanStatus = 'queued' | 'draft' | 'approved' | 'archived';
+
+/** One `rcltp_remedial_plans` row. */
+export interface RcltpRemedialPlan {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  assessment_id: string | null;
+  cycle_no: number | null;
+  trigger_reason: 'low_band' | 'regression';
+  band_at_trigger: string | null;
+  overall_at_trigger: number | null;
+  ai_draft: RcltpRemedialPlanDraft | null;
+  ai_model: string | null;
+  ai_generated_at: string | null;
+  edited_content: RcltpRemedialPlanDraft | null;
+  status: RcltpRemedialPlanStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

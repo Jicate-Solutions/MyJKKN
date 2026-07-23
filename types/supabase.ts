@@ -15508,6 +15508,7 @@ export type Database = {
           department_id: string | null
           description: string
           display_id: string | null
+          duplicate_of: string | null
           id: string
           institution_id: string | null
           metadata: Json | null
@@ -15534,6 +15535,7 @@ export type Database = {
           department_id?: string | null
           description: string
           display_id?: string | null
+          duplicate_of?: string | null
           id?: string
           institution_id?: string | null
           metadata?: Json | null
@@ -15560,6 +15562,7 @@ export type Database = {
           department_id?: string | null
           description?: string
           display_id?: string | null
+          duplicate_of?: string | null
           id?: string
           institution_id?: string | null
           metadata?: Json | null
@@ -42325,6 +42328,135 @@ export type Database = {
             columns: ["leave_type_id"]
             isOneToOne: false
             referencedRelation: "leave_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_leave_types: {
+        Row: {
+          accrual_rate: number
+          accrual_type: string
+          allow_carry_forward: boolean
+          allow_half_day: boolean
+          allow_hourly: boolean
+          applicable_cadre_ids: string[] | null
+          applicable_gender: string
+          color_code: string
+          created_at: string
+          created_by: string | null
+          default_entitled_days: number
+          description: string | null
+          display_order: number
+          document_required_after_days: number | null
+          duration_type: string
+          hr_organization_id: string
+          id: string
+          is_active: boolean
+          is_encashable: boolean
+          is_paid: boolean
+          leave_type_code: string
+          leave_type_name: string
+          max_carry_forward_days: number | null
+          max_continuous_days: number | null
+          max_encashable_days: number | null
+          min_advance_notice_days: number
+          requires_approval: boolean
+          requires_documents: boolean
+          skip_holidays: boolean
+          skip_weekends: boolean
+          superseded_by: string | null
+          updated_at: string
+          updated_by: string | null
+          valid_from: string
+          valid_until: string | null
+        }
+        Insert: {
+          accrual_rate?: number
+          accrual_type?: string
+          allow_carry_forward?: boolean
+          allow_half_day?: boolean
+          allow_hourly?: boolean
+          applicable_cadre_ids?: string[] | null
+          applicable_gender?: string
+          color_code?: string
+          created_at?: string
+          created_by?: string | null
+          default_entitled_days?: number
+          description?: string | null
+          display_order?: number
+          document_required_after_days?: number | null
+          duration_type?: string
+          hr_organization_id: string
+          id?: string
+          is_active?: boolean
+          is_encashable?: boolean
+          is_paid?: boolean
+          leave_type_code: string
+          leave_type_name: string
+          max_carry_forward_days?: number | null
+          max_continuous_days?: number | null
+          max_encashable_days?: number | null
+          min_advance_notice_days?: number
+          requires_approval?: boolean
+          requires_documents?: boolean
+          skip_holidays?: boolean
+          skip_weekends?: boolean
+          superseded_by?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Update: {
+          accrual_rate?: number
+          accrual_type?: string
+          allow_carry_forward?: boolean
+          allow_half_day?: boolean
+          allow_hourly?: boolean
+          applicable_cadre_ids?: string[] | null
+          applicable_gender?: string
+          color_code?: string
+          created_at?: string
+          created_by?: string | null
+          default_entitled_days?: number
+          description?: string | null
+          display_order?: number
+          document_required_after_days?: number | null
+          duration_type?: string
+          hr_organization_id?: string
+          id?: string
+          is_active?: boolean
+          is_encashable?: boolean
+          is_paid?: boolean
+          leave_type_code?: string
+          leave_type_name?: string
+          max_carry_forward_days?: number | null
+          max_continuous_days?: number | null
+          max_encashable_days?: number | null
+          min_advance_notice_days?: number
+          requires_approval?: boolean
+          requires_documents?: boolean
+          skip_holidays?: boolean
+          skip_weekends?: boolean
+          superseded_by?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_types_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: false
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_types_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "hr_leave_types"
             referencedColumns: ["id"]
           },
         ]
@@ -69163,6 +69295,63 @@ export type Database = {
         }
         Relationships: []
       }
+      pde_at_risk_log: {
+        Row: {
+          avg_score: number | null
+          course_id: string | null
+          created_at: string
+          days_inactive: number | null
+          flag_date: string
+          flagged_at: string
+          id: string
+          institution_id: string
+          learner_id: string
+          metric_snapshot: Json
+          risk_level: string
+        }
+        Insert: {
+          avg_score?: number | null
+          course_id?: string | null
+          created_at?: string
+          days_inactive?: number | null
+          flag_date?: string
+          flagged_at?: string
+          id?: string
+          institution_id: string
+          learner_id: string
+          metric_snapshot?: Json
+          risk_level: string
+        }
+        Update: {
+          avg_score?: number | null
+          course_id?: string | null
+          created_at?: string
+          days_inactive?: number | null
+          flag_date?: string
+          flagged_at?: string
+          id?: string
+          institution_id?: string
+          learner_id?: string
+          metric_snapshot?: Json
+          risk_level?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pde_at_risk_log_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pde_at_risk_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pde_bridge_audit: {
         Row: {
           category_key: string | null
@@ -95192,6 +95381,7 @@ export type Database = {
       user_notifications: {
         Row: {
           acknowledged_at: string | null
+          archived_at: string | null
           created_at: string
           escalated_at: string | null
           escalation_level: number | null
@@ -95202,6 +95392,7 @@ export type Database = {
         }
         Insert: {
           acknowledged_at?: string | null
+          archived_at?: string | null
           created_at?: string
           escalated_at?: string | null
           escalation_level?: number | null
@@ -95212,6 +95403,7 @@ export type Database = {
         }
         Update: {
           acknowledged_at?: string | null
+          archived_at?: string | null
           created_at?: string
           escalated_at?: string | null
           escalation_level?: number | null
@@ -99145,6 +99337,9 @@ export type Database = {
           department_name: string | null
           description: string | null
           display_id: string | null
+          duplicate_count: number | null
+          duplicate_of: string | null
+          duplicate_of_display_id: string | null
           id: string | null
           institution_id: string | null
           institution_name: string | null
@@ -99614,112 +99809,6 @@ export type Database = {
             columns: ["evaluator_profile_id"]
             isOneToOne: false
             referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_leave_types: {
-        Row: {
-          allow_half_day: boolean | null
-          allow_hourly: boolean | null
-          code: string | null
-          created_at: string | null
-          created_by: string | null
-          default_entitled_days: number | null
-          description: string | null
-          display_order: number | null
-          document_required_after_days: number | null
-          duration_type: string | null
-          hr_organization_id: string | null
-          id: string | null
-          is_active: boolean | null
-          is_paid: boolean | null
-          max_continuous_days: number | null
-          min_advance_notice_days: number | null
-          name: string | null
-          requires_documents: boolean | null
-          skip_holidays: boolean | null
-          skip_weekends: boolean | null
-          superseded_by: string | null
-          updated_at: string | null
-          updated_by: string | null
-          valid_from: string | null
-          valid_until: string | null
-        }
-        Insert: {
-          allow_half_day?: boolean | null
-          allow_hourly?: boolean | null
-          code?: string | null
-          created_at?: string | null
-          created_by?: string | null
-          default_entitled_days?: number | null
-          description?: string | null
-          display_order?: number | null
-          document_required_after_days?: number | null
-          duration_type?: string | null
-          hr_organization_id?: string | null
-          id?: string | null
-          is_active?: boolean | null
-          is_paid?: boolean | null
-          max_continuous_days?: number | null
-          min_advance_notice_days?: number | null
-          name?: string | null
-          requires_documents?: boolean | null
-          skip_holidays?: boolean | null
-          skip_weekends?: boolean | null
-          superseded_by?: string | null
-          updated_at?: string | null
-          updated_by?: string | null
-          valid_from?: string | null
-          valid_until?: string | null
-        }
-        Update: {
-          allow_half_day?: boolean | null
-          allow_hourly?: boolean | null
-          code?: string | null
-          created_at?: string | null
-          created_by?: string | null
-          default_entitled_days?: number | null
-          description?: string | null
-          display_order?: number | null
-          document_required_after_days?: number | null
-          duration_type?: string | null
-          hr_organization_id?: string | null
-          id?: string | null
-          is_active?: boolean | null
-          is_paid?: boolean | null
-          max_continuous_days?: number | null
-          min_advance_notice_days?: number | null
-          name?: string | null
-          requires_documents?: boolean | null
-          skip_holidays?: boolean | null
-          skip_weekends?: boolean | null
-          superseded_by?: string | null
-          updated_at?: string | null
-          updated_by?: string | null
-          valid_from?: string | null
-          valid_until?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "leave_types_hr_organization_id_fkey"
-            columns: ["hr_organization_id"]
-            isOneToOne: false
-            referencedRelation: "hr_organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "leave_types_superseded_by_fkey"
-            columns: ["superseded_by"]
-            isOneToOne: false
-            referencedRelation: "hr_leave_types"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "leave_types_superseded_by_fkey"
-            columns: ["superseded_by"]
-            isOneToOne: false
-            referencedRelation: "leave_types"
             referencedColumns: ["id"]
           },
         ]
@@ -100349,6 +100438,29 @@ export type Database = {
             columns: ["course_id"]
             isOneToOne: false
             referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pde_at_risk_history: {
+        Row: {
+          days_since_first_flag: number | null
+          first_flag_date: string | null
+          first_flagged_at: string | null
+          flag_count: number | null
+          institution_id: string | null
+          is_currently_flagged: boolean | null
+          last_flag_date: string | null
+          last_flagged_at: string | null
+          learner_id: string | null
+          worst_risk_level: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pde_at_risk_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
             referencedColumns: ["id"]
           },
         ]
@@ -101582,6 +101694,18 @@ export type Database = {
       }
     }
     Functions: {
+      fn_notifications_unique_users_reached: {
+        Args: never
+        Returns: number
+      }
+      fn_notification_compliance_rollup: {
+        Args: never
+        Returns: Json
+      }
+      resolve_audience_preview: {
+        Args: { p_query_type: string; p_query_params: Json }
+        Returns: Json
+      }
       fn_vsr_create_share_token: {
         Args: { p_label?: string }
         Returns: Json

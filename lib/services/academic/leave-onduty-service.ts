@@ -719,17 +719,49 @@ export class LeaveOndutyService {
     // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
     // academic chain is seeded after sponsor approves (see processSponsorApproval).
     if (!requiresSponsor) {
-      const { data: flow } = await supabase
-        .from('leave_onduty_approval_flows')
-        .select('flow_steps')
-        .eq('institution_id', institutionId)
-        .eq('category', data.category)
-        .eq('sub_category', data.sub_category)
-        .eq('is_active', true)
-        .or(`department_id.is.null,department_id.eq.${learner.department_id}`)
-        .order('department_id', { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle();
+      // Resolve the flow through the SAME RPC the approval path uses
+      // (leave-onduty-approval-service.ts:70 and :366). Do not reintroduce an
+      // inline query here — apply-time and approve-time MUST resolve the
+      // identical flow or applications seed against one and get judged against
+      // another.
+      //
+      // The previous inline query filtered `.eq('category', data.category)`
+      // and `.eq('sub_category', data.sub_category)`, which could never match
+      // the 155 flows stored as category='all' with sub_category IS NULL. Two
+      // separate reasons it failed: 'onduty' != 'all', and PostgREST emits
+      // `sub_category=eq.null` for a null argument, which never matches SQL
+      // NULL (that needs `is.null`). Result: 54 of 60 live applications were
+      // seeded with zero approver rows and sat pending with nobody able to act
+      // — a silent failure, since a missing flow produced an empty steps array
+      // rather than an error. The RPC implements the specificity ladder and
+      // handles both the 'all' fallback and NULL sub_category correctly.
+      //
+      // OVERLOAD WARNING: two overloads exist — this 5-arg one and a 7-arg
+      // variant adding degree/program. Both `RETURNS leave_onduty_approval_flows`
+      // (a composite row, so PostgREST yields a single object, not an array).
+      // The approval path calls the 5-arg overload; calling the 7-arg one here
+      // would resolve a *more specific* flow than approve-time and recreate the
+      // very mismatch this fix removes.
+      const { data: flow, error: flowError } = await supabase.rpc(
+        'get_applicable_approval_flow',
+        {
+          p_institution_id: institutionId,
+          p_department_id: learner.department_id,
+          p_semester_id: learner.semester_id,
+          p_category: data.category,
+          p_sub_category: data.sub_category,
+        }
+      );
+
+      if (flowError) {
+        // Don't fail the submission — the application is already inserted and
+        // an admin can seed approvals later. But never swallow this: an
+        // unlogged failure here is exactly how 54 applications went missing.
+        console.error(
+          '[leave-onduty] approval-flow resolution failed; application will have no approvers',
+          { applicationId: application.id, error: flowError }
+        );
+      }
 
       const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
 
@@ -1587,16 +1619,27 @@ export class LeaveOndutyService {
         .filter(Boolean)
     )];
 
-    // Batch fetch period details (period_name, start_time, end_time, + clinic metadata).
-    // BUG-003208: period_mode and practical_config are required so the UI can
-    // render clinic posting blocks correctly; they were previously omitted.
+    // Batch fetch period details (period_name, start_time, end_time).
+    // NOTE: do NOT add period_mode / practical_config here — those columns live
+    // on the timetable slot, not on `periods`. Requesting them made Postgres
+    // reject the whole statement (42703), which left every period unenriched
+    // with an empty start_time, so forenoon/afternoon silently resolved to zero
+    // periods. The clinic metadata the UI needs already arrives via `...slot`.
     const { data: periodsData, error: periodsError } = await supabase
       .from('periods')
-      .select('id, period_name, start_time, end_time, is_break, period_mode, practical_config')
+      .select('id, period_name, start_time, end_time, is_break')
       .in('id', allPeriodIds);
 
+    // Enrichment is not optional: start_time drives forenoon/afternoon
+    // selection, so proceeding with unenriched periods would silently produce
+    // an application with no periods attached. Fail loudly instead.
     if (periodsError) {
-      console.warn('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+      console.error('[LeaveOndutyService.getPeriodsForDate] Error fetching periods:', periodsError);
+      return {
+        valid: false,
+        periods: [],
+        error: 'Could not load period details for this date. Please try again or contact administrator.',
+      };
     }
 
     // Batch fetch course details (course_name, course_code)

@@ -1,10 +1,11 @@
 'use client';
 
+import { Suspense } from 'react';
 import { SheetMenu } from './sheet-menu';
 import { Button } from '../ui/button';
 import { LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
@@ -18,6 +19,42 @@ import { adaptLabel } from '@/lib/utils/school-label-adapter';
 
 interface NavbarProps {
   title?: string;
+}
+
+/**
+ * Tab-aware favorite star. When the current URL carries a `?tab=` param
+ * (URL-driven tab pages), the star favorites that specific tab —
+ * path includes the query string, title gets the tab label appended
+ * (e.g. "Permissions Audit · Resolver"). Without a tab param it behaves
+ * exactly as before (page-level favorite).
+ *
+ * Isolated in its own component because useSearchParams() requires a
+ * <Suspense> boundary to not block static prerendering of every route.
+ */
+function TabAwareFavoriteStar({ pathname }: { pathname: string }) {
+  const searchParams = useSearchParams();
+  const tab = searchParams.get('tab');
+
+  const page = (() => {
+    try {
+      return derivePageInfo(pathname, tab);
+    } catch {
+      return null;
+    }
+  })();
+
+  if (!page) return null;
+
+  return (
+    <FavoriteStar
+      pagePath={page.path}
+      pageTitle={page.title}
+      module={page.module}
+      iconName={page.iconName}
+      size='sm'
+      showLabel
+    />
+  );
 }
 
 export function Navbar({ title }: NavbarProps) {
@@ -55,13 +92,20 @@ export function Navbar({ title }: NavbarProps) {
           <SheetMenu />
           <h1 className='font-bold text-foreground text-sm sm:text-base truncate max-w-[180px] sm:max-w-[300px] md:max-w-none'>{resolvedTitle}</h1>
           {currentPage && (
-            <FavoriteStar
-              pagePath={currentPage.path}
-              pageTitle={currentPage.title}
-              module={currentPage.module}
-              iconName={currentPage.iconName}
-              size="sm"
-            />
+            <Suspense
+              fallback={
+                <FavoriteStar
+                  pagePath={currentPage.path}
+                  pageTitle={currentPage.title}
+                  module={currentPage.module}
+                  iconName={currentPage.iconName}
+                  size='sm'
+                  showLabel
+                />
+              }
+            >
+              <TabAwareFavoriteStar pathname={pathname} />
+            </Suspense>
           )}
         </div>
         <div className='flex items-center justify-between space-x-4'>

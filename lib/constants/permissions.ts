@@ -162,6 +162,20 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // MBA teaching-enterprise: Management Associates file improvement ideas about
+    // JKKN's own operations; facilitators + CEO office review/approve; only staff
+    // (board.manage) can mark a fix applied/verified (propose-only enforced in DB).
+    name: 'Improvement Board',
+    key: 'improvement',
+    permissions: [
+      { key: 'improvement.ideas.view', label: 'View Improvement Board' },
+      { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
+      { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
+      { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
+      { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [
@@ -406,7 +420,11 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    name: 'Employee Management',
+    // Display name only — the audit gate (lib/permissions-audit/module-mappings.ts
+    // deriveCategoryKey) matches on `key`, never on `name`, so this is safe to
+    // retitle. Renamed 'Employee Management' → 'Employee' 2026-07-20 to match
+    // the sidebar row.
+    name: 'Employee',
     key: 'staff',
     permissions: [
       { key: 'staff.dashboard.view', label: 'View Employee Analytics Dashboard' },
@@ -532,6 +550,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.batches.create', label: 'Create Batches' },
       { key: 'academic.batches.edit', label: 'Edit Batches' },
       { key: 'academic.batches.delete', label: 'Delete Batches' },
+      // IA Question Papers (CIA question-paper scaffolding + authoring; COE-backed)
+      { key: 'academic.ia_question_paper.view', label: 'View Question Papers' },
+      { key: 'academic.ia_question_paper.enter', label: 'Generate/Author Question Papers' },
+      { key: 'academic.ia_question_paper.approve', label: 'Submit/Approve/Lock Question Papers' },
+      { key: 'academic.ia_question_paper.export', label: 'Export Question Paper PDF' },
       // Internal Marks (CIA)
       { key: 'academic.internal-marks.view', label: 'View Internal Marks' },
       { key: 'academic.internal-marks.edit', label: 'Enter/Edit Internal Marks' },
@@ -656,6 +679,10 @@ export const PERMISSION_CATEGORIES = [
     name: 'HR Management',
     key: 'hr',
     permissions: [
+      // Module gate — value behind '/hr' in lib/sidebarMenuLink.ts. Declared
+      // here (2026-07-16) so Role Management can toggle it; previously a
+      // reserved key only hr_admin held.
+      { key: 'hr.view', label: 'Access HR Module' },
       // Recruitment (Phase 1A+1B shipped 2026-04-15) —
       // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
       { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
@@ -663,10 +690,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.edit', label: 'Edit Recruitment Candidates' },
       { key: 'hr.recruitment.delete', label: 'Delete Recruitment Candidates' },
       { key: 'hr.recruitment.approve', label: 'Approve Recruitment Candidates' },
+      // Override: act as any approver on a candidate's approval chain step
+      // (hr_head / hr_admin / coo). Enforced in RecruitmentService.approveCandidate.
+      { key: 'hr.recruitment.approve.override', label: 'Override Recruitment Approval Step' },
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
-      // Leave (Sprint 2) — RLS keys referenced in hr_leave_* policies
+      // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
+      // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
+      // this comment was aspirational: the policies gated on user_hr_access +
+      // hardcoded 'hr_officer'/'hr_director' strings and no policy called
+      // user_has_permission(), so granting these keys changed nothing.
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
@@ -675,6 +709,38 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
       { key: 'hr.leave.encashment.view', label: 'View Leave Encashment Requests' },
       { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
+      { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
+      { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
+
+      // ── Employee Self Service (2026-07-21) ───────────────────────────────
+      // Gates for the "Employee Self Service" sidebar group. Every key here
+      // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
+      // app/(routes)/hr/layout.tsx wraps the whole subtree in
+      // RoutePermissionGuard, which resolves by LONGEST PREFIX, so any /hr/*
+      // page lacking its own entry silently inherits '/hr' → 'hr.view' — held
+      // by 2 of 75 roles. A key declared here without a menu entry does
+      // nothing at all; the page stays blocked.
+      //
+      // Naming follows the `.view_own` convention (~14 existing keys, the
+      // largest of six competing self-service conventions in this file). Do
+      // not introduce a seventh.
+      //
+      // hr.attendance.view_self / regularize_self are NOT new — 22 roles have
+      // carried them in custom_roles.permissions since the attendance sprint,
+      // and the code already gates on them. They were simply never declared
+      // here, so Role Management could not show them and the audit gate could
+      // not see them. Declaring them is a catalog fix, not a grant.
+      { key: 'hr.attendance.view_self', label: 'View Own Attendance' },
+      { key: 'hr.attendance.regularize_self', label: 'Request Own Attendance Regularization' },
+      { key: 'hr.shifts.view_own', label: 'View Own Shifts and Swap Requests' },
+      { key: 'hr.assets.view_own', label: 'View Own Assigned Assets' },
+      { key: 'hr.memos.view_own', label: 'View Own Memos' },
+      { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },
+      { key: 'hr.promotion.apply_own', label: 'Apply for Own Promotion' },
+      { key: 'hr.training.view_own', label: 'View Own Training and Enroll' },
+      { key: 'hr.fdp.view_own', label: 'View Own FDP Applications' },
+      { key: 'hr.documents.view_own', label: 'Manage Own HR Documents' },
+      { key: 'hr.forms.submit_own', label: 'Submit HR Forms' },
       // Employees (Sprint 1) — HR employee directory
       { key: 'hr.employees.view', label: 'View Employee Directory' },
       { key: 'hr.employees.create', label: 'Add New Employees' },
@@ -2353,7 +2419,7 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
-  // rcltp.config.manage for /rcltp (EKSAQ reading-assessment module) but the
+  // rcltp.config.manage for /rcltp (MyJKKN reading-assessment module) but the
   // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
   // permissions-catalog gate on every open PR and hiding the toggle from the
   // Role-Management Edit dialog.
@@ -2431,6 +2497,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts' },
       { key: 'cohort.edit', label: 'Edit Cohorts' },
       { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
+    ]
+  },
+  {
+    // Added 2026-07-23 — ID Card substrate (Phase 1A). Keys referenced by RLS
+    // on id_card_templates / id_card_print_jobs and the student-photos storage
+    // bucket (migration 20260507150000_id_card_substrate.sql). Seeded to
+    // registrar + admission (admin keys) and student (my-cards.view) in the
+    // same migration; super_admin/admin bypass every policy.
+    name: 'ID Cards',
+    key: 'id_cards',
+    permissions: [
+      { key: 'id_cards.templates.view', label: 'View ID Card Templates' },
+      { key: 'id_cards.templates.create', label: 'Create ID Card Templates' },
+      { key: 'id_cards.templates.edit', label: 'Edit ID Card Templates' },
+      { key: 'id_cards.templates.delete', label: 'Delete ID Card Templates' },
+      { key: 'id_cards.jobs.view', label: 'View All ID Card Print Jobs' },
+      { key: 'id_cards.jobs.manage', label: 'Enqueue Print Jobs + Resolve Failures' },
+      { key: 'id_cards.my-cards.view', label: 'View My Own ID Card Status' }
     ]
   }
 ];

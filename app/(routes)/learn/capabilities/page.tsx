@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -13,6 +13,7 @@ import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { useCapabilities, useLearnerCapabilities } from '@/hooks/pde/use-pde';
 import { useAuth } from '@/hooks/use-auth';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Lock,
   Circle,
@@ -417,9 +418,14 @@ function TreeLegend() {
 // Main Page
 // ============================================
 
-export default function CapabilityTreePage() {
+const CAPABILITY_TABS = [
+  'ai_fluency', 'domain_ai', 'cross_functional', 'production',
+  'human_presence', 'principal', 'technical', 'professional',
+] as const;
+
+function CapabilityTreePageInner() {
   const { profile: user } = useAuth();
-  const [activeCategory, setActiveCategory] = useState<CapabilityCategory>('ai_fluency');
+  const [activeCategory, setActiveCategory] = useTabParam<CapabilityCategory>('ai_fluency', CAPABILITY_TABS);
 
   const { data: allCapabilities, isLoading: capsLoading } = useCapabilities();
   const { data: learnerCapabilities, isLoading: learnerCapsLoading } = useLearnerCapabilities(user?.id);
@@ -613,5 +619,14 @@ export default function CapabilityTreePage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function CapabilityTreePage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CapabilityTreePageInner />
+    </Suspense>
   );
 }

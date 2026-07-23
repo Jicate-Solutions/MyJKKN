@@ -83,7 +83,7 @@ const GLOBAL = '__global__';
 const ALL = '__all__';
 
 const AI_PROVENANCE =
-  'AI-drafted — NOT validated; requires educator/EKSAQ review before use with students';
+  'AI-drafted — NOT validated; requires educator/MyJKKN review before use with students';
 
 function statusBadge(status: RcltpPassageStatus) {
   if (status === 'approved')

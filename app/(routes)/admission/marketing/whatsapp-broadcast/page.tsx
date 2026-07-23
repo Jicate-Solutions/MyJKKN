@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { Suspense, useState, useCallback, useRef } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -487,11 +488,13 @@ function NewCampaignWizard({
 // Main Page
 // =============================================================================
 
+const WHATSAPP_BROADCAST_TABS = ['campaigns', 'new'] as const;
+
 function WhatsAppBroadcastContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
-  const [activeTab, setActiveTab] = useState('campaigns');
+  const [activeTab, setActiveTab] = useTabParam('campaigns', WHATSAPP_BROADCAST_TABS);
 
   const { campaigns, stats, isLoading, refetch } = useWhatsAppBroadcastCampaigns(institutionId);
   const { data: templates } = useApprovedTemplates(institutionId);
@@ -572,5 +575,10 @@ function WhatsAppBroadcastContent() {
 }
 
 export default function WhatsAppBroadcastPage() {
-  return <WhatsAppBroadcastContent />;
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <WhatsAppBroadcastContent />
+    </Suspense>
+  );
 }

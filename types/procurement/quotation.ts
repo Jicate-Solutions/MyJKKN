@@ -27,10 +27,17 @@ export interface ProcurementQuotationItem {
   id: string;
   quotation_id: string;
   rfq_item_id: string;
-  unit_price: number;
+  /** null means this vendor did not quote this item at all — never a fake/placeholder price. */
+  unit_price: number | null;
   quantity: number | null;
   delivery_time_days: number | null;
   remarks: string | null;
+  /** Structured "what this vendor is actually offering" — distinct from the RFQ's own item_spec (what was requested). */
+  manufacturer: string | null;
+  quality_grade: string | null;
+  /** Purity/strength offered — relevant for chemical items (see ProcurementRfqItem.is_chemical). */
+  concentration: string | null;
+  other_specs: string | null;
   awarded: boolean;
   created_at: string;
 }
@@ -41,10 +48,15 @@ export interface QuotationWithItems extends ProcurementQuotation {
 
 export interface CreateQuotationItemDto {
   rfq_item_id: string;
-  unit_price: number;
+  /** null means this vendor did not quote this item — do not substitute a placeholder price. */
+  unit_price: number | null;
   quantity?: number | null;
   delivery_time_days?: number | null;
   remarks?: string | null;
+  manufacturer?: string | null;
+  quality_grade?: string | null;
+  concentration?: string | null;
+  other_specs?: string | null;
 }
 
 export interface CreateQuotationDto {
@@ -68,8 +80,15 @@ export interface ComparisonQuote {
   quotation_item_id: string;
   supplier_id: string;
   supplier_name: string;
-  unit_price: number;
+  /** null means this vendor did not quote this item — excluded from the lowest-price calc, never awardable. */
+  unit_price: number | null;
+  /** Quantity THIS vendor is offering — may differ from the RFQ item's requested quantity. */
+  quantity: number | null;
   delivery_time_days: number | null;
+  manufacturer: string | null;
+  quality_grade: string | null;
+  concentration: string | null;
+  other_specs: string | null;
   awarded: boolean;
 }
 
@@ -80,6 +99,8 @@ export interface ComparisonRow {
   item_spec: string | null;
   quantity: number;
   unit_label: string | null;
+  /** Resolved live from the catalog (see ProcurementRfqItem.is_chemical) — gates the Concentration column. */
+  is_chemical: boolean;
   quotes: ComparisonQuote[];
   lowest_price: number | null;
 }

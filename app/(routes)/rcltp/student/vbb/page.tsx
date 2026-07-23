@@ -3,9 +3,9 @@
 // =============================================================================
 // /rcltp/student/vbb — Vocabulary Building Blocks SHELL (Phase 4b)
 // =============================================================================
-// The student-facing vocabulary surface. The 5,000-word VBB list is EKSAQ-gated
+// The student-facing vocabulary surface. The 5,000-word VBB list is MyJKKN-gated
 // content: until it lands, useRcltpVbbWords() returns an empty set and we render
-// an honest "word list coming soon (awaiting EKSAQ content)" shell — we NEVER
+// an honest "word list coming soon (awaiting MyJKKN content)" shell — we NEVER
 // invent words, definitions, or scores. When real words exist they're listed
 // simply (word + definition). Per-learner progress (useRcltpVbbProgress) is only
 // surfaced when real rows exist; we never fabricate a score or completion rate.
@@ -122,7 +122,7 @@ export default function RcltpStudentVbbPage() {
           </section>
         )}
 
-        {/* Word list (or honest EKSAQ-gated shell) */}
+        {/* Word list (or honest MyJKKN-gated shell) */}
         <section>
           <h2 className='mb-3 flex items-center gap-2 text-lg font-semibold'>
             <BookA className='h-5 w-5' aria-hidden='true' /> Word list

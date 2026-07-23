@@ -93,6 +93,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
           credit:             selected.credit,
           exam_duration:      selected.exam_duration,
           theory_hours:       selected.theory_hours,
+          tutorial_hours:     selected.tutorial_hours ?? 0,
           practical_hours:    selected.practical_hours,
           internal_max_mark:  selected.internal_max_mark,
           external_max_mark:  selected.external_max_mark,

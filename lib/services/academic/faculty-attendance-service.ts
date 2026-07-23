@@ -95,7 +95,11 @@ export class FacultyAttendanceService {
         .eq('id', staffId)
         .single()) as { data: StaffBasic | null; error: any };
 
-      if (staffError || !staffData) {
+      // A DB error here (e.g. statement timeout 57014) must NOT masquerade as
+      // "no classes" — throw so the caller can offer a Retry. A genuine
+      // staff-not-found (no error, no row) is a real empty result.
+      if (staffError) throw staffError;
+      if (!staffData) {
         logger.error('academic/faculty-attendance', 'Staff not found', staffError);
         return { periods: [], searchContext: {} };
       }
@@ -166,9 +170,13 @@ export class FacultyAttendanceService {
         .in('institution_id', teachingInstitutionIds)
         .eq('is_active', true)) as { data: TimetableWithRelations[] | null; error: any };
 
-      if (timetableError || !timetables || timetables.length === 0) {
+      // Distinguish a real fetch failure (throw → caller shows a Retry) from a
+      // legitimately empty timetable set (return empty → "No classes scheduled").
+      // Previously a statement timeout (57014) here was swallowed as "no classes",
+      // producing the false "no periods showing though I have class" reports.
+      if (timetableError) throw timetableError;
+      if (!timetables || timetables.length === 0) {
         logger.warn('academic/faculty-attendance', 'No timetables found', {
-          timetableError,
           timetablesLength: timetables?.length || 0
         });
         return { periods: [], searchContext: {} };
@@ -587,8 +595,12 @@ export class FacultyAttendanceService {
         searchContext
       };
     } catch (error) {
+      // Surface the failure instead of returning an empty schedule: an empty
+      // return is indistinguishable from a genuine "no classes today" and is what
+      // produced the false "No classes scheduled" reports under load/timeout. The
+      // caller (My Classes) catches this and offers a Retry.
       logger.error('academic/faculty-attendance', 'Error fetching faculty periods', error);
-      return { periods: [], searchContext: {} };
+      throw error;
     }
   }
 

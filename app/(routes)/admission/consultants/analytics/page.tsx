@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -348,12 +349,15 @@ function LiabilitySummary({
   );
 }
 
-export default function ConsultantAnalyticsPage() {
+const CONSULTANT_ANALYTICS_TABS = ['overview', 'performance', 'commissions'] as const;
+
+function ConsultantAnalyticsPageInner() {
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
   // super_admin has no institution_id but must see all data
   const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
   const [dateRange, setDateRange] = useState('30d');
+  const [activeTab, setActiveTab] = useTabParam('overview', CONSULTANT_ANALYTICS_TABS);
 
   // Fetch dashboard stats
   const {
@@ -503,7 +507,7 @@ export default function ConsultantAnalyticsPage() {
         </div>
 
         {/* Tabs for different views */}
-        <Tabs defaultValue="overview" className="mt-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
@@ -824,5 +828,14 @@ export default function ConsultantAnalyticsPage() {
         </Tabs>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+export default function ConsultantAnalyticsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ConsultantAnalyticsPageInner />
+    </Suspense>
   );
 }

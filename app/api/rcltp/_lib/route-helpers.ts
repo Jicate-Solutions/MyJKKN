@@ -1,12 +1,12 @@
 /**
- * EKSAQ RCLTP v2 "Adaptive Reading" — Phase 3 server-route helpers
+ * MyJKKN RCLTP v2 "Adaptive Reading" — Phase 3 server-route helpers
  * ============================================================================
  * The auth/ownership bridge shared by EVERY rcltp Phase-3 write route. The
  * consistency is the point — keep this the single place that decides:
  *   (1) which client does the privileged write (service-role, bypasses RLS),
  *   (2) how a STUDENT actor's learner_id is derived (NEVER from the body),
  *   (3) how a STAFF actor's institution access is asserted, and
- *   (4) the honest "awaiting EKSAQ content" response shape for gated bodies.
+ *   (4) the honest "awaiting MyJKKN content" response shape for gated bodies.
  *
  * WHY service-role here: students have NO write policy on any rcltp_ table
  * (migration §6). These routes are the ONLY student-affecting write path. The
@@ -68,6 +68,28 @@ export async function isPlatformAdmin(auth: AuthContext): Promise<boolean> {
 }
 
 /**
+ * STAFF-actor permission guard, evaluated under the CALLER'S session client (so
+ * the multi-role OR-merge + super-admin bypass in user_has_permission apply to
+ * the real actor, never a service-role bypass). Use this to gate a service-role
+ * write route on a specific RCLTP capability (e.g. rcltp.review) BEFORE the
+ * privileged client touches data. Fails closed on any RPC error.
+ */
+export async function actorHasPermission(
+  auth: AuthContext,
+  permissionKey: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await auth.supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    if (error) return false;
+    return Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * STAFF-actor institution guard. A teacher may only act within their own
  * institution; a super_admin/admin may act across tenants. The service-role
  * write bypasses RLS, so this manual check is the multi-tenant boundary.
@@ -102,21 +124,21 @@ export async function resolveLearnerInstitution(
 }
 
 /**
- * Honest gate for EKSAQ-content-dependent bodies (group B). The route + auth +
+ * Honest gate for MyJKKN-content-dependent bodies (group B). The route + auth +
  * plumbing are LIVE; the content-dependent logic (scoring formula, band
  * cutoffs, the question-gen prompt, VBB wordlist) is intentionally deferred so
  * nothing fabricates pedagogy. 501 = "endpoint exists, logic not implemented yet"
  * — distinct from a 500 error and from a 200 success, so monitoring reads it true.
  */
-export function eksaqGatedResponse(what: string, extra: Record<string, unknown> = {}) {
+export function pendingValidationResponse(what: string, extra: Record<string, unknown> = {}) {
   return NextResponse.json(
     {
       success: false,
       gated: true,
-      awaiting: 'eksaq_content',
+      awaiting: 'validation_content',
       what,
       message:
-        `RCLTP: "${what}" is awaiting EKSAQ content/spec. The route, auth gating, ` +
+        `RCLTP: "${what}" is awaiting MyJKKN content/spec. The route, auth gating, ` +
         `and service-role wiring are live; the content-dependent logic is intentionally ` +
         `deferred (no fabricated scoring/cutoffs/prompt).`,
       ...extra,

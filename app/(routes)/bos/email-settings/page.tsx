@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, Save, Eye, RotateCcw, Code2, FileText, Info, Building2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -51,9 +52,12 @@ interface TemplateRow {
 
 const DEFAULT_TEMPLATE_CODE = 'meeting_invitation';
 
-export default function EmailSettingsPage() {
+const EMAIL_SETTINGS_TABS = ['smtp', 'template'] as const;
+
+function EmailSettingsPageInner() {
   const scope = useBosBoardScope();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useTabParam('smtp', EMAIL_SETTINGS_TABS);
 
   // Institution context — non-super-admins are locked to their own institution
   // (auto-scoped via scope.userInstitutionId). Super-admins can pick any
@@ -308,7 +312,7 @@ export default function EmailSettingsPage() {
         </Card>
       )}
 
-      <Tabs defaultValue='smtp' className='space-y-6'>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-6'>
         <TabsList>
           <TabsTrigger value='smtp'>SMTP Server</TabsTrigger>
           <TabsTrigger value='template'>Email Template</TabsTrigger>
@@ -548,5 +552,14 @@ export default function EmailSettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function EmailSettingsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <EmailSettingsPageInner />
+    </Suspense>
   );
 }

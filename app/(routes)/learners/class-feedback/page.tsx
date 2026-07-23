@@ -98,7 +98,27 @@ export default function LearnerSessionFeedbackPage() {
   // "shows 51/42 classes" cluster). fn_scf_confirmation_status already returns one
   // row per Present session with a `confirmed` flag, so no RPC change is needed.
   const { data: confirmRows } = useConfirmationStatus(from, to);
-  const historyRows = confirmRows ?? [];
+  // Block-course consolidation for the history badges (mirrors the
+  // fn_scf_pending_for_learner fix of 2026-07-18): fn_scf_confirmation_status
+  // still matches confirmed-vs-not by exact period_id only, so a learner who
+  // gave feedback for one period of a block-scheduled course still saw sibling
+  // periods of that same course/day badged "Not yet confirmed"
+  // (BUG-004651/690/707/728/741/814). Group by (date, course_code) — the only
+  // course key this RPC exposes — same conservative pattern already used by
+  // period-wise-table.tsx's pendingCourseKeys.
+  const historyRows = useMemo(() => {
+    const rows = confirmRows ?? [];
+    const confirmedKeys = new Set(
+      rows
+        .filter((r) => r.confirmed && r.course_code)
+        .map((r) => `${r.attendance_date}__${r.course_code}`)
+    );
+    return rows.map((r) =>
+      !r.confirmed && r.course_code && confirmedKeys.has(`${r.attendance_date}__${r.course_code}`)
+        ? { ...r, confirmed: true }
+        : r
+    );
+  }, [confirmRows]);
   const confirmedCount = historyRows.filter((r) => r.confirmed === true).length;
 
   return (
@@ -179,8 +199,15 @@ export default function LearnerSessionFeedbackPage() {
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <Sparkles className="h-12 w-12 mb-4" style={{ color: `${BRAND}66` }} />
                 <h3 className="text-lg font-medium mb-1">You&apos;re all caught up</h3>
+                {/* Honest timing copy (BUG-004739 group, 2026-07-19): a class can only
+                    appear here AFTER its attendance is marked, which is often hours
+                    after the class ends — "right after they happen" taught learners
+                    to expect the just-finished class and report the gap as a bug. */}
                 <p className="text-sm text-muted-foreground max-w-md">
-                  No class feedback pending. New classes will appear here right after they happen.
+                  No class feedback pending right now. A class appears here once its
+                  attendance has been marked — that can be a little while after the
+                  class ends, so check back if a class you just attended isn&apos;t
+                  listed yet.
                 </p>
               </div>
             ) : (
@@ -259,11 +286,15 @@ export default function LearnerSessionFeedbackPage() {
           </CardContent>
         </Card>
 
-        {pendingCount > 0 && (
-          <p className="text-xs text-muted-foreground text-center">
-            Tap a class to confirm — it only takes about 10 seconds.
-          </p>
-        )}
+        {/* Always-on timing hint: the 07-14 morning reporters had items pending yet
+            reported "can't submit" because the class they'd JUST attended wasn't
+            marked yet — so this line must show even when the list is non-empty. */}
+        <p className="text-xs text-muted-foreground text-center">
+          {pendingCount > 0 && (
+            <>Tap a class to confirm — it only takes about 10 seconds. </>
+          )}
+          A class you just attended appears here once its attendance is marked.
+        </p>
 
         {/* Your attended classes this month — EVERY Present session, each badged
             Confirmed (feedback given in time) or Not yet confirmed (attended, no
@@ -285,6 +316,8 @@ export default function LearnerSessionFeedbackPage() {
             <p className="border-t px-4 py-2 text-xs text-muted-foreground">
               Every class you attended this month. &ldquo;Confirmed&rdquo; means you also gave
               feedback within the window — you&apos;re never counted absent for missing feedback.
+              Once a class&apos;s window has closed it can no longer be confirmed — that&apos;s
+              normal and never counts against your attendance.
             </p>
             <ul className="divide-y border-t">
               {historyRows.map((r) => {
@@ -308,10 +341,33 @@ export default function LearnerSessionFeedbackPage() {
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         Confirmed
                       </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="shrink-0 gap-1 text-muted-foreground">
+                    ) : withinFeedbackWindow(r.attendance_date, windowHours) ? (
+                      // "Not yet confirmed" read as a rejection/error to reporters
+                      // (BUG-005050/051/052/053/055/058/061) despite being a neutral
+                      // status — the window is still open and feedback can still be
+                      // given from the list above. "Feedback pending" matches the
+                      // page's own "pending" vocabulary (header badge, intro line)
+                      // instead of the negatively-framed "Not ___" wording.
+                      <Badge
+                        variant="secondary"
+                        className="shrink-0 gap-1 text-muted-foreground"
+                        title="Not an error — you just haven't given feedback for this class yet. Find it in the list above and tap it to give feedback now."
+                      >
                         <Clock className="h-3.5 w-3.5" />
-                        Not yet confirmed
+                        Feedback pending
+                      </Badge>
+                    ) : (
+                      /* Window expired: "Not yet confirmed" reads as actionable, but
+                         nothing can clear it any more (submit RPC rejects past the
+                         window) — reporters carried 8–56 of these badges and filed
+                         them as "can't submit feedback". Say the true state instead. */
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 gap-1 text-muted-foreground"
+                        title={`The ${windowHours}-hour feedback window for this class has closed — it can no longer be confirmed. This never counts you absent.`}
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        Window closed
                       </Badge>
                     )}
                   </li>

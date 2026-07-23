@@ -288,6 +288,25 @@ export function SyllabusForm({
     formData.board_id || undefined,
   );
 
+  // v3.5 tab gating: the Assessment and Capstone & LLC tabs are Fink's-framework
+  // sections. They only appear when the resolved board taxonomy is Fink's; on
+  // Bloom's (or no taxonomy configured) the flow ends at PO Mappings, which
+  // becomes the final-save tab.
+  // TEMP (2026-07-22): both tabs hidden for ALL boards on request while the
+  // v3.5 sections are not in use. Underlying data/columns are untouched —
+  // flip HIDE_FINKS_TABS to false to restore them.
+  const HIDE_FINKS_TABS = true;
+  const isFinksBoard = !HIDE_FINKS_TABS && taxonomy?.taxonomy_type === 'finks';
+
+  // If the taxonomy resolves to non-Fink's while the user sits on a Fink's-only
+  // tab (e.g. regulation/board changed mid-edit), bounce back to PO Mappings —
+  // otherwise the hidden panel leaves a blank form body.
+  useEffect(() => {
+    if (!isFinksBoard && (activeTab === 'assessment' || activeTab === 'capstone')) {
+      setActiveTab('mappings');
+    }
+  }, [isFinksBoard, activeTab]);
+
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
 
@@ -370,6 +389,7 @@ export function SyllabusForm({
       if (s.objectives) parts.push(`${s.objectives} objectives`);
       if (s.clos) parts.push(`${s.clos} COs`);
       if (s.units) parts.push(`${s.units} units`);
+      if (s.practical_topics) parts.push(`${s.practical_topics} practical topics`);
       if (s.textbooks) parts.push(`${s.textbooks} textbooks`);
       if (s.references) parts.push(`${s.references} references`);
       if (s.web_resources) parts.push(`${s.web_resources} web resources`);
@@ -452,6 +472,7 @@ export function SyllabusForm({
       if (summary.objectives) parts.push(`${summary.objectives} objectives`);
       if (summary.clos) parts.push(`${summary.clos} COs`);
       if (summary.units) parts.push(`${summary.units} units`);
+      if (summary.practical_topics) parts.push(`${summary.practical_topics} practical topics`);
       if (summary.textbooks) parts.push(`${summary.textbooks} textbooks`);
       if (summary.references) parts.push(`${summary.references} references`);
       if (summary.web_resources) parts.push(`${summary.web_resources} web resources`);
@@ -962,7 +983,7 @@ export function SyllabusForm({
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         {/* Clone popup shows only Basic Info — hide the tab chrome entirely. */}
         {!compact && (
-          <TabsList className="grid w-full grid-cols-9">
+          <TabsList className={`grid w-full ${isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'}`}>
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             <TabsTrigger value="objectives">Objectives</TabsTrigger>
             <TabsTrigger value="clo">Course Outcomes</TabsTrigger>
@@ -970,8 +991,13 @@ export function SyllabusForm({
             <TabsTrigger value="resources">Resources</TabsTrigger>
             <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>
             <TabsTrigger value="mappings">PO Mappings</TabsTrigger>
-            <TabsTrigger value="assessment">Assessment</TabsTrigger>
-            <TabsTrigger value="capstone">Capstone &amp; LLC</TabsTrigger>
+            {/* Fink's-only tabs — Bloom's boards end the flow at PO Mappings */}
+            {isFinksBoard && (
+              <>
+                <TabsTrigger value="assessment">Assessment</TabsTrigger>
+                <TabsTrigger value="capstone">Capstone &amp; LLC</TabsTrigger>
+              </>
+            )}
           </TabsList>
         )}
 
@@ -1541,19 +1567,38 @@ export function SyllabusForm({
                 <Button type="button" variant="outline" onClick={() => setActiveTab('pedagogy')}>
                   Back
                 </Button>
-                <Button
-                  type="button"
-                  onClick={() => handleSaveAndNext('assessment')}
-                  disabled={isLoading}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  {isLoading ? 'Saving...' : 'Save & Next'}
-                </Button>
+                {isFinksBoard ? (
+                  <Button
+                    type="button"
+                    onClick={() => handleSaveAndNext('assessment')}
+                    disabled={isLoading}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isLoading ? 'Saving...' : 'Save & Next'}
+                  </Button>
+                ) : (
+                  // Bloom's boards: PO Mappings is the last tab — final save here.
+                  <Button
+                    type="submit"
+                    disabled={isLoading}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isLoading
+                      ? 'Saving...'
+                      : isEditing
+                        ? 'Update Syllabus'
+                        : isDuplicate
+                          ? 'Create Clone'
+                          : 'Create Syllabus'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Fink's-only panels — hidden entirely for Bloom's / unconfigured boards */}
+        {isFinksBoard && (<>
         {/* Assessment Structure (v1.2) */}
         <TabsContent value="assessment" className="space-y-4">
           <Card>
@@ -1677,6 +1722,7 @@ export function SyllabusForm({
             </CardContent>
           </Card>
         </TabsContent>
+        </>)}
         </>)}
       </Tabs>
       </fieldset>
@@ -3025,6 +3071,22 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
       ) : isPractical ? (
         /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
+          {/* PDF numbering toggle — when checked (default), the exported
+              "List of Experiments" prints the inline number ("1. Zener diode
+              …") on each experiment; unchecking drops the prefix (the S.No
+              column still numbers the rows). Stored on course_content so the
+              PDF/DOCX/HTML exporters can read it. */}
+          <label className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={content?.number_practical_topics !== false}
+              onChange={(e) =>
+                onChange({ ...content, number_practical_topics: e.target.checked })
+              }
+            />
+            Number experiments in PDF (print “1.”, “2.” … before each experiment)
+          </label>
           {topics.map((topic, idx) => (
             <div key={idx} className="flex items-start gap-2.5 group">
               <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">

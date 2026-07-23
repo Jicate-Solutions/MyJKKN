@@ -17,11 +17,11 @@
 //     react-hot-toast).
 //
 // Difference from the clinical_reasoning editor: this one ALSO shows
-// is_active=false rows. The EKSAQ-pending policies (band mastery threshold,
+// is_active=false rows. The MyJKKN-pending policies (band mastery threshold,
 // composite scoring weights, NIPUN wpm targets) are seeded inactive with
-// placeholder values until EKSAQ supplies validated numbers — the Director
+// placeholder values until MyJKKN supplies validated numbers — the Director
 // must still see and (eventually) activate them, so they cannot be hidden.
-// Inactive rows are clearly badged "Inactive — awaiting EKSAQ".
+// Inactive rows are clearly badged "Inactive — awaiting MyJKKN".
 //
 // Caller scope: super_admin only (wrapped by <SuperAdminOnly> in page.tsx;
 // platform_policies UPDATE RLS enforces it server-side too).
@@ -173,7 +173,7 @@ function PolicyRowCard({ row }: { row: RcltpPolicyRow }) {
           </div>
           {!row.is_active && (
             <Badge variant='outline' className='border-amber-500 text-amber-700 dark:text-amber-400'>
-              Inactive — awaiting EKSAQ
+              Inactive — awaiting MyJKKN
             </Badge>
           )}
         </div>
@@ -338,7 +338,7 @@ export function RcltpPoliciesEditor() {
               {' '}
               <strong>{inactiveCount}</strong> policy
               {inactiveCount === 1 ? ' is' : 'ies are'} inactive with placeholder
-              values awaiting EKSAQ-validated numbers — the module uses its
+              values awaiting MyJKKN-validated numbers — the module uses its
               built-in defaults until an admin activates them.
             </>
           )}

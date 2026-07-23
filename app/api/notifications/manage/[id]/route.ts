@@ -25,24 +25,31 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check permission
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const { data: rolePermissions } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfile?.role)
-      .single();
+    // Authorization gate — dynamic, multi-role-aware permission check.
+    // user_has_permission() and is_super_admin() are SECURITY DEFINER RPCs that
+    // merge permissions across ALL of a user's assigned roles (user_roles) with
+    // the super-admin bypass built in, so multi-role admins are not wrongly
+    // blocked by the legacy single profiles.role field. Editing a notification
+    // is gated on the same permissions that allow creating/sending them, so no
+    // role that could edit before loses access.
+    const [isSuperAdmin, canCreate, canSend, canManage] = await Promise.all([
+      (supabase as any).rpc('is_super_admin'),
+      (supabase as any).rpc('user_has_permission', {
+        permission_name: 'notifications.create'
+      }),
+      (supabase as any).rpc('user_has_permission', {
+        permission_name: 'notifications.send'
+      }),
+      (supabase as any).rpc('user_has_permission', {
+        permission_name: 'notifications.manage'
+      })
+    ]);
 
     const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.create'] === true ||
-      rolePermissions?.permissions?.['notifications.send'] === true ||
-      rolePermissions?.permissions?.['notifications.manage'] === true;
+      isSuperAdmin?.data === true ||
+      canCreate?.data === true ||
+      canSend?.data === true ||
+      canManage?.data === true;
 
     if (!hasPermission) {
       return NextResponse.json(
@@ -112,6 +119,27 @@ export async function GET(
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Authorization gate — this route reads ANY notification by id via the
+    // service-role client (which bypasses RLS), so without an explicit gate any
+    // authenticated user could read any notification (IDOR). Require the
+    // notifications.view permission. user_has_permission()/is_super_admin() are
+    // SECURITY DEFINER RPCs that merge across all assigned roles with the
+    // super-admin bypass built in, matching the sibling notification admin
+    // routes' intent while remaining multi-role aware.
+    const [isSuperAdmin, canView] = await Promise.all([
+      (supabase as any).rpc('is_super_admin'),
+      (supabase as any).rpc('user_has_permission', {
+        permission_name: 'notifications.view'
+      })
+    ]);
+
+    if (isSuperAdmin?.data !== true && canView?.data !== true) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions' },
+        { status: 403 }
+      );
     }
 
     const serviceClient = createServiceRoleClient();

@@ -35,6 +35,17 @@ function describeAudience(targeting: Record<string, unknown> | null): string {
   const t = targeting as any;
   const parts: string[] = [];
   if (t.broadcast === true || t.broadcast === 'true') parts.push('Broadcast');
+  // Hierarchy scalar keys — the primary path persisted by the admin create form
+  // (notification-form.tsx onSubmit: institution_id/department_id/program_id/
+  // semester_id/section_id). IDs aren't name-resolvable client-side (sent-service
+  // selects only the targeting column, no joins), so scope labels are the honest
+  // minimum. Without these branches a hierarchy-scoped notification fell through
+  // every check and showed the placeholder 'targeting set'.
+  if (t.institution_id) parts.push('Institution');
+  if (t.department_id) parts.push('Department');
+  if (t.program_id) parts.push('Program');
+  if (t.semester_id) parts.push('Semester');
+  if (t.section_id) parts.push('Section');
   if (Array.isArray(t.target_roles) && t.target_roles.length > 0) {
     parts.push(
       t.target_roles.length === 1
@@ -42,13 +53,12 @@ function describeAudience(targeting: Record<string, unknown> | null): string {
         : `${t.target_roles.length} roles`
     );
   }
+  // KEEP: BYOW single-user notifications persist targeting: { user_ids: [...] }
+  // (lib/services/notification/byow-notification-service.ts:92) — this branch is live.
   if (Array.isArray(t.user_ids) && t.user_ids.length > 0) {
     parts.push(
       t.user_ids.length === 1 ? '1 user' : `${t.user_ids.length} users`
     );
-  }
-  if (Array.isArray(t.institution_ids) && t.institution_ids.length > 0) {
-    parts.push(`${t.institution_ids.length} institutions`);
   }
   if (Array.isArray(t.audience_ids) && t.audience_ids.length > 0) {
     parts.push(`${t.audience_ids.length} audiences`);

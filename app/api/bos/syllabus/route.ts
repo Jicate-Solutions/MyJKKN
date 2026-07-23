@@ -3,13 +3,10 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosAccess,
   resolveBosBoardScope,
-  compositionScopeFilter,
   applyInstitutionScope,
   guardInstitutionWrite,
   resolveCoeInstitutionId,
   readableCounsellingCodes,
-  hasBosPermission,
-  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
@@ -61,19 +58,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Step 2: Resolve institution + board-membership scope.
-    // Syllabi have board_id but no composition_id, so members are filtered by
-    // boardsOf (the union of board_ids across their active compositions).
+    // Step 2: Resolve board-membership scope.
+    // Policy (2026-07-16): a syllabus is visible ONLY to its own board's people.
+    // Board-scoped for everyone except super-admin — members, chairman AND
+    // principals see only the boards they sit on (scope.boardsOf). A user on no
+    // board (including holders of academic.bos-syllabus.view who aren't on a
+    // board) sees nothing. The read-all observer tier is intentionally NOT
+    // applied to syllabi.
     const scope = await resolveBosBoardScope(user.id);
-    // Read-only observer: a view-only role (no board membership, not a principal)
-    // holding academic.bos-syllabus.view reads every institution's syllabi
-    // (view-only). Never gates a write below.
-    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
-    const canReadAllBos = isBosReadAllObserver(scope, hasView);
-    const seeAll = scope.isSuperAdmin || canReadAllBos;
-    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
+    const seeAll = scope.isSuperAdmin;
+    const boardIds = Array.from(scope.boardsOf);
 
-    if (scopeFilter.kind === 'none') {
+    if (!seeAll && boardIds.length === 0) {
       return NextResponse.json({
         data: [],
         metadata: { total: 0, page: 1, limit: 50, totalPages: 0 },
@@ -121,14 +117,18 @@ export async function GET(request: NextRequest) {
     //  - super-admin with no institution: no filter (all institutions).
     let filterCode: string | null = null;
     if (!seeAll) {
-      const codes = await readableCounsellingCodes(scope, canReadAllBos);
+      const codes = await readableCounsellingCodes(scope);
       filterCode = codes && codes.length > 0 ? codes[0] : null;
     } else if (scopedInstitutionsId) {
       filterCode = await counsellingCodeFor(supabase, scopedInstitutionsId);
     }
 
-    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
-    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    // Read via service-role, with the institution (counselling_code) + board_id
+    // filters below AS the authorization — the route enforces board-scoping
+    // explicitly (matching the PUT/DELETE + meetings/TA-DA precedent), so we
+    // don't depend on the bos_course_syllabi SELECT RLS policy (which errors for
+    // board members whose role can't read the tables its USING clause subqueries).
+    const readDb = createServiceRoleClient();
     let query = readDb
       .from('bos_course_syllabi')
       .select('*', { count: 'exact' });
@@ -142,20 +142,10 @@ export async function GET(request: NextRequest) {
     }
     // super-admin / read-all observer with no filterCode → "All institutions" (no institution filter)
 
-    // Board-membership scope (after the institution filter).
-    //  - 'all'           : super-admin — no extra filter
-    //  - 'byInstitution' : principal — institution filter above is sufficient
-    //  - 'byComposition' : member/chairman — restrict by board_id ∈ boardsOf.
-    //                      (Schema has board_id, no composition_id; we use the
-    //                      board set derived during scope resolution.)
-    if (scopeFilter.kind === 'byComposition') {
-      const boardIds = Array.from(scope.boardsOf);
-      if (boardIds.length === 0) {
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        } as BosSyllabusListResponse);
-      }
+    // Board-scoped visibility for EVERYONE except super-admin — members,
+    // chairman AND principals see only the boards they sit on. boardIds was
+    // resolved (and the empty case returned early) in Step 2.
+    if (!seeAll) {
       query = query.in('board_id', boardIds);
     }
 

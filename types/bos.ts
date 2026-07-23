@@ -423,6 +423,14 @@ export interface BosCourseContentData {
   // the invariant that exactly one of units/topics/project_units is populated.
   is_practical?: boolean;
   topics?: BosPracticalTopic[];
+  /**
+   * PDF/exports: whether to print the inline experiment number (e.g. "1. Zener
+   * diode …") on each practical sub-topic and heading. Defaults to ON when
+   * absent so existing syllabi keep their current numbered output; unchecking
+   * the "Number experiments" toggle in the Content tab stores `false` and the
+   * exports drop the inline prefix (the S.No column still numbers the rows).
+   */
+  number_practical_topics?: boolean;
   // Project-mode: group-based project work rules and guidelines
   is_project?: boolean;
   project_units?: BosProjectUnit[];
@@ -1102,6 +1110,16 @@ export interface BosMeeting {
    * 20260521_add_board_type_to_bos_compositions_meetings.sql.
    */
   board_type?: string | null;
+  /**
+   * Regulation the meeting's syllabi are scoped to. Optional: there is no
+   * regulation_id column on bos_meetings today, so this is undefined at runtime
+   * for every meeting. The Syllabus and Minutes tabs read it to narrow the
+   * syllabus picker and both guard against undefined (the filter is simply not
+   * applied when it's absent). Kept on the interface so those reads type-check
+   * and so the field is already correct if a regulation_id column is later
+   * added to bos_meetings (the detail GET selects `*`).
+   */
+  regulation_id?: string | null;
   composition_id: string;
   meeting_number: number;
   academic_year: string;

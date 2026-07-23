@@ -49,6 +49,8 @@ export interface ProcurementRfqItem {
   unit_id: string | null;
   unit_label: string | null;
   created_at: string;
+  /** Resolved live from the catalog when the RFQ is loaded — not a persisted column. Gates the Concentration field. */
+  is_chemical?: boolean;
 }
 
 export interface ProcurementRfqVendor {

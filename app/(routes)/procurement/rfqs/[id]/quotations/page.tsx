@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -40,6 +41,14 @@ import {
 import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink, Download, Upload, Sparkles } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+
+interface QuotedSpec {
+  manufacturer: string;
+  quality_grade: string;
+  concentration: string;
+  other_specs: string;
+}
+const EMPTY_SPEC: QuotedSpec = { manufacturer: '', quality_grade: '', concentration: '', other_specs: '' };
 
 export default function RfqQuotationsPage() {
   const router = useRouter();
@@ -91,6 +100,9 @@ export default function RfqQuotationsPage() {
   const [deliveryDays, setDeliveryDays] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [prices, setPrices] = useState<Record<string, string>>({});
+  const [notQuoted, setNotQuoted] = useState<Record<string, boolean>>({});
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [specs, setSpecs] = useState<Record<string, QuotedSpec>>({});
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -116,6 +128,9 @@ export default function RfqQuotationsPage() {
     setDeliveryDays('');
     setPaymentTerms('');
     setPrices({});
+    setNotQuoted({});
+    setQuantities({});
+    setSpecs({});
     setFile(null);
   };
 
@@ -130,13 +145,24 @@ export default function RfqQuotationsPage() {
       toast.error('Enter the new vendor’s name.');
       return;
     }
-    const items: CreateQuotationItemDto[] = rfq.items.map((it) => ({
-      rfq_item_id: it.id,
-      unit_price: Number(prices[it.id] || 0),
-      quantity: it.quantity,
-    }));
-    if (items.some((i) => !(i.unit_price >= 0) || i.unit_price === 0)) {
-      toast.error('Enter a unit price for every item.');
+    const items: CreateQuotationItemDto[] = rfq.items.map((it) => {
+      const spec = specs[it.id];
+      return {
+        rfq_item_id: it.id,
+        unit_price: notQuoted[it.id] ? null : Number(prices[it.id] || 0),
+        quantity: quantities[it.id] ? Number(quantities[it.id]) : it.quantity,
+        manufacturer: spec?.manufacturer.trim() || null,
+        quality_grade: spec?.quality_grade.trim() || null,
+        concentration: spec?.concentration.trim() || null,
+        other_specs: spec?.other_specs.trim() || null,
+      };
+    });
+    if (items.some((i) => i.unit_price !== null && !(i.unit_price > 0))) {
+      toast.error('Enter a unit price for every quoted item, or mark it “Not quoted”.');
+      return;
+    }
+    if (items.every((i) => i.unit_price === null)) {
+      toast.error('Mark at least one item as quoted.');
       return;
     }
 
@@ -230,8 +256,9 @@ export default function RfqQuotationsPage() {
       const res = await fetch('/api/procurement/quotations/extract-pdf', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
-      const { prices: parsed, matched, unmatched } = json as {
+      const { prices: parsed, specs: parsedSpecs, matched, unmatched } = json as {
         prices: Record<string, number>;
+        specs: Record<string, { manufacturer: string | null; quality_grade: string | null; concentration: string | null; other_specs: string | null }>;
         matched: number;
         unmatched: string[];
       };
@@ -242,6 +269,18 @@ export default function RfqQuotationsPage() {
       setPrices((prev) => {
         const next = { ...prev };
         for (const [id, price] of Object.entries(parsed)) next[id] = String(price);
+        return next;
+      });
+      setSpecs((prev) => {
+        const next = { ...prev };
+        for (const [id, s] of Object.entries(parsedSpecs || {})) {
+          next[id] = {
+            manufacturer: s.manufacturer ?? next[id]?.manufacturer ?? '',
+            quality_grade: s.quality_grade ?? next[id]?.quality_grade ?? '',
+            concentration: s.concentration ?? next[id]?.concentration ?? '',
+            other_specs: s.other_specs ?? next[id]?.other_specs ?? '',
+          };
+        }
         return next;
       });
       toast.success(
@@ -407,70 +446,119 @@ export default function RfqQuotationsPage() {
                     {row.quotes.length === 0 ? (
                       <p className="text-xs text-muted-foreground">No quotes for this item.</p>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {row.quotes.map((qt) => {
-                          const isLowest = qt.unit_price === row.lowest_price;
-                          return (
-                            <div
-                              key={qt.quotation_item_id}
-                              className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${
-                                qt.awarded
-                                  ? 'border-green-500 bg-green-500/10'
-                                  : isLowest
-                                  ? 'border-blue-400'
-                                  : ''
-                              }`}
-                            >
-                              <span className="font-medium">{qt.supplier_name}</span>
-                              <span>₹{Number(qt.unit_price).toLocaleString()}</span>
-                              {qt.delivery_time_days != null && (
-                                <span className="text-[11px] text-muted-foreground">
-                                  {qt.delivery_time_days}d
-                                </span>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b text-left text-xs text-muted-foreground">
+                              <th className="py-1 pr-2 font-medium">Vendor</th>
+                              <th className="py-1 pr-2 font-medium">Price</th>
+                              <th className="py-1 pr-2 font-medium">Manufacturer</th>
+                              <th className="py-1 pr-2 font-medium">Quality</th>
+                              <th className="py-1 pr-2 font-medium">Qty offered</th>
+                              {row.is_chemical && (
+                                <th className="py-1 pr-2 font-medium">Concentration</th>
                               )}
-                              {isLowest && !qt.awarded && (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  Lowest
-                                </Badge>
-                              )}
-                              {qt.awarded ? (
-                                <span className="flex items-center gap-1 text-green-600">
-                                  <Award className="h-3.5 w-3.5" /> Awarded
-                                  {canManage && (
-                                    <button
-                                      className="ml-1"
-                                      onClick={() =>
-                                        run(() => unawardLine.mutateAsync(row.rfq_item_id), 'Award cleared')
-                                      }
-                                    >
-                                      <X className="h-3.5 w-3.5" />
-                                    </button>
+                              <th className="py-1 pr-2 font-medium">Other specs</th>
+                              <th className="py-1 pr-2 font-medium">Delivery</th>
+                              <th className="py-1 pr-2 font-medium">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {row.quotes.map((qt) => {
+                              const isNotQuoted = qt.unit_price === null;
+                              const isLowest = !isNotQuoted && qt.unit_price === row.lowest_price;
+                              return (
+                                <tr
+                                  key={qt.quotation_item_id}
+                                  className={`border-b last:border-b-0 ${
+                                    qt.awarded
+                                      ? 'bg-green-500/10'
+                                      : isLowest
+                                      ? 'bg-blue-400/10'
+                                      : ''
+                                  }`}
+                                >
+                                  <td className="py-1.5 pr-2 font-medium">{qt.supplier_name}</td>
+                                  <td className="py-1.5 pr-2">
+                                    {isNotQuoted ? (
+                                      <span className="italic text-muted-foreground">Not quoted</span>
+                                    ) : (
+                                      <>
+                                        ₹{Number(qt.unit_price).toLocaleString()}
+                                        {isLowest && !qt.awarded && (
+                                          <Badge variant="secondary" className="ml-1 text-[10px]">
+                                            Lowest
+                                          </Badge>
+                                        )}
+                                      </>
+                                    )}
+                                  </td>
+                                  <td className="py-1.5 pr-2 text-muted-foreground">
+                                    {qt.manufacturer || '—'}
+                                  </td>
+                                  <td className="py-1.5 pr-2 text-muted-foreground">
+                                    {qt.quality_grade || '—'}
+                                  </td>
+                                  <td className="py-1.5 pr-2 text-muted-foreground">
+                                    {qt.quantity ?? '—'}
+                                  </td>
+                                  {row.is_chemical && (
+                                    <td className="py-1.5 pr-2 text-muted-foreground">
+                                      {qt.concentration || '—'}
+                                    </td>
                                   )}
-                                </span>
-                              ) : (
-                                canManage && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 px-2"
-                                    onClick={() =>
-                                      run(
-                                        () =>
-                                          awardLine.mutateAsync({
-                                            rfqItemId: row.rfq_item_id,
-                                            quotationItemId: qt.quotation_item_id,
-                                          }),
-                                        `Awarded to ${qt.supplier_name}`
+                                  <td className="py-1.5 pr-2 text-muted-foreground">
+                                    {qt.other_specs || '—'}
+                                  </td>
+                                  <td className="py-1.5 pr-2 text-muted-foreground">
+                                    {qt.delivery_time_days != null ? `${qt.delivery_time_days}d` : '—'}
+                                  </td>
+                                  <td className="py-1.5 pr-2">
+                                    {qt.awarded ? (
+                                      <span className="flex items-center gap-1 text-green-600">
+                                        <Award className="h-3.5 w-3.5" /> Awarded
+                                        {canManage && (
+                                          <button
+                                            className="ml-1"
+                                            onClick={() =>
+                                              run(
+                                                () => unawardLine.mutateAsync(row.rfq_item_id),
+                                                'Award cleared'
+                                              )
+                                            }
+                                          >
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      canManage &&
+                                      !isNotQuoted && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 px-2"
+                                          onClick={() =>
+                                            run(
+                                              () =>
+                                                awardLine.mutateAsync({
+                                                  rfqItemId: row.rfq_item_id,
+                                                  quotationItemId: qt.quotation_item_id,
+                                                }),
+                                              `Awarded to ${qt.supplier_name}`
+                                            )
+                                          }
+                                        >
+                                          Award
+                                        </Button>
                                       )
-                                    }
-                                  >
-                                    Award
-                                  </Button>
-                                )
-                              )}
-                            </div>
-                          );
-                        })}
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
@@ -607,26 +695,94 @@ export default function RfqQuotationsPage() {
                 or type prices below. A vendor PDF can be attached as reference under
                 “Quotation document”.
               </p>
-              {rfq.items.map((it) => (
-                <div key={it.id} className="flex items-center gap-3">
-                  <div className="flex-1 text-sm">
-                    {it.item_name}
-                    <span className="text-muted-foreground">
-                      {' '}
-                      ({it.quantity} {it.unit_label || ''})
-                    </span>
+              {rfq.items.map((it) => {
+                const entered = Number(prices[it.id] || 0);
+                const isNotQuoted = !!notQuoted[it.id];
+                const spec = specs[it.id] ?? EMPTY_SPEC;
+                const updateSpec = (field: keyof QuotedSpec, value: string) =>
+                  setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
+                return (
+                  <div key={it.id} className="space-y-1.5 border-b pb-2 last:border-b-0">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 text-sm">
+                        {it.item_name}
+                        <span className="text-muted-foreground">
+                          {' '}
+                          ({it.quantity} {it.unit_label || ''})
+                        </span>
+                      </div>
+                      <div className="w-36">
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Unit price"
+                          disabled={isNotQuoted}
+                          value={isNotQuoted ? '' : prices[it.id] ?? ''}
+                          onChange={(e) => setPrices((p) => ({ ...p, [it.id]: e.target.value }))}
+                        />
+                        {entered > 0 && !isNotQuoted && (
+                          <p className="mt-0.5 text-right text-[11px] text-muted-foreground">
+                            = ₹{(entered * it.quantity).toLocaleString()} total
+                          </p>
+                        )}
+                      </div>
+                      <div className="w-24">
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Qty offered"
+                          disabled={isNotQuoted}
+                          value={isNotQuoted ? '' : quantities[it.id] ?? String(it.quantity)}
+                          onChange={(e) => setQuantities((p) => ({ ...p, [it.id]: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 pl-0">
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={isNotQuoted}
+                          onCheckedChange={(v) => {
+                            const checked = !!v;
+                            setNotQuoted((p) => ({ ...p, [it.id]: checked }));
+                            if (checked) setPrices((p) => ({ ...p, [it.id]: '' }));
+                          }}
+                        />
+                        Not quoted by this vendor
+                      </label>
+                    </div>
+                    {!isNotQuoted && (
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <Input
+                          placeholder="Manufacturer"
+                          className="h-7 text-xs"
+                          value={spec.manufacturer}
+                          onChange={(e) => updateSpec('manufacturer', e.target.value)}
+                        />
+                        <Input
+                          placeholder="Quality / grade"
+                          className="h-7 text-xs"
+                          value={spec.quality_grade}
+                          onChange={(e) => updateSpec('quality_grade', e.target.value)}
+                        />
+                        {it.is_chemical && (
+                          <Input
+                            placeholder="Concentration"
+                            className="h-7 text-xs"
+                            value={spec.concentration}
+                            onChange={(e) => updateSpec('concentration', e.target.value)}
+                          />
+                        )}
+                        <Input
+                          placeholder="Other specs (optional)"
+                          className="h-7 text-xs"
+                          value={spec.other_specs}
+                          onChange={(e) => updateSpec('other_specs', e.target.value)}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="w-32">
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="Unit price"
-                      value={prices[it.id] ?? ''}
-                      onChange={(e) => setPrices((p) => ({ ...p, [it.id]: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="space-y-1">

@@ -6,6 +6,7 @@
 // Spec: specs/health-program-response-viewer-2026-06-16.md
 
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -52,7 +53,9 @@ export default async function HealthProgramResponsesPage({ params }: PageProps) 
             </p>
           </div>
           <div className="pt-2">
-            <ResponsesViewer programId={id} />
+            <Suspense fallback={null}>
+              <ResponsesViewer programId={id} />
+            </Suspense>
           </div>
         </div>
       </PermissionGuard>

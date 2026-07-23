@@ -230,12 +230,13 @@ export default function StaffPage() {
                 </div>
                 <div>
                   <h1 className='text-2xl font-semibold'>
-                    Employee Management
+                    Employee List
                   </h1>
                   <p className='text-muted-foreground'>
                     Full-time JKKN staff — teaching, facilitators, and
-                    non-teaching. Guests, vendors, TAs, and volunteers live
-                    in the <Link href='/hr/employees' className='underline'>HR Non-Staff Workforce</Link> page.
+                    non-teaching. The HR module&apos;s read-only{' '}
+                    <Link href='/hr/employees' className='underline'>HR Directory</Link>{' '}
+                    shows all staff with HR context.
                   </p>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 ﻿import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { computeSchemeTotals } from '@/lib/utils/bos/course-scheme-totals'
 
 // â”€â”€â”€ Number to words â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Single source of truth per COE integration spec Â§7.5: digit-by-digit ALL CAPS.
@@ -677,6 +678,10 @@ export interface CourseSchemeReportRow {
 	internal_max_mark: number
 	external_max_mark: number
 	total_max_mark: number
+	// Elective group order (COE course_mapping.group_order). Every option is
+	// printed, but rows sharing a group_order count ONCE in the semester
+	// totals - the learner takes one of them. Null/undefined = ungrouped.
+	group_order?: number | null
 }
 
 export interface CourseSchemeReportSemester {
@@ -817,15 +822,10 @@ export function generateCourseSchemeReportPDF(data: CourseSchemeReportData): str
 		doc.text(sem.semester_label, pageWidth / 2, currentY + 4, { align: 'center' })
 		currentY += lblH + 1
 
-		const totals = sem.courses.reduce(
-			(acc, c) => ({
-				credits:   acc.credits   + (c.credit          ?? 0),
-				theory:    acc.theory    + (c.theory_hours    ?? 0),
-				practical: acc.practical + (c.practical_hours ?? 0),
-				marks:     acc.marks     + (c.total_max_mark  ?? 0),
-			}),
-			{ credits: 0, theory: 0, practical: 0, marks: 0 },
-		)
+		// Grouped (elective) courses collapse to a single count across credits,
+		// hours and marks. Same helper the on-screen semester table uses, so the
+		// printed scheme can never disagree with what the editor sees.
+		const totals = computeSchemeTotals(sem.courses)
 
 		const bodyRows = sem.courses.map((c) => [
 			c.course_part_master ?? '-',
@@ -860,7 +860,7 @@ export function generateCourseSchemeReportPDF(data: CourseSchemeReportData): str
 				{ content: String(totals.credits),                   styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
 				{ content: String(totals.theory),                    styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
 				{ content: String(totals.practical),                 styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
-				{ content: String(totals.theory + totals.practical), styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: String(totals.hours),                     styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
 				{ content: '', styles: { fillColor: [230, 230, 230] } },
 				{ content: '', styles: { fillColor: [230, 230, 230] } },
 				{ content: String(totals.marks), styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },

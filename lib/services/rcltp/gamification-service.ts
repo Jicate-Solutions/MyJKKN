@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP v2 — Gamification domain service (Phase 2)
+ * MyJKKN RCLTP v2 — Gamification domain service (Phase 2)
  * ----------------------------------------------------------------------------
  * Tables: rcltp_badges (catalog), rcltp_learner_badges (earned), rcltp_streaks.
  *

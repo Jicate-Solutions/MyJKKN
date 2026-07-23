@@ -39,8 +39,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-import { usePermissions } from '@/hooks/use-permissions';
-import { useAuth } from '@/hooks/use-auth';
+import { useCdcAdmin } from '@/hooks/cdc/use-cdc-admin';
 import type { CdcPolicyRow, CdcPolicyCategory, CdcPolicyGroup } from '@/types/admin/cdc';
 
 // ── Category metadata ──────────────────────────────────────────────────────
@@ -150,8 +149,7 @@ function displayValue(value: unknown): string {
 // ── Component ─────────────────────────────────────────────────────────────
 
 export default function CdcPoliciesPage() {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
-  const { profile } = useAuth();
+  const { isCdcAdmin, isSuperAdmin, isLoading: permsLoading } = useCdcAdmin();
 
   const [policies, setPolicies] = useState<CdcPolicyRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -159,7 +157,6 @@ export default function CdcPoliciesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isCdcAdmin = isSuperAdmin || profile?.role === 'cdc_head';
 
   const load = useCallback(async () => {
     setLoading(true);

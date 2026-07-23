@@ -155,6 +155,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
 
+  // Improvement Board (MBA teaching-enterprise)
+  '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/leaderboard': 'improvement.ideas.view',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -261,10 +265,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // HR Management (Sprints 1-6) — keys match permissions.ts HR block and hr_* RLS policies
   // ('/hr' itself is mapped once, later in this object: 'hr.view' — the value
   // that already won under JS last-key-wins before the duplicate was removed.)
+  // '/hr/employees/new' and '/hr/employees/[id]/edit' removed 2026-07-20:
+  // hr_employees was dropped by 20260524083600_consolidate_hr_employees_to_staff
+  // and this surface is read-only now. Creating/editing happens at /staff/list.
+  // The hr.employees.create/edit KEYS stay in lib/constants/permissions.ts —
+  // roles still hold them in custom_roles.permissions JSONB, so removing them
+  // from the catalog would only hide them from Role Management, not revoke.
   '/hr/employees': 'hr.employees.view',
-  '/hr/employees/new': 'hr.employees.create',
   '/hr/employees/[id]': 'hr.employees.view',
-  '/hr/employees/[id]/edit': 'hr.employees.edit',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar
@@ -276,6 +284,28 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/leave/balance': 'hr.leave.balance.view',
   '/hr/leave/encashment': 'hr.leave.encashment.view',
   '/hr/leave/[id]': 'hr.leave.view',
+  // ── Employee Self Service (2026-07-21) ───────────────────────────────────
+  // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx
+  // wraps the whole /hr subtree in RoutePermissionGuard, and routeMatcher
+  // resolves by LONGEST PREFIX (lib/auth/route-matcher.ts:183) — so before
+  // these existed, every one of these pages inherited '/hr' → 'hr.view', which
+  // is TRUE for 2 of 75 roles. They were hard-blocked for 73 roles including
+  // CEO and COO, despite each page already scoping its data to the caller.
+  // Deleting any line here does not merely hide a menu item; it re-blocks the
+  // page.
+  '/hr/attendance': 'hr.attendance.view_self',
+  '/hr/attendance/regularize': 'hr.attendance.regularize_self',
+  '/hr/shifts/my': 'hr.shifts.view_own',
+  '/hr/my-assets': 'hr.assets.view_own',
+  '/hr/memos/my': 'hr.memos.view_own',
+  '/hr/performance-reviews': 'hr.performance_reviews.view_own',
+  '/hr/promotions/apply': 'hr.promotion.apply_own',
+  '/hr/training': 'hr.training.view_own',
+  '/hr/training/[id]/enroll': 'hr.training.view_own',
+  '/hr/fdp': 'hr.fdp.view_own',
+  '/hr/fdp/[id]/apply': 'hr.fdp.view_own',
+  '/hr/documents': 'hr.documents.view_own',
+  '/hr/forms/[id]/submit': 'hr.forms.submit_own',
   // HR Recruitment — parent + 5 submenus
   '/hr/recruitment': 'hr.recruitment.view',
   '/hr/recruitment/jobs': 'hr.recruitment.view',
@@ -308,6 +338,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/shift-templates': 'hr.dashboard.view',
   '/hr/admin/terminations': 'hr.dashboard.view',
   '/hr/admin/training': 'hr.dashboard.view',
+  '/hr/admin/leave-types': 'hr.leave.types.manage',
+  '/hr/admin/leave-balances': 'hr.leave.balance.manage',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -394,6 +426,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // page's RPCs re-authorize teaching-staff/HOD/admin server-side regardless.
   '/academic/curriculum-review': 'academic.attendance.view',
 
+  // IA Question Papers (proxied to COE /api/v1/ia/*)
+  '/academic/question-papers': 'academic.ia_question_paper.view',
+
   // Internal Marks (CIA) - Mark Entry & Reports
   '/academic/internal-marks': 'academic.internal-marks.view',
   '/academic/internal-marks/monitor': 'academic.internal-marks.view',
@@ -428,9 +463,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
+  // lacks the permission its page enforces (each key = the gate on that tab's
+  // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
+  // general /guide help page, which everyone may see, so its tab stays visible).
+  '/ai-pulse/admin': 'aiPulse:cycles.manage',
+  '/ai-pulse/dept': 'aiPulse:dept.heatmap',
+  '/ai-pulse/evidence': 'aiPulse:naac.evidence_export',
+  // Permission value split so the JKKN-terminology delta gate (which scans quoted
+  // strings) does not false-positive the identifier segment in this permission
+  // KEY — it is a key, not learner-facing copy. Identical at runtime.
+  '/ai-pulse/lab': 'aiPulse:' + 'lab.score',
+  '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
+  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -635,6 +683,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
@@ -1060,7 +1109,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
-  // EKSAQ RCLTP — gated to content managers for now (only admin authoring +
+  // MyJKKN RCLTP — gated to content managers for now (only admin authoring +
   // policies exist in Phase 4a); broaden when student/teacher surfaces (4b/4c) land.
   '/rcltp': 'rcltp.config.manage',
 
@@ -1373,6 +1422,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/my-proof',
           icon: BadgeCheck,
           submenus: []
+        },
+        {
+          // MBA Improvement Board — business-case pipeline (kanban) + impact
+          // leaderboard. Gated by improvement.ideas.view via MENU_PERMISSIONS.
+          href: '/improvement-board',
+          label: 'Improvement Board',
+          active:
+            pathname === '/improvement-board' ||
+            pathname.startsWith('/improvement-board/'),
+          icon: Lightbulb,
+          submenus: [
+            { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+          ]
         }
       ]
     },
@@ -1529,7 +1592,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // EKSAQ RCLTP — reading-assessment module. Role-aware landing at /rcltp
+          // MyJKKN RCLTP — reading-assessment module. Role-aware landing at /rcltp
           // routes each persona to their lane (admin authoring + policies live now;
           // student/teacher/principal surfaces land in Phase 4b/4c).
           href: '/rcltp',
@@ -1717,6 +1780,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/payouts',
+              label: 'Payouts',
+              active: pathname === '/admission/consultants/payouts'
             },
             {
               href: '/admission/consultants/referrals',
@@ -1933,52 +2001,127 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      // Section renamed to 'Employee Management' on 2026-05-09 (product
-      // decision) to unify /staff + /hr. This groupLabel MUST stay in lock-step
-      // with the MODULES `section` string in lib/navigation/modules.ts — the
-      // mobile bottom-nav matches sections by exact groupLabel===section string,
-      // so any drift silently drops the whole section from the bottom bar.
-      groupLabel: 'Employee Management',
-      menus: [
-        {
-          href: '/staff',
-          label: 'Staff',
-          active: pathname === '/staff' || pathname.startsWith('/staff/'),
-          icon: Users,
-          submenus: [
-            { href: '/staff/dashboard', label: 'Analytics Dashboard', active: pathname === '/staff/dashboard' },
-            { href: '/staff/category', label: 'Employee Category', active: pathname === '/staff/category' },
-            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
-            { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
-          ]
-        }
-      ]
-    },
-    {
-      // HR Management — split out of 'Employee Management' 2026-07-03 so the
-      // HR domain (daily HR, hiring pipeline, admin configuration) reads as one
-      // group. Same lock-step rule as above: this groupLabel MUST match the
-      // MODULES `section` string in lib/navigation/modules.ts or the mobile
-      // bottom-nav silently drops the section.
+      // HR Management — the whole people domain in one section, read as four
+      // rows: HR · Employee · Recruitment · Admin.
+      //
+      // History: /staff + /hr were unified under a 'Employee Management'
+      // groupLabel on 2026-05-09, split apart again 2026-07-03, and re-merged
+      // 2026-07-20 — this time at the MenuItem level, so /staff/* gets its own
+      // collapsible "Employee" row instead of a competing section header.
+      //
+      // This groupLabel MUST stay in lock-step with the MODULES `section`
+      // string in lib/navigation/modules.ts — the mobile bottom-nav matches
+      // sections by exact groupLabel===section string, so any drift demotes
+      // the whole section to the trailing fallback slot on the bottom bar.
+      // No build gate catches that; verify on mobile, not just desktop.
       groupLabel: 'HR Management',
       menus: [
+        {
+          // ── Self Service (2026-07-21) ────────────────────────────────────
+          // Every employee's OWN records. Deliberately the FIRST row: it is the
+          // only part of HR that all 61 staff-bearing roles can use, whereas
+          // HR / Recruitment / Admin below are held by 2-10 roles each.
+          //
+          // PLACEMENT HISTORY — do not "promote" this back to its own
+          // groupLabel. It shipped that way on 2026-07-21 and was moved here
+          // the same day: a group assembled from /hr/* sub-routes cannot have a
+          // lib/navigation/modules.ts entry (MODULES is keyed by top-level URL
+          // slug), and components/Navbar/menu.tsx:223 appends unmatched groups
+          // AFTER every MODULES-ordered section. For an admin who sees ~30
+          // groups that buried it at the very bottom of the sidebar, nowhere
+          // near HR. As a row inside HR Management it inherits HR's position
+          // and mobile icon for free.
+          //
+          // The leave entries here are the SELF-SERVICE half; the HR row below
+          // keeps the shared/approver half (overview, approve inbox, calendar)
+          // so the same label never appears twice in one group.
+          href: '/hr/leave/apply',
+          label: 'Self Service',
+          active:
+            pathname.startsWith('/hr/leave/apply')
+            || pathname.startsWith('/hr/leave/my-applications')
+            || pathname.startsWith('/hr/leave/balance')
+            || pathname.startsWith('/hr/leave/encashment')
+            || pathname.startsWith('/hr/attendance')
+            || pathname.startsWith('/hr/shifts/my')
+            || pathname.startsWith('/hr/performance-reviews')
+            || pathname.startsWith('/hr/training')
+            || pathname.startsWith('/hr/fdp')
+            || pathname.startsWith('/hr/promotions/apply')
+            || pathname.startsWith('/hr/documents')
+            || pathname.startsWith('/hr/my-assets')
+            || pathname.startsWith('/hr/memos/my'),
+          icon: UserCheck,
+          submenus: [
+            { href: '/hr/leave/apply', label: 'Apply for Leave', active: pathname === '/hr/leave/apply' },
+            { href: '/hr/leave/my-applications', label: 'My Leave Applications', active: pathname === '/hr/leave/my-applications' },
+            { href: '/hr/leave/balance', label: 'My Leave Balance', active: pathname === '/hr/leave/balance' },
+            { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
+            { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
+            { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
+            { href: '/hr/shifts/my', label: 'My Shifts', active: pathname.startsWith('/hr/shifts/my') },
+            { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
+            { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
+            { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
+            { href: '/hr/promotions/apply', label: 'Apply for Promotion', active: pathname === '/hr/promotions/apply' },
+            { href: '/hr/documents', label: 'My Documents', active: pathname.startsWith('/hr/documents') },
+            { href: '/hr/my-assets', label: 'My Assets', active: pathname.startsWith('/hr/my-assets') },
+            { href: '/hr/memos/my', label: 'My Memos', active: pathname.startsWith('/hr/memos/my') },
+          ]
+        },
         {
           href: '/hr',
           label: 'HR',
           // Recruitment and Admin live under /hr/ but have their own menu rows.
+          // /hr/employees is NOT excluded from `active` — it has no sidebar
+          // submenu of its own (product decision 2026-07-21: the employee list
+          // belongs to the Employee row below, which owns the record). It
+          // surfaces as an AutoTabNav chip under /hr and highlights this row.
           active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
           icon: Building,
           submenus: [
+            // Apply / My Applications / Balance / Encashment moved to the Self
+            // Service row above (2026-07-21). What stays here is the shared and
+            // approver-facing half — duplicating the self-service entries in
+            // both rows would put the same label twice in one group, the exact
+            // confusion the Employee List rename fixed a day earlier.
             { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
-            { href: '/hr/employees', label: 'Non-Staff Workforce', active: pathname.startsWith('/hr/employees') },
             { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
-            { href: '/hr/leave', label: 'Leave', active: pathname.startsWith('/hr/leave') },
-            { href: '/hr/leave/apply', label: 'Leave · Apply', active: pathname === '/hr/leave/apply' },
-            { href: '/hr/leave/my-applications', label: 'Leave · My Applications', active: pathname === '/hr/leave/my-applications' },
+            { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
             { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
-            { href: '/hr/leave/balance', label: 'Leave · Balance', active: pathname === '/hr/leave/balance' },
-            { href: '/hr/leave/encashment', label: 'Leave · Encashment', active: pathname === '/hr/leave/encashment' },
+          ]
+        },
+        {
+          // Employee — people-records row, merged in from the retired
+          // 'Employee Management' group (2026-07-20).
+          //
+          // ONE submenu by product decision (2026-07-20): a single employee
+          // list, not five entries.
+          //
+          // This is the ONLY employee-list entry in the sidebar (2026-07-21).
+          // It stays on '/staff/list' — the WRITE surface, owning the record
+          // (create/edit/bulk upload/photos). The read-only '/hr/employees'
+          // lens deliberately has no sidebar entry of its own; it reads the
+          // same `staff` table and is reachable as an AutoTabNav chip under
+          // /hr. Repointing this href there would strand the only entry point
+          // for creating and editing staff records.
+          //
+          // Visibility note: GetRoleBasedPages (~:3100) shows this row only if
+          // SOME submenu is permitted. '/staff/list' gates on `staff.view`,
+          // held by 61 roles — so this row is effectively universal. Do not
+          // narrow it to an HR-tier key without checking that count first.
+          //
+          // The parent href stays '/staff' (NOT '/staff/list') so the rest of
+          // the subtree — dashboard, category, class-incharges — remains
+          // reachable as manifest-derived AutoTabNav chips. staff has no
+          // nav-config.ts, so this seed is their only reachability source.
+          href: '/staff',
+          label: 'Employee',
+          active: pathname === '/staff' || pathname.startsWith('/staff/'),
+          icon: Users,
+          submenus: [
+            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
           ]
         },
         {
@@ -2027,6 +2170,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/shift-templates', label: 'Shift Templates', active: pathname.startsWith('/hr/admin/shift-templates') },
             { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
+            { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
+            { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
           ]
         }
       ]
@@ -2405,10 +2550,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Sparkles,
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
-            { href: '/ai-pulse/my-pulse', label: 'My Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
+            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }
@@ -2858,6 +3004,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname.startsWith('/system/') ||
             pathname.startsWith('/admin/bug-reports') ||
             pathname.startsWith('/admin/proof-disputes') ||
+            pathname.startsWith('/admin/learner-notes') ||
             pathname.startsWith('/ai-query/admin'),
           icon: Settings,
           submenus: [
@@ -2867,6 +3014,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/bug-leaderboard', label: 'Bug Leaderboard', active: pathname === '/bug-leaderboard' },
             { href: '/admin/bug-reports', label: 'All Bug Reports', active: pathname === '/admin/bug-reports' },
             { href: '/admin/proof-disputes', label: 'Record Corrections', active: pathname === '/admin/proof-disputes' },
+            { href: '/admin/learner-notes', label: 'Learner Notes', active: pathname === '/admin/learner-notes' },
             { href: '/ai-query/admin', label: 'AI Query Tools', active: pathname.startsWith('/ai-query/admin') },
           ]
         }

@@ -262,6 +262,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/question-papers",
+        "label": "Question Papers",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/academic/regulations",
         "label": "Regulations",
         "iconName": "Scale",
@@ -558,6 +564,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/id-cards",
+        "label": "Id Cards",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/id-cards/policy",
+            "label": "ID Card Policy",
+            "iconName": "CreditCard",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/print-queue",
+            "label": "ID Card Print Queue",
+            "iconName": "Printer",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/template",
+            "label": "ID Card Template",
+            "iconName": "Layout",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
@@ -727,6 +758,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payouts",
+            "label": "Payouts",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -1524,6 +1561,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Policies",
             "iconName": "BookText",
             "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/starter-tamil-review",
+            "label": "Starter Tamil Review",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -1560,7 +1603,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       },
       {
         "path": "/ai-pulse/my-pulse",
-        "label": "My Pulse",
+        "label": "My AI Pulse",
         "iconName": "FileText",
         "children": []
       },
@@ -3195,6 +3238,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/design-gallery",
+    "label": "Design Gallery",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/events",
     "label": "Events",
     "iconName": "CalendarHeart",
@@ -3472,6 +3521,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/leave-balances",
+            "label": "Leave Balances",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/leave-types",
+            "label": "Leave Types",
+            "iconName": "CalendarOff",
+            "children": []
           },
           {
             "path": "/hr/admin/memos",
@@ -3948,6 +4009,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/import",
+            "label": "Import",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/regularize",
             "label": "Regularize",
             "iconName": "CheckSquare",
@@ -3997,14 +4064,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/hr/employees",
         "label": "Employees",
         "iconName": "Users",
-        "children": [
-          {
-            "path": "/hr/employees/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
+        "children": []
       },
       {
         "path": "/hr/fdp",
@@ -4043,6 +4103,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/approvals",
+            "label": "Approvals",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/approve",
             "label": "Approve",
             "iconName": "CalendarOff",
@@ -4061,6 +4127,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/compensatory-off",
+            "label": "Compensatory Off",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
             "iconName": "CalendarOff",
@@ -4069,6 +4141,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/leave/my-applications",
             "label": "My Applications",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/requests",
+            "label": "Requests",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/short-time-off",
+            "label": "Short Time Off",
             "iconName": "CalendarOff",
             "children": []
           }
@@ -5684,7 +5768,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/procurement/purchase-orders",
         "label": "Purchase Orders",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/procurement/purchase-orders/formats",
+            "label": "Formats",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/procurement/purchase-orders/formats/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/procurement/requests",
@@ -5826,6 +5924,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/rcltp/teacher/recordings",
             "label": "Recording Review",
             "iconName": "Mic",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/remedial-plans",
+            "label": "RCLTP Remedial Plans",
+            "iconName": "FileText",
             "children": []
           }
         ]

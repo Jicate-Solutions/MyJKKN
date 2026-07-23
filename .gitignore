@@ -134,3 +134,7 @@ __pycache__/
 
 # Local fee-sync analysis artifacts (contain student PII) — keep out of git
 reports/
+
+# local secrets / config (never commit)
+env
+mcp.json

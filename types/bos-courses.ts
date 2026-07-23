@@ -123,6 +123,10 @@ export interface BosCourseMapping {
   course_group: CourseGroup | null;
   semester_code: string | null;
   course_order: number | null;
+  // COE `course_mapping.group_order` — usually equals the course order number;
+  // elective options share one group_order so they band + count once in totals.
+  // Optional: older COE deployments / optimistic rows may omit it.
+  group_order?: number | null;
   regulation_code: string | null;
   is_active: boolean;
   mapping_status: 'Active' | 'Locked' | string;   // Lock state for the mapping row itself.
@@ -141,8 +145,11 @@ export interface BosCourseMappingDetailed extends BosCourseMapping {
     | 'course_code' | 'course_name' | 'course_category' | 'course_type'
     | 'course_type_code'
     | 'course_part_master' | 'credit' | 'exam_duration'
-    | 'theory_hours' | 'practical_hours'
+    | 'theory_hours' | 'tutorial_hours' | 'practical_hours'
     | 'internal_max_mark' | 'external_max_mark' | 'total_max_mark'
+    // Optional on the master, so it stays optional here — the semester table
+    // reads it to grey out and un-delete locked rows.
+    | 'course_status'
   >;
 }
 

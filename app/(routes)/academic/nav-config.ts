@@ -154,6 +154,12 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Question Papers',
+      icon: 'FileText',
+      href: '/academic/question-papers',
+      matchPaths: ['/academic/question-papers'],
+    },
+    {
       label: 'Assessment',
       icon: 'GraduationCap',
       href: '/academic/internal-marks',

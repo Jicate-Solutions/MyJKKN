@@ -7506,368 +7506,188 @@ GRANT EXECUTE ON FUNCTION fn_dashboard_metrics_as(UUID) TO service_role;
 -- Added: 2026-04-17 — Faculty hero strip (unmarked classes, learner flags,
 -- upcoming timetable, week attendance %)
 -- ================================================================================
-CREATE OR REPLACE FUNCTION fn_faculty_metrics()
--- ============================================================================
--- Dashboard v2 — Student/Learner Metrics (fn_student_metrics)
--- Added: 2026-04-17 — Student hero strip for 4,235 active learner users
--- Returns attendance %, fee balance, today's timetable, upcoming deadlines
--- SECURITY DEFINER: reads auth.uid() to resolve learner_id from profiles.
--- ============================================================================
-CREATE OR REPLACE FUNCTION public.fn_student_metrics()
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+-- Updated 2026-07-17: replaced with the live production body (was a stale
+-- 362-line variant that matched no deployed function). Fixes the
+-- period_id/id slot-key mismatch that made Classes-to-Mark read 0.
+-- See migration 20260717021126.
+-- Updated 2026-07-18 (Phase 2): marking_compliance credits ASSIGNED-and-marked
+-- days (not personal marker_id) + returns marking_detail. See migration
+-- faculty_metrics_marking_assigned_reconciliation.sql.
+CREATE OR REPLACE FUNCTION public.fn_faculty_metrics()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_user_id uuid := auth.uid();
-  v_institution_id uuid;
-  v_staff_id uuid;
-  v_today date;
-  v_day_name text;
-  v_now_ist timestamptz;
-  v_now_time time;
-  v_week_start date;
-  v_week_end date;
-  v_total_today int := 0;
-  v_marked_today int := 0;
-  v_upcoming jsonb := '[]'::jsonb;
-  v_next_2h_count int := 0;
-  v_week_days_total int := 0;
-  v_week_days_marked int := 0;
-  v_week_pct numeric := 0;
-  v_tt record;
-  v_period jsonb;
-  v_slot jsonb;
-  v_period_id text;
-  v_start_time time;
-  v_end_time time;
-  v_course_code text;
-  v_course_name text;
-  v_section_name text;
-  v_period_name text;
-  v_has_marked boolean;
-  v_cutoff_time time;
+  v_email text;
+  v_institution_id uuid; v_staff_id uuid;
+  v_today date; v_day_name text; v_now_ist timestamptz; v_now_time time;
+  v_week_start date; v_week_end date;
+  v_total_today int := 0; v_marked_today int := 0;
+  v_upcoming jsonb := '[]'::jsonb; v_next_2h_count int := 0;
+  v_week_days_total int := 0; v_week_days_marked int := 0; v_week_pct numeric := 0;
+  v_tt record; v_period jsonb; v_slot jsonb; v_period_id text;
+  v_start_time time; v_end_time time;
+  v_course_code text; v_course_name text; v_section_name text; v_period_name text;
+  v_has_marked boolean; v_cutoff_time time;
+  v_30d_start date; v_tes_stu_att numeric; v_tes_marking numeric;
+  v_tes_nps numeric; v_tes_research numeric;
+  v_tes_stu_present int := 0; v_tes_stu_total int := 0;
+  v_tes_marked_assigned int := 0; v_tes_marked_personal int := 0;
+  v_tes_assigned_rows int := 0;
+  v_tes_composite jsonb;
 BEGIN
   v_now_ist := now() AT TIME ZONE 'Asia/Kolkata';
-  v_today := v_now_ist::date;
-  v_now_time := v_now_ist::time;
+  v_today := v_now_ist::date; v_now_time := v_now_ist::time;
   v_cutoff_time := v_now_time + interval '2 hours';
   v_day_name := upper(trim(to_char(v_today, 'DAY')));
   v_week_start := v_today - (extract(isodow from v_today)::int - 1);
   v_week_end := v_week_start + 4;
-
-  SELECT institution_id INTO v_institution_id
-  FROM profiles WHERE id = v_user_id;
-
-  SELECT s.id INTO v_staff_id
-  FROM staff s WHERE s.profile_id = v_user_id
-  LIMIT 1;
-
+  v_30d_start := v_today - interval '30 days';
+  SELECT institution_id INTO v_institution_id FROM profiles WHERE id = v_user_id;
+  SELECT lower(email) INTO v_email FROM profiles WHERE id = v_user_id;
+  SELECT s.id INTO v_staff_id FROM staff s WHERE s.profile_id = v_user_id LIMIT 1;
   IF v_staff_id IS NULL THEN
     RETURN jsonb_build_object(
       'unmarked_classes', jsonb_build_object('count', 0, 'total_today', 0, 'data_source', 'no_staff_record'),
       'learner_flags', jsonb_build_object('count', 0, 'data_source', 'not_available'),
       'upcoming_timetable', jsonb_build_object('classes', '[]'::jsonb, 'next_2h_count', 0, 'data_source', 'no_staff_record'),
       'week_attendance', jsonb_build_object('pct', 0, 'days_marked', 0, 'days_total', 0, 'data_source', 'no_staff_record'),
+      'teaching_excellence_score', jsonb_build_object('score', 0, 'band', 'red', 'components', '{}'::jsonb, 'data_source', 'no_staff_record'),
       'scope', jsonb_build_object('user_id', v_user_id, 'institution_id', v_institution_id, 'computed_at', now())
     );
   END IF;
 
   FOR v_tt IN
     SELECT t.timetable_data, t.periods, t.section_id, sec.section_name
-    FROM timetables t
-    LEFT JOIN sections sec ON sec.id = t.section_id
-    WHERE t.is_active = true
-      AND t.institution_id = v_institution_id
-      AND t.timetable_data IS NOT NULL
-      AND t.periods IS NOT NULL
+    FROM timetables t LEFT JOIN sections sec ON sec.id = t.section_id
+    WHERE t.is_active = true AND t.institution_id = v_institution_id
+      AND t.timetable_data IS NOT NULL AND t.periods IS NOT NULL
       AND t.timetable_data ? v_day_name
   LOOP
-    FOR v_period IN SELECT * FROM jsonb_array_elements(v_tt.periods)
-    LOOP
-      IF (v_period->>'is_break')::boolean THEN
-        CONTINUE;
-      END IF;
-
-      v_period_id := v_period->>'period_id';
+    FOR v_period IN SELECT * FROM jsonb_array_elements(v_tt.periods) LOOP
+      IF (v_period->>'is_break')::boolean THEN CONTINUE; END IF;
+      v_period_id := COALESCE(v_period->>'period_id', v_period->>'id');
       v_start_time := (v_period->>'start_time')::time;
       v_end_time := (v_period->>'end_time')::time;
       v_period_name := v_period->>'period_name';
-
       v_slot := v_tt.timetable_data->v_day_name->v_period_id;
-
-      IF v_slot IS NULL THEN
-        CONTINUE;
-      END IF;
-
+      IF v_slot IS NULL THEN CONTINUE; END IF;
       IF v_slot->>'primary_staff_id' = v_staff_id::text
          OR v_slot->'staff_ids' @> to_jsonb(v_staff_id::text) THEN
-
         v_total_today := v_total_today + 1;
-
-        v_course_code := '';
-        v_course_name := '';
+        v_course_code := ''; v_course_name := '';
         BEGIN
           SELECT c.course_code, c.course_name INTO v_course_code, v_course_name
           FROM courses c WHERE c.id = (v_slot->>'course_id')::uuid;
-        EXCEPTION WHEN OTHERS THEN
-          NULL;
-        END;
-
+        EXCEPTION WHEN OTHERS THEN NULL; END;
         v_section_name := COALESCE(v_tt.section_name, 'Unknown Section');
-
         v_has_marked := EXISTS (
           SELECT 1 FROM student_attendance sa
           WHERE sa.attendance_date = v_today
-            AND sa.timetable_id IN (
-              SELECT t2.id FROM timetables t2
-              WHERE t2.is_active = true
-                AND t2.institution_id = v_institution_id
-                AND t2.section_id = v_tt.section_id
-            )
+            AND sa.timetable_id IN (SELECT t2.id FROM timetables t2
+              WHERE t2.is_active = true AND t2.institution_id = v_institution_id AND t2.section_id = v_tt.section_id)
             AND sa.attendance_data ? v_period_id
         );
-
-        IF v_has_marked THEN
-          v_marked_today := v_marked_today + 1;
-        END IF;
-
+        IF v_has_marked THEN v_marked_today := v_marked_today + 1; END IF;
         IF v_start_time >= v_now_time AND v_start_time < v_cutoff_time THEN
           v_next_2h_count := v_next_2h_count + 1;
           v_upcoming := v_upcoming || jsonb_build_object(
             'course', COALESCE(NULLIF(v_course_code, ''), v_course_name, v_period_name),
             'time', to_char(v_start_time, 'HH24:MI') || '-' || to_char(v_end_time, 'HH24:MI'),
-            'section', v_section_name
-          );
+            'section', v_section_name);
         END IF;
-
       END IF;
     END LOOP;
   END LOOP;
 
   v_week_days_total := LEAST(extract(isodow from v_today)::int, 5);
-
   SELECT COUNT(DISTINCT sa.attendance_date) INTO v_week_days_marked
-  FROM student_attendance sa,
-       jsonb_each(sa.attendance_data) AS periods(period_key, period_val)
-  WHERE sa.attendance_date >= v_week_start
-    AND sa.attendance_date <= LEAST(v_today, v_week_end)
+  FROM student_attendance sa, jsonb_each(sa.attendance_data) AS periods(period_key, period_val)
+  WHERE sa.attendance_date >= v_week_start AND sa.attendance_date <= LEAST(v_today, v_week_end)
     AND sa.institution_id = v_institution_id
     AND period_val->'marked_by_details'->>'marker_id' = v_user_id::text;
-
   IF v_week_days_total > 0 THEN
     v_week_pct := ROUND((v_week_days_marked::numeric / v_week_days_total) * 100, 1);
   END IF;
 
-  RETURN jsonb_build_object(
-    'unmarked_classes', jsonb_build_object(
-      'count', v_total_today - v_marked_today,
-      'total_today', v_total_today
-    ),
-    'learner_flags', jsonb_build_object(
-      'count', 0,
-      'data_source', 'not_available'
-    ),
-    'upcoming_timetable', jsonb_build_object(
-      'classes', v_upcoming,
-      'next_2h_count', v_next_2h_count
-    ),
-    'week_attendance', jsonb_build_object(
-      'pct', v_week_pct,
-      'days_marked', v_week_days_marked,
-      'days_total', v_week_days_total
-    ),
-    'scope', jsonb_build_object(
-      'user_id', v_user_id,
-      'institution_id', v_institution_id,
-      'computed_at', now()
-  v_user_id         uuid;
-  v_learner_id      uuid;
-  v_section_id      uuid;
-  v_semester_id     uuid;
-  v_institution_id  uuid;
-  v_attendance      jsonb;
-  v_fees            jsonb;
-  v_timetable       jsonb;
-  v_deadlines       jsonb;
-  v_present         int := 0;
-  v_total           int := 0;
-  v_pct             numeric := 0;
-  v_band            text := 'red';
-  v_balance         numeric := 0;
-  v_next_due        date;
-  v_today_day       text;
-  v_classes         jsonb := '[]'::jsonb;
-  v_class_count     int := 0;
-  rec               record;
-BEGIN
-  -- 1. Resolve the current user to their learner profile
-  v_user_id := auth.uid();
-  IF v_user_id IS NULL THEN
-    RETURN jsonb_build_object(
-      'error', 'not_authenticated',
-      'scope', jsonb_build_object('user_id', null, 'computed_at', now()::text)
-    );
-  END IF;
-
-  SELECT p.learner_id, p.institution_id
-  INTO v_learner_id, v_institution_id
-  FROM profiles p
-  WHERE p.id = v_user_id;
-
-  IF v_learner_id IS NULL THEN
-    RETURN jsonb_build_object(
-      'attendance', jsonb_build_object('pct_semester', 0, 'present', 0, 'total', 0, 'band', 'red', 'data_source', 'no_learner_profile'),
-      'fees', jsonb_build_object('balance_due', 0, 'next_due_date', null, 'currency', 'INR', 'data_source', 'no_learner_profile'),
-      'timetable_today', jsonb_build_object('classes', '[]'::jsonb, 'total', 0, 'data_source', 'no_learner_profile'),
-      'deadlines', jsonb_build_object('upcoming', '[]'::jsonb, 'count', 0, 'data_source', 'no_learner_profile'),
-      'scope', jsonb_build_object('user_id', v_user_id, 'institution_id', v_institution_id, 'computed_at', now()::text)
-    );
-  END IF;
-
-  SELECT lp.section_id, lp.semester_id
-  INTO v_section_id, v_semester_id
-  FROM learners_profiles lp
-  WHERE lp.id = v_learner_id;
-
-  -- TILE 1: ATTENDANCE (semester aggregate)
+  -- TES component 1: student_attendance (unchanged) — % Present in this
+  -- faculty's PERSONALLY-marked classes (marker attribution).
   BEGIN
-    IF v_section_id IS NOT NULL AND v_semester_id IS NOT NULL THEN
-      SELECT
-        COALESCE(SUM(
-          (SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS period_kv,
-           LATERAL jsonb_array_elements(period_kv.value -> 'students') AS student_entry
-           WHERE (student_entry ->> 'student_id')::uuid = v_learner_id
-             AND student_entry ->> 'status' = 'Present')
-        ), 0),
-        COALESCE(SUM(
-          (SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS period_kv,
-           LATERAL jsonb_array_elements(period_kv.value -> 'students') AS student_entry
-           WHERE (student_entry ->> 'student_id')::uuid = v_learner_id)
-        ), 0)
-      INTO v_present, v_total
-      FROM student_attendance sa
-      WHERE sa.section_id = v_section_id
-        AND sa.semester_id = v_semester_id;
-
-      IF v_total > 0 THEN
-        v_pct := ROUND((v_present::numeric / v_total::numeric) * 100, 1);
-      END IF;
-
-      IF v_pct >= 75 THEN v_band := 'green';
-      ELSIF v_pct >= 60 THEN v_band := 'amber';
-      ELSE v_band := 'red';
-      END IF;
-
-      v_attendance := jsonb_build_object(
-        'pct_semester', v_pct, 'present', v_present, 'total', v_total, 'band', v_band
-      );
-    ELSE
-      v_attendance := jsonb_build_object(
-        'pct_semester', 0, 'present', 0, 'total', 0, 'band', 'red', 'data_source', 'no_section_or_semester'
-      );
+    SELECT
+      COALESCE(SUM((SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS pkv,
+        LATERAL jsonb_array_elements(pkv.value -> 'students') AS se
+        WHERE se ->> 'status' = 'Present'
+          AND pkv.value->'marked_by_details'->>'marker_id' = v_user_id::text)), 0),
+      COALESCE(SUM((SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS pkv,
+        LATERAL jsonb_array_elements(pkv.value -> 'students') AS se
+        WHERE pkv.value->'marked_by_details'->>'marker_id' = v_user_id::text)), 0)
+    INTO v_tes_stu_present, v_tes_stu_total
+    FROM student_attendance sa
+    WHERE sa.attendance_date >= v_30d_start AND sa.institution_id = v_institution_id;
+    IF v_tes_stu_total > 0 THEN
+      v_tes_stu_att := LEAST(100, GREATEST(0, ROUND((v_tes_stu_present::numeric / v_tes_stu_total::numeric) * 100)));
     END IF;
-  EXCEPTION WHEN OTHERS THEN
-    v_attendance := jsonb_build_object(
-      'pct_semester', 0, 'present', 0, 'total', 0, 'band', 'red', 'data_source', 'error'
-    );
-  END;
+  EXCEPTION WHEN OTHERS THEN v_tes_stu_att := NULL; END;
 
-  -- TILE 2: FEE BALANCE
+  -- TES component 2: marking_compliance (Phase 2, 2026-07-18) — now credits
+  -- ASSIGNED-and-marked days (a day where a session assigned to this faculty was
+  -- marked by anyone), mirroring fn_work_signals_for.v_assigned_marked. Reads
+  -- assigned_faculty off the marked attendance row (no timetable slot lookup) so
+  -- the period_id/id timetable-shape trap does not apply. Personal count kept for
+  -- the "track both" tile. Score uses ASSIGNED / 22 target days.
   BEGIN
-    SELECT COALESCE(SUM(bsb.balance_amount), 0), MIN(bsb.due_date)
-    INTO v_balance, v_next_due
-    FROM billing_student_bills bsb
-    WHERE bsb.student_id = v_learner_id
-      AND bsb.balance_amount > 0
-      AND bsb.status NOT IN ('cancelled', 'refunded');
+    SELECT COUNT(DISTINCT sa.attendance_date) INTO v_tes_marked_assigned
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pkv(period_key, period_val),
+         LATERAL jsonb_array_elements(
+           CASE
+             WHEN jsonb_typeof(pkv.period_val -> 'assigned_faculty') = 'array'  THEN pkv.period_val -> 'assigned_faculty'
+             WHEN jsonb_typeof(pkv.period_val -> 'assigned_faculty') = 'object' THEN jsonb_build_array(pkv.period_val -> 'assigned_faculty')
+             ELSE '[]'::jsonb
+           END) AS af(el)
+    WHERE sa.attendance_date >= v_30d_start AND sa.attendance_date <= v_today
+      AND sa.institution_id = v_institution_id
+      AND v_email IS NOT NULL
+      AND lower(COALESCE(af.el ->> 'faculty_email', '')) = v_email;
 
-    v_fees := jsonb_build_object('balance_due', v_balance, 'next_due_date', v_next_due, 'currency', 'INR');
-  EXCEPTION WHEN OTHERS THEN
-    v_fees := jsonb_build_object('balance_due', 0, 'next_due_date', null, 'currency', 'INR', 'data_source', 'error');
-  END;
+    SELECT COUNT(DISTINCT sa.attendance_date) INTO v_tes_marked_personal
+    FROM student_attendance sa, jsonb_each(sa.attendance_data) AS pkv(period_key, period_val)
+    WHERE sa.attendance_date >= v_30d_start AND sa.attendance_date <= v_today
+      AND sa.institution_id = v_institution_id
+      AND pkv.period_val->'marked_by_details'->>'marker_id' = v_user_id::text;
 
-  -- TILE 3: TODAY'S TIMETABLE
-  BEGIN
-    v_today_day := RTRIM(UPPER(to_char(CURRENT_DATE, 'Day')));
-
-    IF v_section_id IS NOT NULL THEN
-      SELECT jsonb_agg(slot_info ORDER BY (slot_info ->> 'start_time')), COUNT(*)
-      INTO v_classes, v_class_count
-      FROM (
-        SELECT jsonb_build_object(
-          'course', COALESCE(c.course_code, 'N/A'),
-          'course_name', COALESCE(c.course_name, ''),
-          'time', COALESCE(p.start_time::text, '') || '-' || COALESCE(p.end_time::text, ''),
-          'faculty', COALESCE((
-            SELECT pr.full_name FROM profiles pr WHERE pr.id = (slot_val ->> 'primary_staff_id')::uuid
-          ), 'TBA'),
-          'room', '',
-          'start_time', COALESCE(p.start_time::text, '99:99'),
-          'is_break', COALESCE(p.is_break, false)
-        ) AS slot_info
-        FROM timetables tt,
-             jsonb_each(tt.timetable_data -> v_today_day) AS period_entry(period_id, slot_val)
-        LEFT JOIN periods p ON p.id = period_entry.period_id::uuid
-        LEFT JOIN courses c ON c.id = (period_entry.slot_val ->> 'course_id')::uuid
-        WHERE tt.section_id = v_section_id
-          AND tt.is_active = true
-          AND tt.timetable_data ? v_today_day
-          AND COALESCE((period_entry.slot_val ->> 'is_break_slot')::boolean, false) = false
-        LIMIT 12
-      ) sub;
-
-      v_classes := COALESCE(v_classes, '[]'::jsonb);
-      v_class_count := COALESCE(v_class_count, 0);
-      v_timetable := jsonb_build_object('classes', v_classes, 'total', v_class_count);
-    ELSE
-      v_timetable := jsonb_build_object('classes', '[]'::jsonb, 'total', 0, 'data_source', 'no_section');
+    v_tes_assigned_rows := 22;
+    IF v_tes_assigned_rows > 0 THEN
+      v_tes_marking := LEAST(100, GREATEST(0, ROUND((v_tes_marked_assigned::numeric / v_tes_assigned_rows::numeric) * 100)));
     END IF;
-  EXCEPTION WHEN OTHERS THEN
-    v_timetable := jsonb_build_object('classes', '[]'::jsonb, 'total', 0, 'data_source', 'error');
-  END;
+  EXCEPTION WHEN OTHERS THEN v_tes_marking := NULL; END;
 
-  -- TILE 4: UPCOMING DEADLINES (fee due dates within 30 days)
-  BEGIN
-    SELECT jsonb_agg(d ORDER BY (d ->> 'due')), COUNT(*)
-    INTO v_deadlines, v_class_count
-    FROM (
-      SELECT jsonb_build_object(
-        'title', COALESCE(bsb.bill_description, 'Fee Payment'),
-        'due', bsb.due_date::text,
-        'type', 'fee_payment'
-      ) AS d
-      FROM billing_student_bills bsb
-      WHERE bsb.student_id = v_learner_id
-        AND bsb.balance_amount > 0
-        AND bsb.due_date >= CURRENT_DATE
-        AND bsb.due_date <= CURRENT_DATE + interval '30 days'
-        AND bsb.status NOT IN ('cancelled', 'refunded')
-      ORDER BY bsb.due_date
-      LIMIT 5
-    ) sub;
+  v_tes_nps := NULL; v_tes_research := NULL;
 
-    v_deadlines := COALESCE(v_deadlines, '[]'::jsonb);
-    v_class_count := COALESCE(v_class_count, 0);
-  EXCEPTION WHEN OTHERS THEN
-    v_deadlines := '[]'::jsonb;
-    v_class_count := 0;
-  END;
+  v_tes_composite := compute_renormalized_composite(
+    jsonb_build_object('student_attendance', v_tes_stu_att, 'marking_compliance', v_tes_marking, 'feedback_nps', v_tes_nps, 'research_mentorship', v_tes_research),
+    jsonb_build_object('student_attendance', 25, 'marking_compliance', 25, 'feedback_nps', 25, 'research_mentorship', 25)
+  );
 
-  -- ASSEMBLE RESPONSE
   RETURN jsonb_build_object(
-    'attendance', v_attendance,
-    'fees', v_fees,
-    'timetable_today', v_timetable,
-    'deadlines', jsonb_build_object('upcoming', v_deadlines, 'count', v_class_count),
-    'scope', jsonb_build_object(
-      'user_id', v_user_id, 'learner_id', v_learner_id,
-      'institution_id', v_institution_id, 'computed_at', now()::text
-    )
+    'unmarked_classes', jsonb_build_object('count', v_total_today - v_marked_today, 'total_today', v_total_today),
+    'learner_flags', jsonb_build_object('count', 0, 'data_source', 'not_available'),
+    'upcoming_timetable', jsonb_build_object('classes', v_upcoming, 'next_2h_count', v_next_2h_count),
+    'week_attendance', jsonb_build_object('pct', v_week_pct, 'days_marked', v_week_days_marked, 'days_total', v_week_days_total),
+    'teaching_excellence_score', v_tes_composite || jsonb_build_object(
+      'components', jsonb_build_object('student_attendance', v_tes_stu_att, 'marking_compliance', v_tes_marking, 'feedback_nps', v_tes_nps, 'research_mentorship', v_tes_research),
+      'marking_detail', jsonb_build_object(
+        'assigned_days', v_tes_marked_assigned,
+        'personal_days', v_tes_marked_personal,
+        'target_days', v_tes_assigned_rows),
+      'window', 'trailing_30_days'),
+    'scope', jsonb_build_object('user_id', v_user_id, 'institution_id', v_institution_id, 'computed_at', now())
   );
 END;
-$$;
+$function$;
 -- END Dashboard v2 Faculty metrics
 
 GRANT EXECUTE ON FUNCTION public.fn_student_metrics() TO authenticated;
@@ -21458,6 +21278,13 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 --   SECURITY DEFINER. True when the given staff teaches in an institution the
 --   current user can access (role_has_institution_access). Powers the
 --   staff_select_visiting_teacher policy.
+-- staff_teaching_institution_ids() RETURNS uuid[]  (migration
+--   optimize_courses_select_rls_statement_timeout, 2026-07-16)
+--   STABLE SECURITY DEFINER, parameterless SET form of staff_teaches_in_institution:
+--   the DISTINCT set of institution_ids the CURRENT USER teaches in. Used by
+--   courses_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is
+--   evaluated ONCE (hashed subplan) instead of a per-row function call — the
+--   per-row form full-scanned courses and hit the 8s statement_timeout (57014).
 -- fn_attendance_roster (UPDATED 20260706): institution gate is now
 --   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
 --   permission — visiting staff can load the roster where they teach.
@@ -22132,3 +21959,253 @@ $$;
 
 REVOKE ALL ON FUNCTION public.get_markable_resident_photos(uuid) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.get_markable_resident_photos(uuid) TO authenticated;
+
+-- ============================================================================
+-- 2026-07-15: save_event_registration_form — atomic bulk save for a
+-- tournament's dynamic registration form (sections + fields) from a single
+-- desired-state JSONB payload. SECURITY INVOKER on purpose: the existing
+-- event_registration_form{s,_sections,_fields} "_manage" RLS policies already
+-- encode the tournament manage rule (super admin / admin / event in-charge /
+-- sports.tournaments.manage + institution access), so running as the caller
+-- reuses that gate verbatim with no service-role and no re-encoded auth. A
+-- non-manager who calls this simply fails the RLS WITH CHECK inside the
+-- function, which raises and rolls the whole transaction back.
+-- Strategy: delete-all-then-reinsert — safe because
+-- events_registrations.custom_fields keys answers by field_key, never the
+-- field row id, so churning ids on save orphans nothing.
+-- Canonical body:
+--   supabase/migrations/20260715090000_save_event_registration_form_rpc.sql
+-- ============================================================================
+CREATE OR REPLACE FUNCTION save_event_registration_form(
+  p_event_id uuid,
+  p_is_enabled boolean,
+  p_sections jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_form_id    uuid;
+  v_section    jsonb;
+  v_section_id uuid;
+  v_field      jsonb;
+BEGIN
+  -- 1. Lazy-create / update the form row (RLS authorizes via WITH CHECK).
+  INSERT INTO event_registration_forms (event_id, is_enabled)
+  VALUES (p_event_id, COALESCE(p_is_enabled, true))
+  ON CONFLICT (event_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
+  RETURNING id INTO v_form_id;
+
+  -- 2. Clear existing structure; fields cascade off sections.
+  DELETE FROM event_registration_form_sections WHERE form_id = v_form_id;
+
+  -- 3. Re-insert the desired structure, in payload order.
+  FOR v_section IN
+    SELECT * FROM jsonb_array_elements(COALESCE(p_sections, '[]'::jsonb))
+  LOOP
+    INSERT INTO event_registration_form_sections (form_id, event_id, title, display_order)
+    VALUES (
+      v_form_id,
+      p_event_id,
+      COALESCE(NULLIF(btrim(v_section->>'title'), ''), 'Section'),
+      COALESCE((v_section->>'display_order')::int, 0)
+    )
+    RETURNING id INTO v_section_id;
+
+    FOR v_field IN
+      SELECT * FROM jsonb_array_elements(COALESCE(v_section->'fields', '[]'::jsonb))
+    LOOP
+      INSERT INTO event_registration_form_fields (
+        section_id, event_id, field_key, field_label, field_type, is_required,
+        display_order, placeholder, help_text, min_length, max_length,
+        min_value, max_value, pattern, options, condition
+      )
+      VALUES (
+        v_section_id,
+        p_event_id,
+        v_field->>'field_key',
+        v_field->>'field_label',
+        v_field->>'field_type',
+        COALESCE((v_field->>'is_required')::boolean, false),
+        COALESCE((v_field->>'display_order')::int, 0),
+        v_field->>'placeholder',
+        v_field->>'help_text',
+        (v_field->>'min_length')::int,
+        (v_field->>'max_length')::int,
+        (v_field->>'min_value')::numeric,
+        (v_field->>'max_value')::numeric,
+        v_field->>'pattern',
+        CASE WHEN jsonb_typeof(v_field->'options')   = 'array'  THEN v_field->'options'   ELSE NULL END,
+        CASE WHEN jsonb_typeof(v_field->'condition') = 'object' THEN v_field->'condition' ELSE NULL END
+      );
+    END LOOP;
+  END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) IS
+  'Atomically replaces a tournament registration form (sections + fields) from a desired-state payload. SECURITY INVOKER: authorization comes from the event_registration_form_* _manage RLS policies.';
+
+REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) TO authenticated;
+
+
+-- ============================================================================
+-- fn_attendance_dashboard_section_stats
+-- Attendance Dashboard "Today's Statistics" section breakdown.
+-- Added 2026-07-21. Source of truth: supabase/migrations/20260721120000_fn_attendance_dashboard_section_stats.sql
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_attendance_dashboard_section_stats(
+  p_date date,
+  p_institution_id uuid DEFAULT NULL,
+  p_academic_year_id uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  institution_id uuid,
+  institution_name text,
+  department_id uuid,
+  department_name text,
+  semester_id uuid,
+  semester_name text,
+  section_id uuid,
+  section_name text,
+  total_students bigint,
+  present bigint,
+  absent bigint
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+SET statement_timeout TO '20s'
+AS $function$
+BEGIN
+  -- SECURITY DEFINER + EXECUTE to authenticated => self-authorize, mirroring
+  -- fn_scf_confirmation_rollup. Gate on the permission KEY, never a role name.
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_attendance_dashboard_section_stats: not authenticated';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('academic.attendance.dashboard.view')) THEN
+    RAISE EXCEPTION 'fn_attendance_dashboard_section_stats: not authorized';
+  END IF;
+
+  RETURN QUERY
+  WITH accessible AS (
+    -- Resolve the caller's institution scope ONCE (8 rows) rather than
+    -- re-evaluating role_has_institution_access per learner row -- the
+    -- var-free/once-eval shape that keeps this off the 57014 timeout path.
+    -- is_admin() is deliberately NOT reused here: it is a hardcoded role-NAME
+    -- bypass that ignores institution_scope, so a scope='own' admin would
+    -- otherwise read other institutions' rosters.
+    SELECT i.id
+    FROM public.institutions i
+    WHERE is_super_admin() OR role_has_institution_access(i.id)
+  ),
+  roster AS (
+    -- The denominator, and the base of the output: every active learner group,
+    -- INCLUDING sections with no attendance marked today (they must still
+    -- render, at 0%).
+    SELECT lp.institution_id, lp.department_id, lp.semester_id, lp.section_id,
+           count(*) AS total_students
+    FROM public.learners_profiles lp
+    WHERE lp.lifecycle_status = 'active'
+      AND lp.institution_id IN (SELECT a.id FROM accessible a)
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+    GROUP BY 1, 2, 3, 4
+  ),
+  marks AS (
+    SELECT lp.institution_id, lp.department_id, lp.semester_id, lp.section_id,
+           sa.id::text || ':' || period.key AS period_instance,
+           st ->> 'status' AS status
+    FROM public.student_attendance sa
+    -- jsonb_typeof guards on BOTH expansions: a row whose attendance_data is a
+    -- JSON array/scalar/null, or whose 'students' is a JSON null (JSON null is
+    -- not SQL NULL, so COALESCE misses it), would otherwise raise and abort the
+    -- entire rollup.
+    CROSS JOIN LATERAL jsonb_each(
+      CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
+           THEN sa.attendance_data ELSE '{}'::jsonb END) AS period
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(period.value -> 'students') = 'array'
+           THEN period.value -> 'students' ELSE '[]'::jsonb END) AS st
+    -- CASE (not a WHERE-clause regex) guards the ::uuid cast: the planner may
+    -- reorder a WHERE filter after the join condition, so the guard has to sit
+    -- in the cast expression itself for a malformed student_id to be skipped
+    -- rather than fail the whole rollup.
+    JOIN public.learners_profiles lp
+      ON lp.id = CASE
+                   WHEN (st ->> 'student_id') ~
+                        '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                   THEN (st ->> 'student_id')::uuid
+                 END
+     AND lp.lifecycle_status = 'active'
+    WHERE sa.attendance_date = p_date
+      -- DELIBERATELY no `institution_id IN (SELECT ... accessible)` here, and do
+      -- NOT add one "for safety": the planner turns that IN-subquery into a join
+      -- against the accessible set and multiplies this JSONB expansion by the
+      -- number of accessible institutions (3,105 rows -> 43,470 at 14
+      -- institutions) before filtering back down -- 1345ms vs 68ms for the whole
+      -- rollup. It is redundant anyway: output rows come only FROM roster, which
+      -- IS scoped, so a mark belonging to an inaccessible institution lands in a
+      -- tally group that no roster row ever joins to and is dropped.
+      -- These two are plain scalar filters, not subqueries, so they cost nothing
+      -- and still narrow the scan early.
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+  ),
+  tally AS (
+    SELECT m.institution_id, m.department_id, m.semester_id, m.section_id,
+           count(*) FILTER (WHERE m.status = 'Present') AS present_sum,
+           count(*) FILTER (WHERE m.status = 'Absent')  AS absent_sum,
+           -- Period INSTANCES (row + period id), so a section spread over
+           -- several attendance rows averages across every period it appeared in.
+           count(DISTINCT m.period_instance)            AS period_count
+    FROM marks m
+    GROUP BY 1, 2, 3, 4
+  )
+  SELECT
+    r.institution_id,
+    COALESCE(i.name, 'Unknown Institution')::text,
+    r.department_id,
+    COALESCE(d.department_name, 'Unknown Department')::text,
+    r.semester_id,
+    COALESCE(sm.semester_name, 'Unknown Semester')::text,
+    r.section_id,
+    COALESCE(sc.section_name, 'Unknown Section')::text,
+    r.total_students,
+    -- A section taught twice today reports a per-period headcount comparable to
+    -- its roster, not a doubled one.
+    CASE WHEN COALESCE(t.period_count, 0) > 1
+         THEN round(t.present_sum::numeric / t.period_count)::bigint
+         ELSE COALESCE(t.present_sum, 0) END,
+    -- Absent is derived from the rounded TOTAL marked rather than rounded
+    -- independently: two half-values both rounding up would put present + absent
+    -- one over the roster (40.5 + 4.5 -> 41 + 5 = 46 against 45 learners).
+    CASE WHEN COALESCE(t.period_count, 0) > 1
+         THEN GREATEST(0, round((t.present_sum + t.absent_sum)::numeric / t.period_count)
+                          - round(t.present_sum::numeric / t.period_count))::bigint
+         ELSE COALESCE(t.absent_sum, 0) END
+  FROM roster r
+  -- IS NOT DISTINCT FROM: department/semester/section may be NULL, and those
+  -- groups must still match their tally (a plain = drops them).
+  LEFT JOIN tally t
+    ON t.institution_id IS NOT DISTINCT FROM r.institution_id
+   AND t.department_id  IS NOT DISTINCT FROM r.department_id
+   AND t.semester_id    IS NOT DISTINCT FROM r.semester_id
+   AND t.section_id     IS NOT DISTINCT FROM r.section_id
+  LEFT JOIN public.institutions i  ON i.id  = r.institution_id
+  LEFT JOIN public.departments  d  ON d.id  = r.department_id
+  LEFT JOIN public.semesters    sm ON sm.id = r.semester_id
+  LEFT JOIN public.sections     sc ON sc.id = r.section_id;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) IS
+  'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%.';

@@ -14,6 +14,7 @@ import {
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
+  useUpdatePoItemPrice,
 } from '@/hooks/procurement/use-purchase-orders';
 import { usePoFormats } from '@/hooks/procurement/use-po-formats';
 import { useUpdateImsSupplier } from '@/hooks/ims/use-ims-settings';
@@ -90,6 +91,7 @@ export default function PurchaseOrderDetailPage() {
   const cancelPO = useCancelPO();
   const updateDocFields = useUpdatePoDocumentFields();
   const updateItemExtra = useUpdatePoItemExtraFields();
+  const updateItemPrice = useUpdatePoItemPrice();
   const updateSupplier = useUpdateImsSupplier();
 
   const { data: formats } = usePoFormats(po?.institution_id, { activeOnly: true });
@@ -170,6 +172,14 @@ export default function PurchaseOrderDetailPage() {
   const handleItemExtraBlur = (itemId: string, key: string, value: string) => {
     updateItemExtra.mutateAsync({ poId: id, itemId, extraFields: { [key]: value } }).catch((e) => {
       toast.error(e instanceof Error ? e.message : 'Failed to save field');
+    });
+  };
+
+  const handleItemPriceBlur = (itemId: string, value: string) => {
+    const unitPrice = Number(value);
+    if (!(unitPrice >= 0)) return;
+    updateItemPrice.mutateAsync({ poId: id, itemId, unitPrice }).catch((e) => {
+      toast.error(e instanceof Error ? e.message : 'Failed to save price');
     });
   };
 
@@ -427,7 +437,19 @@ export default function PurchaseOrderDetailPage() {
                       {it.ordered_quantity} {it.unit_label || ''}
                     </TableCell>
                     <TableCell className="text-right">{it.received_quantity}</TableCell>
-                    <TableCell className="text-right">₹{Number(it.unit_price).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      {po.status === 'draft' && canCreate ? (
+                        <Input
+                          type="number"
+                          min={0}
+                          defaultValue={String(it.unit_price)}
+                          onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
+                          className="h-8 w-28 ml-auto text-right"
+                        />
+                      ) : (
+                        `₹${Number(it.unit_price).toLocaleString()}`
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">₹{Number(it.line_total).toLocaleString()}</TableCell>
                     {itemExtraColumns.map((c) => {
                       const key = extraFieldKey(c.source);
