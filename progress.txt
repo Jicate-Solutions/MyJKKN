@@ -1,3 +1,40 @@
+## Session: 2026-07-23 (END /cnext) [pane 5d42c851] — ID-CARD SYSTEM LIVE E2E: DB→API→bridge→physical card in 30s
+
+### Accomplished (full day, both streams)
+- **STREAM A — Phase 1 substrate SHIPPED + LIVE.** PRs #762 (DB) / #764 (API) / #763 (UI) — all rewritten, freshened, CI-greened, MERGED (~08:56), DEPLOYED (~16:57 ride-along + 19:00 activation build).
+  - #762 migration was UNAPPLIABLE as written (targeted `public.students` — renamed to `learners_profiles` BEFORE the PR opened 2026-05-10). Rewrote: all FK/RLS → learners_profiles; dropped redundant photo_url (canonical `student_photo_url` exists); 14 RLS policies via user_has_permission('id_cards.*') — 7 granular keys registered in permissions.ts "ID Cards" category; anon-revoked reader fn. APPLIED to prod after BEGIN…ROLLBACK rehearsal 18/18 → post-verify 12/12.
+  - Rehearsal caught 3 prod-breakers: platform_policies.data_type CHECK drift (text/integer/jsonb → string/number/boolean/array); `admission_admin` role_key DOESN'T EXIST (real = `admission`); `learner` role_key doesn't exist (only `student`).
+  - **UNIVERSAL ANCHOR pivot (Director):** cards for EVERYONE — v2 migration `20260723061500`: `id_card_print_jobs.profile_id` FK → profiles (was learners_profiles). Verified first: 0/4,180 ACTIVE learners lack profiles; 842/844 staff linked; the "1,089 unlinked" = pre-enrollment pipeline (505 reserved/370 enquiry/47 rejected) NOT active learners. Self-view RLS = `profile_id = auth.uid()`. my-cards.view seeded to student/faculty/hod/principal/staff. Print timing = at/after activation; inactive stay printable (registrar judgment).
+  - **Step 2.7 CI-mirror caught pre-push:** 13 terminology violations (student→learner) + dead-table field-picker options in #763; 🔴 #764 auth fail-mode — unset AGENT_PRINT_TOKEN 500'd ALL browser requests (queue would show stub rows silently); fixed: agent-500 only when Bearer presented (curl matrix 6/6→401 verified). CI itself caught the /admin/id-cards hub-page 404 (fixed: redirect page, pattern=audit hub).
+- **STREAM B — Evolis bridge LIVE.** Via Director paste-shuttle to Windows Claude on the BIOMETRIC box: Python 3.11.9 installed (winget wedges on UAC; python.org silent per-user works) → Evolis-SDK 9.4.1 (import name = `evolis` NOT evolis_sdk) → printer found at STATIC 192.10.1.102 (office LAN = unusual 192.10.1.x range; USB goes to separate "Admission-Officer" PC) → **connection recipe: `Connection("socket://192.10.1.102:9100", OpenMode.DIRECT)`** (bare IP fails silently — DLL needs URI scheme) → first test card printed ~18:35 → bridge v0.2 polling prod with Bearer token.
+- **E2E PROVEN 20:50:** enqueued job via SQL (Director's profile) → bridge picked up in ONE 5s poll → card printed → result posted → status `printed` {"success":true}. 30 seconds total.
+- **AGENT_PRINT_TOKEN**: generated, set in Vercel prod, activated via no-op PR #2314 (env-only changes can't build — ignoreCommand), 3-way verified (anon 401/real 200/wrong 401). 🔴 LESSON: first token pasted to Windows was FABRICATED (typed from memory instead of reading the file) — cost one full round-trip; memory captured.
+
+### Current Status
+- **Feature (ID cards)**: Phase 1 + bridge LIVE end-to-end on jkkn.ai + BIOMETRIC box. Bridge runs in a FOREGROUND CONSOLE (not yet a service — nssm needs admin elevation). Prints SDK test pattern (render endpoint = stub until Phase 2).
+- **Build**: prod build `my-jkkn-f5p6l18wc` Ready; all CI green.
+- **Branch (this checkout)**: feat/campus-living-fee-compute-engine — other panes' dirty tree untouched; my work shipped via worktrees (all removed). features.json NOT updated (file is another pane's active M — avoiding mid-write collision; status recorded here instead).
+- E2E artifacts kept in prod: template 79cb8a5b "E2E Test Template (2026-07-23)" + job e64e4ed5 (printed) — first real queue history.
+
+### Lessons Learned (all persisted to memory)
+- Shallow clone → empty merge-base → merge-tree reports "clean" VACUOUSLY (new feedback memory)
+- NEVER type a secret from memory into a paste block — read it from source in the same command
+- Paste-shuttle: placeholder substitution fails at the human hop (self-guard INSIDE blocks); "fresh session" must be keystroke instructions to the human, not prompt text
+- Windows: winget wedges on invisible UAC; console cp1252 needs PYTHONUTF8; setx may be classifier-blocked for the agent (human runs it)
+- Full `npm run build` works in worktrees where standalone tsc OOMs; `npm install --no-save` prunes prior --no-save installs — install ALL missing deps in ONE command
+
+### Next Session — Tasks
+1. [P0] Harden the bridge: compose elevation-ready nssm block (human admin at BIOMETRIC box runs it) + Director runs the pending `setx AGENT_PRINT_TOKEN` correction + verify bridge auto-starts after reboot (small-medium)
+2. [P0] Phase 2 — Print buttons + real rendering: "Print ID card" on learner profile + bulk on learners list; make /api/id-cards/templates/[id]/render return a real card PNG (composite template + learner data + photo); bridge set_image path replaces test-card; sidebar nav entry + MENU_PERMISSIONS for /admin/id-cards (large)
+3. [P1] Config + CFT polish: fix ribbon policy YMCKOK→YMCKO via /admin/id-cards/policy UI (matches installed ribbon); CFT-verify all 3 admin pages render as registrar/admission roles (small)
+4. [P1] Ops guardrails: alert if bridge stops polling (dead-console detection — e.g. last-poll heartbeat in a platform_policies row + stale check); document printer power-on dependency (medium)
+5. [P2] Deferred module gates: smart-guide fragment + CARRE coverage registration for id-cards; Evolis SDK license review by Director at www2.evolis.com/sdk (medium)
+
+
+### Continuation Prompt
+→ .claude/continuation-prompt.5d42c851.md (auto-loads on /clear; pane-scoped; AUTO-BUILD ARMED)
+
+---
 ## Session: 2026-07-23 (End /cnext) — AI Pulse loop WENT LIVE + today's cycle set up
 
 ### Accomplished
@@ -153,8 +190,11 @@
 - **PR #2301** (fix/rcltp-remedial-job-config, worktree `.claude/worktrees/rcltp-jobconfig`) — corrective forward migration `20260723100000_rcltp_remedial_plan_fix_job_config.sql` (idempotent; codifies the live prod fix so a fresh env can't re-inherit broken Slice-1 values — Slice-1 ON CONFLICT doesn't update these fields). **17/17 CI green. NOT merged, NOT deployed — Director's call.** Scoped to remedial_plan_draft ONLY.
 - Memory: Marzano's New Taxonomy = JKKN SCHOOLS lesson-spine cognitive framework (Director directive, school-tier only, not yet wired) → `reference_jkkn_schools_lesson_spine_marzano_taxonomy`.
 
+### Deploy — DONE + VERIFIED LIVE (Director deployed 2026-07-23 evening)
+- PR #2301 (config fix) MERGED 07:56Z; PR #2293 (loop code) MERGED 02:43Z. Deploy fired by Director.
+- **Verified LIVE on jkkn.ai by CONTENT** (not just build badge): cron route `/api/cron/rcltp-remedial-plan-generate` returns the EXACT PR #2293 handler body `{"ok":false,"error":"unauthorized"}` (401) — definitive proof the merged code runs live; enqueue route returns its own handler shape (401); feature page `/rcltp/teacher/remedial-plans` → 307 /auth/login (gated + present, not 404); served by Vercel (x-vercel-id). Build succeeded (new routes serving, not 404). Prod ai_job_types config intact (enabled, prompt_template='{{prompt}}', prompt-only input_schema). NOT yet: live authorized-user browser render of the page (API-live proven; UI render optional).
+
 ### Remaining ranked items (Director-gated)
-- **#2 DEPLOY** the remedial-plan loop live (merged-but-dark; main's Vercel build predates PR #2293) — HELD by Director choice this turn. `/deploy-myjkkn` when ready.
 - **#3** `rcltp.question_generation` offload — SAME config gap (prompt_template=null, input_schema=[]), plus tool_set='all' (vs 'none') design Q; `enabled=false` dormant. Fix + enable + prove on async lane.
 - **#4** spec-rename PR #2298 (docs-only, green) — Director merge.
 - **#5** adoption: 0 REAL Nattraja grade 3-4 learners scored (all [TEST] synthetic) — binding constraint, non-code.
