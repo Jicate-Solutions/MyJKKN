@@ -1,3 +1,22 @@
+## Session: 2026-07-23 — Upload-screen interview complete (D33-D40) + the conflict "no evidence" finding
+
+### The important finding (user pushed for depth on the conflict edge case)
+- 🔴 **There is NO evidence layer to adjudicate referral conflicts.** Verified on prod: consultant_lead_attributions.referral_code = 0% populated, is_verified = 98% (so it discriminates nothing), referral_source = 'auto_sync_lead' (just "someone typed a referrer into the lead form"), is_disputed/splits/attribution_type variety = 0/0/1-value (machinery dormant). **An attribution today is an ASSERTION, not a measured event.** So any first-touch/last-touch/Shapley credit rule = false precision. Refused to invent one.
+- **Operationalist conclusion**: you can't fairly adjudicate what you never measured. For 2025-26 the conflict is near-MOOT anyway (0 existing attributions). Decision: write-once, never overwrite, record a DISPUTE (use existing is_disputed), surface to the consultant-portal contest window (the only grounded distributed check — agencies supply the knowledge the data lacks). Real fix = upstream student-verifiable referral code at capture (weeks of work, future years only).
+- ⚠️ Hand-waves named: portal-contest needs agency engagement; can't rank the Director's unseen paper evidence; existing-wins can bury a genuine correction; upstream fix doesn't help the backfill.
+
+### Upload-screen decisions locked (SPECS.md §3 D33-D40)
+D33 show enrolment status inline (green attendance/feedback vs amber registrar) · D34 already-paid rows create paid record (double-pay ledger; generator skips them) · D35 upload/preview=any admission staff, approve-save=senior · D36 conflict=write-once+dispute (no credit rule) · D37 owed=agreed−paid only if file shows higher agreed, else past payment final · D38 blank amount=record 'to be set', not payable · D39 messy file=warn+confirm then approve good rows · D40 access=admission admins+uploader.
+- Write target = consultant_lead_attributions (full record), NOT just learners_profiles.referred_by_id, so verify/dispute/contest are available.
+
+### State — payment machine COMPLETE (PRs awaiting Director merge)
+- #2258 rates + generator UI (green). #2261 payout engine + UI (CI running). #2219/#2220 merged+deployed.
+- Import validator + template DONE (proven 9/9). Generator + payout engines proven on prod.
+
+### Next = BUILD the import upload screen (F1 UI) on D18-D40. Then Director merges #2258+#2261 → deploy → browser-verify.
+### Still Director-blocked: real rates, claims file, bank/PAN for ~26 agencies, 4 approver names, the already-paid list.
+
+---
 ## Session: 2026-07-23 (End /cnext) [RCLTP] — 4 P0s closed + EKSAQ→MyJKKN shipped + remedial-plan loop Slice 1 live
 
 ### Accomplished
@@ -203,6 +222,36 @@ Full brief: .claude/continuation-prompt.7b016c82.md | Detail: memory/project_mba
 
 ### Continuation Prompt
 → .claude/continuation-prompt.feb9dfd4.md (auto-loads on /clear; pane-scoped)
+
+---
+
+## Session: 2026-07-23 (cnext END) — Attendance LIVE + Dashboard colors LIVE + Redesign APPROVED
+
+### Accomplished (this session, spanning 07-22 → 07-23)
+- **Attendance reconciliation — ALL 3 tasks MERGED + DEPLOYED + LIVE:** #2264 v2 multi-signal engine, #2265 biometric importer (+nav chip), #2266 activity IP-capture fix. Spec §14 data-map error corrected (student_attendance.period_slot_id is DEAD → use attendance_data JSONB). v2 engine applied to prod (service_role-only, inert).
+- **Dashboard status colors — base version LIVE:** #2273 (semantic green/amber/red + status dots on the HOD hero tiles; fixed amber→blue + no-data→red bugs) MERGED + DEPLOYED. Grievances/Leave now show green "all clear" etc.
+- **Age-aware colors — BUILT but ORPHANED:** #2276 (grievance/leave colour by OVERDUE age, time-aware marking amber<4pm/red-after) is OPEN + CI-BLOCKED. Blocker = "New SECURITY DEFINER functions lock anon" check: the fn_hod_metrics migration needs an explicit `REVOKE EXECUTE ... FROM anon, PUBLIC; GRANT ... TO authenticated, service_role;` (live grants ALREADY correct — anon=false; it's the migration FILE the gate scans). DB function (grievance_oldest_days + leave_oldest_days) is APPLIED to prod. Orphaned because #2273 merged at commit 1 while commit 2 was pushed.
+- **HOD dashboard REDESIGN — APPROVED via mockup.** Mockup: https://claude.ai/code/artifact/80de8766-b98c-4769-adaf-5a3455dffdbc — a clean ACT→MEASURE→EVIDENCE layout. User approved + said "lets build it". NOT built yet.
+
+### Current Status
+- **Attendance:** LIVE (inert engine; next = HR review UI → shadow cycle). **Dashboard base colours:** LIVE. **Age-aware colours:** blocked in #2276 (folds into the redesign). **Redesign:** approved, ready to build. **Branch:** feat/campus-living-fee-compute-engine (docs); ship via /ship-myjkkn worktrees.
+
+### Lessons (already in memory; reinforced)
+- Diverged-tree CLOBBER: a modified file shipped from omm-dev can DELETE what prod added between (caught the AI-Agency tile deletion via clobber-check diff). ALWAYS diff local vs jicate/main for modified files before shipping.
+- MERGED-EARLY ORPHAN: PR merged at commit 1 while you push commit 2 → commit 2 orphans (push "succeeds" to a dead branch). Verify PR contents by file/commit COUNT, not push success; recover via cherry-pick onto current main.
+- New/replaced SECURITY DEFINER function migrations MUST carry explicit REVOKE anon or the CI "lock anon" gate fails the PR (even for CREATE OR REPLACE of an existing function).
+
+### Next Session — Tasks (P0 = user's rank-1, autobuild target)
+1. [P0] **Build the HOD dashboard redesign** (ACT→MEASURE→EVIDENCE, per the approved mockup). ONE build that supersedes #2276. (large) — see plan below.
+2. [P1] Attendance: build the **HR review UI** (approve/reject screen wiring `fn_att_reconcile_review`) → then 15-day SHADOW cycle. Still-owed input from Omm: approved-leave/holiday calendar source (TODO in engine). (medium)
+3. [P2] Close #2276 as superseded once the redesign lands (its age-aware logic + migration move into the redesign build). (small)
+
+### Redesign build plan (P0 detail)
+- NEW `components/dashboard/hod-zones.tsx` (client): receives faculty metrics+cluster as PROPS (server-fetched) AND fetches HodMetrics + cluster client-side (like HodHeroStrip does today); renders ZONE 1 (Needs you: Classes-to-mark + Marking + only-not-ok grievance/leave, clear items collapsed to one green line) + ZONE 2 (How you're doing: merged Dept + Your-teaching scores in ONE panel, AI Agency ONCE).
+- NEW `LiveHodZones` server wrapper in `app/(routes)/dashboard/page.tsx`: fetch faculty metrics (getFacultyMetrics) + getClusterRankPrivate('faculty'), pass to HodZones. Swap the `isHod` branch (currently `<LiveHodHero/>` + "Your teaching" + `<LiveFacultyHero/>`) → `<LiveHodZones/>`. Keep `<WorkSignalsCard/>` (zone 3 = My Pulse) as-is after it.
+- Age-aware status (fold in #2276): grievance red if grievance_oldest_days>7 else amber-if-open else green; leave red if pending>=5 OR leave_oldest_days>3 else amber-if-pending else green; marking green>=80/amber40-79/(<40: amber before 16:00 IST, red after). Add HodMetrics interface fields grievance_oldest_days + leave_oldest_days. Include the migration `20260722200000_hod_metrics_add_overdue_ages.sql` WITH the anon-revoke lines added.
+- Dedup AI Agency: rendering it once inside HodZones' MEASURE zone means the old HodHeroStrip (HOD-only) is no longer used for HODs; faculty-hero-strip stays for pure faculty. No duplicate.
+- Reference existing files: components/dashboard/hod-hero-strip.tsx (status pattern STATUS_TILE/BAND_DOT + the current statuses), faculty-hero-strip.tsx (the gold-standard HeroTile+dot pattern), lib/services/dashboard/hod-metrics-service.ts + faculty-metrics-service.ts.
 
 ---
 

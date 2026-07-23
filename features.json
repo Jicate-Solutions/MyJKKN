@@ -219,7 +219,7 @@
     {
       "id": "referral-2025-26-payment-history-import",
       "name": "F1 — Referral payment history importer (already-paid list)",
-      "status": "specified",
+      "status": "in-progress",
       "spec": "SPECS.md §6 F1",
       "priority": "P0 — gates every other feature (D16)",
       "outcome_metric": {
@@ -231,14 +231,25 @@
         "verdict_status": "PENDING — not started; awaiting Director file"
       },
       "test_steps": [
-        "Upload a file with a deliberately malformed row — confirm it is REJECTED and named in the exception report, not silently skipped.",
-        "Upload a row whose application/roll number matches no 2025-26 admission — confirm it is flagged 'no matching admission' and not written.",
-        "Upload the same file twice — confirm the second run does not create duplicate payment records.",
-        "Confirm NOTHING is written to the database until the exception report is explicitly approved.",
-        "After approval, re-query consultant_commission_transactions and confirm row count equals the approved row count exactly.",
-        "Confirm a loaded historical payment blocks the same claim from being paid again in F6."
+        "Upload a file whose columns do NOT match the template — confirm it is REFUSED before any row is read (D23).",
+        "Upload a valid file — confirm every row gets a verdict (ok/flagged/blocked/no_match) and nothing is written yet.",
+        "Press Approve — confirm ONLY clean rows are promoted; flagged and no-match rows remain on a to-do list (D18).",
+        "Confirm an approved clean row writes canonical attribution (learners_profiles.referred_by_id), NOT a payment record (D20/D28).",
+        "Confirm an already-paid row is recorded to the double-pay ledger and cannot be paid again.",
+        "As a non-senior user, try to override a flag or edit an amount — confirm it is refused; as a senior user it works and is logged (D19/D22).",
+        "Edit a row's amount as senior — confirm the row is re-validated and the change is recorded.",
+        "Upload a second file containing a student already recorded from the first — confirm it is flagged 'already on record', not silently re-added (D24).",
+        "After approval, confirm the registrar enrolment check-list is auto-generated for exactly the claimed students (D25).",
+        "A matched student with recent attendance shows GREEN 'confirmed studying'; one without shows AMBER 'registrar to check' (D33).",
+        "Approving an already-paid row creates a 'paid' commission record, and the generator then SKIPS that learner (no double-pay) (D34).",
+        "A non-senior can upload and preview but the Approve-save button is disabled/blocked for them; a senior can approve (D35).",
+        "A row for a student already attributed to a DIFFERENT referrer is written as a DISPUTE against the existing record, NOT overwriting it (D36).",
+        "A row with agreed=5000, already_paid=3000 records 2000 as still owed; a row with only paid=3000 and no agreed figure records nothing owed (D37).",
+        "A clean row with a blank amount is recorded as 'amount to be set' and cannot be paid until an amount exists (D38).",
+        "Uploading a file where >~a third of rows don't match triggers a strong warning + confirm before any write (D39).",
+        "A non-admin, non-uploader cannot open a past upload's contents (D40)."
       ],
-      "notes": "Minimal one-way door per D9: upload → validate → exception report → approve → write. No editing, no re-runs in v1. Required columns in SPECS.md §6 F1; the application/roll number is the only reliable match key across 1,863 students."
+      "notes": "Validator PROVEN on prod 2026-07-22 (fn_validate_referral_import_batch + staging tables; all 9 verdict classes correct, zero footprint; branch feat/referral-2025-26-importer, NOT applied). Template docs/referral-2025-26-import-template.xlsx delivered. Match key=application_id (100% unique). Decisions: refuse wrong-column file (D23); approve promotes CLEAN rows only (D18); approve records canonical attribution not payments (D20/D28); senior-only logged overrides+edits (D19/D21/D22); dedup across uploads (D24); auto-emit registrar check-list (D25). UI screen = next slice. | UPLOAD SCREEN decisions D33-D40 (2026-07-22/23): show enrolment status inline (D33); already-paid rows create paid record (D34); upload/preview=any admission staff, approve=senior (D35); conflict=write-once + dispute, NO credit rule (no evidence layer: referral_code 0%, is_verified 98% non-discriminating) (D36); owed=agreed-paid only if file shows higher agreed (D37); blank amount=record as 'to be set', not payable (D38); messy file=warn+confirm then approve good rows (D39); access=admission admins+uploader (D40). Write to consultant_lead_attributions (full record), not just referred_by_id, so verify/dispute/contest work."
     },
     {
       "id": "referral-2025-26-claim-matching",
@@ -266,26 +277,27 @@
     },
     {
       "id": "referral-2025-26-enrolment-verification",
-      "name": "F3 — Enrolment verification worklist (claimed students only)",
+      "name": "F3 — Enrolment verification (attendance/feedback auto-confirm + registrar fallback)",
       "status": "specified",
       "spec": "SPECS.md §6 F3",
       "priority": "P0 — required by eligibility rule D6",
       "outcome_metric": {
-        "metric_name": "Percentage of claimed students with a recorded registrar enrolment confirmation before payment approval",
-        "baseline_value": "0% — and lifecycle_status is PROVEN unreliable: 319 of 1,863 marked 'graduated' on 2-3 year courses that cannot have finished",
-        "threshold_90d": "100% of claimed students confirmed before any approval, by 2026-10-19",
-        "kill_criterion": "If the registrar cannot confirm enrolment, escalate to the Director to either drop the still-studying test (D6) or delay — do NOT fall back to lifecycle_status.",
+        "metric_name": "Percentage of claimed students auto-confirmed by recent attendance/feedback, and percentage of the remainder confirmed by registrar, before payment",
+        "baseline_value": "lifecycle_status unusable (319 impossible 'graduated'); measured presence coverage ~53% of cohort have recent attendance/feedback, ~47% have NONE (college doesn't mark attendance in-system)",
+        "threshold_90d": "100% of claimed students either auto-confirmed (attendance/feedback) or registrar-confirmed before approval; 0 auto-rejections on missing data; by 2026-10-19",
+        "kill_criterion": "If ANY claimed student is auto-rejected purely for missing attendance/feedback, HALT — absence of signal is a system-coverage gap, not proof of leaving (D30).",
         "verdict_date": "2026-10-19",
         "verdict_status": "PENDING"
       },
       "test_steps": [
-        "Confirm the worklist contains ONLY students named in claims — not all 1,863.",
-        "Attempt to approve a payment for a student with no enrolment confirmation — confirm it is BLOCKED.",
-        "Confirm a student marked 'graduated' on a 3-year course appears as NEEDS-CHECKING, not auto-excluded.",
-        "Record a registrar confirmation and re-check — confirm the claim becomes approvable.",
-        "Confirm no code path anywhere reads lifecycle_status to decide payability."
+        "Claim a student with recent 'Present' attendance — confirm they are AUTO-CONFIRMED with no registrar step (D29).",
+        "Claim a student who submitted recent session feedback but has no attendance — confirm auto-confirmed (feedback = presence).",
+        "Claim a student with NO attendance and NO feedback — confirm they go to the registrar worklist, and are NOT auto-rejected (D30).",
+        "Confirm a student whose only attendance is from February (stale) is NOT auto-confirmed under the this-term rule (D31) and falls to registrar.",
+        "Auto-confirm a student, then simulate them leaving, then run the payout — confirm the payment-time re-check catches it and blocks payment (D32).",
+        "Confirm no code path treats 'no attendance record' as 'not studying'."
       ],
-      "notes": "Root cause: lifecycle_status is wrong (319 impossible 'graduated') and fee receipts cover only 42% of 'active' students, so neither is usable. Scoping verification to claimed students only turns an institution-wide data problem into a short worklist."
+      "notes": "D29-D32. Auto-confirm = recent (this-term) attendance OR session_feedback = proof of presence. student_attendance.attendance_data is JSONB per-session (student_id+status inside); session_feedback.student_id is direct. No signal => registrar (NEVER auto-reject, D30). Re-check at payment time (D32). This REPLACES the manual-registrar-for-all approach."
     },
     {
       "id": "referral-2025-26-rate-table",
@@ -354,9 +366,10 @@
         "Approve a transaction and re-query the DB — confirm status actually changed and approved_by/approved_at are set (regression test for the PGRST204 silent no-op).",
         "Attempt to pay a claim already marked paid in the F1 history — confirm it is blocked.",
         "Confirm a claim with unconfirmed enrolment (F3) cannot enter a batch.",
-        "Verify the batch total equals the sum of its transactions."
+        "Verify the batch total equals the sum of its transactions.",
+        "First real run: pay only a small group of agencies with complete bank details, confirm end-to-end, THEN widen (D27)."
       ],
-      "notes": "Wave 1 = agencies only (D7). Rail is fully present: bank details, PAN/GST, and the prepare→review→approve→process chain all exist and are empty. Depends on PR #2219 being merged."
+      "notes": "Wave 1 = agencies only (D7). Rail is fully present: bank details, PAN/GST, and the prepare→review→approve→process chain all exist and are empty. Depends on PR #2219 being merged. D26: built in parallel with the importer. D27: first live run is a small agency group, then widen. D28: release machinery is shared with 2026-27 (718 referrals already captured) — prove there too."
     },
     {
       "id": "referral-2025-26-staff-entitlement-register",

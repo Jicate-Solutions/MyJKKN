@@ -151,12 +151,28 @@ This **supersedes the §7/§8 HIGH-confidence rule**. Decision interview outcome
 **Why it resists gaming:** back-dating dies automatically (marking's `created_at` won't line up with the period start on the claimed date); mark-from-home dies on the campus check; ghost/proxy marking is a bigger integrity breach than a missed punch and is caught by HR review + the campus tie.
 
 ### Data map (confirmed live 2026-07-22 — for the v2 engine)
-- `periods` — `id`, `start_time`, `end_time` (time). `period_slot_id` in the timetable JSONB == `periods.id`.
+
+> 🛑 **CORRECTION 2026-07-22 (v2 build — supersedes the linkage below).** The
+> `student_attendance.period_slot_id` FLAT COLUMN is **DEAD (100% NULL, never
+> resolves to `periods.id`)**. The live linkage runs entirely through the JSONB and
+> was verified against real marked rows:
+> - `student_attendance.attendance_data` is a jsonb **object keyed by slot** — the
+>   key equals a timetable slot's **inner `slot_id`** (NOT the outer key).
+> - the marking timestamp is `attendance_data.<slot>.students[].marked_at`
+>   (ISO-UTC), **NOT** the row `created_at` (they do not align).
+> - a timetable slot's **OUTER key == `periods.id`** (the authoritative `start_time`;
+>   the slot JSON's own `start_time`/`end_time` are NULL).
+> So on-time = `min(students[].marked_at)` (IST) within 15 min of `periods.start_time`,
+> joining `attendance_data` key → timetable inner `slot_id`, timetable outer key →
+> `periods.id`. The v2 engine (`20260722160000_att_reconcile_v2_multisignal_engine.sql`)
+> implements exactly this.
+
+- `periods` — `id`, `start_time`, `end_time` (time).
 - `timetables.timetable_data` (jsonb) shape:
-  `{ "<WEEKDAY>": { "<period_slot_id>": { "primary_staff_id": <staff.id>, "staff_ids": [<staff.id>...], "section_ids": [...], "is_break_slot": bool } } }`
-  ⚠️ `staff_ids`/`primary_staff_id` are **`staff.id`** values → map via `staff.profile_id`. Respect `timetables.start_date/end_date` + `timetable_type` to pick the ACTIVE timetable for a date.
-- `student_attendance` — LIVE (2,705 rows/30d, last 2026-07-21). `created_at` = when marked, `period_slot_id`, `timetable_id`, `attendance_date`, `section_id`.
-- **Campus/IP** is NOT on `student_attendance` → correlate via `user_activity_logs` (IP) around the marking timestamp for that faculty, OR confirm whether marking writes a `user_activity_logs` row with IP.
+  `{ "<WEEKDAY>": { "<periods.id>": { "slot_id": <attendance_data key>, "primary_staff_id": <staff.id>, "staff_ids": [<staff.id>...], "section_ids": [...], "is_break_slot": bool } } }`
+  ⚠️ `staff_ids`/`primary_staff_id` are **`staff.id`** values → map via `staff.profile_id`. Respect `timetables.start_date/end_date` to pick the ACTIVE timetable for a date.
+- `student_attendance` — LIVE. `attendance_data` (jsonb, keyed by slot_id) is the truth; the flat `period_slot_id` column is dead.
+- **Campus/IP** is NOT on `student_attendance` → Sign B is a separate same-day check: any `user_activity_logs` row from an active `attendance_campus_networks` range that day (attendance marking does NOT emit a distinguishable activity row).
 
 ### v2 engine sketch (replaces the generic-activity HIGH branch in `fn_att_reconcile_propose`)
 For each faculty × missed-punch working day:
