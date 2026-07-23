@@ -723,12 +723,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
-<<<<<<< HEAD
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
-=======
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
->>>>>>> jicate/main
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
