@@ -492,3 +492,50 @@ export interface MarksCoverageResponse {
    *  and coverage may undercount — surfaced, never silent. */
   codes_capped?: boolean;
 }
+
+// ── Pre-session materials (Rank 3a) — post a link + objective opens trace ──────
+// Substrate: 20260801100000_scf_session_resources.sql (session_resource +
+// session_resource_open, RLS-on / SECDEF-only). All access is via the four
+// fn_scf_*_session_resource / fn_scf_resources_for_session RPCs.
+
+export type SessionResourceKind = 'notebooklm' | 'material' | 'other';
+
+/** One active material for a session, as returned by fn_scf_resources_for_session.
+ *  `opened` is the CALLER-learner's own flag; `open_count` is the aggregate number
+ *  of distinct learners who opened it (adoption — the Senior Learner sees this
+ *  count only, never who). */
+export interface SessionResourceRow {
+  id: string;
+  kind: SessionResourceKind;
+  title: string;
+  url: string;
+  posted_at: string;
+  opened: boolean;
+  open_count: number;
+}
+
+/** The row returned by fn_scf_post_session_resource (the inserted material). */
+export interface PostedSessionResource {
+  id: string;
+  institution_id: string | null;
+  timetable_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_id: string | null;
+  kind: SessionResourceKind;
+  title: string;
+  url: string;
+  posted_by: string;
+  posted_at: string;
+  is_active: boolean;
+}
+
+export interface PostSessionResourceInput {
+  timetableId: string;
+  attendanceDate: string;
+  periodId: string;
+  /** Defaults to 'notebooklm' server-side when omitted. */
+  kind?: SessionResourceKind;
+  title: string;
+  url: string;
+}

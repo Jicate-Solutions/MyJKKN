@@ -28,6 +28,10 @@ export function SchemePageClient() {
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
   const canEdit = isSuperAdmin || canAccess('academic.bos-scheme', 'edit');
+  // Read-all observer tier: ANY holder of the module's view grant may browse
+  // every institution read-only (see isBosReadAllObserver server-side). Drives
+  // the InstitutionPicker below, which used to render for super-admins only.
+  const canBrowseInstitutions = isSuperAdmin || canAccess('academic.bos-scheme', 'view');
 
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const [institutionCode, setInstitutionCode] = useState('');
@@ -58,6 +62,16 @@ export function SchemePageClient() {
   // Layer 2 when COE returns rich data; no-op otherwise.
   useEffect(() => {
     if (isSuperAdmin || !institutionCtx) return;
+    // Observer picked a DIFFERENT institution via the picker — don't clobber
+    // that choice with the user's own-institution context. Only enrich while
+    // the selection is (a CAS sibling of) their own institution.
+    if (
+      institutionId &&
+      institutionId !== institutionCtx.myjkkn_id &&
+      !institutionCtx.myjkkn_institution_ids.includes(institutionId)
+    ) {
+      return;
+    }
     setInstitutionCode(institutionCtx.institution_code);
     setInstitutionName(institutionCtx.display_name || institutionCtx.name);
     setMyjkknInstitutionIds(institutionCtx.myjkkn_institution_ids);
@@ -409,10 +423,13 @@ export function SchemePageClient() {
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-3 flex-wrap'>
         <div className='flex gap-3 flex-wrap items-end'>
-          {isSuperAdmin && (
+          {canBrowseInstitutions && (
             <InstitutionPicker
               value={institutionId}
               showAllOption={isSuperAdmin}
+              // View-grant observers browse all institutions read-only; their
+              // own institution stays preselected via the profile seed above.
+              allowAllInstitutions={!isSuperAdmin}
               onChange={(id) => {
                 setInstitutionId(id);
                 setFilters(null);

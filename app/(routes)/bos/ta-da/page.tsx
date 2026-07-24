@@ -713,12 +713,15 @@ export default function TaDaPage() {
                 // which the meetings-list hook excludes); meetingsMap is the
                 // fallback for stale caches predating the embed.
                 const claimMeeting = claim.meeting;
+                const councilMeetingType = claimMeeting?.meeting_type ?? m?.meeting_type;
                 const councilName =
                   claimMeeting?.committee?.name ??
                   m?.committee?.name ??
-                  ((claimMeeting?.meeting_type ?? m?.meeting_type) === 'academic_council'
+                  (councilMeetingType === 'academic_council'
                     ? 'Academic Council'
-                    : undefined);
+                    : councilMeetingType === 'governing_body'
+                      ? 'Governing Body'
+                      : undefined);
                 return (
                   <ClaimRow
                     key={claim.id}

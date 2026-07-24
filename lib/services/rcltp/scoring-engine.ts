@@ -56,6 +56,9 @@ export interface PartBQuestion {
   id: string;
   correct_answer: string | null;
   max_score: number;
+  /** ai_meta.is_stretch — an above-level "bonus" item: credited when correct but
+   *  never counted against the core score (excluded from the denominator). */
+  is_stretch?: boolean;
 }
 export interface PartBResponse {
   id: string;
@@ -107,7 +110,11 @@ export function gradePartB(
     const correct = answersMatch(r.response, q.correct_answer);
     graded.push({ id: r.id, is_correct: correct, score: correct ? max : 0 });
     earned += correct ? max : 0;
-    possible += max;
+    // Stretch (above-level bonus) items are credited to the numerator when correct
+    // but EXCLUDED from the denominator — a struggling grade 3-4 reader who nails one
+    // gets a lift toward 100, and a wrong stretch answer costs nothing (0 added to
+    // both sides). clamp01to100 caps the result at 100.
+    if (!q.is_stretch) possible += max;
   }
   const comprehensionScore =
     possible > 0 ? clamp01to100((earned / possible) * 100) : null;
@@ -229,10 +236,15 @@ export async function runScoring(
   if (questionIds.length) {
     const { data: qs, error: qErr } = await admin
       .from('rcltp_part_b_questions')
-      .select('id, correct_answer, max_score')
+      .select('id, correct_answer, max_score, ai_meta')
       .in('id', questionIds);
     if (qErr) throw qErr;
-    questions = (qs ?? []) as PartBQuestion[];
+    questions = (qs ?? []).map((q: any) => ({
+      id: q.id,
+      correct_answer: q.correct_answer,
+      max_score: q.max_score,
+      is_stretch: q?.ai_meta?.is_stretch === true, // bonus item — excluded from denominator
+    })) as PartBQuestion[];
   }
   const partB = gradePartB((responses ?? []) as PartBResponse[], questions);
 

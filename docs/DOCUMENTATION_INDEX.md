@@ -55,3 +55,6 @@ See `docs/plans/` for implementation plans and `docs/modules/` for per-module do
 
 ### PDE taxonomy split (2026-06-14)
 - `docs/modules/pde/2026-06-14-DECISION-pde-category-taxonomy-split.md` — 🟡 **DECISION REQUIRED** (Director). PDE has 3 category vocabularies: durable-value (7, live spine, `pde_demonstrations.category_key`, 0 rows), capability (8, separate skill tree, `pde_capabilities.category`, 1 stray row), faculty filter (3-chip mock stub). They're orthogonal axes, not rival labels. Options A (collapse to one) / B (two explicit axes, recommended) / C (do nothing). Cheapest to fix NOW (no data to migrate). Resolves friction X1.
+
+### ID Cards module (2026-07-24)
+- `docs/modules/id-cards/2026-07-24-MODULE-id-cards.md` — ID Cards module doc: what it is, plain-words architecture (MyJKKN queue → Windows bridge polls every 5 s → Evolis Primacy 2 at the office), job statuses + how failures surface to the registrar, ops pointers (service `JKKNPrintBridge` on the BIOMETRIC box, log `C:\jkkn-bridge\bridge-service.log`), Evolis SDK license-review section with a ready-to-send confirmation ask for the Director, and CARRE candidate-evidence pointers for a future human-run audit (no scores assigned — interview required).

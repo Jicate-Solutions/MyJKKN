@@ -311,7 +311,7 @@ export default function MyMealsPage() {
             <UpcomingSpecialDays enabled={masterOn} />
 
             {/* The return-arc: public tally + personal recognition */}
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               {policies?.feedbackLiveCounts && (
                 <LiveCountsBoard counts={liveCounts} isLoading={liveLoading} />
               )}

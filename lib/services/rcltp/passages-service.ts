@@ -176,6 +176,35 @@ export class RcltpPassagesService {
     }
   }
 
+  /**
+   * Learner-safe read for the "take the assessment" flow. Calls the SECURITY
+   * DEFINER RPC `fn_rcltp_questions_for_take`, which returns ONLY the columns a
+   * learner needs to answer and OMITS `correct_answer` + `ai_meta` (the answer
+   * key). The base-table `select('*')` path (getQuestions) must NEVER be used for
+   * a learner — RLS now blocks it, and it would put the key on the wire. Returns
+   * the same `{ data }` shape the take flow consumes; correct_answer/ai_meta are
+   * forced null so the learner payload can never carry them.
+   */
+  static async getQuestionsForTake(
+    passageId: string
+  ): Promise<{ data: RcltpPartBQuestion[] }> {
+    if (!passageId) return { data: [] };
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_questions_for_take',
+      { p_passage_id: passageId }
+    );
+    if (error) {
+      console.error('RcltpPassagesService.getQuestionsForTake error:', error);
+      throw error;
+    }
+    const rows = ((data ?? []) as Array<Partial<RcltpPartBQuestion>>).map((r) => ({
+      ...r,
+      correct_answer: null, // answer key is never delivered to a learner
+      ai_meta: null,
+    }));
+    return { data: rows as RcltpPartBQuestion[] };
+  }
+
   static async createQuestion(
     input: CreateRcltpPartBQuestionDto
   ): Promise<RcltpPartBQuestion> {

@@ -54,7 +54,15 @@ export async function GET(request: NextRequest) {
 
     // 3. Query MyJKKN database
     // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
-    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    // A principal convening a council (Academic Council / Governing Body) uses the
+    // cross-institution "Add Member" expert picker (allInstitutions=true). External
+    // experts are intentionally shareable and this is read-only, but the board-keyed
+    // RLS (bos_experts_select evaluates role_has_institution_access per row) blocks a
+    // principal from that whole-directory read — so serve it via service-role too.
+    const readDb =
+      canReadAllBos || (scope.isPrincipal && allInstitutions)
+        ? createServiceRoleClient()
+        : supabase;
     let query = readDb
       .from('bos_external_experts')
       .select('*', { count: 'exact' });

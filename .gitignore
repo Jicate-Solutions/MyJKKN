@@ -59,6 +59,14 @@ yarn-error.log*
 
 # MCP server config — contains Supabase management bearer token
 .mcp.json
+/mcp.json
+
+# Local env file without leading dot (contains real secrets)
+/env
+
+# Local dev server run logs
+/dev-run.log
+/dev-server-run.log
 
 # Import script run logs
 scripts/import/runs/*.log
@@ -134,3 +142,7 @@ __pycache__/
 
 # Local fee-sync analysis artifacts (contain student PII) — keep out of git
 reports/
+
+# local secrets / config (never commit)
+env
+mcp.json

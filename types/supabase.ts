@@ -12037,6 +12037,7 @@ export type Database = {
         Row: {
           amount: number | null
           category_name: string
+          collection_type: string
           created_at: string | null
           created_by: string | null
           description: string | null
@@ -12046,10 +12047,12 @@ export type Database = {
           kind: Database["public"]["Enums"]["billing_category_kind"]
           updated_at: string | null
           updated_by: string | null
+          visible_to_learners: boolean
         }
         Insert: {
           amount?: number | null
           category_name: string
+          collection_type?: string
           created_at?: string | null
           created_by?: string | null
           description?: string | null
@@ -12059,10 +12062,12 @@ export type Database = {
           kind?: Database["public"]["Enums"]["billing_category_kind"]
           updated_at?: string | null
           updated_by?: string | null
+          visible_to_learners?: boolean
         }
         Update: {
           amount?: number | null
           category_name?: string
+          collection_type?: string
           created_at?: string | null
           created_by?: string | null
           description?: string | null
@@ -12072,6 +12077,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["billing_category_kind"]
           updated_at?: string | null
           updated_by?: string | null
+          visible_to_learners?: boolean
         }
         Relationships: [
           {
@@ -37814,6 +37820,57 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "hostel_room_eligibility_rules"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_room_condition_photos: {
+        Row: {
+          drive_file_id: string
+          file_name: string
+          file_size_bytes: number
+          file_url: string
+          id: string
+          mime_type: string
+          room_id: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          drive_file_id: string
+          file_name: string
+          file_size_bytes: number
+          file_url: string
+          id?: string
+          mime_type: string
+          room_id: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          drive_file_id?: string
+          file_name?: string
+          file_size_bytes?: number
+          file_url?: string
+          id?: string
+          mime_type?: string
+          room_id?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_condition_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_condition_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_room_occupancy"
+            referencedColumns: ["room_id"]
           },
         ]
       }
@@ -101694,6 +101751,31 @@ export type Database = {
       }
     }
     Functions: {
+      fn_attendance_dashboard_section_stats: {
+        Args: {
+          p_date: string
+          p_institution_id?: string
+          p_academic_year_id?: string
+          p_degree_id?: string
+          p_department_id?: string
+          p_program_id?: string
+          p_semester_id?: string
+          p_section_id?: string
+        }
+        Returns: {
+          institution_id: string
+          institution_name: string
+          department_id: string
+          department_name: string
+          semester_id: string
+          semester_name: string
+          section_id: string
+          section_name: string
+          total_students: number
+          present: number
+          absent: number
+        }[]
+      }
       fn_notifications_unique_users_reached: {
         Args: never
         Returns: number

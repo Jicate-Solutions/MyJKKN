@@ -86,8 +86,9 @@ function isoDate(v: unknown): string | null {
 // Facilitator-facing understanding must never be a raw number: a printed
 // baseline/target invites gaming ("ask students to score 3.6 every time"). The
 // numeric avg is still recorded to the backend (p_input_avg) for the loop's own
-// measurement; only what the AI SEES and SAYS is qualitative. Thresholds mirror
-// the generator's gate (LOW_UNDERSTOOD_THRESHOLD 3 / STANDOUT_THRESHOLD 4.5).
+// measurement; only what the AI SEES and SAYS is qualitative. Display band
+// (recalibrated 2026-07-24): LOW < 3, MIXED < 4.0, STRONG >= 4.0 — mirrors
+// understandingLevel. The cron's STANDOUT_THRESHOLD (4.5) note gate is NOT moved.
 // Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
 // tiny samples let a student subtract themselves and teach the trigger recipe).
 function groupSizeWord(n: number): string {
@@ -103,7 +104,7 @@ function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
   if (a < 3) return 'low';
-  if (a < 4.5) return 'mixed';
+  if (a < 4.0) return 'mixed';
   return 'strong';
 }
 

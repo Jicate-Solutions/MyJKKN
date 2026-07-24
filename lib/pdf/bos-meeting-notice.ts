@@ -97,6 +97,15 @@ function formatTime(t: string | null | undefined): string {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+/** Governing Body sample style: "11.15 a.m." / "2.30 p.m." */
+function formatTimeGb(t: string | null | undefined): string {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return t;
+  const ampm = h >= 12 ? 'p.m.' : 'a.m.';
+  return `${h % 12 || 12}.${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 const ORDINALS = [
   'First', 'Second', 'Third', 'Fourth', 'Fifth',
   'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth',
@@ -146,10 +155,12 @@ export interface BosCallLetterRecipient {
   contact_no?: string | null;
   /**
    * True when this member is an external expert (from the BoS expert directory)
-   * rather than internal staff. For Academic Council notices, only external
-   * members get the "TA & DA will be paid…" closing lines.
+   * rather than internal staff. For Academic Council / Governing Body notices,
+   * only external members get the "TA & DA will be paid…" closing lines.
    */
   is_external?: boolean;
+  /** Rendered as "Mail ID: <value>" on Governing Body notices when present. */
+  email?: string | null;
 }
 
 export interface BosCallLetterData {
@@ -171,6 +182,23 @@ export interface BosCallLetterData {
    */
   boardType?: string | null;
   header: InstitutionPdfHeader;
+  /**
+   * Optional per-committee text overrides (bos_email_templates, 20260724140000).
+   * The layout is identical across bodies — only these text fragments vary. Each
+   * field is already placeholder-substituted by the caller. When a field is
+   * absent, the renderer's computed default (meeting-type-derived) is used.
+   *
+   *   pdf_heading      → replaces the "Sub:" subject line
+   *   pdf_intro_html   → replaces the body/intro paragraph(s) (rich HTML)
+   *   pdf_closing_html → replaces the closing invitation line (rich HTML)
+   *   signoff_html     → extra signature text above the signature image
+   */
+  bodyFormat?: {
+    pdf_heading?: string | null;
+    pdf_intro_html?: string | null;
+    pdf_closing_html?: string | null;
+    signoff_html?: string | null;
+  } | null;
 }
 
 interface LogoBundle {
@@ -191,6 +219,7 @@ export function buildCallLetterHtml(
   logos: LogoBundle,
 ): string {
   const { meeting, agendaItems, recipient, boardName, boardType, header } = data;
+  const bodyFormat = data.bodyFormat ?? null;
 
   // Compose "UG - Computer Science" / "PG - Mathematics" / etc. when both are
   // present. board_type is null on legacy rows (created before the 20260521
@@ -202,11 +231,18 @@ export function buildCallLetterHtml(
   //   • board_name → Title Case, but acronyms (all-uppercase 2+ letter tokens
   //     like "BBA", "TFD", "MCA") are preserved as-is. Without that guard,
   //     "BBA" would become "Bba" which reads as a typo.
-  // Academic Council notices differ from Board of Studies notices:
-  //   • title/body say "ACADEMIC COUNCIL" (no "Board of Studies" suffix)
+  // Council notices (Academic Council / Governing Body) differ from Board of
+  // Studies notices:
+  //   • title/body say the council name (no "Board of Studies" suffix)
   //   • the "TA & DA will be paid…" closing is external-members-only
-  const isAc = meeting.meeting_type === 'academic_council' || boardType === 'academic_council';
-  // Uppercase + turn 'academic_council' → 'ACADEMIC COUNCIL'.
+  // Governing Body uses its own sample wording (ordinal + "Governing Body
+  // Meeting", dd/mm/yyyy date, request paragraph) — see isGb branches below.
+  const isGb = meeting.meeting_type === 'governing_body' || boardType === 'governing_body';
+  const isAc =
+    meeting.meeting_type === 'academic_council' || boardType === 'academic_council';
+  const isCouncil = isAc || isGb;
+  // Uppercase + turn 'academic_council' → 'ACADEMIC COUNCIL' / 'governing_body'
+  // → 'GOVERNING BODY'.
   const formattedType = (boardType?.trim().toUpperCase() ?? '').replace(/_/g, ' ');
   const formattedName = (boardName ?? '')
     .trim()
@@ -218,12 +254,13 @@ export function buildCallLetterHtml(
     })
     .join('');
 
-  const boardLabel = isAc
-    ? 'ACADEMIC COUNCIL'
+  const boardLabel = isCouncil
+    ? (isGb ? 'Governing Body' : 'ACADEMIC COUNCIL')
     : [formattedType, formattedName].filter((s) => s.length > 0).join(' - ');
   // The " Board of Studies" phrase is appended after the label for BoS notices,
-  // but an Academic Council is not a Board of Studies — omit it.
-  const bodySuffix = isAc ? '' : ' Board of Studies';
+  // but a council body (Academic Council / Governing Body) is not a Board of
+  // Studies — omit it.
+  const bodySuffix = isCouncil ? '' : ' Board of Studies';
 
   const institutionName = (header.institution_name ?? '').toUpperCase();
   const accreditation = header.institution_accreditation ?? '';
@@ -245,20 +282,35 @@ export function buildCallLetterHtml(
     ? `<img src="${logos.signImage}" alt="" />`
     : '';
 
-  // ── Subject line ─────────────────────────────────────────────────────────
-  const subjectText = `Meeting of the ${boardLabel}${bodySuffix}${
-    meeting.agenda_text
-      ? ' - ' + meeting.agenda_text.split('\n')[0].slice(0, 80).trim()
-      : ''
-  } - Intimation - Reg.`;
-
-  // ── Inviting paragraph ───────────────────────────────────────────────────
+  // ── Subject / body date-time / venue ─────────────────────────────────────
+  // GB sample: "Meeting of the Third Governing Body - Intimation - Reg."
+  //            date as 28/07/2026, time as 11.15 a.m., venue "in the …"
   const meetingOrd = ordinal(meeting.meeting_number ?? 1);
-  const meetingDateStr = formatBodyDate(meeting.scheduled_date);
-  const meetingTimeStr = formatTime(meeting.scheduled_time);
-  const venueClause = meeting.venue
-    ? `at ${escapeHtml(meeting.venue)}`
-    : 'in our college premises';
+  // Per-body heading override wins over the computed meeting-type default.
+  const headingOverride = bodyFormat?.pdf_heading?.trim();
+  const subjectText = headingOverride
+    ? headingOverride
+    : isGb
+      ? `Meeting of the ${meetingOrd} Governing Body - Intimation - Reg.`
+      : `Meeting of the ${boardLabel}${bodySuffix}${
+          meeting.agenda_text
+            ? ' - ' + meeting.agenda_text.split('\n')[0].slice(0, 80).trim()
+            : ''
+        } - Intimation - Reg.`;
+
+  const meetingDateStr = isGb
+    ? formatShortDate(meeting.scheduled_date)
+    : formatBodyDate(meeting.scheduled_date);
+  const meetingTimeStr = isGb
+    ? formatTimeGb(meeting.scheduled_time)
+    : formatTime(meeting.scheduled_time);
+  const venueClause = isGb
+    ? (meeting.venue
+        ? `in the ${escapeHtml(meeting.venue)} of our college premises`
+        : 'in the Board Room of our college premises')
+    : (meeting.venue
+        ? `at ${escapeHtml(meeting.venue)}`
+        : 'in our college premises');
 
   // ── Agenda list ──────────────────────────────────────────────────────────
   // Each bos_agenda_items row renders its title on its own line (no outer
@@ -275,7 +327,11 @@ export function buildCallLetterHtml(
           .map(
             (item) =>
               `<div class="agenda-item">
-                <div class="agenda-title">${escapeHtml(item.item_title)}</div>${
+                ${
+                  item.item_title?.trim()
+                    ? `<div class="agenda-title">${escapeHtml(item.item_title)}</div>`
+                    : ''
+                }${
                   item.item_description
                     ? // New descriptions are rich-text HTML (inject as-is so
                       // headings/lists/alignment render). Legacy descriptions are
@@ -318,6 +374,10 @@ export function buildCallLetterHtml(
   }
   if (recipient.contact_no) {
     addressLines.push(`Mobile: ${escapeHtml(recipient.contact_no)}`);
+  }
+  // GB sample shows Mail ID on the addressee block.
+  if (isGb && recipient.email) {
+    addressLines.push(`Mail ID: ${escapeHtml(recipient.email)}`);
   }
 
   // ── Final HTML ───────────────────────────────────────────────────────────
@@ -573,7 +633,7 @@ export function buildCallLetterHtml(
   </div>
 
   <!-- ── Salutation ────────────────────────────────────────── -->
-  <div class="salutation">Dear Sir/Madam,</div>
+  <div class="salutation">${isGb ? 'Respected Sir/Madam,' : 'Dear Sir/Madam,'}</div>
 
   <!-- ── Subject ───────────────────────────────────────────── -->
   <div class="subject-block">
@@ -581,10 +641,23 @@ export function buildCallLetterHtml(
     <div class="subject-sep">----------</div>
   </div>
 
-  <!-- ── Body paragraph ────────────────────────────────────── -->
-  <p class="body-para">
-    We are happy to have the privilege of inviting you for the <strong>${meetingOrd}</strong> Meeting of ${escapeHtml(boardLabel)}${bodySuffix} to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
+  <!-- ── Body paragraph(s) ─────────────────────────────────── -->
+  ${
+    // Per-body intro override (rich HTML, already placeholder-substituted)
+    // replaces the computed meeting-type paragraph while keeping the layout.
+    bodyFormat?.pdf_intro_html?.trim()
+      ? `<div class="body-para">${bodyFormat.pdf_intro_html}</div>`
+      : isGb
+        ? `<p class="body-para">
+    We are happy to have the privilege of inviting you for the <strong>${meetingOrd} Governing Body Meeting</strong> to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
   </p>
+  <p class="body-para">
+    We request you to spare your valuable time to attend the meeting and give your suggestions for the development of the college and the students.
+  </p>`
+        : `<p class="body-para">
+    We are happy to have the privilege of inviting you for the <strong>${meetingOrd}</strong> Meeting of ${escapeHtml(boardLabel)}${bodySuffix} to be conducted on <strong>${meetingDateStr}</strong>${meetingTimeStr ? ` at <strong>${escapeHtml(meetingTimeStr)}</strong>` : ''} ${venueClause}.
+  </p>`
+  }
 
   <!-- ── Agenda ────────────────────────────────────────────── -->
   <div class="agenda-label">Agenda:</div>
@@ -594,13 +667,22 @@ export function buildCallLetterHtml(
 
   <!-- ── Closing ───────────────────────────────────────────── -->
   ${
-    // Board of Studies → all members get the invitation + TA/DA lines.
-    // Academic Council → only EXTERNAL members do; internal staff (HoDs,
-    // Principal, Member Secretary) are not paid TA/DA, so both lines are omitted.
-    !isAc || recipient.is_external
-      ? `<p class="closing-line">Kindly accept our invitation and offer your valuable suggestions.</p>
-  <p class="closing-line">TA &amp; DA will be paid as per norms.</p>`
-      : ''
+    // Per-body closing override (rich HTML) wins over the computed defaults.
+    // Board of Studies → all members get the invitation line.
+    // Academic Council / Governing Body → invitation line only for EXTERNAL
+    // members (internal staff don't get the courtesy invitation wording).
+    // GB already has its own "spare your valuable time" request paragraph,
+    // so skip the shared "Kindly accept our invitation…" line for GB.
+    //
+    // TEMP: "TA & DA will be paid as per norms." is hidden for all meeting
+    // types — restore the TA/DA <p> below when ready to re-enable.
+    bodyFormat?.pdf_closing_html?.trim()
+      ? `<div class="closing-line">${bodyFormat.pdf_closing_html}</div>`
+      : isGb
+        ? ''
+        : !isCouncil || recipient.is_external
+          ? `<p class="closing-line">Kindly accept our invitation and offer your valuable suggestions.</p>`
+          : ''
   }
   <p class="closing-line center">Thanking you.</p>
 
@@ -609,6 +691,7 @@ export function buildCallLetterHtml(
     <div class="signature-seal">${sealHtml}</div>
     <div class="signature-sign">
       <div class="regards">With Regards,                </div>
+      ${bodyFormat?.signoff_html?.trim() ? `<div class="signoff-text">${bodyFormat.signoff_html}</div>` : ''}
       ${signHtml}
     </div>
   </div>

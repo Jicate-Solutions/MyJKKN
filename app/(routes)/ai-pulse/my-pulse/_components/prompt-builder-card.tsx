@@ -33,8 +33,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import toast from 'react-hot-toast';
 
 const MODULE = 'ai-pulse/prompt-builder';
+
+// Map the submit RPC's raised exceptions to plain-language messages. Without
+// this the card swallowed every failure silently (onError only logged) — most
+// visibly, an admin/champion (no learner_id) got 'not_a_learner' and saw nothing.
+function submitErrorMessage(e: Error): string {
+  const m = e?.message ?? '';
+  if (m.includes('not_a_learner')) return 'Prompt building is for learners — open it from a learner account.';
+  if (m.includes('prompt_build_disabled')) return 'Prompt building is currently turned off.';
+  if (m.includes('empty_prompt')) return 'Fill in at least a couple of parts before submitting.';
+  return 'Could not submit your prompt. Please try again.';
+}
 
 // The four parts the learner assembles — also the grading checklist.
 const PARTS = [
@@ -173,8 +185,12 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
     onSuccess: () => {
       setParts({ ...EMPTY });
       qc.invalidateQueries({ queryKey: ['ai-pulse', 'my-prompt-builds'] });
+      toast.success('Submitted! We’re grading your prompt…');
     },
-    onError: (e) => logger.error(MODULE, 'submit failed', e),
+    onError: (e) => {
+      logger.error(MODULE, 'submit failed', e);
+      toast.error(submitErrorMessage(e));
+    },
   });
 
   // DARK gate: render nothing until the feature is switched on.

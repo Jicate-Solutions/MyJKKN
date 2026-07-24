@@ -10,6 +10,7 @@
 import { FileEdit, UserPlus } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { PrintCardButton } from '@/components/id-cards/print-card-button';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 
@@ -51,6 +52,8 @@ export function LearnerDetailActions({ learner }: LearnerDetailActionsProps) {
 
   return (
     <div className="flex items-center gap-2">
+      {/* Phase 2 — one-click ID-card printing (hidden without id_cards.jobs.manage) */}
+      <PrintCardButton learnerId={learner.id} personName={learnerName} />
       {/* R4.2 — Learner → Candidate entry point */}
       {isHireable && canCreateRecruitment && (
         <Button variant="outline" asChild>

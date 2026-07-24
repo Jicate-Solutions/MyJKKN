@@ -259,6 +259,54 @@ export async function hasBosPermission(userId: string, permissionKey: string): P
 }
 
 /**
+ * View-grant keys that unlock the read-all observer tier on the shared BoS
+ * lookup routes (institutions / boards / programs dropdowns). Any ONE of these
+ * is sufficient: the dropdowns feed multiple tabs (Courses, Course Scheme,
+ * Syllabus), so a user granted only e.g. `academic.bos-scheme.view` must still
+ * get populated dropdowns on /bos/course-scheme. Checking only
+ * `academic.bos-courses.view` (the original key) left scheme/syllabus-only
+ * grants with disabled dropdowns.
+ */
+export const BOS_LOOKUP_VIEW_KEYS = [
+  'academic.bos-courses.view',
+  'academic.bos-scheme.view',
+  'academic.bos-syllabus.view',
+] as const;
+
+/**
+ * True when the user holds ANY of the given permission keys.
+ * Fetches the profile once (super-admin short-circuit), then probes the
+ * user_has_permission RPC per key until one hits. Use with
+ * BOS_LOOKUP_VIEW_KEYS on shared lookup routes; single-module routes should
+ * keep calling hasBosPermission with their own key.
+ */
+export async function hasAnyBosPermission(userId: string, permissionKeys: readonly string[]): Promise<boolean> {
+  const supabase = await createClient();
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_super_admin, role')
+    .eq('id', userId)
+    .single();
+
+  if (profile?.is_super_admin === true || profile?.role === 'super_admin') {
+    return true;
+  }
+
+  for (const permissionKey of permissionKeys) {
+    const { data: hasPerm, error } = await supabase.rpc('user_has_permission', {
+      permission_name: permissionKey,
+    });
+    if (error) {
+      console.error('[hasAnyBosPermission] user_has_permission RPC error:', { permissionKey, error });
+      continue;
+    }
+    if (hasPerm === true) return true;
+  }
+  return false;
+}
+
+/**
  * Server-side permission check for BoS modules.
  * Mirrors the client-side usePermissions().canAccess() but runs in API routes.
  * Super-admin short-circuits to true via profiles.is_super_admin.
@@ -627,6 +675,33 @@ export function guardAcademicCouncilWrite(
       scope.institutionsId === targetInstitutionsId;
     if (!inScope) {
       return 'Forbidden: you can only manage the Academic Council of your own institution';
+    }
+  }
+  return null;
+}
+
+/**
+ * Write-gate for Governing Body (GB) bodies and meetings.
+ *
+ * Identical policy to guardAcademicCouncilWrite (the Governing Body is modelled
+ * "all as same" as the Academic Council): super-admin OR the institution's
+ * principal (CAS-aware) may manage GB records; everyone else is denied. Kept as
+ * a separate function so the denial messages read correctly for the GB module.
+ */
+export function guardGoverningBodyWrite(
+  scope: BosBoardScope,
+  targetInstitutionsId: string | null | undefined
+): string | null {
+  if (scope.isSuperAdmin) return null;
+  if (!scope.isPrincipal) {
+    return 'Forbidden: only the principal (or a super admin) can manage Governing Body meetings';
+  }
+  if (targetInstitutionsId) {
+    const inScope =
+      scope.allInstitutionIds.includes(targetInstitutionsId) ||
+      scope.institutionsId === targetInstitutionsId;
+    if (!inScope) {
+      return 'Forbidden: you can only manage the Governing Body of your own institution';
     }
   }
   return null;

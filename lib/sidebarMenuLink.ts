@@ -28,6 +28,7 @@ import {
   BookOpen,
   ClipboardCheck,
   Gauge,
+  IdCard,
   Lock,
   LucideIcon,
   LayoutGrid,
@@ -159,6 +160,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
   '/ceo-rounds': 'ceo_rounds.log',
+  // MBA Analyst dashboard — an associate's own assigned-department analytics.
+  '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA Analyst assignments — manager-only "who covers which department".
+  '/improvement-board/postings': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -504,6 +509,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // Leaderboard is public to any authenticated learner (Director decision #6);
+  // gate the sidebar entry on the same key as the AI Pulse landing page.
+  '/ai-pulse/leaderboard': 'ai_pulse.view',
   // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
   // lacks the permission its page enforces (each key = the gate on that tab's
   // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
@@ -519,7 +527,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
-  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -546,6 +553,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
+
+  // ID Cards (nav wiring 2026-07-24) — keys from PERMISSION_CATEGORIES
+  // (lib/constants/permissions.ts, id_cards group). Hub redirects to policy.
+  '/admin/id-cards': 'id_cards.jobs.view',
+  '/admin/id-cards/template': 'id_cards.templates.view',
+  '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Batch print enqueues jobs, so it needs the manage key (not just view).
+  '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
+  // so the nav entry mirrors it — no id_cards.* policy-view key exists.
+  '/admin/id-cards/policy': 'super_admin',
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
   // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
@@ -613,7 +631,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
-  '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
@@ -724,6 +741,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
@@ -1075,6 +1093,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -1338,6 +1360,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents': 'ims.indents.view',
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
+  // Phase D: HOD queue — gated on view (queue itself is scoped by
+  // departments.head_of_department_id, so non-HODs just see an empty state)
+  '/ims/indents/hod-approvals': 'ims.indents.view',
   '/ims/indents/[id]': 'ims.indents.view',
   '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
@@ -1476,7 +1501,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Lightbulb,
           submenus: [
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
-            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
+            { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' }
           ]
         },
         {
@@ -1832,6 +1861,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/referral-rates',
+              label: 'Rates & Generate',
+              active: pathname === '/admission/consultants/referral-rates'
             },
             {
               href: '/admission/consultants/import',
@@ -2435,6 +2469,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
+            { href: '/ims/indents/hod-approvals', label: 'Indents · HOD Approvals', active: pathname === '/ims/indents/hod-approvals' },
             { href: '/ims/transfers', label: 'Transfers', active: pathname.startsWith('/ims/transfers') },
             { href: '/ims/sales', label: 'Sales (POS)', active: pathname === '/ims/sales' },
             { href: '/ims/sales/history', label: 'Sales · History', active: pathname === '/ims/sales/history' },
@@ -2543,6 +2578,20 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
           ]
+        },
+        {
+          // ID Cards (nav wiring 2026-07-24) — print queue, template editor
+          // and printer policy for the on-prem card-print bridge.
+          href: '/admin/id-cards',
+          label: 'ID Cards',
+          active: pathname.startsWith('/admin/id-cards'),
+          icon: IdCard,
+          submenus: [
+            { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
+            { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
+            { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
+          ]
         }
       ]
     },
@@ -2608,10 +2657,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
-            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }

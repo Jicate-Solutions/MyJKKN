@@ -23,6 +23,10 @@ import {
 } from '@/hooks/use-session-feedback';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
 import type { PendingSession } from '@/types/session-feedback';
+import {
+  NOTEBOOKLM_FEATURES,
+  NBLM_NONE_KEY,
+} from '@/lib/session-feedback/notebooklm-features';
 
 const BRAND = '#0b6d41';
 
@@ -159,7 +163,13 @@ export function FeedbackDialog({
     }
   }, [session]);
 
-  const items = useMemo(() => checklistConfig ?? [], [checklistConfig]);
+  // Rank 2 (2026-07-24): the saturated `notebooklm_used` yes/no is retired — hidden here
+  // client-side (so it disappears even before the deactivation migration applies) and
+  // replaced by the NotebookLM feature multi-select below. Historical rows keep the key.
+  const items = useMemo(
+    () => (checklistConfig ?? []).filter((i) => i.item_key !== 'notebooklm_used'),
+    [checklistConfig],
+  );
 
   // The carry-forward re-ask for THIS session: a prior same-course session the
   // learner flagged. Match by timetable_id + period_id + course_code.
@@ -176,10 +186,14 @@ export function FeedbackDialog({
   }, [carryforward, session]);
 
   // Map prior unmet checklist item_keys to their human labels (fall back to key).
+  // Drop `notebooklm_used` — it's retired (Rank 2). Until the deactivation migration
+  // applies, the carry-forward RPC may still return it as "unmet"; we never show it.
   const carryItemLabels = useMemo(() => {
     if (!carry) return [];
     const byKey = new Map(items.map((i) => [i.item_key, i.label]));
-    return carry.prior_unmet_items.map((k) => byKey.get(k) ?? k);
+    return carry.prior_unmet_items
+      .filter((k) => k !== 'notebooklm_used')
+      .map((k) => byKey.get(k) ?? k);
   }, [carry, items]);
 
   // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
@@ -199,6 +213,24 @@ export function FeedbackDialog({
   const courseLabel =
     session?.course_name || session?.course_code || 'Class session';
   const periodLabel = session?.period_name || session?.start_time || null;
+
+  // NotebookLM feature multi-select (Rank 2). "None" and the features are mutually
+  // exclusive: ticking a feature clears "None"; ticking "None" clears every feature.
+  // All ride in the existing `checklist` state under reserved `nblm:*` keys.
+  function toggleNblmFeature(key: string, on: boolean) {
+    setChecklist((prev) => ({
+      ...prev,
+      [key]: on,
+      ...(on ? { [NBLM_NONE_KEY]: false } : {}),
+    }));
+  }
+  function toggleNblmNone(on: boolean) {
+    setChecklist((prev) => {
+      const next: Record<string, boolean> = { ...prev, [NBLM_NONE_KEY]: on };
+      if (on) for (const f of NOTEBOOKLM_FEATURES) next[f.key] = false;
+      return next;
+    });
+  }
 
   async function handleSubmit() {
     if (!session) return;
@@ -508,6 +540,50 @@ export function FeedbackDialog({
               </div>
             </div>
           ) : null}
+
+          {/* NotebookLM materials used (Rank 2) — replaces the saturated yes/no.
+              Stored under reserved nblm:* checklist keys; never a config/unmet item. */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">
+              Which NotebookLM materials did you use this session?{' '}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+              {NOTEBOOKLM_FEATURES.map((f) => {
+                const checked = !!checklist[f.key];
+                return (
+                  <div key={f.key} className="flex items-start gap-2.5">
+                    <Checkbox
+                      id={`scf-${f.key}`}
+                      checked={checked}
+                      onCheckedChange={(v) => toggleNblmFeature(f.key, v === true)}
+                      className="mt-0.5"
+                    />
+                    <Label
+                      htmlFor={`scf-${f.key}`}
+                      className="cursor-pointer text-sm font-normal leading-snug"
+                    >
+                      {f.label}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-start gap-2.5 border-t pt-2.5">
+              <Checkbox
+                id="scf-nblm-none"
+                checked={!!checklist[NBLM_NONE_KEY]}
+                onCheckedChange={(v) => toggleNblmNone(v === true)}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="scf-nblm-none"
+                className="cursor-pointer text-sm font-normal leading-snug text-muted-foreground"
+              >
+                No NotebookLM this session
+              </Label>
+            </div>
+          </div>
 
           {/* Free text */}
           <div className="space-y-2">
