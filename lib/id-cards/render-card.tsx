@@ -49,6 +49,14 @@ export type FrontLayoutElement = {
 
 export type FrontLayout = {
   background_color?: string;
+  /**
+   * Full-bleed card artwork URL (designed externally, e.g. Canva, 1014x638).
+   * The ROUTE validates the URL against the id-card-assets bucket allowlist
+   * and pre-fetches it to a data URL — the compositor only ever sees
+   * CardRenderInput.backgroundDataUrl. When artwork is present the default
+   * header band is suppressed (the artwork IS the design).
+   */
+  background_image?: string;
   header?: {
     show?: boolean;
     text?: string;
@@ -64,6 +72,8 @@ export type CardRenderInput = {
   photoDataUrl: string | null;
   /** Pre-generated QR as a data URL, or null → QR omitted. */
   qrDataUrl: string | null;
+  /** Pre-fetched card artwork as a data URL, or null → no background layer. */
+  backgroundDataUrl: string | null;
   layout: FrontLayout | null;
   mappings: FieldMapping[];
   validUntilLabel: string;
@@ -96,6 +106,15 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
 
   const bg = safeColor(obj.background_color);
   if (bg) layout.background_color = bg;
+
+  // URL shape only — the route enforces the id-card-assets allowlist before
+  // any fetch happens (parse stays pure and unit-testable).
+  if (
+    typeof obj.background_image === 'string' &&
+    /^https:\/\/\S+$/i.test(obj.background_image.trim())
+  ) {
+    layout.background_image = obj.background_image.trim();
+  }
 
   if (obj.header && typeof obj.header === 'object' && !Array.isArray(obj.header)) {
     const h = obj.header as Record<string, unknown>;
@@ -153,6 +172,7 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
 
   const hasContent =
     layout.background_color !== undefined ||
+    layout.background_image !== undefined ||
     layout.header !== undefined ||
     (layout.elements?.length ?? 0) > 0;
   return hasContent ? layout : null;
@@ -273,7 +293,7 @@ function courseLine(person: CardPersonData): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['header']): ReactElement {
-  const { person, photoDataUrl, qrDataUrl, validUntilLabel } = input;
+  const { person, photoDataUrl, qrDataUrl, validUntilLabel, backgroundDataUrl } = input;
   const idLine = identityLine(person);
   const course = courseLine(person);
 
@@ -282,13 +302,33 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
       style={{
         display: 'flex',
         flexDirection: 'column',
+        position: 'relative',
         width: CARD_WIDTH,
         height: CARD_HEIGHT,
-        backgroundColor: input.layout?.background_color ?? '#ffffff',
+        backgroundColor: backgroundDataUrl
+          ? 'transparent'
+          : (input.layout?.background_color ?? '#ffffff'),
         fontFamily: 'sans-serif'
       }}
     >
-      {headerBand(person.institutionName, headerOverrides)}
+      {backgroundDataUrl ? (
+        <img
+          src={backgroundDataUrl}
+          alt=""
+          width={CARD_WIDTH}
+          height={CARD_HEIGHT}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: CARD_WIDTH,
+            height: CARD_HEIGHT,
+            objectFit: 'cover'
+          }}
+        />
+      ) : null}
+      {/* With full-bleed artwork the band would cover the design — skip it. */}
+      {backgroundDataUrl ? null : headerBand(person.institutionName, headerOverrides)}
 
       <div style={{ display: 'flex', flexGrow: 1, padding: '28px 36px' }}>
         {/* Photo area (left) */}
@@ -428,8 +468,28 @@ function elementValue(
 }
 
 function customDesign(input: CardRenderInput, layout: FrontLayout): ReactElement {
-  const { person, photoDataUrl, qrDataUrl } = input;
+  const { person, photoDataUrl, qrDataUrl, backgroundDataUrl } = input;
   const children: ReactElement[] = [];
+
+  if (backgroundDataUrl) {
+    children.push(
+      <img
+        key="background"
+        src={backgroundDataUrl}
+        alt=""
+        width={CARD_WIDTH}
+        height={CARD_HEIGHT}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: CARD_WIDTH,
+          height: CARD_HEIGHT,
+          objectFit: 'cover'
+        }}
+      />
+    );
+  }
 
   if (layout.header?.show) {
     children.push(
@@ -519,7 +579,9 @@ function customDesign(input: CardRenderInput, layout: FrontLayout): ReactElement
         position: 'relative',
         width: CARD_WIDTH,
         height: CARD_HEIGHT,
-        backgroundColor: layout.background_color ?? '#ffffff',
+        backgroundColor: backgroundDataUrl
+          ? 'transparent'
+          : (layout.background_color ?? '#ffffff'),
         fontFamily: 'sans-serif'
       }}
     >

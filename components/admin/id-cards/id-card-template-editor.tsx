@@ -33,6 +33,7 @@ import {
   type PhotoFallbackStep,
   type CardField,
 } from '@/app/(routes)/admin/id-cards/_types';
+import { IdCardDesignTab } from '@/components/admin/id-cards/id-card-design-tab';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Stub data — used when Agent C's routes are not live yet
@@ -341,11 +342,21 @@ export function IdCardTemplateEditor() {
         )}
       </div>
 
-      <Tabs defaultValue="mappings">
+      <Tabs defaultValue="design">
         <TabsList>
+          <TabsTrigger value="design">Card design</TabsTrigger>
           <TabsTrigger value="mappings">Field mappings</TabsTrigger>
           <TabsTrigger value="photo-fallback">Photo fallback</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="design" className="mt-4">
+          <div className="mb-3 text-sm text-muted-foreground">
+            Give each template its own look: design the card artwork in Canva
+            (or any tool), export it at 1014×638, and upload it here. Learner
+            details print on top. No artwork = the standard green design.
+          </div>
+          <IdCardDesignTab />
+        </TabsContent>
 
         <TabsContent value="mappings" className="mt-4">
           <div className="mb-3 text-sm text-muted-foreground">

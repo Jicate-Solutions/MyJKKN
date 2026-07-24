@@ -143,6 +143,7 @@ export function resolveMappedValue(
 
 const PHOTO_FETCH_TIMEOUT_MS = 4000;
 const PHOTO_MAX_BYTES = 4 * 1024 * 1024; // 4 MB
+const BACKGROUND_MAX_BYTES = 6 * 1024 * 1024; // 6 MB — matches the bucket limit
 
 /**
  * Fetch a single image URL and return it as a data URL, or null on ANY
@@ -150,7 +151,10 @@ const PHOTO_MAX_BYTES = 4 * 1024 * 1024; // 4 MB
  * Pre-fetching here means the compositor never does network I/O itself, so a
  * broken photo can never 500 the render.
  */
-export async function fetchImageAsDataUrl(url: string): Promise<string | null> {
+export async function fetchImageAsDataUrl(
+  url: string,
+  maxBytes: number = PHOTO_MAX_BYTES
+): Promise<string | null> {
   const trimmed = (url ?? '').trim();
   if (trimmed === '') return null;
   // Already inline — accept as-is (cheap, no fetch).
@@ -165,9 +169,9 @@ export async function fetchImageAsDataUrl(url: string): Promise<string | null> {
     const contentType = res.headers.get('content-type') ?? '';
     if (!contentType.toLowerCase().startsWith('image/')) return null;
     const declaredLength = Number(res.headers.get('content-length') ?? '0');
-    if (declaredLength > PHOTO_MAX_BYTES) return null;
+    if (declaredLength > maxBytes) return null;
     const buf = await res.arrayBuffer();
-    if (buf.byteLength === 0 || buf.byteLength > PHOTO_MAX_BYTES) return null;
+    if (buf.byteLength === 0 || buf.byteLength > maxBytes) return null;
     const base64 = Buffer.from(buf).toString('base64');
     return `data:${contentType.split(';')[0]};base64,${base64}`;
   } catch {
@@ -184,6 +188,29 @@ export async function resolvePhotoDataUrl(candidates: string[]): Promise<string 
     if (dataUrl) return dataUrl;
   }
   return null;
+}
+
+/**
+ * Card artwork fetch with an SSRF allowlist: template JSON is editor-supplied
+ * content, so the server only ever fetches backgrounds hosted in our own
+ * public id-card-assets bucket. Anything else is ignored (fail-soft — the
+ * card renders without artwork rather than erroring).
+ */
+export async function resolveBackgroundDataUrl(
+  backgroundImageUrl: string | null | undefined
+): Promise<string | null> {
+  const url = (backgroundImageUrl ?? '').trim();
+  if (url === '') return null;
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+  if (supabaseUrl === '') return null;
+  const allowedPrefix = `${supabaseUrl}/storage/v1/object/public/id-card-assets/`;
+  if (!url.startsWith(allowedPrefix)) {
+    console.warn(
+      '[id-cards/render] background_image outside the id-card-assets bucket — ignoring'
+    );
+    return null;
+  }
+  return fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES);
 }
 
 /** QR PNG as a data URL via the qrcode package; null on failure (fail-soft). */
