@@ -363,4 +363,45 @@ COMMENT ON FUNCTION public.fn_mba_analyst_views(uuid) IS
 REVOKE EXECUTE ON FUNCTION public.fn_mba_analyst_views(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_mba_analyst_views(uuid) TO authenticated;
 
+-- ============================================================================
+-- 7. Associate picker for the assignment UI.
+--    Must be SECDEF: `user_roles` SELECT is self-scoped for anyone without
+--    is_admin/is_super_admin/roles.edit, so a board manager (improvement.board.manage
+--    but not roles.edit) reading user_roles directly would see only their OWN row
+--    and get a truncated/empty picker (a silent failure). This reads as owner and
+--    guards to board managers, returning the 44 active MBA Associate members.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_mba_list_associates()
+RETURNS TABLE (user_id uuid, name text, email text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('improvement.board.manage')) THEN
+    RAISE EXCEPTION 'not authorized: improvement.board.manage required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+    SELECT DISTINCT p.id, p.full_name, p.email
+    FROM user_roles ur
+    JOIN custom_roles cr ON cr.id = ur.role_id
+    JOIN profiles p ON p.id = ur.user_id
+    WHERE cr.role_key = 'mba_associate' AND cr.is_active
+    ORDER BY p.full_name;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_mba_list_associates() IS
+  'Board-manager-only picker source: active MBA Associate members (id, full_name, email). SECDEF because user_roles SELECT is self-scoped for non-admins.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_mba_list_associates() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_mba_list_associates() TO authenticated;
+
 COMMIT;

@@ -5,14 +5,19 @@
  * Thin service over the DORMANT backend shipped in migration
  * `20260724170000_mba_analyst_assignment_scoped_access.sql`:
  *
- *   - `mba_associate_postings`   — which MBA Associate is posted to which
- *                                  improvement_area (department).
- *   - `mba_area_analyst_views`   — which de-identified `learning_*` views
- *                                  belong to which department (+ sensitivity).
+ *   - `mba_associate_postings`     — which MBA Associate is posted to which
+ *                                    improvement_area (department).
+ *   - `mba_area_analyst_views`     — which de-identified `learning_*` views
+ *                                    belong to which department (+ sensitivity).
  *   - `fn_mba_analyst_views(uuid)` — SECURITY DEFINER delivery RPC. The ONLY
- *                                  door to the analyst view DATA for app users;
- *                                  it guards on role + active posting and applies
- *                                  k>=5 small-cell suppression per view.
+ *                                    door to the analyst view DATA for app
+ *                                    users; guards on role + active posting and
+ *                                    applies k>=5 small-cell suppression.
+ *   - `fn_mba_list_associates()`   — SECURITY DEFINER picker source. Board
+ *                                    managers only. Reads the 44 active MBA
+ *                                    Associate members as owner (user_roles
+ *                                    SELECT is self-scoped for non-admins, so a
+ *                                    direct query would silently truncate).
  *
  * Write access to postings is enforced at the row by RLS
  * (`improvement.board.manage` holders only). An Associate may read only their
@@ -22,6 +27,9 @@
  * so queries cast through `(supabase as any)` — the same pattern the
  * improvement-board and bug-reports services use for un-typed tables. Row shapes
  * are typed here instead.
+ *
+ * The 14 improvement_areas for the assignment picker are NOT duplicated here —
+ * consumers reuse `ImprovementService.listAreas()`.
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -29,7 +37,11 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'mba-analyst';
 
-/** A row from `mba_associate_postings`. */
+/**
+ * A row from `mba_associate_postings`, enriched with the Associate's display
+ * name + email and the department label/key (resolved server-side by joins).
+ * On rows returned by `assignPosting`, the enriched fields are populated too.
+ */
 export interface MbaAssociatePosting {
   id: string;
   associate_user_id: string;
@@ -39,29 +51,42 @@ export interface MbaAssociatePosting {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // Enriched display fields (null when the join could not resolve).
+  associate_name: string | null;
+  associate_email: string | null;
+  area_label: string | null;
+  area_key: string | null;
 }
 
-/** A posting enriched with the Associate's name and the department label. */
-export interface MbaAssociatePostingView extends MbaAssociatePosting {
-  associate_name: string | null;
-  area_key: string | null;
-  area_label: string | null;
-}
+/** Back-compat alias — `MbaAssociatePosting` is already the enriched shape. */
+export type MbaAssociatePostingView = MbaAssociatePosting;
 
 /** One de-identified view's suppressed rows, as returned by the delivery RPC. */
 export interface MbaAnalystView {
   view_name: string;
   is_sensitive: boolean;
-  rows: Record<string, unknown>[];
+  // View-row columns vary per view (dynamic payload) — intentionally loose.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rows: Record<string, any>[];
 }
 
 /** Full payload returned by `fn_mba_analyst_views`. */
-export interface MbaAnalystViewsPayload {
+export interface MbaAnalystViewsResult {
   area_id: string;
   views: MbaAnalystView[];
 }
 
-type ProfileLite = { id: string; full_name: string | null };
+/** Back-compat alias for the earlier name. */
+export type MbaAnalystViewsPayload = MbaAnalystViewsResult;
+
+/** A picker entry — one active MBA Associate. */
+export interface MbaAssociateLite {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+}
+
+type ProfileLite = { id: string; full_name: string | null; email: string | null };
 type AreaLite = { id: string; key: string | null; label: string | null };
 
 export class MbaAnalystService {
@@ -69,30 +94,30 @@ export class MbaAnalystService {
     return createClientSupabaseClient();
   }
 
-  /** id -> full_name map for a set of profile ids (batched, single query). */
-  private static async fetchProfileNames(
+  /** id -> {full_name,email} map for a set of profile ids (batched, one query). */
+  private static async fetchProfiles(
     ids: (string | null)[]
-  ): Promise<Map<string, string | null>> {
-    const map = new Map<string, string | null>();
+  ): Promise<Map<string, ProfileLite>> {
+    const map = new Map<string, ProfileLite>();
     const unique = Array.from(new Set(ids.filter((v): v is string => !!v)));
     if (unique.length === 0) return map;
 
     const supabase = this.getSupabase();
     const { data, error } = (await (supabase as any)
       .from('profiles')
-      .select('id, full_name')
+      .select('id, full_name, email')
       .in('id', unique)) as { data: ProfileLite[] | null; error: any };
 
     if (error) {
-      logger.error(MODULE, 'Error fetching profile names', error);
+      logger.error(MODULE, 'Error fetching profiles', error);
       return map;
     }
-    for (const row of data ?? []) map.set(row.id, row.full_name);
+    for (const row of data ?? []) map.set(row.id, row);
     return map;
   }
 
   /** id -> {key,label} map for a set of improvement_area ids (batched). */
-  private static async fetchAreaLabels(
+  private static async fetchAreas(
     ids: (string | null)[]
   ): Promise<Map<string, AreaLite>> {
     const map = new Map<string, AreaLite>();
@@ -113,18 +138,43 @@ export class MbaAnalystService {
     return map;
   }
 
+  private static enrich(
+    row: {
+      id: string;
+      associate_user_id: string;
+      area_id: string;
+      assigned_by: string | null;
+      assigned_at: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    },
+    profiles: Map<string, ProfileLite>,
+    areas: Map<string, AreaLite>
+  ): MbaAssociatePosting {
+    const p = profiles.get(row.associate_user_id);
+    const a = areas.get(row.area_id);
+    return {
+      ...row,
+      associate_name: p?.full_name ?? null,
+      associate_email: p?.email ?? null,
+      area_label: a?.label ?? null,
+      area_key: a?.key ?? null,
+    };
+  }
+
   /**
-   * List postings, enriched with Associate name + department label.
+   * List postings, enriched with Associate name/email + department label.
    * RLS scopes what is returned: managers see all; an Associate sees only their
    * own rows.
    */
-  static async listPostings(): Promise<MbaAssociatePostingView[]> {
+  static async listPostings(): Promise<MbaAssociatePosting[]> {
     const supabase = this.getSupabase();
     const { data, error } = (await (supabase as any)
       .from('mba_associate_postings')
       .select('*')
       .order('assigned_at', { ascending: false })) as {
-      data: MbaAssociatePosting[] | null;
+      data: any[] | null;
       error: any;
     };
 
@@ -134,26 +184,18 @@ export class MbaAnalystService {
     }
     const rows = data ?? [];
 
-    const [names, areas] = await Promise.all([
-      this.fetchProfileNames(rows.map((r) => r.associate_user_id)),
-      this.fetchAreaLabels(rows.map((r) => r.area_id)),
+    const [profiles, areas] = await Promise.all([
+      this.fetchProfiles(rows.map((r) => r.associate_user_id)),
+      this.fetchAreas(rows.map((r) => r.area_id)),
     ]);
 
-    return rows.map((r) => {
-      const area = areas.get(r.area_id);
-      return {
-        ...r,
-        associate_name: names.get(r.associate_user_id) ?? null,
-        area_key: area?.key ?? null,
-        area_label: area?.label ?? null,
-      };
-    });
+    return rows.map((r) => this.enrich(r, profiles, areas));
   }
 
   /**
    * Post an Associate to a department. Idempotent: re-assigning an existing
    * (associate, area) pair re-activates it. RLS requires
-   * `improvement.board.manage`.
+   * `improvement.board.manage`. The returned row is enriched.
    */
   static async assignPosting(
     associateUserId: string,
@@ -180,14 +222,19 @@ export class MbaAnalystService {
         { onConflict: 'associate_user_id,area_id' }
       )
       .select('*')
-      .single()) as { data: MbaAssociatePosting | null; error: any };
+      .single()) as { data: any | null; error: any };
 
     if (error) {
       logger.error(MODULE, 'Error assigning posting', error);
       throw new Error(error.message || 'Failed to assign.');
     }
     if (!data) throw new Error('Failed to assign — no data returned.');
-    return data;
+
+    const [profiles, areas] = await Promise.all([
+      this.fetchProfiles([data.associate_user_id]),
+      this.fetchAreas([data.area_id]),
+    ]);
+    return this.enrich(data, profiles, areas);
   }
 
   /** Remove a posting entirely. RLS requires `improvement.board.manage`. */
@@ -205,15 +252,33 @@ export class MbaAnalystService {
   }
 
   /**
+   * The active MBA Associate members, for the assignment picker. Backed by the
+   * SECDEF RPC `fn_mba_list_associates` (board managers only) — a direct
+   * `user_roles` query would silently truncate for non-admin managers.
+   */
+  static async listAssociates(): Promise<MbaAssociateLite[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc(
+      'fn_mba_list_associates'
+    )) as { data: MbaAssociateLite[] | null; error: any };
+
+    if (error) {
+      logger.error(MODULE, 'Error listing associates', error);
+      throw new Error(error.message || 'Failed to load MBA Associates.');
+    }
+    return data ?? [];
+  }
+
+  /**
    * Fetch the de-identified analyst views for a department through the SECDEF
    * delivery RPC. The RPC enforces the posting gate and k>=5 suppression; this
-   * client only forwards the area id and shapes the result.
+   * client only forwards the area id and shapes the result (unwrapped).
    */
-  static async getAnalystViews(areaId: string): Promise<MbaAnalystViewsPayload> {
+  static async getAnalystViews(areaId: string): Promise<MbaAnalystViewsResult> {
     const supabase = this.getSupabase();
     const { data, error } = (await (supabase as any).rpc('fn_mba_analyst_views', {
       p_area_id: areaId,
-    })) as { data: MbaAnalystViewsPayload | null; error: any };
+    })) as { data: MbaAnalystViewsResult | null; error: any };
 
     if (error) {
       logger.error(MODULE, 'Error fetching analyst views', error);
