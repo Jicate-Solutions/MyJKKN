@@ -76,8 +76,13 @@ export async function resolveProfileIdForLearner(
   return data?.id ?? null;
 }
 
+// PostgREST encodes .in() filters in the request URL, so a whole-cohort batch
+// (1000+ UUIDs ≈ 37 KB) would overflow URL limits. 100 ids ≈ 3.7 KB — safe.
+const RESOLVE_CHUNK_SIZE = 100;
+
 /**
- * Batch variant: map learners_profiles.id → profiles.id in ONE query.
+ * Batch variant: map learners_profiles.id → profiles.id, chunked to stay
+ * within URL limits at cohort scale (freshers batch / whole class).
  * Learners without an account are simply absent from the returned map.
  */
 export async function resolveProfileIdsForLearners(
@@ -87,14 +92,17 @@ export async function resolveProfileIdsForLearners(
   if (learnerIds.length === 0) return map;
 
   const supabase = createClientSupabaseClient();
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, learner_id')
-    .in('learner_id', learnerIds);
+  for (let i = 0; i < learnerIds.length; i += RESOLVE_CHUNK_SIZE) {
+    const chunk = learnerIds.slice(i, i + RESOLVE_CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, learner_id')
+      .in('learner_id', chunk);
 
-  if (error) throw error;
-  for (const row of data ?? []) {
-    if (row.learner_id) map.set(row.learner_id, row.id);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.learner_id) map.set(row.learner_id, row.id);
+    }
   }
   return map;
 }

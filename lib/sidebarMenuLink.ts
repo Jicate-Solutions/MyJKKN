@@ -509,6 +509,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // Leaderboard is public to any authenticated learner (Director decision #6);
+  // gate the sidebar entry on the same key as the AI Pulse landing page.
+  '/ai-pulse/leaderboard': 'ai_pulse.view',
   // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
   // lacks the permission its page enforces (each key = the gate on that tab's
   // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
@@ -556,6 +559,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards': 'id_cards.jobs.view',
   '/admin/id-cards/template': 'id_cards.templates.view',
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Batch print enqueues jobs, so it needs the manage key (not just view).
+  '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -2574,6 +2579,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: IdCard,
           submenus: [
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
+            { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
@@ -2642,6 +2648,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },

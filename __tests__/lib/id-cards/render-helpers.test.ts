@@ -169,3 +169,30 @@ describe('parseFrontLayout', () => {
     expect(photo.width).toBeLessThanOrEqual(CARD_WIDTH);
   });
 });
+
+describe('parseFrontLayout — background_image (Canva-background workflow)', () => {
+  it('accepts an https URL and keeps other keys', () => {
+    const layout = parseFrontLayout({
+      background_image: ' https://example.supabase.co/storage/v1/object/public/id-card-assets/backgrounds/t1/a.png ',
+      background_color: '#ffffff'
+    });
+    expect(layout?.background_image).toBe(
+      'https://example.supabase.co/storage/v1/object/public/id-card-assets/backgrounds/t1/a.png'
+    );
+    expect(layout?.background_color).toBe('#ffffff');
+  });
+
+  it('background_image alone counts as content (layout is not null)', () => {
+    const layout = parseFrontLayout({
+      background_image: 'https://example.supabase.co/storage/v1/object/public/id-card-assets/x.png'
+    });
+    expect(layout).not.toBeNull();
+  });
+
+  it('rejects non-https, non-string and whitespace-embedded values', () => {
+    expect(parseFrontLayout({ background_image: 'http://insecure.example/x.png' })).toBeNull();
+    expect(parseFrontLayout({ background_image: 'javascript:alert(1)' })).toBeNull();
+    expect(parseFrontLayout({ background_image: 'https://a b/x.png' })).toBeNull();
+    expect(parseFrontLayout({ background_image: 42 })).toBeNull();
+  });
+});

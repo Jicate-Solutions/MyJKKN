@@ -360,6 +360,46 @@ Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exa
 }
 CRITICAL: sequence_no must be a single strictly-increasing integer across the WHOLE spine (unit 2's first lesson continues after unit 1's last), so the spine has one unambiguous teaching order.`;
 
+// Bloom-primary variant — used when the course's BoS-fixed taxonomy is 'blooms'. BYTE-
+// IDENTICAL to the bulk cron's BLOOM_SYSTEM_PROMPT and the Mac twin's — all three writers
+// of curriculum_lesson stay in PROMPT/PARSE LOCKSTEP. Only the primary axis differs from
+// REGEN_SYSTEM_PROMPT: a K1-K6 Bloom level, not a Fink dimension. Fink stays a HYBRID.
+const REGEN_BLOOM_SYSTEM_PROMPT = `You are a learning-framework designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved learning pathway.
+
+You will receive the syllabus's units/chapters and its Course Learning Outcomes (CLOs, each with a clo_number and k_values — the Bloom cognitive levels K1-K6 the CLO targets: K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
+
+Your job: break each unit into an ordered sequence of teachable LESSONS (typically 3-6 per unit — one per major topic/chapter section, not one per chapter as a whole), each grounded in the syllabus content and mapped to the CLOs it serves.
+
+This course's Board of Studies has FIXED the Bloom taxonomy for it. Tag each lesson with the SINGLE Bloom cognitive level (K1-K6) that best fits its PRIMARY teaching intent — the dominant level the lesson builds toward (K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
+
+For each lesson's learning_outcomes, cite the Bloom level (K1-K6) that outcome targets (drawn from the CLOs it maps to, co_ref = the clo_number(s) it serves), and ALSO note the Fink dimension it touches (foundational, application, integration, human, caring, learning_to_learn) — Bloom is primary here, Fink is the secondary hybrid lens, so keep both on every outcome.
+
+Ground every lesson title and outcome in the ACTUAL syllabus content provided — do not invent topics absent from it. Be concrete and India-context aware.
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
+{
+  "lessons": [
+    {
+      "unit_label": "Unit 1",
+      "sequence_no": 1,
+      "title": "...",
+      "primary_bloom_level": "K2",
+      "learning_outcomes": [
+        {"text": "...", "bloom_level": "K2", "fink_dimension": "foundational", "co_ref": "CO1"}
+      ]
+    }
+  ]
+}
+CRITICAL: sequence_no must be a single strictly-increasing integer across the WHOLE spine (unit 2's first lesson continues after unit 1's last), so the spine has one unambiguous teaching order.`;
+
+// Course taxonomy branch (mirrors the bulk cron / Mac twin). 'finks'|'blooms', or null →
+// the caller skips-and-flags (never defaults to Fink).
+type RegenTaxonomy = 'finks' | 'blooms';
+function regenSystemForTaxonomy(taxonomy: RegenTaxonomy, emitBriefs: boolean): string {
+  const base = taxonomy === 'blooms' ? REGEN_BLOOM_SYSTEM_PROMPT : REGEN_SYSTEM_PROMPT;
+  return emitBriefs ? `${base}\n${REGEN_BRIEFS_ADDENDUM}` : base;
+}
+
 const REGEN_BRIEFS_ADDENDUM = `
 You were ALSO given this course's assessment structure, which includes team-capstone options and/or a Concept-Application note. In addition to "lessons", also return:
 "concept_briefs": [{"unit_label": "Unit 1", "title": "...", "text": "a short in-class Concept-Application activity brief grounded in the unit's content and the syllabus's Concept-Application note", "co_ref": ["CO1"]}]  (at most one per unit that has enough content to ground one)
@@ -371,6 +411,7 @@ type RegenLessonOut = {
   sequence_no?: number;
   title?: string;
   primary_fink_dimension?: string;
+  primary_bloom_level?: string;
   learning_outcomes?: unknown[];
 };
 type RegenBriefOut = { unit_label?: string; title?: string; text?: string; co_ref?: string[] };
@@ -495,7 +536,7 @@ const curriculumLessonSpineRegen: AiTaskType = {
     // not archived. Newest-first in case of duplicate is_latest rows.
     const { data: syllabusRows, error: sylErr } = await admin
       .from('bos_course_syllabi')
-      .select('id, course_content, course_learning_outcomes, assessment_structure')
+      .select('id, regulation_id, course_content, course_learning_outcomes, assessment_structure')
       .eq('course_code', course.course_code)
       .eq('institutions_id', course.institution_id)
       .eq('is_latest', true)
@@ -512,6 +553,31 @@ const curriculumLessonSpineRegen: AiTaskType = {
         result: {
           suggestion: { summary: `No Board-of-Studies syllabus is on file for ${course.course_code} — there is nothing to regenerate the spine from. Once a syllabus is approved and uploaded, try again.` },
           reason: 'no_syllabus',
+        },
+      };
+    }
+
+    // Read the course's BoS-FIXED taxonomy (bos_regulation_taxonomies via the syllabus's
+    // regulation_id). 'finks' → Fink-primary prompt, 'blooms' → Bloom-primary. No taxonomy
+    // fixed → skip-and-flag; never silently default to Fink (Director rule).
+    let taxonomy: RegenTaxonomy | null = null;
+    const regId = syllabus.regulation_id;
+    if (regId) {
+      const { data: taxRow } = await admin
+        .from('bos_regulation_taxonomies')
+        .select('taxonomy_type')
+        .eq('regulation_id', regId)
+        .eq('institutions_id', course.institution_id)
+        .maybeSingle();
+      const tt = taxRow?.taxonomy_type;
+      taxonomy = tt === 'finks' || tt === 'blooms' ? tt : null;
+    }
+    if (!taxonomy) {
+      return {
+        skip: true,
+        result: {
+          suggestion: { summary: `The Board-of-Studies regulation for ${course.course_code} has no taxonomy (Fink or Bloom) fixed yet, so its lesson spine can't be regenerated. Set the regulation's taxonomy in BoS, then try again.` },
+          reason: 'no_taxonomy',
         },
       };
     }
@@ -535,7 +601,7 @@ const curriculumLessonSpineRegen: AiTaskType = {
       params: {
         model: modelId,
         max_tokens: REGEN_MAX_TOKENS,
-        system: emitBriefs ? `${REGEN_SYSTEM_PROMPT}\n${REGEN_BRIEFS_ADDENDUM}` : REGEN_SYSTEM_PROMPT,
+        system: regenSystemForTaxonomy(taxonomy, emitBriefs),
         messages: [{
           role: 'user',
           content: regenBuildUserPrompt(
@@ -550,6 +616,7 @@ const curriculumLessonSpineRegen: AiTaskType = {
         course_id: courseId,
         course_code: course.course_code,
         bos_syllabus_id: syllabus.id,
+        taxonomy,   // carried so recordResult stamps the correct primary axis
         // Traceability stamp for curriculum_lesson.ai_batch_key (the generic sweep
         // doesn't expose its ai_batch_jobs id to recordResult).
         ai_batch_key: `regen:${courseId}:${Date.now()}`,
@@ -567,6 +634,10 @@ const curriculumLessonSpineRegen: AiTaskType = {
     const courseCode = String(itemContext.course_code ?? '');
     const bosSyllabusId = String(itemContext.bos_syllabus_id);
     const batchKey = typeof itemContext.ai_batch_key === 'string' ? itemContext.ai_batch_key : null;
+    // Which primary axis to stamp. Legacy in-flight items (submitted before taxonomy was
+    // carried) default to 'finks' — the behaviour they were generated under.
+    const taxonomy: RegenTaxonomy = itemContext.taxonomy === 'blooms' ? 'blooms' : 'finks';
+    const isBloom = taxonomy === 'blooms';
 
     // Record via the service-role-only draft writer — IDENTICAL contract to the
     // bulk cron's recordSpine: status='draft' always, source='bos_ai', idempotent
@@ -586,7 +657,9 @@ const curriculumLessonSpineRegen: AiTaskType = {
         p_unit_label: typeof l.unit_label === 'string' ? l.unit_label : null,
         p_title: l.title,
         p_learning_outcomes: Array.isArray(l.learning_outcomes) ? l.learning_outcomes : [],
-        p_primary_fink: typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null,
+        p_primary_fink: isBloom ? null : (typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null),
+        p_primary_taxonomy: taxonomy,
+        p_primary_bloom_level: isBloom ? (typeof l.primary_bloom_level === 'string' ? l.primary_bloom_level : null) : null,
         p_co_refs: Array.isArray(l.learning_outcomes)
           ? [...new Set(l.learning_outcomes.map((o) => (o as { co_ref?: string })?.co_ref).filter((x): x is string => typeof x === 'string'))]
           : [],
@@ -613,6 +686,8 @@ const curriculumLessonSpineRegen: AiTaskType = {
         p_title: b.title,
         p_learning_outcomes: [{ text: b.text ?? '', co_ref: Array.isArray(b.co_ref) ? b.co_ref : [] }],
         p_primary_fink: null,
+        p_primary_taxonomy: taxonomy,
+        p_primary_bloom_level: null,
         p_co_refs: Array.isArray(b.co_ref) ? b.co_ref : [],
         p_bos_syllabus_id: bosSyllabusId,
         p_source: 'bos_ai',
@@ -637,6 +712,8 @@ const curriculumLessonSpineRegen: AiTaskType = {
         p_title: cap.title,
         p_learning_outcomes: [{ text: cap.text ?? '', co_ref: Array.isArray(cap.co_ref) ? cap.co_ref : [] }],
         p_primary_fink: null,
+        p_primary_taxonomy: taxonomy,
+        p_primary_bloom_level: null,
         p_co_refs: Array.isArray(cap.co_ref) ? cap.co_ref : [],
         p_bos_syllabus_id: bosSyllabusId,
         p_source: 'bos_ai',
