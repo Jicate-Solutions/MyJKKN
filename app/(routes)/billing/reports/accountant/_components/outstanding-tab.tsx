@@ -13,14 +13,15 @@ export function OutstandingTab({ filters }: { filters: AccountantReportFilters }
   const q = useReportOutstanding(filters);
   const rows = q.data ?? [];
 
-  // Roll rows (year × college) up to year totals for the chart.
+  // Roll rows (year × college) up to year totals for the chart. Depend on
+  // q.data (stable React Query ref), not the freshly-created `rows` array.
   const byYear = useMemo(() => {
     const m = new Map<string, number>();
-    for (const r of rows) {
+    for (const r of q.data ?? []) {
       m.set(r.academic_year_name, (m.get(r.academic_year_name) ?? 0) + num(r.outstanding));
     }
     return Array.from(m, ([group_label, outstanding]) => ({ group_label, outstanding }));
-  }, [rows]);
+  }, [q.data]);
 
   const columns: Column<OutstandingByYearRow>[] = [
     { header: 'Academic Year', cell: (r) => r.academic_year_name },
