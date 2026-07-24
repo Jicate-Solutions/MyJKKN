@@ -9,8 +9,8 @@
 // earned one and never any score.
 //
 // SAFETY: a badge's `criteria` JSON is PROVISIONAL — the award rules it encodes
-// are NOT EKSAQ-validated and drive no live awarding yet. The criteria field is
-// labelled "provisional — pending EKSAQ" and a persistent <ValidationBanner> sits
+// are NOT MyJKKN-validated and drive no live awarding yet. The criteria field is
+// labelled "provisional — pending MyJKKN" and a persistent <ValidationBanner> sits
 // on the catalog so it can never be mistaken for a validated, live rule.
 // =============================================================================
 
@@ -287,7 +287,7 @@ function BadgeDialog({
             <Label htmlFor='b-criteria'>
               Criteria{' '}
               <span className='font-normal text-amber-700'>
-                (provisional — criteria pending EKSAQ)
+                (provisional — criteria pending MyJKKN)
               </span>
             </Label>
             <Textarea
@@ -307,7 +307,7 @@ function BadgeDialog({
             <Alert className='mt-2'>
               <AlertDescription className='text-xs'>
                 Criteria is <strong>provisional configuration only</strong>. It is{' '}
-                <strong>not yet EKSAQ-validated</strong> and does not drive any live
+                <strong>not yet MyJKKN-validated</strong> and does not drive any live
                 awarding — badges are awarded server-side, not by this rule. Leave blank if
                 unsure.
               </AlertDescription>
@@ -476,7 +476,7 @@ export function BadgeCatalogConsole() {
                       <Badge
                         variant='outline'
                         className='border-amber-300 text-amber-800'
-                        title='Provisional rule — pending EKSAQ validation'
+                        title='Provisional rule — pending MyJKKN validation'
                       >
                         provisional
                       </Badge>

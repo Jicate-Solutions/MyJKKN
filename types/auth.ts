@@ -63,6 +63,8 @@ export interface Profile {
   institution_id: string | null;
   department_id: string | null;
   learner_id: string | null;
+  /** Pre-assigned IMS store (profiles.assigned_store_id). Priority 2 in useImsStoreContext. */
+  assigned_store_id?: string | null;
   institutions?: Institution | null;
   departments?: Department | null;
   created_at: string;

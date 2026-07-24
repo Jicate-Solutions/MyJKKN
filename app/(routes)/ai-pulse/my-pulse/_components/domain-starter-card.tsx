@@ -108,31 +108,36 @@ const MODE_ORDER: ModeKey[] = ['build', 'skill', 'career'];
 // Data hook — resolve current ai_pulse cycle, then read the learner's starters
 // ============================================================================
 
-async function fetchMyDomainStarters(): Promise<DomainStarterRow[]> {
+async function fetchMyDomainStarters(cycleId?: string): Promise<DomainStarterRow[]> {
   // Neither startup_events' JSONB filter nor the domain-starter RPCs are in the
   // generated types → untyped client (same approach as pde-progress-card).
   const supabase = createClientSupabaseClient() as any;
 
-  // Cycle = latest ai_pulse startup_events row that isn't cancelled. This must
-  // match the cron/RPC derivation so we ask for starters against the SAME cycle.
-  const { data: cycle, error: cycleError } = await supabase
-    .from('startup_events')
-    .select('id')
-    .filter('config->>kind', 'eq', 'ai_pulse')
-    .neq('status', 'cancelled')
-    .order('demo_date', { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
+  // When the week switcher passes a cycleId, read starters for THAT cycle.
+  // Otherwise fall back to the latest ai_pulse cycle (matches the cron/RPC
+  // derivation) so the card works standalone / on the current week.
+  let resolvedCycleId = cycleId ?? null;
 
-  if (cycleError) {
-    logger.error(MODULE, 'cycle resolution failed', cycleError);
-    throw new Error(cycleError.message ?? 'Failed to resolve AI Pulse cycle');
+  if (!resolvedCycleId) {
+    const { data: cycle, error: cycleError } = await supabase
+      .from('startup_events')
+      .select('id')
+      .filter('config->>kind', 'eq', 'ai_pulse')
+      .neq('status', 'cancelled')
+      .order('demo_date', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (cycleError) {
+      logger.error(MODULE, 'cycle resolution failed', cycleError);
+      throw new Error(cycleError.message ?? 'Failed to resolve AI Pulse cycle');
+    }
+    if (!cycle?.id) return [];
+    resolvedCycleId = cycle.id;
   }
 
-  if (!cycle?.id) return [];
-
   const { data, error } = await supabase.rpc('fn_ai_pulse_my_domain_starters', {
-    p_cycle_id: cycle.id,
+    p_cycle_id: resolvedCycleId,
   });
 
   if (error) {
@@ -143,10 +148,10 @@ async function fetchMyDomainStarters(): Promise<DomainStarterRow[]> {
   return (data ?? []) as DomainStarterRow[];
 }
 
-function useMyDomainStarters() {
+function useMyDomainStarters(cycleId?: string) {
   return useQuery<DomainStarterRow[], Error>({
-    queryKey: ['ai-pulse', 'domain-starters'],
-    queryFn: fetchMyDomainStarters,
+    queryKey: ['ai-pulse', 'domain-starters', cycleId ?? 'latest'],
+    queryFn: () => fetchMyDomainStarters(cycleId),
     staleTime: 60_000,
   });
 }
@@ -341,8 +346,8 @@ function StarterItem({ row }: { row: DomainStarterRow }) {
 // Card
 // ============================================================================
 
-export function DomainStarterCard() {
-  const { data, isLoading, error } = useMyDomainStarters();
+export function DomainStarterCard({ cycleId }: { cycleId?: string } = {}) {
+  const { data, isLoading, error } = useMyDomainStarters(cycleId);
   const starters = data ?? [];
 
   // Fire a one-time 'view' ping per starter the first time it appears. Tracked

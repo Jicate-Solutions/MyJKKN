@@ -46,27 +46,20 @@ export async function GET(
   const { caseRow } = loaded;
 
   const svc = createServiceRoleClient();
-  const [{ data: assignments }, { data: courseRow }] = await Promise.all([
+  const [{ data: assignments }, { data: sections }] = await Promise.all([
     svc.from('pde_case_assignments').select('section_id, due_at').eq('assessment_id', id),
-    svc.from('vac_courses').select('institution_id').eq('id', caseRow.course_id).maybeSingle(),
+    // Sections available to assign = only those with >=1 learner enrolled in this
+    // case's course (assigning to an empty section is meaningless). Each row also
+    // carries a disambiguating "Programme · Semester · Section" label, since a bare
+    // "Section A" collides across years/programmes. fn_pde_assignable_sections is
+    // service-role-locked (anon/authenticated revoked) — the join lives in SQL.
+    svc.rpc('fn_pde_assignable_sections', { p_assessment_id: id }),
   ]);
-
-  // Sections available to assign — scoped to the case's institution.
-  let sections: unknown[] = [];
-  if (courseRow?.institution_id) {
-    const { data: secRows } = await svc
-      .from('sections')
-      .select('id, section_name, program_id, semester_id')
-      .eq('institution_id', courseRow.institution_id)
-      .eq('is_active', true)
-      .order('section_name', { ascending: true });
-    sections = secRows ?? [];
-  }
 
   return NextResponse.json({
     visibility_mode: caseRow.visibility_mode ?? 'open',
     assignments: assignments ?? [],
-    sections,
+    sections: sections ?? [],
   });
 }
 
@@ -98,6 +91,16 @@ export async function POST(
     : [];
   const dueAt = typeof body.due_at === 'string' && body.due_at.trim() ? body.due_at : null;
 
+  // A LOCKED case with no sections is hidden from EVERYONE — block it as a likely
+  // mistake (user decision 2026-07-23) instead of silently taking the case offline.
+  // (Open cases with no nudged sections are fine — they stay visible to all enrolled.)
+  if (visibility === 'class_only' && sectionIds.length === 0) {
+    return NextResponse.json(
+      { error: 'Pick at least one section — a locked case with no sections would be hidden from every learner.' },
+      { status: 400 },
+    );
+  }
+
   const svc = createServiceRoleClient();
 
   // 1. Visibility switch.
@@ -110,6 +113,15 @@ export async function POST(
   }
 
   // 2. Replace the assignment set (delete-then-insert keeps it declarative).
+  //    Snapshot the PREVIOUS sections first so we can tell which are newly added
+  //    in this save — only those get a notification (user decision 2026-07-23), so
+  //    a due-date tweak or re-save doesn't re-ping learners already assigned.
+  const { data: prevRows } = await svc
+    .from('pde_case_assignments')
+    .select('section_id')
+    .eq('assessment_id', id);
+  const prevSectionIds = new Set(((prevRows as any[]) ?? []).map((r) => r.section_id));
+
   await svc.from('pde_case_assignments').delete().eq('assessment_id', id);
   let newSectionIds: string[] = [];
   if (sectionIds.length > 0) {
@@ -126,16 +138,18 @@ export async function POST(
     newSectionIds = sectionIds;
   }
 
-  // 3. Notify affected learners (in an assigned section AND enrolled in the course).
-  //    Resolve in three clear steps: sections → learner profiles → enrolled users.
-  //    (auth.users.id == profiles.id; profiles.learner_id → learners_profiles.id.)
+  // 3. Notify learners in the NEWLY-added sections only (in an assigned section
+  //    AND enrolled in the course). Resolve in three steps: sections → learner
+  //    profiles → enrolled users. (auth.users.id == profiles.id; profiles.learner_id
+  //    → learners_profiles.id.) Re-saving the same sections notifies nobody.
+  const addedSectionIds = newSectionIds.filter((sid) => !prevSectionIds.has(sid));
   let notified = 0;
-  if (newSectionIds.length > 0) {
+  if (addedSectionIds.length > 0) {
     let recipientIds: string[] = [];
     const { data: lps } = await svc
       .from('learners_profiles')
       .select('id')
-      .in('section_id', newSectionIds);
+      .in('section_id', addedSectionIds);
     const learnerProfileIds = ((lps as any[]) ?? []).map((r) => r.id);
     if (learnerProfileIds.length > 0) {
       const { data: profs } = await svc
@@ -165,7 +179,7 @@ export async function POST(
           kind: 'work_item',
           url: `/pde/learn/cases/${id}`,
           targeting: { user_ids: recipientIds },
-          metadata: { kind: 'pde_case_assignment', assessment_id: id, section_ids: newSectionIds, due_at: dueAt },
+          metadata: { kind: 'pde_case_assignment', assessment_id: id, section_ids: addedSectionIds, due_at: dueAt },
         })
         .select('id')
         .single();

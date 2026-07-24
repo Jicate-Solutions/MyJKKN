@@ -733,3 +733,53 @@ export interface RcltpSchoolDashboard {
   atRisk: RcltpAtRiskRow[];
   sectionComparison: RcltpSectionRow[];
 }
+
+// ---------------------------------------------------------------------------
+// Remedial-plan draft loop — the AI-drafted, Senior-Learner-approved remedial
+// reading plan for an at-risk learner (shared by the server generator and the
+// client review UI; keep the shape single-sourced here).
+// ---------------------------------------------------------------------------
+
+/** One focus area — a comprehension skill to strengthen, tied to the learner's data. */
+export interface RcltpRemedialFocusArea {
+  area: string;
+  why: string;
+}
+
+/** One remedial activity a Senior Learner runs one-on-one with the learner. */
+export interface RcltpRemedialActivity {
+  title: string;
+  detail: string;
+  cadence: string;
+}
+
+/** The plan content stored in `ai_draft` (and, once edited, `edited_content`). */
+export interface RcltpRemedialPlanDraft {
+  summary: string;
+  focus_areas: RcltpRemedialFocusArea[];
+  activities: RcltpRemedialActivity[];
+  target_band: string;
+}
+
+export type RcltpRemedialPlanStatus = 'queued' | 'draft' | 'approved' | 'archived';
+
+/** One `rcltp_remedial_plans` row. */
+export interface RcltpRemedialPlan {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  assessment_id: string | null;
+  cycle_no: number | null;
+  trigger_reason: 'low_band' | 'regression';
+  band_at_trigger: string | null;
+  overall_at_trigger: number | null;
+  ai_draft: RcltpRemedialPlanDraft | null;
+  ai_model: string | null;
+  ai_generated_at: string | null;
+  edited_content: RcltpRemedialPlanDraft | null;
+  status: RcltpRemedialPlanStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

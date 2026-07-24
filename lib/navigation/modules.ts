@@ -104,7 +104,11 @@ export const MODULES: Module[] = [
 
   // ── Inventory (IMS) ───────────────────────────────────────────────────
   // Sister to Resources — distinct top-level /ims/* tree.
-  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'Inventory (IMS)', hasNavConfig: false },
+  // section MUST equal the sidebar groupLabel ('IMS' in sidebarMenuLink.ts) —
+  // the mobile bottom-nav joins MODULES sections to sidebar groups by exact
+  // string equality (bottom-navbar.tsx:295). A mismatch drops IMS to the
+  // trailing safety-net (More-only, no section icon/gradient).
+  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'IMS', hasNavConfig: false },
 
   // ── Procurement ───────────────────────────────────────────────────────
   // Centralized purchasing spine (PR → RFQ → PO → GRN). Module-agnostic;

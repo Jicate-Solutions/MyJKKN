@@ -24,6 +24,14 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/improvement-rank-ideas?secret=${CRON_SECRET}",
+      "schedule": "43 4 * * *"
+    },
+    {
+      "path": "/api/cron/improvement-rank-ideas?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "17,47 * * * *"
+    },
+    {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },
@@ -36,11 +44,19 @@
       "schedule": "7 22 * * *"
     },
     {
+      "path": "/api/cron/pde-case-due-soon?secret=${CRON_SECRET}",
+      "schedule": "23 2 * * *"
+    },
+    {
       "path": "/api/cron/induction-generate-playbook?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/curriculum-lesson-spine-generate?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/rcltp-remedial-plan-generate?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },
     {
@@ -70,6 +86,10 @@
     {
       "path": "/api/cron/scf-note-judge?secret=${CRON_SECRET}",
       "schedule": "15,45 * * * *"
+    },
+    {
+      "path": "/api/cron/model-compare-collect?secret=${CRON_SECRET}",
+      "schedule": "9,39 * * * *"
     },
     {
       "path": "/api/dashboard/cron/refresh-sla-leaderboard",
@@ -318,6 +338,14 @@
     {
       "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",
       "schedule": "0 6 * * 6"
+    },
+    {
+      "path": "/api/cron/aipulse-prompt-grade?secret=${CRON_SECRET}",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/aipulse-prompt-graduate?secret=${CRON_SECRET}",
+      "schedule": "35 1 * * *"
     },
     {
       "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",

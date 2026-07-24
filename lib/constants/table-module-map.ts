@@ -93,6 +93,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
+  ['improvement_', 'Improvement Board'], // MBA teaching-enterprise: improvement_ideas/areas/idea_activity
   ['cdc_', 'CDC'],
   // Internship Module — operational substrate for cycles, sites, preceptors,
   // vehicles, assignments, logbook, evaluations, attendance, incidents,

@@ -271,9 +271,9 @@ export default function CreateEventPage() {
 
       <div className="mx-auto mt-6 max-w-2xl space-y-4">
         {/* Step indicator */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {STEP_ORDER.map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
+            <div key={s} className="flex shrink-0 items-center gap-2">
               <div
                 className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
                   i < stepIndex
@@ -313,7 +313,7 @@ export default function CreateEventPage() {
                 lives under (you choose that next).
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
+            <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {EVENT_FORMATS.map((f) => {
                 const Icon = f.icon;
                 const selected = format === f.value;
@@ -356,7 +356,7 @@ export default function CreateEventPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {EVENT_HOMES.map((h) => {
                   const selected = home === h.value;
                   return (

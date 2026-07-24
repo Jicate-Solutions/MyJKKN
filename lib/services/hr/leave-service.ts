@@ -53,9 +53,22 @@ export class LeaveService {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // Embed the type so lists can show a name and be split across the Time Off
+    // tabs by request_category. LEFT join, not !inner: an inner join would drop
+    // any row whose type the caller cannot read under RLS, silently hiding
+    // their own applications rather than showing them with a blank label.
     let q = supabase
       .from('hr_leave_applications')
-      .select('*', { count: 'exact' })
+      .select(
+        `*,
+         hr_leave_types:leave_type_id (
+           leave_type_name,
+           leave_type_code,
+           request_category,
+           color_code
+         )`,
+        { count: 'exact' }
+      )
       .order('created_at', { ascending: false })
       .range(from, to);
 
@@ -611,7 +624,11 @@ export class LeaveService {
           leave_type_code,
           duration_type,
           allow_half_day,
-          allow_hourly
+          allow_hourly,
+          request_category,
+          max_continuous_days,
+          min_advance_notice_days,
+          requires_documents
         )
       `)
       .eq('employee_id', employeeId)
@@ -625,7 +642,11 @@ export class LeaveService {
         duration_type: string;
         allow_half_day: boolean;
         allow_hourly: boolean;
-      };
+        request_category: string;
+        max_continuous_days: number | null;
+        min_advance_notice_days: number;
+        requires_documents: boolean;
+      } | null;
       return {
         employee_id: row.employee_id as string,
         leave_type_id: row.leave_type_id as string,
@@ -636,11 +657,19 @@ export class LeaveService {
         carried_forward: Number(row.carried_forward),
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
+        // A null embed here means the caller cannot read hr_leave_types.
+        // That used to surface as a blank name in the UI rather than an
+        // error — see 20260722120000_fix_hr_leave_types_select_transitive_rls.
         leave_type_name: lt?.leave_type_name ?? '',
         leave_type_code: lt?.leave_type_code ?? '',
         duration_type: (lt?.duration_type ?? 'full') as HRLeaveBalanceWithType['duration_type'],
         allow_half_day: lt?.allow_half_day ?? false,
         allow_hourly: lt?.allow_hourly ?? false,
+        request_category:
+          (lt?.request_category ?? 'leave') as HRLeaveBalanceWithType['request_category'],
+        max_continuous_days: lt?.max_continuous_days ?? null,
+        min_advance_notice_days: lt?.min_advance_notice_days ?? 0,
+        requires_documents: lt?.requires_documents ?? false,
       };
     });
   }

@@ -3,6 +3,7 @@ import type {
   BillingAnalyticsOverview,
   BillingInstitutionAnalytics,
   BillingCategoryAnalytics,
+  BillingCollectionSplit,
   BillingAgingBucketRow,
   BillingUserActivityRow,
   BillingDailyActivityRow,
@@ -10,6 +11,7 @@ import type {
 
 export interface AnalyticsExportData {
   overview?: BillingAnalyticsOverview;
+  collectionSplit?: BillingCollectionSplit;
   byInstitution?: BillingInstitutionAnalytics[];
   byCategory?: BillingCategoryAnalytics[];
   aging?: BillingAgingBucketRow[];
@@ -78,12 +80,57 @@ export async function exportAnalyticsWorkbook(d: AnalyticsExportData): Promise<v
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'Institutions');
   }
 
+  if (d.collectionSplit) {
+    const s = d.collectionSplit;
+    const rows = [
+      {
+        Bucket: 'Management',
+        Collected: num(s.management_collected),
+        Refunds: num(s.management_refunds),
+        Net: num(s.management_net),
+        Billed: num(s.management_billed),
+        'Outstanding (now)': num(s.management_outstanding),
+      },
+      {
+        Bucket: 'Government',
+        Collected: num(s.government_collected),
+        Refunds: num(s.government_refunds),
+        Net: num(s.government_net),
+        Billed: num(s.government_billed),
+        'Outstanding (now)': num(s.government_outstanding),
+      },
+      {
+        Bucket: 'Unallocated',
+        Collected: num(s.unallocated_collected),
+        Refunds: num(s.unallocated_refunds),
+        Net: num(s.unallocated_net),
+        Billed: '',
+        'Outstanding (now)': '',
+      },
+      {
+        Bucket: 'TOTAL',
+        Collected: num(s.total_collected),
+        Refunds: num(s.management_refunds) + num(s.government_refunds) + num(s.unallocated_refunds),
+        Net: num(s.management_net) + num(s.government_net) + num(s.unallocated_net),
+        Billed: num(s.management_billed) + num(s.government_billed),
+        'Outstanding (now)': num(s.management_outstanding) + num(s.government_outstanding),
+      },
+    ];
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(rows.map(sanitizeRow)),
+      'Collection Split'
+    );
+  }
+
   if (d.byCategory?.length) {
     const rows = d.byCategory.map((r) => ({
       Category: r.kind,
+      Collection: r.collection_type,
       Billed: num(r.total_billed),
       Outstanding: num(r.total_outstanding),
-      'Paid to date': num(r.paid_to_date),
+      'Paid to date (accrual)': num(r.paid_to_date),
+      'Collected (receipt-traced)': num(r.collected_actual),
       Bills: num(r.bill_count),
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(sanitizeRow)), 'By Category');

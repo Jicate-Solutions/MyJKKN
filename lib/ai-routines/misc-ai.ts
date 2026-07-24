@@ -39,11 +39,11 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "triggerPath": "/api/rcltp/questions/generate",
     "callsClaude": false,
     "featureKey": "rcltp.question_generation",
-    "whatItDoes": "Intended to auto-generate Part B comprehension questions from a reading passage for teacher review. Currently a scaffold: it validates access and constructs the Anthropic client but does NOT yet call Claude — it returns an honest 'awaiting EKSAQ content' response because the passage-to-question prompt and competency guardrails are deferred.",
+    "whatItDoes": "Intended to auto-generate Part B comprehension questions from a reading passage for Senior Learner review. Currently a scaffold: it validates access and constructs the Anthropic client but does NOT yet call Claude — it returns an honest 'awaiting MyJKKN content' response because the passage-to-question prompt and competency guardrails are deferred.",
     "configKnobs": "none",
-    "sideEffects": "read-only (returns an EKSAQ-gated 501-style response; writes nothing, generates no questions)",
+    "sideEffects": "read-only (returns an MyJKKN-gated 501-style response; writes nothing, generates no questions)",
     "safeToManualTrigger": true,
-    "notes": "DORMANT. The @anthropic-ai/sdk client is wired (reuses the work-pulse/analyze pattern) but anthropic.messages.create is never invoked — so callsClaude is effectively false today. Requires rcltp.assessment.manage permission and { passage_id }; institution-scoped to the passage (global passages need platform admin). Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY only to construct the client (503 if missing). Will only truly call Claude once the EKSAQ prompt is added."
+    "notes": "DORMANT. The @anthropic-ai/sdk client is wired (reuses the work-pulse/analyze pattern) but anthropic.messages.create is never invoked — so callsClaude is effectively false today. Requires rcltp.assessment.manage permission and { passage_id }; institution-scoped to the passage (global passages need platform admin). Needs ANTHROPIC_API_KEY/CLAUDE_API_KEY only to construct the client (503 if missing). Will only truly call Claude once the MyJKKN prompt is added."
   },
   {
     "id": "work-pulse-analyze",

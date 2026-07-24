@@ -4,8 +4,8 @@
 // /rcltp/teacher/questions — Part B question-review console (Phase 4c)
 // =============================================================================
 // Approve or retire DRAFT comprehension questions before they reach students,
-// grouped by passage. "Generate questions with AI" is EKSAQ-gated (the route
-// throws an honest "awaiting EKSAQ content" message) — we surface that honestly.
+// grouped by passage. "Generate questions with AI" is MyJKKN-gated (the route
+// throws an honest "awaiting MyJKKN content" message) — we surface that honestly.
 //
 // Gated to rcltp.question.approve. Access failures are surfaced explicitly
 // (rule #27), never a silent redirect.

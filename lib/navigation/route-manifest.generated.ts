@@ -564,6 +564,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/id-cards",
+        "label": "Id Cards",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/id-cards/policy",
+            "label": "ID Card Policy",
+            "iconName": "CreditCard",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/print-queue",
+            "label": "ID Card Print Queue",
+            "iconName": "Printer",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/template",
+            "label": "ID Card Template",
+            "iconName": "Layout",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
@@ -730,9 +755,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/import",
+            "label": "Import",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payouts",
+            "label": "Payouts",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -1529,12 +1566,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/ai-pulse/admin/policies",
             "label": "Policies",
             "iconName": "BookText",
-            "children": []
-          },
-          {
-            "path": "/ai-pulse/admin/starter-tamil-review",
-            "label": "Starter Tamil Review",
-            "iconName": "FileText",
             "children": []
           }
         ]
@@ -3991,6 +4022,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/import",
+            "label": "Import",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/regularize",
             "label": "Regularize",
             "iconName": "CheckSquare",
@@ -4079,6 +4116,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/approvals",
+            "label": "Approvals",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/approve",
             "label": "Approve",
             "iconName": "CalendarOff",
@@ -4097,6 +4140,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/compensatory-off",
+            "label": "Compensatory Off",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
             "iconName": "CalendarOff",
@@ -4105,6 +4154,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/leave/my-applications",
             "label": "My Applications",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/requests",
+            "label": "Requests",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/short-time-off",
+            "label": "Short Time Off",
             "iconName": "CalendarOff",
             "children": []
           }
@@ -4263,6 +4324,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/improvement-board",
+    "label": "Improvement Board",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/improvement-board/leaderboard",
+        "label": "Leaderboard",
+        "iconName": "Trophy",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/ims",
     "label": "Ims",
     "iconName": "FileText",
@@ -4284,6 +4358,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Indents",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/ims/indents/hod-approvals",
+            "label": "Hod Approvals",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/ims/indents/new",
             "label": "New",
@@ -5876,6 +5956,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/rcltp/teacher/recordings",
             "label": "Recording Review",
             "iconName": "Mic",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/remedial-plans",
+            "label": "RCLTP Remedial Plans",
+            "iconName": "FileText",
             "children": []
           }
         ]

@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Passages domain service (Phase B) · REFERENCE PATTERN
+ * MyJKKN RCLTP — Passages domain service (Phase B) · REFERENCE PATTERN
  * ----------------------------------------------------------------------------
  * Tables: rcltp_passages, rcltp_part_b_questions, rcltp_passage_exposure.
  *
@@ -11,7 +11,7 @@
  *     (institution_id IS NULL)
  *   - READS + STAFF/ADMIN writes go through the client (RLS allows them)
  *   - STUDENT-affecting writes are stubs → server-side route (migration §6)
- *   - content/formula-dependent logic is stubbed → awaiting EKSAQ
+ *   - content/formula-dependent logic is stubbed → awaiting MyJKKN
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -34,7 +34,7 @@ import {
   rcltpRange,
   rcltpMetadata,
   rcltpPostJson,
-  rcltpAwaitingEksaqContent,
+  rcltpAwaitingValidationContent,
 } from './rcltp-helpers';
 
 export class RcltpPassagesService {
@@ -176,6 +176,35 @@ export class RcltpPassagesService {
     }
   }
 
+  /**
+   * Learner-safe read for the "take the assessment" flow. Calls the SECURITY
+   * DEFINER RPC `fn_rcltp_questions_for_take`, which returns ONLY the columns a
+   * learner needs to answer and OMITS `correct_answer` + `ai_meta` (the answer
+   * key). The base-table `select('*')` path (getQuestions) must NEVER be used for
+   * a learner — RLS now blocks it, and it would put the key on the wire. Returns
+   * the same `{ data }` shape the take flow consumes; correct_answer/ai_meta are
+   * forced null so the learner payload can never carry them.
+   */
+  static async getQuestionsForTake(
+    passageId: string
+  ): Promise<{ data: RcltpPartBQuestion[] }> {
+    if (!passageId) return { data: [] };
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_questions_for_take',
+      { p_passage_id: passageId }
+    );
+    if (error) {
+      console.error('RcltpPassagesService.getQuestionsForTake error:', error);
+      throw error;
+    }
+    const rows = ((data ?? []) as Array<Partial<RcltpPartBQuestion>>).map((r) => ({
+      ...r,
+      correct_answer: null, // answer key is never delivered to a learner
+      ai_meta: null,
+    }));
+    return { data: rows as RcltpPartBQuestion[] };
+  }
+
   static async createQuestion(
     input: CreateRcltpPartBQuestionDto
   ): Promise<RcltpPartBQuestion> {
@@ -270,12 +299,12 @@ export class RcltpPassagesService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — content pipeline → awaiting EKSAQ
+  // DEFERRED — content pipeline → awaiting MyJKKN
   // -------------------------------------------------------------------------
 
-  /** AI passage generation (age-appropriate, per grade/language). Awaiting EKSAQ seed passages + guardrails. */
+  /** AI passage generation (age-appropriate, per grade/language). Awaiting MyJKKN seed passages + guardrails. */
   static async generatePassage(_params: unknown): Promise<RcltpPassage> {
-    return rcltpAwaitingEksaqContent('AI passage generation');
+    return rcltpAwaitingValidationContent('AI passage generation');
   }
 
   // -------------------------------------------------------------------------
@@ -306,14 +335,14 @@ export class RcltpPassagesService {
    * production LLM pattern (work-pulse/analyze) via a Phase-3 server route
    * POST /api/rcltp/questions/generate; generated questions land
    * source='ai_generated', status='draft' for teacher review. The passage->question
-   * prompt + EKSAQ competency/band alignment guardrails are awaiting EKSAQ content.
+   * prompt + MyJKKN competency/band alignment guardrails are awaiting MyJKKN content.
    */
   static async generatePartBQuestions(
     passageId: string
   ): Promise<RcltpPartBQuestion[]> {
-    // The route + LLM client wiring exist; the passage→question prompt + EKSAQ
+    // The route + LLM client wiring exist; the passage→question prompt + MyJKKN
     // competency/band guardrails are content-gated, so this currently throws the
-    // route's honest "awaiting EKSAQ content" message until that content lands.
+    // route's honest "awaiting MyJKKN content" message until that content lands.
     return rcltpPostJson<RcltpPartBQuestion[]>('/api/rcltp/questions/generate', {
       passage_id: passageId,
     });

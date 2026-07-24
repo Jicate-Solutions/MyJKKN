@@ -13,6 +13,8 @@ import {
   useIssueImsIndentItem,
   useMarkImsIndentIssued,
   useConfirmImsIndentDelivery,
+  useImsHodPendingIndents,
+  useLocalApproveImsIndent,
 } from '@/hooks/ims/use-ims-indents';
 import {
   INDENT_STATUS_CONFIG,
@@ -88,6 +90,16 @@ function IndentDetailPageInner() {
   const markIssued = useMarkImsIndentIssued();
   const confirmDelivery = useConfirmImsIndentDelivery();
 
+  // Phase D: HOD approval on the detail page. Reuses the HOD-queue query
+  // (shared React Query cache with /ims/indents/hod-approvals) — membership in
+  // that list already proves "pending_local_approval AND I head this dept",
+  // so no separate headship lookup is needed. Only fetched while relevant.
+  const { data: hodQueue = [] } = useImsHodPendingIndents(
+    indent?.status === 'pending_local_approval' ? profile?.id : undefined
+  );
+  const localApprove = useLocalApproveImsIndent();
+  const isHodApprover = hodQueue.some((q) => q.id === id);
+
   if (isLoading) {
     return (
       <ContentLayout title="Indent Details">
@@ -138,6 +150,15 @@ function IndentDetailPageInner() {
     try {
       await approveIndent.mutateAsync({ id, userId: profile?.id || '' });
       toast.success('Indent approved successfully');
+    } catch {
+      toast.error('Failed to approve indent');
+    }
+  };
+
+  const handleHodApprove = async () => {
+    try {
+      await localApprove.mutateAsync({ id, userId: profile?.id || '' });
+      toast.success('Approved — forwarded to store admin');
     } catch {
       toast.error('Failed to approve indent');
     }
@@ -235,6 +256,26 @@ function IndentDetailPageInner() {
                 >
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Approve
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => setRejectDialogOpen(true)}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Reject
+                </Button>
+              </>
+            )}
+            {/* Phase D: HOD step — reuses the same reject dialog below */}
+            {isHodApprover && (
+              <>
+                <Button
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={handleHodApprove}
+                  disabled={localApprove.isPending}
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Approve (HOD)
                 </Button>
                 <Button
                   variant="destructive"

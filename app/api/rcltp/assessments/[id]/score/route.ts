@@ -3,8 +3,8 @@
  * RCLTP — run the PROVISIONAL scoring engine for one sitting.
  *
  * ⚠️ PROVISIONAL — the composite weights + band cutoffs are placeholders pending
- * EKSAQ validation (see lib/services/rcltp/scoring-engine.ts). Every UI surface
- * that renders a resulting band/score MUST show the "Provisional — pending EKSAQ
+ * MyJKKN validation (see lib/services/rcltp/scoring-engine.ts). Every UI surface
+ * that renders a resulting band/score MUST show the "Provisional — pending MyJKKN
  * validation" banner.
  *
  * Auth: rcltp.review (teachers/reviewers/admins). The service-role write bypasses
@@ -81,7 +81,7 @@ export const POST = withAuth(
         _graded_responses: outcome.gradedResponses,
         _provisional: true,
         _provisional_note:
-          'Provisional score — pending EKSAQ validation. Not an authoritative band.',
+          'Provisional score — pending MyJKKN validation. Not an authoritative band.',
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Scoring failed';

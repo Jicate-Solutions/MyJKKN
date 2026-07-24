@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Results domain service (Phase B)
+ * MyJKKN RCLTP — Results domain service (Phase B)
  * ----------------------------------------------------------------------------
  * Tables: rcltp_assessment_results (§3.6), rcltp_student_journey (§3.8),
  *         rcltp_band_config (§3.7).
@@ -11,7 +11,7 @@
  *   - tenant scoping by institution_id (none of these are library tables, so no
  *     global-row .or(...is.null) trick)
  *   - READS + STAFF/ADMIN band-config writes go through the client (RLS allows)
- *   - STUDENT-affecting / formula-dependent logic is stubbed → awaiting EKSAQ
+ *   - STUDENT-affecting / formula-dependent logic is stubbed → awaiting MyJKKN
  *     (composite scoring + band placement, SLJ progression)
  */
 
@@ -32,7 +32,7 @@ import type {
 import {
   rcltpRange,
   rcltpMetadata,
-  rcltpAwaitingEksaqContent,
+  rcltpAwaitingValidationContent,
   rcltpPostJson,
 } from './rcltp-helpers';
 
@@ -96,9 +96,9 @@ export class RcltpResultsService {
   /**
    * Aggregate school-head (principal) dashboard data via
    * `fn_rcltp_school_dashboard(p_institution_id)`. Every array in the result
-   * is empty until EKSAQ scoring produces `rcltp_assessment_results` rows —
+   * is empty until MyJKKN scoring produces `rcltp_assessment_results` rows —
    * the RPC always marks `provisional: true`. Callers MUST render the
-   * "Provisional — pending EKSAQ validation" banner whenever any array is
+   * "Provisional — pending MyJKKN validation" banner whenever any array is
    * non-empty (see PrincipalDashboard).
    */
   static async getSchoolDashboard(
@@ -229,7 +229,7 @@ export class RcltpResultsService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — content/formula-dependent logic → awaiting EKSAQ
+  // DEFERRED — content/formula-dependent logic → awaiting MyJKKN
   // -------------------------------------------------------------------------
 
   /**
@@ -239,8 +239,8 @@ export class RcltpResultsService {
    * (or provisional) cutoffs, upserts `rcltp_assessment_results`, and advances the
    * learner journey server-side.
    *
-   * ⚠️ Result bands/scores are PROVISIONAL — pending EKSAQ validation — and MUST be
-   * rendered with the "Provisional — pending EKSAQ validation" banner.
+   * ⚠️ Result bands/scores are PROVISIONAL — pending MyJKKN validation — and MUST be
+   * rendered with the "Provisional — pending MyJKKN validation" banner.
    *
    * @param readingScore teacher-entered Part A (read-aloud) score 0–100; omit for a
    *   consent-driven Part-B-only sitting.
@@ -257,12 +257,12 @@ export class RcltpResultsService {
 
   /**
    * Advance the learner's Student Learning Journey (current band per dimension
-   * + progression log) after a new result. Band progression rules are EKSAQ
+   * + progression log) after a new result. Band progression rules are MyJKKN
    * content — deferred.
    */
   static async updateStudentJourney(
     _learnerId: string
   ): Promise<RcltpStudentJourney> {
-    return rcltpAwaitingEksaqContent('band progression / SLJ update');
+    return rcltpAwaitingValidationContent('band progression / SLJ update');
   }
 }

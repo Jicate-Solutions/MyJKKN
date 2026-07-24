@@ -1,5 +1,5 @@
 // =====================================================================
-// /rcltp/admin/policies — Director controls for EKSAQ RCLTP
+// /rcltp/admin/policies — Director controls for MyJKKN RCLTP
 // =====================================================================
 // Reads the rcltp.* rows in platform_policies and renders them via
 // RcltpPoliciesEditor — the same typed-widget pattern the PDE Clinical

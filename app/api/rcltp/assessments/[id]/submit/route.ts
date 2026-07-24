@@ -2,7 +2,7 @@
  * POST /api/rcltp/assessments/:id/submit
  * RCLTP v2 Phase 3 — student submits a sitting → queued_for_scoring.
  * NOTE: rcltp_assessment_status has NO "submitted" value; the deterministic
- * transition lands on 'queued_for_scoring' (+ submitted_at). The EKSAQ-gated
+ * transition lands on 'queued_for_scoring' (+ submitted_at). The MyJKKN-gated
  * scoring step later moves it to 'scored'/'needs_review'.
  * Gate: rcltp.assessment.take. Ownership: session learner + session institution.
  */
