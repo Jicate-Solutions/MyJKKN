@@ -50,6 +50,14 @@ import type { LifecycleStatus } from '@/types/learner-profile';
 
 type CohortMode = 'freshers' | 'class';
 
+// Module-level so the array identity is stable across renders — an inline
+// array recreates the hook's fetch callback every render, which re-fires its
+// effect and loops the fetch forever ("Loading institutions…" never resolves).
+const COHORT_ENTITY_TYPES: Array<'institution' | 'school'> = [
+  'institution',
+  'school'
+];
+
 // Plain-English lifecycle choices. Card-worthy statuses only — enquiries,
 // rejected and exited learners are never offered.
 const STATUS_CHOICES: ReadonlyArray<{
@@ -95,7 +103,7 @@ export function IdCardBatchPrint() {
       // Schools (Nattraja Vidhyalya CBSE, JKKN Matric HSS) are
       // entity_type='school' — the default 'institution' filter would hide
       // them and break the class-wise school use-case.
-      entityType: ['institution', 'school']
+      entityType: COHORT_ENTITY_TYPES
     });
 
   const [institutionId, setInstitutionId] = useState('');
