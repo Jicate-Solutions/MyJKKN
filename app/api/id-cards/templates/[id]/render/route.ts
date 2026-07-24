@@ -30,6 +30,7 @@ import {
   parseFieldMappings,
   defaultValidUntilLabel,
   resolvePhotoDataUrl,
+  resolveBackgroundDataUrl,
   makeQrDataUrl
 } from '@/lib/id-cards/render-data';
 import {
@@ -117,10 +118,14 @@ export async function GET(
     }
     const person = assembled.data;
 
-    // 3. Photo fallback chain + QR — both fail-soft (never 500 the render).
-    const [photoDataUrl, qrDataUrl] = await Promise.all([
+    // 3. Photo fallback chain + QR + card artwork — all fail-soft (never 500
+    // the render). The background fetch is allowlisted to the id-card-assets
+    // bucket inside resolveBackgroundDataUrl.
+    const layout = parseFrontLayout(templateRow.front_layout_json);
+    const [photoDataUrl, qrDataUrl, backgroundDataUrl] = await Promise.all([
       resolvePhotoDataUrl(person.photoCandidates),
-      makeQrDataUrl(person.qrValue)
+      makeQrDataUrl(person.qrValue),
+      resolveBackgroundDataUrl(layout?.background_image)
     ]);
 
     // 4. Composite. Empty front_layout_json (prod today) → default design.
@@ -128,7 +133,8 @@ export async function GET(
       person,
       photoDataUrl,
       qrDataUrl,
-      layout: parseFrontLayout(templateRow.front_layout_json),
+      backgroundDataUrl,
+      layout,
       mappings: parseFieldMappings(templateRow.field_mappings),
       validUntilLabel: defaultValidUntilLabel()
     });

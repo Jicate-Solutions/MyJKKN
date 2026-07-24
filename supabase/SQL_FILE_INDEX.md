@@ -2139,3 +2139,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Companion UI: the struggling count now filters on `is_low_scoring` (matching the card's existing "Avg score below 50%" label, which the old count did not honour); a "Low score" badge renders beside the band only when the band would otherwise hide it; the score column shows "no scores yet" instead of "-" when there is no evidence.
 - Dry-run in rolled-back txn (12 columns, 2 new, 5 originals intact) then **APPLIED 2026-07-21**; post-apply matrix verified: absent+failing → band=warning, is_low_scoring=true; absent+passing → band=warning, is_low_scoring=false.
 - Location: `supabase/migrations/20260722000500_pde_at_risk_unmask_low_score.sql`.
+
+### 2026-07-24: ID cards — template design assets bucket (Canva-background workflow)
+- New public storage bucket `id-card-assets` (6 MB cap; PNG/JPEG/WebP only) holding card artwork designed externally (Canva) and referenced by `id_card_templates.front_layout_json.background_image`; the render engine composites learner data on top.
+- Public-read is DELIBERATE: backgrounds are brand artwork with no learner data; public URLs let the render engine and admin previews fetch without signing. Writes gated on `id_cards.templates.edit` (or admin) via three `storage.objects` policies (insert/update/delete) + an explicit authenticated SELECT policy documenting read intent.
+- Idempotent (`ON CONFLICT DO NOTHING` + pg_policies existence guards); additive only; no functions. Applied by orchestrator with BEGIN…ROLLBACK rehearsal.
+- Location: `supabase/migrations/20260724124500_id_card_assets_bucket.sql`.
