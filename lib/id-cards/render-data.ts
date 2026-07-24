@@ -351,7 +351,7 @@ export async function assembleCardData(
           .limit(1);
         if (staffError) {
           console.warn(
-            `[id-cards/render] staff lookup via ${column} failed, degrading:`,
+            `[id-cards/render] team-member record lookup via ${column} failed, degrading:`,
             staffError.message
           );
           continue;
