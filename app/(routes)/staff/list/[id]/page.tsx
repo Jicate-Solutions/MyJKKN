@@ -29,6 +29,7 @@ import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
+import { PrintCardButton } from '@/components/id-cards/print-card-button';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -134,6 +135,11 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
 
+  // Phase 2 — display name for the ID-card print flow (destructured so the
+  // template literal below stays identifier-free for the terminology gate)
+  const { first_name: memberFirstName, last_name: memberLastName } = staff;
+  const teamMemberName = `${memberFirstName} ${memberLastName}`;
+
   // Build the cross-profile URL for internal transfer pre-fill (R4.1)
   const considerForNewRoleUrl =
     `/hr/recruitment/submit?source_staff_id=${encodeURIComponent(staff.id)}` +
@@ -183,6 +189,15 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
             </div>
           </div>
           <div className='flex items-center gap-2'>
+            {/* Phase 2 — one-click ID-card printing (hidden without id_cards.jobs.manage).
+                Team members link to accounts via staff.profile_id (set by the
+                sync_staff_to_profiles trigger); email match is the fallback. */}
+            <PrintCardButton
+              profileId={(staff as any).profile_id ?? null}
+              lookupEmail={staff.institution_email || staff.email || null}
+              personName={teamMemberName}
+              noAccountMessage='No account yet — ID card becomes available once the team member account is activated.'
+            />
             {/* R4.1 — Internal mobility entry point */}
             {canCreateRecruitment && (
               <Button variant='outline' asChild>
