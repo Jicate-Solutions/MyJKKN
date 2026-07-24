@@ -130,6 +130,46 @@ export async function resolveBosSmtpConfig(
   return (data as BosSmtpConfig) ?? null;
 }
 
+// ── Board-level sender override ────────────────────────────────────────────────
+
+export interface BosBoardSender {
+  sender_email: string;
+  sender_name: string | null;
+}
+
+/**
+ * Resolve a per-board From override for (institutionsId, boardId). ECE and EEE
+ * can each send from their own address while sharing the institution's
+ * authenticated SMTP account. Returns null when no active override exists —
+ * the caller then falls back to the institution's smtp_configuration default
+ * (and, for Academic Council, its ac_sender_email).
+ *
+ * Never throws; a lookup failure degrades to null (institution default).
+ */
+export async function resolveBosBoardSender(
+  supabase: SupabaseClient,
+  institutionsId: string,
+  boardId: string | null | undefined,
+): Promise<BosBoardSender | null> {
+  if (!boardId) return null;
+
+  const { data, error } = await supabase
+    .from('bos_board_senders')
+    .select('sender_email, sender_name')
+    .eq('institutions_id', institutionsId)
+    .eq('board_id', boardId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[bos-email-sender] resolveBosBoardSender error:', error);
+    return null;
+  }
+  const row = data as BosBoardSender | null;
+  if (!row?.sender_email?.trim()) return null;
+  return row;
+}
+
 // ── Transporter cache ─────────────────────────────────────────────────────────
 // nodemailer's createTransport spins up a connection pool. Caching by
 // (host:port:user) so repeated sends in the same request lifecycle reuse the
