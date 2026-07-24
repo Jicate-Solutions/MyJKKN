@@ -12,7 +12,7 @@ export type BillStatus =
   | 'overdue'
   | 'refunded'
   | 'superseded';
-export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque';
+export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque' | 'combined';
 export type RecurrencePattern = 'monthly' | 'quarterly' | 'yearly';
 export type DiscountCategory =
   | 'merit_scholarship'

@@ -375,6 +375,22 @@ export function DataTableExport<TData extends ExportableData>({
               Export Selected as XLS
             </DropdownMenuItem>
           </>
+        ) : config?.exportAllPagesByDefault && getAllItems ? (
+          // Export = the whole dataset by default; current page is secondary.
+          <>
+            <DropdownMenuItem onClick={() => exportAllPages("csv")} disabled={isLoading}>
+              Export All as CSV
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => exportAllPages("excel")} disabled={isLoading}>
+              Export All as XLS
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("csv")} disabled={isLoading}>
+              Export Current Page as CSV
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("excel")} disabled={isLoading}>
+              Export Current Page as XLS
+            </DropdownMenuItem>
+          </>
         ) : (
           <>
             <DropdownMenuItem onClick={() => handleExport("csv")} disabled={isLoading}>
@@ -385,14 +401,14 @@ export function DataTableExport<TData extends ExportableData>({
             </DropdownMenuItem>
             {getAllItems && (
               <>
-                <DropdownMenuItem 
-                  onClick={() => exportAllPages("csv")} 
+                <DropdownMenuItem
+                  onClick={() => exportAllPages("csv")}
                   disabled={isLoading}
                 >
                   Export All Pages as CSV
                 </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={() => exportAllPages("excel")} 
+                <DropdownMenuItem
+                  onClick={() => exportAllPages("excel")}
                   disabled={isLoading}
                 >
                   Export All Pages as XLS

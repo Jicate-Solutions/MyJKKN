@@ -919,7 +919,8 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts (
     receipt_date DATE NOT NULL,
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    payment_mode VARCHAR(20) NOT NULL,
+    payment_mode VARCHAR(20) NOT NULL
+        CHECK (payment_mode IN ('cash', 'online', 'bank_transfer', 'dd', 'cheque', 'combined')),
     payment_reference_number VARCHAR(100),
     payment_amount NUMERIC(15,2) NOT NULL,
     payment_paid_date DATE NOT NULL,
@@ -6341,3 +6342,17 @@ CREATE TABLE IF NOT EXISTS public.bug_clusters (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat (migration
+-- 20260724045622_id_card_agent_status.sql). Singleton row (id=1) recording the
+-- last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs
+-- with a valid agent token; read by the print-queue UI "Print bridge online /
+-- silent" chip. Written via the service-role client only.
+CREATE TABLE IF NOT EXISTS public.id_card_agent_status (
+  id           SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  last_poll_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.id_card_agent_status IS
+  'Singleton heartbeat (id=1): last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs. Updated via the service-role client; read by the print-queue UI bridge-status chip.';

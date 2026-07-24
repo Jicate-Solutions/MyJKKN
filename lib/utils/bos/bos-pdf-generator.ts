@@ -20,6 +20,8 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   startup: 9,
   facilitator: 10,
   principal: 11,
+  member_secretary: 12,
+  student: 13,
 };
 
 function memberTypeRank(t: string | null | undefined): number {

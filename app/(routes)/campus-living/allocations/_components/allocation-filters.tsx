@@ -322,6 +322,7 @@ const floorLabel = (f: number) => (f === 0 ? 'Ground floor' : `Floor ${f}`);
 
 export interface AllocationCascadeValue {
   hostelType: string; // 'all' | a hostel_type
+  gender: string; // 'all' | 'male' | 'female' (the learner's gender)
   block: string; // 'all' | a block name
   floor: string; // 'all' | a floor as a string
   advanced: AllocationAdvancedFilters;
@@ -329,6 +330,7 @@ export interface AllocationCascadeValue {
 
 export const EMPTY_ALLOCATION_CASCADE: AllocationCascadeValue = {
   hostelType: 'all',
+  gender: 'all',
   block: 'all',
   floor: 'all',
   advanced: EMPTY_ALLOCATION_FILTERS,
@@ -353,6 +355,8 @@ export function candidateMatchesCascade(
   v: AllocationCascadeValue
 ): boolean {
   if (v.advanced.institution_id && c.institution_id !== v.advanced.institution_id) return false;
+  // Gender applies to both populations (candidates carry it directly).
+  if (v.gender !== 'all' && (c.gender ?? '').toLowerCase() !== v.gender) return false;
   if (v.block !== 'all' || v.floor !== 'all') return false;
   const a = v.advanced;
   if (a.program_id || a.semester_id || a.room_category_id || a.room_id || a.mess_category_id)
@@ -369,6 +373,8 @@ export function candidateMatchesCascade(
 // panel offers.
 export function allocationMatchesCascade(a: any, v: AllocationCascadeValue): boolean {
   if (v.hostelType !== 'all' && getJoined(a, 'hostel_blocks', 'hostel_type') !== v.hostelType)
+    return false;
+  if (v.gender !== 'all' && (a?.learner?.academic?.gender ?? '').toLowerCase() !== v.gender)
     return false;
   if (v.block !== 'all' && getJoined(a, 'hostel_blocks', 'name') !== v.block) return false;
   if (v.floor !== 'all' && String(a?.hostel_rooms?.floor ?? '') !== v.floor) return false;
@@ -486,6 +492,19 @@ export function AllocationCascadeFilters({
               </SelectContent>
             </Select>
           )}
+          {/* Gender — static options (always available, unlike the row-derived
+              Type dropdown), filtering by the learner's own gender across both
+              placed rows and unplaced candidates. */}
+          <Select value={value.gender} onValueChange={(g) => onChange({ ...value, gender: g })}>
+            <SelectTrigger>
+              <SelectValue placeholder="All Genders" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Genders</SelectItem>
+              <SelectItem value="male">Male</SelectItem>
+              <SelectItem value="female">Female</SelectItem>
+            </SelectContent>
+          </Select>
           <Select
             value={value.block}
             onValueChange={(v) =>
