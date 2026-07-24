@@ -47,6 +47,18 @@ const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev';
 // stays correct if sibling queues add 'cancelled'/'failed'/'delivered'.
 const TERMINAL_STATUSES = '(done,error,canceled,cancelled,failed,delivered)';
 
+// ── Stale-job reclaim (auto-recover orphaned claims) ──────────────────────────
+// fn_ai_requeue_stale resets jobs stuck in claimed/running past the timeout back
+// to pending (attempts++), and marks them 'error' once attempts are exhausted —
+// so a job orphaned by a crashed/wedged runner self-recovers instead of stranding
+// forever in 'claimed'. Interactive (chat) job types are excluded inside the RPC.
+// This sweep is the sanctioned host: it already runs */15 on the cloud with a
+// service-role client, so we piggy-back the reclaim (a 67th Vercel cron would risk
+// the deploy-blocking cron ceiling). 10-min timeout = the same window
+// RUNNER_STALE_MS uses to call the runner "down" (Director decision 2026-07-24).
+const RECLAIM_TIMEOUT_SECONDS = 10 * 60; // 600s — matches RUNNER_STALE_MS
+const RECLAIM_MAX_ATTEMPTS = 3;
+
 // P2: notify the requester on EVERY terminal outcome — not just success — so a
 // click never dead-ends silently (Director decision 2026-07-05). Best-effort +
 // idempotent per (task, outcome) so a re-collect / re-run never double-pings.
@@ -394,6 +406,27 @@ async function learnerNoteDraftsReminder(
   };
 }
 
+// ── Stale-job reclaim (Director decision 2026-07-24) ────────────────────────
+// Recover-before-report: auto-requeue jobs orphaned by a crashed/wedged runner
+// (claimed/running past RECLAIM_TIMEOUT_SECONDS) so a live drain re-claims them;
+// after RECLAIM_MAX_ATTEMPTS the RPC marks them 'error' (no infinite retry).
+// Interactive chat jobs are excluded inside the RPC. Same fail-safe discipline as
+// the detectors below: own try/catch in the caller so it can NEVER break the host
+// sweep. This closes the gap where the runner-down / loop-outage checks DETECT a
+// stall and alert, but nothing ever RECOVERS the stranded jobs.
+async function reclaimStaleJobs(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await admin.rpc('fn_ai_requeue_stale', {
+    p_timeout_seconds: RECLAIM_TIMEOUT_SECONDS,
+    p_max_attempts: RECLAIM_MAX_ATTEMPTS,
+  });
+  if (error) return { checked: false, error: error.message };
+  // RPC returns jsonb { requeued, failed }.
+  const row = (data ?? {}) as { requeued?: number; failed?: number };
+  return { checked: true, requeued: row.requeued ?? 0, failed: row.failed ?? 0 };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -528,6 +561,18 @@ export async function GET(request: NextRequest) {
     features[featureKey] = stat;
   }
 
+  // ── 2.5) RECLAIM stale/orphaned jobs FIRST (recover-before-report) ────────
+  // Auto-requeue jobs stranded by a crashed/wedged runner so a live drain picks
+  // them up, and so the detectors below alert on the post-reclaim picture. Own
+  // try/catch — can never break the host sweep. Additive `reclaim` field.
+  let reclaim: Record<string, unknown> = { checked: false };
+  try {
+    reclaim = await reclaimStaleJobs(admin);
+  } catch (reclaimErr) {
+    console.error('[ai-tasks-sweep] stale-job reclaim failed:', reclaimErr);
+    reclaim = { checked: false, error: reclaimErr instanceof Error ? reclaimErr.message : 'reclaim failed' };
+  }
+
   // ── 3) FAIL-SAFE runner-down health check ─────────────────────────────────
   // Runs LAST, in its own try/catch, so a failure here can NEVER break the host
   // sweep above. Additive `health` field in the response — existing callers are
@@ -560,5 +605,5 @@ export async function GET(request: NextRequest) {
     learnerNoteDrafts = { checked: false, error: draftsErr instanceof Error ? draftsErr.message : 'reminder failed' };
   }
 
-  return NextResponse.json({ ok: true, features, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, elapsed_ms: Date.now() - started });
+  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, elapsed_ms: Date.now() - started });
 }
