@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { UpdateBosMeetingDto } from '@/types/bos';
+import { UpdateBosMeetingDto, isCouncilMeetingType } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionWrite,
   guardAcademicCouncilWrite,
+  guardGoverningBodyWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // Service-role helper: expand the caller's primary institution to the full CAS
@@ -209,12 +210,14 @@ export async function PUT(
     const scope = await resolveBosBoardScope(user.id);
 
     // Authz. For a BoS meeting the editor must be a board member of the
-    // composition (guardCompositionWrite denies principals/non-members). For an
-    // Academic Council meeting the principal is the convener and owns the
-    // record, so authorize via guardAcademicCouncilWrite instead.
-    if (meetingRow.meeting_type === 'academic_council') {
-      const denyAc = guardAcademicCouncilWrite(scope, meetingRow.institutions_id);
-      if (denyAc) return NextResponse.json({ error: denyAc }, { status: 403 });
+    // composition (guardCompositionWrite denies principals/non-members). For a
+    // council meeting (Academic Council / Governing Body) the principal is the
+    // convener and owns the record, so authorize via the council write-gate.
+    if (isCouncilMeetingType(meetingRow.meeting_type)) {
+      const denyCouncil = meetingRow.meeting_type === 'governing_body'
+        ? guardGoverningBodyWrite(scope, meetingRow.institutions_id)
+        : guardAcademicCouncilWrite(scope, meetingRow.institutions_id);
+      if (denyCouncil) return NextResponse.json({ error: denyCouncil }, { status: 403 });
     } else {
       const denyComp = guardCompositionWrite(scope, meetingRow.composition_id);
       if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });

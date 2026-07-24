@@ -6,7 +6,9 @@ import {
   resolveBosBoardScope,
   guardCompositionChairman,
   guardAcademicCouncilWrite,
+  guardGoverningBodyWrite,
 } from '@/lib/utils/bos/bos-access';
+import { isCouncilMeetingType, bosCallLetterFilename } from '@/types/bos';
 import { generateMeetingScheduledEmailHtml } from '@/lib/services/email-service';
 import {
   resolveBosEmailTemplate,
@@ -15,6 +17,7 @@ import {
 import {
   resolveBosSmtpConfig,
   sendBosEmail,
+  resolveBosSenderDisplayName,
 } from '@/lib/services/bos-email-sender';
 import { openBosCallLetterRenderer } from '@/lib/pdf/bos-meeting-notice';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
@@ -82,12 +85,18 @@ export async function POST(
 
     // Status gate + convener authorization differ by meeting type:
     //   • BoS meeting → chairman sends at 'expert_invited'
-    //   • Academic Council → principal sends the call letters at 'noticed'
-    //     (AC has no 'expert_invited' step in its shorter state machine)
+    //   • Council meeting (Academic Council / Governing Body) → principal sends
+    //     the call letters at 'noticed' (councils have no 'expert_invited' step
+    //     in their shorter state machine)
+    const isCouncilMeeting = isCouncilMeetingType(meeting.meeting_type);
+    // AC-ONLY From: identity (ac_sender_email). Governing Body keeps the default
+    // sender, but both council types swap the cover-email "Board of Studies
+    // meeting notice" phrase to the correct council label.
     const isAcMeeting = meeting.meeting_type === 'academic_council';
-    const requiredStatus = isAcMeeting ? 'noticed' : 'expert_invited';
+    const isGbMeeting = meeting.meeting_type === 'governing_body';
+    const requiredStatus = isCouncilMeeting ? 'noticed' : 'expert_invited';
     if (meeting.status !== requiredStatus) {
-      const stepLabel = isAcMeeting ? '"Notice Issued"' : '"Experts Invited"';
+      const stepLabel = isCouncilMeeting ? '"Notice Issued"' : '"Experts Invited"';
       return NextResponse.json(
         {
           error: `Cannot send notices while meeting is in "${meeting.status}" status. Move the meeting to ${stepLabel} first.`,
@@ -97,8 +106,10 @@ export async function POST(
     }
 
     const scope = await resolveBosBoardScope(user.id);
-    const deny = isAcMeeting
-      ? guardAcademicCouncilWrite(scope, meeting.institutions_id)
+    const deny = isCouncilMeeting
+      ? (meeting.meeting_type === 'governing_body'
+          ? guardGoverningBodyWrite(scope, meeting.institutions_id)
+          : guardAcademicCouncilWrite(scope, meeting.institutions_id))
       : guardCompositionChairman(scope, meeting.composition_id);
     if (deny) return NextResponse.json({ error: deny }, { status: 403 });
 
@@ -315,14 +326,19 @@ export async function POST(
         subject = rendered.subject;
         html = rendered.body_html;
         // The stored template body says "Board of Studies meeting notice". For
-        // an Academic Council meeting that phrasing is wrong — swap it. Done as
-        // a post-render replace (not a template placeholder) so it also fixes
+        // council meetings that phrasing is wrong — swap it. Done as a
+        // post-render replace (not a template placeholder) so it also fixes
         // any per-institution template overrides that hardcode the phrase.
-        if (isAcMeeting) {
+        if (isAcMeeting || isGbMeeting) {
+          const noticeLabel = isGbMeeting
+            ? 'Governing Body meeting notice'
+            : 'Academic Council meeting notice';
           const swap = (s: string) =>
-            s.replace(/Board of Studies meeting notice/gi, 'Academic Council meeting notice');
+            s.replace(/Board of Studies meeting notice/gi, noticeLabel);
           html = swap(html);
           subject = swap(subject);
+        }
+        if (isAcMeeting) {
           // The template hardcodes the shared BoS mailbox in the "inform us
           // through mail at ..." reply line. Academic Council notices should
           // direct replies to the AC sender identity instead (falls back to
@@ -365,8 +381,9 @@ export async function POST(
               display_institution: m.display_institution ?? null,
               address: m.address ?? null,
               contact_no: m.contact_no ?? null,
+              email: m.email ?? null,
               // External = sourced from the BoS expert directory (expert_id).
-              // Drives the AC rule: only external members get the TA/DA closing.
+              // Drives the AC/GB rule: only external members get the TA/DA closing.
               is_external: !!(m as { expert_id?: string | null }).expert_id,
             },
             boardName,
@@ -389,16 +406,22 @@ export async function POST(
         to: m.email!,
         subject,
         html,
-        // Academic Council notices go out from a dedicated From: identity when
-        // one is configured (same SMTP account, different address). BoS
-        // meetings pass no override and keep the default sender.
+        // Academic Council may use a dedicated From: address when configured.
+        // Display name always follows meeting_type (BOS → Governing Body /
+        // Academic Council prefix rewrite when no AC-specific name is set).
         fromEmail: isAcMeeting ? smtpConfig.ac_sender_email : undefined,
-        fromName: isAcMeeting ? smtpConfig.ac_sender_name : undefined,
-        text: `Dear ${m.display_name},\n\nYou are invited to ${meetingTitle} scheduled on ${meetingDate} ${meetingTimeVenue}.\n\nMeeting details: ${meetingUrl}\n\n—\nBoard of Studies`,
+        fromName: resolveBosSenderDisplayName(meeting.meeting_type, smtpConfig),
+        text: `Dear ${m.display_name},\n\nYou are invited to ${meetingTitle} scheduled on ${meetingDate} ${meetingTimeVenue}.\n\nMeeting details: ${meetingUrl}\n\n—\n${
+          isGbMeeting
+            ? 'Governing Body'
+            : isAcMeeting
+              ? 'Academic Council'
+              : 'Board of Studies'
+        }`,
         attachments: perRecipientPdf
           ? [
               {
-                filename: `bos-call-letter-${m.display_name.replace(/\s+/g, '-')}.pdf`,
+                filename: bosCallLetterFilename(meeting.meeting_type, m.display_name),
                 content: perRecipientPdf,
                 contentType: 'application/pdf',
               },

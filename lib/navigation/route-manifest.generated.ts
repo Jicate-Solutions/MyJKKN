@@ -2007,6 +2007,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/bos/governing-body",
+        "label": "Governing Body",
+        "iconName": "Building2",
+        "children": [
+          {
+            "path": "/bos/governing-body/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/bos/meetings",
         "label": "Meetings",
         "iconName": "FileText",

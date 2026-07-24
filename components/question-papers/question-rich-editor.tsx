@@ -10,10 +10,12 @@ import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
+import TextAlign from '@tiptap/extension-text-align';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bold, Italic, Underline as UnderlineIcon, Subscript as SubIcon, Superscript as SupIcon,
   Sigma, Table as TableIcon, Rows3, Columns3, Trash2, Grid2x2Plus, Grid2x2X,
+  AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -85,6 +87,16 @@ function Toolbar({ editor, onOpenEquation }: { editor: Editor; onOpenEquation: (
 
       <div className='w-px h-5 bg-border mx-1' />
 
+      {/* Alignment — position the line (and any equation on it) left / center / right */}
+      <TB icon={AlignLeft} label='Align left' active={editor.isActive({ textAlign: 'left' })}
+        onClick={() => editor.chain().focus().setTextAlign('left').run()} />
+      <TB icon={AlignCenter} label='Align center' active={editor.isActive({ textAlign: 'center' })}
+        onClick={() => editor.chain().focus().setTextAlign('center').run()} />
+      <TB icon={AlignRight} label='Align right' active={editor.isActive({ textAlign: 'right' })}
+        onClick={() => editor.chain().focus().setTextAlign('right').run()} />
+
+      <div className='w-px h-5 bg-border mx-1' />
+
       {/* Table controls */}
       <TB icon={TableIcon} label='Insert table (2×2)'
         onClick={() => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run()} />
@@ -107,6 +119,12 @@ export function QuestionRichEditor({
   const [eqOpen, setEqOpen] = useState(false);
   // LaTeX pre-fill when the caret is on an existing formula (edit vs insert).
   const [eqInitial, setEqInitial] = useState('');
+  // Whether the dialog was opened on an existing formula (update) vs a new one (insert).
+  const eqEditingRef = useRef(false);
+  // The editor selection captured the instant the dialog opened. The Radix modal
+  // traps focus and blurs the editor, so we must restore this range before inserting
+  // — otherwise the formula lands at a stale position (or nowhere).
+  const eqSelectionRef = useRef<{ from: number; to: number } | null>(null);
   // Track the last HTML we emitted so controlled value echoes don't clobber typing.
   const lastEmittedRef = useRef(value);
 
@@ -121,6 +139,10 @@ export function QuestionRichEditor({
       TableHeader,
       TableCell,
       MathInline,
+      // Left / center / right alignment for question lines (incl. any inline
+      // equation on that line). Emits `style="text-align:…"`, which the COE PDF
+      // sanitizer preserves for that one property. Paragraphs only — headings are off.
+      TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
     ],
     []
   );
@@ -178,15 +200,34 @@ export function QuestionRichEditor({
   const openEquation = () => {
     if (!editor) return;
     // Editing an existing formula? seed the dialog with its LaTeX.
-    const latex = editor.isActive('mathInline') ? editor.getAttributes('mathInline').latex ?? '' : '';
+    const editing = editor.isActive('mathInline');
+    eqEditingRef.current = editing;
+    // Snapshot the caret NOW, while the editor still owns the selection. Once the
+    // Radix dialog mounts its focus trap the editor blurs, and although ProseMirror
+    // keeps its selection internally, restoring it explicitly makes placement
+    // deterministic regardless of where Radix hands focus back on close.
+    const { from, to } = editor.state.selection;
+    eqSelectionRef.current = { from, to };
+    const latex = editing ? editor.getAttributes('mathInline').latex ?? '' : '';
     setEqInitial(latex);
     setEqOpen(true);
   };
 
   const submitEquation = (latex: string) => {
     if (!editor) return;
-    if (editor.isActive('mathInline')) editor.chain().focus().updateMath(latex).run();
-    else editor.chain().focus().insertMath(latex).run();
+    const editing = eqEditingRef.current;
+    const sel = eqSelectionRef.current;
+    // Defer until AFTER the dialog has closed and released its focus trap. Running
+    // the transaction while the modal is still open lets Radix's focus guard revert
+    // editor.focus(), which is why "Insert did nothing". requestAnimationFrame fires
+    // after React commits the close and Radix tears down its FocusScope.
+    requestAnimationFrame(() => {
+      let chain = editor.chain().focus();
+      // Restore the caret for a fresh insert; for an edit the math node stays selected.
+      if (!editing && sel) chain = chain.setTextSelection(sel);
+      if (editing) chain.updateMath(latex).run();
+      else chain.insertMath(latex).run();
+    });
   };
 
   return (

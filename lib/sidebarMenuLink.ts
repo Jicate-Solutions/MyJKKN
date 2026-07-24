@@ -1027,6 +1027,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
