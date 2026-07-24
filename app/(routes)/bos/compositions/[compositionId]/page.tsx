@@ -739,6 +739,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
           onClose={() => setAddDialogOpen(false)}
           compositionId={compositionId}
           institutionsId={composition.institutions_id}
+          academicYear={composition.academic_year}
           committees={committees.filter((c) => c.is_active)}
           memberTypes={memberTypeRows.filter((t) => t.is_active)}
           existingMembers={members.map((m) => ({

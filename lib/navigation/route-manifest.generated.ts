@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/import",
+            "label": "Import",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
@@ -1561,12 +1567,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Policies",
             "iconName": "BookText",
             "children": []
-          },
-          {
-            "path": "/ai-pulse/admin/starter-tamil-review",
-            "label": "Starter Tamil Review",
-            "iconName": "FileText",
-            "children": []
           }
         ]
       },
@@ -2031,6 +2031,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/bos/experts/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/bos/governing-body",
+        "label": "Governing Body",
+        "iconName": "Building2",
+        "children": [
+          {
+            "path": "/bos/governing-body/new",
             "label": "New",
             "iconName": "Plus",
             "children": []
@@ -4345,6 +4358,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Indents",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/ims/indents/hod-approvals",
+            "label": "Hod Approvals",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/ims/indents/new",
             "label": "New",

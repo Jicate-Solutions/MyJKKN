@@ -88,6 +88,10 @@
       "schedule": "15,45 * * * *"
     },
     {
+      "path": "/api/cron/model-compare-collect?secret=${CRON_SECRET}",
+      "schedule": "9,39 * * * *"
+    },
+    {
       "path": "/api/dashboard/cron/refresh-sla-leaderboard",
       "schedule": "*/5 * * * *"
     },

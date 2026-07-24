@@ -7,7 +7,7 @@
 // Shared by /learners/class-feedback and /learners/my-attendance.
 // Spec: specs/faculty-feedback-exam-link-2026-07-05.md
 
-import { ShieldCheck, AlertTriangle, TrendingUp, Info } from 'lucide-react';
+import { ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useMyConfirmedAttendance, useFeedbackWindowHours } from '@/hooks/use-session-feedback';
 
@@ -79,9 +79,14 @@ export function MyConfirmedAttendanceCard() {
   const atRisk = confirmed_pct < pass_line;
   const close = !atRisk && confirmed_pct < pass_line + 5;
 
-  const accent = atRisk ? '#dc2626' : close ? '#d97706' : BRAND;
-  const bg = atRisk ? 'bg-red-50 border-red-200' : close ? 'bg-amber-50 border-amber-200' : 'border-[#0b6d41]/25 bg-[#0b6d41]/5';
-  const Icon = atRisk ? AlertTriangle : close ? Info : ShieldCheck;
+  // Never true-red/AlertTriangle here — this is advisory-only and never blocks or
+  // mutates attendance (see file header), but red+triangle reads as a hard error to
+  // learners regardless of copy. Prior copy-only fixes (BUG-004638 etc.) didn't stop
+  // the misreading, so atRisk uses orange+TrendingDown (still the most urgent band,
+  // still visually distinct from "close") instead of red+AlertTriangle.
+  const accent = atRisk ? '#c2410c' : close ? '#d97706' : BRAND;
+  const bg = atRisk ? 'bg-orange-50 border-orange-200' : close ? 'bg-amber-50 border-amber-200' : 'border-[#0b6d41]/25 bg-[#0b6d41]/5';
+  const Icon = atRisk ? TrendingDown : close ? Info : ShieldCheck;
   // Headlines always name the number as FEEDBACK confirmation, never bare
   // "attendance" — a learner who attended 100% must not read the smaller
   // feedback-confirmation % as their attendance (root cause of the BUG-004638

@@ -87,6 +87,7 @@ export const CARRE_EXCLUDED_MODULES: string[] = [
   'audit', // the audit tooling itself — a module never grades itself
   'audit-trail', // activity log
   'accreditation', // compliance paperwork, not a participant experience
+  'tracker', // open compliance/tracking board — a back-office follow-up surface, not a participant experience
   'system', // system settings
   'my-bug-reports', // bug tooling
   'bug-leaderboard', // bug tooling
