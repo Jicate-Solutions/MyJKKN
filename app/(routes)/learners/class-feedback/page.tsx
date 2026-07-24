@@ -25,6 +25,7 @@ import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { ClassPollBanner } from './_components/class-poll-banner';
+import { PreSessionMaterialsRow } from './_components/pre-session-materials-row';
 import { LoopClosureCard } from './_components/loop-closure-card';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
 import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-confirmed-attendance-card';
@@ -278,6 +279,7 @@ export default function LearnerSessionFeedbackPage() {
                         )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       </button>
+                      <PreSessionMaterialsRow session={s} />
                     </li>
                   );
                 })}

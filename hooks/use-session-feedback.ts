@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
-import type { SubmitFeedbackInput } from '@/types/session-feedback';
+import type { SubmitFeedbackInput, PostSessionResourceInput } from '@/types/session-feedback';
 
 export const scfQueryKeys = {
   all: ['session-feedback'] as const,
@@ -42,6 +42,8 @@ export const scfQueryKeys = {
   pulseTotals: (pulseId: string) => [...scfQueryKeys.all, 'pulse-totals', pulseId] as const,
   myConfirmedAttendance: () => [...scfQueryKeys.all, 'my-confirmed-attendance'] as const,
   windowHours: () => [...scfQueryKeys.all, 'window-hours'] as const,
+  resourcesForSession: (timetableId: string, attendanceDate: string, periodId: string) =>
+    [...scfQueryKeys.all, 'resources-for-session', timetableId, attendanceDate, periodId] as const,
 };
 
 /** Shared feedback-window length (hours) — the session_feedback.window_hours
@@ -280,5 +282,62 @@ export function useMyConfirmedAttendance() {
     queryKey: scfQueryKeys.myConfirmedAttendance(),
     queryFn: () => SessionFeedbackService.getMyConfirmedAttendance(),
     staleTime: 60 * 1000,
+  });
+}
+
+// ── Pre-session materials (Rank 3a) ──────────────────────────────────────────
+
+/** Active materials for a session + the caller's own `opened` flag + the aggregate
+ *  `open_count`. Decorative: the service returns [] on any failure, so callers can
+ *  render nothing when a session has no materials (or the RPC isn't applied yet). */
+export function useSessionResources(
+  timetableId: string,
+  attendanceDate: string,
+  periodId: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: scfQueryKeys.resourcesForSession(timetableId, attendanceDate, periodId),
+    queryFn: () =>
+      SessionFeedbackService.getResourcesForSession(timetableId, attendanceDate, periodId),
+    enabled: enabled && !!timetableId && !!attendanceDate && !!periodId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Post a material for a session (Senior Learner / HOD-admin). Refreshes the module
+ *  views so the new material + its count appear on both surfaces. */
+export function usePostSessionResource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PostSessionResourceInput) =>
+      SessionFeedbackService.postSessionResource(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+/** Learner logs an open. Refreshes so the caller's own `opened` flag + the aggregate
+ *  count update. */
+export function useLogResourceOpen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (resourceId: string) => SessionFeedbackService.logResourceOpen(resourceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+/** Deactivate a mis-posted material (manage authority). */
+export function useDeactivateSessionResource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (resourceId: string) =>
+      SessionFeedbackService.deactivateSessionResource(resourceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
   });
 }
