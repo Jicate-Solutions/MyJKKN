@@ -107,6 +107,25 @@ export class AuthService {
     }
   }
 
+  // Columns a user may set on their OWN profile via the anon/authenticated
+  // browser client. Everything else — role, is_super_admin, is_active,
+  // is_login_disabled, institution_id, department_id, is_pre_registered,
+  // learner_id, programme_id, accreditation_default_college_id, email, id — is
+  // privilege/tenant/account/identity bearing and is managed only by
+  // server-side (service-role) admin flows. Defense-in-depth: the DB trigger
+  // trg_enforce_profile_privileged_columns is the authoritative guard; this
+  // allowlist stops the app from ever attempting a privileged write.
+  private static readonly SELF_UPDATABLE_PROFILE_COLUMNS = [
+    'full_name',
+    'phone_number',
+    'bio',
+    'gender',
+    'designation',
+    'avatar_url',
+    'date_of_birth',
+    'profile_completed'
+  ] as const;
+
   static async updateUserProfile(
     profileData: Partial<ProfileUpdate>
   ): Promise<Profile | null> {
@@ -117,10 +136,18 @@ export class AuthService {
         throw new Error('No authenticated user');
       }
 
+      // Strip any non-allowlisted (privileged) columns before the write.
+      const sanitized: Record<string, unknown> = {};
+      for (const key of AuthService.SELF_UPDATABLE_PROFILE_COLUMNS) {
+        if (Object.prototype.hasOwnProperty.call(profileData, key)) {
+          sanitized[key] = (profileData as Record<string, unknown>)[key];
+        }
+      }
+
       const { data, error } = await (supabase as any)
         .from('profiles')
         .update({
-          ...profileData,
+          ...sanitized,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id)

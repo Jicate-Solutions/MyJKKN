@@ -121,7 +121,7 @@ export async function authenticateApiKey(
   // 4. Look up key in database
   const { data: keyData, error: keyError } = await supabase
     .from('api_keys')
-    .select('id, name, key_value, is_active, expires_at, permissions')
+    .select('id, name, key_value, is_active, expires_at, permissions, institution_id')
     .eq('key_value', hashedKey)
     .eq('is_active', true)
     .single();
@@ -167,7 +167,7 @@ export async function authenticateApiKey(
     context: {
       keyId: keyData.id,
       keyName: keyData.name,
-      institutionId: null,
+      institutionId: keyData.institution_id ?? null,
       permissions,
       supabase,
     },
@@ -185,10 +185,17 @@ export function resolveInstitutionId(
     ?? url.searchParams.get('institution_id');
 
   if (context.institutionId) {
-    // Key is bound to a specific institution — reject mismatched query param
-    if (queryId && queryId !== context.institutionId) return null;
+    // Key is bound to a specific institution. ALWAYS clamp to the binding and
+    // NEVER return null here. The queries run on a service-role (RLS-bypassing)
+    // client, and ~30 of the B2A route handlers treat a null institution as
+    // "no filter" (fail-open) — returning null for a mismatched ?institutionId=
+    // would let a bound key read/write every tenant's rows. Silently scoping a
+    // mismatched param down to the key's own institution fails closed at the
+    // root, without depending on all 47 route handlers to guard against null.
     return context.institutionId;
   }
 
-  return queryId; // null if not provided — caller should return 400
+  // Super key (null binding) = all-institution access: honor the query param
+  // exactly as before (null when absent — the caller returns 400).
+  return queryId;
 }
