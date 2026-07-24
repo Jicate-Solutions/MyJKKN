@@ -225,7 +225,10 @@ BEGIN
     WHERE lp.institution_id = ANY(v_inst)),
   billagg AS (
     SELECT ss.scheme, COUNT(DISTINCT b.student_id) AS student_count,
-      SUM(b.final_amount) AS billed,
+      SUM(b.final_amount) FILTER (
+        WHERE (p_date_from IS NULL OR (b.created_at AT TIME ZONE 'Asia/Kolkata')::date >= p_date_from)
+          AND (p_date_to   IS NULL OR (b.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)
+      ) AS billed,
       SUM(b.balance_amount) FILTER (WHERE b.status IN ('unpaid','partially_paid','overdue') AND COALESCE(b.balance_amount,0) > 0) AS outstanding
     FROM billing_student_bills b JOIN scheme_students ss ON ss.student_id = b.student_id
     WHERE b.institution_id = ANY(v_inst)
