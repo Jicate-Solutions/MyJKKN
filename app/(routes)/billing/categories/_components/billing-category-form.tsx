@@ -35,6 +35,7 @@ import { BillingCategoryService } from '@/lib/services/billing/categories/billin
 import type {
   BillingCategory,
   BillingCategoryKind,
+  BillingCollectionType,
   CreateBillingCategoryDto,
   UpdateBillingCategoryDto
 } from '@/types/billing';
@@ -60,6 +61,22 @@ const KIND_VALUES = KIND_OPTIONS.map((o) => o.value) as string[];
 
 export function billingKindLabel(kind: BillingCategoryKind): string {
   return KIND_OPTIONS.find((o) => o.value === kind)?.label ?? kind;
+}
+
+// Who the money belongs to (billing_categories.collection_type). Government fees
+// are collected on behalf of a government body and are reported as a separate
+// bucket on the billing dashboards — they are not management revenue.
+// Single source of truth for the picker, the list badge AND the list filters.
+export const COLLECTION_TYPE_OPTIONS: {
+  value: BillingCollectionType;
+  label: string;
+}[] = [
+  { value: 'management', label: 'Management' },
+  { value: 'government', label: 'Government' }
+];
+
+export function collectionTypeLabel(type: BillingCollectionType): string {
+  return COLLECTION_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
 }
 
 const categorySchema = z.object({
@@ -89,7 +106,11 @@ const categorySchema = z.object({
     .min(1, 'Please select a fee head')
     .refine((v) => KIND_VALUES.includes(v), 'Please select a valid fee head'),
   description: z.string().max(500, 'Description must be at most 500 characters').optional(),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  // Defaults to 'management' — the overwhelming majority — but the operator can
+  // see and change it, so government money is never booked as revenue by accident.
+  collection_type: z.enum(['management', 'government']).default('management'),
+  visible_to_learners: z.boolean().default(true)
 });
 
 type CategoryFormData = z.infer<typeof categorySchema>;
@@ -115,7 +136,9 @@ export function BillingCategoryForm({
       frequency: category?.frequency || 'one-time',
       kind: category?.kind || '',
       description: category?.description || '',
-      is_active: category?.is_active ?? true
+      is_active: category?.is_active ?? true,
+      collection_type: category?.collection_type ?? 'management',
+      visible_to_learners: category?.visible_to_learners ?? true
     }
   });
 
@@ -129,7 +152,9 @@ export function BillingCategoryForm({
         frequency: data.frequency,
         kind: data.kind as BillingCategoryKind,
         description: data.description?.trim() || null,
-        is_active: data.is_active
+        is_active: data.is_active,
+        collection_type: data.collection_type,
+        visible_to_learners: data.visible_to_learners
       };
 
       if (category) {
@@ -209,6 +234,36 @@ export function BillingCategoryForm({
                     Determines which Razorpay account collects this fee. All
                     categories with the same fee head (e.g. every &quot;… Tuition
                     Fee&quot;) route to the institution&apos;s matching account.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='collection_type'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Collection Type *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select a collection type' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {COLLECTION_TYPE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-sm text-muted-foreground'>
+                    Government fees are collected on behalf of a government body.
+                    They are reported separately on the billing dashboard and are
+                    excluded from management collection totals.
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -295,6 +350,29 @@ export function BillingCategoryForm({
                     <FormLabel>Active</FormLabel>
                     <p className='text-sm text-muted-foreground'>
                       Available for billing across all institutions
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='visible_to_learners'
+              render={({ field }) => (
+                <FormItem className='flex flex-row items-start space-x-3 space-y-0'>
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <div className='space-y-1 leading-none'>
+                    <FormLabel>Show on learner portal</FormLabel>
+                    <p className='text-sm text-muted-foreground'>
+                      When off, this fee is still billable, payable and fully
+                      visible to Accounts — but learners never see its bill or
+                      receipt line in My Bills.
                     </p>
                   </div>
                 </FormItem>

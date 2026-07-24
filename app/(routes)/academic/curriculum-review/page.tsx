@@ -39,6 +39,8 @@ import {
   FINK_OPTIONS,
   BLOOM_OPTIONS,
   finkLabel,
+  bloomLabel,
+  isBloomPrimary,
   type CourseWithPendingDrafts,
   type DraftArtifact,
   type LessonOutcome,
@@ -51,7 +53,13 @@ const BRAND = '#0b6d41';
 // fetched list until they approve.
 type EditState = Record<
   string,
-  { title: string; primaryFink: FinkDimension | ''; outcomes: LessonOutcome[] }
+  {
+    title: string;
+    primaryFink: FinkDimension | '';
+    primaryBloom: string;                         // K1..K6, used when taxonomy = 'blooms'
+    primaryTaxonomy: 'finks' | 'blooms' | null;   // read-only branch: which primary picker to show
+    outcomes: LessonOutcome[];
+  }
 >;
 
 function kindLabel(kind: DraftArtifact['artifact_kind']): string {
@@ -92,6 +100,8 @@ export default function CurriculumReviewPage() {
         next[d.id] = {
           title: d.title,
           primaryFink: (d.primary_fink_dimension ?? '') as FinkDimension | '',
+          primaryBloom: d.primary_bloom_level ?? '',
+          primaryTaxonomy: d.primary_taxonomy ?? null,
           outcomes: (d.learning_outcomes ?? []).map((o) => ({ ...o })),
         };
       }
@@ -133,9 +143,14 @@ export default function CurriculumReviewPage() {
         draft.artifact_kind === 'lesson' && e
           ? [...new Set(e.outcomes.map((o) => o.co_ref).filter((x): x is string => !!x))]
           : draft.co_refs;
+      const bloomPrimary = isBloomPrimary(e?.primaryTaxonomy);
       await CurriculumService.approveDraft(draft.id, {
         title: e?.title,
-        primaryFink: (e?.primaryFink || undefined) as FinkDimension | undefined,
+        // Send only the axis that matches this course's taxonomy; the other stays null so a
+        // blooms lesson never carries a stray Fink primary (and vice-versa).
+        primaryFink: bloomPrimary ? undefined : ((e?.primaryFink || undefined) as FinkDimension | undefined),
+        primaryBloom: bloomPrimary ? (e?.primaryBloom || undefined) : undefined,
+        primaryTaxonomy: e?.primaryTaxonomy ?? undefined,
         learningOutcomes: e?.outcomes,
         coRefs,
       });
@@ -289,6 +304,17 @@ export default function CurriculumReviewPage() {
                           <Sparkles className="h-3 w-3" /> AI draft
                         </Badge>
                         <Badge variant="secondary">{kindLabel(draft.artifact_kind)}</Badge>
+                        {draft.artifact_kind === 'lesson' && (
+                          <Badge
+                            variant="outline"
+                            className="border-transparent"
+                            style={isBloomPrimary(draft.primary_taxonomy)
+                              ? { backgroundColor: '#fff7d6', color: '#7a5c00' }   // gold — Bloom-primary
+                              : { backgroundColor: '#e6f4ee', color: BRAND }}      // green — Fink-primary
+                          >
+                            {isBloomPrimary(draft.primary_taxonomy) ? 'Bloom-primary' : 'Fink-primary'}
+                          </Badge>
+                        )}
                         {draft.unit_label && <Badge variant="outline">{draft.unit_label}</Badge>}
                         {draft.sequence_no != null && (
                           <span className="text-xs text-muted-foreground">#{draft.sequence_no}</span>
@@ -312,25 +338,48 @@ export default function CurriculumReviewPage() {
                     <CardContent className="space-y-4">
                       {draft.artifact_kind === 'lesson' && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-muted-foreground">Primary focus</span>
-                          <Select
-                            value={e?.primaryFink || undefined}
-                            onValueChange={(v) =>
-                              setEdits((prev) => ({
-                                ...prev,
-                                [draft.id]: { ...prev[draft.id], primaryFink: v as FinkDimension },
-                              }))
-                            }
-                          >
-                            <SelectTrigger className="h-8 w-56">
-                              <SelectValue placeholder={finkLabel(draft.primary_fink_dimension)} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {FINK_OPTIONS.map((f) => (
-                                <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {isBloomPrimary(e?.primaryTaxonomy) ? 'Primary Bloom level' : 'Primary focus'}
+                          </span>
+                          {isBloomPrimary(e?.primaryTaxonomy) ? (
+                            <Select
+                              value={e?.primaryBloom || undefined}
+                              onValueChange={(v) =>
+                                setEdits((prev) => ({
+                                  ...prev,
+                                  [draft.id]: { ...prev[draft.id], primaryBloom: v },
+                                }))
+                              }
+                            >
+                              <SelectTrigger className="h-8 w-56">
+                                <SelectValue placeholder={bloomLabel(draft.primary_bloom_level)} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {BLOOM_OPTIONS.map((b) => (
+                                  <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Select
+                              value={e?.primaryFink || undefined}
+                              onValueChange={(v) =>
+                                setEdits((prev) => ({
+                                  ...prev,
+                                  [draft.id]: { ...prev[draft.id], primaryFink: v as FinkDimension },
+                                }))
+                              }
+                            >
+                              <SelectTrigger className="h-8 w-56">
+                                <SelectValue placeholder={finkLabel(draft.primary_fink_dimension)} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FINK_OPTIONS.map((f) => (
+                                  <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
                         </div>
                       )}
 

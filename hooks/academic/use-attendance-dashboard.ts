@@ -1,10 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
-import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
+import {
+  AttendanceDashboardService,
+  type AttendanceHierarchyFilter
+} from '@/lib/services/academic/attendance-dashboard-service';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState, useCallback } from 'react';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+
+/**
+ * Shared default for the optional hierarchy argument. A module-level constant,
+ * not an inline `= {}` default: the latter allocates a new object on every
+ * render, and these hooks put the value straight into a React Query key.
+ * Structural hashing would still match, but a stable reference keeps the
+ * dependency identity honest for callers that memoize on it.
+ */
+const EMPTY_HIERARCHY: AttendanceHierarchyFilter = {};
 
 /**
  * Hook for fetching attendance dashboard statistics
@@ -14,7 +26,8 @@ export function useAttendanceStats(
   canViewAllInstitutions: boolean = false,
   selectedDate: Date = new Date(),
   refreshTrigger: number = 0,
-  academicYearId?: string
+  academicYearId?: string,
+  hierarchy: AttendanceHierarchyFilter = EMPTY_HIERARCHY
 ) {
   const { profile } = useAuth();
 
@@ -52,6 +65,7 @@ export function useAttendanceStats(
       queryAllInstitutions,
       dateString,
       academicYearId,
+      hierarchy,
       refreshTrigger
     ],
     queryFn: () =>
@@ -59,7 +73,8 @@ export function useAttendanceStats(
         queryAllInstitutions ? undefined : queryInstitutionId,
         canViewAllInstitutions,
         dateString,
-        academicYearId
+        academicYearId,
+        hierarchy
       ),
     enabled: queryAllInstitutions || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA // Use dashboard config for stats
@@ -100,7 +115,11 @@ export function useConfirmationSplit(
   // this, the cards said "last 14 days" while "Responses" underneath was a 30-day
   // number, and the two looked contradictory. The Statistics tab keeps the 14-day
   // default, so this is a prop rather than a change to SPLIT_WINDOW_DAYS.
-  windowDays: number = SPLIT_WINDOW_DAYS
+  windowDays: number = SPLIT_WINDOW_DAYS,
+  // Narrowed by the same dashboard filter bar as the stat cards above. The
+  // rollup RPC has no degree/semester params, so a Degree- or Semester-only
+  // selection leaves this split at the next-widest scope it can express.
+  hierarchy: AttendanceHierarchyFilter = EMPTY_HIERARCHY
 ) {
   const { profile } = useAuth();
 
@@ -137,13 +156,15 @@ export function useConfirmationSplit(
       queryAllInstitutions,
       fromDate,
       toDate,
+      hierarchy,
       refreshTrigger
     ],
     queryFn: () =>
       AttendanceDashboardService.getConfirmationSplit(
         fromDate,
         toDate,
-        queryAllInstitutions ? undefined : queryInstitutionId
+        queryAllInstitutions ? undefined : queryInstitutionId,
+        hierarchy
       ),
     enabled: queryAllInstitutions || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA

@@ -12984,10 +12984,28 @@ BEGIN
 END;
 $$;
 
--- ── 6. Pending fees by category kind (snapshot) ─────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_billing_analytics_by_category(
+-- ── 6. Pending fees by category kind × collection type (snapshot) ───────────
+-- Updated: 2026-08-01 - added the collection_type dimension and collected_actual.
+-- The RETURNS TABLE column set changed, so this is DROP + CREATE, not
+-- CREATE OR REPLACE (added columns register an OVERLOAD, and PostgREST then
+-- cannot pick a function). Every column cast explicitly to dodge 42804.
+--
+-- paid_to_date is the accrual figure (billed - outstanding) it has always been;
+-- collected_actual is receipt-traced. They differ wherever receipts were never
+-- linked to a bill via billing_receipt_items — that gap is real information.
+DROP FUNCTION IF EXISTS public.get_billing_analytics_by_category(uuid[]);
+
+CREATE FUNCTION public.get_billing_analytics_by_category(
   p_institution_ids uuid[] DEFAULT NULL
-) RETURNS TABLE(kind text, total_billed numeric, total_outstanding numeric, paid_to_date numeric, bill_count int)
+) RETURNS TABLE(
+  kind text,
+  collection_type text,
+  total_billed numeric,
+  total_outstanding numeric,
+  paid_to_date numeric,
+  collected_actual numeric,
+  bill_count int
+)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
 AS $$
 DECLARE v_inst uuid[];
@@ -13002,14 +13020,164 @@ BEGIN
   IF v_inst IS NULL THEN RETURN; END IF;
 
   RETURN QUERY
-  SELECT COALESCE(c.kind::text, 'uncategorized'),
-    SUM(b.final_amount), SUM(COALESCE(b.balance_amount,0)),
-    SUM(b.final_amount - COALESCE(b.balance_amount,0)), COUNT(*)::int
-  FROM billing_student_bills b
-  LEFT JOIN billing_categories c ON c.id = b.item_category_id
+  WITH bills AS (
+    SELECT b.id,
+           COALESCE(c.kind::text, 'uncategorized') AS k,
+           COALESCE(c.collection_type, 'management') AS ct,
+           b.final_amount,
+           COALESCE(b.balance_amount, 0) AS balance
+    FROM billing_student_bills b
+    LEFT JOIN billing_categories c ON c.id = b.item_category_id
+    WHERE b.institution_id = ANY(v_inst)
+  ),
+  agg AS (
+    SELECT bl.k, bl.ct, SUM(bl.final_amount) AS billed,
+           SUM(bl.balance) AS outstanding, COUNT(*) AS n
+    FROM bills bl GROUP BY bl.k, bl.ct
+  ),
+  cash AS (
+    SELECT bl.k, bl.ct, COALESCE(SUM(i.amount_paid), 0) AS collected
+    FROM bills bl
+    JOIN billing_receipt_items i ON i.bill_id = bl.id
+    GROUP BY bl.k, bl.ct
+  )
+  SELECT a.k::text, a.ct::text, a.billed::numeric, a.outstanding::numeric,
+         (a.billed - a.outstanding)::numeric,
+         COALESCE(ca.collected, 0)::numeric, a.n::int
+  FROM agg a
+  LEFT JOIN cash ca ON ca.k = a.k AND ca.ct = a.ct
+  ORDER BY a.outstanding DESC;
+END;
+$$;
+
+-- ── 6b. Management vs Government collection split ───────────────────────────
+-- Added: 2026-08-01. billing_receipts has no category column, so cash is
+-- attributed through billing_receipt_items -> bills -> categories.collection_type.
+--
+-- Coverage reality (production, 2026-08-01): 2,438 receipts allocate exactly
+-- (₹4.83cr), 388 have NO line items at all (₹14.95cr = 75% of all cash), 31 are
+-- over-allocated (₹0.04cr). 'unallocated' is therefore a first-class bucket, not
+-- a footnote — folding it into management would overstate revenue roughly 3x.
+--
+-- Invariant: management + government + unallocated = total_collected, exactly,
+-- for any filter. Over-allocated receipts are scaled proportionally to hold it.
+--
+-- Accrual figures (*_billed / *_outstanding) come off the BILL, which is
+-- categorised for all but 1 of 10,565 rows, so they answer the "how much of what
+-- we charged is government" question that the sparse cash trail cannot.
+CREATE OR REPLACE FUNCTION public.get_billing_collection_split(
+  p_institution_ids uuid[] DEFAULT NULL,
+  p_date_from date DEFAULT NULL,
+  p_date_to date DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_inst uuid[];
+  v_mgmt_collected numeric := 0; v_govt_collected numeric := 0; v_unal_collected numeric := 0;
+  v_mgmt_refunds numeric := 0;   v_govt_refunds numeric := 0;   v_unal_refunds numeric := 0;
+  v_mgmt_billed numeric := 0;    v_govt_billed numeric := 0;
+  v_mgmt_outstanding numeric := 0; v_govt_outstanding numeric := 0;
+BEGIN
+  IF NOT public.user_has_permission('billing.analytics.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.analytics.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'management_collected',0,'government_collected',0,'unallocated_collected',0,
+      'management_refunds',0,'government_refunds',0,'unallocated_refunds',0,
+      'management_net',0,'government_net',0,'unallocated_net',0,'total_collected',0,
+      'management_billed',0,'government_billed',0,
+      'management_outstanding',0,'government_outstanding',0);
+  END IF;
+
+  WITH scoped AS (
+    SELECT r.id, r.payment_amount FROM billing_receipts r
+    WHERE r.institution_id = ANY(v_inst)
+      AND (p_date_from IS NULL OR r.payment_paid_date >= p_date_from)
+      AND (p_date_to   IS NULL OR r.payment_paid_date <= p_date_to)
+  ),
+  alloc AS (
+    SELECT s.id AS receipt_id,
+           COALESCE(SUM(i.amount_paid) FILTER (WHERE COALESCE(c.collection_type,'management')='management'),0) AS mgmt,
+           COALESCE(SUM(i.amount_paid) FILTER (WHERE COALESCE(c.collection_type,'management')='government'),0) AS govt,
+           COALESCE(SUM(i.amount_paid),0) AS allocated
+    FROM scoped s
+    JOIN billing_receipt_items i ON i.receipt_id = s.id
+    JOIN billing_student_bills b ON b.id = i.bill_id
+    LEFT JOIN billing_categories c ON c.id = b.item_category_id
+    GROUP BY s.id
+  ),
+  scaled AS (
+    SELECT s.payment_amount, COALESCE(a.mgmt,0) AS mgmt, COALESCE(a.govt,0) AS govt,
+           COALESCE(a.allocated,0) AS allocated,
+           CASE WHEN COALESCE(a.allocated,0) > s.payment_amount AND a.allocated > 0
+                THEN s.payment_amount / a.allocated ELSE 1 END AS factor
+    FROM scoped s LEFT JOIN alloc a ON a.receipt_id = s.id
+  )
+  SELECT COALESCE(SUM(mgmt*factor),0), COALESCE(SUM(govt*factor),0),
+         COALESCE(SUM(GREATEST(payment_amount - allocated, 0)),0)
+  INTO v_mgmt_collected, v_govt_collected, v_unal_collected FROM scaled;
+
+  WITH refunded AS (
+    SELECT f.receipt_id, SUM(f.refund_amount) AS amt
+    FROM billing_refunds f JOIN billing_receipts rc ON rc.id = f.receipt_id
+    WHERE rc.institution_id = ANY(v_inst) AND f.approval_status = 'processed'
+      AND (p_date_from IS NULL OR f.refund_date >= p_date_from)
+      AND (p_date_to   IS NULL OR f.refund_date <= p_date_to)
+    GROUP BY f.receipt_id
+  ),
+  mix AS (
+    SELECT rf.receipt_id, rf.amt,
+           COALESCE(SUM(i.amount_paid) FILTER (WHERE COALESCE(c.collection_type,'management')='management'),0) AS mgmt,
+           COALESCE(SUM(i.amount_paid) FILTER (WHERE COALESCE(c.collection_type,'management')='government'),0) AS govt,
+           COALESCE(SUM(i.amount_paid),0) AS tot
+    FROM refunded rf
+    LEFT JOIN billing_receipt_items i ON i.receipt_id = rf.receipt_id
+    LEFT JOIN billing_student_bills b ON b.id = i.bill_id
+    LEFT JOIN billing_categories c ON c.id = b.item_category_id
+    GROUP BY rf.receipt_id, rf.amt
+  )
+  SELECT COALESCE(SUM(CASE WHEN tot > 0 THEN amt*mgmt/tot ELSE 0 END),0),
+         COALESCE(SUM(CASE WHEN tot > 0 THEN amt*govt/tot ELSE 0 END),0),
+         COALESCE(SUM(CASE WHEN tot > 0 THEN 0 ELSE amt END),0)
+  INTO v_mgmt_refunds, v_govt_refunds, v_unal_refunds FROM mix;
+
+  SELECT COALESCE(SUM(b.final_amount) FILTER (WHERE COALESCE(c.collection_type,'management')='management'),0),
+         COALESCE(SUM(b.final_amount) FILTER (WHERE COALESCE(c.collection_type,'management')='government'),0)
+  INTO v_mgmt_billed, v_govt_billed
+  FROM billing_student_bills b LEFT JOIN billing_categories c ON c.id = b.item_category_id
   WHERE b.institution_id = ANY(v_inst)
-  GROUP BY COALESCE(c.kind::text, 'uncategorized')
-  ORDER BY SUM(COALESCE(b.balance_amount,0)) DESC;
+    AND (p_date_from IS NULL OR (b.created_at AT TIME ZONE 'Asia/Kolkata')::date >= p_date_from)
+    AND (p_date_to   IS NULL OR (b.created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to);
+
+  -- Snapshot "as of now" — deliberately ignores the date filter, matching overview.
+  SELECT COALESCE(SUM(b.balance_amount) FILTER (WHERE COALESCE(c.collection_type,'management')='management'),0),
+         COALESCE(SUM(b.balance_amount) FILTER (WHERE COALESCE(c.collection_type,'management')='government'),0)
+  INTO v_mgmt_outstanding, v_govt_outstanding
+  FROM billing_student_bills b LEFT JOIN billing_categories c ON c.id = b.item_category_id
+  WHERE b.institution_id = ANY(v_inst) AND COALESCE(b.balance_amount,0) > 0;
+
+  RETURN jsonb_build_object(
+    'management_collected', round(v_mgmt_collected,2),
+    'government_collected', round(v_govt_collected,2),
+    'unallocated_collected', round(v_unal_collected,2),
+    'management_refunds', round(v_mgmt_refunds,2),
+    'government_refunds', round(v_govt_refunds,2),
+    'unallocated_refunds', round(v_unal_refunds,2),
+    'management_net', round(GREATEST(v_mgmt_collected - v_mgmt_refunds,0),2),
+    'government_net', round(GREATEST(v_govt_collected - v_govt_refunds,0),2),
+    'unallocated_net', round(GREATEST(v_unal_collected - v_unal_refunds,0),2),
+    'total_collected', round(v_mgmt_collected + v_govt_collected + v_unal_collected,2),
+    'management_billed', round(v_mgmt_billed,2),
+    'government_billed', round(v_govt_billed,2),
+    'management_outstanding', round(v_mgmt_outstanding,2),
+    'government_outstanding', round(v_govt_outstanding,2));
 END;
 $$;
 
@@ -13090,6 +13258,8 @@ GRANT EXECUTE ON FUNCTION public.get_billing_collection_trend(uuid[], date, date
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_institution(uuid[], date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_aging(uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
+REVOKE ALL ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_user_activity(uuid[], date, date) TO authenticated;
 
 
@@ -16411,22 +16581,36 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_batch_mess_categories(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_batch_mess_categories(uuid) TO authenticated;
 
--- fn_batch_room_category_breakdown: per-room-category rooms/beds breakdown for allocation
--- batches (batches list page). A batch spans multiple room categories, so the single
--- batches.category_id is not representative; the list shows this breakdown instead.
+-- fn_batch_room_category_breakdown: per-room-category rooms/beds/floors breakdown for
+-- allocation batches (batches list page). A batch spans multiple room categories, so the
+-- single batches.category_id is not representative; the list shows this breakdown instead.
+-- Updated 2026-07-24: added `floors` (distinct floors touched, comma-joined).
+-- DROP first — CREATE OR REPLACE cannot change an existing function's RETURNS TABLE shape.
+DROP FUNCTION IF EXISTS public.fn_batch_room_category_breakdown(uuid[]);
 CREATE OR REPLACE FUNCTION public.fn_batch_room_category_breakdown(p_batch_ids uuid[])
-RETURNS TABLE(batch_id uuid, category text, rooms int, beds int)
+RETURNS TABLE(batch_id uuid, category text, floors text, rooms int, beds int)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT a.batch_id,
-         COALESCE(hc.name, 'Uncategorised') AS category,
-         count(DISTINCT a.room_id)::int AS rooms,
-         count(a.bed_id)::int AS beds
-  FROM hostel_allocations a
-  LEFT JOIN hostel_rooms r ON r.id = a.room_id
-  LEFT JOIN hostel_categories hc ON hc.id = r.category_id
-  WHERE a.batch_id = ANY(p_batch_ids)
-  GROUP BY a.batch_id, hc.name
-  ORDER BY a.batch_id, hc.name;
+  WITH joined AS (
+    SELECT a.batch_id,
+           COALESCE(hc.name, 'Uncategorised') AS category,
+           a.room_id,
+           a.bed_id,
+           r.floor
+    FROM hostel_allocations a
+    LEFT JOIN hostel_rooms r ON r.id = a.room_id
+    LEFT JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE a.batch_id = ANY(p_batch_ids)
+  )
+  SELECT j.batch_id, j.category,
+         (SELECT string_agg(f::text, ', ' ORDER BY f)
+          FROM (SELECT DISTINCT floor AS f FROM joined j2
+                WHERE j2.batch_id = j.batch_id AND j2.category = j.category) sub
+         ) AS floors,
+         count(DISTINCT j.room_id)::int AS rooms,
+         count(j.bed_id)::int AS beds
+  FROM joined j
+  GROUP BY j.batch_id, j.category
+  ORDER BY j.batch_id, j.category;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_batch_room_category_breakdown(uuid[]) FROM anon, PUBLIC;
@@ -22057,11 +22241,21 @@ GRANT EXECUTE ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) TO 
 -- fn_attendance_dashboard_section_stats
 -- Attendance Dashboard "Today's Statistics" section breakdown.
 -- Added 2026-07-21. Source of truth: supabase/migrations/20260721120000_fn_attendance_dashboard_section_stats.sql
+-- 2026-07-23: hierarchy filter params (degree/department/programme/semester/
+--   section) for the dashboard's Advanced Filters. The 3-arg form was DROPPED,
+--   not replaced -- an extended parameter list would have registered a second
+--   overload and made every PostgREST named-arg call ambiguous. See
+--   supabase/migrations/20260723120000_attendance_dashboard_section_stats_hierarchy_filters.sql
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.fn_attendance_dashboard_section_stats(
   p_date date,
   p_institution_id uuid DEFAULT NULL,
-  p_academic_year_id uuid DEFAULT NULL
+  p_academic_year_id uuid DEFAULT NULL,
+  p_degree_id uuid DEFAULT NULL,
+  p_department_id uuid DEFAULT NULL,
+  p_program_id uuid DEFAULT NULL,
+  p_semester_id uuid DEFAULT NULL,
+  p_section_id uuid DEFAULT NULL
 )
 RETURNS TABLE(
   institution_id uuid,
@@ -22115,6 +22309,14 @@ BEGIN
       AND lp.institution_id IN (SELECT a.id FROM accessible a)
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      -- Hierarchy filters. Plain var-free predicates on the already-scanned
+      -- learners_profiles row: no extra join, no subquery, so the roster plan is
+      -- unchanged apart from being more selective.
+      AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id IS NULL OR lp.program_id = p_program_id)
+      AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
+      AND (p_section_id IS NULL OR lp.section_id = p_section_id)
     GROUP BY 1, 2, 3, 4
   ),
   marks AS (
@@ -22152,10 +22354,19 @@ BEGIN
       -- rollup. It is redundant anyway: output rows come only FROM roster, which
       -- IS scoped, so a mark belonging to an inaccessible institution lands in a
       -- tally group that no roster row ever joins to and is dropped.
-      -- These two are plain scalar filters, not subqueries, so they cost nothing
+      -- These are plain scalar filters, not subqueries, so they cost nothing
       -- and still narrow the scan early.
       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
       AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      -- The SAME hierarchy predicates as roster, and they MUST be repeated here.
+      -- present/absent are period-AVERAGED over the marks in this CTE, so
+      -- filtering only the roster would divide a narrowed roster by an
+      -- unfiltered period_count and silently deflate every percentage.
+      AND (p_degree_id IS NULL OR lp.degree_id = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id IS NULL OR lp.program_id = p_program_id)
+      AND (p_semester_id IS NULL OR lp.semester_id = p_semester_id)
+      AND (p_section_id IS NULL OR lp.section_id = p_section_id)
   ),
   tally AS (
     SELECT m.institution_id, m.department_id, m.semester_id, m.section_id,
@@ -22204,8 +22415,8 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) TO authenticated;
 
-COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid) IS
-  'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%.';
+COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) IS
+  'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%. Optional degree/department/programme/semester/section params back the dashboard''s Advanced Filters; they narrow rows only — the returned shape is unchanged.';

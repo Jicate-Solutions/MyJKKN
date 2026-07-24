@@ -74,7 +74,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, program_id, semester_id, hostel_category_id, mess_category_id, institution:institutions!fk_learners_profiles_institution(name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), hostel_blocks(name, code, hostel_type), hostel_rooms(room_number, floor), hostel_beds(bed_number)');
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, academic:learners_profiles!profiles_learner_id_fkey(institution_id, program_id, semester_id, hostel_category_id, mess_category_id, lifecycle_status, gender, institution:institutions!fk_learners_profiles_institution(name), program:programs!fk_learners_profiles_program(program_name), semester:semesters!fk_learners_profiles_semester(semester_name), room_category:hostel_categories!learners_profiles_hostel_category_id_fkey(name), mess_category:mess_categories!learners_profiles_mess_category_id_fkey(name))), hostel_blocks(name, code, hostel_type), hostel_rooms(room_number, floor), hostel_beds(bed_number)');
 
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
@@ -89,7 +89,18 @@ export class HostelAllocationService {
         logger.error('campus-living/allocations', 'Failed to fetch all allocations', error);
         throw error;
       }
-      return (data ?? []) as (HostelAllocation & Record<string, unknown>)[];
+      // Campus Living shows ACTIVE learners only. Mirror v_learner_hostelites
+      // (lifecycle_status = 'active'), so an inactive learner who still holds a
+      // bed no longer appears here — this was the sole cause of the
+      // Residents-vs-Allocations count mismatch. Rows whose learner has no
+      // learners_profiles record (academic null) drop too, as they aren't an
+      // active learner either. Filtered in JS (not a PostgREST !inner embed)
+      // to avoid silently dropping rows on a null intermediate join.
+      const activeOnly = (data ?? []).filter(
+        (a: { learner?: { academic?: { lifecycle_status?: string } | null } | null }) =>
+          a?.learner?.academic?.lifecycle_status === 'active',
+      );
+      return activeOnly as (HostelAllocation & Record<string, unknown>)[];
     } catch (error) {
       logger.error('campus-living/allocations', 'Unexpected error in getAllAllocations', error);
       throw error;

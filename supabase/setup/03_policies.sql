@@ -1397,6 +1397,10 @@ ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 -- user_has_permission() calls over ~10k rows cost ~4s and blew the 8s
 -- statement timeout (57014) for all-institution non-admin users on
 -- /billing/schedule. Visible-row set unchanged.
+-- Updated: 2026-08-01 - the SELF branch now also hides categories flagged
+-- visible_to_learners = false. Staff/admin branches are untouched, so Accounts
+-- still sees every fee. `IN (SELECT ...)` (not `= ANY(fn())`) so the var-free
+-- sub-select is evaluated once per query, not once per row.
 CREATE POLICY "bills_select_scoped" ON billing_student_bills
     FOR SELECT USING (
         (SELECT is_super_admin() OR is_admin())
@@ -1405,11 +1409,39 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
             WHERE user_has_permission('billing.bills.view')
                OR user_has_permission('billing.schedule.view')
         )
-        OR student_id IN (
+        OR (
+            student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid()
+            )
+            AND (
+                item_category_id IS NULL
+                OR item_category_id IN (
+                    SELECT id FROM billing_categories WHERE visible_to_learners
+                )
+            )
+        )
+    );
+
+-- Reconciled: 2026-08-01 - lives in the DB since the my-bills build (2026-06-22)
+-- but was never mirrored here. Second permissive SELECT policy exposing bills to
+-- a learner; permissive policies are OR'd, so it carries the same
+-- visible_to_learners clause as the self branch above or hidden rows leak here.
+CREATE POLICY "Students can view their own bills" ON billing_student_bills
+    FOR SELECT TO authenticated USING (
+        student_id IN (
             SELECT lp.id
             FROM learners_profiles lp
             JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
-            WHERE p.id = auth.uid()
+            WHERE p.id = auth.uid() AND p.role = 'student'
+        )
+        AND (
+            item_category_id IS NULL
+            OR item_category_id IN (
+                SELECT id FROM billing_categories WHERE visible_to_learners
+            )
         )
     );
 
@@ -8140,3 +8172,22 @@ CREATE POLICY hlt_write ON public.hr_leave_types
   FOR ALL TO authenticated
   USING      (public.user_has_permission('hr.leave.types.manage'))
   WITH CHECK (public.user_has_permission('hr.leave.types.manage'));
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat policies (migration
+-- 20260724045622_id_card_agent_status.sql). Reads mirror
+-- id_card_print_jobs_admin_view (queue viewers + admins); writes are
+-- service-role only (the jobs route heartbeat).
+ALTER TABLE public.id_card_agent_status ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "id_card_agent_status_view" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_view"
+  ON public.id_card_agent_status FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('id_cards.jobs.view')
+  );
+
+DROP POLICY IF EXISTS "id_card_agent_status_service_role_all" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_service_role_all"
+  ON public.id_card_agent_status FOR ALL TO service_role
+  USING (true) WITH CHECK (true);

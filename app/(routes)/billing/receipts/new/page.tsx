@@ -647,6 +647,7 @@ export default function NewReceiptPage() {
                       </SelectItem>
                       <SelectItem value='dd'>DD</SelectItem>
                       <SelectItem value='cheque'>Cheque</SelectItem>
+                      <SelectItem value='combined'>Combined Payment</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

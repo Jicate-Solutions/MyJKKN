@@ -7,6 +7,7 @@ import type {
   BillingInstitutionAnalytics,
   BillingAgingBucketRow,
   BillingCategoryAnalytics,
+  BillingCollectionSplit,
   BillingUserActivityRow,
   BillingDailyActivityRow,
   TrendGranularity,
@@ -79,6 +80,14 @@ export class BillingAnalyticsService extends BaseService {
     return this.executeDashboardRPC<BillingAgingBucketRow[]>(
       'get_billing_analytics_aging',
       this.instParam(filters)
+    );
+  }
+
+  /** Management vs Government vs Unallocated — see BillingCollectionSplit. */
+  static getCollectionSplit(filters: BillingAnalyticsFilters = {}) {
+    return this.executeDashboardRPC<BillingCollectionSplit>(
+      'get_billing_collection_split',
+      this.scopeParams(filters)
     );
   }
 

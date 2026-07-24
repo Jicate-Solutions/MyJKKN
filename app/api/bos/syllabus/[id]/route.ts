@@ -5,6 +5,8 @@ import {
   guardInstitutionWrite,
   guardSyllabusEdit,
   readableInstitutionIds,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 
@@ -42,12 +44,13 @@ export async function GET(
     }
 
     // Step 2: Resolve board-membership scope.
-    // Policy (2026-07-16): a syllabus is visible ONLY to its own board's people.
-    // Board-scoped for everyone except super-admin — members, chairman AND
-    // principals may read only syllabi whose board_id is in scope.boardsOf. A
-    // user on no board sees nothing (the read-all observer tier is NOT applied).
+    // Policy (2026-07-23, reverses 2026-07-16): the read-all observer tier IS
+    // applied — any holder of academic.bos-syllabus.view may read any syllabus,
+    // VIEW ONLY (PUT/DELETE below keep their own guards). Board-scoping now
+    // only applies to users who reach this route WITHOUT the view grant.
     const scope = await resolveBosBoardScope(user.id);
-    const seeAll = scope.isSuperAdmin;
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const seeAll = scope.isSuperAdmin || isBosReadAllObserver(scope, hasView);
     const boardIds = Array.from(scope.boardsOf);
     if (!seeAll && boardIds.length === 0) {
       return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
@@ -68,7 +71,8 @@ export async function GET(
     // profile.institution_id points to one of two MyJKKN UUIDs (Aided or
     // Self) but syllabi may be stored under the sibling UUID â€” so we filter
     // by the full allInstitutionIds list, never a single UUID.
-    const allowedIds = readableInstitutionIds(scope);
+    // seeAll (super-admin or view-grant observer) lifts the institution filter.
+    const allowedIds = readableInstitutionIds(scope, seeAll);
     if (allowedIds !== null) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });

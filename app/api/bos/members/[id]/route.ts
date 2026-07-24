@@ -5,15 +5,22 @@ import {
   resolveBosBoardScope,
   guardCompositionChairman,
   guardAcademicCouncilWrite,
+  guardGoverningBodyWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // Resolve the parent composition for a member row so we can run the right
-// write-gate. Returns the composition_id plus the AC flag + institution (the
-// AC branch authorizes the principal instead of the board chairman).
+// write-gate. Returns the composition_id plus the council flags + institution
+// (a council body — Academic Council / Governing Body — authorizes the principal
+// instead of the board chairman).
 async function parentCompositionForMember(
   supabase: Awaited<ReturnType<typeof createClient>>,
   memberId: string,
-): Promise<{ compositionId: string; isAcademicCouncil: boolean; institutionsId: string | null } | null> {
+): Promise<{
+  compositionId: string;
+  isCouncil: boolean;
+  isGoverningBody: boolean;
+  institutionsId: string | null;
+} | null> {
   const { data: member } = await supabase
     .from('bos_members')
     .select('composition_id')
@@ -23,13 +30,19 @@ async function parentCompositionForMember(
   if (!compositionId) return null;
   const { data: comp } = await supabase
     .from('bos_compositions')
-    .select('is_academic_council, institutions_id')
+    .select('is_academic_council, is_governing_body, institutions_id')
     .eq('id', compositionId)
     .maybeSingle();
-  const c = comp as { is_academic_council?: boolean; institutions_id?: string | null } | null;
+  const c = comp as {
+    is_academic_council?: boolean;
+    is_governing_body?: boolean;
+    institutions_id?: string | null;
+  } | null;
+  const isGoverningBody = c?.is_governing_body === true;
   return {
     compositionId,
-    isAcademicCouncil: c?.is_academic_council === true,
+    isCouncil: c?.is_academic_council === true || isGoverningBody,
+    isGoverningBody,
     institutionsId: c?.institutions_id ?? null,
   };
 }
@@ -57,9 +70,12 @@ export async function PUT(
 
     const scope = await resolveBosBoardScope(user.id);
     if (!scope.isSuperAdmin) {
-      if (parent.isAcademicCouncil) {
-        // AC roster: the principal manages members, not a board chairman.
-        const deny = guardAcademicCouncilWrite(scope, parent.institutionsId);
+      if (parent.isCouncil) {
+        // Council roster (Academic Council / Governing Body): the principal
+        // manages members, not a board chairman.
+        const deny = parent.isGoverningBody
+          ? guardGoverningBodyWrite(scope, parent.institutionsId)
+          : guardAcademicCouncilWrite(scope, parent.institutionsId);
         if (deny) return NextResponse.json({ error: deny }, { status: 403 });
       } else {
         // Creator of the parent comp can also manage members (bootstrap case).
@@ -124,9 +140,12 @@ export async function DELETE(
 
     const scope = await resolveBosBoardScope(user.id);
     if (!scope.isSuperAdmin) {
-      if (parent.isAcademicCouncil) {
-        // AC roster: the principal manages members, not a board chairman.
-        const deny = guardAcademicCouncilWrite(scope, parent.institutionsId);
+      if (parent.isCouncil) {
+        // Council roster (Academic Council / Governing Body): the principal
+        // manages members, not a board chairman.
+        const deny = parent.isGoverningBody
+          ? guardGoverningBodyWrite(scope, parent.institutionsId)
+          : guardAcademicCouncilWrite(scope, parent.institutionsId);
         if (deny) return NextResponse.json({ error: deny }, { status: 403 });
       } else {
         // Creator of the parent comp can also manage members (bootstrap case).

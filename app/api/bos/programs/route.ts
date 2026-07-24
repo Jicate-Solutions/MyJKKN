@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { resolveBosBoardScope, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
+import { resolveBosBoardScope, hasAnyBosPermission, isBosReadAllObserver, BOS_LOOKUP_VIEW_KEYS } from '@/lib/utils/bos/bos-access';
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,10 +58,10 @@ export async function GET(request: NextRequest) {
 
     if (applyBoardScope && formatted.length > 0) {
       const scope = await resolveBosBoardScope(user.id);
-      // Read-only observer: a role holding academic.bos-courses.view but on no
-      // board (not a principal, member of nothing) sees all programmes, like a
+      // Read-only observer: a role holding ANY BoS lookup view grant (courses/
+      // scheme/syllabus — see BOS_LOOKUP_VIEW_KEYS) sees all programmes, like a
       // super-admin — the boardsOf restriction below is skipped. VIEW ONLY.
-      const hasView = await hasBosPermission(user.id, 'academic.bos-courses.view');
+      const hasView = await hasAnyBosPermission(user.id, BOS_LOOKUP_VIEW_KEYS);
       const canReadAllBos = isBosReadAllObserver(scope, hasView);
       const seeAll = scope.isSuperAdmin || canReadAllBos;
 

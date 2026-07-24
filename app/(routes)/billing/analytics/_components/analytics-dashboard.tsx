@@ -12,6 +12,7 @@ import {
   useInstitutionAnalytics,
   useAgingBuckets,
   useCategoryBreakdown,
+  useCollectionSplit,
   useUserActivity,
   useDailyActivity,
 } from '@/hooks/billing/use-billing-analytics';
@@ -28,6 +29,7 @@ import { TodayCollectionsPanel } from './today-collections-panel';
 import { CollectionTrendChart } from './collection-trend-chart';
 import { AgingChart } from './aging-chart';
 import { CategoryBreakdownChart } from './category-breakdown-chart';
+import { CollectionSplitPanel } from './collection-split-panel';
 import { InstitutionComparison } from './institution-comparison';
 import { AccountsTeamActivity } from './accounts-team-activity';
 import { exportAnalyticsWorkbook } from './export-analytics';
@@ -104,6 +106,7 @@ export function AnalyticsDashboard() {
   const byInstitution = useInstitutionAnalytics(filters);
   const aging = useAgingBuckets(filters);
   const byCategory = useCategoryBreakdown(filters);
+  const collectionSplit = useCollectionSplit(filters);
   const userActivity = useUserActivity(filters);
   const dailyActivity = useDailyActivity(filters);
 
@@ -114,6 +117,7 @@ export function AnalyticsDashboard() {
     byInstitution.refetch();
     aging.refetch();
     byCategory.refetch();
+    collectionSplit.refetch();
     userActivity.refetch();
     dailyActivity.refetch();
   }, [
@@ -123,6 +127,7 @@ export function AnalyticsDashboard() {
     byInstitution,
     aging,
     byCategory,
+    collectionSplit,
     userActivity,
     dailyActivity,
   ]);
@@ -132,6 +137,7 @@ export function AnalyticsDashboard() {
     try {
       await exportAnalyticsWorkbook({
         overview: overview.data,
+        collectionSplit: collectionSplit.data,
         byInstitution: byInstitution.data,
         byCategory: byCategory.data,
         aging: aging.data,
@@ -146,6 +152,7 @@ export function AnalyticsDashboard() {
     }
   }, [
     overview.data,
+    collectionSplit.data,
     byInstitution.data,
     byCategory.data,
     aging.data,
@@ -173,7 +180,16 @@ export function AnalyticsDashboard() {
         exporting={exporting}
       />
 
-      <KpiCards data={overview.data} loading={overview.isLoading} />
+      <KpiCards
+        data={overview.data}
+        loading={overview.isLoading}
+        split={collectionSplit.data}
+      />
+
+      <CollectionSplitPanel
+        data={collectionSplit.data}
+        loading={collectionSplit.isLoading}
+      />
 
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-3'>
         <div className='lg:col-span-2'>

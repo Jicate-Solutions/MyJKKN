@@ -150,7 +150,7 @@ function EventGrid({ events, emptyMessage }: { events: LCEvent[]; emptyMessage: 
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {events.map((event: any) => (
         <EventCard key={event.id} event={event} />
       ))}
@@ -180,7 +180,7 @@ export function EventListClient({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Events</h1>
           <p className="text-sm text-muted-foreground">
@@ -213,7 +213,7 @@ export function EventListClient({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="w-full md:w-auto">
+        <TabsList className="w-full justify-start overflow-x-auto md:w-auto md:justify-center">
           <TabsTrigger value="upcoming" className="flex items-center gap-2">
             <CalendarCheck className="h-4 w-4" />
             Upcoming

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useBillingDashboardMetrics } from '@/hooks/billing/use-billing-reports';
+import { useCollectionSplit } from '@/hooks/billing/use-billing-analytics';
 import { ReportFilters } from './_components/report-filters';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 import { DashboardMetrics } from './_components/dashboard-metrics';
@@ -61,6 +62,17 @@ function BillingReportsPageInner() {
     filters.date_from,
     filters.date_to
   );
+
+  // Management vs Government split — served by the analytics RPC rather than
+  // re-aggregated client-side here, since the attribution walks
+  // receipt_items -> bills -> categories and belongs in Postgres.
+  // Gated on billing.analytics.view inside the RPC, so a reports-only user
+  // simply gets no split section (the query errors and `data` stays undefined).
+  const collectionSplit = useCollectionSplit({
+    institution_ids: filters.institution_id ? [filters.institution_id] : undefined,
+    date_from: filters.date_from,
+    date_to: filters.date_to,
+  });
 
   // Show loading state while permissions are loading
   if (permissionsLoading) {
@@ -188,6 +200,7 @@ function BillingReportsPageInner() {
                 metrics={metrics}
                 loading={metricsLoading}
                 canExport={canExportReports}
+                split={collectionSplit.data}
               />
             )}
           </TabsContent>

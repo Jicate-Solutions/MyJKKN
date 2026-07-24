@@ -411,6 +411,11 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/score',
   '/audit/care/coverage',
 
+  // Intentionally unlisted (Director decision 2026-07-24): the open Compliance &
+  // Tracking Board is reached by a shared direct link, deliberately NOT on any nav
+  // or chip surface. Open to all logged-in users; staff/faculty can write.
+  '/tracker',
+
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']
   // = 'social.view') reachable via the social module's AutoTabNav tier strip,
