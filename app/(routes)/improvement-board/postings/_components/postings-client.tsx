@@ -44,9 +44,12 @@ import {
 } from '@/lib/services/improvement/improvement-service';
 import {
   MbaAnalystService,
-  type MbaAssociatePosting,
-  type MbaAssociateLite
+  type MbaAssociatePostingView
 } from '@/lib/services/mba-analyst/mba-analyst-service';
+import {
+  listMbaAssociates,
+  type MbaAssociateLite
+} from '@/lib/services/mba-analyst/mba-associates';
 
 /** Loading skeleton reused by both the permission-resolving and data-loading
  *  states so the page never flashes empty. */
@@ -104,7 +107,7 @@ function PostingsBoard() {
   const [loading, setLoading] = useState(true);
   const [associates, setAssociates] = useState<MbaAssociateLite[]>([]);
   const [areas, setAreas] = useState<ImprovementArea[]>([]);
-  const [postings, setPostings] = useState<MbaAssociatePosting[]>([]);
+  const [postings, setPostings] = useState<MbaAssociatePostingView[]>([]);
   const [search, setSearch] = useState('');
   // Keyed by `${associateUserId}` while a mutation for that associate is in
   // flight, so its controls disable without freezing the whole page.
@@ -112,7 +115,7 @@ function PostingsBoard() {
 
   const load = useCallback(async () => {
     const [nextAssociates, nextAreas, nextPostings] = await Promise.all([
-      MbaAnalystService.listAssociates(),
+      listMbaAssociates(),
       ImprovementService.listAreas(),
       MbaAnalystService.listPostings()
     ]);
@@ -168,7 +171,7 @@ function PostingsBoard() {
   );
 
   const handleRemove = useCallback(
-    async (posting: MbaAssociatePosting) => {
+    async (posting: MbaAssociatePostingView) => {
       setBusyFor(posting.associate_user_id, true);
       try {
         await MbaAnalystService.removePosting(posting.id);
@@ -192,7 +195,7 @@ function PostingsBoard() {
   );
 
   const postingsByAssociate = useMemo(() => {
-    const map = new Map<string, MbaAssociatePosting[]>();
+    const map = new Map<string, MbaAssociatePostingView[]>();
     for (const p of postings) {
       const list = map.get(p.associate_user_id) ?? [];
       list.push(p);
