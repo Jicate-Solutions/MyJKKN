@@ -368,7 +368,7 @@ export function RoundDetailDialog({
                     <Textarea
                       placeholder={
                         isAssignedAssociate
-                          ? 'Write the round summary for facilitator approval…'
+                          ? 'Write the round summary for Senior Learner approval…'
                           : 'Write or revise the round summary…'
                       }
                       value={summaryDraft}
