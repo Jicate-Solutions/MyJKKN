@@ -765,6 +765,7 @@ export class LeaveOndutyService {
 
       const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
 
+      let seededApprovers = 0;
       if (steps.length > 0) {
         const approvalRows = await Promise.all(
           steps.map(async (step) => {
@@ -806,7 +807,27 @@ export class LeaveOndutyService {
             await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
             throw new Error(`Failed to seed approvers: ${approvalsError.message}`);
           }
+          seededApprovers = validRows.length;
         }
+      }
+
+      // SAFEGUARD (P1 — silent-strand fix): if no approver row was created, the
+      // application is invisible to every approver (they query
+      // leave_onduty_approvals by approver_id) and would sit `pending` forever —
+      // the exact failure that stranded 54 of 60 applications. Two paths reach
+      // here: no approval flow is configured for this learner's
+      // college + department + semester (steps empty), or a flow exists but no
+      // eligible approver profile was found (validRows empty). Either way, refuse
+      // the submission explicitly and roll back the just-created row rather than
+      // silently accept a request that can never be approved. (Sponsor-gated
+      // applications are excluded — they seed the academic chain after the
+      // sponsor approves, so zero approvers at creation is expected for them.)
+      if (seededApprovers === 0) {
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(
+          'No approver is set up for your class yet, so this request cannot be sent for approval. ' +
+          'Please contact your department office to have the leave / on-duty approver configured, then submit again.'
+        );
       }
     }
 
