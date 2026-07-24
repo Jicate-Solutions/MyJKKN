@@ -81,6 +81,29 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
     label: 'Anthropic',
     envVarHint: 'ANTHROPIC_API_KEY',
     models: [
+      // ── Family aliases (always-latest) — the ONLY selectable Claude models.
+      // The Max-lane Claude CLI resolves `--model sonnet` / `--model opus` to
+      // Anthropic's current-latest in that tier, so these auto-follow new
+      // releases (Sonnet 5, Opus 5, …) with no config change, at ₹0 on the Max
+      // subscription. The concrete dated ids below are kept ONLY so historical
+      // ai_model_usage rows still resolve a friendly label + reference pricing;
+      // the picker no longer offers them (see ai-model-edit-dialog.tsx).
+      {
+        id: 'sonnet',
+        label: 'Sonnet (latest)',
+        inputPer1KTokensInr: 0.255,
+        outputPer1KTokensInr: 1.275,
+        modality: 'chat',
+        notes: 'Always the newest Sonnet (CLI resolves --model sonnet). Default for all Max-lane jobs. ₹0 on the Max subscription.',
+      },
+      {
+        id: 'opus',
+        label: 'Opus (latest)',
+        inputPer1KTokensInr: 0.425,
+        outputPer1KTokensInr: 2.125,
+        modality: 'chat',
+        notes: 'Always the newest Opus (CLI resolves --model opus). ₹0 on the Max subscription. Use for the highest-quality jobs.',
+      },
       {
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5 (cheap, fast)',
