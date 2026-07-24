@@ -773,6 +773,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/referral-rates",
+            "label": "Referral Rates",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/referrals",
             "label": "Referrals",
             "iconName": "Users",
@@ -6675,6 +6681,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/tracker",
+    "label": "Tracker",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/users",

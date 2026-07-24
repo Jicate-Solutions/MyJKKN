@@ -7,9 +7,11 @@
 export type BosExpertCategory =
   | 'university_nominee'
   | 'subject_expert'
+  | 'academic_expert'
   | 'industry_expert'
   | 'alumni'
-  | 'startup';
+  | 'startup'
+  | 'student';
 
 export type BosMemberType =
   | 'chairman'
@@ -23,7 +25,8 @@ export type BosMemberType =
   | 'hod'
   | 'facilitator'
   | 'principal'
-  | 'member_secretary';
+  | 'member_secretary'
+  | 'student';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -71,9 +74,11 @@ export type BosClaimStatus = 'draft' | 'submitted' | 'approved' | 'paid';
 export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   university_nominee: 'University Nominee',
   subject_expert: 'Subject Expert',
+  academic_expert: 'Academic Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
   startup: 'Startup',
+  student: 'Student',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
@@ -89,6 +94,7 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   facilitator: 'Facilitator',
   principal: 'Principal',
   member_secretary: 'Member Secretary',
+  student: 'Student',
 };
 
 /**
