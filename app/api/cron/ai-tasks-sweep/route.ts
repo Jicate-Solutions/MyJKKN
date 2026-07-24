@@ -427,6 +427,113 @@ async function reclaimStaleJobs(
   return { checked: true, requeued: row.requeued ?? 0, failed: row.failed ?? 0 };
 }
 
+// ── Max-lane RESTART alerts (fail-safe, visibility for self-heals) ────────────
+// The Max-lane drains now auto-restart on crash (~1 min) and survive reboots via
+// auto-login — so a flaky box self-heals silently and runnerDownHealthCheck (10-min
+// stale window) never fires for a ~1–2 min blip. This surfaces EVERY restart so a
+// box rebooting nightly (failing hardware / bad update loop) can't hide.
+//
+// Mechanism: each drain stamps a per-process launch id (process-start epoch secs)
+// onto its heartbeat row via fn_ai_routine_record_fire's 3rd arg. A CHANGE in that
+// id = the process restarted. We alert once per (runner, launch id); dedup is the
+// notifications.idempotency_key UNIQUE index (no ack table). A steady box keeps the
+// same launch id every heartbeat → the key never changes → silent. launch ids are
+// monotonic process-start epochs, never reused, so a restart alerts exactly once
+// even if an old idempotency row is later pruned. NULL launch ids (cloud routines,
+// or before the box drain ships the stamp) are skipped, so nothing alerts during
+// the pre-box-update window. Distinct from runnerDownHealthCheck (sustained-outage
+// signal) — both are kept: down-alert on the way down, restart-alert on the way up.
+const RESTART_RUNNERS = ['maxlane:poller-heartbeat', 'maxlane:chat-drain'];
+
+async function maxlaneRestartAlerts(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await admin
+    .from('ai_routine_schedules')
+    .select('routine_id, launch_id, last_fired_at')
+    .in('routine_id', RESTART_RUNNERS);
+  if (error) return { checked: false, error: error.message };
+
+  const results: Array<Record<string, unknown>> = [];
+  for (const rawRow of data ?? []) {
+    const row = rawRow as { routine_id: string; launch_id: string | null };
+    const runner = row.routine_id;
+    const launchId = row.launch_id;
+    // Skip until a box drain stamps a launch id (pre-box-update window / cloud rows).
+    if (!launchId) {
+      results.push({ runner, skipped: 'no_launch_id' });
+      continue;
+    }
+
+    // Dedup key: one alert per (runner, launch id).
+    const idempotencyKey = `maxlane-restart:${runner}:${launchId}`;
+
+    // Human label: launch id is epoch SECONDS. Show "restarted at HH:MM IST" when it
+    // parses to a plausible recent epoch; else fall back to the raw id (drift-safe).
+    const epochSec = Number(launchId);
+    const launchedLabel =
+      Number.isFinite(epochSec) && epochSec > 1_700_000_000 && epochSec < 4_000_000_000
+        ? `${new Date(epochSec * 1000).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`
+        : `launch id ${launchId}`;
+    const shortRunner = runner.replace(/^maxlane:/, '');
+
+    // In-app notification. Its idempotency_key UNIQUE index is the single source of
+    // truth for "already alerted this launch" — gate the email on its result so the
+    // two channels can't diverge (one fires without the other).
+    const fanout = await fanoutNotification(admin, {
+      title: 'Max-lane worker restarted',
+      body:
+        `The Max-lane ${shortRunner} restarted (started ${launchedLabel}). It self-healed ` +
+        `automatically — no action needed for a one-off, but frequent restarts can signal a ` +
+        `flaky box (reboot loop or failing hardware).`,
+      userIds: [DIRECTOR_UID],
+      createdBy: DIRECTOR_UID,
+      category: 'general', // free-text; 'general' guarantees the bell renders it
+      kind: 'work_item',
+      priority: 'normal', // informational (already recovered), not a page
+      idempotencyKey,
+      url: '/admin/ai-routines',
+      source: 'ai-tasks-sweep:maxlane-restart',
+      metadata: { event: 'maxlane_restart', runner, launch_id: launchId },
+    });
+
+    if (fanout.skipped === 'idempotent') {
+      // A prior sweep already alerted this launch → do not re-send the email.
+      results.push({ runner, launch_id: launchId, alerted: false, idempotent: true });
+      continue;
+    }
+
+    // Email the Director. Best-effort — the resend Idempotency-Key header is a
+    // provider-side backstop (24h) on top of the notification-row gate.
+    let emailed = false;
+    if (process.env.RESEND_API_KEY) {
+      try {
+        await resend.emails.send(
+          {
+            from: FROM_EMAIL,
+            to: DIRECTOR_EMAIL,
+            subject: '🔄 MyJKKN Max-lane worker restarted',
+            html: `<h2 style="color:#0b6d41">Max-lane worker restarted</h2>
+<p>The MyJKKN Max-lane <strong>${shortRunner}</strong> restarted and self-healed automatically. No action is needed for a one-off — but frequent restarts can signal a flaky box (reboot loop or failing hardware), so this is surfaced for visibility.</p>
+<table style="border-collapse:collapse;margin-top:8px">
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Worker</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${shortRunner}</td></tr>
+  <tr><td style="padding:6px 12px;border:1px solid #e5e7eb"><strong>Restarted</strong></td><td style="padding:6px 12px;border:1px solid #e5e7eb">${launchedLabel}</td></tr>
+</table>
+<p style="margin-top:16px">See the <a href="${process.env.NEXT_PUBLIC_APP_URL ?? ''}/admin/ai-routines">AI routines liveness strip</a> for restart history.</p>
+<p style="color:#6b7280;font-size:12px;margin-top:24px">Automated alert from /api/cron/ai-tasks-sweep max-lane restart check. Fires once per worker restart (deduped by launch id).</p>`,
+          },
+          { headers: { 'Idempotency-Key': idempotencyKey } },
+        );
+        emailed = true;
+      } catch (emailErr) {
+        console.error('[ai-tasks-sweep] maxlane-restart email failed:', emailErr);
+      }
+    }
+    results.push({ runner, launch_id: launchId, alerted: true, notified: fanout.notified, emailed });
+  }
+  return { checked: true, runners: results };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -605,5 +712,15 @@ export async function GET(request: NextRequest) {
     learnerNoteDrafts = { checked: false, error: draftsErr instanceof Error ? draftsErr.message : 'reminder failed' };
   }
 
-  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, elapsed_ms: Date.now() - started });
+  // ── 6) MAX-LANE RESTART ALERTS (visibility for self-heals) ────────────────
+  // Same fail-safe discipline: own try/catch, additive `maxlane_restarts` field.
+  let maxlaneRestarts: Record<string, unknown> = { checked: false };
+  try {
+    maxlaneRestarts = await maxlaneRestartAlerts(admin);
+  } catch (restartErr) {
+    console.error('[ai-tasks-sweep] maxlane restart alerts failed:', restartErr);
+    maxlaneRestarts = { checked: false, error: restartErr instanceof Error ? restartErr.message : 'restart alerts failed' };
+  }
+
+  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, elapsed_ms: Date.now() - started });
 }
