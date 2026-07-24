@@ -174,12 +174,25 @@ export function AllAllocationsTab() {
     return [...allocated, ...notAllocated];
   }, [activeAllocations, candidates]);
 
+  // Cascade-scoped populations — the summary cards + placement counts reflect the
+  // active Advanced Filters (institution / type / block / floor / academic), so
+  // filtering to e.g. Dental updates the cards. Search + the placement toggle
+  // narrow the TABLE only; the cards stay a full breakdown of the cascade scope.
+  const scopedAllocated = useMemo(
+    () => activeAllocations.filter((a) => allocationMatchesCascade(a, cascade)),
+    [activeAllocations, cascade]
+  );
+  const scopedCandidates = useMemo(
+    () => (candidates as UnallocatedCandidate[]).filter((c) => candidateMatchesCascade(c, cascade)),
+    [candidates, cascade]
+  );
+
   const counts = useMemo(() => {
-    const allocated = activeAllocations.length;
-    const notAllocated = (candidates as UnallocatedCandidate[]).length;
-    const ready = (candidates as UnallocatedCandidate[]).filter((c) => c.readiness === 'ready').length;
+    const allocated = scopedAllocated.length;
+    const notAllocated = scopedCandidates.length;
+    const ready = scopedCandidates.filter((c) => c.readiness === 'ready').length;
     return { allocated, notAllocated, ready, incomplete: notAllocated - ready };
-  }, [activeAllocations, candidates]);
+  }, [scopedAllocated, scopedCandidates]);
 
   const invalidateFeeds = useCallback(() => {
     // A move / reset / allocate crosses the two feeds (e.g. a reset frees a bed
@@ -449,7 +462,7 @@ export function AllAllocationsTab() {
   }
 
   const placementLabel: Record<Placement, string> = {
-    all: `All (${allRows.length})`,
+    all: `All (${counts.allocated + counts.notAllocated})`,
     allocated: `Allocated (${counts.allocated})`,
     'not-allocated': `Not Allocated (${counts.notAllocated})`,
   };
