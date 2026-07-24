@@ -77,6 +77,7 @@ import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
 import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
+import { PreSessionMaterialsControl } from '../_components/pre-session-materials-control';
 import { MyLoopNotesCard } from '../_components/my-loop-notes-card';
 import { MyPulseCard } from '../_components/my-pulse-card';
 import { FreetextCarryCountsCard } from '../_components/freetext-carry-counts-card';
@@ -758,6 +759,9 @@ export default function FacultySessionInsightPage() {
 
       {/* Live — open an in-class pulse for today's classes (fuels the loop) */}
       <LivePulseSection from={from} to={to} />
+
+      {/* Pre-session materials — post a link ahead + objective opens trace (Rank 3a) */}
+      <PreSessionMaterialsControl from={from} to={to} />
 
       {/* Summary — honest per-course understanding bands (D2/D4, 2026-07-24) */}
       <PerCourseUnderstandingCard rows={rows} />
