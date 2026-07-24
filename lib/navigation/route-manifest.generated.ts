@@ -4335,9 +4335,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/improvement-board/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/improvement-board/leaderboard",
         "label": "Leaderboard",
         "iconName": "Trophy",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/postings",
+        "label": "Postings",
+        "iconName": "FileText",
         "children": []
       }
     ]
@@ -6681,6 +6693,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/tracker",
+    "label": "Tracker",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/users",
