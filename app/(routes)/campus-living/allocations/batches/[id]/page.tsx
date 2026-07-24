@@ -515,7 +515,7 @@ export default function AllocationBatchDetailPage({
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {selectedIds.size} selected allocation{selectedIds.size === 1 ? '' : 's'}?</AlertDialogTitle>
               <AlertDialogDescription>
-                This removes just the selected student{selectedIds.size === 1 ? '' : 's'} from
+                This removes just the selected learner{selectedIds.size === 1 ? '' : 's'} from
                 this batch{batch.status === 'approved' ? ' and frees the bed(s) they occupy' : ''}.
                 The rest of the batch is unaffected. This cannot be undone.
               </AlertDialogDescription>
