@@ -1,3 +1,29 @@
+## Session: 2026-07-24 (END /cnext) [pane d3c5ac02] — AI Models + AI Studio tabs UNIFIED into one "AI Jobs" console; SHIPPED + DEPLOYED + VERIFIED LIVE; then Managed-Agents strategy
+
+### Accomplished
+- **/admin/ai-models UNIFIED — #2315 + #2319 MERGED + DEPLOYED (prod build 06844c78e) + BROWSER-VERIFIED LIVE.** Collapsed the two overlapping tabs (AI Models = governance / AI Studio = authoring — both were lenses on the SAME ai_job_types registry) into ONE "AI Jobs" tab: 45 jobs grouped by lane (42 Max / 3 API), governance-first columns, authoring (edit recipe · run · enable/disable · delete · new) behind each row's Advanced menu. ai_model_config demoted to silent resolver-fallback + audited write-store (no independent tab); resolver + fn_ai_job_type_set_model mirror + audit UNCHANGED; NO migration. Net −184 lines (deleted ai-studio-panel + ai-job-type-list, powers ported).
+- **#2319 first-time governance folded in** (Director "fold it in"): model-edit PATCH now UPSERTS → creates an ai_model_config row when none exists, so the 16 model-less Max-lane jobs get a "Set model" button (RLS FOR ALL already allowed the insert). ⚠️ #2315 squash-merged on commit-1 ONLY → the fold-in orphaned; re-landed via cherry-pick onto fresh main — caught by content-verifying main (isCreate=0), NOT the MERGED label.
+- **Verified live** as super-admin in Chrome (browser-use jkkn-ai session WEDGED — BrowserStartEvent timeout on every cmd; used claude-in-chrome instead): 42 Max + 3 API sections, "Set model" on model-less rows, first-time dialog "Set a model: …" provider-locked to Anthropic (all 16 model-less jobs are Max-lane).
+- **Managed Agents strategy** (research, no build): launched 2026-04-08; pricing = token rates + ~$0.08/session-hr (one source $0.25 — verify official). Split: most benefits ₹0-buildable on the Max box; only LIVE-user-serving (terms boundary) + zero-maintenance/stateful-sessions are truly Managed-only. See [[reference_claude_managed_agents]].
+
+### Current Status
+- **AI Models unification**: LIVE on jkkn.ai (build 06844c78e), browser-verified. **Build**: prod green.
+- **Branch (this pane)**: feat/campus-living-fee-compute-engine (SHARED checkout — do not blind `git add -A`). Work shipped via worktree PRs #2315/#2319. Two merged worktrees left on disk: `.claude/worktrees/ai-unify` + `ai-firsttime` (housekeeping — safe to `git worktree remove` by EXACT path).
+- **features.json**: NOT touched — another pane holds an active edit (M); avoided clobber.
+
+### Lessons Learned (persisted to memory)
+- "MERGED" ≠ complete: a squash-merge on commit-1 orphaned the later fold-in; content-verify main (grep the code), not the green label. [[feedback_merge_does_not_deploy_verify_by_content]]
+- Reconnaissance-first paid off end-to-end: every DB prediction (45 = 42+3 jobs; all 16 model-less jobs on Max lane → dialog auto-locks provider to Anthropic) held on the live screen. [[project_ai_models_tab_unification]]
+- browser-use `jkkn-ai` session can fully wedge (BrowserStartEvent 30s timeout on every command incl. `eval`) → fall back to claude-in-chrome (in-app Chrome logged into prod as Omm). [[feedback_inapp_browser_pane_is_logged_in_on_prod]]
+
+### Next Session — Tasks (ranked, user-confirmed 2026-07-24)
+1. [P0] Wire per-job model selection into the **Max drain** — the decorative model_id bug (drain hardcodes `--model sonnet`; fn_ai_claim never passes the job's model_id). Make the console's model column actually run on Max. ₹0. (medium — DB/fn_ai_claim side is repo-buildable to a PR; the drain-script side is on the Windows box, likely NOT autobuildable). [[reference_max_lane_ignores_model_id_hardcoded_sonnet]]
+2. [P1] Harden the Max lane (the ₹0 Managed-Agent benefits, self-hosted): staleness-reclaim + heartbeat (kill the wedge class), worker-pool concurrency honoring `max_inflight`, structured per-job traces. (large)
+3. [P2] Price `scf.note_safety_judge` (1,932 calls/mo, ₹0 today) at current Sonnet token rates + Managed session-hour fee — concrete Max-vs-Managed rupee delta to inform the deferred managed-lane call. (small, analysis)
+- Deferred backlog (not in lead set): add a third `managed` lane routing to Claude Managed Agents for the terms-gated live-user-facing slice only — needs the pricing decision (task 3) first.
+
+---
+
 ## Session: 2026-07-24 (END /cnext) [pane a97f6ecd] — HOD dashboard #2299 SHIPPED+LIVE; 4 designs interviewed (SCF fixes · NotebookLM reframe · pre-session setup · attendance HR review)
 
 ### Accomplished
