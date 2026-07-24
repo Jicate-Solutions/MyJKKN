@@ -61,13 +61,25 @@ function AllocationsPageInner() {
   const [cascade, setCascade] = useState(EMPTY_ALLOCATION_CASCADE);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
-  // True totals over the full set (the old page counted only the first 50 rows).
+  // Tab badge shows the stable total active count — it's visible from every tab,
+  // so it must not shift with this tab's Advanced Filters.
+  const totalActive = useMemo(
+    () => allocations.filter((a: Alloc) => a.status === 'active').length,
+    [allocations],
+  );
+
+  // Summary cards reflect the active Advanced Filters (cascade). The status
+  // quick-filter + the table search narrow the TABLE only, not the cards.
+  const scopedAllocations = useMemo(
+    () => allocations.filter((a: Alloc) => allocationMatchesCascade(a, cascade)),
+    [allocations, cascade],
+  );
   const counts = useMemo(() => ({
-    active: allocations.filter((a: Alloc) => a.status === 'active').length,
-    transfers: allocations.filter((a: Alloc) => a.allocation_type === 'transfer').length,
-    vacated: allocations.filter((a: Alloc) => a.status === 'vacated').length,
-    feePending: allocations.filter((a: Alloc) => a.fee_status === 'pending').length,
-  }), [allocations]);
+    active: scopedAllocations.filter((a: Alloc) => a.status === 'active').length,
+    transfers: scopedAllocations.filter((a: Alloc) => a.allocation_type === 'transfer').length,
+    vacated: scopedAllocations.filter((a: Alloc) => a.status === 'vacated').length,
+    feePending: scopedAllocations.filter((a: Alloc) => a.fee_status === 'pending').length,
+  }), [scopedAllocations]);
 
   // Client-side data feed for the advanced DataTable: applies the external
   // status/block/advanced filters + the table's own search & sort, then paginates.
@@ -214,7 +226,7 @@ function AllocationsPageInner() {
             </TabsTrigger>
             <TabsTrigger value="allocated">
               Allocated
-              <Badge variant="secondary" className="ml-2 text-xs">{counts.active}</Badge>
+              <Badge variant="secondary" className="ml-2 text-xs">{totalActive}</Badge>
             </TabsTrigger>
             <TabsTrigger value="not-allocated">
               Not Allocated
