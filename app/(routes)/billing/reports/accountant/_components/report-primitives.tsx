@@ -29,10 +29,22 @@ export interface Kpi {
   title?: string;
 }
 
+// Match the large-screen column count to the number of cards so a 2-KPI grid
+// (e.g. the Cleared tab) doesn't leave two empty columns. Static class strings
+// so Tailwind's JIT keeps them.
+const LG_COLS: Record<number, string> = {
+  1: 'lg:grid-cols-1',
+  2: 'lg:grid-cols-2',
+  3: 'lg:grid-cols-3',
+};
+function kpiGridCols(count: number) {
+  return `grid grid-cols-1 gap-4 sm:grid-cols-2 ${LG_COLS[count] ?? 'lg:grid-cols-4'}`;
+}
+
 export function ReportKpiGrid({ items, loading }: { items: Kpi[]; loading?: boolean }) {
   if (loading) {
     return (
-      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+      <div className={kpiGridCols(items.length || 4)}>
         {Array.from({ length: items.length || 4 }).map((_, i) => (
           <Skeleton key={i} className='h-[92px] w-full' />
         ))}
@@ -40,7 +52,7 @@ export function ReportKpiGrid({ items, loading }: { items: Kpi[]; loading?: bool
     );
   }
   return (
-    <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+    <div className={kpiGridCols(items.length)}>
       {items.map((k) => (
         <Card key={k.label}>
           <CardContent className='flex items-start justify-between gap-3 p-4'>
@@ -164,6 +176,8 @@ export interface Column<T> {
   header: string;
   cell: (row: T) => React.ReactNode;
   align?: 'left' | 'right';
+  /** Native tooltip on the header cell — use to clarify a metric's definition. */
+  headerTitle?: string;
 }
 export function ReportTable<T>({
   columns, rows, loading, empty = 'No rows.',
@@ -177,7 +191,10 @@ export function ReportTable<T>({
         <TableHeader>
           <TableRow>
             {columns.map((c, i) => (
-              <TableHead key={i} className={c.align === 'right' ? 'text-right' : ''}>{c.header}</TableHead>
+              <TableHead key={i} title={c.headerTitle}
+                className={`${c.align === 'right' ? 'text-right' : ''}${c.headerTitle ? ' cursor-help underline decoration-dotted underline-offset-4' : ''}`}>
+                {c.header}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>

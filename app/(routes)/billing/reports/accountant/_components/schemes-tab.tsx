@@ -22,6 +22,10 @@ export function SchemesTab({ filters }: { filters: AccountantReportFilters }) {
 
   return (
     <div className='space-y-6'>
+      <p className='text-muted-foreground text-xs'>
+        This tab always compares all schemes side by side — the scheme filter in the toolbar does not
+        narrow it. Use the other tabs to drill into a single scheme.
+      </p>
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
         <ReportSection title='Concession Granted by Scheme'>
           <ReportDonutChart data={donut} loading={q.isLoading} />

@@ -32,6 +32,9 @@ export async function exportReport(
   return exportExcel(d);
 }
 
+// CSV is a single-table format, so it always exports the college-collections
+// dataset (the hub's primary table). For the multi-section Outstanding / Schemes
+// data, use the Excel or PDF export, which emit every section.
 function exportCsv(d: ReportExportPayload) {
   const cols: CsvColumn<CollectionsRow>[] = [
     { header: 'College', accessor: (r) => r.group_label },

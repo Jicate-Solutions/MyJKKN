@@ -3,9 +3,16 @@
 -- ============================================================================
 -- Four SECURITY DEFINER aggregations for /billing/reports/accountant. Pattern
 -- copied from 20260602094000/20260602100000 (billing analytics): permission
--- gate + get_user_accessible_institutions scope + IST dates. collected is
--- allocation-based (receipt_items→bill) so it attributes per course/year.
+-- gate + get_user_accessible_institutions scope + IST dates.
 -- Scheme cohort filter (p_scheme) resolves eligible student ids once.
+--
+-- SUPERSEDED (partial): get_billing_report_collections, get_billing_report_kpis
+-- and get_billing_report_schemes were later CREATE OR REPLACEd — collected moved
+-- from allocation-based receipt_items.amount_paid to receipts.payment_amount in
+-- 20260724091000, and the cleared-bill payment_date filters moved to IST-date in
+-- 20260724092000. get_billing_report_outstanding_by_year below is still the live
+-- definition. Read those two migrations for the current collections/kpis/schemes
+-- logic; the bodies here are retained only for migration history.
 -- ============================================================================
 
 -- 1) COLLECTIONS — grouped by college | course | date -------------------------

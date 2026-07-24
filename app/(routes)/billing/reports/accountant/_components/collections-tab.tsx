@@ -30,13 +30,30 @@ export function CollectionsTab({ filters }: { filters: AccountantReportFilters }
     </div>
   );
 
-  const columns: Column<CollectionsRow>[] = [
-    { header: groupBy === 'date' ? 'Date' : groupBy === 'course' ? 'Course' : 'College', cell: (r) => r.group_label },
-    { header: 'Students', align: 'right', cell: (r) => num(r.student_count).toLocaleString('en-IN') },
-    { header: 'Collected', align: 'right', cell: (r) => formatCurrency(num(r.collected)) },
-    { header: 'Outstanding', align: 'right', cell: (r) => formatCurrency(num(r.outstanding)) },
-    { header: 'Rate %', align: 'right', cell: (r) => `${num(r.collection_rate).toFixed(1)}%` },
-  ];
+  // The 'date' branch of the RPC only populates collected + cleared_* (student
+  // count, outstanding and rate are per-group concepts that don't apply to a
+  // single day), so show a date-specific column set instead of rendering the
+  // hardcoded-zero columns the college/course views use.
+  const columns: Column<CollectionsRow>[] =
+    groupBy === 'date'
+      ? [
+          { header: 'Date', cell: (r) => r.group_label },
+          { header: 'Collected', align: 'right', cell: (r) => formatCurrency(num(r.collected)) },
+          { header: 'Bills Cleared', align: 'right', cell: (r) => num(r.cleared_bill_count).toLocaleString('en-IN') },
+          { header: 'Cleared Amount', align: 'right', cell: (r) => formatCurrency(num(r.cleared_amount)) },
+        ]
+      : [
+          { header: groupBy === 'course' ? 'Course' : 'College', cell: (r) => r.group_label },
+          { header: 'Students', align: 'right', cell: (r) => num(r.student_count).toLocaleString('en-IN') },
+          { header: 'Collected', align: 'right', cell: (r) => formatCurrency(num(r.collected)) },
+          { header: 'Outstanding', align: 'right', cell: (r) => formatCurrency(num(r.outstanding)) },
+          {
+            header: 'Rate %', align: 'right',
+            headerTitle:
+              'Collected in the selected date range ÷ (collected in range + current outstanding). Outstanding is a live snapshot, so for a bounded date range this is not an all-time collection rate.',
+            cell: (r) => `${num(r.collection_rate).toFixed(1)}%`,
+          },
+        ];
 
   return (
     <div className='space-y-6'>
