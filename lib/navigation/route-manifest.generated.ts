@@ -3218,6 +3218,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/ceo-rounds",
+    "label": "Ceo Rounds",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/consultant-portal",
     "label": "Consultant Portal",
     "iconName": "FileText",

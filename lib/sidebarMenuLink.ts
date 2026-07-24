@@ -160,6 +160,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
@@ -1508,6 +1509,16 @@ export function GetPages(pathname: string): MenuGroup[] {
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' }
           ]
+        },
+        {
+          // CEO Rounds — the daily rounds log (participation-graded attendance,
+          // rotating-associate summary, Rounds-task → Board link). Gated by
+          // ceo_rounds.log via MENU_PERMISSIONS.
+          href: '/ceo-rounds',
+          label: 'CEO Rounds',
+          active: pathname === '/ceo-rounds' || pathname.startsWith('/ceo-rounds/'),
+          icon: ClipboardList,
+          submenus: []
         }
       ]
     },
