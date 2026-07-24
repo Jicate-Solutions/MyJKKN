@@ -24,6 +24,30 @@
 
 ---
 
+## Session: 2026-07-24 (END /cnext) [pane 98b8e1ed] — 3 of 4 designs SHIPPED as Ready PRs (SCF fixes #2320 CI-green · NotebookLM reframe #2321 CI-green · pre-session substrate #2322 validated); Rank 3 UI + 3b + Rank 4 remain
+
+### Accomplished
+- **Rank 1 — Session Feedback honesty fixes → PR #2320 (Ready, ALL 16 CI checks GREEN).** Band recalibration Strong ≥4.0 across the SoT `understandingLevel` + all 3 `understandingBandWord` AI-copy mirrors (cross-surface, ~16%→~65% Mixed→Strong); STANDOUT_THRESHOLD (4.5, success-note gate) deliberately decoupled + flagged. B1 real-status completion banner (no more false "all complete" over Overdue/Open). B2/D3 exclude <3-response sessions from tallies + suppress the per-session band. D2/D4 replaced the blended "good run" reward card with an honest-first per-course band breakdown. Worktree `.claude/worktrees/scf-fixes`. 19/19 deterministic logic assertions + render.
+- **Rank 2 — NotebookLM reframe → PR #2321 (Ready, ALL 16 CI green).** Retired the saturated 96.6%-yes `notebooklm_used`; learner now ticks WHICH NotebookLM materials (9 features + neutral "None") stored under reserved `nblm:*` keys — proven (7/7 logic) to stay OUT of the carry-forward "unmet" universe (RPC joins only is_active config rows). Shared taxonomy const `lib/session-feedback/notebooklm-features.ts`. Form filters notebooklm_used client-side + migration deactivates the config row. Worktree `.claude/worktrees/scf-notebooklm`.
+- **Rank 3a — Pre-session materials SUBSTRATE → PR #2322 (Ready, VALIDATED on prod in BEGIN..ROLLBACK).** 2 tables (session_resource / session_resource_open) + 4 anon-locked SECDEF RPCs (post / resources-for-session / log-open / deactivate), authority via `_fn_curriculum_class_ctx(...,true)`. Mgmt-API validation confirmed DDL clean + anon locked + authenticated granted + auth-guard fires. Worktree `.claude/worktrees/scf-presession`. UI is the next slice.
+
+### Current Status
+- **3 Ready PRs (#2320 / #2321 / #2322)** awaiting Director review/merge — NONE merged, deployed, or migration-applied.
+- **Branch (this pane)**: feat/campus-living-fee-compute-engine — untouched; all work shipped via worktree PRs (Translator Pattern). Other panes' dirty tree + features.json left alone.
+- **Backlog**: Rank 3a UI, Rank 3b (Live-Pulse pre-build), Rank 4 (Attendance HR review) — all designed, substrate for 3a+4 exists.
+
+### Lessons Learned (persisted to memory)
+- Validate a migration against prod without applying it: run it in a BEGIN..ROLLBACK txn via the mgmt-API `database/query` (+ a real User-Agent header or Cloudflare 1010 blocks you). [[feedback_validate_migration_via_mgmt_api_begin_rollback]]
+- Local scoped-tsc phantom errors (`database.types` not found, `JobsLaneEnqueueResult.reason`) trace to the missing generated `types/database.types.ts`; CI TypeCheck (PR-scoped) is authoritative. Terminology gate scans spec .md too (maps teacher→Senior Learner, curriculum→learning framework). Dev server MUST `cd` into the worktree or Turbopack serves stale root code. [[feedback_scoped_tsc_phantom_errors_missing_database_types]]
+
+### Next Session — Tasks (ranked, user-confirmed 2026-07-24 — all 3 picked, listed order = ranking)
+1. [P0] **Rank 3a UI** — wire the pre-session materials feature onto substrate #2322: a Senior-Learner "post NotebookLM link" control (faculty session-feedback page) + the learner open surface (class-feedback pending list) that logs opens via `fn_scf_log_resource_open`. Service methods + hooks + types for the 4 RPCs. Needs a visual render. (medium)
+2. [P1] **Rank 3b — Live-Pulse pre-build** — `fn_scf_open_pulse` requires attendance-marked → add a "prepared" state + open-on-attendance-mark + auto-open-at-class-end (no present-gate, documented "some feedback beats none" exception) + move-with-class on reschedule + tuck-away (not delete) on cancel. (large)
+3. [P1] **Rank 4 — Attendance HR review UI** — two-stage HOD→HR (both approve, reason on both, one-at-a-time), SHADOW MODE FIRST (add shadow flag to the review RPC — records decisions, grants nothing), + auto spot-check + reopen-on-evidence. Substrate live (fn_att_reconcile_propose/review, faculty_attendance_days, faculty_attendance_reconcile_proposals). ⚠️ weekly cadence implies weekly biometric import — CONFIRM with Director before wiring. (large)
+- **MUST DO FIRST (user-stated):** surface #2320/#2321/#2322 status (merged? migrations applied?) before building more.
+
+---
+
 ## Session: 2026-07-24 (END /cnext) [pane a97f6ecd] — HOD dashboard #2299 SHIPPED+LIVE; 4 designs interviewed (SCF fixes · NotebookLM reframe · pre-session setup · attendance HR review)
 
 ### Accomplished
