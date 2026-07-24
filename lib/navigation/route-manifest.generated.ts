@@ -4335,15 +4335,15 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
-<<<<<<< HEAD
-        "path": "/improvement-board/dashboard",
-        "label": "Dashboard",
-        "iconName": "LayoutGrid",
-=======
         "path": "/improvement-board/analytics",
         "label": "Analytics",
         "iconName": "BarChart",
->>>>>>> jicate/main
+        "children": []
+      },
+      {
+        "path": "/improvement-board/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
         "children": []
       },
       {
