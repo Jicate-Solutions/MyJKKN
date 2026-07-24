@@ -127,6 +127,7 @@ export function ReceiptsFiltersClient() {
               <SelectItem value='bank_transfer'>Bank Transfer</SelectItem>
               <SelectItem value='dd'>DD</SelectItem>
               <SelectItem value='cheque'>Cheque</SelectItem>
+              <SelectItem value='combined'>Combined Payment</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -232,7 +232,8 @@ export function ReceiptList({
       online: { variant: 'secondary' as const, label: 'Online' },
       bank_transfer: { variant: 'outline' as const, label: 'Bank Transfer' },
       dd: { variant: 'secondary' as const, label: 'DD' },
-      cheque: { variant: 'outline' as const, label: 'Cheque' }
+      cheque: { variant: 'outline' as const, label: 'Cheque' },
+      combined: { variant: 'outline' as const, label: 'Combined Payment' }
     };
 
     const config = modeConfig[mode as keyof typeof modeConfig] || {

@@ -85,6 +85,7 @@ async function ReceiptsContent({
       | 'bank_transfer'
       | 'dd'
       | 'cheque'
+      | 'combined'
       | undefined,
     receipt_date_from: params.receipt_date_from,
     receipt_date_to: params.receipt_date_to,

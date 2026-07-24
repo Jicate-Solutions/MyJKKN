@@ -919,7 +919,8 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts (
     receipt_date DATE NOT NULL,
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    payment_mode VARCHAR(20) NOT NULL,
+    payment_mode VARCHAR(20) NOT NULL
+        CHECK (payment_mode IN ('cash', 'online', 'bank_transfer', 'dd', 'cheque', 'combined')),
     payment_reference_number VARCHAR(100),
     payment_amount NUMERIC(15,2) NOT NULL,
     payment_paid_date DATE NOT NULL,
