@@ -503,6 +503,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // Leaderboard is public to any authenticated learner (Director decision #6);
+  // gate the sidebar entry on the same key as the AI Pulse landing page.
+  '/ai-pulse/leaderboard': 'ai_pulse.view',
   // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
   // lacks the permission its page enforces (each key = the gate on that tab's
   // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
@@ -2606,6 +2609,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
