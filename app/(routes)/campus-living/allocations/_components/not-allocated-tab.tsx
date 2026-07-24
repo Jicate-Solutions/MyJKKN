@@ -12,13 +12,7 @@
 import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useQueryClient } from '@tanstack/react-query';
-import {
-  useUnallocatedCandidates,
-  unallocatedCandidatesKeys,
-} from '@/hooks/campus-living/use-unallocated-candidates';
-import { hostelAllocationKeys } from '@/hooks/campus-living/use-hostel-allocations';
-import { AllocateRoomDialog } from '../../residents/_components/allocate-room-dialog';
+import { useUnallocatedCandidates } from '@/hooks/campus-living/use-unallocated-candidates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,7 +34,6 @@ import {
 import {
   CheckCircle2,
   XCircle,
-  BedDouble,
   Loader2,
   Search,
   AlertTriangle,
@@ -54,7 +47,8 @@ import type { LearnerHostelite } from '@/types/campus-living';
 // Adapter: maps the minimal fields the AllocateRoomDialog actually reads
 // from LearnerHostelite. Unallocated students have no current room, so those
 // fields are left null — the dialog handles null current_room_id gracefully.
-function toAllocatable(c: UnallocatedCandidate): LearnerHostelite {
+// Exported so the combined "All" tab reuses the exact same adapter.
+export function toAllocatable(c: UnallocatedCandidate): LearnerHostelite {
   return {
     id: c.learner_id,
     first_name: c.first_name,
@@ -105,9 +99,7 @@ type ReadinessFilter = 'all' | 'ready' | 'incomplete';
 
 export function NotAllocatedTab() {
   const { profile } = useAuth();
-  const { isSuperAdmin, permissions } = usePermissions();
-  const canAllocate =
-    isSuperAdmin || !!permissions?.['campus_living.upgrades.manage'];
+  const { isSuperAdmin } = usePermissions();
 
   const institutionId = isSuperAdmin
     ? undefined
@@ -115,11 +107,9 @@ export function NotAllocatedTab() {
 
   const { data: rows = [], isLoading, error } = useUnallocatedCandidates(institutionId);
 
-  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>('all');
   const [page, setPage] = useState(1);
-  const [allocateTarget, setAllocateTarget] = useState<UnallocatedCandidate | null>(null);
 
   // Summary counts (over full unfiltered set)
   const readyCount = useMemo(
@@ -258,14 +248,13 @@ export function NotAllocatedTab() {
                 <TableHead className="min-w-[130px]">Room Category</TableHead>
                 <TableHead className="min-w-[100px]">Readiness</TableHead>
                 <TableHead className="min-w-[260px]">Why not allocated</TableHead>
-                {canAllocate && <TableHead className="w-[120px] text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {pageRows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={canAllocate ? (isSuperAdmin ? 7 : 6) : (isSuperAdmin ? 6 : 5)}
+                    colSpan={isSuperAdmin ? 6 : 5}
                     className="text-center text-sm text-muted-foreground py-10"
                   >
                     No students match the current filter.
@@ -381,31 +370,6 @@ export function NotAllocatedTab() {
                     )}
                   </TableCell>
 
-                  {/* Actions */}
-                  {canAllocate && (
-                    <TableCell className="text-right">
-                      {row.readiness === 'ready' ? (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-7 text-xs gap-1"
-                          onClick={() => setAllocateTarget(row)}
-                        >
-                          <BedDouble className="h-3.5 w-3.5" />
-                          Allocate
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-muted-foreground"
-                          onClick={() => setAllocateTarget(row)}
-                        >
-                          Assign anyway
-                        </Button>
-                      )}
-                    </TableCell>
-                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -452,18 +416,6 @@ export function NotAllocatedTab() {
           once you select a block.
         </p>
       </div>
-
-      {/* Allocate room dialog — reuses the same dialog as the Learners tab */}
-      <AllocateRoomDialog
-        learner={allocateTarget ? toAllocatable(allocateTarget) : null}
-        onClose={() => setAllocateTarget(null)}
-        onSuccess={() => {
-          setAllocateTarget(null);
-          // Invalidate both the unallocated list and the main allocations feed
-          qc.invalidateQueries({ queryKey: unallocatedCandidatesKeys.all });
-          qc.invalidateQueries({ queryKey: hostelAllocationKeys.all });
-        }}
-      />
     </TooltipProvider>
   );
 }
