@@ -41,6 +41,17 @@ MyJKKN (cloud)                 Office computer (Windows)         Printer (office
 
 The bridge polls outward (office → cloud), so no inbound firewall holes are needed at the office. If the office computer is off, jobs simply wait in the queue and print when it comes back.
 
+### Batch printing by cohort (added 2026-07-24)
+
+**Admin → ID Cards → Batch Print** queues cards for a whole cohort in one go — no per-page checkbox selection:
+
+- **Freshers batch** — pick institution + admission year (newest pre-selected). Selects **all matching** learners, not just a visible page.
+- **Class / section** — pick institution + class/program (+ optional section). School classes (LKG, GRADE 3, … at Nattraja Vidhyalya CBSE / JKKN Matric HSS) are program rows, so class-wise school printing uses the same picker.
+- A **"Which learners?"** choice controls lifecycle statuses (default: active only; admission-week option includes admitted/account-created).
+- Learners **without an activated account are excluded up front** and reported — the confirm step's card count and ribbon estimate reflect real printable cards.
+- The confirm dialog shows **ribbon panels used + estimated print time** (~15 s/card); batches of 50+ get a ribbon-stock warning (a full YMCKO ribbon ≈ 300 cards).
+- Jobs enqueue **grouped by class/program in roll-number order**, so the printed stack comes out ready to hand out. Progress is visible on the Print Queue page.
+
 ---
 
 ## Job statuses — and how failures surface to the registrar
