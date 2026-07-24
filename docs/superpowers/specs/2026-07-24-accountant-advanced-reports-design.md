@@ -127,7 +127,8 @@ All accept the shared filter set and enforce institution scope via `role_has_ins
      - `date` → group by `payment_paid_date` (day/week/month bucket).
      - `course` → group by the payer's program: `billing_receipts.student_id → learners_profiles.program_id → programs.program_name`.
    - **`outstanding`** = `SUM(billing_student_bills.balance_amount)` for the same group where `status IN ('unpaid','partially_paid','overdue') AND balance_amount > 0` (a **current snapshot**, not date-bounded by receipts). `collection_rate = collected / (collected + outstanding)`.
-   - `p_academic_year_id` filters both sides; `p_scheme` filters via the learner (`first_graduate`/`quota`/`scholarship_type`).
+   - `p_academic_year_id`: for bill-based metrics (outstanding/cleared) it filters on the bill's own `academic_year_id`; for the receipt-based `collected` it attributes via the student's `learners_profiles.academic_year_id` (receipts carry no academic year). `p_scheme` filters via the learner (`first_graduate`/`quota`/`scholarship_type`).
+   - Verified against production during Task 2: allocation-based `receipt_items.amount_paid` covers only ~25% of receipts, so `collected` uses `billing_receipts.payment_amount` (consistent with `/billing/analytics`). `billing_discounts` is currently empty, so scheme concession totals read ₹0 until concessions are entered.
 
 2. **`get_billing_report_outstanding_by_year(p_institution_id uuid, p_academic_year_id uuid, p_scheme text)`**
    - Returns rows: `academic_year_id`, `academic_year_name`, `institution_id`, `students_with_dues`, `bill_count`, `outstanding`.
