@@ -569,6 +569,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/id-cards/batch-print",
+            "label": "Batch ID-Card Print",
+            "iconName": "Printer",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/policy",
             "label": "ID Card Policy",
             "iconName": "CreditCard",
@@ -1605,6 +1611,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/ai-pulse/lab",
         "label": "Lab",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/ai-pulse/leaderboard",
+        "label": "Leaderboard",
+        "iconName": "Trophy",
         "children": []
       },
       {
