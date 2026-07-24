@@ -4335,6 +4335,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/improvement-board/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
         "path": "/improvement-board/leaderboard",
         "label": "Leaderboard",
         "iconName": "Trophy",
@@ -6681,6 +6687,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/tracker",
+    "label": "Tracker",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/users",

@@ -158,6 +158,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
 
   // Overview
@@ -1492,6 +1493,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Lightbulb,
           submenus: [
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
+            { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
             { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
           ]
         }
