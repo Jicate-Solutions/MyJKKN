@@ -293,6 +293,6 @@ END $g$;
 -- ─────────────────────────────────────────────────────────────────────────────
 INSERT INTO public.tracker_sections(section_key, title, description, kind, sort_order)
 VALUES
-  ('curriculum_readiness','Curriculum Spine Readiness','Per-college progress on the syllabus → taxonomy → outcomes → lesson-spine pipeline.','builtin_curriculum',10),
+  ('curriculum_readiness','Lesson Spine Readiness','Per-college progress on the learning-pathway → taxonomy → outcomes → lesson-spine pipeline.','builtin_curriculum',10),
   ('audit_rollup','Whole-Institution Audit','Org-wide compliance parameters and their current verdicts from the standing institutional audit.','builtin_audit',20)
 ON CONFLICT (section_key) DO NOTHING;

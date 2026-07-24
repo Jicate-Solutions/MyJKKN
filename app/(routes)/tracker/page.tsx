@@ -77,11 +77,11 @@ export default function TrackerPage() {
         </h1>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
           A live view of institutional tracking and compliance matters. Everyone at MyJKKN can follow along;
-          staff and faculty can add items, post updates, change status, and assign owners.
+          team members and Senior Learners can add items, post updates, change status, and assign owners.
         </p>
         {!canWrite && (
           <p className="mt-2 text-xs text-muted-foreground">
-            You&apos;re viewing in read-only mode. Staff and faculty can post updates here.
+            You&apos;re viewing in read-only mode. Team members and Senior Learners can post updates here.
           </p>
         )}
       </header>

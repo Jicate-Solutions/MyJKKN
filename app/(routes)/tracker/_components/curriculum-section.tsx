@@ -53,7 +53,7 @@ export function CurriculumSection() {
   }, []);
 
   if (error) {
-    return <p className="text-sm text-destructive">Couldn&apos;t load curriculum readiness: {error}</p>;
+    return <p className="text-sm text-destructive">Couldn&apos;t load readiness data: {error}</p>;
   }
   if (!rows) {
     return (
@@ -76,7 +76,7 @@ export function CurriculumSection() {
           <span className="text-muted-foreground"> / {rows.length} generating spines</span>
         </span>
         <span className="text-muted-foreground">
-          <strong className="tabular-nums text-foreground">{awaiting}</strong> awaiting a syllabus upload
+          <strong className="tabular-nums text-foreground">{awaiting}</strong> awaiting a learning-pathway upload
         </span>
       </div>
 
@@ -85,7 +85,7 @@ export function CurriculumSection() {
           <thead>
             <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-2.5 font-semibold">College</th>
-              <th className="px-3 py-2.5 font-semibold">Syllabi</th>
+              <th className="px-3 py-2.5 font-semibold">Pathways</th>
               <th className="px-3 py-2.5 font-semibold">Taxonomy fixed</th>
               <th className="px-3 py-2.5 font-semibold">POs</th>
               <th className="px-3 py-2.5 font-semibold">PSOs</th>
