@@ -13,6 +13,7 @@ import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUnallocatedCandidates } from '@/hooks/campus-living/use-unallocated-candidates';
+import { LearnerDetailDrawer } from '../../residents/_components/learner-detail-drawer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +41,7 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  Eye,
 } from 'lucide-react';
 import type { UnallocatedCandidate } from '@/types/campus-living';
 import type { LearnerHostelite } from '@/types/campus-living';
@@ -110,6 +112,7 @@ export function NotAllocatedTab() {
   const [search, setSearch] = useState('');
   const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>('all');
   const [page, setPage] = useState(1);
+  const [detailLearnerId, setDetailLearnerId] = useState<string | null>(null);
 
   // Summary counts (over full unfiltered set)
   const readyCount = useMemo(
@@ -248,13 +251,14 @@ export function NotAllocatedTab() {
                 <TableHead className="min-w-[130px]">Room Category</TableHead>
                 <TableHead className="min-w-[100px]">Readiness</TableHead>
                 <TableHead className="min-w-[260px]">Why not allocated</TableHead>
+                <TableHead className="w-[90px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pageRows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={isSuperAdmin ? 6 : 5}
+                    colSpan={isSuperAdmin ? 7 : 6}
                     className="text-center text-sm text-muted-foreground py-10"
                   >
                     No students match the current filter.
@@ -370,6 +374,17 @@ export function NotAllocatedTab() {
                     )}
                   </TableCell>
 
+                  {/* View-only action — opens the read-only learner detail drawer */}
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1 text-xs"
+                      onClick={() => setDetailLearnerId(row.learner_id)}
+                    >
+                      <Eye className="h-3.5 w-3.5" /> View
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -416,6 +431,12 @@ export function NotAllocatedTab() {
           once you select a block.
         </p>
       </div>
+
+      {/* Read-only learner detail — view-only; no mutating actions live here. */}
+      <LearnerDetailDrawer
+        learnerId={detailLearnerId}
+        onClose={() => setDetailLearnerId(null)}
+      />
     </TooltipProvider>
   );
 }

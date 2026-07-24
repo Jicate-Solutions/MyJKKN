@@ -22,7 +22,7 @@ import {
 import { NotAllocatedTab } from './_components/not-allocated-tab';
 import { AllAllocationsTab } from './_components/all-allocations-tab';
 import {
-  Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck,
+  Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck, Eye,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -152,6 +152,24 @@ function AllocationsPageInner() {
       cell: ({ row }) => { const c = feeStatusConfig[row.original.fee_status] ?? { label: row.original.fee_status, variant: 'outline' as const }; return <Badge variant={c.variant}>{c.label}</Badge>; },
       enableSorting: false,
       size: 100,
+    },
+    {
+      // View-only: this tab has no mutating actions (those live in the "All"
+      // tab) — just a read-only link through to the allocation detail page.
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" asChild>
+            <Link href={`/campus-living/allocations/${row.original.id}`}>
+              <Eye className="h-4 w-4" /> View
+            </Link>
+          </Button>
+        </div>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      size: 90,
     },
   ], []);
 
