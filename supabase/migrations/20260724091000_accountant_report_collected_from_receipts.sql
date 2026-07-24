@@ -73,13 +73,16 @@ BEGIN
         AND (p_academic_year_id IS NULL OR b.academic_year_id = p_academic_year_id)
         AND (p_scheme = 'all' OR b.student_id = ANY(v_students))
       GROUP BY lp.program_id)
-    SELECT bills.k::text, COALESCE(p.program_name,'Unassigned')::text,
+    SELECT COALESCE(keys.k::text,'unassigned'), COALESCE(p.program_name,'Unassigned')::text,
       COALESCE(bills.bill_count,0)::int, COALESCE(bills.student_count,0)::int,
       COALESCE(col.collected,0), COALESCE(bills.outstanding,0),
       CASE WHEN COALESCE(col.collected,0)+COALESCE(bills.outstanding,0) > 0
         THEN round(COALESCE(col.collected,0)/(COALESCE(col.collected,0)+COALESCE(bills.outstanding,0))*100,2) ELSE 0 END,
       COALESCE(bills.cleared_bill_count,0)::int, COALESCE(bills.cleared_amount,0)
-    FROM bills LEFT JOIN col ON col.k = bills.k LEFT JOIN programs p ON p.id = bills.k
+    FROM (SELECT k FROM col UNION SELECT k FROM bills) keys
+    LEFT JOIN col   ON col.k   IS NOT DISTINCT FROM keys.k
+    LEFT JOIN bills ON bills.k IS NOT DISTINCT FROM keys.k
+    LEFT JOIN programs p ON p.id = keys.k
     ORDER BY COALESCE(col.collected,0) DESC;
 
   ELSIF p_group_by = 'date' THEN
@@ -139,7 +142,10 @@ BEGIN
       CASE WHEN COALESCE(col.collected,0)+COALESCE(bills.outstanding,0) > 0
         THEN round(COALESCE(col.collected,0)/(COALESCE(col.collected,0)+COALESCE(bills.outstanding,0))*100,2) ELSE 0 END,
       COALESCE(bills.cleared_bill_count,0)::int, COALESCE(bills.cleared_amount,0)
-    FROM institutions i JOIN bills ON bills.k = i.id LEFT JOIN col ON col.k = i.id
+    FROM (SELECT k FROM col UNION SELECT k FROM bills) keys
+    JOIN institutions i ON i.id = keys.k
+    LEFT JOIN col ON col.k = keys.k
+    LEFT JOIN bills ON bills.k = keys.k
     WHERE i.id = ANY(v_inst)
     ORDER BY COALESCE(col.collected,0) DESC;
   END IF;
