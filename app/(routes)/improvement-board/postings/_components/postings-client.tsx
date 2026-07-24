@@ -44,12 +44,9 @@ import {
 } from '@/lib/services/improvement/improvement-service';
 import {
   MbaAnalystService,
-  type MbaAssociatePostingView
-} from '@/lib/services/mba-analyst/mba-analyst-service';
-import {
-  listMbaAssociates,
+  type MbaAssociatePostingView,
   type MbaAssociateLite
-} from '@/lib/services/mba-analyst/mba-associates';
+} from '@/lib/services/mba-analyst/mba-analyst-service';
 
 /** Loading skeleton reused by both the permission-resolving and data-loading
  *  states so the page never flashes empty. */
@@ -114,8 +111,12 @@ function PostingsBoard() {
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
+    // listAssociates() goes through the manager-gated SECDEF RPC
+    // (fn_mba_list_associates) — never a direct user_roles read, which RLS
+    // self-scopes and would silently truncate the picker for a non-admin
+    // board manager.
     const [nextAssociates, nextAreas, nextPostings] = await Promise.all([
-      listMbaAssociates(),
+      MbaAnalystService.listAssociates(),
       ImprovementService.listAreas(),
       MbaAnalystService.listPostings()
     ]);
@@ -130,6 +131,13 @@ function PostingsBoard() {
       setLoading(true);
       try {
         await load();
+      } catch (err) {
+        // The RPC-backed reads throw on failure; degrade to the empty state
+        // with a toast rather than an unhandled rejection.
+        if (alive)
+          toast.error(
+            err instanceof Error ? err.message : 'Could not load assignments.'
+          );
       } finally {
         if (alive) setLoading(false);
       }

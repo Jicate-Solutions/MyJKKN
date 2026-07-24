@@ -1,42 +1,47 @@
 /**
- * MBA Analyst — assignment-scoped analytics service (browser client).
+ * MBA Associate — assignment-scoped analyst access (browser client).
  * ============================================================================
  *
- * ⚠️ PROVISIONAL UI-SIDE STUB (feat/mba-analyst-ui).
- * ---------------------------------------------------------------------------
- * The authoritative implementation ships in the sibling backend PR #2339
- * (`feat/mba-analyst-backend`), which also owns the tables + RPC
- * (`mba_associate_postings`, `mba_area_analyst_views`, `fn_mba_analyst_views`).
- * This file exists ONLY so the two analyst UIs type-resolve and run on this
- * branch before that PR merges. On merge the backend's file supersedes this
- * one — resolve the conflict by TAKING THE BACKEND VERSION. Its public surface
- * is mirrored EXACTLY here (per the final contract relayed 2026-07-24), so the
- * consuming pages keep compiling after the swap:
+ * Thin service over the DORMANT backend shipped in migration
+ * `20260724170000_mba_analyst_assignment_scoped_access.sql`:
  *
- *   Exported types: MbaAssociatePosting (bare row), MbaAssociatePostingView
- *   (enriched), MbaAnalystView, MbaAnalystViewsPayload.
- *   Methods: listPostings() → MbaAssociatePostingView[] (RLS-scoped);
- *            assignPosting(associateUserId, areaId) (idempotent upsert);
- *            removePosting(id) (hard delete);
- *            getAnalystViews(areaId) → MbaAnalystViewsPayload (calls the RPC).
+ *   - `mba_associate_postings`     — which MBA Associate is posted to which
+ *                                    improvement_area (department).
+ *   - `mba_area_analyst_views`     — which de-identified `learning_*` views
+ *                                    belong to which department (+ sensitivity).
+ *   - `fn_mba_analyst_views(uuid)` — SECURITY DEFINER delivery RPC. The ONLY
+ *                                    door to the analyst view DATA for app
+ *                                    users; guards on role + active posting and
+ *                                    applies k>=5 small-cell suppression.
+ *   - `fn_mba_list_associates()`   — SECURITY DEFINER picker source. Board
+ *                                    managers only. Reads the 44 active MBA
+ *                                    Associate members as owner (user_roles
+ *                                    SELECT is self-scoped for non-admins, so a
+ *                                    direct query would silently truncate).
  *
- * NOTE: the 44-member MBA Associate list for the assign picker is NOT part of
- * this service (the backend contract has no such method). It lives in the
- * sibling `./mba-associates` helper (owned solely by the UI PR) so this file
- * can be replaced wholesale by the backend without dropping a method the UI
- * depends on.
+ * Write access to postings is enforced at the row by RLS
+ * (`improvement.board.manage` holders only). An Associate may read only their
+ * own posting rows. This layer just renders whatever the queries return.
  *
- * The `mba_*` tables are not in the generated `types/supabase.ts`, so queries
- * cast through `(supabase as any)` — the same pattern the improvement + bug
- * services use for un-typed tables. Row shapes are typed here instead.
+ * These tables are live-in-prod but not in the generated `types/supabase.ts`,
+ * so queries cast through `(supabase as any)` — the same pattern the
+ * improvement-board and bug-reports services use for un-typed tables. Row shapes
+ * are typed here instead.
+ *
+ * The 14 improvement_areas for the assignment picker are NOT duplicated here —
+ * consumers reuse `ImprovementService.listAreas()`.
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-const MODULE = 'improvement/mba-analyst';
+const MODULE = 'mba-analyst';
 
-/** A bare row from `mba_associate_postings`. */
+/**
+ * A row from `mba_associate_postings`, enriched with the Associate's display
+ * name + email and the department label/key (resolved server-side by joins).
+ * On rows returned by `assignPosting`, the enriched fields are populated too.
+ */
 export interface MbaAssociatePosting {
   id: string;
   associate_user_id: string;
@@ -46,129 +51,200 @@ export interface MbaAssociatePosting {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-}
-
-/** A posting decorated with the display fields the admin table needs
- *  (associate name + area label), resolved server-side / never trusted from
- *  the client. */
-export interface MbaAssociatePostingView extends MbaAssociatePosting {
+  // Enriched display fields (null when the join could not resolve).
   associate_name: string | null;
+  associate_email: string | null;
   area_label: string | null;
+  area_key: string | null;
 }
 
-/** One analyst view returned by `fn_mba_analyst_views`. `rows` is already
- *  k≥5-suppressed + de-identified by the RPC; the UI only renders it. */
+/** Back-compat alias — `MbaAssociatePosting` is already the enriched shape. */
+export type MbaAssociatePostingView = MbaAssociatePosting;
+
+/** One de-identified view's suppressed rows, as returned by the delivery RPC. */
 export interface MbaAnalystView {
   view_name: string;
   is_sensitive: boolean;
+  // View-row columns vary per view (dynamic payload) — intentionally loose.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rows: Record<string, any>[];
 }
 
-/** The `fn_mba_analyst_views` JSONB payload for one area. */
-export interface MbaAnalystViewsPayload {
+/** Full payload returned by `fn_mba_analyst_views`. */
+export interface MbaAnalystViewsResult {
   area_id: string;
   views: MbaAnalystView[];
 }
+
+/** Back-compat alias for the earlier name. */
+export type MbaAnalystViewsPayload = MbaAnalystViewsResult;
+
+/** A picker entry — one active MBA Associate. */
+export interface MbaAssociateLite {
+  user_id: string;
+  name: string | null;
+  email: string | null;
+}
+
+type ProfileLite = { id: string; full_name: string | null; email: string | null };
+type AreaLite = { id: string; key: string | null; label: string | null };
 
 export class MbaAnalystService {
   private static getSupabase() {
     return createClientSupabaseClient();
   }
 
-  /**
-   * All active postings, enriched with associate name + area label. RLS
-   * restricts writes/reads to managers (`improvement.board.manage`) plus an
-   * associate's own rows; the admin picker that consumes this is
-   * manager-gated.
-   */
-  static async listPostings(): Promise<MbaAssociatePostingView[]> {
+  /** id -> {full_name,email} map for a set of profile ids (batched, one query). */
+  private static async fetchProfiles(
+    ids: (string | null)[]
+  ): Promise<Map<string, ProfileLite>> {
+    const map = new Map<string, ProfileLite>();
+    const unique = Array.from(new Set(ids.filter((v): v is string => !!v)));
+    if (unique.length === 0) return map;
+
     const supabase = this.getSupabase();
-    try {
-      const { data, error } = (await (supabase as any)
-        .from('mba_associate_postings')
-        .select('*')
-        .eq('is_active', true)
-        .order('assigned_at', { ascending: false })) as {
-        data: MbaAssociatePosting[] | null;
-        error: any;
-      };
-      if (error) throw error;
+    const { data, error } = (await (supabase as any)
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', unique)) as { data: ProfileLite[] | null; error: any };
 
-      const rows = data || [];
-      if (rows.length === 0) return [];
-
-      const [nameMap, areaMap] = await Promise.all([
-        this.fetchAssociateNames(rows.map((r) => r.associate_user_id)),
-        this.fetchAreaLabels(rows.map((r) => r.area_id))
-      ]);
-
-      return rows.map((r) => ({
-        ...r,
-        associate_name: nameMap.get(r.associate_user_id) ?? null,
-        area_label: areaMap.get(r.area_id) ?? null
-      }));
-    } catch (error) {
-      logger.error(MODULE, 'Error fetching postings', error);
-      return [];
+    if (error) {
+      logger.error(MODULE, 'Error fetching profiles', error);
+      return map;
     }
+    for (const row of data ?? []) map.set(row.id, row);
+    return map;
+  }
+
+  /** id -> {key,label} map for a set of improvement_area ids (batched). */
+  private static async fetchAreas(
+    ids: (string | null)[]
+  ): Promise<Map<string, AreaLite>> {
+    const map = new Map<string, AreaLite>();
+    const unique = Array.from(new Set(ids.filter((v): v is string => !!v)));
+    if (unique.length === 0) return map;
+
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any)
+      .from('improvement_areas')
+      .select('id, key, label')
+      .in('id', unique)) as { data: AreaLite[] | null; error: any };
+
+    if (error) {
+      logger.error(MODULE, 'Error fetching area labels', error);
+      return map;
+    }
+    for (const row of data ?? []) map.set(row.id, row);
+    return map;
+  }
+
+  private static enrich(
+    row: {
+      id: string;
+      associate_user_id: string;
+      area_id: string;
+      assigned_by: string | null;
+      assigned_at: string;
+      is_active: boolean;
+      created_at: string;
+      updated_at: string;
+    },
+    profiles: Map<string, ProfileLite>,
+    areas: Map<string, AreaLite>
+  ): MbaAssociatePosting {
+    const p = profiles.get(row.associate_user_id);
+    const a = areas.get(row.area_id);
+    return {
+      ...row,
+      associate_name: p?.full_name ?? null,
+      associate_email: p?.email ?? null,
+      area_label: a?.label ?? null,
+      area_key: a?.key ?? null,
+    };
   }
 
   /**
-   * Assign one associate to one area (department). UNIQUE(associate_user_id,
-   * area_id) — a re-assign of the same pair is an idempotent reactivation.
-   * RLS + the backend path enforce manager-only; `assigned_by` is stamped from
-   * the caller's session, never trusted from the client.
+   * List postings, enriched with Associate name/email + department label.
+   * RLS scopes what is returned: managers see all; an Associate sees only their
+   * own rows.
+   */
+  static async listPostings(): Promise<MbaAssociatePosting[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any)
+      .from('mba_associate_postings')
+      .select('*')
+      .order('assigned_at', { ascending: false })) as {
+      data: any[] | null;
+      error: any;
+    };
+
+    if (error) {
+      logger.error(MODULE, 'Error listing postings', error);
+      throw new Error(error.message || 'Failed to load assignments.');
+    }
+    const rows = data ?? [];
+
+    const [profiles, areas] = await Promise.all([
+      this.fetchProfiles(rows.map((r) => r.associate_user_id)),
+      this.fetchAreas(rows.map((r) => r.area_id)),
+    ]);
+
+    return rows.map((r) => this.enrich(r, profiles, areas));
+  }
+
+  /**
+   * Post an Associate to a department. Idempotent: re-assigning an existing
+   * (associate, area) pair re-activates it. RLS requires
+   * `improvement.board.manage`. The returned row is enriched.
    */
   static async assignPosting(
     associateUserId: string,
     areaId: string
-  ): Promise<MbaAssociatePostingView> {
+  ): Promise<MbaAssociatePosting> {
     const supabase = this.getSupabase();
 
+    // assigned_by from the session (getUser() network-stalls writes — see memory).
     const {
-      data: { user },
-      error: authError
-    } = await supabase.auth.getUser();
-    if (authError) throw new Error(`Authentication failed: ${authError.message}`);
-    if (!user) throw new Error('You must be signed in to assign an associate.');
-
-    const insertRow = {
-      associate_user_id: associateUserId,
-      area_id: areaId,
-      assigned_by: user.id,
-      is_active: true
-    };
+      data: { session },
+    } = await supabase.auth.getSession();
+    const assignedBy = session?.user?.id ?? null;
 
     const { data, error } = (await (supabase as any)
       .from('mba_associate_postings')
-      .upsert(insertRow, { onConflict: 'associate_user_id,area_id' })
+      .upsert(
+        {
+          associate_user_id: associateUserId,
+          area_id: areaId,
+          assigned_by: assignedBy,
+          assigned_at: new Date().toISOString(),
+          is_active: true,
+        },
+        { onConflict: 'associate_user_id,area_id' }
+      )
       .select('*')
-      .single()) as { data: MbaAssociatePosting | null; error: any };
+      .single()) as { data: any | null; error: any };
 
     if (error) {
       logger.error(MODULE, 'Error assigning posting', error);
-      throw new Error(error.message || 'Failed to assign associate.');
+      throw new Error(error.message || 'Failed to assign.');
     }
-    if (!data) throw new Error('Failed to assign associate — no data returned.');
+    if (!data) throw new Error('Failed to assign — no data returned.');
 
-    const [nameMap, areaMap] = await Promise.all([
-      this.fetchAssociateNames([data.associate_user_id]),
-      this.fetchAreaLabels([data.area_id])
+    const [profiles, areas] = await Promise.all([
+      this.fetchProfiles([data.associate_user_id]),
+      this.fetchAreas([data.area_id]),
     ]);
-    return {
-      ...data,
-      associate_name: nameMap.get(data.associate_user_id) ?? null,
-      area_label: areaMap.get(data.area_id) ?? null
-    };
+    return this.enrich(data, profiles, areas);
   }
 
-  /** Remove a posting by its id (hard delete). RLS enforces manager-only. */
+  /** Remove a posting entirely. RLS requires `improvement.board.manage`. */
   static async removePosting(id: string): Promise<void> {
     const supabase = this.getSupabase();
     const { error } = await (supabase as any)
       .from('mba_associate_postings')
       .delete()
       .eq('id', id);
+
     if (error) {
       logger.error(MODULE, 'Error removing posting', error);
       throw new Error(error.message || 'Failed to remove assignment.');
@@ -176,73 +252,38 @@ export class MbaAnalystService {
   }
 
   /**
-   * The analyst views for one area, via the k≥5-suppressed SECURITY DEFINER
-   * RPC. The RPC gates the caller (manager OR an associate posted to `areaId`)
-   * and de-identifies sensitive rows; this layer returns the JSONB payload. An
-   * area with no mapped views comes back as `{ area_id, views: [] }`.
+   * The active MBA Associate members, for the assignment picker. Backed by the
+   * SECDEF RPC `fn_mba_list_associates` (board managers only) — a direct
+   * `user_roles` query would silently truncate for non-admin managers.
    */
-  static async getAnalystViews(areaId: string): Promise<MbaAnalystViewsPayload> {
+  static async listAssociates(): Promise<MbaAssociateLite[]> {
     const supabase = this.getSupabase();
-    const { data, error } = await (supabase as any).rpc('fn_mba_analyst_views', {
-      p_area_id: areaId
-    });
+    const { data, error } = (await (supabase as any).rpc(
+      'fn_mba_list_associates'
+    )) as { data: MbaAssociateLite[] | null; error: any };
+
     if (error) {
-      logger.error(MODULE, `Error fetching analyst views for ${areaId}`, error);
-      throw new Error(error.message || 'Failed to load analytics for this department.');
+      logger.error(MODULE, 'Error listing associates', error);
+      throw new Error(error.message || 'Failed to load MBA Associates.');
     }
-    // The RPC returns the JSONB payload directly. Guard the empty/misshapen case.
-    const payload = (data ?? {}) as Partial<MbaAnalystViewsPayload>;
-    return {
-      area_id: payload.area_id ?? areaId,
-      views: Array.isArray(payload.views) ? payload.views : []
-    };
+    return data ?? [];
   }
 
-  // --- internal helpers -----------------------------------------------------
-
-  private static async fetchAssociateNames(
-    ids: (string | null)[]
-  ): Promise<Map<string, string | null>> {
-    const map = new Map<string, string | null>();
-    const unique = Array.from(new Set(ids.filter((v): v is string => !!v)));
-    if (unique.length === 0) return map;
-
+  /**
+   * Fetch the de-identified analyst views for a department through the SECDEF
+   * delivery RPC. The RPC enforces the posting gate and k>=5 suppression; this
+   * client only forwards the area id and shapes the result (unwrapped).
+   */
+  static async getAnalystViews(areaId: string): Promise<MbaAnalystViewsResult> {
     const supabase = this.getSupabase();
-    const { data, error } = (await (supabase as any)
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', unique)) as {
-      data: { id: string; full_name: string | null }[] | null;
-      error: any;
-    };
-    if (error) {
-      logger.warn(MODULE, 'Failed to resolve associate names', error);
-      return map;
-    }
-    for (const p of data || []) map.set(p.id, p.full_name);
-    return map;
-  }
+    const { data, error } = (await (supabase as any).rpc('fn_mba_analyst_views', {
+      p_area_id: areaId,
+    })) as { data: MbaAnalystViewsResult | null; error: any };
 
-  private static async fetchAreaLabels(
-    areaIds: (string | null)[]
-  ): Promise<Map<string, string | null>> {
-    const map = new Map<string, string | null>();
-    const unique = Array.from(new Set(areaIds.filter((v): v is string => !!v)));
-    if (unique.length === 0) return map;
-
-    const supabase = this.getSupabase();
-    const { data, error } = (await (supabase as any)
-      .from('improvement_areas')
-      .select('id, label')
-      .in('id', unique)) as {
-      data: { id: string; label: string }[] | null;
-      error: any;
-    };
     if (error) {
-      logger.warn(MODULE, 'Failed to resolve area labels', error);
-      return map;
+      logger.error(MODULE, 'Error fetching analyst views', error);
+      throw new Error(error.message || 'Failed to load analyst views.');
     }
-    for (const a of data || []) map.set(a.id, a.label);
-    return map;
+    return data ?? { area_id: areaId, views: [] };
   }
 }
