@@ -139,6 +139,20 @@ export class AllocationBatchService {
     }
   }
 
+  // Remove a chosen subset of a batch's allocations (frees their beds, deletes
+  // just those rows, keeps the rest of the batch intact) — as opposed to
+  // reset(), which discards the whole batch.
+  static async removeAllocations(batchId: string, allocationIds: string[]): Promise<void> {
+    const { error } = await this.rpcCall('fn_remove_batch_allocations', {
+      p_batch_id: batchId,
+      p_allocation_ids: allocationIds,
+    });
+    if (error) {
+      logger.error(LOG, 'removeAllocations failed', error);
+      throw new Error(error.message || 'Failed to remove selected allocations');
+    }
+  }
+
   // ── Reads ──
   static async getBatches(institutionId?: string): Promise<AllocationBatchRow[]> {
     let q = this.supabase

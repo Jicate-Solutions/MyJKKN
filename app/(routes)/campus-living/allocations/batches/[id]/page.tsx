@@ -7,6 +7,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -53,13 +54,16 @@ export default function AllocationBatchDetailPage({
   const searchParams = useSearchParams();
   const { can, isSuperAdmin } = usePermissions();
   const { data, isLoading, refetch } = useAllocationBatch(id);
-  const { approve, reject, reset } = useAllocationBatchActions();
+  const { approve, reject, reset, removeAllocations } = useAllocationBatchActions();
   const [acting, setActing] = useState<'approve' | 'reject' | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [detail, setDetail] = useState<ProposedAllocation | null>(null);
   const [exporting, setExporting] = useState(false);
   const [filterCleared, setFilterCleared] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmRemoveSelected, setConfirmRemoveSelected] = useState(false);
+  const [removingSelected, setRemovingSelected] = useState(false);
 
   const batch = data?.batch ?? null;
   const allocations = data?.allocations ?? [];
@@ -108,6 +112,22 @@ export default function AllocationBatchDetailPage({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to reset');
       setResetting(false);
+    }
+  };
+
+  const doRemoveSelected = async () => {
+    setRemovingSelected(true);
+    try {
+      const ids = [...selectedIds];
+      await removeAllocations(id, ids);
+      toast.success(`Removed ${ids.length} allocation${ids.length === 1 ? '' : 's'}`);
+      setSelectedIds(new Set());
+      setConfirmRemoveSelected(false);
+      await refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove selected allocations');
+    } finally {
+      setRemovingSelected(false);
     }
   };
 
@@ -323,23 +343,36 @@ export default function AllocationBatchDetailPage({
 
         <Card>
           <CardHeader>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base">
-                Proposed mapping ({filteredAllocations.length}
-                {categoryFilter ? ` of ${allocations.length}` : ''})
-              </CardTitle>
-              {categoryFilter && (
-                <Badge variant="secondary" className="gap-1.5">
-                  {categoryFilter}
-                  <button
-                    type="button"
-                    onClick={() => setFilterCleared(true)}
-                    aria-label="Clear category filter"
-                    className="hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="text-base">
+                  Proposed mapping ({filteredAllocations.length}
+                  {categoryFilter ? ` of ${allocations.length}` : ''})
+                </CardTitle>
+                {categoryFilter && (
+                  <Badge variant="secondary" className="gap-1.5">
+                    {categoryFilter}
+                    <button
+                      type="button"
+                      onClick={() => setFilterCleared(true)}
+                      aria-label="Clear category filter"
+                      className="hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                )}
+              </div>
+              {canApprove && selectedIds.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setConfirmRemoveSelected(true)}
+                  disabled={removingSelected}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  Remove selected ({selectedIds.size})
+                </Button>
               )}
             </div>
           </CardHeader>
@@ -357,6 +390,28 @@ export default function AllocationBatchDetailPage({
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {canApprove && (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            aria-label="Select all visible rows"
+                            checked={
+                              filteredAllocations.length > 0 &&
+                              filteredAllocations.every((a) => selectedIds.has(a.id))
+                            }
+                            onCheckedChange={(checked) => {
+                              setSelectedIds((prev) => {
+                                const next = new Set(prev);
+                                if (checked) {
+                                  filteredAllocations.forEach((a) => next.add(a.id));
+                                } else {
+                                  filteredAllocations.forEach((a) => next.delete(a.id));
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </TableHead>
+                      )}
                       <TableHead>Learner</TableHead>
                       <TableHead>Institution</TableHead>
                       <TableHead>Program</TableHead>
@@ -374,6 +429,22 @@ export default function AllocationBatchDetailPage({
                   <TableBody>
                     {filteredAllocations.map((a) => (
                       <TableRow key={a.id}>
+                        {canApprove && (
+                          <TableCell>
+                            <Checkbox
+                              aria-label={`Select ${a.learner_name}`}
+                              checked={selectedIds.has(a.id)}
+                              onCheckedChange={(checked) => {
+                                setSelectedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (checked) next.add(a.id);
+                                  else next.delete(a.id);
+                                  return next;
+                                });
+                              }}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="font-medium">{a.learner_name}</TableCell>
                         <TableCell>{a.learner_institution ?? '—'}</TableCell>
                         <TableCell>{a.learner_program ?? '—'}</TableCell>
@@ -430,6 +501,41 @@ export default function AllocationBatchDetailPage({
                   </>
                 ) : (
                   'Reset & remove'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={confirmRemoveSelected}
+          onOpenChange={(o) => { if (!removingSelected) setConfirmRemoveSelected(o); }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove {selectedIds.size} selected allocation{selectedIds.size === 1 ? '' : 's'}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes just the selected student{selectedIds.size === 1 ? '' : 's'} from
+                this batch{batch.status === 'approved' ? ' and frees the bed(s) they occupy' : ''}.
+                The rest of the batch is unaffected. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={removingSelected}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  doRemoveSelected();
+                }}
+                disabled={removingSelected}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {removingSelected ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Removing…
+                  </>
+                ) : (
+                  'Remove selected'
                 )}
               </AlertDialogAction>
             </AlertDialogFooter>
