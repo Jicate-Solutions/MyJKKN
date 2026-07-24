@@ -31,7 +31,7 @@ export function ClearedTab({ filters }: { filters: AccountantReportFilters }) {
         ]}
       />
       <ReportSection title='Cleared Bills by College'>
-        <ReportBarChart data={rows} categoryKey='group_label' valueKey='cleared_amount' loading={byCollege.isLoading} horizontal />
+        <ReportBarChart data={rows.map((r) => ({ ...r }))} categoryKey='group_label' valueKey='cleared_amount' loading={byCollege.isLoading} horizontal />
       </ReportSection>
       <ReportSection title='Detail'>
         <ReportTable columns={columns} rows={rows} loading={byCollege.isLoading} empty='No cleared bills for these filters.' />

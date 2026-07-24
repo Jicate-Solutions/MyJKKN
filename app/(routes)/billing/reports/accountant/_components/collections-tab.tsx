@@ -42,8 +42,8 @@ export function CollectionsTab({ filters }: { filters: AccountantReportFilters }
     <div className='space-y-6'>
       <ReportSection title='Collections' action={toggle}>
         {groupBy === 'date'
-          ? <ReportLineChart data={rows} categoryKey='group_label' valueKey='collected' loading={q.isLoading} />
-          : <ReportBarChart data={rows} categoryKey='group_label' valueKey='collected' loading={q.isLoading} horizontal />}
+          ? <ReportLineChart data={rows.map((r) => ({ ...r }))} categoryKey='group_label' valueKey='collected' loading={q.isLoading} />
+          : <ReportBarChart data={rows.map((r) => ({ ...r }))} categoryKey='group_label' valueKey='collected' loading={q.isLoading} horizontal />}
       </ReportSection>
       <ReportSection title='Detail'>
         <ReportTable columns={columns} rows={rows} loading={q.isLoading} empty='No collections for these filters.' />

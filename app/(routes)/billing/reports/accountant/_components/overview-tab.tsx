@@ -26,10 +26,10 @@ export function OverviewTab({ filters }: { filters: AccountantReportFilters }) {
       />
       <div className='grid grid-cols-1 gap-6 lg:grid-cols-2'>
         <ReportSection title='Collection Trend'>
-          <ReportLineChart data={byDate.data ?? []} categoryKey='group_label' valueKey='collected' loading={byDate.isLoading} />
+          <ReportLineChart data={(byDate.data ?? []).map((r) => ({ ...r }))} categoryKey='group_label' valueKey='collected' loading={byDate.isLoading} />
         </ReportSection>
         <ReportSection title='Collection by College'>
-          <ReportBarChart data={byCollege.data ?? []} categoryKey='group_label' valueKey='collected' loading={byCollege.isLoading} horizontal />
+          <ReportBarChart data={(byCollege.data ?? []).map((r) => ({ ...r }))} categoryKey='group_label' valueKey='collected' loading={byCollege.isLoading} horizontal />
         </ReportSection>
       </div>
     </div>
