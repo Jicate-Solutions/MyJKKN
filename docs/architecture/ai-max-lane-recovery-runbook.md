@@ -3,10 +3,10 @@ _Last updated: 2026-07-24. Keep this short and recovery-focused._
 
 ## What this box does
 The AI-Max Windows box (folder `~/jkkn-max-lane`, i.e. `C:\Users\Admin\jkkn-max-lane`)
-runs the ₹0 AI **workers ("drains")** that power MyJKKN's AI features off a single
-Claude Max subscription. This doc = how it's wired + how to fix it if it breaks.
+runs the ₹0 AI **drains** (background processes) that power MyJKKN's AI features off a
+single Claude Max subscription. This doc = how it's wired + how to fix it if it breaks.
 
-## The workers (Windows Scheduled Tasks, start at logon)
+## The drains (Windows Scheduled Tasks, start at logon)
 | Task name | Script | Powers |
 |---|---|---|
 | `ai.jkkn.maxlane.ai-chat` | `ai-chat-drain.mjs` | the live **AI Assistant** (per-user chat) |
@@ -27,12 +27,12 @@ Claude Max subscription. This doc = how it's wired + how to fix it if it breaks.
    updates install but wait for a manual restart, so nothing interrupts the drains.
 5. **Cloud complement** — MyJKKN PR #2324: the `/api/cron/ai-tasks-sweep` cron (every 15 min)
    auto-requeues any job stuck >10 min (interactive chats excluded), so a job orphaned by a
-   dead worker self-recovers even before the worker restarts.
+   dead drain self-recovers even before the drain restarts.
 
 ## Health checks
 - **Heartbeats (from anywhere with DB access):** `maxlane:chat-drain` and
   `maxlane:poller-heartbeat` rows in `ai_routine_schedules` should refresh every few seconds.
-  Stale = that worker is down.
+  Stale = that drain is down.
 - **On the box (PowerShell):**
   - Uptime: `(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime`
   - Drains running: `Get-Process node`
