@@ -126,7 +126,7 @@ CRITICAL: sequence_no must be a single strictly-increasing integer across the WH
 // ONLY differences are the primary axis (a K1-K6 Bloom level instead of a Fink
 // dimension) and the JSON schema's primary field (`primary_bloom_level`). Fink stays a
 // HYBRID: each outcome still carries its fink_dimension — Bloom is primary, Fink secondary.
-const BLOOM_SYSTEM_PROMPT = `You are a curriculum designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved syllabus.
+const BLOOM_SYSTEM_PROMPT = `You are a learning-framework designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved learning pathway.
 
 You will receive the syllabus's units/chapters and its Course Learning Outcomes (CLOs, each with a clo_number and k_values — the Bloom cognitive levels K1-K6 the CLO targets: K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
 
@@ -682,7 +682,8 @@ export async function GET(request: NextRequest) {
       if (!syllabus) continue; // no syllabus for THIS course's institution — skip (the ~87% path)
       // Read the course's BoS-FIXED taxonomy. A course whose regulation has NO taxonomy
       // fixed is SKIPPED AND FLAGGED — never silently defaulted to Fink (Director rule).
-      const taxonomy = taxByKey.get(`${syllabus.regulation_id}|${c.institution_id}`);
+      const regId = syllabus.regulation_id;
+      const taxonomy = taxByKey.get(`${regId}|${c.institution_id}`);
       if (!taxonomy) { skippedNoTaxonomy++; continue; }
       tenantMatched.push({
         course_id: c.id,

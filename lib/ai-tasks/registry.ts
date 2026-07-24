@@ -364,7 +364,7 @@ CRITICAL: sequence_no must be a single strictly-increasing integer across the WH
 // IDENTICAL to the bulk cron's BLOOM_SYSTEM_PROMPT and the Mac twin's — all three writers
 // of curriculum_lesson stay in PROMPT/PARSE LOCKSTEP. Only the primary axis differs from
 // REGEN_SYSTEM_PROMPT: a K1-K6 Bloom level, not a Fink dimension. Fink stays a HYBRID.
-const REGEN_BLOOM_SYSTEM_PROMPT = `You are a curriculum designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved syllabus.
+const REGEN_BLOOM_SYSTEM_PROMPT = `You are a learning-framework designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved learning pathway.
 
 You will receive the syllabus's units/chapters and its Course Learning Outcomes (CLOs, each with a clo_number and k_values — the Bloom cognitive levels K1-K6 the CLO targets: K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
 
@@ -561,11 +561,12 @@ const curriculumLessonSpineRegen: AiTaskType = {
     // regulation_id). 'finks' → Fink-primary prompt, 'blooms' → Bloom-primary. No taxonomy
     // fixed → skip-and-flag; never silently default to Fink (Director rule).
     let taxonomy: RegenTaxonomy | null = null;
-    if (syllabus.regulation_id) {
+    const regId = syllabus.regulation_id;
+    if (regId) {
       const { data: taxRow } = await admin
         .from('bos_regulation_taxonomies')
         .select('taxonomy_type')
-        .eq('regulation_id', syllabus.regulation_id)
+        .eq('regulation_id', regId)
         .eq('institutions_id', course.institution_id)
         .maybeSingle();
       const tt = taxRow?.taxonomy_type;
