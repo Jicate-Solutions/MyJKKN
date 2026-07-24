@@ -1,71 +1,61 @@
-# CONTINUATION BRIEF — AI Pulse: unlock starters, go live, quiz
+# CONTINUATION BRIEF — AI Pulse leaderboard build + close-out
 
-TASK (single start-here): **Fire the programme-level starter-unlock batch** — the session ended mid-fire on exactly this. Then, ranked by the Director: **(1) fire batch → (2) go live tonight's cycle → (3) post-session quiz from recording → (4) reconcile the "400+ prompts" number.** Carry all; drop nothing. Graduation "usage"-axis decision also still open (carried).
+**TASK (single start-here + ranked):** The Director ranked next session's work (verbatim): **(1) Verify the quiz-response + publication data substrate → (2) BUILD the AI Pulse leaderboard + gamification to a Draft PR [AUTO-BUILD TARGET] → (3) Post-session quiz ③ from the recording → (4) Merge PR #2316 + deploy — LAST.** Drops: none, carry everything. Must-read first, in order: `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/project_aipulse_leaderboard_gamification.md` (the 20-decision LOCKED spec — primary build source) + `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/project_aipulse_prompt_engineering_learning_loop.md` (parent loop) + `app/(routes)/ai-pulse/lab/[cycle]/_components/dept-ranking-panel.tsx` (existing dept-ranking panel to build on).
 
-PROJECT: /Users/omm/PROJECTS/MyJKKN (jkkn.ai, multi-tenant; omm-dev checkout is SHARED — work in worktrees off jicate/main, never `git add -A`). Prod Supabase ref `kvizhngldtiuufknvehv`, Mgmt token `~/.supabase/access-token` (non-default UA). CFT browser: connect via `list_connected_browsers` → the browser named **"23jul"** (logged in on prod jkkn.ai). The automation Chrome is a SANDBOXED profile — the user's normal login does NOT reach it; use switch_browser/select_browser to the logged-in one.
+**PROJECT:** MyJKKN, `/Users/omm/PROJECTS/MyJKKN`, jkkn.ai, multi-tenant. This `omm-dev` checkout is SHARED and 720+ commits diverged from `jicate/main` — never `git add -A`, never push `omm-dev` to `main`. Ship via the **Translator Pattern**: worktree off `jicate/main` → copy files → Draft PR. Prod Supabase ref `kvizhngldtiuufknvehv`. Mgmt token at `~/.supabase/access-token` (send a NON-default User-Agent header or the API 403s). Every new SECURITY DEFINER RPC MUST `REVOKE EXECUTE ... FROM anon, PUBLIC` + `GRANT EXECUTE ... TO authenticated` (Supabase default-grants `anon` on every new function).
 
-READ FIRST: memory `project_aipulse_prompt_engineering_learning_loop.md` (now marked LIVE) + `reference_nattraja_vidhyalaya_rcltp_english_only.md`. Spec `specs/ai-pulse-prompt-engineering-learning-loop-2026-07-22.md`.
-
----
-
-## WHAT HAPPENED THIS SESSION (all verified)
-
-- **The whole AI Pulse build-from-parts loop went LIVE.** All 6 PRs merged + DEPLOYED (prod build `my-jkkn-kr487hs49`). Switches flipped GLOBAL 2026-07-23 ~14:03 IST: `prompt_build_enabled=true`, `domain_starter_autorevert_enabled=true`. `prompt_graduation_enabled` HELD false (0 builds; Director must define the "usage" axis first). Verified card renders (fn returns true) + screenshotted live.
-- **Auto-revert (#2295) + graduation (#2297) built + merged this session** (my two Draft PRs → Director merged all four incl. #2291/#2292). #2291 got a terminology fix (student→learner). #2292 had a vercel.json cron conflict I resolved (union of grade+graduate crons).
-- **Today's cycle CONFIG set up + saved** (cycle id `d9e6b0d4-4b99-4270-8c40-4be80c214327`, status still **draft**): briefing_topic_text="Gemini 3.6 Flash in Google Canvas — spot the upgrade, then prompt for it"; challenge_text (old-vs-new + four-part prompt build); host_user_id=`b2bcb548-...` (Ommsharravana S = director); featured_tool_id=`3531f40a` (Gemini); meet_url=the standing Teams link `https://teams.microsoft.com/meet/4475235362024?p=TXsoq4ycHmq5g96kox`. you_said_we_changed left blank (no real feedback data).
-- **Session content researched** (web): the "new model" = **Gemini 3.6 Flash** (released 21 Jul 2026) — an EFFICIENCY upgrade to the Flash line (better coding/multimodal, ~17% fewer tokens), NOT a Pro/reasoning leap. Reframe for learners: fundamentals don't change; lean into bigger multi-step + multimodal + richer context. Could not confirm consumer-app/Canvas availability.
-- **Two-quiz model CONFIRMED (Director was right):** (a) LIVE polls = champion composes+issues polls in real time during the session (`ai_pulse_polls`, champion-polls-control) — nothing to pre-set-up; (b) POST-SESSION quiz = authored/`config.quiz`, shown in the 60-min window after, gates engagement, bilingual EN+TA, AI-suggested FROM THE RECORDING. So neither needs pre-session authoring.
-
----
+## WHAT HAPPENED LAST SESSION (all verified)
+- **AI Pulse STARTER BATCH went LIVE.** Fired domain-starter jobs for 39 higher-ed programmes (1,413 active learners, 6 institutions) via `fn_ai_enqueue_system` (job_type `ai_pulse.domain_starter`, lane=max, payload `{prompt,_ctx}`, dedupe `aipulse_ds|<cycle>|programme|<topic_id>`). Cycle **`d9e6b0d4-4b99-4270-8c40-4be80c214327`**. All 39 generated + **COLLECTED via collect-only** (NOT the cron — the cron would re-enqueue the 13 originals) → `ai_pulse_domain_starters` now **52** (13 orig + 39). Verified end-to-end by impersonating a real BDS learner (auth `65f3ae8f`). **K-12 school grades (LKG/UKG/PREKG/GRADE 1-9/Standard 1-12 — 24 programmes / 778 learners) DELIBERATELY EXCLUDED as age-inappropriate. Do NOT reopen or fire for them.**
+- **PR #2316 (Jicate-Solutions/MyJKKN) — Ready, on CI, all bespoke gates green.** Branch `aipulse-tamil-champion-fixes`, worktree `/Users/omm/PROJECTS/MyJKKN/.claude/worktrees/aipulse-fixes`. Three changes: (a) removed the domain-starter Tamil review gate (migration `20260723210000` ALREADY APPLIED to prod — `fn_ai_pulse_my_domain_starters` no longer checks `ta_review_status`; `tamil_available` = pack contains `'ta'`); (b) super_admin bypass on live-session poll control; (c) prompt-builder submit toasts. Also removed the champion Tamil-approval admin UI (`starter-tamil-review`). **2 orphaned RPCs left for post-deploy cleanup:** `fn_ai_pulse_domain_starter_ta_review`, `fn_ai_pulse_domain_starters_pending_tamil`.
+- **Diagnosed 6 Director-reported items to root cause:** **B1** prompt-builder "submit does nothing" = `fn_ai_pulse_submit_prompt_build` raises `not_a_learner` for non-learners (Director is super_admin, `learner_id=null`) + card `onError` only logged → fixed via toasts in #2316. **B2** prompts land in `ai_pulse_prompt_builds`, AI-graded on the ₹0 Max lane. **B5** quiz leaderboard NEVER BUILT. **B6** LIVE POLLS FAILED (513 attended, 0 polls) — root cause: `usePermissions()` empties `userRoles` for super_admins so the `ai_pulse_champion` gate was false for every super_admin → fixed via `isSuperAdmin` bypass in #2316. **④** "400 prompts" reconciled to ~378 potential (63 programmes × 6). Also granted Director the `ai_pulse_champion` role (belt-and-suspenders; the real fix is the #2316 code).
+- **Leaderboard + gamification FULLY DESIGNED** via a 20-question / 5-round plain-English interview. All decisions LOCKED in `project_aipulse_leaderboard_gamification.md`.
 
 ## VERIFY CURRENT STATE (read-only — run BEFORE acting)
-
 ```bash
-# 1. Loop still live + starter count (13 = batch NOT fired; >13 = someone fired it)
-#    Mgmt API, ref kvizhngldtiuufknvehv, Bearer ~/.supabase/access-token, non-default UA:
-#    select (select value_jsonb from ai_pulse_policies where config_key='prompt_build_enabled') as build_live,
-#           (select count(*) from ai_pulse_domain_starters) as starters,
-#           (select status from startup_events where id='d9e6b0d4-4b99-4270-8c40-4be80c214327') as cycle_status;
-#    Expected as of session end: build_live=true, starters=13, cycle_status=draft
-# 2. Any max-lane jobs already queued? (did the batch partly fire?)
-#    select count(*) from ai_jobs where job_type='ai_pulse.domain_starter' and status in ('queued','running');
+# 1. Is #2316 merged yet / CI green?
+gh pr view 2316 --repo Jicate-Solutions/MyJKKN --json state,mergeStateStatus,statusCheckRollup
+
+# 2. Starters still 52 for the cycle + switches still on (Mgmt API, non-default UA)
+#    SELECT count(*) FROM ai_pulse_domain_starters WHERE cycle_id='d9e6b0d4-4b99-4270-8c40-4be80c214327';
+#    SELECT config_key, value_jsonb FROM ai_pulse_policies
+#      WHERE config_key IN ('domain_starter_enabled','prompt_build_enabled','domain_starter_autorevert_enabled') AND is_active;
+
+# 3. Leaderboard-build substrate introspection (Mgmt API):
+#    Quiz table?     SELECT table_name FROM information_schema.tables
+#                      WHERE table_schema='public' AND table_name ILIKE '%quiz%';
+#    Publication?    SELECT table_name FROM information_schema.tables
+#                      WHERE table_schema='public' AND (table_name ILIKE '%publication%' OR table_name ILIKE '%publish%');
+#    Build cols:     SELECT column_name FROM information_schema.columns
+#                      WHERE table_name='ai_pulse_prompt_builds';   -- expect learner_id, grade(jsonb), institution_id
+#    Learner dims:   confirm learners_profiles.department_id, institution_id, lifecycle_status='active'
+
+# 4. Confirm active population (~4,180):
+#    SELECT count(*) FROM learners_profiles WHERE lifecycle_status='active';
 ```
-As of 2026-07-23 18:47 IST: build_live=true, autorevert=true, **starters=13**, **cycle_status=draft**. Tonight's live session was 18:55 IST — go-live (#2) may already be moot if resuming after; the starter batch (#1) is NOT time-bound.
+If a **quiz-response** table or a **publication** table does NOT exist, STOP and surface that to the Director before building those axes — do NOT invent tables.
 
----
+## THE LEADERBOARD BUILD (rank 2 — AUTO-BUILD TARGET) — 20 LOCKED DECISIONS
+**One point pool: participation + quality, EQUAL weight.** Earn for doing, bonus for doing well.
+- **Publishing (IG / GitHub / LinkedIn) = worth the MOST** — requires LIGHT PROOF (student pastes a post link/screenshot on the publish claim; champions glance at flagged ones — NOT pure honor system).
+- **Build-a-prompt only counts if it passes the 4-part quality check** (role / context / task / format the grader already runs) + a grade bonus.
+- **Quiz = FIRST attempt only** (stops answer-hunting); scored **RELATIVE to that week's quiz-takers** (percentile) so a hard week doesn't punish points.
+- **Starter-use = small points** (`ai_pulse_domain_starters.copies`).
+- **Reported + champion-confirmed-bad prompt LOSES its points** (report path = the loop's quality signal, feeds anti-farming).
+- **Three boards:** (a) **individual** — weekly **and** all-time, **FULLY PUBLIC**, ties broken by higher QUALITY score; (b) **dept within-college**; (c) **dept all-JKKN**. Both dept boards ranked by **average points per ACTIVE student** (non-participation drags a dept down → drives broad adoption).
+- **Streak** = any ONE activity that week (build OR quiz OR starter-use) keeps it alive; consecutive weeks.
+- **Badges (all 4):** First Prompt · Gold Prompt · **Quiz Ace = top 10% of the week's quiz-takers** · Loyal Streak.
+- **Staff / faculty / champions = SEPARATE staff board** (not on the students-only main board).
+- **New/mid-year joiners:** the weekly board is their fair shot; all-time deliberately rewards long-timers. NO separate newcomer board, NO per-joiner clock.
 
-## ① FIRE THE STARTER-UNLOCK BATCH (rank 1 — was mid-fire, INTERACTIVE prod action)
+**Craft (Claude decides at build):** point values (draft: publish **30**, build **10 + grade bonus**, quiz **10 + relative bonus**, starter **5**); min dept size **≥3 ACTIVE** to appear (privacy floor); no-department learners → individual board only; publish-proof UI = link/screenshot field on the publication claim. **New leaderboard RPCs are SECURITY DEFINER → MUST REVOKE anon, PUBLIC + GRANT authenticated.** Build on the existing `dept-ranking-panel.tsx` in the Lab console; deliver RPCs + views + a leaderboard page + badges.
 
-**Goal:** every learner sees a prompt. There are **6,920 learners across 106 programmes**; only **13 programme-level starters exist**. Generate the ~93 missing programmes (programme-level covers everyone; course-level = 3,808 = too heavy/wasteful, the topic query literally timed out — do NOT do course-level).
+## KEY DECISIONS (rationale — do NOT relitigate)
+- **K-12 excluded** — age-appropriate; leave the 24 school programmes / 778 learners out permanently.
+- **Leaderboard trusts the loop to self-correct** (report → confirm-bad → lose points) — that's WHY there are no manual approval gates.
+- **Merge #2316 + deploy ranked LAST by the Director** — multi-tenant institutional risk; human-gated.
+- **Super_admin poll bug is why polls never fired** (513 attended, 0 polls) — `usePermissions()` empties `userRoles` for super_admins; fixed by the `isSuperAdmin` bypass in #2316. See `feedback_usepermissions_empties_userroles_for_superadmins.md`.
+- **Tamil gate removed permanently** (Director decision — the loop self-corrects Tamil quality; migration already live).
+- **probe_verdict: healthy** — context held a very long multi-thread session accurately.
 
-**Mechanism (all verified this session):**
-- Enqueue RPC: `fn_ai_enqueue_system(p_job_type text, p_payload jsonb, p_dedupe_key text)` → returns `{ok, job_id, error}`. (`in_flight` = dedupe hit.)
-- Job type `ai_pulse.domain_starter`: enabled=true, lane=`max`, interactive=false ✓.
-- Payload shape (from `enqueueJobsLane` in `lib/services/platform/ai-jobs-lane.ts`): `{ "prompt": <FULL assembled prompt>, "_ctx": { cycle_id, topic_type:'programme', topic_id, topic_label, institution_id, learner_count, is_control:false } }`. dedupe_key = `aipulse_ds|<cycle_id>|programme|<topic_id>`.
-- **NEXT MICRO-STEP (where I stopped):** get the EXACT prompt to reuse verbatim (don't hand-retype the ~500-word SYSTEM_PROMPT — typo risk). Read one existing completed job: `select payload->>'prompt', payload->'_ctx' from ai_jobs where job_type='ai_pulse.domain_starter' and payload->>'prompt' is not null limit 1;`. buildPrompt for a NEW programme (no prior) = SYSTEM_PROMPT + `\n\nSubject / programme: <label>.\n\nReturn the JSON pack now.` (empty improve-block). Swap only the label per programme.
-- Programmes to generate = the ~93 programmes with enrolled learners lacking a starter for this cycle. Get: `select p.id, p.program_name/label, count(lp) as learner_count, <institution_id> from programs p join learners_profiles lp on lp.program_id=p.id where p.id not in (select topic_id from ai_pulse_domain_starters where topic_type='programme' and cycle_id='d9e6b0d4...') group by p.id;` (confirm column names — `programs` table; earlier `programmes`=128 total, 106 have learners).
-- Then loop `fn_ai_enqueue_system` per programme. The Windows Max-lane runner drains them; the generation cron's COLLECT step (`fn_ai_pulse_record_domain_starter`) records the packs. English auto-publishes; Tamil lands `ta_review_status='pending'`.
-- **Verify after:** watch `ai_pulse_domain_starters` count climb toward ~106 over the next few hours (Monitor or poll). ~93 jobs = hours to drain, NOT minutes.
-- **Caveat:** this is a design shift (demand-gated → pre-generated). At programme level it's the right call (near-total coverage, minimal waste) — Director explicitly said "fire it now."
-
-## ② GO LIVE TONIGHT'S CYCLE (rank 2 — TIME-SENSITIVE, likely moot post-18:55)
-
-Cycle `d9e6b0d4` is status `draft`. The admin cycle-detail page had NO explicit publish/go-live button (only Save/Edit-quiz/Cancel). Go-live is via the LIVE session: `/ai-pulse/live/[cycle]` — the champion (Ommsharravana=director) opens the doors / issues polls there (`join_open`, `quiz_open`, champion-polls-control). Was still mapping the exact "open doors" control when /cnext fired. **If resuming after ~19:30 IST tonight, this is moot** — the session window passed; note it and move on.
-
-## ③ POST-SESSION QUIZ (rank 3 — after the session)
-Once tonight's session has a recording, generate the bilingual quiz FROM the recording via the "AI-suggest 5 questions" button at `/ai-pulse/admin/quiz/d9e6b0d4-...` (it said "no recording → placeholder" pre-session). Do NOT hand-author Tamil (rule #24). I have 4 English concept questions drafted in the transcript if a manual backup is wanted.
-
-## ④ RECONCILE "400+ PROMPTS" (rank 4)
-Director was told "more than 400 prompts" but sees 13. Reality: 13 starters × 6 (EN+TA × build/skill/career) = ~78 prompts; potential = 3,808 courses / 106 programmes. "400" sourced from neither. Open `/ai-pulse/admin` → "Admin · AI Starters" (nav link seen) to find where 400 came from; ask the Director which screen they saw it on.
-
----
-
-## KEY DECISIONS (rationale — don't relitigate)
-- **Programme-level unlock, NOT course-level.** 106 programmes cover all 6,920 learners; 3,808 courses is wasteful + the topic-resolution query timed out. The engine gates on ATTENDANCE (reads `ai_pulse_live_attendance`), so a config threshold change alone won't unlock zero-attendance subjects — you must generate from ENROLLMENT.
-- **Reuse the exact existing prompt** for the batch (read an existing job's payload), don't retype the SYSTEM_PROMPT.
-- **Graduation held** (`prompt_graduation_enabled=false`): inert (0 builds) + its "usage" axis is undefined (builds have no reuse signal → v1 = checklist-score-only). Director defines "usage" before flipping.
-- **Rollback for anything live** = flip the switch false (1 UPDATE, no redeploy).
-- **probe_verdict: healthy** — context held a very long multi-thread session (build → merge → deploy → go-live → cycle setup → batch) accurately.
-
-## EXECUTION DIRECTIVE (armed by /cnext — READ THE OVERRIDE)
-The autobuild default does NOT cleanly apply here: priorities ①②③④ are **INTERACTIVE PROD ACTIONS** (enqueue prod jobs, flip a live cycle, drive the CFT UI), NOT "build code to a Draft PR." The autobuild's stop-at-Draft-PR / never-touch-prod guard means it will NOT fire the batch or go-live on its own. So on `go`: run VERIFY CURRENT STATE, then proceed INTERACTIVELY with rank ① (fire the batch) — confirming the programme list + reusing the exact prompt — since the Director already said "fire it now." Do NOT wait for a Draft-PR-shaped task that doesn't exist here. If any real code-build surfaces (e.g. a candidate-fn change), THAT part may go to a Draft PR.
+## EXECUTION DIRECTIVE (autobuild ARMED)
+On `go`: **FIRST run VERIFY CURRENT STATE.** Then proceed autonomously through the ranked priorities, with the **LEADERBOARD BUILD (rank 2) as the primary autonomous build** — its first step IS rank 1 (verify the quiz/publish data substrate). Then build the leaderboard (RPCs + views + leaderboard page + badges) per the 20-decision spec to a **DRAFT PR via the Translator Pattern** (worktree off `jicate/main`). **STOP at the Draft PR — do NOT merge, do NOT deploy** (multi-tenant institutional risk). **Rank 4 (merge #2316 + deploy) is HUMAN-gated — surface it for the Director, do not do it autonomously.** Post-session quiz ③ (rank 3) only if a recording exists. If the quiz-response / publication tables do NOT exist, surface that to the Director before building those axes rather than inventing tables.

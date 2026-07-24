@@ -1,3 +1,27 @@
+## Session: 2026-07-24 (END /cnext) [pane dde309c4] — AI Pulse starter batch LIVE + PR #2316 (Tamil-gate/poll-fix) Ready-on-CI + leaderboard DESIGN LOCKED
+
+### Accomplished
+- AI Pulse starter batch fired + collected LIVE: 39 higher-ed programmes (1,413 active learners, 6 institutions), K-12 (24 school grades) deliberately EXCLUDED; ai_pulse_domain_starters=52; verified end-to-end as real BDS learner (auth 65f3ae8f).
+- PR #2316 (aipulse-tamil-champion-fixes) Ready + ALL bespoke CI gates green (ran Build Depth Gate Step 2.7): removed domain-starter Tamil review gate (migration 20260723210000 APPLIED to prod) + super_admin poll-control bypass (B6 fix) + prompt-builder submit toasts (B1 fix) + removed champion Tamil-approval admin UI.
+- Diagnosed all 6 Director-reported items to root cause (B1/B2/B5/B6 + "400"-recon). Root cause of dead live polls (513 attended, 0 polls) = usePermissions() empties userRoles for super_admins.
+- Leaderboard + gamification FULLY DESIGNED via 20-decision / 5-round interview → project_aipulse_leaderboard_gamification.md.
+
+### Current Status
+- **PR #2316**: Ready, on CI, bespoke gates green — awaiting Director merge (Director ranked merge+deploy LAST).
+- **Branch**: aipulse-tamil-champion-fixes (worktree .claude/worktrees/aipulse-fixes)
+- **Build**: batch live + verified; leaderboard not yet built.
+
+### Lessons Learned
+- usePermissions() returns userRoles:[] for super_admins → UI role-gates must OR-in the isSuperAdmin flag (feedback_usepermissions_empties_userroles_for_superadmins.md).
+
+### Next Session — Tasks
+1. [P0] Verify quiz-response + publication data substrate (leaderboard prereq) (small)
+2. [P0] BUILD AI Pulse leaderboard + gamification per the 20-decision spec → Draft PR [AUTOBUILD TARGET] (large)
+3. [P1] Post-session quiz ③ from the recording, if one exists (small)
+4. [P2] Merge #2316 + deploy — LAST, human-gated (small)
+
+---
+
 ## Session: 2026-07-24 (END /cnext) [pane d3c5ac02] — AI Models + AI Studio tabs UNIFIED into one "AI Jobs" console; SHIPPED + DEPLOYED + VERIFIED LIVE; then Managed-Agents strategy
 
 ### Accomplished
