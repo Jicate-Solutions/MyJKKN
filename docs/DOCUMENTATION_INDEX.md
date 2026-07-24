@@ -20,6 +20,7 @@ Architecture and design specs live under `specs/` at the repo root (not under `d
 - [docs/SPEC-exceptions-privileges.md](SPEC-exceptions-privileges.md) — Exceptions + privileges spec
 - [docs/SPEC-CALL-INTELLIGENCE-PIPELINE.md](SPEC-CALL-INTELLIGENCE-PIPELINE.md) — Call intelligence pipeline
 - [docs/SPEC-EXOTEL-ADVANCED.md](SPEC-EXOTEL-ADVANCED.md) — Exotel advanced integration
+- [docs/architecture/ai-max-lane-recovery-runbook.md](architecture/ai-max-lane-recovery-runbook.md) — AI Max-lane Windows box: how it's wired, health checks & recovery runbook
 
 ---
 
