@@ -35,6 +35,23 @@ export interface ConfirmationSplitResult {
   error?: string;
 }
 
+/**
+ * Org-hierarchy narrowing from the Statistics tab's "Attendance Filters" bar,
+ * below institution + academic year:
+ *   Degree > Department > Programme > Semester > Section.
+ *
+ * Grouped into one object rather than five more positional parameters: the
+ * callers below already take four, and five consecutive optional strings is
+ * exactly how an argument-order slip turns into a silent wrong-scope result.
+ */
+export interface AttendanceHierarchyFilter {
+  degreeId?: string;
+  departmentId?: string;
+  programId?: string;
+  semesterId?: string;
+  sectionId?: string;
+}
+
 export class AttendanceDashboardService {
   private static supabase = createClientSupabaseClient();
 
@@ -47,7 +64,8 @@ export class AttendanceDashboardService {
   static async getConfirmationSplit(
     fromDate: string,
     toDate: string,
-    institutionId?: string
+    institutionId?: string,
+    hierarchy: AttendanceHierarchyFilter = {}
   ): Promise<ConfirmationSplitResult> {
     // A failed policy read must not surface an error card for a feature that may
     // well be 'off'. getPolicy* already fail-soft on the RPC's error field, but a
@@ -77,14 +95,17 @@ export class AttendanceDashboardService {
       return { gateMode, windowHours, split: null };
     }
 
-    // Institution + date scoped, matching the sibling attendance stat cards.
-    // The RPC also accepts p_program_id/p_department_id/p_section_id, but the
-    // attendance dashboard's Statistics section (DashboardFilterState) exposes
-    // no program/department/section filter — only institution + academic year —
-    // so there is nothing narrower to forward here. academic_year is redundant
-    // for a single date (a day maps to one academic year), so it is not passed.
-    // If a finer dashboard filter is added later, thread it through to these
-    // already-present RPC params.
+    // Institution + date scoped, matching the sibling attendance stat cards, and
+    // now narrowed by the dashboard's hierarchy filters through the RPC's
+    // already-present p_program_id/p_department_id/p_section_id params.
+    // academic_year is redundant for a single date (a day maps to one academic
+    // year), so it is not passed.
+    //
+    // NOTE — this rollup has no p_degree_id/p_semester_id. A Degree- or
+    // Semester-only selection therefore narrows the attendance stat cards above
+    // but NOT this split, which stays at the next-widest scope it can express.
+    // `?? null`, never `|| null`: '' would flow through as a real uuid and match
+    // zero rows.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (this.supabase as any).rpc(
       'fn_scf_confirmation_rollup',
@@ -92,6 +113,9 @@ export class AttendanceDashboardService {
         p_from: fromDate,
         p_to: toDate,
         p_institution_id: institutionId ?? null,
+        p_program_id: hierarchy.programId ?? null,
+        p_department_id: hierarchy.departmentId ?? null,
+        p_section_id: hierarchy.sectionId ?? null,
         p_window_hours: windowHours
       }
     );
@@ -137,7 +161,8 @@ export class AttendanceDashboardService {
       userInstitutionId?: string,
       canViewAllInstitutions: boolean = false,
       dateString?: string,
-      academicYearId?: string
+      academicYearId?: string,
+      hierarchy: AttendanceHierarchyFilter = {}
     ): Promise<AttendanceStats[]> => {
       try {
         const today = dateString || new Date().toISOString().split('T')[0];
@@ -157,7 +182,12 @@ export class AttendanceDashboardService {
             // `?? null`, never `|| null`: '' would flow through as a real uuid
             // parameter and match zero rows (breaking "All Institutions").
             p_institution_id: userInstitutionId ?? null,
-            p_academic_year_id: academicYearId ?? null
+            p_academic_year_id: academicYearId ?? null,
+            p_degree_id: hierarchy.degreeId ?? null,
+            p_department_id: hierarchy.departmentId ?? null,
+            p_program_id: hierarchy.programId ?? null,
+            p_semester_id: hierarchy.semesterId ?? null,
+            p_section_id: hierarchy.sectionId ?? null
           }
         );
 

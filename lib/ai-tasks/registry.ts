@@ -90,8 +90,10 @@ CRITICAL: Never express understanding as a number, score, average, rating out of
 // Facilitator-facing understanding must never reach the model as a raw number: a
 // printed baseline/target invites gaming ("keep scoring 3.6"). Feed a qualitative
 // band instead. Mirrors the sync route (ai-suggest-improvement) + the SCF cron.
-// Thresholds match the generator gate: LOW < 3, MIXED < 4.5, STRONG >= 4.5. The
-// loop still records the numeric avg to the backend for its own measurement.
+// Display band (recalibrated 2026-07-24): LOW < 3, MIXED < 4.0, STRONG >= 4.0 —
+// mirrors understandingLevel in components/session-feedback/understanding-band.tsx.
+// The cron's STANDOUT_THRESHOLD (4.5) success-note gate is deliberately NOT moved.
+// The loop still records the numeric avg to the backend for its own measurement.
 // Group size in WORDS for the prompt (Director, 2026-07-09: printed counts in
 // tiny samples let a student subtract themselves and teach the trigger recipe).
 function groupSizeWord(n: number): string {
@@ -107,7 +109,7 @@ function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
   if (a < 3) return 'low';
-  if (a < 4.5) return 'mixed';
+  if (a < 4.0) return 'mixed';
   return 'strong';
 }
 

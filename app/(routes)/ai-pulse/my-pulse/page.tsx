@@ -32,6 +32,7 @@ import { QuickActionsCard } from '../_components/quick-actions-card';
 import { PulseImpactCard } from './_components/pulse-impact-card';
 import { PdeProgressCard } from './_components/pde-progress-card';
 import { DomainStarterCard } from './_components/domain-starter-card';
+import { PromptBuilderCard } from './_components/prompt-builder-card';
 import { WeekSwitcher, type SwitcherCycle } from './_components/week-switcher';
 
 // "Week of Jul 23" style label for the cycle switcher; falls back to the cycle
@@ -205,6 +206,12 @@ export default async function AiPulseLearnerPage({
               generation loop is dark (kill switch off) or no starter exists. */}
           <div className="md:col-span-2">
             <DomainStarterCard cycleId={cycle?.id} />
+          </div>
+          {/* Build-a-prompt — learn prompt engineering by assembling a prompt
+              from four parts, then get an AI grade. Renders nothing while dark
+              (prompt_build_enabled off). */}
+          <div className="md:col-span-2">
+            <PromptBuilderCard cycleId={cycle?.id} />
           </div>
           {/* Gold Standard — "this week" recognition; only on the current cycle. */}
           {isCurrentCycle && gold && (

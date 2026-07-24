@@ -518,7 +518,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
-  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -723,6 +722,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
@@ -1073,6 +1074,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -1336,6 +1341,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents': 'ims.indents.view',
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
+  // Phase D: HOD queue — gated on view (queue itself is scoped by
+  // departments.head_of_department_id, so non-HODs just see an empty state)
+  '/ims/indents/hod-approvals': 'ims.indents.view',
   '/ims/indents/[id]': 'ims.indents.view',
   '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
@@ -1820,6 +1828,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/referral-rates',
+              label: 'Rates & Generate',
+              active: pathname === '/admission/consultants/referral-rates'
+            },
+            {
+              href: '/admission/consultants/import',
+              label: 'Import Referrals',
+              active: pathname === '/admission/consultants/import'
             },
             {
               href: '/admission/consultants/payouts',
@@ -2418,6 +2436,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
+            { href: '/ims/indents/hod-approvals', label: 'Indents · HOD Approvals', active: pathname === '/ims/indents/hod-approvals' },
             { href: '/ims/transfers', label: 'Transfers', active: pathname.startsWith('/ims/transfers') },
             { href: '/ims/sales', label: 'Sales (POS)', active: pathname === '/ims/sales' },
             { href: '/ims/sales/history', label: 'Sales · History', active: pathname === '/ims/sales/history' },
@@ -2594,7 +2613,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
-            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }

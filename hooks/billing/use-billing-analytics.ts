@@ -20,6 +20,8 @@ export const billingAnalyticsKeys = {
     [...billingAnalyticsKeys.all, 'aging', institutionIds ?? null] as const,
   byCategory: (institutionIds?: string[]) =>
     [...billingAnalyticsKeys.all, 'by-category', institutionIds ?? null] as const,
+  collectionSplit: (f: BillingAnalyticsFilters) =>
+    [...billingAnalyticsKeys.all, 'collection-split', f] as const,
   userActivity: (f: BillingAnalyticsFilters) =>
     [...billingAnalyticsKeys.all, 'user-activity', f] as const,
   dailyActivity: (f: BillingAnalyticsFilters) =>
@@ -72,6 +74,16 @@ export function useAgingBuckets(filters: BillingAnalyticsFilters) {
   return useQuery({
     queryKey: billingAnalyticsKeys.aging(filters.institution_ids),
     queryFn: () => BillingAnalyticsService.getAging(filters),
+    staleTime: STALE,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Management vs Government vs Unallocated collection. */
+export function useCollectionSplit(filters: BillingAnalyticsFilters) {
+  return useQuery({
+    queryKey: billingAnalyticsKeys.collectionSplit(filters),
+    queryFn: () => BillingAnalyticsService.getCollectionSplit(filters),
     staleTime: STALE,
     placeholderData: (prev) => prev,
   });

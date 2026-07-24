@@ -14,6 +14,9 @@ export const billingScheduleSearchParamsSchema = z.object({
   institution_id: z.string().optional(),
   student_id: z.string().optional(),
   item_category_id: z.string().optional(),
+  // Ownership of the fee (billing_categories.collection_type) — 'government'
+  // fees are collected on behalf of a government body, not institution revenue.
+  collection_type: z.enum(['management', 'government']).optional(),
   status: z.enum(['paid', 'unpaid', 'partially_paid', 'cancelled', 'overdue', 'refunded']).optional(),
   // Learner lifecycle status (learners_profiles.lifecycle_status). Free-form
   // string — the service eq()'s it against the embedded learner.

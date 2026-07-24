@@ -59,13 +59,14 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   chairman: 1,
   university_nominee: 2,
   subject_expert: 3,
-  industry_expert: 4,
-  alumni: 5,
-  internal_member: 6,
-  hod: 7,
-  startup: 8,
-  facilitator: 9,
-  principal: 10,
+  academic_expert: 4,
+  industry_expert: 5,
+  alumni: 6,
+  internal_member: 7,
+  hod: 8,
+  startup: 9,
+  facilitator: 10,
+  principal: 11,
 };
 
 function memberTypeRank(t: string | null | undefined): number {

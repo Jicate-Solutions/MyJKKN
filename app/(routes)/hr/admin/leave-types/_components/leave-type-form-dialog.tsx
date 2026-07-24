@@ -26,6 +26,16 @@ interface Props {
   onOpenChange: (o: boolean) => void;
   hrOrgId: string;
   leaveType?: HRLeaveType | null;
+  /**
+   * Fired after a successful create/update, before the dialog closes.
+   *
+   * The list is rendered by the generic DataTable, which fetches through
+   * `fetchDataFn` rather than React Query — so the `invalidateQueries` these
+   * mutations already perform is invisible to it unless some other mounted
+   * component happens to hold an ['hr-leave-types'] query. This callback is the
+   * deterministic signal; see leave-types-data-table.tsx.
+   */
+  onSaved?: () => void;
 }
 
 const EMPTY = {
@@ -50,7 +60,7 @@ const EMPTY = {
   applicable_gender: 'all' as LeaveApplicableGender,
 };
 
-export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: Props) {
+export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, onSaved }: Props) {
   const [form, setForm] = useState({ ...EMPTY });
   const create = useCreateHRLeaveType();
   const update = useUpdateHRLeaveType();
@@ -177,6 +187,7 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType }: 
         await create.mutateAsync(insertPayload);
         toast.success('Leave type created');
       }
+      onSaved?.();
       onOpenChange(false);
     } catch (err) {
       toast.error(getErrorMessage(err));

@@ -166,6 +166,19 @@ export function AutoTabNav({
         if (normalizeRoute(c.href).startsWith('/learners/my-marks/')) {
           return false;
         }
+        // LC Structure has its own richer in-page sub-nav (SectionSubNav in
+        // learners-council/structure/layout.tsx with Portfolio Committees /
+        // Terms / Verticals), so suppress the duplicate auto sub-tabs. The
+        // trailing slash keeps the "Structure" parent chip in the section
+        // tier — only its children are dropped.
+        if (normalizeRoute(c.href).startsWith('/learners-council/structure/')) {
+          return false;
+        }
+        // Same for YUVA Chapters — its layout renders SectionSubNav
+        // (Chapters / Members), so the auto sub-tabs would duplicate it.
+        if (normalizeRoute(c.href).startsWith('/learners-council/yuva/')) {
+          return false;
+        }
         if (
           residentOnlyCampusLiving &&
           tierIdx === 0 &&

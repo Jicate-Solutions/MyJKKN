@@ -60,7 +60,9 @@ export class BillingCategoryService {
             frequency: data.frequency,
             kind: data.kind,
             description: data.description?.trim() || null,
-            is_active: data.is_active ?? true
+            is_active: data.is_active ?? true,
+            visible_to_learners: data.visible_to_learners ?? true,
+            collection_type: data.collection_type
           }
         ])
         .select('*')
@@ -120,6 +122,9 @@ export class BillingCategoryService {
       if (data.description !== undefined)
         updateData.description = data.description?.trim() || null;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
+      if (data.visible_to_learners !== undefined)
+        updateData.visible_to_learners = data.visible_to_learners;
+      if (data.collection_type) updateData.collection_type = data.collection_type;
 
       const { data: category, error } = await (this.supabase
         .from('billing_categories') as any)
@@ -228,7 +233,17 @@ export class BillingCategoryService {
     filters: BillingCategoryFilters = {}
   ): Promise<BillingCategoryListResponse> {
     try {
-      const { search, frequency, isActive, page = 1, limit = 10, sortBy, sortOrder } = filters;
+      const {
+        search,
+        frequency,
+        isActive,
+        collectionType,
+        visibleToLearners,
+        page = 1,
+        limit = 10,
+        sortBy,
+        sortOrder
+      } = filters;
 
       let query = (this.supabase as any)
         .from('billing_categories')
@@ -246,10 +261,19 @@ export class BillingCategoryService {
         query = query.eq('is_active', isActive);
       }
 
+      if (collectionType) {
+        query = query.eq('collection_type', collectionType);
+      }
+
+      if (visibleToLearners !== undefined) {
+        query = query.eq('visible_to_learners', visibleToLearners);
+      }
+
       // Whitelist sortable columns (guards against arbitrary order-by injection from
       // the DataTable). Default to category_name asc — the prior fixed behaviour.
       const SORTABLE = new Set([
-        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at'
+        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at',
+        'collection_type', 'visible_to_learners'
       ]);
       const orderColumn = sortBy && SORTABLE.has(sortBy) ? sortBy : 'category_name';
       const ascending = orderColumn === 'category_name' ? sortOrder !== 'desc' : sortOrder === 'asc';

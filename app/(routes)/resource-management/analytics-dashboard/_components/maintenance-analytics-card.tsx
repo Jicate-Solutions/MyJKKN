@@ -30,7 +30,7 @@ export function MaintenanceAnalyticsCard({
           <Skeleton className='h-6 w-48' />
         </CardHeader>
         <CardContent>
-          <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
             {Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className='h-24' />
             ))}
@@ -51,7 +51,7 @@ export function MaintenanceAnalyticsCard({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+        <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
           {/* Total Maintenance */}
           <div className='flex items-center gap-4 rounded-lg border p-4'>
             <div className='flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30'>
@@ -144,7 +144,7 @@ export function MaintenanceAnalyticsCard({
         {data.by_type && data.by_type.length > 0 && (
           <div className='mt-6'>
             <h3 className='text-sm font-semibold mb-3'>By Maintenance Type</h3>
-            <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4'>
+            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4'>
               {data.by_type.map((type) => (
                 <div
                   key={type.maintenance_type}
@@ -169,7 +169,7 @@ export function MaintenanceAnalyticsCard({
         {data.by_priority && data.by_priority.length > 0 && (
           <div className='mt-4'>
             <h3 className='text-sm font-semibold mb-3'>By Priority</h3>
-            <div className='grid gap-2 sm:grid-cols-2 lg:grid-cols-4'>
+            <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4'>
               {data.by_priority
                 .sort((a, b) => b.priority - a.priority)
                 .map((priority) => {
