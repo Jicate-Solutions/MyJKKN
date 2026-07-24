@@ -48,6 +48,10 @@
       "schedule": "7 22 * * *"
     },
     {
+      "path": "/api/cron/scf-prepared-pulse-sweep?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/pde-case-due-soon?secret=${CRON_SECRET}",
       "schedule": "23 2 * * *"
     },
