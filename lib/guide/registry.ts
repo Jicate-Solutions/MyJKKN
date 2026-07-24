@@ -50,6 +50,13 @@ import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/con
 import { GUIDES as SCHOOLS_NETWORK_GUIDES, REQUIRES as SCHOOLS_NETWORK_REQUIRES } from "../admission/schools-network/guide/content";
 import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES } from "../foundation/guide/content";
 import { GUIDES as AUDIT_GUIDES, REQUIRES as AUDIT_REQUIRES } from "../audit/guide/content";
+import {
+  GUIDES as ID_CARDS_GUIDES,
+  REQUIRES as ID_CARDS_REQUIRES,
+  entrySections as ID_CARDS_ENTRY_SECTIONS,
+  setupSections as ID_CARDS_SETUP_SECTIONS,
+  printSections as ID_CARDS_PRINT_SECTIONS,
+} from "../id-cards/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -69,7 +76,7 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
   coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator],
   supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, ACADEMIC_REQUIRES.registrar, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager, AUDIT_REQUIRES.auditor],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin, ID_CARDS_REQUIRES.templates, ID_CARDS_REQUIRES.operator],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -1023,7 +1030,35 @@ export const auditGuide: ModuleGuide = {
   ],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide];
+/* ── ID Cards (physical ID card printing — registrar / module admin) ─────────
+ * ONE registrar lane → module-admin. The lane COLLAPSES two permission groups:
+ * setup sections (card template + printer policy) gated by
+ * id_cards.templates.edit, and printing sections (enqueue + queue watching)
+ * gated by id_cards.jobs.manage — so a viewer who can print but not redesign
+ * the template still gets the printing steps, and vice versa (fail-closed).
+ * Section order follows the registrar's real workflow: find the module, set up
+ * the template, check the printer policy, then print and watch the queue.
+ * basePath /admin/id-cards is the module hub (policy / template / print-queue).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const idCardsGuide: ModuleGuide = {
+  module: "id-cards",
+  basePath: "/admin/id-cards",
+  lanes: {
+    "module-admin": {
+      sections: [
+        ...withRequires(ID_CARDS_ENTRY_SECTIONS, ID_CARDS_REQUIRES.operator),
+        ...withRequires(ID_CARDS_SETUP_SECTIONS, ID_CARDS_REQUIRES.templates),
+        ...withRequires(ID_CARDS_PRINT_SECTIONS, ID_CARDS_REQUIRES.operator),
+      ],
+      startHere: ID_CARDS_GUIDES.lanes.registrar.startHere,
+      title: ID_CARDS_GUIDES.lanes.registrar.title,
+      tagline: ID_CARDS_GUIDES.lanes.registrar.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide, idCardsGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -1062,6 +1097,7 @@ const MODULE_LABELS: Record<string, string> = {
   okr: "OKR",
   "schools-network": "Schools Network",
   foundation: "Foundation Programme",
+  "id-cards": "ID Cards",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -1104,6 +1140,7 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   okr: OKR_GUIDES.glossary ?? [],
   "schools-network": SCHOOLS_NETWORK_GUIDES.glossary ?? [],
   foundation: FOUNDATION_GUIDES.glossary ?? [],
+  "id-cards": ID_CARDS_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */
