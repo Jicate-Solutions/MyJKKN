@@ -8172,3 +8172,22 @@ CREATE POLICY hlt_write ON public.hr_leave_types
   FOR ALL TO authenticated
   USING      (public.user_has_permission('hr.leave.types.manage'))
   WITH CHECK (public.user_has_permission('hr.leave.types.manage'));
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat policies (migration
+-- 20260724045622_id_card_agent_status.sql). Reads mirror
+-- id_card_print_jobs_admin_view (queue viewers + admins); writes are
+-- service-role only (the jobs route heartbeat).
+ALTER TABLE public.id_card_agent_status ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "id_card_agent_status_view" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_view"
+  ON public.id_card_agent_status FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('id_cards.jobs.view')
+  );
+
+DROP POLICY IF EXISTS "id_card_agent_status_service_role_all" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_service_role_all"
+  ON public.id_card_agent_status FOR ALL TO service_role
+  USING (true) WITH CHECK (true);

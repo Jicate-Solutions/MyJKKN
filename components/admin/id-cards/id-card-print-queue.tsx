@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import {
   RefreshCw,
   RotateCcw,
@@ -19,7 +19,13 @@ import {
   Loader2,
   Send,
   AlertCircle,
+  Wifi,
+  WifiOff,
+  HelpCircle,
 } from 'lucide-react';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -85,6 +91,92 @@ function StatusBadge({ status }: { status: IdCardPrintJobStatus }) {
     >
       {cfg.icon}
       {cfg.label}
+    </span>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Bridge heartbeat chip — is the on-prem print bridge alive?
+//
+// Reads id_card_agent_status.last_poll_at (singleton row id=1, written by the
+// jobs API whenever the bridge polls with a valid agent token) every 30 s via
+// the browser Supabase client — the table's SELECT policy covers queue viewers.
+//   • last poll within 120 s  → green  "Print bridge online"
+//   • older                   → red    "Print bridge silent since <relative>"
+//   • row missing / any error → neutral "Bridge status unknown"
+// ──────────────────────────────────────────────────────────────────────────────
+const BRIDGE_ONLINE_WINDOW_MS = 120_000;
+const BRIDGE_REFRESH_MS = 30_000;
+
+type BridgeStatus =
+  | { state: 'online' }
+  | { state: 'silent'; lastPollAt: string }
+  | { state: 'unknown' };
+
+function BridgeStatusChip() {
+  const [status, setStatus] = useState<BridgeStatus>({ state: 'unknown' });
+
+  useEffect(() => {
+    let cancelled = false;
+    // id_card_agent_status is newer than the generated Database types — use the
+    // untyped client view (established repo pattern for post-typegen tables).
+    const supabase = createClientSupabaseClient() as unknown as SupabaseClient;
+
+    const check = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('id_card_agent_status')
+          .select('last_poll_at')
+          .eq('id', 1)
+          .maybeSingle();
+        if (cancelled) return;
+        const lastPollAt = (data as { last_poll_at?: string } | null)?.last_poll_at;
+        if (error || !lastPollAt) {
+          setStatus({ state: 'unknown' });
+          return;
+        }
+        const ageMs = Date.now() - new Date(lastPollAt).getTime();
+        setStatus(
+          ageMs <= BRIDGE_ONLINE_WINDOW_MS
+            ? { state: 'online' }
+            : { state: 'silent', lastPollAt },
+        );
+      } catch {
+        if (!cancelled) setStatus({ state: 'unknown' });
+      }
+    };
+
+    check();
+    const interval = setInterval(check, BRIDGE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (status.state === 'online') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300">
+        <Wifi className="h-3 w-3" />
+        Print bridge online
+      </span>
+    );
+  }
+
+  if (status.state === 'silent') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+        <WifiOff className="h-3 w-3" />
+        Print bridge silent since{' '}
+        {formatDistanceToNow(new Date(status.lastPollAt), { addSuffix: true })}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+      <HelpCircle className="h-3 w-3" />
+      Bridge status unknown
     </span>
   );
 }
@@ -208,7 +300,8 @@ export function IdCardPrintQueue() {
     <div className="space-y-4">
       {/* Header bar */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <BridgeStatusChip />
           <span className="text-sm text-muted-foreground">
             {jobs ? `${jobs.length} job${jobs.length !== 1 ? 's' : ''}` : '—'}
             {activeCount > 0 && (

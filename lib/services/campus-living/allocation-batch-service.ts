@@ -163,10 +163,10 @@ export class AllocationBatchService {
       if (bdErr) {
         logger.error(LOG, 'getBatches breakdown failed', bdErr);
       } else {
-        ((bd ?? []) as { batch_id: string; category: string; rooms: number; beds: number }[]).forEach(
+        ((bd ?? []) as { batch_id: string; category: string; floors: string | null; rooms: number; beds: number }[]).forEach(
           (row) => {
             const list = breakdowns.get(row.batch_id) ?? [];
-            list.push({ category: row.category, rooms: row.rooms, beds: row.beds });
+            list.push({ category: row.category, floors: row.floors, rooms: row.rooms, beds: row.beds });
             breakdowns.set(row.batch_id, list);
           }
         );
