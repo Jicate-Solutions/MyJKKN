@@ -16411,22 +16411,36 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_batch_mess_categories(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_batch_mess_categories(uuid) TO authenticated;
 
--- fn_batch_room_category_breakdown: per-room-category rooms/beds breakdown for allocation
--- batches (batches list page). A batch spans multiple room categories, so the single
--- batches.category_id is not representative; the list shows this breakdown instead.
+-- fn_batch_room_category_breakdown: per-room-category rooms/beds/floors breakdown for
+-- allocation batches (batches list page). A batch spans multiple room categories, so the
+-- single batches.category_id is not representative; the list shows this breakdown instead.
+-- Updated 2026-07-24: added `floors` (distinct floors touched, comma-joined).
+-- DROP first — CREATE OR REPLACE cannot change an existing function's RETURNS TABLE shape.
+DROP FUNCTION IF EXISTS public.fn_batch_room_category_breakdown(uuid[]);
 CREATE OR REPLACE FUNCTION public.fn_batch_room_category_breakdown(p_batch_ids uuid[])
-RETURNS TABLE(batch_id uuid, category text, rooms int, beds int)
+RETURNS TABLE(batch_id uuid, category text, floors text, rooms int, beds int)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT a.batch_id,
-         COALESCE(hc.name, 'Uncategorised') AS category,
-         count(DISTINCT a.room_id)::int AS rooms,
-         count(a.bed_id)::int AS beds
-  FROM hostel_allocations a
-  LEFT JOIN hostel_rooms r ON r.id = a.room_id
-  LEFT JOIN hostel_categories hc ON hc.id = r.category_id
-  WHERE a.batch_id = ANY(p_batch_ids)
-  GROUP BY a.batch_id, hc.name
-  ORDER BY a.batch_id, hc.name;
+  WITH joined AS (
+    SELECT a.batch_id,
+           COALESCE(hc.name, 'Uncategorised') AS category,
+           a.room_id,
+           a.bed_id,
+           r.floor
+    FROM hostel_allocations a
+    LEFT JOIN hostel_rooms r ON r.id = a.room_id
+    LEFT JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE a.batch_id = ANY(p_batch_ids)
+  )
+  SELECT j.batch_id, j.category,
+         (SELECT string_agg(f::text, ', ' ORDER BY f)
+          FROM (SELECT DISTINCT floor AS f FROM joined j2
+                WHERE j2.batch_id = j.batch_id AND j2.category = j.category) sub
+         ) AS floors,
+         count(DISTINCT j.room_id)::int AS rooms,
+         count(j.bed_id)::int AS beds
+  FROM joined j
+  GROUP BY j.batch_id, j.category
+  ORDER BY j.batch_id, j.category;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_batch_room_category_breakdown(uuid[]) FROM anon, PUBLIC;
