@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useHostelRoomWithOccupancy } from '@/hooks/campus-living/use-hostel-rooms';
 import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import { RoomFormDialog } from '../_components/room-form-dialog';
+import { RoomConditionPhotosCard } from '../_components/room-condition-photos-card';
 import {
   formatRoomPurpose,
   formatTierAccess,
@@ -346,6 +347,8 @@ export default function RoomDetailPage({
             </Card>
           </div>
         </div>
+
+        <RoomConditionPhotosCard roomId={roomId} />
       </div>
 
       <RoomFormDialog
