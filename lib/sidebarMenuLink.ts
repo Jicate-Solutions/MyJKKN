@@ -28,6 +28,7 @@ import {
   BookOpen,
   ClipboardCheck,
   Gauge,
+  IdCard,
   Lock,
   LucideIcon,
   LayoutGrid,
@@ -544,6 +545,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
+
+  // ID Cards (nav wiring 2026-07-24) — keys from PERMISSION_CATEGORIES
+  // (lib/constants/permissions.ts, id_cards group). Hub redirects to policy.
+  '/admin/id-cards': 'id_cards.jobs.view',
+  '/admin/id-cards/template': 'id_cards.templates.view',
+  '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
+  // so the nav entry mirrors it — no id_cards.* policy-view key exists.
+  '/admin/id-cards/policy': 'super_admin',
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
   // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
@@ -1074,6 +1084,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -2540,6 +2554,19 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/lifecycle', label: 'Lifecycle Analytics', active: pathname.startsWith('/learners/lifecycle') },
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
+          ]
+        },
+        {
+          // ID Cards (nav wiring 2026-07-24) — print queue, template editor
+          // and printer policy for the on-prem card-print bridge.
+          href: '/admin/id-cards',
+          label: 'ID Cards',
+          active: pathname.startsWith('/admin/id-cards'),
+          icon: IdCard,
+          submenus: [
+            { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
+            { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
+            { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
         }
       ]

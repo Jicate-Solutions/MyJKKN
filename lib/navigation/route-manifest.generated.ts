@@ -773,6 +773,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/referral-rates",
+            "label": "Referral Rates",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/referrals",
             "label": "Referrals",
             "iconName": "Users",
@@ -2031,6 +2037,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": [
           {
             "path": "/bos/experts/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/bos/governing-body",
+        "label": "Governing Body",
+        "iconName": "Building2",
+        "children": [
+          {
+            "path": "/bos/governing-body/new",
             "label": "New",
             "iconName": "Plus",
             "children": []

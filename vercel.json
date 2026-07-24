@@ -32,6 +32,10 @@
       "schedule": "17,47 * * * *"
     },
     {
+      "path": "/api/cron/mba-associate-sync?secret=${CRON_SECRET}",
+      "schedule": "53 4 * * *"
+    },
+    {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },

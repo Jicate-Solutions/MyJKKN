@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,6 +50,7 @@ export default function AllocationBatchDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { can, isSuperAdmin } = usePermissions();
   const { data, isLoading, refetch } = useAllocationBatch(id);
   const { approve, reject, reset } = useAllocationBatchActions();
@@ -58,9 +59,19 @@ export default function AllocationBatchDetailPage({
   const [resetting, setResetting] = useState(false);
   const [detail, setDetail] = useState<ProposedAllocation | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [filterCleared, setFilterCleared] = useState(false);
 
   const batch = data?.batch ?? null;
   const allocations = data?.allocations ?? [];
+  // A batch spans every room category its block-wide run touched (see the
+  // Batches list page), so "Deluxe Room" / "Premium Room" rows there both
+  // link to this same batch. This carries the category the operator clicked
+  // through as a view-only filter on the table below — it does not scope
+  // Approve/Reject/Reset/Export, which always act on the whole batch.
+  const categoryFilter = filterCleared ? null : searchParams.get('category');
+  const filteredAllocations = categoryFilter
+    ? allocations.filter((a) => a.room_category === categoryFilter)
+    : allocations;
   const canApprove = isSuperAdmin || can('campus_living.allocations.approve');
   const isPending = batch?.status === 'pending_approval';
 
@@ -132,14 +143,39 @@ export default function AllocationBatchDetailPage({
     );
   }
 
-  // Summary stats for this batch.
-  const studentsAllocated = allocations.length;
+  // Summary stats for this batch. Driven by filteredAllocations so the cards
+  // stay in sync with the category filter/badge on the table below — picking
+  // "Deluxe Room" from the Batches list shows Deluxe-only numbers here too,
+  // not the whole batch's combined totals.
+  const studentsAllocated = filteredAllocations.length;
   const roomsUsed = new Set(
-    allocations.map((a) => a.room_number).filter(Boolean)
+    filteredAllocations.map((a) => a.room_number).filter(Boolean)
   ).size;
-  const bedsAllocated = allocations.filter((a) => a.bed_number).length;
+  const bedsAllocated = filteredAllocations.filter((a) => a.bed_number).length;
   const blockCapacity = batch.block_total_capacity;
   const blockOccupancy = batch.block_current_occupancy;
+
+  // Per-room-category breakdown — a batch can span multiple room categories
+  // (Classic/Deluxe/Premium) at once, so a single combined total hides how
+  // many of each this batch actually used. Only rendered when a batch spans
+  // more than one category; single-category batches (and a filtered view,
+  // which is always single-category) keep the plain total.
+  const categoryStatsMap = new Map<string, { students: number; rooms: Set<string>; beds: number }>();
+  for (const a of filteredAllocations) {
+    const cat = a.room_category ?? 'Uncategorized';
+    const entry = categoryStatsMap.get(cat) ?? { students: 0, rooms: new Set<string>(), beds: 0 };
+    entry.students += 1;
+    if (a.room_number) entry.rooms.add(a.room_number);
+    if (a.bed_number) entry.beds += 1;
+    categoryStatsMap.set(cat, entry);
+  }
+  const categoryStats = [...categoryStatsMap.entries()].map(([category, s]) => ({
+    category,
+    students: s.students,
+    rooms: s.rooms.size,
+    beds: s.beds,
+  }));
+  const hasMultipleCategories = categoryStats.length > 1;
 
   return (
     <ContentLayout title="Allocation Batch">
@@ -210,8 +246,19 @@ export default function AllocationBatchDetailPage({
                 <Users className="h-4 w-4" />
                 <span className="text-xs">Students Allocated</span>
               </div>
-              <p className="text-2xl font-bold mt-1">{studentsAllocated}</p>
-              {batch.skipped_count > 0 && (
+              {hasMultipleCategories ? (
+                <div className="mt-1 space-y-0.5">
+                  {categoryStats.map((c) => (
+                    <div key={c.category} className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs text-muted-foreground truncate">{c.category}</span>
+                      <span className="text-sm font-semibold">{c.students}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-2xl font-bold mt-1">{studentsAllocated}</p>
+              )}
+              {!categoryFilter && batch.skipped_count > 0 && (
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {batch.skipped_count} skipped
                 </p>
@@ -224,7 +271,18 @@ export default function AllocationBatchDetailPage({
                 <DoorOpen className="h-4 w-4" />
                 <span className="text-xs">Rooms Used</span>
               </div>
-              <p className="text-2xl font-bold mt-1">{roomsUsed}</p>
+              {hasMultipleCategories ? (
+                <div className="mt-1 space-y-0.5">
+                  {categoryStats.map((c) => (
+                    <div key={c.category} className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs text-muted-foreground truncate">{c.category}</span>
+                      <span className="text-sm font-semibold">{c.rooms}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-2xl font-bold mt-1">{roomsUsed}</p>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -233,7 +291,18 @@ export default function AllocationBatchDetailPage({
                 <BedDouble className="h-4 w-4" />
                 <span className="text-xs">Beds Allocated</span>
               </div>
-              <p className="text-2xl font-bold mt-1">{bedsAllocated}</p>
+              {hasMultipleCategories ? (
+                <div className="mt-1 space-y-0.5">
+                  {categoryStats.map((c) => (
+                    <div key={c.category} className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs text-muted-foreground truncate">{c.category}</span>
+                      <span className="text-sm font-semibold">{c.beds}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-2xl font-bold mt-1">{bedsAllocated}</p>
+              )}
             </CardContent>
           </Card>
           <Card>
@@ -254,14 +323,34 @@ export default function AllocationBatchDetailPage({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Proposed mapping ({allocations.length})
-            </CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base">
+                Proposed mapping ({filteredAllocations.length}
+                {categoryFilter ? ` of ${allocations.length}` : ''})
+              </CardTitle>
+              {categoryFilter && (
+                <Badge variant="secondary" className="gap-1.5">
+                  {categoryFilter}
+                  <button
+                    type="button"
+                    onClick={() => setFilterCleared(true)}
+                    aria-label="Clear category filter"
+                    className="hover:text-destructive"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {allocations.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
                 No allocations in this batch.
+              </p>
+            ) : filteredAllocations.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No allocations in the {categoryFilter} category for this batch.
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -283,7 +372,7 @@ export default function AllocationBatchDetailPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allocations.map((a) => (
+                    {filteredAllocations.map((a) => (
                       <TableRow key={a.id}>
                         <TableCell className="font-medium">{a.learner_name}</TableCell>
                         <TableCell>{a.learner_institution ?? '—'}</TableCell>
@@ -292,8 +381,8 @@ export default function AllocationBatchDetailPage({
                         <TableCell>{a.block_name ?? '—'}</TableCell>
                         <TableCell>{a.room_number ?? '—'}</TableCell>
                         <TableCell>{a.room_floor ?? '—'}</TableCell>
-                        <TableCell>{a.room_category ?? '—'}</TableCell>
-                        <TableCell>{a.mess_category ?? '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{a.room_category ?? '—'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{a.mess_category ?? '—'}</TableCell>
                         <TableCell>{a.bed_number ?? '—'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">

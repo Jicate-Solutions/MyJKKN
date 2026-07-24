@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 //         Reachable from EITHER a user session (super_admin / registrar / admission)
 //         OR an agent-token (Bearer ${AGENT_PRINT_TOKEN}). Agent uses this to poll for work.
 
-import { NextRequest, connection } from 'next/server';
+import { NextRequest, after, connection } from 'next/server';
 import { z } from 'zod';
 import { jsonOk, jsonError } from '@/lib/id-cards/responses';
 import { requireUser, requireUserOrAgent, isAuthFailure } from '@/lib/id-cards/auth';
@@ -125,6 +125,29 @@ export async function GET(request: NextRequest) {
     // Either a user with a job-reader role OR a valid agent token may list jobs.
     const auth = await requireUserOrAgent(request, JOB_READER_ROLES);
     if (isAuthFailure(auth)) return jsonError(auth.message, 'forbidden', auth.status);
+
+    // Bridge heartbeat — record that the print bridge polled, so the print
+    // queue UI can show "Print bridge online / silent". Fire-and-forget via
+    // after() (runs once the response is sent, serverless-safe), and EVERY
+    // failure — including id_card_agent_status not existing yet, so deploy
+    // order never matters — is swallowed with at most a console.warn.
+    // Polling must never fail because of the heartbeat.
+    if (auth.kind === 'agent') {
+      after(async () => {
+        try {
+          const now = new Date().toISOString();
+          const { error } = await createServiceRoleClient()
+            .from('id_card_agent_status')
+            .update({ last_poll_at: now, updated_at: now })
+            .eq('id', 1);
+          if (error) {
+            console.warn('[id-cards/jobs] heartbeat skipped:', error.message);
+          }
+        } catch (err) {
+          console.warn('[id-cards/jobs] heartbeat skipped:', err);
+        }
+      });
+    }
 
     const url = new URL(request.url);
     const parsed = getQuerySchema.safeParse({

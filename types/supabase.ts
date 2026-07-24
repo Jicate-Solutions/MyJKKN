@@ -37823,6 +37823,57 @@ export type Database = {
           },
         ]
       }
+      hostel_room_condition_photos: {
+        Row: {
+          drive_file_id: string
+          file_name: string
+          file_size_bytes: number
+          file_url: string
+          id: string
+          mime_type: string
+          room_id: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          drive_file_id: string
+          file_name: string
+          file_size_bytes: number
+          file_url: string
+          id?: string
+          mime_type: string
+          room_id: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          drive_file_id?: string
+          file_name?: string
+          file_size_bytes?: number
+          file_url?: string
+          id?: string
+          mime_type?: string
+          room_id?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_condition_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_condition_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_room_occupancy"
+            referencedColumns: ["room_id"]
+          },
+        ]
+      }
       hostel_room_eligibility_rules: {
         Row: {
           block_id: string

@@ -16,8 +16,10 @@ export interface SchemeFilters {
 // React Query (singleton QueryClient in providers/query-client-provider.tsx)
 // served a previous session's data to the next caller until staleTime expired.
 // Pattern mirrors use-bos-board-scope.ts / use-bos-compositions.ts.
-const baseKey = (userId: string | null | undefined) =>
+export const bosCourseSchemeKey = (userId: string | null | undefined) =>
   ['bos', 'course-mapping', userId ?? 'anonymous'] as const;
+
+const baseKey = bosCourseSchemeKey;
 
 export interface BosSemester {
   id: string;
@@ -87,13 +89,21 @@ export function useBosCourseScheme(filters: SchemeFilters | null) {
   });
 }
 
+export type AddMappingInput = Record<string, unknown> & {
+  /** Exact scheme filters currently on screen — required for instant cache write. */
+  _filters: SchemeFilters;
+  /** Pre-built row so the table paints before the background refetch finishes. */
+  _optimistic: BosCourseMappingDetailed;
+};
+
 export function useAddMapping() {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const userId = profile?.id ?? null;
 
   return useMutation({
-    mutationFn: async (mapping: Record<string, unknown>) => {
+    mutationFn: async (input: AddMappingInput) => {
+      const { _filters, _optimistic, ...mapping } = input;
       const r = await fetch('/api/bos/course-mapping', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,9 +113,45 @@ export function useAddMapping() {
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || 'Add failed');
       }
-      return r.json();
+      const result = await r.json();
+      return { result, filters: _filters, optimistic: _optimistic };
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: baseKey(userId) }),
+    onSuccess: ({ result, filters, optimistic }) => {
+      // Prefer the server id when COE returns one so the later refetch can
+      // dedupe cleanly; fall back to the client optimistic row otherwise.
+      const created = (result?.data ?? result) as Partial<BosCourseMappingDetailed> | undefined;
+      const row: BosCourseMappingDetailed = {
+        ...optimistic,
+        ...(created && typeof created === 'object' && !Array.isArray(created)
+          ? {
+              id: typeof created.id === 'string' ? created.id : optimistic.id,
+              mapping_status: created.mapping_status ?? optimistic.mapping_status,
+              group_order: created.group_order ?? optimistic.group_order,
+              course_order: created.course_order ?? optimistic.course_order,
+            }
+          : null),
+      };
+
+      qc.setQueryData<{ data: BosCourseMappingDetailed[] }>(
+        [...baseKey(userId), filters],
+        (old) => {
+          if (!old?.data) return { data: [row] };
+          const withoutDup = old.data.filter(
+            (m) =>
+              m.id !== row.id &&
+              !(
+                m.id.startsWith('__opt_') &&
+                m.course_code === row.course_code &&
+                m.semester_code === row.semester_code
+              ),
+          );
+          return { ...old, data: [...withoutDup, row] };
+        },
+      );
+
+      // Background refresh for full COE join fields — cache already has the row.
+      void qc.invalidateQueries({ queryKey: baseKey(userId) });
+    },
   });
 }
 

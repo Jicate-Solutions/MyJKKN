@@ -62,11 +62,15 @@ export function getColumns({ canEdit, canDelete }: GetColumnsOptions): ColumnDef
       header: 'Council',
       cell: ({ row }) => {
         const m = row.original;
-        // Convening council/committee (drives TA/DA rate selection). AC
-        // meetings have no committee — the Academic Council itself convenes.
+        // Convening council/committee (drives TA/DA rate selection). Council
+        // meetings have no committee — the council body itself convenes.
         const name =
           m.committee?.name ??
-          (m.meeting_type === 'academic_council' ? 'Academic Council' : null);
+          (m.meeting_type === 'academic_council'
+            ? 'Academic Council'
+            : m.meeting_type === 'governing_body'
+              ? 'Governing Body'
+              : null);
         return name ? (
           <span className='text-sm'>{name}</span>
         ) : (

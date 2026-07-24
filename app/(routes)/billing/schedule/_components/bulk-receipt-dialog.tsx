@@ -102,7 +102,7 @@ export function BulkReceiptDialog({
 }: BulkReceiptDialogProps) {
   const [step, setStep] = useState<Step>('meta');
   const [meta, setMeta] = useState({
-    payment_mode: 'cash' as 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque',
+    payment_mode: 'cash' as 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque' | 'combined',
     payment_paid_date: new Date().toISOString().split('T')[0],
     payer_mode: 'student' as 'student' | 'fixed',
     payer_name_fixed: '',
@@ -516,6 +516,7 @@ export function BulkReceiptDialog({
                         <SelectItem value='bank_transfer'>Bank Transfer</SelectItem>
                         <SelectItem value='dd'>Demand Draft</SelectItem>
                         <SelectItem value='cheque'>Cheque</SelectItem>
+                        <SelectItem value='combined'>Combined Payment</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1367,7 +1368,8 @@ function PreviewPanel({
     online: 'Online',
     bank_transfer: 'Bank Transfer',
     dd: 'Demand Draft',
-    cheque: 'Cheque'
+    cheque: 'Cheque',
+    combined: 'Combined Payment'
   };
 
   const canCommit = result.groups.length > 0;

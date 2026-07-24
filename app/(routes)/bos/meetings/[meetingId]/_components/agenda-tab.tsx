@@ -100,15 +100,20 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) { toast.error('Title is required'); return; }
+    const hasDescription = !!stripHtml(description).trim();
+    if (!title.trim() && !hasDescription) {
+      toast.error('Add a title or description');
+      return;
+    }
     try {
       // When resolution fields are hidden, never overwrite any prior values —
       // pass through what was already on the item (or leave undefined on create).
       const payload = {
+        // Title is optional — description-only agenda items are allowed.
         item_title: title.trim(),
         // Rich-text (HTML). An "empty" editor still emits '<p></p>', so test the
         // stripped text before deciding whether to store anything.
-        item_description: stripHtml(description).trim() ? description : undefined,
+        item_description: hasDescription ? description : undefined,
         resolution_text: showResolutionFields
           ? (resolutionText.trim() || undefined)
           : (item?.resolution_text ?? undefined),
@@ -138,7 +143,7 @@ function AgendaItemFormDialog({ open, onClose, meetingId, meetingStatus, item }:
         </DialogHeader>
         <form onSubmit={handleSubmit} className='space-y-4'>
           <div className='space-y-2'>
-            <Label>Title <span className='text-destructive'>*</span></Label>
+            <Label>Title</Label>
             <Input
               placeholder='e.g. Review of Curriculum for CS301'
               value={title}
@@ -247,7 +252,12 @@ function AgendaItemRow({
 
         <div className='flex-1 min-w-0'>
           <div className='flex items-center gap-2 flex-wrap'>
-            <p className='font-medium text-sm'>{item.item_title}</p>
+            <p className={`font-medium text-sm ${item.item_title?.trim() ? '' : 'text-muted-foreground italic'}`}>
+              {item.item_title?.trim()
+                || (item.item_description
+                  ? stripHtml(item.item_description).trim().slice(0, 80) || 'Untitled'
+                  : 'Untitled')}
+            </p>
             {/* Suppress the resolution badge in pre-meeting stages — the
                 "Pending" default is noise before the meeting has happened. */}
             {!preMeeting && item.resolution_status && (
