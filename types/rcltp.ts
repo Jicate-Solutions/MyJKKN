@@ -139,6 +139,57 @@ export interface RcltpPartBQuestion {
   updated_by: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// 2a. AI-generated question metadata — the typed shape of
+//     rcltp_part_b_questions.ai_meta for an AI-drafted question. WRITTEN by
+//     lib/services/rcltp/question-generation-service.ts (2-pass generate +
+//     answer-key check) and RENDERED by the Part-B review console. The row's
+//     `ai_meta` column stays `Json | null` (manual questions have null / an
+//     arbitrary shape), so the console casts to this when a question is
+//     source='ai_generated'. Every field is optional so a partial/legacy
+//     ai_meta degrades gracefully in the UI.
+// ---------------------------------------------------------------------------
+
+/** Marzano's New Taxonomy level a question targets (locked decision #2). */
+export type RcltpMarzanoLevel =
+  | 'retrieval'
+  | 'comprehension'
+  | 'analysis'
+  | 'knowledge_utilization';
+
+/** Second-pass answer-key check verdict (locked decision #5). */
+export type RcltpKeyCheckVerdict = 'agree' | 'disagree' | 'ambiguous' | 'unchecked';
+
+/** One question's answer-key check result. */
+export interface RcltpQuestionKeyCheck {
+  index: number;
+  verdict: RcltpKeyCheckVerdict;
+  note?: string;
+}
+
+/**
+ * The AI's frozen original — kept verbatim so a Senior Learner's edit is a
+ * measurable "what changed" signal, the self-improving-loop input (decision #8).
+ */
+export interface RcltpQuestionAiDraft {
+  question_text: string;
+  question_type: string;
+  options: string[] | null;
+  correct_answer: string;
+}
+
+/** Parsed shape of rcltp_part_b_questions.ai_meta for an AI-generated question. */
+export interface RcltpQuestionAiMeta {
+  marzano_level?: RcltpMarzanoLevel;
+  is_stretch?: boolean;
+  rationale?: string;
+  checker?: RcltpQuestionKeyCheck;
+  ai_draft?: RcltpQuestionAiDraft;
+  generated_by_model?: string;
+  coverage_note?: string;
+  generated_via?: string;
+}
+
 /** rcltp_assessments — one assessment sitting (Part A voice + Part B comprehension). */
 export interface RcltpAssessment {
   id: string;
