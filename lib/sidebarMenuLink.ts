@@ -160,6 +160,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  // MBA Analyst dashboard — an associate's own assigned-department analytics.
+  '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA Analyst assignments — manager-only "who covers which department".
+  '/improvement-board/postings': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -622,7 +626,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
-  '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
@@ -1494,7 +1497,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
             { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
-            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
+            { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' }
           ]
         }
       ]

@@ -65,6 +65,20 @@ function isGoverningBodyNomineeType(name: string | null | undefined): boolean {
   return /governing\s*body/i.test(name);
 }
 
+// base_type values that represent EXTERNAL people (BoS Experts), not internal
+// staff. When Source = "External Expert" the Member Type dropdown is filtered to
+// these so only expert-appropriate types show; Source = "Staff (internal)" is
+// left unfiltered. Mirrors EXTERNAL_BASE_TYPES in the TA/DA rate-settings dialog.
+const EXTERNAL_EXPERT_BASE_TYPES: ReadonlySet<BosMemberType> = new Set<BosMemberType>([
+  'university_nominee',
+  'subject_expert',
+  'academic_expert',
+  'industry_expert',
+  'alumni',
+  'startup',
+  'student',
+]);
+
 type MemberSource = 'staff' | 'expert';
 
 /** Row shape returned by GET /api/bos/governing-body for the nominee picker. */
@@ -168,6 +182,12 @@ export function AddMemberDialog({
 }: AddMemberDialogProps) {
   const addMember = useAddBosMember();
 
+  // Source mirrors Governing Body / Academic Council: Staff (internal) vs
+  // External Expert. Drives the picker for every member type AND (below)
+  // filters the Member Type dropdown when External Expert is chosen.
+  const [source, setSource] = useState<MemberSource>('staff');
+  const [selectedGbMember, setSelectedGbMember] = useState<GbNomineeRow | null>(null);
+
   // Member type — table-driven when the institution has bos_member_types rows,
   // legacy hardcoded enum otherwise. Defaults are derived (not effect-synced):
   // null state = "user hasn't picked yet" → first row by sort_order.
@@ -180,6 +200,15 @@ export function AddMemberDialog({
       ),
     [memberTypes, excludeMemberTypes],
   );
+  // When Source = External Expert, restrict the Member Type dropdown to
+  // external (expert) types only. Staff (internal) leaves the list unfiltered.
+  const visibleMemberTypes = useMemo(
+    () =>
+      source === 'expert'
+        ? activeMemberTypes.filter((t) => EXTERNAL_EXPERT_BASE_TYPES.has(t.base_type))
+        : activeMemberTypes,
+    [activeMemberTypes, source],
+  );
   const legacyMemberTypeEntries = useMemo(
     () =>
       (Object.entries(BOS_MEMBER_TYPE_LABELS) as [BosMemberType, string][]).filter(
@@ -190,9 +219,15 @@ export function AddMemberDialog({
   const [memberTypeId, setMemberTypeId] = useState<string | null>(null);
   const [legacyMemberType, setLegacyMemberType] = useState<BosMemberType>('internal_member');
 
-  const effectiveMemberTypeId = memberTypeId ?? activeMemberTypes[0]?.id ?? null;
+  // Default to the first VISIBLE type. A stored id that isn't in the current
+  // (source-filtered) list is ignored here too — belt-and-suspenders with the
+  // source effect below — so the Select never shows a blank/hidden value.
+  const effectiveMemberTypeId =
+    memberTypeId && visibleMemberTypes.some((t) => t.id === memberTypeId)
+      ? memberTypeId
+      : visibleMemberTypes[0]?.id ?? null;
   const selectedTypeRow = effectiveMemberTypeId
-    ? activeMemberTypes.find((t) => t.id === effectiveMemberTypeId) ?? null
+    ? visibleMemberTypes.find((t) => t.id === effectiveMemberTypeId) ?? null
     : null;
   // Behaviour key used everywhere below (picker choice, payload member_type).
   const memberType: BosMemberType =
@@ -206,11 +241,6 @@ export function AddMemberDialog({
       ? (selectedTypeRow?.name ?? '')
       : BOS_MEMBER_TYPE_LABELS[legacyMemberType];
   const isGbNominee = isGoverningBodyNomineeType(memberTypeName);
-
-  // Source mirrors Governing Body / Academic Council: Staff (internal) vs
-  // External Expert. Drives the picker for every member type.
-  const [source, setSource] = useState<MemberSource>('staff');
-  const [selectedGbMember, setSelectedGbMember] = useState<GbNomineeRow | null>(null);
 
   // null = "user hasn't picked yet" → default to the first (lowest sort_order)
   // active committee; the API returns committees already ordered. Derived
@@ -298,8 +328,13 @@ export function AddMemberDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGbNominee, effectiveMemberTypeId, legacyMemberType]);
 
-  // Switching Internal/External clears the current pick.
+  // Switching Internal/External clears the current pick. It also resets the
+  // Member Type selection: External Expert filters the list to expert types,
+  // so a previously chosen internal type (or vice-versa) must not linger as a
+  // now-hidden id — null lets effectiveMemberTypeId re-default to the first
+  // visible type.
   useEffect(() => {
+    setMemberTypeId(null);
     setSelectedFacilitator(null);
     setSelectedExpert(null);
     setSelectedGbMember(null);
@@ -484,7 +519,7 @@ export function AddMemberDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeMemberTypes.map((t) => (
+                  {visibleMemberTypes.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}
                     </SelectItem>

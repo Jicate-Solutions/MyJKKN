@@ -51,6 +51,7 @@ const EXTERNAL_BASE_TYPES: ReadonlySet<string> = new Set([
   'industry_expert',
   'alumni',
   'startup',
+  'student',
 ]);
 
 interface CatalogType {

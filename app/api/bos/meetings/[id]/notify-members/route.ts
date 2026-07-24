@@ -11,11 +11,13 @@ import {
 import { isCouncilMeetingType, bosCallLetterFilename } from '@/types/bos';
 import { generateMeetingScheduledEmailHtml } from '@/lib/services/email-service';
 import {
-  resolveBosEmailTemplate,
   renderBosEmailTemplate,
+  resolveMeetingBodyType,
+  resolveBosEmailTemplateForBody,
 } from '@/lib/services/bos-email-templates';
 import {
   resolveBosSmtpConfig,
+  resolveBosBoardSender,
   sendBosEmail,
   resolveBosSenderDisplayName,
 } from '@/lib/services/bos-email-sender';
@@ -74,7 +76,7 @@ export async function POST(
     const { data: meeting, error: meetingErr } = await supabase
       .from('bos_meetings')
       .select(
-        'id, composition_id, institutions_id, status, meeting_type, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
+        'id, composition_id, institutions_id, status, meeting_type, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type, committee_id'
       )
       .eq('id', meetingId)
       .single();
@@ -143,13 +145,17 @@ export async function POST(
 
     const meetingUrl = `${request.nextUrl.origin}/bos/meetings/${meetingId}`;
 
-    // Resolve the active 'meeting_invitation' template — per-institution
-    // override falls back to the global default seeded by 20260516.
-    const template = await resolveBosEmailTemplate(
-      supabase,
-      'meeting_invitation',
-      meeting.institutions_id,
-    );
+    // Resolve which governing body this meeting belongs to (BOS, DFPC, AC, …)
+    // then pick the format that was in effect on the meeting's scheduled date.
+    // Resolution falls back institution→global and body→BOS so a send is never
+    // blocked by a missing per-body format (20260724140000).
+    const bodyTypeCode = await resolveMeetingBodyType(supabase, meeting);
+    const template = await resolveBosEmailTemplateForBody(supabase, {
+      templateCode: 'meeting_invitation',
+      institutionsId: meeting.institutions_id,
+      bodyTypeCode,
+      onDate: meeting.scheduled_date ?? null,
+    });
 
     // Look up the chairman name + institution name for placeholder values.
     // Also pull the meeting's agenda items so we can include them in both
@@ -247,6 +253,15 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    // Resolve a per-board From override (e.g. ECE board → ece.bos@…). Wins over
+    // the institution default and the AC override when present, since it's the
+    // most specific sender identity. NULL → fall back to existing behaviour.
+    const boardSender = await resolveBosBoardSender(
+      supabase,
+      meeting.institutions_id,
+      meeting.board_id,
+    );
 
     // Open ONE Puppeteer browser for this batch so the per-recipient PDF
     // renders share warm pages instead of cold-starting each time. Falls
@@ -353,6 +368,16 @@ export async function POST(
             );
           }
         }
+        // Per-body reply-to override (bos_email_templates.reply_to_email). When
+        // set for this body it wins over the AC swap above — the admin has
+        // explicitly chosen where replies for this committee should go.
+        const replyTo = template.reply_to_email?.trim();
+        if (replyTo) {
+          html = html.replace(
+            /(inform us through mail at\s*<a[^>]*href="mailto:)[^"]*("[^>]*>)[^<]*(<\/a>)/i,
+            `$1${replyTo}$2${replyTo}$3`,
+          );
+        }
       } else {
         // Defensive fallback when the DB template isn't present yet.
         subject = `Invitation: ${meetingTitle} — ${meetingDate}`;
@@ -363,6 +388,23 @@ export async function POST(
           meetingUrl,
         );
       }
+
+      // Per-body PDF text overrides (pdf_heading / intro / closing / signoff),
+      // placeholder-substituted with THIS recipient's values so tokens like
+      // {{member_name}} / {{meeting_date}} resolve inside the call letter too.
+      const fillTokens = (s: string | null | undefined): string =>
+        (s ?? '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+          const v = values[key];
+          return v == null || v === '' ? `{{${key}}}` : String(v);
+        });
+      const pdfBodyFormat = template
+        ? {
+            pdf_heading: fillTokens(template.pdf_heading),
+            pdf_intro_html: fillTokens(template.pdf_intro_html),
+            pdf_closing_html: fillTokens(template.pdf_closing_html),
+            signoff_html: fillTokens(template.signoff_html),
+          }
+        : null;
 
       // Per-recipient PDF render. Each member gets their own addressee
       // block, so the buffer differs for every iteration. If the renderer
@@ -389,6 +431,7 @@ export async function POST(
             boardName,
             boardType,
             header: instHeader,
+            bodyFormat: pdfBodyFormat,
           });
         } catch (pdfErr) {
           // Per-recipient PDF failure is non-fatal — log and continue with
@@ -406,11 +449,18 @@ export async function POST(
         to: m.email!,
         subject,
         html,
-        // Academic Council may use a dedicated From: address when configured.
-        // Display name always follows meeting_type (BOS → Governing Body /
-        // Academic Council prefix rewrite when no AC-specific name is set).
-        fromEmail: isAcMeeting ? smtpConfig.ac_sender_email : undefined,
-        fromName: resolveBosSenderDisplayName(meeting.meeting_type, smtpConfig),
+        // From: identity precedence — most specific wins:
+        //   1. per-board override (bos_board_senders) — ECE/EEE split
+        //   2. Academic Council dedicated address (ac_sender_email)
+        //   3. institution default (sender_email, inside sendBosEmail)
+        // Display name follows the same precedence; board name falls back to
+        // the meeting_type-derived label (Governing Body / Academic Council).
+        fromEmail:
+          boardSender?.sender_email ??
+          (isAcMeeting ? smtpConfig.ac_sender_email : undefined),
+        fromName:
+          boardSender?.sender_name?.trim() ||
+          resolveBosSenderDisplayName(meeting.meeting_type, smtpConfig),
         text: `Dear ${m.display_name},\n\nYou are invited to ${meetingTitle} scheduled on ${meetingDate} ${meetingTimeVenue}.\n\nMeeting details: ${meetingUrl}\n\n—\n${
           isGbMeeting
             ? 'Governing Body'
