@@ -120,6 +120,40 @@ Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exa
 }
 CRITICAL: sequence_no must be a single strictly-increasing integer across the WHOLE spine (unit 2's first lesson continues after unit 1's last), so the spine has one unambiguous teaching order.`;
 
+// Bloom-primary variant — used when the course's BoS-fixed taxonomy is 'blooms'
+// (older regulations, typically 2nd/3rd year). Byte-parallel to SYSTEM_PROMPT so the
+// Mac twin (curriculum-lesson-spine-regen.mjs) can carry an identical constant; the
+// ONLY differences are the primary axis (a K1-K6 Bloom level instead of a Fink
+// dimension) and the JSON schema's primary field (`primary_bloom_level`). Fink stays a
+// HYBRID: each outcome still carries its fink_dimension — Bloom is primary, Fink secondary.
+const BLOOM_SYSTEM_PROMPT = `You are a curriculum designer for an Indian higher-education institution (JKKN), building a teaching "lesson spine" for one course from its Board-of-Studies (BoS) approved syllabus.
+
+You will receive the syllabus's units/chapters and its Course Learning Outcomes (CLOs, each with a clo_number and k_values — the Bloom cognitive levels K1-K6 the CLO targets: K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
+
+Your job: break each unit into an ordered sequence of teachable LESSONS (typically 3-6 per unit — one per major topic/chapter section, not one per chapter as a whole), each grounded in the syllabus content and mapped to the CLOs it serves.
+
+This course's Board of Studies has FIXED the Bloom taxonomy for it. Tag each lesson with the SINGLE Bloom cognitive level (K1-K6) that best fits its PRIMARY teaching intent — the dominant level the lesson builds toward (K1=Remember, K2=Understand, K3=Apply, K4=Analyze, K5=Evaluate, K6=Create).
+
+For each lesson's learning_outcomes, cite the Bloom level (K1-K6) that outcome targets (drawn from the CLOs it maps to, co_ref = the clo_number(s) it serves), and ALSO note the Fink dimension it touches (foundational, application, integration, human, caring, learning_to_learn) — Bloom is primary here, Fink is the secondary hybrid lens, so keep both on every outcome.
+
+Ground every lesson title and outcome in the ACTUAL syllabus content provided — do not invent topics absent from it. Be concrete and India-context aware.
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary) matching exactly:
+{
+  "lessons": [
+    {
+      "unit_label": "Unit 1",
+      "sequence_no": 1,
+      "title": "...",
+      "primary_bloom_level": "K2",
+      "learning_outcomes": [
+        {"text": "...", "bloom_level": "K2", "fink_dimension": "foundational", "co_ref": "CO1"}
+      ]
+    }
+  ]
+}
+CRITICAL: sequence_no must be a single strictly-increasing integer across the WHOLE spine (unit 2's first lesson continues after unit 1's last), so the spine has one unambiguous teaching order.`;
+
 const BRIEFS_ADDENDUM = `
 You were ALSO given this course's assessment structure, which includes team-capstone options and/or a Concept-Application note. In addition to "lessons", also return:
 "concept_briefs": [{"unit_label": "Unit 1", "title": "...", "text": "a short in-class Concept-Application activity brief grounded in the unit's content and the syllabus's Concept-Application note", "co_ref": ["CO1"]}]  (at most one per unit that has enough content to ground one)
@@ -127,12 +161,18 @@ You were ALSO given this course's assessment structure, which includes team-caps
 Keep both brief kinds SHORT (2-4 sentences of "text") — they are prompts for the teacher to run in class, not full lesson plans.`;
 
 // ── types ────────────────────────────────────────────────────────────────────
+// A course's BoS-fixed taxonomy (bos_regulation_taxonomies.taxonomy_type). The generator
+// branches on this: 'finks' → Fink-primary prompt; 'blooms' → Bloom-primary prompt. A course
+// whose regulation has NO taxonomy fixed is skipped-and-flagged, never defaulted to Fink.
+type Taxonomy = 'finks' | 'blooms';
+
 type CourseRow = {
   course_id: string;
   institution_id: string;
   course_code: string;
   course_name: string;
   bos_syllabus_id: string;
+  taxonomy: Taxonomy;
   course_content: unknown;
   course_learning_outcomes: unknown;
   assessment_structure: unknown;
@@ -142,6 +182,7 @@ type GenContext = {
   course_id: string;
   bos_syllabus_id: string;
   emit_briefs: boolean;
+  taxonomy: Taxonomy;
 };
 
 type LessonOut = {
@@ -149,8 +190,15 @@ type LessonOut = {
   sequence_no?: number;
   title?: string;
   primary_fink_dimension?: string;
+  primary_bloom_level?: string;
   learning_outcomes?: unknown[];
 };
+
+/** Resolve a batch-context's taxonomy, defaulting legacy in-flight jobs (submitted before
+ *  this change carried no taxonomy) to 'finks' — the behaviour they were generated under. */
+function ctxTaxonomy(ctx: { taxonomy?: unknown }): Taxonomy {
+  return ctx?.taxonomy === 'blooms' ? 'blooms' : 'finks';
+}
 type BriefOut = { unit_label?: string; title?: string; text?: string; co_ref?: string[] };
 type ParsedSpine = { lessons?: LessonOut[]; concept_briefs?: BriefOut[]; capstone_brief?: BriefOut | null };
 
@@ -186,11 +234,19 @@ Generate the lesson-spine JSON for this course now.`;
   return prompt;
 }
 
+// Pick the system prompt for a course's BoS-fixed taxonomy: 'blooms' → Bloom-primary,
+// otherwise Fink-primary. Kept as a helper so the app cron and the Mac twin select
+// the prompt identically (PROMPT/PARSE LOCKSTEP).
+function systemForTaxonomy(taxonomy: Taxonomy, emitBriefs: boolean): string {
+  const base = taxonomy === 'blooms' ? BLOOM_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  return emitBriefs ? `${base}\n${BRIEFS_ADDENDUM}` : base;
+}
+
 function buildGenParams(modelId: string, course: CourseRow, emitBriefs: boolean): Anthropic.Messages.MessageCreateParamsNonStreaming {
   return {
     model: modelId,
     max_tokens: MAX_TOKENS,
-    system: emitBriefs ? `${SYSTEM_PROMPT}\n${BRIEFS_ADDENDUM}` : SYSTEM_PROMPT,
+    system: systemForTaxonomy(course.taxonomy, emitBriefs),
     messages: [{ role: 'user', content: buildUserPrompt(course, emitBriefs) }],
   };
 }
@@ -235,11 +291,15 @@ async function recordSpine(
   courseId: string,
   bosSyllabusId: string,
   batchKey: string,
+  taxonomy: Taxonomy,
   spine: ParsedSpine,
 ): Promise<{ lessonsRecorded: number; briefsRecorded: number; failed: number }> {
   let lessonsRecorded = 0;
   let briefsRecorded = 0;
   let failed = 0;
+  // Blooms course → primary tag is a Bloom K-level; Fink dimension is nulled out (it stays
+  // a per-outcome hybrid, but the LESSON's primary axis is Bloom). Finks course → the reverse.
+  const isBloom = taxonomy === 'blooms';
 
   for (const l of Array.isArray(spine.lessons) ? spine.lessons : []) {
     if (!l.title || typeof l.title !== 'string') continue;
@@ -250,7 +310,9 @@ async function recordSpine(
       p_unit_label: typeof l.unit_label === 'string' ? l.unit_label : null,
       p_title: l.title,
       p_learning_outcomes: Array.isArray(l.learning_outcomes) ? l.learning_outcomes : [],
-      p_primary_fink: typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null,
+      p_primary_fink: isBloom ? null : (typeof l.primary_fink_dimension === 'string' ? l.primary_fink_dimension : null),
+      p_primary_taxonomy: taxonomy,
+      p_primary_bloom_level: isBloom ? (typeof l.primary_bloom_level === 'string' ? l.primary_bloom_level : null) : null,
       p_co_refs: Array.isArray(l.learning_outcomes)
         ? [...new Set(l.learning_outcomes.map((o) => (o as { co_ref?: string })?.co_ref).filter((x): x is string => typeof x === 'string'))]
         : [],
@@ -277,6 +339,8 @@ async function recordSpine(
       p_title: b.title,
       p_learning_outcomes: [{ text: b.text ?? '', co_ref: Array.isArray(b.co_ref) ? b.co_ref : [] }],
       p_primary_fink: null,
+      p_primary_taxonomy: taxonomy,
+      p_primary_bloom_level: null,
       p_co_refs: Array.isArray(b.co_ref) ? b.co_ref : [],
       p_bos_syllabus_id: bosSyllabusId,
       p_source: 'bos_ai',
@@ -301,6 +365,8 @@ async function recordSpine(
       p_title: cap.title,
       p_learning_outcomes: [{ text: cap.text ?? '', co_ref: Array.isArray(cap.co_ref) ? cap.co_ref : [] }],
       p_primary_fink: null,
+      p_primary_taxonomy: taxonomy,
+      p_primary_bloom_level: null,
       p_co_refs: Array.isArray(cap.co_ref) ? cap.co_ref : [],
       p_bos_syllabus_id: bosSyllabusId,
       p_source: 'bos_ai',
@@ -391,6 +457,7 @@ export async function GET(request: NextRequest) {
   let collectedJobs = 0;
   let recorded = 0;
   let enqueued = 0; // jobs-lane: candidates enqueued on the ₹0 Max lane this run
+  let skippedNoTaxonomy = 0; // SUBMIT: candidates whose regulation has NO BoS taxonomy fixed — skipped, never defaulted to Fink (surfaced on /tracker)
 
   // =====================================================================
   // COLLECT PHASE — drains ENDED batches, records each course's spine.
@@ -418,6 +485,7 @@ export async function GET(request: NextRequest) {
                 ctx.course_id,
                 ctx.bos_syllabus_id,
                 job.jobId,
+                ctxTaxonomy(ctx),
                 spine,
               );
               generated += lessonsRecorded;
@@ -514,6 +582,7 @@ export async function GET(request: NextRequest) {
         ctx.course_id,
         ctx.bos_syllabus_id,
         item.jobId,
+        ctxTaxonomy(ctx),
         spine,
       );
       generated += lessonsRecorded;
@@ -563,7 +632,7 @@ export async function GET(request: NextRequest) {
 
     const { data: syllabusRows, error: syllabusErr } = await admin
       .from('bos_course_syllabi')
-      .select('id, course_code, institutions_id, course_content, course_learning_outcomes, assessment_structure')
+      .select('id, course_code, institutions_id, regulation_id, course_content, course_learning_outcomes, assessment_structure')
       .eq('is_latest', true)
       .eq('is_archived', false)
       .limit(5000);
@@ -586,16 +655,42 @@ export async function GET(request: NextRequest) {
       syllabusByKey.set(`${s.course_code}|${s.institutions_id}`, s);
     }
 
+    // BoS-fixed taxonomy per (regulation, institution). The generator BRANCHES on this:
+    // 'finks' → Fink-primary prompt, 'blooms' → Bloom-primary prompt. Keyed by
+    // (regulation_id, institutions_id) because taxonomy is set per regulation per college.
+    const { data: taxRows, error: taxErr } = await admin
+      .from('bos_regulation_taxonomies')
+      .select('regulation_id, institutions_id, taxonomy_type')
+      .limit(5000);
+    if (taxErr) {
+      console.error('[cron/curriculum-lesson-spine-generate] bos_regulation_taxonomies read failed:', taxErr);
+      return NextResponse.json(
+        { ok: false, error: taxErr.message, elapsed_ms: Date.now() - started },
+        { status: 500 },
+      );
+    }
+    const taxByKey = new Map<string, Taxonomy>();
+    for (const t of taxRows ?? []) {
+      if (t.taxonomy_type === 'finks' || t.taxonomy_type === 'blooms') {
+        taxByKey.set(`${t.regulation_id}|${t.institutions_id}`, t.taxonomy_type);
+      }
+    }
+
     const tenantMatched: CourseRow[] = [];
     for (const c of courseRows ?? []) {
       const syllabus = syllabusByKey.get(`${c.course_code}|${c.institution_id}`);
       if (!syllabus) continue; // no syllabus for THIS course's institution — skip (the ~87% path)
+      // Read the course's BoS-FIXED taxonomy. A course whose regulation has NO taxonomy
+      // fixed is SKIPPED AND FLAGGED — never silently defaulted to Fink (Director rule).
+      const taxonomy = taxByKey.get(`${syllabus.regulation_id}|${c.institution_id}`);
+      if (!taxonomy) { skippedNoTaxonomy++; continue; }
       tenantMatched.push({
         course_id: c.id,
         institution_id: c.institution_id,
         course_code: c.course_code,
         course_name: c.course_name,
         bos_syllabus_id: syllabus.id,
+        taxonomy,
         course_content: syllabus.course_content,
         course_learning_outcomes: syllabus.course_learning_outcomes,
         assessment_structure: syllabus.assessment_structure,
@@ -647,7 +742,7 @@ export async function GET(request: NextRequest) {
     const requests: SubmitBatchRequest[] = [];
     for (const course of courses) {
       const emitBriefs = emitBriefsPolicy && hasCapstoneData(course.assessment_structure);
-      const gctx: GenContext = { course_id: course.course_id, bos_syllabus_id: course.bos_syllabus_id, emit_briefs: emitBriefs };
+      const gctx: GenContext = { course_id: course.course_id, bos_syllabus_id: course.bos_syllabus_id, emit_briefs: emitBriefs, taxonomy: course.taxonomy };
       requests.push({
         customId: `gen-${requests.length}`,
         params: buildGenParams(modelId, course, emitBriefs),
@@ -713,6 +808,7 @@ export async function GET(request: NextRequest) {
     briefs_generated: briefsGenerated,
     enqueued,
     skipped,
+    skipped_no_taxonomy: skippedNoTaxonomy,
     ai_available: aiAvailable,
     submitted,
     collected: { jobs: collectedJobs, recorded },
