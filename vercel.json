@@ -96,6 +96,10 @@
       "schedule": "15,45 * * * *"
     },
     {
+      "path": "/api/cron/accreditation-naac-narrative-draft",
+      "schedule": "22 19 * * *"
+    },
+    {
       "path": "/api/cron/model-compare-collect?secret=${CRON_SECRET}",
       "schedule": "9,39 * * * *"
     },

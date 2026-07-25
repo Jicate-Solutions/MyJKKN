@@ -1341,6 +1341,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
       { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
 
+      // NAAC AI narrative drafter — grounded, human-verified per-metric narratives.
+      // view = see drafts; edit = owning Senior Learner edits + okays;
+      // approve = Principal approve / Director submit / request revision;
+      // manage = assign the owning Senior Learner for a metric.
+      { key: 'accreditation.naac.narrative.view', label: 'View AI Criteria Narratives' },
+      { key: 'accreditation.naac.narrative.edit', label: 'Edit & Okay AI Narrative (Owning Senior Learner)' },
+      { key: 'accreditation.naac.narrative.approve', label: 'Approve / Submit AI Narrative (Principal / Director)' },
+      { key: 'accreditation.naac.narrative.manage', label: 'Assign Narrative Owners (IQAC Coordinator)' },
+
       // Per-body dashboards (PR-A9 through PR-A15)
       { key: 'accreditation.nirf.view', label: 'View NIRF Dashboard' },
       { key: 'accreditation.nba.view', label: 'View NBA Dashboard' },
