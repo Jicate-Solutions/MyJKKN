@@ -463,6 +463,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/accreditation/naac/narratives",
+            "label": "Narratives",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/accreditation/naac/surveys",
             "label": "Surveys",
             "iconName": "FileText",
@@ -1733,8 +1739,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/audit/care/predict",
+            "label": "Predict",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/audit/care/score",
             "label": "Score",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
+            "path": "/audit/care/voice",
+            "label": "Voice",
             "iconName": "ClipboardCheck",
             "children": []
           }
@@ -1855,6 +1873,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/coverage",
+        "label": "Coverage",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/discounts",
         "label": "Discounts",
         "iconName": "Wallet",
@@ -1939,7 +1963,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/billing/reports",
         "label": "Reports",
         "iconName": "FileBarChart",
-        "children": []
+        "children": [
+          {
+            "path": "/billing/reports/accountant",
+            "label": "Accountant",
+            "iconName": "FileBarChart",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/billing/schedule",

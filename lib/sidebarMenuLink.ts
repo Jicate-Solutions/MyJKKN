@@ -659,6 +659,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
+  '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
 
   // Resource Management
@@ -1002,6 +1003,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
   '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
   '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/naac/narratives': 'accreditation.naac.narrative.view',         // AI narrative drafter (list)
+  '/accreditation/naac/narratives/[id]': 'accreditation.naac.narrative.view',    // AI narrative drafter (detail)
   '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
   '/accreditation/nba': 'accreditation.nba.view',               // PR-A10
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
@@ -2432,6 +2435,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },

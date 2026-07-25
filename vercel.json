@@ -48,6 +48,10 @@
       "schedule": "7 22 * * *"
     },
     {
+      "path": "/api/cron/scf-prepared-pulse-sweep?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/pde-case-due-soon?secret=${CRON_SECRET}",
       "schedule": "23 2 * * *"
     },
@@ -60,7 +64,23 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/work-signal-suggestions?secret=${CRON_SECRET}",
+      "schedule": "13 3 * * 1"
+    },
+    {
+      "path": "/api/cron/work-signal-suggestions?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "37 * * * *"
+    },
+    {
       "path": "/api/cron/rcltp-remedial-plan-generate?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/rcltp-question-generate?mode=enqueue&secret=${CRON_SECRET}",
+      "schedule": "47 18 * * *"
+    },
+    {
+      "path": "/api/cron/rcltp-question-generate?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },
     {
@@ -90,6 +110,10 @@
     {
       "path": "/api/cron/scf-note-judge?secret=${CRON_SECRET}",
       "schedule": "15,45 * * * *"
+    },
+    {
+      "path": "/api/cron/accreditation-naac-narrative-draft",
+      "schedule": "22 19 * * *"
     },
     {
       "path": "/api/cron/model-compare-collect?secret=${CRON_SECRET}",

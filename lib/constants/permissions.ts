@@ -661,6 +661,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.invoices.send', label: 'Send Invoices' },
       { key: 'billing.onboarding.view', label: 'View Learner Onboarding' },
       { key: 'billing.onboarding.approve', label: 'Approve Learner Onboarding' },
+      { key: 'billing.coverage.view', label: 'View Bill Coverage' },
+      { key: 'billing.coverage.export', label: 'Export Bill Coverage' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
       { key: 'billing.analytics.view', label: 'View Billing Analytics' },
       { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
@@ -1341,6 +1343,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
       { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
 
+      // NAAC AI narrative drafter — grounded, human-verified per-metric narratives.
+      // view = see drafts; edit = owning Senior Learner edits + okays;
+      // approve = Principal approve / Director submit / request revision;
+      // manage = assign the owning Senior Learner for a metric.
+      { key: 'accreditation.naac.narrative.view', label: 'View AI Criteria Narratives' },
+      { key: 'accreditation.naac.narrative.edit', label: 'Edit & Okay AI Narrative (Owning Senior Learner)' },
+      { key: 'accreditation.naac.narrative.approve', label: 'Approve / Submit AI Narrative (Principal / Director)' },
+      { key: 'accreditation.naac.narrative.manage', label: 'Assign Narrative Owners (IQAC Coordinator)' },
+
       // Per-body dashboards (PR-A9 through PR-A15)
       { key: 'accreditation.nirf.view', label: 'View NIRF Dashboard' },
       { key: 'accreditation.nba.view', label: 'View NBA Dashboard' },
@@ -1899,7 +1910,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.marathon.create', label: 'Create Marathon Events' },
       // Events Platform Promotion — shared logistics
       { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
-      { key: 'events.presets.manage', label: 'Publish Official Event Presets' }
+      { key: 'events.presets.manage', label: 'Publish Official Event Presets' },
+      // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
+      // (confirm/decline/supersede) a raised "please confirm a date" request via
+      // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree

@@ -37,6 +37,8 @@ import type {
   SessionResourceRow,
   PostedSessionResource,
   PostSessionResourceInput,
+  ClarificationRequestRow,
+  ClarificationOutcome,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -188,6 +190,65 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to submit feedback: ${error.message}`);
     return data as SessionFeedbackRow;
+  }
+
+  // ── Clarification requests (Lane C) — ask → self-reported outcome ──────────
+  // Substrate: 20260725133000_session_clarification_requests.sql. Reads go via
+  // RLS (a learner only ever sees their OWN rows); writes only via the RPCs.
+
+  /** The caller's own clarification request for one session, if any. */
+  static async getClarification(
+    attendanceDate: string,
+    periodId: string,
+  ): Promise<ClarificationRequestRow | null> {
+    const supabase = getSupabase();
+    // Deterministic single row even for broad-RLS viewers (leadership can see
+    // several learners' asks for one session — a bare maybeSingle() would
+    // throw on >1 row). Learners still only ever see their own row via RLS.
+    const { data, error } = await supabase
+      .from('session_clarification_requests')
+      .select('*')
+      .eq('attendance_date', attendanceDate)
+      .eq('period_id', periodId)
+      .order('asked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to load clarification request: ${error.message}`);
+    return (data as ClarificationRequestRow) ?? null;
+  }
+
+  /** Record "I asked for a re-explanation of this session" (learner-only;
+   *  one per session — a second tap upserts, never duplicates). */
+  static async askClarification(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<ClarificationRequestRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_clarification_ask', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Could not record your request: ${error.message}`);
+    return data as ClarificationRequestRow;
+  }
+
+  /** The SAME learner self-reports what happened after their ask — mirrors the
+   *  SCF verdict pattern (this is the learner's own record; nobody else writes it). */
+  static async reportClarificationOutcome(
+    attendanceDate: string,
+    periodId: string,
+    outcome: Exclude<ClarificationOutcome, 'pending'>,
+  ): Promise<ClarificationRequestRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_clarification_outcome', {
+      p_attendance_date: attendanceDate,
+      p_period_id: periodId,
+      p_outcome: outcome,
+    });
+    if (error) throw new Error(`Could not record what happened: ${error.message}`);
+    return data as ClarificationRequestRow;
   }
 
   /** Anonymized aggregate over the caller faculty's own sessions. */

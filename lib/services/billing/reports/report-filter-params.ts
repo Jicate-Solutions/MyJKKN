@@ -6,7 +6,16 @@ import type {
   AccommodationCode,
 } from '@/types/billing-schedule';
 
-/** Sentinel for "bills with no academic_year_id" — 55% of billing_student_bills. */
+/**
+ * Sentinel for "bills with no academic_year_id".
+ *
+ * This was 55% of billing_student_bills when the filter was designed. A
+ * concurrent backfill (b1fcd3324) stamped 4,905 bills and a BEFORE INSERT
+ * trigger (9195ce9ab) now stamps every new one, so as of 2026-07-25 it is
+ * 66 of 10,763 (0.6%). The option stays — those 66 are otherwise unreachable
+ * once a specific year is chosen — but it is now an edge case, not a
+ * data-quality escape hatch. Do not re-cite the 55% figure.
+ */
 export const ACADEMIC_YEAR_UNSPECIFIED = 'unspecified';
 
 export interface ReportRpcScope {

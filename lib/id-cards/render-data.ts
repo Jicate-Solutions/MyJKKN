@@ -44,6 +44,37 @@ export const CARD_FIELDS: readonly CardField[] = [
 
 export type FieldMapping = { card_field: CardField; db_column: string };
 
+// Fields placeable on the BACK side via back_layout_json.elements. The text
+// fields of the front alphabet carry over; photo/qr_code do not (the back
+// carries a Code 39 barcode instead), and five back-only data fields plus
+// 'barcode' join. See parseBackLayout in render-card.tsx for the schema.
+export type BackCardField =
+  | 'name_line_1'
+  | 'roll_number'
+  | 'course'
+  | 'department'
+  | 'valid_until'
+  | 'blood_group'
+  | 'date_of_birth'
+  | 'guardian'
+  | 'address'
+  | 'contact_phone'
+  | 'barcode';
+
+export const BACK_CARD_FIELDS: readonly BackCardField[] = [
+  'name_line_1',
+  'roll_number',
+  'course',
+  'department',
+  'valid_until',
+  'blood_group',
+  'date_of_birth',
+  'guardian',
+  'address',
+  'contact_phone',
+  'barcode'
+] as const;
+
 export type CardPersonData = {
   kind: 'learner' | 'employee';
   fullName: string;
@@ -59,11 +90,44 @@ export type CardPersonData = {
   photoCandidates: string[];
   /** db_column -> display value, for template field_mappings resolution. */
   valueBag: Record<string, string>;
+
+  // ── Back-side fields (all fail-soft: null → the block is omitted) ──────────
+  /** learners_profiles.blood_group / staff.blood_group. */
+  bloodGroup: string | null;
+  /** Display-formatted date of birth (formatDateLabel), or null. */
+  dateOfBirthLabel: string | null;
+  /** Guardian display name: father_name → mother_name (learners only). */
+  guardianName: string | null;
+  /** Guardian phone: father_mobile → mother_mobile (learners only). */
+  guardianPhone: string | null;
+  /** Joined permanent address (learners) / staff.address. */
+  address: string | null;
+  /** Person's own contact: student_mobile (learners) / staff.phone. */
+  contactPhone: string | null;
+  /**
+   * Barcode payload: learners_profiles.roll_number for learners,
+   * staff.staff_id for team members. null → barcode omitted.
+   */
+  idCode: string | null;
 };
 
-export type AssembleResult =
-  | { ok: true; data: CardPersonData }
-  | { ok: false; status: 404 | 500; code: string; message: string };
+export type AssembleFailure = {
+  ok: false;
+  status: 404 | 500;
+  code: string;
+  message: string;
+};
+
+export type AssembleResult = { ok: true; data: CardPersonData } | AssembleFailure;
+
+/**
+ * Type-predicate guard for the failure arm. Truthiness narrowing of the
+ * `ok` discriminant is unreliable with this repo's strictNullChecks:false —
+ * a predicate narrows under every compiler configuration.
+ */
+export function isAssembleFailure(result: AssembleResult): result is AssembleFailure {
+  return result.ok === false;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure helpers (unit-tested)
@@ -95,6 +159,23 @@ const MONTH_LABELS = [
 export function defaultValidUntilLabel(now: Date = new Date()): string {
   const year = now.getMonth() >= 5 ? now.getFullYear() + 1 : now.getFullYear();
   return `31 ${MONTH_LABELS[4]} ${year}`;
+}
+
+/**
+ * Format a stored date-of-birth for the card back. learners_profiles stores
+ * date_of_birth as TEXT — mostly ISO `YYYY-MM-DD`, occasionally free-form
+ * junk; staff.date_of_birth is a DATE (arrives as ISO). Valid ISO prefixes
+ * become "09 Nov 2001"; anything else is returned trimmed as stored (we
+ * print what the record says — never invent). Empty → ''.
+ */
+export function formatDateLabel(value: string | null | undefined): string {
+  const s = (value ?? '').trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (!match) return s;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return s;
+  return `${match[3]} ${MONTH_LABELS[month - 1]} ${match[1]}`;
 }
 
 /** Hard-truncate long strings so they cannot overflow the fixed card canvas. */
@@ -201,7 +282,13 @@ export async function resolveBackgroundDataUrl(
 ): Promise<string | null> {
   const url = (backgroundImageUrl ?? '').trim();
   if (url === '') return null;
-  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+  // .trim() is load-bearing: the deployed env value can carry a trailing
+  // newline (fetch/URL parsing strips it everywhere else, so the app works —
+  // but THIS plain-string prefix compare doesn't, and fail-soft hid it:
+  // every background silently rendered as the standard design in prod).
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')
+    .trim()
+    .replace(/\/+$/, '');
   if (supabaseUrl === '') return null;
   const allowedPrefix = `${supabaseUrl}/storage/v1/object/public/id-card-assets/`;
   if (!url.startsWith(allowedPrefix)) {
@@ -248,6 +335,20 @@ type LearnerRow = {
   roll_number: string | null;
   register_number: string | null;
   student_photo_url: string | null;
+  // Back-side columns — names verified against prod information_schema
+  // 2026-07-25 (all TEXT on learners_profiles).
+  blood_group: string | null;
+  date_of_birth: string | null;
+  father_name: string | null;
+  father_mobile: string | null;
+  mother_name: string | null;
+  mother_mobile: string | null;
+  student_mobile: string | null;
+  permanent_address_street: string | null;
+  permanent_address_taluk: string | null;
+  permanent_address_district: string | null;
+  permanent_address_state: string | null;
+  permanent_address_pin_code: string | null;
   program: { program_name: string | null } | null;
   department: { department_name: string | null } | null;
 };
@@ -258,6 +359,12 @@ type StaffRow = {
   last_name: string | null;
   designation: string | null;
   profile_picture: string | null;
+  // Back-side columns — verified against prod information_schema 2026-07-25.
+  staff_id: string | null;
+  blood_group: string | null;
+  date_of_birth: string | null;
+  address: string | null;
+  phone: string | null;
 };
 
 function joinName(first: string | null, last: string | null): string {
@@ -314,6 +421,13 @@ export async function assembleCardData(
   let courseName: string | null = null;
   let departmentName: string | null = null;
   let qrValue = p.id;
+  let bloodGroup: string | null = null;
+  let dateOfBirthLabel: string | null = null;
+  let guardianName: string | null = null;
+  let guardianPhone: string | null = null;
+  let address: string | null = null;
+  let contactPhone: string | null = null;
+  let idCode: string | null = null;
   const photoCandidates: string[] = [];
   const valueBag: Record<string, string> = {
     'profiles.id': p.id,
@@ -330,6 +444,10 @@ export async function assembleCardData(
       .from('learners_profiles')
       .select(
         `id, first_name, last_name, roll_number, register_number, student_photo_url,
+         blood_group, date_of_birth, father_name, father_mobile, mother_name,
+         mother_mobile, student_mobile, permanent_address_street,
+         permanent_address_taluk, permanent_address_district,
+         permanent_address_state, permanent_address_pin_code,
          program:programs(program_name),
          department:departments(department_name)`
       )
@@ -361,6 +479,30 @@ export async function assembleCardData(
       // (a raw UUID must never be printed on a card).
       valueBag['learners_profiles.program_id'] = courseName ?? '';
       valueBag['learners_profiles.department_id'] = departmentName ?? '';
+
+      // Back-side data (all fail-soft; blanks stay null → block omitted).
+      bloodGroup = learner.blood_group?.trim() || null;
+      dateOfBirthLabel = formatDateLabel(learner.date_of_birth) || null;
+      guardianName = learner.father_name?.trim() || learner.mother_name?.trim() || null;
+      guardianPhone = learner.father_mobile?.trim() || learner.mother_mobile?.trim() || null;
+      address =
+        [
+          learner.permanent_address_street,
+          learner.permanent_address_taluk,
+          learner.permanent_address_district,
+          learner.permanent_address_state,
+          learner.permanent_address_pin_code
+        ]
+          .map((part) => (part ?? '').trim())
+          .filter(Boolean)
+          .join(', ') || null;
+      contactPhone = learner.student_mobile?.trim() || null;
+      idCode = learner.roll_number?.trim() || null;
+      valueBag['learners_profiles.blood_group'] = bloodGroup ?? '';
+      valueBag['learners_profiles.date_of_birth'] = dateOfBirthLabel ?? '';
+      valueBag['learners_profiles.father_name'] = learner.father_name ?? '';
+      valueBag['learners_profiles.mother_name'] = learner.mother_name ?? '';
+      valueBag['learners_profiles.student_mobile'] = contactPhone ?? '';
     } else {
       qrValue = p.learner_id;
     }
@@ -373,7 +515,9 @@ export async function assembleCardData(
       for (const column of ['institution_email', 'email'] as const) {
         const { data: staffRows, error: staffError } = await supabase
           .from('staff')
-          .select('id, first_name, last_name, designation, profile_picture')
+          .select(
+            'id, first_name, last_name, designation, profile_picture, staff_id, blood_group, date_of_birth, address, phone'
+          )
           .eq(column, email)
           .limit(1);
         if (staffError) {
@@ -398,6 +542,16 @@ export async function assembleCardData(
       valueBag['staff.last_name'] = staffRow.last_name ?? '';
       valueBag['staff.designation'] = staffRow.designation ?? '';
       valueBag['staff.profile_picture'] = staffRow.profile_picture ?? '';
+
+      // Back-side data (staff.date_of_birth is a DATE — arrives as ISO text).
+      bloodGroup = staffRow.blood_group?.trim() || null;
+      dateOfBirthLabel = formatDateLabel(staffRow.date_of_birth) || null;
+      address = staffRow.address?.trim() || null;
+      contactPhone = staffRow.phone?.trim() || null;
+      idCode = staffRow.staff_id?.trim() || null;
+      valueBag['staff.staff_id'] = idCode ?? '';
+      valueBag['staff.blood_group'] = bloodGroup ?? '';
+      valueBag['staff.phone'] = contactPhone ?? '';
     }
   }
 
@@ -436,7 +590,14 @@ export async function assembleCardData(
       institutionName,
       qrValue,
       photoCandidates,
-      valueBag
+      valueBag,
+      bloodGroup,
+      dateOfBirthLabel,
+      guardianName,
+      guardianPhone,
+      address,
+      contactPhone,
+      idCode
     }
   };
 }

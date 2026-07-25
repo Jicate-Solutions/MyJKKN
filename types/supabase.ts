@@ -8903,6 +8903,7 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
+          is_current: boolean
           updated_at: string
           year: number
         }
@@ -8913,6 +8914,7 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year: number
         }
@@ -8923,6 +8925,7 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year?: number
         }
@@ -44778,7 +44781,7 @@ export type Database = {
           notes: string | null
           parent_package_id: string | null
           proposed_by: string
-          proposed_monthly_salary: number
+          proposed_monthly_salary: number | null
           proposed_monthly_salary_breakdown: Json | null
           status: string
         }
@@ -44794,7 +44797,7 @@ export type Database = {
           notes?: string | null
           parent_package_id?: string | null
           proposed_by: string
-          proposed_monthly_salary: number
+          proposed_monthly_salary?: number | null
           proposed_monthly_salary_breakdown?: Json | null
           status?: string
         }
@@ -44810,7 +44813,7 @@ export type Database = {
           notes?: string | null
           parent_package_id?: string | null
           proposed_by?: string
-          proposed_monthly_salary?: number
+          proposed_monthly_salary?: number | null
           proposed_monthly_salary_breakdown?: Json | null
           status?: string
         }

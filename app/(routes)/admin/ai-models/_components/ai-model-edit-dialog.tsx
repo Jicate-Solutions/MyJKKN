@@ -152,7 +152,15 @@ export function AiModelEditDialog({
   const isSafetyJudgeFeature = isSafetyJudge(feature?.feature_key);
 
   const providerModels = useMemo<ModelOption[]>(() => {
-    const models = getProviderRegistry(form.provider)?.models ?? [];
+    let models = getProviderRegistry(form.provider)?.models ?? [];
+    // Claude picks are restricted to the two always-latest family aliases
+    // (Sonnet/Opus). Haiku and pinned dated versions are no longer selectable —
+    // every Anthropic job rides "latest" so it auto-follows new releases. The
+    // concrete ids stay in the registry only for historical label/pricing lookup.
+    // Non-Anthropic providers (the voice tasks) keep their full model list.
+    if (form.provider === 'anthropic') {
+      models = models.filter((m) => m.id === 'sonnet' || m.id === 'opus');
+    }
     if (!isSafetyJudgeFeature) return models;
     return models.filter((m) => !isBelowSonnet(form.provider, m.id));
   }, [form.provider, isSafetyJudgeFeature]);
