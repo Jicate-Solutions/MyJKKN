@@ -1,10 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Download, Loader2, Search } from 'lucide-react';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -18,14 +16,11 @@ import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useBillingCategories } from '@/hooks/billing/use-billing-categories';
 import type { BillCoverageFilters } from '@/types/billing-coverage';
-import { LEARNER_SCOPE_DEFAULT } from '@/types/billing-coverage';
+import { LEARNER_SCOPE_DEFAULT, GENDER_UNSET } from '@/types/billing-coverage';
 
 interface CoverageFilterBarProps {
   filters: BillCoverageFilters;
   onChange: (next: Partial<BillCoverageFilters>) => void;
-  onExport: () => void;
-  canExport: boolean;
-  isExporting: boolean;
 }
 
 const ALL = '__all__';
@@ -39,10 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function CoverageFilterBar({
   filters,
-  onChange,
-  onExport,
-  canExport,
-  isExporting
+  onChange
 }: CoverageFilterBarProps) {
   const { institutions, loading: institutionsLoading } =
     useUserInstitutionAccess();
@@ -79,7 +71,7 @@ export function CoverageFilterBar({
 
   return (
     <div className='space-y-4 rounded-lg border p-4'>
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
         {/* Institution */}
         <div className='space-y-1.5'>
           <Label className='text-xs'>Institution</Label>
@@ -205,6 +197,27 @@ export function CoverageFilterBar({
           </Select>
         </div>
 
+        {/* Gender */}
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Gender</Label>
+          <Select
+            value={filters.gender ?? ALL}
+            onValueChange={(v) => onChange({ gender: v === ALL ? null : v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any gender' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any gender</SelectItem>
+              <SelectItem value='MALE'>Male</SelectItem>
+              <SelectItem value='FEMALE'>Female</SelectItem>
+              {/* gender is TEXT NOT NULL holding '' for unrecorded learners,
+                  so this needs its own sentinel rather than a null value. */}
+              <SelectItem value={GENDER_UNSET}>Not recorded</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Coverage state */}
         <div className='space-y-1.5'>
           <Label className='text-xs'>Show</Label>
@@ -247,53 +260,18 @@ export function CoverageFilterBar({
         </div>
       </div>
 
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-        <div className='relative w-full sm:max-w-xs'>
-          <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
-          <Input
-            className='pl-8'
-            placeholder='Roll number, register number or name'
-            defaultValue={filters.search ?? ''}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                onChange({ search: (e.target as HTMLInputElement).value || null });
-              }
-            }}
-            onBlur={(e) => onChange({ search: e.target.value || null })}
-          />
-        </div>
-
-        <div className='flex items-center gap-4'>
-          <div className='flex items-center gap-2'>
-            <Switch
-              id='include-non-billing'
-              checked={filters.include_non_billing_institutions ?? false}
-              onCheckedChange={(checked) =>
-                onChange({ include_non_billing_institutions: checked })
-              }
-            />
-            <Label htmlFor='include-non-billing' className='text-xs'>
-              Include institutions that have never billed
-            </Label>
-          </div>
-
-          {canExport && (
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              onClick={onExport}
-              disabled={isExporting}
-            >
-              {isExporting ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : (
-                <Download className='mr-2 h-4 w-4' />
-              )}
-              Export
-            </Button>
-          )}
-        </div>
+      {/* Search, sorting, paging and export live in the DataTable toolbar. */}
+      <div className='flex items-center gap-2'>
+        <Switch
+          id='include-non-billing'
+          checked={filters.include_non_billing_institutions ?? false}
+          onCheckedChange={(checked) =>
+            onChange({ include_non_billing_institutions: checked })
+          }
+        />
+        <Label htmlFor='include-non-billing' className='text-xs'>
+          Include institutions that have never billed
+        </Label>
       </div>
     </div>
   );
