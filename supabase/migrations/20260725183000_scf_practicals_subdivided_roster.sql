@@ -1,8 +1,9 @@
 -- ============================================================================
 -- SCF practicals fix — the learner-side feedback path now sees SUBDIVIDED
--- (practical / lab) rosters.
+-- (practical / lab) rosters, and every roster cast is crash-guarded.
 -- Updated: 2026-07-25 — Added groups[].students[] traversal to the three
--- learner-facing SCF functions via one shared helper.
+-- learner-facing SCF functions via one shared helper, and extended the
+-- 2026-07-22 regex-CASE ::uuid guard to the two functions that lacked it.
 --
 -- WHY
 -- A subdivided period — which is how a practical/lab session is marked
@@ -22,9 +23,9 @@
 --
 -- SCALE (measured on production, 2026-07-25)
 -- 302 subdivided periods exist, spanning 2025-11-25 -> 2026-07-24, and ALL 302
--- have an empty top-level roster — so no practical has been givable feedback
--- on for eight months. For a single sample learner, a 30-day pending scan
--- returns 52 sessions before this change and 65 after: 13 practicals that were
+-- have an empty top-level roster — so no practical has been open to feedback
+-- for eight months. For a single sample learner, a 30-day pending scan returns
+-- 52 sessions before this change and 65 after: 13 practicals that were
 -- invisible to them.
 --
 -- PRIOR ART
@@ -35,6 +36,20 @@
 -- so the database and the service layer share one definition of "the roster
 -- for this slot".
 --
+-- THE CAST GUARD (why it is part of THIS migration, not a follow-up)
+-- Migration 20260722062012 wrapped the student_id ::uuid cast in
+-- fn_scf_submit_feedback in a regex-CASE, because an unguarded cast on a
+-- malformed roster id raises 22P02 and aborts the call for EVERY learner in
+-- that session — not just the malformed row. fn_scf_pending_for_learner and
+-- fn_scf_confirmation_status still cast unguarded. Reading group rosters
+-- widens what those two casts see, so this migration is what would expose
+-- them; the guard therefore ships here, ahead of any apply. The construct is
+-- copied verbatim from fn_scf_submit_feedback so all three functions read
+-- identically. Production data is clean today (0 malformed across 16,537
+-- group-roster rows and 1,042,480 top-level rows) — this is prophylactic, and
+-- it is proven by injecting a synthetic malformed id in a rolled-back
+-- transaction.
+--
 -- SCOPE
 -- Exactly the three learner-facing functions named by the diagnosis, plus the
 -- shared helper. Other readers of student_attendance.attendance_data are NOT
@@ -44,8 +59,7 @@
 -- Each replaced function is SECURITY DEFINER, so its anon lock is re-asserted
 -- in this same migration (the check-secdef-anon-revoke CI gate treats a
 -- CREATE OR REPLACE as a new function). All three are learner-facing, so they
--- are granted to `authenticated` — never service_role. The 2026-07-22
--- regex-CASE ::uuid guard inside fn_scf_submit_feedback is preserved verbatim.
+-- are granted to `authenticated` — never service_role.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -90,6 +104,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_attendance_slot_students(jsonb) TO authenti
 
 -- ----------------------------------------------------------------------------
 -- fn_scf_pending_for_learner — a practical now appears in the pending list.
+-- Cast guard ADDED here (was unguarded); construct copied from
+-- fn_scf_submit_feedback / migration 20260722062012.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_scf_pending_for_learner(p_lookback_days integer DEFAULT 30)
  RETURNS TABLE(attendance_date date, timetable_id uuid, period_id text, section_id uuid, course_id uuid, course_code text, course_name text, faculty_name text, period_name text, start_time text, end_time text)
@@ -128,10 +144,19 @@ BEGIN
     -- array EMPTY, so a Present check must read the effective roster for BOTH
     -- shapes. Same semantics as slotStudents() in
     -- lib/services/academic/attendance-report-service.ts (PR #1865).
+    -- The ::uuid cast carries the same regex-CASE guard as
+    -- fn_scf_submit_feedback (migration 20260722062012): reading group
+    -- rosters widens what this cast sees, and a malformed roster id would
+    -- otherwise raise 22P02 and abort the read for EVERY learner in the
+    -- session. Malformed -> NULL -> excluded.
     AND EXISTS (
       SELECT 1 FROM jsonb_array_elements(
                       public.fn_attendance_slot_students(period.value)) st
-      WHERE (st ->> 'student_id')::uuid = v_lp AND st ->> 'status' = 'Present'
+      WHERE CASE
+              WHEN (st ->> 'student_id') ~
+                   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+              THEN (st ->> 'student_id')::uuid END = v_lp
+        AND st ->> 'status' = 'Present'
     )
     -- Block-course consolidation (2026-07-18): feedback for ANY period of the
     -- same course on the same day satisfies its sibling periods — a learner
@@ -215,6 +240,11 @@ BEGIN
   -- array EMPTY, so a Present check must read the effective roster for BOTH
   -- shapes. Same semantics as slotStudents() in
   -- lib/services/academic/attendance-report-service.ts (PR #1865).
+  -- The ::uuid cast carries the same regex-CASE guard as
+  -- fn_scf_submit_feedback (migration 20260722062012): reading group
+  -- rosters widens what this cast sees, and a malformed roster id would
+  -- otherwise raise 22P02 and abort the read for EVERY learner in the
+  -- session. Malformed -> NULL -> excluded.
   SELECT EXISTS (
     SELECT 1 FROM jsonb_array_elements(
                     public.fn_attendance_slot_students(v_period)) st
@@ -274,6 +304,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_scf_submit_feedback(date, uuid, text, small
 
 -- ----------------------------------------------------------------------------
 -- fn_scf_confirmation_status — practicals now count as attended sessions.
+-- Cast guard ADDED here (was unguarded); construct copied from
+-- fn_scf_submit_feedback / migration 20260722062012.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_scf_confirmation_status(p_from date, p_to date)
  RETURNS TABLE(attendance_date date, timetable_id uuid, period_id text, course_code text, course_name text, confirmed boolean)
@@ -302,10 +334,19 @@ BEGIN
     -- array EMPTY, so a Present check must read the effective roster for BOTH
     -- shapes. Same semantics as slotStudents() in
     -- lib/services/academic/attendance-report-service.ts (PR #1865).
+    -- The ::uuid cast carries the same regex-CASE guard as
+    -- fn_scf_submit_feedback (migration 20260722062012): reading group
+    -- rosters widens what this cast sees, and a malformed roster id would
+    -- otherwise raise 22P02 and abort the read for EVERY learner in the
+    -- session. Malformed -> NULL -> excluded.
     AND EXISTS (
       SELECT 1 FROM jsonb_array_elements(
                       public.fn_attendance_slot_students(period.value)) st
-      WHERE (st ->> 'student_id')::uuid = v_lp AND st ->> 'status' = 'Present'
+      WHERE CASE
+              WHEN (st ->> 'student_id') ~
+                   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+              THEN (st ->> 'student_id')::uuid END = v_lp
+        AND st ->> 'status' = 'Present'
     )
   ORDER BY sa.attendance_date DESC;
 END;
