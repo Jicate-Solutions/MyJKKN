@@ -428,6 +428,7 @@ export class OnboardingService {
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
+            academic_year_id: learner.academic_year_id ?? null,
             item_category_id: item.category_id || null,
             bill_description: item.category_name || 'Fee',
             due_date: dueDateStr,
@@ -452,6 +453,7 @@ export class OnboardingService {
             billsToInsert.push({
               student_id: learnerId,
               institution_id: learner.institution_id,
+              academic_year_id: learner.academic_year_id ?? null,
               item_category_id: categoryId,
               bill_description: description,
               due_date: dueDateStr,

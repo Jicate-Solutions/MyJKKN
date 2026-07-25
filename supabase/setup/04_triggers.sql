@@ -1564,3 +1564,12 @@ DROP TRIGGER IF EXISTS trg_sync_event_registration_form_field_event_id ON public
 CREATE TRIGGER trg_sync_event_registration_form_field_event_id
   BEFORE INSERT OR UPDATE ON public.event_registration_form_fields
   FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_field_event_id();
+
+-- Bill Coverage (2026-07-25): stamp academic_year_id on every new bill.
+DROP TRIGGER IF EXISTS trg_billing_bill_default_academic_year
+  ON public.billing_student_bills;
+
+CREATE TRIGGER trg_billing_bill_default_academic_year
+BEFORE INSERT ON public.billing_student_bills
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
