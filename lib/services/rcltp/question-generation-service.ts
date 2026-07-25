@@ -4,11 +4,21 @@
  * Nattraja CBSE, English only. AI authors; the Senior Learner is the authority
  * (nothing here writes status='approved' — the review path does that).
  *
- * DIRECT synchronous Anthropic call (mirrors remedial-plan-service.generateDraftDirect
- * + work-pulse/analyze) — NOT the ₹0 async Max lane. Two model calls per run:
+ * TWO PATHS, ONE EFFECT. Both produce byte-identical status='draft' rows via
+ * recordQuestions(); only ai_meta.generated_by_model differs.
+ *   • ₹0 MAX LANE (default, overnight) — enqueueQuestionGeneration() puts stage 1
+ *     on the lane; the collect sweep parses it and chains stage 2
+ *     (enqueueKeyCheck); stage 2's collect writes the rows. Nobody waits.
+ *   • DIRECT (secret-gated) — generateQuestionsForPassage() makes both Anthropic
+ *     calls inline. Paid, immediate; kept for an operator "generate now" and for
+ *     a deterministic proof when the Max seat is idle.
+ *
+ * Two model calls either way:
  *   1. generate the question set (prompt encodes the locked pedagogy decisions)
- *   2. answer-key double-check (a second, independent pass verifies each key)
- * Then writes status='draft' rows via the service-role admin client.
+ *   2. answer-key double-check (a second, INDEPENDENT pass verifies each key)
+ * Stage 2 is deliberately a separate call/job, never folded into stage 1: its
+ * verdicts populate ai_agreed_count, which is what the "Approve all AI-agreed"
+ * batch button reads. A checker that can see itself writing is a rubber stamp.
  *
  * Locked decisions (Director interview 2026-07-23): MCQ + short-answer mix ·
  * Marzano's New Taxonomy level per question with a spread · mostly grade-level +
@@ -20,10 +30,19 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
+import { enqueueJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import type { createServiceRoleClient } from '@/lib/supabase/server';
 
+/** Stage 1 — draft the question set from a passage. */
 export const QUESTION_GEN_JOB_TYPE = 'rcltp.question_generation';
+/** Stage 2 — re-read the passage and judge every answer key, independently. */
+export const QUESTION_KEYCHECK_JOB_TYPE = 'rcltp.question_keycheck';
+/** Both stages, for a single multi-type collect sweep. */
+export const RCLTP_QGEN_JOB_TYPES = [QUESTION_GEN_JOB_TYPE, QUESTION_KEYCHECK_JOB_TYPE];
 
 type Admin = { from: (t: string) => any };
+/** The lane RPCs need the real service-role client, not the loose read shape. */
+type LaneAdmin = ReturnType<typeof createServiceRoleClient>;
 
 export interface GenQuestion {
   question_text: string;
@@ -36,7 +55,7 @@ export interface GenQuestion {
   rationale: string;
 }
 
-interface GenPassage {
+export interface GenPassage {
   id: string;
   institution_id: string | null;
   title: string | null;
@@ -48,7 +67,7 @@ interface GenPassage {
   language: string | null;
 }
 
-interface KeyCheck {
+export interface KeyCheck {
   index: number;
   verdict: 'agree' | 'disagree' | 'ambiguous' | 'unchecked';
   note?: string;
@@ -180,60 +199,53 @@ export interface QGenResult {
   error?: string;
 }
 
+const PASSAGE_COLUMNS =
+  'id, institution_id, title, body, grade_level, content_level, difficulty, word_count, language';
+
 /**
- * Generate → answer-key check → write draft rows for one passage. Returns a flat
- * result (repo runs strictNullChecks:false, so a discriminated union would not
- * narrow — see remedial-plan-service). Never throws for a handled failure.
+ * Load one passage and apply the two gates both paths share (English-only, has
+ * body). FLAT result, not a discriminated union: the repo runs
+ * strictNullChecks:false, under which a boolean discriminant does not narrow the
+ * false branch (see QGenResult / remedial-plan-service for the same shape).
  */
-export async function generateQuestionsForPassage(
-  admin: Admin,
-  passageId: string
-): Promise<QGenResult> {
-  const { data: passage, error: pErr } = await admin
+export interface LoadedPassage {
+  ok: boolean;
+  passage?: GenPassage;
+  reason?: QGenResult['reason'];
+  error?: string;
+}
+
+export async function loadGenPassage(admin: Admin, passageId: string): Promise<LoadedPassage> {
+  const { data, error } = await admin
     .from('rcltp_passages')
-    .select('id, institution_id, title, body, grade_level, content_level, difficulty, word_count, language')
+    .select(PASSAGE_COLUMNS)
     .eq('id', passageId)
     .maybeSingle();
-  if (pErr) return { ok: false, error: pErr.message };
-  if (!passage) return { ok: false, reason: 'not_found' };
+  if (error) return { ok: false, reason: 'not_found', error: error.message };
+  if (!data) return { ok: false, reason: 'not_found' };
   // Nattraja CBSE is English-only — refuse non-English passages (no Tamil pipeline).
-  if ((passage.language ?? 'en') !== 'en') return { ok: false, reason: 'not_english' };
-  if (!passage.body || String(passage.body).trim().length === 0) {
+  if ((data.language ?? 'en') !== 'en') return { ok: false, reason: 'not_english' };
+  if (!data.body || String(data.body).trim().length === 0) {
     return { ok: false, reason: 'parse_failed', error: 'passage has no body text' };
   }
+  return { ok: true, passage: data as GenPassage };
+}
 
-  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-  if (!apiKey) return { ok: false, reason: 'no_key' };
-
-  const { model_id } = await resolveChatModel(QUESTION_GEN_JOB_TYPE);
-  const client = new Anthropic({ apiKey });
-
-  // 1. generate
-  const genMsg = await client.messages.create({
-    model: model_id,
-    max_tokens: 3000,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildUserPrompt(passage as GenPassage) }],
-  });
-  const parsed = parseQuestions(extractText(genMsg));
-  if (!parsed) return { ok: false, reason: 'parse_failed' };
-
-  // 2. answer-key double-check (non-fatal: a checker failure leaves verdict='unchecked')
-  let checks: KeyCheck[] = [];
-  try {
-    const chkMsg = await client.messages.create({
-      model: model_id,
-      max_tokens: 1500,
-      system: CHECKER_SYSTEM,
-      messages: [{ role: 'user', content: buildCheckerPrompt(passage as GenPassage, parsed.questions) }],
-    });
-    checks = parseChecks(extractText(chkMsg));
-  } catch {
-    checks = [];
-  }
-
-  // 3. write draft rows (source='ai_generated', status='draft' — never approved here)
-  const rows = parsed.questions.map((q, i) => ({
+/**
+ * Write the draft rows. SHARED by the direct path and the Max lane so the rows
+ * are byte-identical whichever produced them — only `provenance` differs
+ * (`direct:<model>` vs `maxlane:rcltp.question_generation`). Never writes
+ * status='approved'; that is the Senior Learner's review path alone.
+ */
+export async function recordQuestions(
+  admin: Admin,
+  passage: GenPassage,
+  questions: GenQuestion[],
+  coverageNote: string,
+  checks: KeyCheck[],
+  provenance: string
+): Promise<QGenResult> {
+  const rows = questions.map((q, i) => ({
     passage_id: passage.id,
     institution_id: passage.institution_id,
     question_text: q.question_text,
@@ -258,13 +270,143 @@ export async function generateQuestionsForPassage(
         options: q.options,
         correct_answer: q.correct_answer,
       },
-      generated_by_model: `direct:${model_id}`,
-      coverage_note: i === 0 ? parsed.coverage_note : undefined,
-      generated_via: 'rcltp.question_generation',
+      generated_by_model: provenance,
+      coverage_note: i === 0 ? coverageNote : undefined,
+      generated_via: QUESTION_GEN_JOB_TYPE,
     },
   }));
 
   const { error: insErr } = await admin.from('rcltp_part_b_questions').insert(rows);
   if (insErr) return { ok: false, reason: 'record_failed', error: insErr.message };
   return { ok: true, count: rows.length };
+}
+
+// ── ₹0 Max lane (async, overnight) ───────────────────────────────────────────
+
+/** _ctx stashed on a stage-1 job — the collect sweep re-reads the passage. */
+export interface QGenContext {
+  passageId: string;
+}
+
+/** _ctx stashed on a stage-2 job: the questions awaiting an independent verdict. */
+export interface QKeyCheckContext {
+  passageId: string;
+  questions: GenQuestion[];
+  coverageNote: string;
+}
+
+/**
+ * Stage 1: enqueue question generation for ONE passage on the ₹0 Max lane.
+ * Writes nothing — rows land only after stage 2 (or after stage 2 is proven
+ * unavailable). The dedupeKey guards a double-request: a passage already
+ * queued/claimed/running returns in_flight, which the caller treats as handled.
+ */
+export async function enqueueQuestionGeneration(
+  admin: LaneAdmin,
+  passageId: string
+): Promise<{ ok: boolean; jobId?: string | null; inFlight?: boolean; reason?: string; error?: string }> {
+  const loaded = await loadGenPassage(admin as unknown as Admin, passageId);
+  if (!loaded.ok) return { ok: false, reason: loaded.reason, error: loaded.error };
+
+  const ctx: QGenContext = { passageId };
+  const r = await enqueueJobsLane(admin, {
+    jobType: QUESTION_GEN_JOB_TYPE,
+    prompt: `${SYSTEM_PROMPT}\n\n${buildUserPrompt(loaded.passage)}`,
+    context: ctx as unknown as Record<string, unknown>,
+    dedupeKey: `${QUESTION_GEN_JOB_TYPE}|${passageId}`,
+  });
+  if (r.ok) return { ok: true, jobId: r.jobId };
+  const fail = r as { reason?: string; error?: string };
+  if (fail.reason === 'in_flight') return { ok: true, jobId: null, inFlight: true };
+  return { ok: false, reason: fail.reason, error: fail.error };
+}
+
+/**
+ * Stage 2: enqueue the INDEPENDENT answer-key check for a generated set. A fresh
+ * job means a fresh context and a different system prompt, so the checker is not
+ * grading questions it can still see itself writing — which is what keeps
+ * ai_agreed_count (and the batch-approve button it feeds) honest.
+ */
+export async function enqueueKeyCheck(
+  admin: LaneAdmin,
+  passage: GenPassage,
+  questions: GenQuestion[],
+  coverageNote: string
+): Promise<{ ok: boolean; jobId?: string | null; inFlight?: boolean; reason?: string; error?: string }> {
+  const ctx: QKeyCheckContext = { passageId: passage.id, questions, coverageNote };
+  const r = await enqueueJobsLane(admin, {
+    jobType: QUESTION_KEYCHECK_JOB_TYPE,
+    prompt: `${CHECKER_SYSTEM}\n\n${buildCheckerPrompt(passage, questions)}`,
+    context: ctx as unknown as Record<string, unknown>,
+    dedupeKey: `${QUESTION_KEYCHECK_JOB_TYPE}|${passage.id}|${questions.length}`,
+  });
+  if (r.ok) return { ok: true, jobId: r.jobId };
+  const fail = r as { reason?: string; error?: string };
+  if (fail.reason === 'in_flight') return { ok: true, jobId: null, inFlight: true };
+  return { ok: false, reason: fail.reason, error: fail.error };
+}
+
+/** Parse a lane message (stage 2) into key-check verdicts. */
+export function parseCheckMessage(msg: Anthropic.Message | null): KeyCheck[] {
+  if (!msg) return [];
+  return parseChecks(extractText(msg));
+}
+
+/** Parse a lane message (stage 1) into a question set. */
+export function parseQuestionMessage(
+  msg: Anthropic.Message | null
+): { questions: GenQuestion[]; coverage_note: string } | null {
+  if (!msg) return null;
+  return parseQuestions(extractText(msg));
+}
+
+// ── direct generation (synchronous Anthropic — immediate / proof) ────────────
+
+/**
+ * Generate → answer-key check → write draft rows for one passage in ONE request.
+ * Costs a paid call (not the ₹0 lane), so it stays secret-gated: an operator
+ * "generate now" and a deterministic proof when the Max seat is idle. Returns a
+ * flat result (repo runs strictNullChecks:false, so a discriminated union would
+ * not narrow — see remedial-plan-service). Never throws for a handled failure.
+ */
+export async function generateQuestionsForPassage(
+  admin: Admin,
+  passageId: string
+): Promise<QGenResult> {
+  const loaded = await loadGenPassage(admin, passageId);
+  if (!loaded.ok) return { ok: false, reason: loaded.reason, error: loaded.error };
+  const passage = loaded.passage;
+
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!apiKey) return { ok: false, reason: 'no_key' };
+
+  const { model_id } = await resolveChatModel(QUESTION_GEN_JOB_TYPE);
+  const client = new Anthropic({ apiKey });
+
+  // 1. generate
+  const genMsg = await client.messages.create({
+    model: model_id,
+    max_tokens: 3000,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: buildUserPrompt(passage) }],
+  });
+  const parsed = parseQuestions(extractText(genMsg));
+  if (!parsed) return { ok: false, reason: 'parse_failed' };
+
+  // 2. answer-key double-check (non-fatal: a checker failure leaves verdict='unchecked')
+  let checks: KeyCheck[] = [];
+  try {
+    const chkMsg = await client.messages.create({
+      model: model_id,
+      max_tokens: 1500,
+      system: CHECKER_SYSTEM,
+      messages: [{ role: 'user', content: buildCheckerPrompt(passage, parsed.questions) }],
+    });
+    checks = parseChecks(extractText(chkMsg));
+  } catch {
+    checks = [];
+  }
+
+  // 3. write draft rows (source='ai_generated', status='draft' — never approved here)
+  return recordQuestions(admin, passage, parsed.questions, parsed.coverage_note, checks, `direct:${model_id}`);
 }
