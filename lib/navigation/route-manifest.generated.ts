@@ -1873,6 +1873,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/coverage",
+        "label": "Coverage",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/discounts",
         "label": "Discounts",
         "iconName": "Wallet",

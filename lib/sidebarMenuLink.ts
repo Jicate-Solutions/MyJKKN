@@ -659,6 +659,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
+  '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
 
   // Resource Management
@@ -2434,6 +2435,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
