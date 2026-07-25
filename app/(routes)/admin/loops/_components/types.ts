@@ -109,3 +109,37 @@ export interface LoopAuditRow {
   layer: 'sim' | 'walk' | 'full';
   verdict: string | null;
 }
+
+// ── Cluster lens (C4, 2026-07-26) ────────────────────────────────────────────
+// The CAC's horizontal slice: a hand-picked set of institutions (a discipline
+// cluster) whose loop signals are aggregated and compared against the SAME
+// aggregate one window earlier — the cluster's OWN baseline, never another
+// cluster. There is no cluster→college mapping table; the URL query string IS
+// the cluster (Phase 1), with committee rows surfacing only as picker presets.
+export interface ClusterInstitutionOption {
+  id: string;
+  name: string;
+  short_name?: string | null;
+}
+
+/** A picker preset read from accreditation_committees committee_type='cluster'
+ *  rows (C1 lands that type value — zero rows today, and the picker renders no
+ *  preset strip at all until they exist). */
+export interface ClusterPreset {
+  id: string;
+  name: string;
+  institutionIds: string[];
+}
+
+/** One aggregated cluster signal: the SAME count over two adjacent windows —
+ *  `current` (the last N days) vs `baseline` (the N days before that). null =
+ *  that count query failed and the cell renders hollow, never zero — the same
+ *  swallow-to-null contract as the Tower's cnt(). */
+export interface ClusterSignal {
+  key: string;
+  label: string;
+  /** Plain-words line under the number — what one unit is. */
+  plain: string;
+  current: number | null;
+  baseline: number | null;
+}
