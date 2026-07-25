@@ -122,6 +122,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-loop-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same evidence rows (natural key source_table+source_id+body_code+metric_code). Loop→AQAR bridge PR 1/2; PR 2 renders these rows in the /accreditation UI by loop_key."
   },
   {
+    "id": "hr-naac-evidence",
+    "name": "Accreditation — HR Evidence Snapshots (NAAC 2.1 / 2.2.x / 7.10.1)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:37 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-naac-evidence",
+    "callsClaude": false,
+    "whatItDoes": "Recomputes one hr_naac_evidence snapshot per institution (active teaching staff) for the current academic year and upserts the matching quality_evidence_mappings rows: NAAC 2.1 faculty-learner ratio, 2.2.1 cadre strength vs sanctioned posts, 2.2.2 faculty PhD %, 2.2.3 average teaching experience + cadre-level distribution, and 7.10.1 three-year faculty retention. HR/staff data becomes live accreditation evidence instead of a manual spreadsheet exercise.",
+    "configKnobs": "Faculty = employment_categories.is_teaching AND staff.is_active (staff.role_type is 'teacher' for everyone, including drivers — not used). Learners = learners_profiles.lifecycle_status='active'. Cadre from designation pattern match (legacy 'Reader' counts as associate level). 2.2.1 emits ONLY for institutions with sanctioned_posts rows for the current AY (managed at /hr/admin/sanctioned-posts) — never zeroed or faked. period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts hr_naac_evidence snapshots (one per institution per AY) and is_auto=true rows into quality_evidence_mappings (NAAC 2.1 / 2.2.1 / 2.2.2 / 2.2.3 / 7.10.1), refreshing metadata + mapped_at on re-run and withdrawing its own stale auto rows when an emit-condition stops holding. NEVER touches manually-curated (is_auto=false) mappings. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'hr-naac-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — snapshots upsert on (institution_id, academic_year), mappings on the junction natural key. Wave 2A of the module→evidence-spine integration; same snapshot-table pattern as obe_course_attainment_rollup."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",

@@ -760,7 +760,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.onboarding.execute', label: 'Execute Onboarding Steps' },
       // Dashboard (Sprint 6) — HR Command Center
       { key: 'hr.dashboard.view', label: 'View HR Command Center' },
-      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' }
+      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' },
+      // Sanctioned faculty posts register (Wave 2A, 2026-07-26) —
+      // /hr/admin/sanctioned-posts. The nightly hr-naac-evidence refresh
+      // compares filled strength against this register to emit NAAC 2.2.1
+      // (cadre strength vs sanctioned posts) evidence.
+      { key: 'hr.sanctioned_posts.view', label: 'View Sanctioned Faculty Posts' },
+      { key: 'hr.sanctioned_posts.manage', label: 'Manage Sanctioned Faculty Posts' }
     ]
   },
   {

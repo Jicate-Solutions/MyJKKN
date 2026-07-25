@@ -114,6 +114,13 @@ const SECTIONS: Section[] = [
         description:
           'Triggered rules that move HR cases between stages without manual review.',
       },
+      {
+        href: '/hr/admin/sanctioned-posts',
+        icon: Briefcase,
+        title: 'Sanctioned Posts',
+        description:
+          'Sanctioned faculty posts per cadre and academic year — feeds NAAC 2.2.1 accreditation evidence.',
+      },
     ],
   },
   {
