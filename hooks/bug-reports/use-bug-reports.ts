@@ -16,7 +16,8 @@ import {
   BugReportParticipant,
   BugReportFilters,
   BugReporterStats,
-  BugReporterStatsFilters
+  BugReporterStatsFilters,
+  BugClusterMembership
 } from '@/types/bugs';
 
 // --- API Fetching Functions ---
@@ -222,6 +223,17 @@ const fetchDuplicateCandidates = async (reportId: string, q: string) => {
   }
   const json = await response.json();
   return (json.data ?? []) as BugDuplicateCandidate[];
+};
+
+/** Reverse lookup: the AI-detected group(s) this report belongs to. */
+const fetchBugClusterMembership = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/cluster`);
+  if (!response.ok) {
+    throw new Error('Failed to look up the report group');
+  }
+  const json = await response.json();
+  // data is null (not an error) when the report is in no group — the common case.
+  return (json.data ?? []) as BugClusterMembership[];
 };
 
 const fetchBugReportMessages = async (reportId: string) => {
@@ -522,6 +534,20 @@ export const useBugDuplicates = (reportId: string, enabled = true) => {
   return useQuery<BugDuplicateEntry[]>({
     queryKey: [...queryKeys.bugReports.detail(reportId), 'duplicates'],
     queryFn: () => fetchBugDuplicates(reportId),
+    enabled: !!reportId && enabled,
+    staleTime: 60 * 1000
+  });
+};
+
+/**
+ * The AI-detected group(s) this report belongs to. Cheap reverse lookup that
+ * tells an admin standing on one report that its defect is already diagnosed —
+ * or already fixed — as part of a group.
+ */
+export const useBugClusterMembership = (reportId: string, enabled = true) => {
+  return useQuery<BugClusterMembership[]>({
+    queryKey: [...queryKeys.bugReports.detail(reportId), 'cluster'],
+    queryFn: () => fetchBugClusterMembership(reportId),
     enabled: !!reportId && enabled,
     staleTime: 60 * 1000
   });

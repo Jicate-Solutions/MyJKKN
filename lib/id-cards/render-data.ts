@@ -30,7 +30,12 @@ export type CardField =
   | 'department'
   | 'valid_until'
   | 'qr_code'
-  | 'photo';
+  | 'photo'
+  // Portrait-engine additions (2026-07-25, Director-locked):
+  //   study_period — learner batch span like "2025-2028" (batches via batch_id)
+  //   staff_id     — team-member id code (staff.staff_id)
+  | 'study_period'
+  | 'staff_id';
 
 export const CARD_FIELDS: readonly CardField[] = [
   'name_line_1',
@@ -39,7 +44,9 @@ export const CARD_FIELDS: readonly CardField[] = [
   'department',
   'valid_until',
   'qr_code',
-  'photo'
+  'photo',
+  'study_period',
+  'staff_id'
 ] as const;
 
 export type FieldMapping = { card_field: CardField; db_column: string };
@@ -109,6 +116,17 @@ export type CardPersonData = {
    * staff.staff_id for team members. null → barcode omitted.
    */
   idCode: string | null;
+
+  // ── Portrait-engine fields (2026-07-25; all fail-soft) ─────────────────────
+  /**
+   * Learner study period like "2025-2028", derived from the batches row via
+   * learners_profiles.batch_id (batch_name when already "YYYY-YYYY", else
+   * start/end-date years). null → the YEAR line is omitted (only ~half of
+   * prod learners carry a batch_id). Always null for team members.
+   */
+  studyPeriod: string | null;
+  /** Team member's staff.staff_id for the front side. null for learners. */
+  staffId: string | null;
 };
 
 export type AssembleFailure = {
@@ -176,6 +194,31 @@ export function formatDateLabel(value: string | null | undefined): string {
   const day = Number(match[3]);
   if (month < 1 || month > 12 || day < 1 || day > 31) return s;
   return `${match[3]} ${MONTH_LABELS[month - 1]} ${match[1]}`;
+}
+
+/** Shape of the joined batches row used to derive the learner study period. */
+export type BatchLike = {
+  batch_name?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+};
+
+/**
+ * Derive the "2025-2028"-style YEAR study-period label from a batches row.
+ * Prod survey 2026-07-25: batches.batch_name already IS that string for every
+ * sampled row ("2023-2026", "2024-2027", …) — use it when it matches; else
+ * fall back to the start_date/end_date years; else null (line omitted —
+ * never invent a period). Pure and unit-tested.
+ */
+export function deriveStudyPeriodLabel(batch: BatchLike | null | undefined): string | null {
+  if (!batch) return null;
+  const name = (batch.batch_name ?? '').trim();
+  const nameMatch = /^(\d{4})\s*[-–—]\s*(\d{4})$/.exec(name);
+  if (nameMatch) return `${nameMatch[1]}-${nameMatch[2]}`;
+  const startYear = /^(\d{4})-\d{2}-\d{2}/.exec((batch.start_date ?? '').trim())?.[1];
+  const endYear = /^(\d{4})-\d{2}-\d{2}/.exec((batch.end_date ?? '').trim())?.[1];
+  if (startYear && endYear) return `${startYear}-${endYear}`;
+  return null;
 }
 
 /** Hard-truncate long strings so they cannot overflow the fixed card canvas. */
@@ -351,6 +394,9 @@ type LearnerRow = {
   permanent_address_pin_code: string | null;
   program: { program_name: string | null } | null;
   department: { department_name: string | null } | null;
+  // fk_learners_profiles_batch (batch_id → batches.id) — verified in prod
+  // pg_constraint 2026-07-25.
+  batch: BatchLike | null;
 };
 
 type StaffRow = {
@@ -365,6 +411,9 @@ type StaffRow = {
   date_of_birth: string | null;
   address: string | null;
   phone: string | null;
+  // staff_department_id_fkey (department_id → departments.id) — verified in
+  // prod pg_constraint 2026-07-25. Display name for the front DEPT line.
+  department: { department_name: string | null } | null;
 };
 
 function joinName(first: string | null, last: string | null): string {
@@ -428,6 +477,8 @@ export async function assembleCardData(
   let address: string | null = null;
   let contactPhone: string | null = null;
   let idCode: string | null = null;
+  let studyPeriod: string | null = null;
+  let staffId: string | null = null;
   const photoCandidates: string[] = [];
   const valueBag: Record<string, string> = {
     'profiles.id': p.id,
@@ -449,7 +500,8 @@ export async function assembleCardData(
          permanent_address_taluk, permanent_address_district,
          permanent_address_state, permanent_address_pin_code,
          program:programs(program_name),
-         department:departments(department_name)`
+         department:departments(department_name),
+         batch:batches(batch_name, start_date, end_date)`
       )
       .eq('id', p.learner_id)
       .maybeSingle();
@@ -498,6 +550,11 @@ export async function assembleCardData(
           .join(', ') || null;
       contactPhone = learner.student_mobile?.trim() || null;
       idCode = learner.roll_number?.trim() || null;
+      studyPeriod = deriveStudyPeriodLabel(learner.batch);
+      // Display intent (like program_id/department_id): batch_id maps to the
+      // derived study-period label — a raw UUID must never print on a card.
+      valueBag['learners_profiles.batch_id'] = studyPeriod ?? '';
+      valueBag['batches.batch_name'] = studyPeriod ?? '';
       valueBag['learners_profiles.blood_group'] = bloodGroup ?? '';
       valueBag['learners_profiles.date_of_birth'] = dateOfBirthLabel ?? '';
       valueBag['learners_profiles.father_name'] = learner.father_name ?? '';
@@ -516,7 +573,7 @@ export async function assembleCardData(
         const { data: staffRows, error: staffError } = await supabase
           .from('staff')
           .select(
-            'id, first_name, last_name, designation, profile_picture, staff_id, blood_group, date_of_birth, address, phone'
+            'id, first_name, last_name, designation, profile_picture, staff_id, blood_group, date_of_birth, address, phone, department:departments(department_name)'
           )
           .eq(column, email)
           .limit(1);
@@ -528,7 +585,10 @@ export async function assembleCardData(
           continue;
         }
         if (staffRows && staffRows.length > 0) {
-          staffRow = staffRows[0] as StaffRow;
+          // Same cast shape as the learner read — the untyped client infers
+          // the FK-embedded department as an array; PostgREST returns an
+          // object for a many-to-one embed at runtime.
+          staffRow = staffRows[0] as unknown as StaffRow;
           break;
         }
       }
@@ -537,6 +597,7 @@ export async function assembleCardData(
     if (staffRow) {
       fullName = joinName(staffRow.first_name, staffRow.last_name) || fullName;
       designation = staffRow.designation?.trim() || null;
+      departmentName = staffRow.department?.department_name?.trim() || null;
       if (staffRow.profile_picture) photoCandidates.push(staffRow.profile_picture);
       valueBag['staff.first_name'] = staffRow.first_name ?? '';
       valueBag['staff.last_name'] = staffRow.last_name ?? '';
@@ -549,9 +610,13 @@ export async function assembleCardData(
       address = staffRow.address?.trim() || null;
       contactPhone = staffRow.phone?.trim() || null;
       idCode = staffRow.staff_id?.trim() || null;
+      staffId = idCode;
       valueBag['staff.staff_id'] = idCode ?? '';
       valueBag['staff.blood_group'] = bloodGroup ?? '';
       valueBag['staff.phone'] = contactPhone ?? '';
+      // Display intent: department_id maps to its display name.
+      valueBag['staff.department_id'] = departmentName ?? '';
+      valueBag['departments.department_name'] = departmentName ?? '';
     }
   }
 
@@ -597,7 +662,9 @@ export async function assembleCardData(
       guardianPhone,
       address,
       contactPhone,
-      idCode
+      idCode,
+      studyPeriod,
+      staffId
     }
   };
 }
