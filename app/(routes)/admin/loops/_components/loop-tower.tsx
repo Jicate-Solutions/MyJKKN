@@ -128,7 +128,7 @@ export interface LoopTowerStats {
 // which predates the correction and still parks the judge loops at tier 3).
 // Unknown/new registry keys default into PRODUCT, the ring for standing
 // improvement programs. ─────────────────────────────────────────────────────
-const SYSTEM_KEYS = new Set(['metaloop', 'iqac-meeting', 'institutional-audit', 'decisions']);
+const SYSTEM_KEYS = new Set(['metaloop', 'iqac-meeting', 'institutional-audit', 'decisions', 'carre-audit']);
 const OVERSIGHT_KEYS = new Set(['director']);
 
 const n = (v: number | null) => (v === null ? '—' : String(v));

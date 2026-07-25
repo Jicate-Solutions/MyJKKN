@@ -193,3 +193,75 @@ export function useReviewRcltpQuestion() {
     onError: (e: any) => toast.error(e?.message || 'Failed to save question review'),
   });
 }
+
+// ---------------------------------------------------------------------------
+// REVIEW QUEUE — batch approve, most-needed-first order, weekly spot-check
+// (locked decisions #1, #5, #7)
+// ---------------------------------------------------------------------------
+
+export const rcltpReviewKeys = {
+  all: ['rcltp', 'review'] as const,
+  priority: (institutionId: string | null) =>
+    [...rcltpReviewKeys.all, 'priority', institutionId] as const,
+  spotcheck: () => [...rcltpReviewKeys.all, 'spotcheck', 'week'] as const,
+};
+
+/** Batch-promote the AI-agreed drafts of a passage in one statement. */
+export function useReviewRcltpQuestionsBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ids,
+      input,
+    }: {
+      ids: string[];
+      input: UpdateRcltpQuestionReviewDto;
+    }) => RcltpPassagesService.reviewQuestionsBulk(ids, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: rcltpQuestionKeys.all });
+      // A batch approve changes both the pile order and next week's sample pool.
+      qc.invalidateQueries({ queryKey: rcltpReviewKeys.all });
+    },
+    onError: (e: any) =>
+      toast.error(e?.message || 'Failed to approve the selected questions'),
+  });
+}
+
+/** Most-needed-first ordering for the passage list. */
+export function useRcltpPassageReviewPriority(institutionId: string | null) {
+  return useQuery({
+    queryKey: rcltpReviewKeys.priority(institutionId),
+    queryFn: () => RcltpPassagesService.getPassageReviewPriority(institutionId),
+    placeholderData: (prev) => prev,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+/** This week's enforced spot-check sample for the signed-in Senior Learner. */
+export function useRcltpSpotcheckWeek() {
+  return useQuery({
+    queryKey: rcltpReviewKeys.spotcheck(),
+    queryFn: () => RcltpPassagesService.getSpotcheckWeek(),
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+/** Record the outcome of one sampled item. */
+export function useResolveRcltpSpotcheck() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      status,
+      note,
+    }: {
+      id: string;
+      status: 'confirmed' | 'flagged';
+      note?: string | null;
+    }) => RcltpPassagesService.resolveSpotcheck(id, status, note),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: rcltpReviewKeys.spotcheck() }),
+    onError: (e: any) =>
+      toast.error(e?.message || 'Failed to record the spot-check'),
+  });
+}

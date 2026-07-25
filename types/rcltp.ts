@@ -190,6 +190,48 @@ export interface RcltpQuestionAiMeta {
   generated_via?: string;
 }
 
+// ---------------------------------------------------------------------------
+// 2b. Review-queue priority + weekly spot-check (locked decisions #5 and #7).
+//     Both are served by SECURITY DEFINER RPCs; see migration
+//     20260725080000_rcltp_batch_approve_and_spotcheck.sql.
+// ---------------------------------------------------------------------------
+
+/**
+ * One passage's place in the "most-needed-first" review queue, from
+ * fn_rcltp_passage_review_priority. `priority_rank` is computed server-side so
+ * the ordering rule lives in exactly one place — the console sorts by it and
+ * never re-implements the comparator.
+ *
+ * next_scheduled_at is null until assessment scheduling is in use; the ranking
+ * then falls through to at_risk_count, which is the live signal today.
+ */
+export interface RcltpPassageReviewPriority {
+  passage_id: string;
+  draft_count: number;
+  ai_agreed_count: number;
+  attention_count: number;
+  at_risk_count: number;
+  next_scheduled_at: string | null;
+  priority_rank: number;
+}
+
+/** Outcome a Senior Learner records against a sampled item. */
+export type RcltpSpotcheckStatus = 'pending' | 'confirmed' | 'flagged';
+
+/** One item in this week's anti-rubber-stamp sample (fn_rcltp_spotcheck_week). */
+export interface RcltpReviewSpotcheck {
+  id: string;
+  question_id: string;
+  question_text: string;
+  correct_answer: string | null;
+  passage_id: string | null;
+  passage_title: string | null;
+  week_start: string;
+  status: RcltpSpotcheckStatus;
+  note: string | null;
+  resolved_at: string | null;
+}
+
 /** rcltp_assessments — one assessment sitting (Part A voice + Part B comprehension). */
 export interface RcltpAssessment {
   id: string;
