@@ -55,6 +55,9 @@ export interface BillCoverageRow {
   institution_id: string;
   institution_name: string | null;
   program_name: string | null;
+  /** Semester and section combined in SQL, e.g. "3 Year · A". Degrades to just
+   *  one part when the other is missing (503 learners have no section). */
+  semester_section: string | null;
   academic_year_id: string | null;
   academic_year_name: string | null;
   accommodation_type: string | null;

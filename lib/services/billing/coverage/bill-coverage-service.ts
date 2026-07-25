@@ -27,6 +27,7 @@ interface RawCoverageRow {
   out_institution_id: string;
   out_institution_name: string | null;
   out_program_name: string | null;
+  out_semester_section: string | null;
   out_academic_year_id: string | null;
   out_academic_year_name: string | null;
   out_accommodation_type: string | null;
@@ -95,6 +96,7 @@ export class BillCoverageService extends BaseService {
       institution_id: r.out_institution_id,
       institution_name: r.out_institution_name,
       program_name: r.out_program_name,
+      semester_section: r.out_semester_section,
       academic_year_id: r.out_academic_year_id,
       academic_year_name: r.out_academic_year_name,
       accommodation_type: r.out_accommodation_type,
