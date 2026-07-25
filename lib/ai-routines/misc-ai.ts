@@ -122,6 +122,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-loop-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same evidence rows (natural key source_table+source_id+body_code+metric_code). Loop→AQAR bridge PR 1/2; PR 2 renders these rows in the /accreditation UI by loop_key."
   },
   {
+    "id": "coe-result-naac-snapshots",
+    "name": "Accreditation — COE Pass-Percentage Mirror (NAAC 8.2.2)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:51 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/coe-result-naac-snapshots",
+    "callsClaude": false,
+    "whatItDoes": "Each night it mirrors the COE exam system's declared university-exam results into the accreditation evidence spine: it reads COE's per-course final-marks summary view directly from the COE database (cross-project, server-side credentials), aggregates pass percentage per institution per examination session, writes coe_naac_evidence snapshot rows (fanning the CAS campus numbers out to both its MyJKKN institutions), and maps each row to NAAC Metric 8.2.2 'Pass percentage in university examinations' in quality_evidence_mappings — so the pass-percentage narrative is backed by live COE numbers instead of nothing.",
+    "configKnobs": "Emission gate pinned: only sessions with published results emit (published_count > 0 — planned/empty sessions produce nothing). Denominator = published learner-course entries; pass % = passed/published, recorded with all raw counts in row metadata. Exam-calendar adherence (deck metric 5.7) is deliberately NOT computed: COE's published_date is NULL on every final-marks row and result_declaration_date is a backfill artifact — no honest day count exists. period_label = 'AY YYYY-YY' from the session's exam window (June cutoff), falling back to the session code. No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts coe_naac_evidence snapshot rows (one per MyJKKN institution × metric × COE examination session) and is_auto=true quality_evidence_mappings rows (NAAC 8.2.2), refreshing metadata on re-run. NEVER touches manually-curated (is_auto=false) mappings (pre-excluded before the upsert). Aggregate counts only — no learner identities. Read-only against the COE database. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'coe-result-naac-snapshots' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Requires the server-only COE_SUPABASE_URL + COE_SUPABASE_SERVICE_ROLE_KEY env vars (fails closed with 503 when absent — already set in Vercel prod, verified 2026-07-06). Safe to manual-trigger: fully idempotent — re-running refreshes the same snapshot + evidence rows (snapshot natural key institution_id+metric_code+session_code; junction natural key source_table+source_id+body_code+metric_code). Wave 3 of the module→evidence-spine integration."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",
