@@ -20,6 +20,7 @@ describe('buildReportScope', () => {
       p_semester_id: null,
       p_section_id: null,
       p_schemes: null,
+      p_accommodation_codes: null,
       p_student_id: null,
       p_date_from: null,
       p_date_to: null,
@@ -49,6 +50,15 @@ describe('buildReportScope', () => {
   it('passes multiple selected schemes through unchanged', () => {
     expect(buildReportScope({ schemes: ['first_graduate', 'pmss'] }).p_schemes)
       .toEqual(['first_graduate', 'pmss']);
+  });
+
+  it('normalises an empty accommodation array to null (means "no restriction")', () => {
+    expect(buildReportScope({ accommodation_codes: [] }).p_accommodation_codes).toBeNull();
+  });
+
+  it('passes multiple selected accommodation codes through unchanged', () => {
+    expect(buildReportScope({ accommodation_codes: ['hostel', 'pg'] }).p_accommodation_codes)
+      .toEqual(['hostel', 'pg']);
   });
 
   it('carries every hierarchy level', () => {

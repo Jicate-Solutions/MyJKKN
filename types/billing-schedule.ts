@@ -752,6 +752,8 @@ export interface BillingReportFilters {
   item_category_id?: string;
   /** Empty or absent means no scheme restriction. */
   schemes?: ReportSchemeKey[];
+  /** accommodation_types.code values. Empty or absent means no restriction. */
+  accommodation_codes?: string[];
   student_id?: string;
   date_from?: string;
   date_to?: string;

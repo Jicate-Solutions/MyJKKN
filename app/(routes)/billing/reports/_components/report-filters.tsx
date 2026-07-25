@@ -19,6 +19,7 @@ import {
 } from '@/hooks/organization/use-academic-hierarchy-filters';
 import { ACADEMIC_YEAR_UNSPECIFIED } from '@/lib/services/billing/reports/report-filter-params';
 import {
+  ACCOMMODATION_TYPE_OPTIONS,
   REPORT_SCHEME_OPTIONS,
   type BillingReportFilters,
   type ReportSchemeKey,
@@ -90,11 +91,22 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
       schemes: on ? [...schemes, key] : schemes.filter((s) => s !== key),
     });
 
+  const accommodationCodes = filters.accommodation_codes ?? [];
+  const toggleAccommodation = (code: string, on: boolean) =>
+    onFilterChange({
+      accommodation_codes: on
+        ? [...accommodationCodes, code]
+        : accommodationCodes.filter((c) => c !== code),
+    });
+
   const nameOf = (list: HierarchyOption[], id?: string) =>
     list.find((o) => o.id === id)?.name ?? 'Unknown';
 
+  // `value` discriminates multi-select chips (schemes, accommodation_codes)
+  // from single-value ones so dismissal can target the exact option that was
+  // ticked instead of matching on the (possibly non-unique) rendered label.
   const chips = useMemo(() => {
-    const out: { key: keyof BillingReportFilters; label: string }[] = [];
+    const out: { key: keyof BillingReportFilters; label: string; value?: string }[] = [];
     if (filters.institution_id) out.push({ key: 'institution_id', label: `Institution: ${nameOf(h.institutions, filters.institution_id)}` });
     if (filters.academic_year_id) out.push({
       key: 'academic_year_id',
@@ -108,7 +120,10 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
     if (filters.section_id) out.push({ key: 'section_id', label: `Section: ${nameOf(h.sections, filters.section_id)}` });
     if (filters.item_category_id) out.push({ key: 'item_category_id', label: `Category: ${nameOf(h.categories, filters.item_category_id)}` });
     for (const s of schemes) {
-      out.push({ key: 'schemes', label: REPORT_SCHEME_OPTIONS.find((o) => o.value === s)?.label ?? s });
+      out.push({ key: 'schemes', value: s, label: REPORT_SCHEME_OPTIONS.find((o) => o.value === s)?.label ?? s });
+    }
+    for (const a of accommodationCodes) {
+      out.push({ key: 'accommodation_codes', value: a, label: ACCOMMODATION_TYPE_OPTIONS.find((o) => o.value === a)?.label ?? a });
     }
     return out;
     // `h` is a fresh object literal every render (useAcademicHierarchyFilters
@@ -117,7 +132,7 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
     // callback reads instead — each is individually stable between renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    filters, schemes,
+    filters, schemes, accommodationCodes,
     h.institutions, h.academicYears, h.degrees, h.departments,
     h.programs, h.semesters, h.sections, h.categories,
   ]);
@@ -127,7 +142,7 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
       institution_id: undefined, academic_year_id: undefined,
       degree_id: undefined, department_id: undefined, program_id: undefined,
       semester_id: undefined, section_id: undefined, item_category_id: undefined,
-      schemes: [], student_id: undefined,
+      schemes: [], accommodation_codes: [], student_id: undefined,
       date_from: undefined, date_to: undefined,
     });
 
@@ -136,6 +151,12 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
       : schemes.length === 1
         ? REPORT_SCHEME_OPTIONS.find((o) => o.value === schemes[0])?.label
         : `${schemes.length} categories`;
+
+  const accommodationLabel =
+    accommodationCodes.length === 0 ? 'All Accommodation'
+      : accommodationCodes.length === 1
+        ? ACCOMMODATION_TYPE_OPTIONS.find((o) => o.value === accommodationCodes[0])?.label
+        : `${accommodationCodes.length} types`;
 
   return (
     <div className='space-y-4'>
@@ -160,21 +181,21 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
       {chips.length > 0 && (
         <div className='flex flex-wrap gap-2'>
           {chips.map((c) => (
-            <Badge key={`${c.key}-${c.label}`} variant='secondary' className='flex items-center gap-1'>
+            <Badge key={`${c.key}-${c.value ?? c.label}`} variant='secondary' className='flex items-center gap-1'>
               {c.label}
               <Button
                 variant='ghost'
                 size='sm'
                 className='h-auto p-0 text-current'
-                onClick={() =>
-                  c.key === 'schemes'
-                    ? onFilterChange({
-                        schemes: schemes.filter(
-                          (s) => REPORT_SCHEME_OPTIONS.find((o) => o.value === s)?.label !== c.label
-                        ),
-                      })
-                    : set(c.key as string, undefined)
-                }
+                onClick={() => {
+                  if (c.key === 'schemes') {
+                    onFilterChange({ schemes: schemes.filter((s) => s !== c.value) });
+                  } else if (c.key === 'accommodation_codes') {
+                    onFilterChange({ accommodation_codes: accommodationCodes.filter((a) => a !== c.value) });
+                  } else {
+                    set(c.key as string, undefined);
+                  }
+                }}
               >
                 <X className='h-3 w-3' />
               </Button>
@@ -263,6 +284,29 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
                       <Checkbox
                         checked={schemes.includes(o.value)}
                         onCheckedChange={(c) => toggleScheme(o.value, c === true)}
+                      />
+                      {o.label}
+                    </label>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className='space-y-2'>
+              <Label>Accommodation</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant='outline' className='w-full justify-between font-normal'>
+                    {accommodationLabel}
+                    <ChevronDown className='h-4 w-4 opacity-50' />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className='w-56 space-y-2' align='start'>
+                  {ACCOMMODATION_TYPE_OPTIONS.map((o) => (
+                    <label key={o.value} className='flex items-center gap-2 text-sm'>
+                      <Checkbox
+                        checked={accommodationCodes.includes(o.value)}
+                        onCheckedChange={(c) => toggleAccommodation(o.value, c === true)}
                       />
                       {o.label}
                     </label>

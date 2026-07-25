@@ -16,6 +16,7 @@ export interface ReportRpcScope {
   p_semester_id: string | null;
   p_section_id: string | null;
   p_schemes: ReportSchemeKey[] | null;
+  p_accommodation_codes: string[] | null;
   p_student_id: string | null;
   p_date_from: string | null;
   p_date_to: string | null;
@@ -36,6 +37,8 @@ export function buildReportScope(f: BillingReportFilters): ReportRpcScope {
     p_semester_id: nz(f.semester_id),
     p_section_id: nz(f.section_id),
     p_schemes: f.schemes && f.schemes.length > 0 ? f.schemes : null,
+    p_accommodation_codes: f.accommodation_codes && f.accommodation_codes.length > 0
+      ? f.accommodation_codes : null,
     p_student_id: nz(f.student_id),
     p_date_from: nz(f.date_from),
     p_date_to: nz(f.date_to),
