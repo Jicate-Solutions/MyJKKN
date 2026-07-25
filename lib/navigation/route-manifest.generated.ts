@@ -1739,8 +1739,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/audit/care/predict",
+            "label": "Predict",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/audit/care/score",
             "label": "Score",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
+            "path": "/audit/care/voice",
+            "label": "Voice",
             "iconName": "ClipboardCheck",
             "children": []
           }
