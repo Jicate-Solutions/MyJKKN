@@ -40,6 +40,7 @@ export async function exportCoverageToExcel(
       (filters.accommodation_type_ids ?? []).join(', ') || 'Any'
     ],
     ['Transport', filters.transport ?? 'any'],
+    ['Gender', filters.gender ?? 'Any'],
     [
       'Non-billing institutions',
       filters.include_non_billing_institutions ? 'Included' : 'Excluded'
@@ -59,6 +60,7 @@ export async function exportCoverageToExcel(
       'Roll Number',
       'Register Number',
       'Learner Name',
+      'Gender',
       'Institution',
       'Programme',
       'Semester · Section',
@@ -76,6 +78,7 @@ export async function exportCoverageToExcel(
       r.roll_number ?? '',
       r.register_number ?? '',
       r.full_name,
+      r.gender ?? '',
       r.institution_name ?? '',
       r.program_name ?? '',
       r.semester_section ?? '',

@@ -38,6 +38,7 @@ export function CoverageClient() {
     billing_category_id: null,
     accommodation_type_ids: null,
     transport: 'any',
+    gender: null,
     coverage_state: 'not_generated',
     include_non_billing_institutions: false,
     search: null,

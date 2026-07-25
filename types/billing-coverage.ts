@@ -28,6 +28,13 @@ export const LEARNER_SCOPE_DEFAULT = [
  */
 export type TransportFilter = 'any' | 'bus' | 'no_bus';
 
+/**
+ * Sentinel for "gender not recorded". learners_profiles.gender is TEXT NOT NULL
+ * and 11 in-scope learners hold an EMPTY STRING rather than NULL, so this
+ * cannot be expressed as a null filter value.
+ */
+export const GENDER_UNSET = '__unset__';
+
 export interface BillCoverageFilters {
   /** Target academic year. Null means "each learner's own current year". */
   academic_year_id?: string | null;
@@ -38,6 +45,8 @@ export interface BillCoverageFilters {
   /** Hostel / Day Scholar / Paying Guest / Not Applicable — from accommodation_types. */
   accommodation_type_ids?: string[] | null;
   transport?: TransportFilter;
+  /** 'MALE' | 'FEMALE' | GENDER_UNSET | null (any). Compared case-insensitively. */
+  gender?: string | null;
   coverage_state?: CoverageState | 'all';
   /** Institutions with zero bills in ANY year are hidden unless this is true. */
   include_non_billing_institutions?: boolean;
@@ -52,6 +61,8 @@ export interface BillCoverageRow {
   register_number: string | null;
   full_name: string;
   lifecycle_status: string;
+  /** Null when not recorded — the RPC normalises the empty string to null. */
+  gender: string | null;
   institution_id: string;
   institution_name: string | null;
   program_name: string | null;

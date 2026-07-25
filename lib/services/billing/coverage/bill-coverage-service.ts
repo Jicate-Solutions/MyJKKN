@@ -24,6 +24,7 @@ interface RawCoverageRow {
   out_register_number: string | null;
   out_full_name: string;
   out_lifecycle_status: string;
+  out_gender: string | null;
   out_institution_id: string;
   out_institution_name: string | null;
   out_program_name: string | null;
@@ -61,7 +62,9 @@ export class BillCoverageService extends BaseService {
           ? filters.accommodation_type_ids
           : null,
       // Transport is a separate dimension from accommodation — the two compose.
-      p_transport: filters.transport ?? 'any'
+      p_transport: filters.transport ?? 'any',
+      // null = any gender. GENDER_UNSET selects learners with a blank gender.
+      p_gender: filters.gender ?? null
     };
   }
 
@@ -93,6 +96,7 @@ export class BillCoverageService extends BaseService {
       register_number: r.out_register_number,
       full_name: r.out_full_name,
       lifecycle_status: r.out_lifecycle_status,
+      gender: r.out_gender,
       institution_id: r.out_institution_id,
       institution_name: r.out_institution_name,
       program_name: r.out_program_name,

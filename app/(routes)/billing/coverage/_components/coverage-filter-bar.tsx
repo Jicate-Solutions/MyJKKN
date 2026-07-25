@@ -18,7 +18,7 @@ import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useBillingCategories } from '@/hooks/billing/use-billing-categories';
 import type { BillCoverageFilters } from '@/types/billing-coverage';
-import { LEARNER_SCOPE_DEFAULT } from '@/types/billing-coverage';
+import { LEARNER_SCOPE_DEFAULT, GENDER_UNSET } from '@/types/billing-coverage';
 
 interface CoverageFilterBarProps {
   filters: BillCoverageFilters;
@@ -79,7 +79,7 @@ export function CoverageFilterBar({
 
   return (
     <div className='space-y-4 rounded-lg border p-4'>
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
         {/* Institution */}
         <div className='space-y-1.5'>
           <Label className='text-xs'>Institution</Label>
@@ -201,6 +201,27 @@ export function CoverageFilterBar({
               <SelectItem value='any'>Any transport</SelectItem>
               <SelectItem value='bus'>Uses bus</SelectItem>
               <SelectItem value='no_bus'>No bus</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Gender */}
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Gender</Label>
+          <Select
+            value={filters.gender ?? ALL}
+            onValueChange={(v) => onChange({ gender: v === ALL ? null : v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any gender' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any gender</SelectItem>
+              <SelectItem value='MALE'>Male</SelectItem>
+              <SelectItem value='FEMALE'>Female</SelectItem>
+              {/* gender is TEXT NOT NULL holding '' for unrecorded learners,
+                  so this needs its own sentinel rather than a null value. */}
+              <SelectItem value={GENDER_UNSET}>Not recorded</SelectItem>
             </SelectContent>
           </Select>
         </div>
