@@ -1363,6 +1363,51 @@ export default function AttendanceMarkPage() {
         };
       }
 
+      // Updated: 2026-07-25 - Build the subdivided (lab) group rosters ONCE, so the
+      // top-level roster below can mirror them instead of shipping empty.
+      const subdivisionGroups = isSubdividedSlot
+        ? activeSubdivisionGroups.map((group) => ({
+            group_order: group.group_order,
+            group_name: group.group_name,
+            lab_room: group.lab_room,
+            max_capacity: group.max_capacity,
+            staff_ids: group.staff_ids,
+            // Updated: 2026-03-13 - Combined periods have empty student_ids; use all students
+            students: students
+              .filter((student) =>
+                group.student_ids.length > 0
+                  ? group.student_ids.includes(student.id)
+                  : true
+              )
+              .map((student) => ({
+                student_id: student.id,
+                section_id:
+                  student.section_id ||
+                  contextData?.section_id ||
+                  effectiveSectionId ||
+                  '',
+                status: attendanceData[student.id] || 'Present',
+                marked_at: new Date().toISOString()
+              }))
+          }))
+        : [];
+
+      // Updated: 2026-07-25 - The union of every group's roster, deduplicated by
+      // learner. A COMBINED period leaves `student_ids` empty on a group, which puts
+      // every learner into every such group, so a naive flatten would list a learner
+      // twice. One learner carries one status here (statuses are keyed per learner,
+      // not per group), so keeping the first entry is lossless.
+      const subdivisionRosterMirror = (() => {
+        const seenLearnerIds = new Set<string>();
+        return subdivisionGroups.flatMap((group) =>
+          group.students.filter((entry) => {
+            if (seenLearnerIds.has(entry.student_id)) return false;
+            seenLearnerIds.add(entry.student_id);
+            return true;
+          })
+        );
+      })();
+
       // Prepare attendance data with proper structure
       // Updated: 2025-10-11 - Add subdivision support
       const attendancePayload = {
@@ -1379,30 +1424,7 @@ export default function AttendanceMarkPage() {
           ...(isSubdividedSlot && {
             is_subdivided: true,
             subdivision_type: subdivisionType,
-            groups: activeSubdivisionGroups.map((group) => ({
-              group_order: group.group_order,
-              group_name: group.group_name,
-              lab_room: group.lab_room,
-              max_capacity: group.max_capacity,
-              staff_ids: group.staff_ids,
-              // Updated: 2026-03-13 - Combined periods have empty student_ids; use all students
-              students: students
-                .filter((student) =>
-                  group.student_ids.length > 0
-                    ? group.student_ids.includes(student.id)
-                    : true
-                )
-                .map((student) => ({
-                  student_id: student.id,
-                  section_id:
-                    student.section_id ||
-                    contextData?.section_id ||
-                    effectiveSectionId ||
-                    '',
-                  status: attendanceData[student.id] || 'Present',
-                  marked_at: new Date().toISOString()
-                }))
-            }))
+            groups: subdivisionGroups
           }),
 
           // NEW: Add practical period metadata if applicable (Updated: 2025-10-25)
@@ -1425,9 +1447,17 @@ export default function AttendanceMarkPage() {
             marker_email: markerEmail || profile?.email || '',
             marked_at: new Date().toISOString() // Add timestamp when period is marked
           },
-          // For non-subdivided or fallback, keep original structure
+          // Updated: 2026-07-25 - A subdivided slot used to ship `students: []` here,
+          // so every consumer reading the top-level roster saw an EMPTY practical:
+          // the session-feedback path, exam-eligibility aggregation, the attendance
+          // dashboards and the CARRE/CRS/DHS/TES scorers all counted zero learners.
+          // Publish the union of the group rosters instead. Readers that already
+          // understand both shapes (fn_attendance_slot_students in SQL, slotStudents()
+          // in attendance-report-service) PREFER a non-empty top-level array over
+          // flattening groups[], so this is read INSTEAD of the flatten, never in
+          // addition to it — it cannot double-count.
           students: isSubdividedSlot
-            ? [] // Empty for subdivided (data is in groups)
+            ? subdivisionRosterMirror
             : students.map((student) => ({
                 student_id: student.id,
                 section_id:
