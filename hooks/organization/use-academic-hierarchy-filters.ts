@@ -58,6 +58,7 @@ function useLevel(
     let cancelled = false;
     if (!parentId) {
       setOptions([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
