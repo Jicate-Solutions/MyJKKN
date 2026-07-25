@@ -119,7 +119,7 @@ const SECTIONS: Section[] = [
         icon: Briefcase,
         title: 'Sanctioned Posts',
         description:
-          'Sanctioned faculty posts per cadre and academic year — feeds NAAC 2.2.1 accreditation evidence.',
+          'Sanctioned Senior Learner posts per cadre and academic year — feeds NAAC 2.2.1 accreditation evidence.',
       },
     ],
   },

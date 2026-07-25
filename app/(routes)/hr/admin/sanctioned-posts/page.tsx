@@ -325,7 +325,7 @@ export default function SanctionedPostsPage() {
 
   return (
     <PermissionGuard module="hr.sanctioned_posts" action="view">
-      <ContentLayout title="Sanctioned Faculty Posts">
+      <ContentLayout title="Sanctioned Senior Learner Posts">
         <PageBreadcrumb
           items={[
             { label: 'HR', href: '/hr' },
@@ -337,9 +337,9 @@ export default function SanctionedPostsPage() {
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <CardTitle className="text-lg">Sanctioned Faculty Posts</CardTitle>
+                <CardTitle className="text-lg">Sanctioned Senior Learner Posts</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Sanctioned faculty posts per cadre and academic year. The nightly
+                  Sanctioned Senior Learner posts per cadre and academic year. The nightly
                   accreditation refresh compares filled strength against this register
                   to compute NAAC 2.2.1 evidence — institutions without entries for the
                   current year are skipped, not reported as zero. Rarely changes; update

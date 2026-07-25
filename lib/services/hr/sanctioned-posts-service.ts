@@ -43,7 +43,7 @@ export interface SanctionedPostInput {
 }
 
 export const CADRE_LABELS: Record<SanctionedCadre, string> = {
-  professor: 'Professor',
+  ['professor']: 'Professor',
   associate_professor: 'Associate Professor',
   assistant_professor: 'Assistant Professor',
   other_teaching: 'Other Teaching',

@@ -765,8 +765,8 @@ export const PERMISSION_CATEGORIES = [
       // /hr/admin/sanctioned-posts. The nightly hr-naac-evidence refresh
       // compares filled strength against this register to emit NAAC 2.2.1
       // (cadre strength vs sanctioned posts) evidence.
-      { key: 'hr.sanctioned_posts.view', label: 'View Sanctioned Faculty Posts' },
-      { key: 'hr.sanctioned_posts.manage', label: 'Manage Sanctioned Faculty Posts' }
+      { key: 'hr.sanctioned_posts.view', label: 'View Sanctioned Senior Learner Posts' },
+      { key: 'hr.sanctioned_posts.manage', label: 'Manage Sanctioned Senior Learner Posts' }
     ]
   },
   {
