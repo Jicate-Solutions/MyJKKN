@@ -2178,3 +2178,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - **Clarification asks** (`20260725133000_session_clarification_requests.sql`, PR #2374): ask→outcome trace (learner-only writes, self-reported outcome, leadership read via audit.cycle.view)
 - **Sealed participation line** (`20260725153000_carre_participant_activity_line.sql`, PR #2373): `fn_carre_participant_activity` — cycle-level scorers/items/last-activity, k≥3 floor ON THE COUNT ITSELF
 - Batteries: 10/10 (A) · 10/10 (B) · 14/14 (C) · 5/5 (D), all rolled-back; reviews: 4× minor, 0 critical
+
+### Bug duplicate check — meaning-level dedupe for one report (2026-07-25)
+- Job type: `bug.duplicate_check` seeded on `ai_job_types` (₹0 Max lane, `opus`, prompt-only `tool_set='none'` — drained by the generic runner like `bug.triage`)
+- Function NEW: `fn_bug_duplicate_candidates(uuid,integer,real)` — trigram shortlist with a deliberately LOW 0.15 floor (under `fn_bug_cluster_scan`'s 0.45) so same-defect/different-wording pairs reach the AI judge; **service_role ONLY** (revoked from anon, PUBLIC *and* authenticated — it reads bug text across institutions)
+- Advisory only: verdict lands in `bug_reports.metadata.ai_duplicate_check`; never sets `duplicate_of`, never resolves, never notifies
+- Location: `supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql` — **NOT applied to prod** (rolled-back-validated only; 7-point battery A–G PASSED, incl. the BUG-005356 acceptance test)
