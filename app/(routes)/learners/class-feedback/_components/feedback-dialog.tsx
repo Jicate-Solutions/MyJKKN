@@ -27,6 +27,7 @@ import {
   NOTEBOOKLM_FEATURES,
   NBLM_NONE_KEY,
 } from '@/lib/session-feedback/notebooklm-features';
+import { ClarificationTouchpoint } from './clarification-touchpoint';
 
 const BRAND = '#0b6d41';
 
@@ -120,6 +121,11 @@ export function FeedbackDialog({
   const [attnPassed, setAttnPassed] = useState(true);
   const [attnWrong, setAttnWrong] = useState<string | null>(null);
 
+  // Post-feedback confirmation moment (Lane C): after a successful submit the
+  // dialog swaps to a small "attendance confirmed" step carrying the
+  // clarification-request touchpoint, instead of closing immediately.
+  const [postSubmit, setPostSubmit] = useState(false);
+
   // Decoy pool via a latest-ref (skeptic review HIGH, 2026-07-09): the reset
   // effect below must fire ONLY on session identity. With pendingSessions in
   // its deps, a background refetch that changes the pending list (e.g. a
@@ -141,6 +147,7 @@ export function FeedbackDialog({
       setFreeText('');
       setCfChoice(null);
       setConcernAnswers({});
+      setPostSubmit(false);
 
       // Roll the occasional attention check for this open. Re-rolls on every
       // open by design — deliberately stateless (no storage, no punishment).
@@ -287,7 +294,9 @@ export function FeedbackDialog({
         });
       }
       toast.success('Thanks! Your attendance for this class is now confirmed.');
-      onOpenChange(false);
+      // Stay open on the confirmation step (Lane C): the one moment the learner
+      // can record "I asked for a re-explanation" + what happened. Done closes.
+      setPostSubmit(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not submit feedback.');
     }
@@ -314,10 +323,27 @@ export function FeedbackDialog({
             where the full form is taller than the viewport. The -mx-1/px-1
             pair keeps focus rings from being clipped by overflow. */}
         <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
-        {/* Attention check gate — the form stays hidden until the correct tap.
-            Wrong taps only mark the option and invite another try; Cancel below
-            always works (no punishment). */}
-        {!attnPassed && attnOptions ? (
+        {/* Post-feedback confirmation moment (Lane C): attendance is confirmed;
+            the ONLY extra affordance is the clarification-request touchpoint. */}
+        {postSubmit && session ? (
+          <div className="space-y-4 py-2">
+            <p className="flex items-start gap-2 text-sm">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
+              <span>
+                <span className="font-medium">Feedback received</span> — your attendance for
+                this class is confirmed.
+              </span>
+            </p>
+            <ClarificationTouchpoint
+              attendanceDate={session.attendance_date}
+              timetableId={session.timetable_id}
+              periodId={session.period_id}
+            />
+          </div>
+        ) : !attnPassed && attnOptions ? (
+          /* Attention check gate — the form stays hidden until the correct tap.
+             Wrong taps only mark the option and invite another try; Cancel below
+             always works (no punishment). */
           <div className="space-y-3 py-2">
             <p className="text-sm font-medium">
               Quick check — which class are you giving feedback for?
@@ -609,29 +635,41 @@ export function FeedbackDialog({
         </div>
 
         <DialogFooter className="shrink-0 gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submit.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submit.isPending || !attnPassed}
-            className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
-          >
-            {submit.isPending ? (
-              <BeatLoader color="#ffffff" size={8} />
-            ) : (
-              <>
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                Confirm & submit
-              </>
-            )}
-          </Button>
+          {postSubmit ? (
+            <Button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+            >
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={submit.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submit.isPending || !attnPassed}
+                className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+              >
+                {submit.isPending ? (
+                  <BeatLoader color="#ffffff" size={8} />
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                    Confirm & submit
+                  </>
+                )}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
