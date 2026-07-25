@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus, Rocket } from 'lucide-react';
+import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus, Rocket, Trophy } from 'lucide-react';
 
 interface EventTypeCard {
   title: string;
@@ -37,6 +37,14 @@ const EVENT_TYPES: EventTypeCard[] = [
       'Organize running events with registration, bib management, live tracking, and results.',
     href: '/events/marathon',
     icon: Timer,
+    available: true,
+  },
+  {
+    title: 'Sports Tournament',
+    description:
+      'Run inter-institution tournaments: divisions, entries, fixtures, live scores, standings, and medals.',
+    href: '/events/tournament',
+    icon: Trophy,
     available: true,
   },
   {
