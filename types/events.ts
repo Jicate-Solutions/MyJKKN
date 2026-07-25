@@ -87,6 +87,11 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  // NAAC evidence tags (events.naac_criteria text[] NOT NULL DEFAULT '{}',
+  // live since Phase 1A 20260417000001; GIN-indexed). Read by the events →
+  // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
+  // field on the tournament edit dialog (Wave 3, 2026-07-26).
+  naac_criteria: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -231,6 +236,8 @@ export interface CreateEventDto {
   end_date?: string;
   registration_open_date?: string;
   registration_close_date?: string;
+  // NAAC evidence tags — see Event.naac_criteria.
+  naac_criteria?: string[];
 }
 
 export interface UpdateEventDto extends Partial<CreateEventDto> {
