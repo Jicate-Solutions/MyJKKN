@@ -103,7 +103,7 @@ BEGIN
   RETURN QUERY
   WITH scoped AS (
     SELECT b.id, b.student_id, b.bill_description, b.due_date, b.status,
-           CASE WHEN b.status = 'partially_paid' THEN b.balance_amount
+           CASE WHEN b.status = 'partially_paid' THEN COALESCE(b.balance_amount, b.final_amount)
                 ELSE b.final_amount END AS amount
     FROM public.billing_student_bills b
     JOIN public.billing_report_student_cohort(
@@ -140,7 +140,7 @@ BEGIN
   JOIN public.learners_profiles lp ON lp.id = ps.sid
   LEFT JOIN public.institutions i ON i.id = lp.institution_id
   LEFT JOIN public.departments  d ON d.id = lp.department_id
-  ORDER BY ps.total_outstanding DESC
+  ORDER BY ps.total_outstanding DESC, ps.sid
   LIMIT COALESCE(p_limit, 10000) OFFSET COALESCE(p_offset, 0);
 END;
 $$;
@@ -194,7 +194,7 @@ BEGIN
       -- Semi-join, NOT a join: asks "does this receipt touch a matching bill?"
       -- without multiplying the receipt row per allocation.
       AND (
-        (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT p_academic_year_unspecified)
+        (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT COALESCE(p_academic_year_unspecified, false))
         OR EXISTS (
           SELECT 1
           FROM public.billing_receipt_items ri
@@ -224,7 +224,7 @@ BEGIN
   LEFT JOIN refs ON refs.rid = s.id
   LEFT JOIN public.learners_profiles lp ON lp.id = s.student_id
   LEFT JOIN public.institutions i ON i.id = s.institution_id
-  ORDER BY s.receipt_date DESC
+  ORDER BY s.receipt_date DESC, s.id DESC
   LIMIT COALESCE(p_limit, 10000) OFFSET COALESCE(p_offset, 0);
 END;
 $$;
@@ -279,7 +279,7 @@ BEGIN
     AND (p_date_from IS NULL OR inv.invoice_date >= p_date_from)
     AND (p_date_to   IS NULL OR inv.invoice_date <= p_date_to)
     AND (
-      (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT p_academic_year_unspecified)
+      (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT COALESCE(p_academic_year_unspecified, false))
       OR EXISTS (
         SELECT 1
         FROM public.billing_invoice_items ii
@@ -292,7 +292,7 @@ BEGIN
                  WHEN p_academic_year_id IS NOT NULL THEN b.academic_year_id = p_academic_year_id
                  ELSE true END))
     )
-  ORDER BY inv.invoice_date DESC
+  ORDER BY inv.invoice_date DESC, inv.id DESC
   LIMIT COALESCE(p_limit, 10000) OFFSET COALESCE(p_offset, 0);
 END;
 $$;
@@ -354,7 +354,7 @@ BEGIN
            ELSE true END)
     AND (p_date_from IS NULL OR d.effective_date >= p_date_from)
     AND (p_date_to   IS NULL OR d.effective_date <= p_date_to)
-  ORDER BY d.created_at DESC
+  ORDER BY d.created_at DESC, d.id DESC
   LIMIT COALESCE(p_limit, 10000) OFFSET COALESCE(p_offset, 0);
 END;
 $$;
@@ -412,7 +412,7 @@ BEGIN
     AND (p_date_from IS NULL OR rf.refund_date >= p_date_from)
     AND (p_date_to   IS NULL OR rf.refund_date <= p_date_to)
     AND (
-      (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT p_academic_year_unspecified)
+      (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT COALESCE(p_academic_year_unspecified, false))
       OR EXISTS (
         SELECT 1
         FROM public.billing_receipt_items ri
@@ -424,7 +424,7 @@ BEGIN
                  WHEN p_academic_year_id IS NOT NULL THEN b.academic_year_id = p_academic_year_id
                  ELSE true END))
     )
-  ORDER BY rf.created_at DESC
+  ORDER BY rf.created_at DESC, rf.id DESC
   LIMIT COALESCE(p_limit, 10000) OFFSET COALESCE(p_offset, 0);
 END;
 $$;
