@@ -156,12 +156,15 @@ export default function AutoAllocatePage() {
         <div>
           <h1 className="text-2xl font-bold py-1">Auto-Allocate</h1>
           <p className="text-sm text-muted-foreground">
-            Fills the block&apos;s eligible rooms with unallocated hostelites, placing each into
-            the room category the Category Eligibility rules resolve for them (and assigning their
-            mess category). Rooms reserved by a physical-room rule go to that rule&apos;s cohort;
-            rooms with no rule are open to any eligible student of the block&apos;s institutions,
-            filled primary-institution first. Students with no rule-resolved category — e.g. no
-            current-year bill — are skipped. The result is a proposed batch a warden approves.
+            Fills the block&apos;s eligible rooms with unallocated <strong>active</strong>{' '}
+            hostelites, placing each into the room category the Category Eligibility rules resolve
+            for them (and assigning their mess category). Only learners whose status is Active are
+            candidates — enquiry, reserved, admitted, account, graduated, inactive and rejected
+            learners are never allocated a bed (Residents still lists every status). Rooms reserved
+            by a physical-room rule go to that rule&apos;s cohort; rooms with no rule are open to any
+            eligible student of the block&apos;s institutions, filled primary-institution first.
+            Students with no rule-resolved category — e.g. no current-year bill — are skipped. The
+            result is a proposed batch a warden approves.
           </p>
         </div>
 
