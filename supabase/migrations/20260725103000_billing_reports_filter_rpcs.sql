@@ -502,7 +502,7 @@ BEGIN
       AND (p_date_from IS NULL OR r.receipt_date >= p_date_from)
       AND (p_date_to   IS NULL OR r.receipt_date <= p_date_to)
       AND (
-        (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT p_academic_year_unspecified)
+        (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT COALESCE(p_academic_year_unspecified, false))
         OR EXISTS (SELECT 1 FROM bills b2
                    JOIN public.billing_receipt_items ri ON ri.bill_id = b2.id
                    WHERE ri.receipt_id = r.id)
