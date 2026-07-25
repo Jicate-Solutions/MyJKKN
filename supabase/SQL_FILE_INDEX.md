@@ -2168,3 +2168,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Table: `work_signal_suggestions` (RLS: subject-only SELECT; writes RPC-only; verdicted week never overwritten)
 - Functions NEW: `fn_work_signal_suggestion_upsert` (service_role ONLY) · `fn_work_signal_suggestion_verdict` (subject-only; SCF verdict vocabulary)
 - Location: `supabase/migrations/20260725140000_work_signal_weekly_suggestion.sql` — **APPLIED to prod via Mgmt API 2026-07-25** (rolled-back-validated; 6-point battery PASSED)
+
+### CARRE Evidence Instrumentation — 4-lane fan-out (2026-07-25, all APPLIED via Mgmt API)
+- **Recognition pipe** (`20260725123000_carre_recognition_pipe_wiring.sql`, PR #2371): triggers on `ai_pulse_prompt_builds` (first_prompt/gold_prompt, public) + `scf_note_resolution_votes` (voice_confirmed_better, private) → `campus_living_recognition`; 90d backfill = 6 rows; academic R-item cap-2 LIFTED (evidence line verified live)
+- **Event-date requests** (`20260725150000` + `20260725151500`, PR #2369): `event_date_requests` + raise/decide RPCs + CARRE-C5 evidence line in `fn_carre_item_evidence` (replaced; anon lock re-asserted; post-replace timings campus 8ms · LC 12ms · academic 570ms, +1 row each)
+- **Clarification asks** (`20260725133000_session_clarification_requests.sql`, PR #2374): ask→outcome trace (learner-only writes, self-reported outcome, leadership read via audit.cycle.view)
+- **Sealed participation line** (`20260725153000_carre_participant_activity_line.sql`, PR #2373): `fn_carre_participant_activity` — cycle-level scorers/items/last-activity, k≥3 floor ON THE COUNT ITSELF
+- Batteries: 10/10 (A) · 10/10 (B) · 14/14 (C) · 5/5 (D), all rolled-back; reviews: 4× minor, 0 critical
