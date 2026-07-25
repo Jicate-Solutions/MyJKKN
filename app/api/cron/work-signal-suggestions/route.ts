@@ -68,7 +68,7 @@ function buildPrompt(s: SubjectSignals, priorVerdictLine: string): string {
     '- Kind and practical — never evaluative, never a score, never compare them to anyone.',
     '- Anchor it in the numbers above (e.g., which end of the queue to start with, a batching habit, a time-box).',
     '- If the queue is empty and activity is healthy, say so and suggest one small way to keep the loop fast.',
-    '- Use JKKN terminology: "learner" (never student), "Senior Learner" (never teacher/faculty).',
+    '- Use JKKN terminology: say "learner" and "Senior Learner" — never the conventional campus words for those roles.',
     '- Every waiting request is a learner personally waiting on an answer — that is the why, and it may be said plainly.',
     '',
     'Output STRICT JSON only, no markdown fences, exactly: {"suggestion": "<your 1-3 sentence suggestion>"}',

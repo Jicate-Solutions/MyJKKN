@@ -2154,7 +2154,7 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - `migrations/20260731140000_rcltp_question_gen_max_lane.sql` — 2026-07-25 — RCLTP Part-B question generation onto the ₹0 Max lane: repairs `rcltp.question_generation` (prompt_template `{{prompt}}` + prompt-only input_schema — both were NULL/`[]`, which fail the seat before the model runs) and registers stage 2 `rcltp.question_keycheck` for the INDEPENDENT answer-key pass that feeds ai_agreed_count. Adds config row `rcltp.question_generation.nightly_cap` (NOT EXISTS guard — platform_policies uniqueness is an expression index). Config only; no tables, functions, or policies.
 
 ### Weekly Work-Signal Suggestion Loop (2026-07-25)
-- Job type: `worksignals.weekly_suggestion` seeded on `ai_job_types` (₹0 Max lane; exact twin of curriculum.lesson_spine_generate config — prompt-only input_schema + `{{prompt}}` template)
+- Job type: `worksignals.weekly_suggestion` seeded on `ai_job_types` (₹0 Max lane; exact twin of the lesson-spine generate job's config — prompt-only input_schema + `{{prompt}}` template)
 - Table: `work_signal_suggestions` (RLS: subject-only SELECT; writes RPC-only; verdicted week never overwritten)
 - Functions NEW: `fn_work_signal_suggestion_upsert` (service_role ONLY) · `fn_work_signal_suggestion_verdict` (subject-only; SCF verdict vocabulary)
 - Location: `supabase/migrations/20260725140000_work_signal_weekly_suggestion.sql` — **APPLIED to prod via Mgmt API 2026-07-25** (rolled-back-validated; 6-point battery PASSED)
