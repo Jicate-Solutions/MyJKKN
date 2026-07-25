@@ -463,6 +463,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/accreditation/naac/narratives",
+            "label": "Narratives",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/accreditation/naac/surveys",
             "label": "Surveys",
             "iconName": "FileText",
@@ -1939,7 +1945,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/billing/reports",
         "label": "Reports",
         "iconName": "FileBarChart",
-        "children": []
+        "children": [
+          {
+            "path": "/billing/reports/accountant",
+            "label": "Accountant",
+            "iconName": "FileBarChart",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/billing/schedule",
