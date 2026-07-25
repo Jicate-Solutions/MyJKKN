@@ -539,3 +539,24 @@ export interface PostSessionResourceInput {
   title: string;
   url: string;
 }
+
+// ── Clarification requests (Lane C, CARRE evidence instrumentation) ───────────
+// Substrate: 20260725133000_session_clarification_requests.sql. The learner's
+// OWN trace of "I asked for a re-explanation of this session" and — self-
+// reported by the SAME learner — what happened. Writes only via the two RPCs.
+
+export type ClarificationOutcome = 'pending' | 're_explained' | 'refused' | 'unanswered';
+
+export interface ClarificationRequestRow {
+  id: string;
+  institution_id: string;
+  student_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_code: string | null;
+  asked_at: string;
+  outcome: ClarificationOutcome;
+  outcome_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

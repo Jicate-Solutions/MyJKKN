@@ -5,7 +5,11 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
-import type { SubmitFeedbackInput, PostSessionResourceInput } from '@/types/session-feedback';
+import type {
+  SubmitFeedbackInput,
+  PostSessionResourceInput,
+  ClarificationOutcome,
+} from '@/types/session-feedback';
 
 export const scfQueryKeys = {
   all: ['session-feedback'] as const,
@@ -44,6 +48,8 @@ export const scfQueryKeys = {
   windowHours: () => [...scfQueryKeys.all, 'window-hours'] as const,
   resourcesForSession: (timetableId: string, attendanceDate: string, periodId: string) =>
     [...scfQueryKeys.all, 'resources-for-session', timetableId, attendanceDate, periodId] as const,
+  clarification: (attendanceDate: string, periodId: string) =>
+    [...scfQueryKeys.all, 'clarification', attendanceDate, periodId] as const,
 };
 
 /** Shared feedback-window length (hours) — the session_feedback.window_hours
@@ -220,6 +226,58 @@ export function useSubmitFeedback() {
     mutationFn: (input: SubmitFeedbackInput) => SessionFeedbackService.submitFeedback(input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: scfQueryKeys.all });
+    },
+  });
+}
+
+// ── Clarification requests (Lane C) — ask → self-reported outcome ────────────
+
+/** The caller's own clarification request for one session (null when none). */
+export function useClarification(attendanceDate: string, periodId: string) {
+  return useQuery({
+    queryKey: scfQueryKeys.clarification(attendanceDate, periodId),
+    queryFn: () => SessionFeedbackService.getClarification(attendanceDate, periodId),
+    enabled: !!attendanceDate && !!periodId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/** Record "I asked for a re-explanation of this session". */
+export function useAskClarification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { attendanceDate: string; timetableId: string; periodId: string }) =>
+      SessionFeedbackService.askClarification(
+        input.attendanceDate,
+        input.timetableId,
+        input.periodId,
+      ),
+    onSuccess: (_data, input) => {
+      qc.invalidateQueries({
+        queryKey: scfQueryKeys.clarification(input.attendanceDate, input.periodId),
+      });
+    },
+  });
+}
+
+/** The same learner self-reports what happened after their ask. */
+export function useReportClarificationOutcome() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      attendanceDate: string;
+      periodId: string;
+      outcome: Exclude<ClarificationOutcome, 'pending'>;
+    }) =>
+      SessionFeedbackService.reportClarificationOutcome(
+        input.attendanceDate,
+        input.periodId,
+        input.outcome,
+      ),
+    onSuccess: (_data, input) => {
+      qc.invalidateQueries({
+        queryKey: scfQueryKeys.clarification(input.attendanceDate, input.periodId),
+      });
     },
   });
 }
