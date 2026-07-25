@@ -37,6 +37,18 @@ DROP FUNCTION IF EXISTS public.get_billing_reports_discounts(uuid[], uuid, boole
 DROP FUNCTION IF EXISTS public.get_billing_reports_refunds(uuid[], uuid, boolean, uuid, uuid, uuid, uuid, uuid, uuid, text[], uuid, date, date, int, int);
 DROP FUNCTION IF EXISTS public.get_billing_reports_dashboard(uuid[], uuid, boolean, uuid, uuid, uuid, uuid, uuid, uuid, text[], uuid, date, date);
 
+-- DO NOT ADD `SET search_path` HERE, AND DO NOT MAKE THIS SECURITY DEFINER.
+-- PostgreSQL only inlines a set-returning SQL function when proconfig IS NULL
+-- and prosecdef IS false. Adding either turns this from an inlined, index-using
+-- join into a materialised Function Scan inside ALL SIX RPCs. Every object below
+-- is schema-qualified to compensate for the missing search_path; the callers are
+-- SECURITY DEFINER, so this inherits definer rights.
+-- NOTE: `get_advisors` actively flags this as `function_search_path_mutable`.
+-- That advisory is WRONG for this function -- do not "fix" it.
+-- Also: never pass a sub-SELECT as an argument. Inlining substitutes each
+-- argument at every reference, and every parameter here is referenced twice
+-- (`p_x IS NULL OR col = p_x`); duplicating a sub-SELECT is unsafe, so the
+-- inliner bails. Callers pass plpgsql variables, which is safe.
 CREATE OR REPLACE FUNCTION public.billing_report_student_cohort(
   p_degree_id       uuid   DEFAULT NULL,
   p_department_id   uuid   DEFAULT NULL,

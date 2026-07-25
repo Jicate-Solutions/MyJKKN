@@ -564,16 +564,23 @@ export interface InvoiceListResponse {
   };
 }
 
-// Accommodation-type filter options. The `value` is an `accommodation_types.code`
-// (identical across every institution's catalog), so the dropdown works without
-// first picking an institution. The service layer resolves the code to that
-// institution's actual `accommodation_type_id`(s) at query time.
+// Accommodation-type filter options. The `value` is an `accommodation_types.code`.
+// That table is GLOBAL (single row per code since 20260610100000), not per
+// institution, so the dropdown works without first picking an institution.
+// Billing Schedule resolves the code to ids in the service layer; the billing
+// REPORTS filters resolve it in SQL instead — billing_report_student_cohort
+// LEFT JOINs accommodation_types and compares on code.
 export const ACCOMMODATION_TYPE_OPTIONS = [
   { value: 'hostel', label: 'Hostel' },
   { value: 'dayscholar', label: 'Day Scholar' },
   { value: 'pg', label: 'Paying Guest' },
   { value: 'not_applicable', label: 'Not Applicable' }
 ] as const;
+
+/** The four valid accommodation_types.code values, derived so a typo like
+ *  'day_scholar' fails to compile instead of silently matching nothing. */
+export type AccommodationCode =
+  (typeof ACCOMMODATION_TYPE_OPTIONS)[number]['value'];
 
 // Learner lifecycle-status filter options for the billing schedule list.
 // Scoped to the states a learner can be in once bills exist (the 'account'
@@ -753,7 +760,7 @@ export interface BillingReportFilters {
   /** Empty or absent means no scheme restriction. */
   schemes?: ReportSchemeKey[];
   /** accommodation_types.code values. Empty or absent means no restriction. */
-  accommodation_codes?: string[];
+  accommodation_codes?: AccommodationCode[];
   student_id?: string;
   date_from?: string;
   date_to?: string;

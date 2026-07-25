@@ -1,6 +1,10 @@
 // Pure mapping from the UI filter object to RPC parameters.
 // Kept separate from the service so it can be unit-tested without a Supabase double.
-import type { BillingReportFilters, ReportSchemeKey } from '@/types/billing-schedule';
+import type {
+  BillingReportFilters,
+  ReportSchemeKey,
+  AccommodationCode,
+} from '@/types/billing-schedule';
 
 /** Sentinel for "bills with no academic_year_id" — 55% of billing_student_bills. */
 export const ACADEMIC_YEAR_UNSPECIFIED = 'unspecified';
@@ -16,7 +20,7 @@ export interface ReportRpcScope {
   p_semester_id: string | null;
   p_section_id: string | null;
   p_schemes: ReportSchemeKey[] | null;
-  p_accommodation_codes: string[] | null;
+  p_accommodation_codes: AccommodationCode[] | null;
   p_student_id: string | null;
   p_date_from: string | null;
   p_date_to: string | null;

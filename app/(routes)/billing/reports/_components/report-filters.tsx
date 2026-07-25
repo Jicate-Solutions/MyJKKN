@@ -123,7 +123,11 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
       out.push({ key: 'schemes', value: s, label: REPORT_SCHEME_OPTIONS.find((o) => o.value === s)?.label ?? s });
     }
     for (const a of accommodationCodes) {
-      out.push({ key: 'accommodation_codes', value: a, label: ACCOMMODATION_TYPE_OPTIONS.find((o) => o.value === a)?.label ?? a });
+      out.push({
+        key: 'accommodation_codes',
+        value: a,
+        label: `Accommodation: ${ACCOMMODATION_TYPE_OPTIONS.find((o) => o.value === a)?.label ?? a}`
+      });
     }
     return out;
     // `h` is a fresh object literal every render (useAcademicHierarchyFilters
@@ -313,6 +317,12 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
                   ))}
                 </PopoverContent>
               </Popover>
+              {accommodationCodes.length > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  Learners with no accommodation recorded are excluded. Untick
+                  all to include them.
+                </p>
+              )}
             </div>
 
             <div className='space-y-2'>
