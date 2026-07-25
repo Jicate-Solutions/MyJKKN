@@ -268,7 +268,7 @@ async function loadClusterSignals(
     {
       key: 'coached',
       label: 'Classes coached (distinct)',
-      plain: 'Distinct (course, faculty) classes that received an AI coaching tip — deduplicated, same honesty rule as the Tower.',
+      plain: 'Distinct (course, Senior Learner) sessions that received an AI coaching tip — deduplicated, same honesty rule as the Tower.',
       current: coachedCur,
       baseline: coachedPrev,
     },
