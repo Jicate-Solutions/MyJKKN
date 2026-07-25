@@ -107,7 +107,10 @@ export default function DateRequests({ proposalId }: DateRequestsProps) {
   };
 
   const open = requests.filter(r => r.decided_at === null);
-  const latestDecided = requests.find(r => r.decided_at !== null);
+  // Most recently DECIDED, not first-decided-in-requested_at-order (review fix).
+  const latestDecided = [...requests]
+    .filter((r) => r.decided_at !== null)
+    .sort((a, b) => (b.decided_at ?? '').localeCompare(a.decided_at ?? ''))[0];
   const oldestOpen = open.length > 0 ? open[open.length - 1] : null;
 
   return (
