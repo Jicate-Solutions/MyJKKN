@@ -56,6 +56,12 @@ export function AiDuplicateCheckCard({
     ((report.metadata as any)?.ai_duplicate_check as AiDuplicateCheck | undefined) ??
     null;
 
+  // metadata is untyped JSONB read back from the DB — a row written by an older
+  // shape (or a partial write) must not crash the whole admin page on .length.
+  const alsoConsider = Array.isArray(check?.also_consider)
+    ? check!.also_consider
+    : [];
+
   const handleCheck = async () => {
     setIsChecking(true);
     try {
@@ -190,13 +196,13 @@ export function AiDuplicateCheckCard({
               </p>
             )}
 
-            {check.also_consider.length > 0 && (
+            {alsoConsider.length > 0 && (
               <div>
                 <p className='text-xs font-medium text-muted-foreground mb-1'>
                   Also worth a look
                 </p>
                 <ul className='space-y-1 text-sm'>
-                  {check.also_consider.map((a) => (
+                  {alsoConsider.map((a) => (
                     <li key={a.bug_id} className='flex flex-wrap gap-2'>
                       <Link
                         href={`/admin/bug-reports/${a.bug_id}`}
