@@ -2168,7 +2168,9 @@ SELECT count(*) FROM billing_report_student_cohort(
 ```
 Expected: an Index Only Scan on `idx_learners_profiles_degree_id` with `learners_profiles lp` in the plan — **not** `Function Scan on billing_report_student_cohort`.
 
-Belt-and-braces (independent of plan shape): `SELECT prosecdef, proconfig FROM pg_proc WHERE proname='billing_report_student_cohort'` must return `false` / `NULL` — those two conditions *are* PostgreSQL's inlining criteria.
+Belt-and-braces: `SELECT prosecdef, proconfig FROM pg_proc WHERE proname='billing_report_student_cohort'` must return `false` / `NULL`.
+
+**This check is necessary but NOT sufficient** — it cannot on its own prove inlining, only rule out the two causes we control. The `EXPLAIN` above (with a literal argument) is the authoritative test; treat `prosecdef`/`proconfig` as a diagnostic for *why* a real failure happened, never as a substitute for the plan.
 
 - [ ] **Step 4: Permission denial**
 
