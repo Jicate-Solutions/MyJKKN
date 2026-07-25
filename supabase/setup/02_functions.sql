@@ -11087,7 +11087,11 @@ REVOKE ALL ON FUNCTION public.admission_resolve_fee_items_readonly(uuid, int)
 -- Other billing_student_bills columns (is_recurring, recurrence_pattern,
 -- number_of_recurrences, payment_date) keep their table defaults.
 -- ============================================================================
--- Hosteller-skip guard (migration 20260606102000): hostellers are billed via Campus Living (campus_living_generate_hostel_year_bills), so the academic-bill INSERTs here are skipped for them to avoid double-billing.
+-- Category-ownership guard (migration 20260725, replacing the 20260606102000
+-- hosteller-skip guard): hostellers ARE billed here for core academic fees like
+-- everyone else. Only hostel/mess/transport CATEGORIES are skipped, because
+-- Campus Living (campus_living_generate_hostel_year_bills) and TMS own those.
+-- Do not reinstate an accommodation-based skip — it billed nobody for a month.
 
 CREATE OR REPLACE FUNCTION public.admission_account_transition_with_bills(
     p_learner_id          uuid,
@@ -11116,7 +11120,7 @@ DECLARE
     v_existing_result   jsonb;
     v_pending_event_id  uuid;
     v_result            jsonb;
-    v_is_hosteller      boolean := false;
+    v_bills_skipped     integer := 0;
 BEGIN
     -- Idempotency short-circuit
     IF p_idempotency_key IS NOT NULL THEN
@@ -11145,16 +11149,12 @@ BEGIN
         RAISE EXCEPTION 'learner_not_found: %', p_learner_id USING ERRCODE = 'P0002';
     END IF;
 
-    -- CUTOVER guard: hostellers are billed via the Campus Living generation run
-    -- (campus_living_generate_hostel_year_bills, hostel_year-stamped). Skipping
-    -- bill INSERTs here prevents the academic portion from double-billing — the
-    -- dedup index can't bridge a NULL hostel_year (here) vs a set one (there).
-    v_is_hosteller := EXISTS (
-        SELECT 1
-          FROM public.accommodation_types a
-         WHERE a.id = v_lead.accommodation_type_id
-           AND a.code = 'hostel'
-    );
+    -- NOTE (2026-07-25): a CUTOVER guard used to sit here skipping hostellers
+    -- entirely, because campus_living_generate_hostel_year_bills also emitted
+    -- academic bills. That branch was removed from Campus Living on 2026-06-21,
+    -- leaving hostellers billed by NEITHER path — 17 learners / Rs 27,36,500
+    -- stranded silently. The guard is retired; a category-kind filter in the
+    -- bill loop below now keeps hostel/mess/transport out instead.
 
     -- Allow-list extended 2026-05-20 to include the renamed entry-point
     -- statuses ('enquiry', 'enquiry_submitted'). Pre-realignment statuses
@@ -11251,17 +11251,30 @@ BEGIN
      WHERE id = p_learner_id;
 
     -- Generate bills (idempotent — skips if bills already exist).
-    -- CUTOVER: also skipped entirely for hostellers (billed via Campus Living).
+    -- Hostellers are NO LONGER skipped; hostel/mess/transport CATEGORIES are
+    -- skipped for everyone instead (owned by Campus Living and TMS).
     SELECT count(*) INTO v_bills_existing
       FROM public.billing_student_bills
      WHERE student_id = p_learner_id;
 
-    IF v_bills_existing = 0 AND NOT v_is_hosteller THEN
+    IF v_bills_existing = 0 THEN
         v_due_date := (now() + interval '30 days')::date;
 
         FOR v_item IN SELECT * FROM jsonb_array_elements(v_fee_items)
         LOOP
             IF (v_item->>'amount')::numeric > 0 THEN
+                -- Only a POSITIVE match on a foreign-module kind is skipped, so
+                -- an unmapped fee is never silently dropped.
+                IF EXISTS (
+                    SELECT 1
+                      FROM public.billing_categories bc
+                     WHERE bc.id = NULLIF(v_item->>'category_id','')::uuid
+                       AND bc.kind IN ('hostel', 'mess', 'transport')
+                ) THEN
+                    v_bills_skipped := v_bills_skipped + 1;
+                    CONTINUE;
+                END IF;
+
                 INSERT INTO public.billing_student_bills (
                     student_id, institution_id, item_category_id,
                     bill_description, due_date, quantity,
@@ -11295,6 +11308,7 @@ BEGIN
         'documents_recorded', jsonb_array_length(p_received_documents),
         'bills_existing', v_bills_existing,
         'bills_generated', v_bills_inserted,
+        'bills_skipped_foreign_module', v_bills_skipped,
         'fee_items_count', jsonb_array_length(v_fee_items),
         'verified', (p_idempotency_key IS NOT NULL)
     );
