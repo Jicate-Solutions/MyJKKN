@@ -20,6 +20,9 @@ import {
   CARD_FIELDS,
   deriveStudyPeriodLabel,
   parseFieldMappings,
+  imageDimensionsFromDataUrl,
+  coverPlacement,
+  svgCoverImageDataUrl,
   type CardPersonData
 } from '@/lib/id-cards/render-data';
 
@@ -108,6 +111,31 @@ const teamMember: CardPersonData = {
 };
 
 const QR_URL = 'data:image/png;base64,QQ==';
+
+/** Minimal PNG data URL — valid header bytes only (dimension parsing needs no pixels). */
+function pngDataUrl(width: number, height: number): string {
+  const buf = Buffer.alloc(24);
+  [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].forEach((b, i) => (buf[i] = b));
+  buf.writeUInt32BE(13, 8); // IHDR length
+  buf.write('IHDR', 12, 'ascii');
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return `data:image/png;base64,${buf.toString('base64')}`;
+}
+
+/** Minimal JPEG data URL — SOI + APP0 + SOF0 header bytes. */
+function jpegDataUrl(width: number, height: number): string {
+  const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x10, ...Array.from({ length: 14 }, () => 0)]);
+  const sof0 = Buffer.alloc(12);
+  sof0[0] = 0xff;
+  sof0[1] = 0xc0;
+  sof0.writeUInt16BE(9, 2); // segment length
+  sof0[4] = 8; // precision
+  sof0.writeUInt16BE(height, 5);
+  sof0.writeUInt16BE(width, 7);
+  const buf = Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof0]);
+  return `data:image/jpeg;base64,${buf.toString('base64')}`;
+}
 
 function baseInput(overrides: Partial<CardRenderInput> = {}): CardRenderInput {
   return {
@@ -198,6 +226,25 @@ describe('landscape behavior is unchanged when orientation is absent', () => {
     expect(collectStyles(tree).some((s) => s.transform !== undefined)).toBe(false);
   });
 
+  it('landscape photos keep objectFit cover + overflow-hidden frames (byte-identical guarantee)', () => {
+    const photo = jpegDataUrl(1241, 1754);
+    // Default landscape design.
+    const defaultTree = buildCardElement(baseInput({ layout: null, photoDataUrl: photo }));
+    const defaultStyles = collectStyles(defaultTree);
+    expect(defaultStyles.some((s) => s.objectFit === 'cover')).toBe(true);
+    expect(defaultStyles.some((s) => s.overflow === 'hidden')).toBe(true);
+    expect(collectImgSrcs(defaultTree)).toContain(photo); // raw bitmap, no SVG wrapper
+    // Landscape custom photo element.
+    const layout = parseFrontLayout({
+      elements: [{ field: 'photo', x: 40, y: 100, width: 300, height: 380 }]
+    });
+    const customTree = buildCardElement(baseInput({ layout, photoDataUrl: photo }));
+    const customStyles = collectStyles(customTree);
+    expect(customStyles.some((s) => s.objectFit === 'cover')).toBe(true);
+    expect(customStyles.some((s) => s.overflow === 'hidden')).toBe(true);
+    expect(collectImgSrcs(customTree)).toContain(photo);
+  });
+
   it('landscape custom layout carries no transform and keeps the 1014x638 root', () => {
     const layout = parseFrontLayout({
       elements: [{ field: 'name_line_1', x: 400, y: 150 }]
@@ -237,6 +284,112 @@ describe('deriveStudyPeriodLabel', () => {
     expect(deriveStudyPeriodLabel({ batch_name: 'UGB25' })).toBeNull();
     expect(deriveStudyPeriodLabel({ start_date: '2025-06-01' })).toBeNull(); // one year only
     expect(deriveStudyPeriodLabel({ batch_name: '2025' })).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rotation-safe photo geometry (satori mispaints objectFit / overflow clips
+// under a transformed ancestor — the crop must happen inside an SVG wrapper)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('imageDimensionsFromDataUrl', () => {
+  it('parses PNG and JPEG headers without decoding pixels', () => {
+    expect(imageDimensionsFromDataUrl(pngDataUrl(1203, 1600))).toEqual({
+      width: 1203,
+      height: 1600
+    });
+    expect(imageDimensionsFromDataUrl(jpegDataUrl(1241, 1754))).toEqual({
+      width: 1241,
+      height: 1754
+    });
+  });
+
+  it('parses GIF and WebP (VP8X) headers', () => {
+    const gif = Buffer.alloc(24);
+    gif.write('GIF89a', 0, 'ascii');
+    gif.writeUInt16LE(320, 6);
+    gif.writeUInt16LE(240, 8);
+    expect(imageDimensionsFromDataUrl(`data:image/gif;base64,${gif.toString('base64')}`)).toEqual(
+      { width: 320, height: 240 }
+    );
+    const webp = Buffer.alloc(30);
+    webp.write('RIFF', 0, 'ascii');
+    webp.write('WEBP', 8, 'ascii');
+    webp.write('VP8X', 12, 'ascii');
+    webp.writeUIntLE(639, 24, 3); // width - 1
+    webp.writeUIntLE(1013, 27, 3); // height - 1
+    expect(imageDimensionsFromDataUrl(`data:image/webp;base64,${webp.toString('base64')}`)).toEqual(
+      { width: 640, height: 1014 }
+    );
+  });
+
+  it('returns null for junk, truncated bytes and non-data URLs (fail-soft)', () => {
+    expect(imageDimensionsFromDataUrl('data:image/png;base64,QQ==')).toBeNull();
+    expect(imageDimensionsFromDataUrl('data:text/plain;base64,QQ==')).toBeNull();
+    expect(imageDimensionsFromDataUrl('https://example.com/x.png')).toBeNull();
+    expect(imageDimensionsFromDataUrl('')).toBeNull();
+    expect(imageDimensionsFromDataUrl('data:image/png;base64,not-base64!!!')).toBeNull();
+  });
+});
+
+describe('coverPlacement', () => {
+  it('covers both axes and centers the overflow (object-fit cover semantics)', () => {
+    // 1203x1600 into 292x372: the box is relatively WIDER than the bitmap
+    // (0.785 vs 0.752 aspect) so the width axis rules; height overflows and
+    // the vertical spill is centered.
+    const p = coverPlacement(292, 372, 1203, 1600)!;
+    expect(p.width).toBe(292);
+    expect(p.height).toBe(389); // ceil(1600 * 292/1203)
+    expect(p.left).toBe(0);
+    expect(p.top).toBeLessThan(0);
+    expect(p.top).toBe(Math.round((372 - p.height) / 2));
+    // And the transposed case: box relatively TALLER → height rules.
+    const q = coverPlacement(292, 372, 1600, 1203)!;
+    expect(q.height).toBe(372);
+    expect(q.width).toBeGreaterThan(292);
+    expect(q.top).toBe(0);
+    expect(q.left).toBeLessThan(0);
+  });
+
+  it('is the identity for an exact-fit bitmap and never leaves a seam', () => {
+    expect(coverPlacement(300, 380, 300, 380)).toEqual({ left: 0, top: 0, width: 300, height: 380 });
+    const p = coverPlacement(300, 380, 999, 1266)!; // near-exact aspect
+    expect(p.width).toBeGreaterThanOrEqual(300);
+    expect(p.height).toBeGreaterThanOrEqual(380);
+  });
+
+  it('rejects degenerate boxes and bitmaps', () => {
+    expect(coverPlacement(0, 380, 100, 100)).toBeNull();
+    expect(coverPlacement(300, 380, 0, 100)).toBeNull();
+    expect(coverPlacement(300, -1, 100, 100)).toBeNull();
+  });
+});
+
+describe('svgCoverImageDataUrl', () => {
+  const decode = (url: string) => Buffer.from(url.split(',')[1], 'base64').toString('utf8');
+
+  it('wraps the bitmap in an exact-size SVG viewport with the cover placement', () => {
+    const photo = pngDataUrl(1203, 1600);
+    const url = svgCoverImageDataUrl(photo, 292, 372)!;
+    expect(url.startsWith('data:image/svg+xml;base64,')).toBe(true);
+    const svg = decode(url);
+    expect(svg).toContain('width="292" height="372"');
+    expect(svg).toContain('viewBox="0 0 292 372"');
+    expect(svg).toContain('preserveAspectRatio="none"');
+    expect(svg).toContain(photo); // bitmap rides inside, untouched
+    expect(svg).not.toContain('clipPath'); // no radius requested
+  });
+
+  it('rounds corners via an SVG clipPath when cornerRadius is given', () => {
+    const svg = decode(svgCoverImageDataUrl(pngDataUrl(600, 800), 292, 372, 10)!);
+    expect(svg).toContain('<clipPath id="r">');
+    expect(svg).toContain('rx="10"');
+    expect(svg).toContain('clip-path="url(#r)"');
+  });
+
+  it('returns null when the bitmap header cannot be parsed (caller falls back)', () => {
+    expect(svgCoverImageDataUrl('data:image/png;base64,QQ==', 292, 372)).toBeNull();
+    expect(svgCoverImageDataUrl('', 292, 372)).toBeNull();
   });
 });
 
@@ -329,15 +482,39 @@ describe('buildCardElement — portrait default design', () => {
     expect(text).toContain('ROLL NO'); // other lines remain
   });
 
-  it('full-bleed portrait artwork suppresses the header band and paints 638x1014', () => {
-    const bg = 'data:image/png;base64,Zm9v';
+  it('renders the photo rotation-safe: SVG-wrapped, content-box sized, no objectFit/overflow around it', () => {
+    const photo = jpegDataUrl(1241, 1754);
+    const tree = buildCardElement(baseInput({ photoDataUrl: photo }));
+    const styles = collectStyles(tree);
+    expect(styles.some((s) => s.objectFit !== undefined)).toBe(false);
+    expect(styles.some((s) => s.overflow === 'hidden')).toBe(false);
+    const svgSrc = collectImgSrcs(tree).find((s) => s.startsWith('data:image/svg+xml;base64,'));
+    expect(svgSrc).toBeDefined();
+    const svg = Buffer.from(svgSrc!.split(',')[1], 'base64').toString('utf8');
+    expect(svg).toContain('width="292" height="372"'); // 300x380 frame minus 4px border per side
+    expect(svg).toContain('rx="10"'); // rounded inside the SVG, not via satori overflow
+  });
+
+  it('keeps the (plain-div) initials placeholder inside the overflow-hidden frame when no photo exists', () => {
+    const tree = buildCardElement(baseInput({ photoDataUrl: null }));
+    const styles = collectStyles(tree);
+    // Placeholder path may clip (divs are safe under rotation — proven live).
+    expect(styles.some((s) => s.overflow === 'hidden')).toBe(true);
+    expect(collectText(tree).join(' | ')).toContain('AK'); // initials
+  });
+
+  it('full-bleed portrait artwork suppresses the header band and paints 638x1014 rotation-safe', () => {
+    const bg = pngDataUrl(PORTRAIT_WIDTH, PORTRAIT_HEIGHT);
     const tree = buildCardElement(baseInput({ backgroundDataUrl: bg }));
     const text = collectText(tree).join(' | ');
     expect(text).not.toContain('JKKN College of Engineering'); // header gone
-    expect(collectImgSrcs(tree)).toContain(bg);
-    const bgStyle = collectStyles(tree).find((s) => s.objectFit === 'cover');
-    expect(bgStyle.width).toBe(PORTRAIT_WIDTH);
-    expect(bgStyle.height).toBe(PORTRAIT_HEIGHT);
+    // Background rides the SVG wrapper too — no objectFit under rotation.
+    expect(collectStyles(tree).some((s) => s.objectFit !== undefined)).toBe(false);
+    const svgSrc = collectImgSrcs(tree).find((s) => s.startsWith('data:image/svg+xml;base64,'));
+    expect(svgSrc).toBeDefined();
+    const svg = Buffer.from(svgSrc!.split(',')[1], 'base64').toString('utf8');
+    expect(svg).toContain(bg);
+    expect(svg).toContain(`width="${PORTRAIT_WIDTH}" height="${PORTRAIT_HEIGHT}"`);
   });
 });
 
@@ -366,6 +543,29 @@ describe('buildCardElement — portrait custom elements', () => {
     // The y=900 element kept its portrait coordinate (landscape would clamp to 638).
     const positioned = styles.find((s) => s.top === 900);
     expect(positioned).toBeDefined();
+  });
+
+  it('rotation-safe photos: the portrait photo element renders an SVG-wrapped plain img, no objectFit, no overflow clip', () => {
+    const photo = pngDataUrl(1200, 1600);
+    const layout = parseFrontLayout({
+      orientation: 'portrait',
+      elements: [{ field: 'photo', x: 201, y: 165, width: 300, height: 380 }] // Lane H's repro
+    });
+    const tree = buildCardElement(baseInput({ layout, photoDataUrl: photo }));
+    const styles = collectStyles(tree);
+    // satori mispaints objectFit AND overflow-clipped bitmaps under the
+    // rotated wrapper — neither may appear anywhere in a portrait tree.
+    expect(styles.some((s) => s.objectFit !== undefined)).toBe(false);
+    expect(styles.some((s) => s.overflow === 'hidden')).toBe(false);
+    const srcs = collectImgSrcs(tree);
+    const photoImg = srcs.find((s) => s.startsWith('data:image/svg+xml;base64,'));
+    expect(photoImg).toBeDefined();
+    // The wrapper crops to the frame's content box (border is 4px per side).
+    const svg = Buffer.from(photoImg!.split(',')[1], 'base64').toString('utf8');
+    expect(svg).toContain('width="292"');
+    expect(svg).toContain('height="372"');
+    expect(svg).toContain('preserveAspectRatio="none"');
+    expect(svg).toContain(photo);
   });
 
   it('staff_id element resolves for team members and is empty (dropped) for learners', () => {

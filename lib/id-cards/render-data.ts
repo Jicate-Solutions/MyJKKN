@@ -221,6 +221,169 @@ export function deriveStudyPeriodLabel(batch: BatchLike | null | undefined): str
   return null;
 }
 
+// ── Rotation-safe photo geometry (2026-07-25) ────────────────────────────────
+// satori (next/og) mispaints <img objectFit:'cover'> inside a transformed
+// (rotated) subtree — the bitmap lands at a wrong offset/scale (Lane H's
+// isolated repro; plain <img> without objectFit is proven good under the same
+// rotation by the QR). sharp is unavailable and no npm deps may be added, so
+// the cover-crop is computed GEOMETRICALLY: read the bitmap's intrinsic
+// dimensions from its data-URL header bytes, then draw a plain <img> at the
+// computed size/offset inside an overflow-hidden frame. Pure + unit-tested.
+
+export type ImageDimensions = { width: number; height: number };
+
+/**
+ * Intrinsic pixel dimensions from a base64 image data URL's header bytes —
+ * PNG / JPEG / GIF / WebP (VP8, VP8L, VP8X). No decoding library involved.
+ * Returns null for anything unparseable (caller falls back, never throws).
+ */
+export function imageDimensionsFromDataUrl(dataUrl: string): ImageDimensions | null {
+  try {
+    const match = /^data:image\/[a-z0-9.+-]+;base64,(.+)$/i.exec((dataUrl ?? '').trim());
+    if (!match) return null;
+    // Headers live in the first bytes; 256 base64 chars ≫ enough for every
+    // format except JPEG, whose SOF marker can sit after big EXIF blobs.
+    const buf = Buffer.from(match[1].slice(0, 262144), 'base64');
+    if (buf.length < 24) return null;
+
+    // PNG: 8-byte signature, IHDR width/height at offsets 16/20 (BE).
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+
+    // GIF: "GIF8", width/height at offsets 6/8 (LE).
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) {
+      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+    }
+
+    // WebP: RIFF….WEBP + first chunk VP8 / VP8L / VP8X.
+    if (
+      buf.length >= 30 &&
+      buf.toString('ascii', 0, 4) === 'RIFF' &&
+      buf.toString('ascii', 8, 12) === 'WEBP'
+    ) {
+      const chunk = buf.toString('ascii', 12, 16);
+      if (chunk === 'VP8 ') {
+        return {
+          width: buf.readUInt16LE(26) & 0x3fff,
+          height: buf.readUInt16LE(28) & 0x3fff
+        };
+      }
+      if (chunk === 'VP8L' && buf[20] === 0x2f) {
+        const bits = buf.readUInt32LE(21);
+        return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+      }
+      if (chunk === 'VP8X') {
+        return {
+          width: 1 + (buf[24] | (buf[25] << 8) | (buf[26] << 16)),
+          height: 1 + (buf[27] | (buf[28] << 8) | (buf[29] << 16))
+        };
+      }
+      return null;
+    }
+
+    // JPEG: walk the segment markers to the first SOFn frame header.
+    if (buf[0] === 0xff && buf[1] === 0xd8) {
+      let offset = 2;
+      while (offset + 9 < buf.length) {
+        if (buf[offset] !== 0xff) return null;
+        const marker = buf[offset + 1];
+        if (marker === 0xff) {
+          offset += 1; // fill byte
+          continue;
+        }
+        // Standalone markers without a length payload.
+        if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) {
+          offset += 2;
+          continue;
+        }
+        const length = buf.readUInt16BE(offset + 2);
+        if (length < 2) return null;
+        const isSof =
+          marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+        if (isSof) {
+          return {
+            height: buf.readUInt16BE(offset + 5),
+            width: buf.readUInt16BE(offset + 7)
+          };
+        }
+        offset += 2 + length;
+      }
+      return null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export type CoverPlacement = { left: number; top: number; width: number; height: number };
+
+/**
+ * object-fit:'cover' + object-position:center as pure geometry: the drawn
+ * size covers the box on both axes (never a sliver of background), centered
+ * so the overflow crops evenly. Feed the result to a PLAIN absolutely-
+ * positioned <img> inside an overflow-hidden box of boxW x boxH.
+ */
+export function coverPlacement(
+  boxW: number,
+  boxH: number,
+  imgW: number,
+  imgH: number
+): CoverPlacement | null {
+  if (boxW <= 0 || boxH <= 0 || imgW <= 0 || imgH <= 0) return null;
+  const scale = Math.max(boxW / imgW, boxH / imgH);
+  // Round UP so rounding can never leave a background seam inside the box.
+  const width = Math.max(boxW, Math.ceil(imgW * scale));
+  const height = Math.max(boxH, Math.ceil(imgH * scale));
+  return {
+    left: Math.round((boxW - width) / 2),
+    top: Math.round((boxH - height) / 2),
+    width,
+    height
+  };
+}
+
+/**
+ * Wrap a bitmap data URL in an SVG data URL that performs the cover-crop via
+ * its own viewport: the inner <image> is drawn at the computed cover size and
+ * offset, and everything outside the viewBox is cut by the SVG itself. The
+ * caller then renders a PLAIN in-flow <img> at exactly boxW x boxH — the one
+ * image shape satori paints correctly under a rotated ancestor (both
+ * objectFit and overflow-clipped absolute imgs mispaint there; the in-flow
+ * exact-size img is proven good by the QR). resvg rasterizes nested data-URL
+ * <image> elements — that is how every card bitmap already renders.
+ * Returns null when the bitmap's header is unparseable (caller falls back).
+ */
+export function svgCoverImageDataUrl(
+  dataUrl: string,
+  boxW: number,
+  boxH: number,
+  cornerRadius: number = 0
+): string | null {
+  const dims = imageDimensionsFromDataUrl(dataUrl);
+  if (!dims) return null;
+  const placement = coverPlacement(boxW, boxH, dims.width, dims.height);
+  if (!placement) return null;
+  // Corner rounding also happens INSIDE the SVG (resvg-side clipPath) —
+  // satori-side overflow:'hidden' clips mispaint under the rotated wrapper,
+  // so the frame element must never rely on them for bitmaps.
+  const radius = Math.max(0, Math.round(cornerRadius));
+  const clip =
+    radius > 0
+      ? `<clipPath id="r"><rect x="0" y="0" width="${boxW}" height="${boxH}" rx="${radius}" ry="${radius}"/></clipPath>`
+      : '';
+  const imageTag =
+    `<image href="${dataUrl}" xlink:href="${dataUrl}" x="${placement.left}" y="${placement.top}" ` +
+    `width="${placement.width}" height="${placement.height}" preserveAspectRatio="none"/>`;
+  const body = radius > 0 ? `${clip}<g clip-path="url(#r)">${imageTag}</g>` : imageTag;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+    `width="${boxW}" height="${boxH}" viewBox="0 0 ${boxW} ${boxH}">${body}</svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
 /** Hard-truncate long strings so they cannot overflow the fixed card canvas. */
 export function truncateForCard(value: string | null | undefined, max: number): string {
   const s = (value ?? '').trim();
