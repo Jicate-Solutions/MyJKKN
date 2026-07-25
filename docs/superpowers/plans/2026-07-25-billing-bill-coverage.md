@@ -212,14 +212,26 @@ If `null_after` is anything other than 66, stop and report — do not proceed to
 
 - [ ] **Step 5: Verify no bill was stamped with another institution's year**
 
+The table already contained **one** cross-institution row before this migration
+(bill `7fd9d234-2ba2-47d6-86ef-42070515a563`, created 2026-06-21 — an Engineering
+bill carrying an Arts & Science academic year, written by some other path). So
+the assertion must be **delta-based**, not absolute: an absolute "expected 0"
+fails regardless of how correct the backfill is.
+
 ```sql
-SELECT count(*) AS cross_institution_leak
+SELECT count(*) AS leaks_created_by_backfill
 FROM billing_student_bills b
 JOIN academic_years ay ON ay.id = b.academic_year_id
-WHERE ay.institution_id <> b.institution_id;
+WHERE ay.institution_id <> b.institution_id
+  AND b.updated_at > now() - interval '10 minutes';
 ```
 
-Expected: `0`. A non-zero result means the guard failed and the backfill must be reverted.
+Expected: `0` — no row the backfill touched is cross-institution. A non-zero
+result means the guard failed and the backfill must be reverted.
+
+> **Follow-up, not part of this work:** the one pre-existing bad row is a real
+> data defect and should be corrected separately. It is not in this plan's scope
+> and must not be silently rewritten here.
 
 - [ ] **Step 6: Confirm the false-positive reduction**
 
