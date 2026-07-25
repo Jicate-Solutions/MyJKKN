@@ -559,6 +559,31 @@ export function AiModelsDataTable() {
                               <div className="text-xs text-muted-foreground/70 font-mono">
                                 {f.feature_key}
                               </div>
+                              {(() => {
+                                const jt = jobTypeMap.get(f.feature_key);
+                                if (!jt) return null;
+                                return jt.loop_key ? (
+                                  <Link
+                                    href={`/admin/loops#loop-${jt.loop_key}`}
+                                    title={`This job serves the ${jt.loop_key} loop — click to see it in the Loop Control Tower`}
+                                  >
+                                    <Badge
+                                      variant="outline"
+                                      className="mt-1 font-mono text-[11px] font-normal text-[#0b6d41] hover:underline"
+                                    >
+                                      {jt.loop_key}
+                                    </Badge>
+                                  </Link>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="mt-1 text-[11px] font-normal text-muted-foreground"
+                                    title="Not yet claimed by any governance loop"
+                                  >
+                                    unclaimed
+                                  </Badge>
+                                );
+                              })()}
                               {/* UNIFICATION: per-row lane badge removed — the
                                   console now sections by lane, so it was redundant. */}
                               {!f.is_active && (
