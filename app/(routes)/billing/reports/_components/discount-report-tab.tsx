@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
@@ -24,6 +23,7 @@ import {
   useDiscountReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface DiscountReportTabProps {
@@ -35,11 +35,16 @@ export function DiscountReportTab({
   filters,
   canExport
 }: DiscountReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
-
-  const { report, loading, error, refetch } = useDiscountReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useDiscountReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -111,7 +116,7 @@ export function DiscountReportTab({
   const handleExport = async () => {
     try {
       await exportReport('discount', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -120,7 +125,9 @@ export function DiscountReportTab({
     }
   };
 
-  const totalDiscounts = report.length;
+  // These are derived from the fetched PAGE only — the RPC does not return a
+  // true cross-page total for the amount or the approved subset, so both
+  // cards below are labelled "(this page)".
   const totalDiscountAmount = report.reduce(
     (sum, discount) => sum + discount.discount_amount,
     0
@@ -166,14 +173,14 @@ export function DiscountReportTab({
             <Receipt className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalDiscounts}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Approved Discounts
+              Approved Discounts (this page)
             </CardTitle>
             <Percent className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
@@ -186,7 +193,7 @@ export function DiscountReportTab({
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Amount</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Amount (this page)</CardTitle>
             <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
@@ -207,17 +214,6 @@ export function DiscountReportTab({
             </CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
-                <select
-                  value={exportFormat}
-                  onChange={(e) =>
-                    setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                  }
-                  className='px-3 py-1 border rounded text-sm'
-                >
-                  <option value='pdf'>PDF</option>
-                  <option value='excel'>Excel</option>
-                  <option value='csv'>CSV</option>
-                </select>
                 <Button
                   variant='outline'
                   size='sm'
@@ -311,6 +307,12 @@ export function DiscountReportTab({
               </Table>
             </div>
           )}
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>

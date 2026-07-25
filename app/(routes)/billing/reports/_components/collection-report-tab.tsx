@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
@@ -18,6 +17,7 @@ import {
   useCollectionReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface CollectionReportTabProps {
@@ -29,11 +29,16 @@ export function CollectionReportTab({
   filters,
   canExport
 }: CollectionReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
-
-  const { report, loading, error, refetch } = useCollectionReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useCollectionReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -70,7 +75,7 @@ export function CollectionReportTab({
   const handleExport = async () => {
     try {
       await exportReport('collection', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -79,6 +84,9 @@ export function CollectionReportTab({
     }
   };
 
+  // These are sums over the fetched PAGE only — the RPC does not return a
+  // true cross-page total, so the money cards below are labelled "(this
+  // page)" rather than implying they cover all `totalCount` records.
   const totalCollected = report.reduce(
     (sum, collection) => sum + collection.net_amount,
     0
@@ -87,7 +95,6 @@ export function CollectionReportTab({
     (sum, collection) => sum + collection.total_refunds,
     0
   );
-  const totalTransactions = report.length;
 
   if (loading) {
     return (
@@ -126,13 +133,13 @@ export function CollectionReportTab({
             <Receipt className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalTransactions}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Net Collected</CardTitle>
+            <CardTitle className='text-sm font-medium'>Net Collected (this page)</CardTitle>
             <TrendingUp className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
@@ -144,7 +151,7 @@ export function CollectionReportTab({
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Refunds</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Refunds (this page)</CardTitle>
             <AlertCircle className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
@@ -165,17 +172,6 @@ export function CollectionReportTab({
             </CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
-                <select
-                  value={exportFormat}
-                  onChange={(e) =>
-                    setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                  }
-                  className='px-3 py-1 border rounded text-sm'
-                >
-                  <option value='pdf'>PDF</option>
-                  <option value='excel'>Excel</option>
-                  <option value='csv'>CSV</option>
-                </select>
                 <Button
                   variant='outline'
                   size='sm'
@@ -287,6 +283,12 @@ export function CollectionReportTab({
               </Table>
             </div>
           )}
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>
