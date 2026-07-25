@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
@@ -19,6 +18,7 @@ import {
   useInvoiceReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface InvoiceReportTabProps {
@@ -30,11 +30,16 @@ export function InvoiceReportTab({
   filters,
   canExport
 }: InvoiceReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
-
-  const { report, loading, error, refetch } = useInvoiceReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useInvoiceReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -71,7 +76,7 @@ export function InvoiceReportTab({
   const handleExport = async () => {
     try {
       await exportReport('invoice', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -150,17 +155,6 @@ export function InvoiceReportTab({
             </CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
-                <select
-                  value={exportFormat}
-                  onChange={(e) =>
-                    setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                  }
-                  className='px-3 py-1 border rounded text-sm'
-                >
-                  <option value='pdf'>PDF</option>
-                  <option value='excel'>Excel</option>
-                  <option value='csv'>CSV</option>
-                </select>
                 <Button
                   variant='outline'
                   size='sm'
@@ -255,6 +249,12 @@ export function InvoiceReportTab({
               </Table>
             </div>
           )}
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>

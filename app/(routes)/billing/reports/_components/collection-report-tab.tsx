@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
@@ -18,6 +17,7 @@ import {
   useCollectionReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
 interface CollectionReportTabProps {
@@ -29,11 +29,16 @@ export function CollectionReportTab({
   filters,
   canExport
 }: CollectionReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
-
-  const { report, loading, error, refetch } = useCollectionReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useCollectionReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -70,7 +75,7 @@ export function CollectionReportTab({
   const handleExport = async () => {
     try {
       await exportReport('collection', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -165,17 +170,6 @@ export function CollectionReportTab({
             </CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>
-                <select
-                  value={exportFormat}
-                  onChange={(e) =>
-                    setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                  }
-                  className='px-3 py-1 border rounded text-sm'
-                >
-                  <option value='pdf'>PDF</option>
-                  <option value='excel'>Excel</option>
-                  <option value='csv'>CSV</option>
-                </select>
                 <Button
                   variant='outline'
                   size='sm'
@@ -287,6 +281,12 @@ export function CollectionReportTab({
               </Table>
             </div>
           )}
+          <ReportPagination
+            page={page}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            onPageChange={setPage}
+          />
         </CardContent>
       </Card>
     </div>

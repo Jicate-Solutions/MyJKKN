@@ -31,6 +31,7 @@ import {
   useRefundReport,
   useReportExport
 } from '@/hooks/billing/use-billing-reports';
+import { ReportPagination } from './report-pagination';
 import { RefundWorkflowService } from '@/lib/services/billing/refunds/refund-workflow-service';
 import type { RefundRequest } from '@/types/billing-refund-workflow';
 import type { BillingReportFilters } from '@/types/billing-schedule';
@@ -41,9 +42,6 @@ interface RefundReportTabProps {
 }
 
 export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'excel' | 'csv'>(
-    'pdf'
-  );
   const [legacyOpen, setLegacyOpen] = useState(false);
 
   const [requests, setRequests] = useState<RefundRequest[]>([]);
@@ -80,7 +78,16 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
     };
   }, [filters.institution_id, filters.date_from, filters.date_to]);
 
-  const { report, loading, error, refetch } = useRefundReport(filters);
+  const {
+    report,
+    totalCount,
+    page,
+    setPage,
+    pageSize,
+    loading,
+    error,
+    refetch
+  } = useRefundReport(filters);
   const { exportReport, loading: exportLoading } = useReportExport();
 
   const formatCurrency = (amount: number) => {
@@ -207,7 +214,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
   const handleExport = async () => {
     try {
       await exportReport('refund', filters, {
-        format: exportFormat,
+        format: 'csv',
         include_summary: true,
         include_charts: false
       });
@@ -434,17 +441,6 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                         </CardTitle>
                         {canExport && (
                           <div className='flex items-center gap-2'>
-                            <select
-                              value={exportFormat}
-                              onChange={(e) =>
-                                setExportFormat(e.target.value as 'pdf' | 'excel' | 'csv')
-                              }
-                              className='px-3 py-1 border rounded text-sm'
-                            >
-                              <option value='pdf'>PDF</option>
-                              <option value='excel'>Excel</option>
-                              <option value='csv'>CSV</option>
-                            </select>
                             <Button
                               variant='outline'
                               size='sm'
@@ -536,6 +532,12 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                           </Table>
                         </div>
                       )}
+                      <ReportPagination
+                        page={page}
+                        pageSize={pageSize}
+                        totalCount={totalCount}
+                        onPageChange={setPage}
+                      />
                     </CardContent>
                   </Card>
                 </div>
