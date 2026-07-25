@@ -85,7 +85,12 @@ export class BillCoverageService extends BaseService {
         p_coverage_state: filters.coverage_state ?? 'not_generated',
         p_search: filters.search ?? null,
         p_page: filters.page ?? 1,
-        p_page_size: filters.page_size ?? 50
+        p_page_size: filters.page_size ?? 50,
+        // Sorting runs in Postgres, not on the fetched page — ordering only the
+        // visible 50 of ~1,600 rows would show the top of page one rather than
+        // the real maximum.
+        p_sort_by: filters.sort_by ?? null,
+        p_sort_dir: filters.sort_dir ?? 'asc'
       }
     );
 

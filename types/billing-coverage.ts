@@ -53,6 +53,10 @@ export interface BillCoverageFilters {
   search?: string | null;
   page?: number;
   page_size?: number;
+  /** Whitelisted server-side sort. Unrecognised values fall back to the
+   *  default order rather than erroring. */
+  sort_by?: string | null;
+  sort_dir?: 'asc' | 'desc' | null;
 }
 
 export interface BillCoverageRow {
