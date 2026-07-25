@@ -10,6 +10,7 @@
 // "incomplete" = one or more data gaps → admin must fix the flagged items first.
 
 import { useState, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUnallocatedCandidates } from '@/hooks/campus-living/use-unallocated-candidates';
@@ -97,7 +98,11 @@ const BILL_STATE_VARIANT: Record<
 
 const PAGE_SIZE = 25;
 
-type ReadinessFilter = 'all' | 'ready' | 'incomplete';
+// URL-synced (?readiness=) so reports/chat can deep-link straight to a slice,
+// e.g. /campus-living/allocations?tab=not-allocated&readiness=incomplete.
+// Same useTabParam standard as the page tabs (custom param key keeps ?tab= intact).
+const READINESS_FILTERS = ['all', 'ready', 'incomplete'] as const;
+type ReadinessFilter = (typeof READINESS_FILTERS)[number];
 
 export function NotAllocatedTab() {
   const { profile } = useAuth();
@@ -110,7 +115,11 @@ export function NotAllocatedTab() {
   const { data: rows = [], isLoading, error } = useUnallocatedCandidates(institutionId);
 
   const [search, setSearch] = useState('');
-  const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>('all');
+  const [readinessFilter, setReadinessFilter] = useTabParam<ReadinessFilter>(
+    'all',
+    READINESS_FILTERS,
+    'readiness',
+  );
   const [page, setPage] = useState(1);
   const [detailLearnerId, setDetailLearnerId] = useState<string | null>(null);
 
@@ -209,7 +218,7 @@ export function NotAllocatedTab() {
         <div className="flex flex-col sm:flex-row gap-3">
           {/* Readiness filter */}
           <div className="flex gap-2">
-            {(['all', 'ready', 'incomplete'] as ReadinessFilter[]).map((f) => (
+            {READINESS_FILTERS.map((f) => (
               <Button
                 key={f}
                 size="sm"
