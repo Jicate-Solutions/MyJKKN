@@ -201,7 +201,13 @@ export async function resolveBackgroundDataUrl(
 ): Promise<string | null> {
   const url = (backgroundImageUrl ?? '').trim();
   if (url === '') return null;
-  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+  // .trim() is load-bearing: the deployed env value can carry a trailing
+  // newline (fetch/URL parsing strips it everywhere else, so the app works —
+  // but THIS plain-string prefix compare doesn't, and fail-soft hid it:
+  // every background silently rendered as the standard design in prod).
+  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')
+    .trim()
+    .replace(/\/+$/, '');
   if (supabaseUrl === '') return null;
   const allowedPrefix = `${supabaseUrl}/storage/v1/object/public/id-card-assets/`;
   if (!url.startsWith(allowedPrefix)) {

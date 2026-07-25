@@ -64,6 +64,14 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/work-signal-suggestions?secret=${CRON_SECRET}",
+      "schedule": "13 3 * * 1"
+    },
+    {
+      "path": "/api/cron/work-signal-suggestions?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "37 * * * *"
+    },
+    {
       "path": "/api/cron/rcltp-remedial-plan-generate?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
     },
