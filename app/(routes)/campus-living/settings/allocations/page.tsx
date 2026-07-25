@@ -128,10 +128,12 @@ export default function AllocationsConfigPage() {
           </div>
 
           {/* Live resolver — the proof the config drives the engine */}
-          <EligibilityResolverPreview institutions={institutions} />
+          <div id='resolver' className='scroll-mt-24'>
+            <EligibilityResolverPreview institutions={institutions} />
+          </div>
 
           {/* Section 1 — categories */}
-          <Card>
+          <Card id='categories' className='scroll-mt-24'>
             <CardContent className='p-6 space-y-6'>
               <SectionHeader
                 title='Room & mess categories'
@@ -147,7 +149,7 @@ export default function AllocationsConfigPage() {
           </Card>
 
           {/* Section 2 — program eligibility (the heart of allocations) */}
-          <Card>
+          <Card id='program-eligibility' className='scroll-mt-24'>
             <CardContent className='p-6 space-y-4'>
               <SectionHeader
                 title='Program eligibility'
@@ -171,7 +173,7 @@ export default function AllocationsConfigPage() {
           </Card>
 
           {/* Section 3 — physical room rules */}
-          <Card>
+          <Card id='room-rules' className='scroll-mt-24'>
             <CardContent className='p-6 space-y-4'>
               <SectionHeader
                 title='Physical room rules'
