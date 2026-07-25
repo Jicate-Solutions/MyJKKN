@@ -45,6 +45,66 @@ export interface AiReverifyVerdict {
   job_id: string;
 }
 
+/**
+ * AI duplicate check (bug.duplicate_check recipe). Judges whether this report
+ * describes the SAME defect as an existing open report, by meaning rather than
+ * string overlap — the gap fn_bug_cluster_scan's trigram floors leave open.
+ * SUGGESTION ONLY: never sets duplicate_of, never resolves, never notifies.
+ * Persisted in bug_reports.metadata.ai_duplicate_check.
+ */
+export interface AiDuplicateCheck {
+  verdict: 'duplicate' | 'related' | 'distinct';
+  /** Resolved back against the shortlist actually sent — null if unresolvable. */
+  canonical_display_id: string | null;
+  canonical_bug_id: string | null;
+  /** Whether the proposed canonical is itself already in a group. */
+  canonical_in_cluster?: boolean | null;
+  canonical_similarity?: number | null;
+  confidence: 'low' | 'medium' | 'high';
+  reasoning: string;
+  also_consider: { display_id: string; bug_id: string; relation: string }[];
+  /** How many candidates the model compared against (0 = AI call skipped). */
+  candidates_considered: number;
+  /** True when a "duplicate" verdict named a canonical we could not resolve. */
+  downgraded?: boolean;
+  generated_at: string;
+  job_id: string | null;
+  lane: string;
+}
+
+/**
+ * One AI-detected group (bug_clusters row) this report belongs to — the reverse
+ * lookup the detail page previously had no way to make.
+ */
+export interface BugClusterMembership {
+  id: string;
+  status: 'proposed' | 'confirmed' | 'dismissed';
+  member_count: number;
+  seed_bug_id: string;
+  /** True when THIS report is the group's seed. */
+  is_seed: boolean;
+  module_names: string[];
+  first_seen_at: string;
+  last_scan_at: string;
+  diagnosis_status: 'requested' | 'running' | 'done' | 'error' | null;
+  root_cause: string | null;
+  single_fix_feasible: boolean | null;
+  confidence: string | null;
+  fix_status: 'requested' | 'running' | 'pr_opened' | 'error' | 'no_change' | null;
+  fix_pr_url: string | null;
+  fix_pr_number: number | null;
+  verify_status: 'running' | 'done' | 'error' | null;
+  verify_tally: {
+    likely_fixed: number;
+    still_broken: number;
+    inconclusive: number;
+    failed: number;
+    pending: number;
+  } | null;
+  /** This report's own verdict from the group's verify pass, when present. */
+  my_verify_verdict: 'likely_fixed' | 'still_broken' | 'inconclusive' | null;
+}
+
 export interface BugReport {
   id: string;
   display_id: string;

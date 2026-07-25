@@ -17,6 +17,35 @@
 // Satori (the engine behind ImageResponse) requires display:flex on every
 // element with more than one child; everything below honors that. All images
 // are pre-fetched data URLs, so the compositor itself does no network I/O.
+//
+// ── PORTRAIT MODE (dark, template-opt-in — 2026-07-25) ───────────────────────
+// front_layout_json.orientation: 'portrait' | 'portrait-flipped' composes the
+// card as a PORTRAIT-READING layout (638x1014 logical) and rotates it — as ONE
+// wrapper container, no per-element rotation — into the unchanged 1014x638
+// output canvas. BRIDGE CONTRACT IS AN INVARIANT: the delivered PNG stays
+// exactly 1014x638 landscape; the Windows print bridge rotates it 90° at print
+// time exactly as it does today.
+//
+// ⚠️ ROTATION DIRECTION IS EMPIRICALLY UNKNOWN. The bridge's 90° direction
+// cannot be tested without burning a ribbon panel, so BOTH directions ship:
+//   'portrait'         → composition rotated +90° (clockwise): the portrait
+//                        TOP edge lands on the canvas RIGHT edge. Reads
+//                        upright if the bridge rotates counter-clockwise.
+//   'portrait-flipped' → composition rotated −90° (counter-clockwise): the
+//                        portrait TOP edge lands on the canvas LEFT edge.
+//                        Reads upright if the bridge rotates clockwise.
+// ONE physical verification print settles which is correct — flip the
+// template's orientation value if the first print comes out upside-down.
+//
+// Rotation mechanics: sharp is not available and no output-bitmap rotation
+// exists here — the rotation happens INSIDE the JSX via CSS transform, which
+// satori supports. The portrait box is absolutely positioned so its center
+// coincides with the landscape canvas center, then rotated ±90° about its own
+// center (satori's default transform-origin is the element center), which
+// makes the 638x1014 box exactly fill the 1014x638 canvas.
+//
+// Absent / any other orientation value → the landscape path runs completely
+// unchanged (zero risk to existing templates).
 
 import type { ReactElement } from 'react';
 import {
@@ -34,7 +63,17 @@ import {
 export const CARD_WIDTH = 1014;
 export const CARD_HEIGHT = 638;
 
+// Portrait logical canvas — the landscape canvas turned on its side. The
+// OUTPUT canvas is always CARD_WIDTH x CARD_HEIGHT (bridge invariant).
+export const PORTRAIT_WIDTH = CARD_HEIGHT; // 638
+export const PORTRAIT_HEIGHT = CARD_WIDTH; // 1014
+
+/** Template-opt-in portrait orientations; absent/anything-else = landscape. */
+export type CardOrientation = 'portrait' | 'portrait-flipped';
+
 const BRAND_GREEN = '#0b6d41';
+// Name color on the institution's portrait card design (red, bold, caps).
+const PORTRAIT_NAME_RED = '#c8102e';
 
 type LayoutElementOf<F extends string> = {
   field: F | 'static_text';
@@ -53,6 +92,12 @@ export type FrontLayoutElement = LayoutElementOf<CardField>;
 export type BackLayoutElement = LayoutElementOf<BackCardField>;
 
 export type FrontLayout = {
+  /**
+   * 'portrait' / 'portrait-flipped' → portrait-reading composition rotated
+   * into the landscape output canvas (see the header note — the two values
+   * differ only in rotation direction). Absent → landscape (all prod today).
+   */
+  orientation?: CardOrientation;
   background_color?: string;
   /**
    * Full-bleed card artwork URL (designed externally, e.g. Canva, 1014x638).
@@ -101,12 +146,18 @@ function clamp(value: number, min: number, max: number): number {
 
 /**
  * Shared defensive parser for a layout's `elements` array. Identical rules
- * for front and back — only the allowed-field alphabet differs.
+ * for front and back — only the allowed-field alphabet differs. `bounds`
+ * carries the logical canvas the elements are clamped into: landscape
+ * (default, and always for the back) or portrait when the front layout has
+ * opted into portrait orientation.
  */
 function parseElements<F extends string>(
   raw: unknown,
-  allowedFields: readonly F[]
+  allowedFields: readonly F[],
+  bounds?: { maxX: number; maxY: number }
 ): LayoutElementOf<F>[] {
+  const maxX = bounds?.maxX ?? CARD_WIDTH;
+  const maxY = bounds?.maxY ?? CARD_HEIGHT;
   if (!Array.isArray(raw)) return [];
   const elements: LayoutElementOf<F>[] = [];
   for (const entry of raw) {
@@ -123,17 +174,17 @@ function parseElements<F extends string>(
 
     const parsed: LayoutElementOf<F> = {
       field: field as LayoutElementOf<F>['field'],
-      x: clamp(Math.round(x), 0, CARD_WIDTH),
-      y: clamp(Math.round(y), 0, CARD_HEIGHT)
+      x: clamp(Math.round(x), 0, maxX),
+      y: clamp(Math.round(y), 0, maxY)
     };
     if (typeof el.text === 'string') parsed.text = el.text;
     const width = Number(el.width);
     if (Number.isFinite(width) && width > 0) {
-      parsed.width = clamp(Math.round(width), 1, CARD_WIDTH);
+      parsed.width = clamp(Math.round(width), 1, maxX);
     }
     const height = Number(el.height);
     if (Number.isFinite(height) && height > 0) {
-      parsed.height = clamp(Math.round(height), 1, CARD_HEIGHT);
+      parsed.height = clamp(Math.round(height), 1, maxY);
     }
     const fontSize = Number(el.font_size);
     if (Number.isFinite(fontSize)) parsed.font_size = clamp(Math.round(fontSize), 8, 120);
@@ -159,6 +210,12 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
   const obj = raw as Record<string, unknown>;
   const layout: FrontLayout = {};
 
+  // Exact lowercase strings only — 'landscape', casing variants and junk all
+  // mean "not portrait" so existing templates cannot accidentally opt in.
+  if (obj.orientation === 'portrait' || obj.orientation === 'portrait-flipped') {
+    layout.orientation = obj.orientation;
+  }
+
   const bg = safeColor(obj.background_color);
   if (bg) layout.background_color = bg;
 
@@ -183,10 +240,18 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
     if (Object.keys(header).length > 0) layout.header = header;
   }
 
-  const elements = parseElements(obj.elements, CARD_FIELDS);
+  // Portrait layouts position elements in PORTRAIT coordinates.
+  const elements = parseElements(
+    obj.elements,
+    CARD_FIELDS,
+    layout.orientation !== undefined
+      ? { maxX: PORTRAIT_WIDTH, maxY: PORTRAIT_HEIGHT }
+      : undefined
+  );
   if (elements.length > 0) layout.elements = elements;
 
   const hasContent =
+    layout.orientation !== undefined ||
     layout.background_color !== undefined ||
     layout.background_image !== undefined ||
     layout.header !== undefined ||
@@ -568,12 +633,32 @@ function elementValue(
       );
     case 'valid_until':
       return resolveMappedValue('valid_until', mappings, person.valueBag, validUntilLabel);
+    case 'study_period':
+      return resolveMappedValue(
+        'study_period',
+        mappings,
+        person.valueBag,
+        person.studyPeriod ?? ''
+      );
+    case 'staff_id':
+      return resolveMappedValue('staff_id', mappings, person.valueBag, person.staffId ?? '');
     default:
       return '';
   }
 }
 
-function customDesign(input: CardRenderInput, layout: FrontLayout): ReactElement {
+/**
+ * Absolutely-positioned custom layout. `width`/`height` describe the LOGICAL
+ * canvas the elements were authored in — the landscape card by default, or
+ * the portrait canvas when the layout opted into portrait orientation (the
+ * portrait wrapper then rotates this whole composition into the output).
+ */
+function customDesign(
+  input: CardRenderInput,
+  layout: FrontLayout,
+  width: number = CARD_WIDTH,
+  height: number = CARD_HEIGHT
+): ReactElement {
   const { person, photoDataUrl, qrDataUrl, backgroundDataUrl } = input;
   const children: ReactElement[] = [];
 
@@ -583,14 +668,14 @@ function customDesign(input: CardRenderInput, layout: FrontLayout): ReactElement
         key="background"
         src={backgroundDataUrl}
         alt=""
-        width={CARD_WIDTH}
-        height={CARD_HEIGHT}
+        width={width}
+        height={height}
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
-          width: CARD_WIDTH,
-          height: CARD_HEIGHT,
+          width,
+          height,
           objectFit: 'cover'
         }}
       />
@@ -683,8 +768,8 @@ function customDesign(input: CardRenderInput, layout: FrontLayout): ReactElement
       style={{
         display: 'flex',
         position: 'relative',
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width,
+        height,
         backgroundColor: backgroundDataUrl
           ? 'transparent'
           : (layout.background_color ?? '#ffffff'),
@@ -697,11 +782,318 @@ function customDesign(input: CardRenderInput, layout: FrontLayout): ReactElement
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Portrait mode (dark, template-opt-in) — see the header note for the
+// rotation-direction caveat. The composition below is PORTRAIT-READING
+// (638x1014); rotatePortraitIntoCanvas turns it into the 1014x638 output.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Label + value line for the portrait default design (fail-soft). */
+function portraitFieldRow(key: string, label: string, value: string): ReactElement {
+  return (
+    <div key={key} style={{ display: 'flex', alignItems: 'baseline', marginTop: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          width: 170,
+          flexShrink: 0,
+          fontSize: 17,
+          letterSpacing: 2,
+          color: '#6b7280'
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: 'flex', fontSize: 24, fontWeight: 700, color: '#111827' }}>
+        {truncateForCard(value, 30)}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The institution's portrait card design (no-artwork default): header band,
+ * photo (~300x380) under a left ribbon zone, name (red, bold, caps), field
+ * lines (ROLL NO / COURSE / YEAR for learners; STAFF ID / DEPT / DESIG for
+ * team members), small VALID UPTO, QR bottom. Full-bleed portrait artwork
+ * (background_image, same allowlist path) suppresses the band + ribbon —
+ * the artwork IS the design, matching landscape behavior.
+ */
+function portraitDefaultDesign(input: CardRenderInput): ReactElement {
+  const { person, photoDataUrl, qrDataUrl, backgroundDataUrl, validUntilLabel } = input;
+  const header = input.layout?.header;
+  const headerBg = header?.background_color ?? BRAND_GREEN;
+  const headerColor = header?.text_color ?? '#ffffff';
+  const headerTitle = header?.text ?? 'JKKN';
+
+  const fieldRows: ReactElement[] = [];
+  if (person.kind === 'learner') {
+    if (person.rollNumber) fieldRows.push(portraitFieldRow('roll', 'ROLL NO', person.rollNumber));
+    if (person.courseName) fieldRows.push(portraitFieldRow('course', 'COURSE', person.courseName));
+    if (person.studyPeriod) fieldRows.push(portraitFieldRow('year', 'YEAR', person.studyPeriod));
+  } else {
+    if (person.staffId) fieldRows.push(portraitFieldRow('staffid', 'STAFF ID', person.staffId));
+    if (person.departmentName) fieldRows.push(portraitFieldRow('dept', 'DEPT', person.departmentName));
+    if (person.designation) fieldRows.push(portraitFieldRow('desig', 'DESIG', person.designation));
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        width: PORTRAIT_WIDTH,
+        height: PORTRAIT_HEIGHT,
+        backgroundColor: backgroundDataUrl
+          ? 'transparent'
+          : (input.layout?.background_color ?? '#ffffff'),
+        fontFamily: 'sans-serif'
+      }}
+    >
+      {backgroundDataUrl ? (
+        <img
+          src={backgroundDataUrl}
+          alt=""
+          width={PORTRAIT_WIDTH}
+          height={PORTRAIT_HEIGHT}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: PORTRAIT_WIDTH,
+            height: PORTRAIT_HEIGHT,
+            objectFit: 'cover'
+          }}
+        />
+      ) : null}
+
+      {/* Header band — suppressed under full-bleed artwork */}
+      {backgroundDataUrl ? null : (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            width: '100%',
+            height: 96,
+            backgroundColor: headerBg,
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              fontSize: 34,
+              fontWeight: 800,
+              color: headerColor,
+              letterSpacing: 2
+            }}
+          >
+            {truncateForCard(headerTitle, 14)}
+          </div>
+          {person.institutionName ? (
+            <div
+              style={{
+                display: 'flex',
+                fontSize: 18,
+                fontWeight: 600,
+                color: headerColor,
+                opacity: 0.95,
+                marginTop: 4
+              }}
+            >
+              {truncateForCard(person.institutionName, 44)}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Body — photo under the left ribbon zone, then name + fields */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative',
+          flexGrow: 1,
+          alignItems: 'center',
+          padding: '0 32px'
+        }}
+      >
+        {/* Vertical ribbon zone (left) — suppressed under artwork */}
+        {backgroundDataUrl ? null : (
+          <div
+            style={{
+              display: 'flex',
+              position: 'absolute',
+              left: 46,
+              top: 0,
+              width: 52,
+              height: 150,
+              backgroundColor: BRAND_GREEN
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                width: 12,
+                height: '100%',
+                marginLeft: 20,
+                backgroundColor: '#ffde59'
+              }}
+            />
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            width: 300,
+            height: 380,
+            marginTop: 52,
+            borderRadius: 14,
+            border: `4px solid ${BRAND_GREEN}`,
+            overflow: 'hidden',
+            flexShrink: 0
+          }}
+        >
+          {photoBox(photoDataUrl, person.fullName, 300, 380)}
+        </div>
+
+        {/* Name — red, bold, caps */}
+        <div
+          style={{
+            display: 'flex',
+            marginTop: 26,
+            fontSize: 32,
+            fontWeight: 800,
+            color: PORTRAIT_NAME_RED,
+            textAlign: 'center'
+          }}
+        >
+          {truncateForCard(person.fullName.toUpperCase(), 30)}
+        </div>
+
+        {/* Field lines */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            width: '100%',
+            marginTop: 18,
+            padding: '0 42px'
+          }}
+        >
+          {fieldRows}
+        </div>
+
+        <div style={{ display: 'flex', flexGrow: 1 }} />
+
+        {/* Small VALID UPTO */}
+        <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 12 }}>
+          <div
+            style={{
+              display: 'flex',
+              fontSize: 15,
+              letterSpacing: 3,
+              color: '#6b7280'
+            }}
+          >
+            VALID UPTO
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              fontSize: 20,
+              fontWeight: 700,
+              color: BRAND_GREEN,
+              marginLeft: 12
+            }}
+          >
+            {validUntilLabel}
+          </div>
+        </div>
+
+        {/* QR bottom area */}
+        {qrDataUrl ? (
+          <img
+            src={qrDataUrl}
+            alt=""
+            width={150}
+            height={150}
+            style={{
+              width: 150,
+              height: 150,
+              borderRadius: 8,
+              border: '4px solid #e5e7eb',
+              marginBottom: 26
+            }}
+          />
+        ) : (
+          <div style={{ display: 'flex', height: 26 }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rotate a portrait composition into the landscape output canvas as ONE
+ * wrapper (no per-element rotation). Center-rotation identity: the portrait
+ * box is placed so its center coincides with the canvas center, then rotated
+ * ±90° about its own center — satori's default transform-origin — which makes
+ * the 638x1014 box exactly fill 1014x638. 'portrait' = +90° (clockwise),
+ * 'portrait-flipped' = −90°; one physical print settles which one the
+ * bridge's rotation undoes (see the header note).
+ */
+function rotatePortraitIntoCanvas(
+  content: ReactElement,
+  orientation: CardOrientation
+): ReactElement {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        position: 'relative',
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
+        backgroundColor: '#ffffff'
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          position: 'absolute',
+          left: (CARD_WIDTH - PORTRAIT_WIDTH) / 2, // 188
+          top: (CARD_HEIGHT - PORTRAIT_HEIGHT) / 2, // -188
+          width: PORTRAIT_WIDTH,
+          height: PORTRAIT_HEIGHT,
+          transform: orientation === 'portrait' ? 'rotate(90deg)' : 'rotate(-90deg)'
+        }}
+      >
+        {content}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildCardElement(input: CardRenderInput): ReactElement {
   const layout = input.layout;
+
+  // PORTRAIT (dark, template-opt-in): compose portrait-reading, rotate as one
+  // wrapper into the unchanged 1014x638 output. Custom `elements` are in
+  // portrait coordinates (parseFrontLayout clamps them so).
+  if (layout?.orientation === 'portrait' || layout?.orientation === 'portrait-flipped') {
+    const content =
+      layout.elements && layout.elements.length > 0
+        ? customDesign(input, layout, PORTRAIT_WIDTH, PORTRAIT_HEIGHT)
+        : portraitDefaultDesign(input);
+    return rotatePortraitIntoCanvas(content, layout.orientation);
+  }
+
   if (layout?.elements && layout.elements.length > 0) {
     return customDesign(input, layout);
   }
