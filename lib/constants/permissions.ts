@@ -1908,7 +1908,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.marathon.create', label: 'Create Marathon Events' },
       // Events Platform Promotion — shared logistics
       { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
-      { key: 'events.presets.manage', label: 'Publish Official Event Presets' }
+      { key: 'events.presets.manage', label: 'Publish Official Event Presets' },
+      // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
+      // (confirm/decline/supersede) a raised "please confirm a date" request via
+      // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
