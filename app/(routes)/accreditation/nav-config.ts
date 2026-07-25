@@ -59,6 +59,12 @@ const config: ModuleNavConfig = {
           exact: true,
         },
         {
+          label: 'AI Narratives',
+          icon: 'Sparkles',
+          href: '/accreditation/naac/narratives',
+          matchPaths: ['/accreditation/naac/narratives'],
+        },
+        {
           label: 'IQAC Committees',
           icon: 'Users',
           href: '/accreditation/naac/committees',

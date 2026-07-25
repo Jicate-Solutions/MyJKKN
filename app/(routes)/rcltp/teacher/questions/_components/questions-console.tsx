@@ -30,13 +30,19 @@ import {
   Pencil,
   X,
   Save,
+  CalendarClock,
+  ShieldCheck,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   useRcltpPassages,
   useRcltpQuestions,
   useReviewRcltpQuestion,
+  useReviewRcltpQuestionsBulk,
   useUpdateRcltpQuestion,
+  useRcltpPassageReviewPriority,
+  useRcltpSpotcheckWeek,
+  useResolveRcltpSpotcheck,
 } from '@/hooks/rcltp/use-rcltp-passages';
 import { RcltpPassagesService } from '@/lib/services/rcltp/passages-service';
 import { ValidationBanner } from '../../../_components/validation-banner';
@@ -60,7 +66,22 @@ import type {
   RcltpMarzanoLevel,
   RcltpKeyCheckVerdict,
   UpdateRcltpPartBQuestionDto,
+  RcltpPassageReviewPriority,
+  RcltpReviewSpotcheck,
 } from '@/types/rcltp';
+
+/**
+ * Who is approving. Uses getSession() rather than getUser(): getUser() makes a
+ * network round-trip that stalls the write it is attributing (see PR #1205),
+ * and a batch approve pays that stall once for the whole batch.
+ */
+async function currentUserId(): Promise<string | null> {
+  const supabase = createClientSupabaseClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.user?.id ?? null;
+}
 
 interface Institution {
   id: string;
@@ -493,22 +514,49 @@ function PassageQuestions({ passage }: { passage: RcltpPassage }) {
     status: 'draft',
   });
   const reviewQuestion = useReviewRcltpQuestion();
+  const reviewBulk = useReviewRcltpQuestionsBulk();
   const updateQuestion = useUpdateRcltpQuestion();
   const [generating, setGenerating] = useState(false);
 
-  const questions = data?.data ?? [];
+  // Memoised because agreedIds derives from it: `data?.data ?? []` is a fresh
+  // array every render, which would make that useMemo recompute every time.
+  const questions = useMemo(() => data?.data ?? [], [data]);
   const draftCount = questions.length;
 
+  // Only drafts whose second-pass answer-key check AGREED. disagree, ambiguous
+  // and unchecked are deliberately excluded — those are exactly the ones a
+  // Senior Learner must read (locked decision #5), so they never ride along in
+  // a batch. An absent/partial ai_meta reads as unchecked and is excluded too.
+  const agreedIds = useMemo(
+    () =>
+      questions
+        .filter((q) => parseAiMeta(q.ai_meta)?.checker?.verdict === 'agree')
+        .map((q) => q.id),
+    [questions]
+  );
+
   async function approve(q: RcltpPartBQuestion) {
-    const supabase = createClientSupabaseClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const uid = await currentUserId();
     await reviewQuestion.mutateAsync({
       id: q.id,
       input: {
         status: 'approved',
-        reviewed_by: user?.id ?? null,
+        reviewed_by: uid,
+        reviewed_at: new Date().toISOString(),
+      },
+    });
+  }
+
+  // Batch approve (locked decision #1). Same stamped fields as the single-row
+  // path, and the patch carries no ai_meta, so every frozen ai_draft survives.
+  async function approveAllAgreed() {
+    if (agreedIds.length === 0) return;
+    const uid = await currentUserId();
+    await reviewBulk.mutateAsync({
+      ids: agreedIds,
+      input: {
+        status: 'approved',
+        reviewed_by: uid,
         reviewed_at: new Date().toISOString(),
       },
     });
@@ -558,6 +606,22 @@ function PassageQuestions({ passage }: { passage: RcltpPassage }) {
     <div className='space-y-3 rounded-lg border border-border bg-muted/20 p-4'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <h4 className='text-sm font-semibold'>Draft questions</h4>
+        <div className='flex flex-wrap items-center gap-2'>
+        {agreedIds.length > 0 && (
+          <Button
+            size='sm'
+            onClick={approveAllAgreed}
+            disabled={reviewBulk.isPending}
+            title='Approve every draft whose answer key the second AI pass agreed with. Anything disputed, ambiguous or unchecked is left for you to read.'
+          >
+            {reviewBulk.isPending ? (
+              <Loader2 className='mr-1 h-3.5 w-3.5 animate-spin' />
+            ) : (
+              <ListChecks className='mr-1 h-3.5 w-3.5' />
+            )}
+            Approve all AI-agreed ({agreedIds.length})
+          </Button>
+        )}
         <Button
           size='sm'
           variant='outline'
@@ -576,7 +640,15 @@ function PassageQuestions({ passage }: { passage: RcltpPassage }) {
           )}
           Generate questions with AI
         </Button>
+        </div>
       </div>
+
+      {agreedIds.length > 0 && agreedIds.length < draftCount && (
+        <p className='text-xs text-muted-foreground'>
+          {draftCount - agreedIds.length} of {draftCount} need your eyes — the
+          answer-key check disputed, could not decide, or never ran on them.
+        </p>
+      )}
 
       {draftCount > 0 && <ValidationBanner draftCount={draftCount} />}
 
@@ -608,7 +680,13 @@ function PassageQuestions({ passage }: { passage: RcltpPassage }) {
 // ---------------------------------------------------------------------------
 // A passage row that expands to its draft-question panel.
 // ---------------------------------------------------------------------------
-function PassageRow({ passage }: { passage: RcltpPassage }) {
+function PassageRow({
+  passage,
+  priority,
+}: {
+  passage: RcltpPassage;
+  priority?: RcltpPassageReviewPriority;
+}) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className='rounded-md border'>
@@ -633,12 +711,173 @@ function PassageRow({ passage }: { passage: RcltpPassage }) {
             {passage.language}
           </span>
         </div>
+        {/* Why this passage sits where it does in the queue (decision #5). */}
+        <div className='flex shrink-0 flex-wrap items-center gap-1.5'>
+          {priority?.next_scheduled_at && (
+            <Badge
+              className='bg-rose-100 font-normal text-rose-900 hover:bg-rose-100'
+              title={`Next assessment on this passage: ${new Date(
+                priority.next_scheduled_at
+              ).toLocaleString()}`}
+            >
+              <CalendarClock className='mr-1 h-3 w-3' />
+              Test due
+            </Badge>
+          )}
+          {!!priority?.at_risk_count && (
+            <Badge
+              className='bg-orange-100 font-normal text-orange-900 hover:bg-orange-100'
+              title='Readers on this passage who are in the lowest band or whose score went backwards.'
+            >
+              {priority.at_risk_count} at risk
+            </Badge>
+          )}
+          {!!priority?.draft_count && (
+            <Badge variant='outline' className='font-normal'>
+              {priority.draft_count} to review
+            </Badge>
+          )}
+        </div>
       </button>
       {expanded && (
         <div className='border-t p-3'>
           <PassageQuestions passage={passage} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Weekly spot-check (locked decision #7) — the anti-rubber-stamp check that
+// polices "Approve all AI-agreed". Each week the system draws a small random
+// sample of questions THIS Senior Learner already approved and asks them to
+// open each one and say whether it still reads correctly.
+//
+// It reminds; it never blocks. Nothing else on this page stops while items are
+// outstanding — the point is that a batch approval cannot pass unexamined
+// forever, not that work grinds to a halt.
+// ---------------------------------------------------------------------------
+function SpotcheckItem({
+  item,
+  onResolve,
+  busy,
+}: {
+  item: RcltpReviewSpotcheck;
+  onResolve: (id: string, status: 'confirmed' | 'flagged') => Promise<void>;
+  busy: boolean;
+}) {
+  // The answer is hidden until opened, so "confirmed" means someone actually
+  // looked at it — the confirm buttons do not exist until the item is expanded.
+  const [open, setOpen] = useState(false);
+
+  if (item.status !== 'pending') {
+    return (
+      <li className='flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground'>
+        {item.status === 'confirmed' ? (
+          <Check className='h-3.5 w-3.5 text-emerald-600' />
+        ) : (
+          <AlertTriangle className='h-3.5 w-3.5 text-amber-600' />
+        )}
+        <span className='truncate'>{item.question_text}</span>
+        <span className='ml-auto shrink-0'>
+          {item.status === 'confirmed' ? 'Confirmed' : 'Flagged'}
+        </span>
+      </li>
+    );
+  }
+
+  return (
+    <li className='rounded-md border bg-card p-3'>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className='flex w-full items-start gap-2 text-left'
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown className='mt-0.5 h-4 w-4 shrink-0 text-muted-foreground' />
+        ) : (
+          <ChevronRight className='mt-0.5 h-4 w-4 shrink-0 text-muted-foreground' />
+        )}
+        <span className='min-w-0'>
+          <span className='block text-sm'>{item.question_text}</span>
+          {item.passage_title && (
+            <span className='mt-0.5 block text-xs text-muted-foreground'>
+              {item.passage_title}
+            </span>
+          )}
+        </span>
+      </button>
+
+      {open && (
+        <div className='mt-2 space-y-2 border-t pt-2'>
+          <p className='text-xs text-muted-foreground'>
+            Expected answer: {item.correct_answer ?? '—'}
+          </p>
+          <div className='flex flex-wrap justify-end gap-2'>
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={busy}
+              onClick={() => onResolve(item.id, 'flagged')}
+            >
+              <AlertTriangle className='mr-1 h-3.5 w-3.5' /> Needs a look
+            </Button>
+            <Button
+              size='sm'
+              disabled={busy}
+              onClick={() => onResolve(item.id, 'confirmed')}
+            >
+              <Check className='mr-1 h-3.5 w-3.5' /> Reads correctly
+            </Button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function SpotcheckPanel() {
+  const { data, isLoading } = useRcltpSpotcheckWeek();
+  const resolve = useResolveRcltpSpotcheck();
+  const items = data ?? [];
+  const pendingCount = items.filter((i) => i.status === 'pending').length;
+
+  async function onResolve(id: string, status: 'confirmed' | 'flagged') {
+    await resolve.mutateAsync({ id, status });
+  }
+
+  // Reserve the space while loading so the list below does not jump when this
+  // panel resolves (a `return null` here shifts everything under it).
+  if (isLoading) return <Skeleton className='h-16 w-full' />;
+  if (items.length === 0) return null;
+
+  return (
+    <div className='space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-4'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <ShieldCheck className='h-4 w-4 shrink-0 text-amber-700' />
+        <h3 className='text-sm font-semibold text-amber-900'>
+          This week&rsquo;s check
+        </h3>
+        <Badge className='bg-amber-100 font-normal text-amber-900 hover:bg-amber-100'>
+          {pendingCount} of {items.length} still to open
+        </Badge>
+      </div>
+      <p className='text-xs text-amber-900/80'>
+        A few questions you already approved, picked at random. Open each one and
+        say whether it still reads correctly. This is a reminder, not a block —
+        nothing else here waits on it.
+      </p>
+      <ul className='space-y-2'>
+        {items.map((item) => (
+          <SpotcheckItem
+            key={item.id}
+            item={item}
+            onResolve={onResolve}
+            busy={resolve.isPending}
+          />
+        ))}
+      </ul>
     </div>
   );
 }
@@ -654,7 +893,28 @@ export function QuestionsConsole() {
   const passagesQuery = useRcltpPassages(
     instFilter === 'all' ? {} : { institution_id: instFilter }
   );
-  const passages = passagesQuery.data?.data ?? [];
+
+  // Most-needed-first ordering (locked decision #5). The RPC returns a
+  // server-computed priority_rank, so the ordering RULE lives in one place;
+  // here we only apply it. A passage with no priority row (none should exist,
+  // but a race or a permission edge could) sorts last rather than disappearing.
+  const priorityQuery = useRcltpPassageReviewPriority(
+    instFilter === 'all' ? null : instFilter
+  );
+  const priorityByPassage = useMemo(() => {
+    const m = new Map<string, RcltpPassageReviewPriority>();
+    for (const row of priorityQuery.data ?? []) m.set(row.passage_id, row);
+    return m;
+  }, [priorityQuery.data]);
+
+  const passages = useMemo(() => {
+    const rows = passagesQuery.data?.data ?? [];
+    return [...rows].sort(
+      (a, b) =>
+        (priorityByPassage.get(a.id)?.priority_rank ?? Number.MAX_SAFE_INTEGER) -
+        (priorityByPassage.get(b.id)?.priority_rank ?? Number.MAX_SAFE_INTEGER)
+    );
+  }, [passagesQuery.data, priorityByPassage]);
 
   const instName = useMemo(() => {
     const m = new Map(institutions.map((i) => [i.id, i.name]));
@@ -663,6 +923,8 @@ export function QuestionsConsole() {
 
   return (
     <div className='space-y-5'>
+      <SpotcheckPanel />
+
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div>
           <h2 className='text-lg font-semibold'>Question review</h2>
@@ -670,6 +932,10 @@ export function QuestionsConsole() {
             Expand a passage to review its draft comprehension questions. Approve
             the good ones, retire the rest — drafts never reach students until you
             approve them.
+          </p>
+          <p className='mt-1 text-xs text-muted-foreground'>
+            Ordered most-needed-first: passages with an assessment coming up, then
+            those carrying the most at-risk readers.
           </p>
         </div>
         <Select value={instFilter} onValueChange={setInstFilter}>
@@ -705,7 +971,11 @@ export function QuestionsConsole() {
       ) : (
         <div className='space-y-3'>
           {passages.map((p) => (
-            <PassageRow key={p.id} passage={p} />
+            <PassageRow
+              key={p.id}
+              passage={p}
+              priority={priorityByPassage.get(p.id)}
+            />
           ))}
         </div>
       )}
