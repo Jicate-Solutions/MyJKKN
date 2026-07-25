@@ -2145,3 +2145,5 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Public-read is DELIBERATE: backgrounds are brand artwork with no learner data; public URLs let the render engine and admin previews fetch without signing. Writes gated on `id_cards.templates.edit` (or admin) via three `storage.objects` policies (insert/update/delete) + an explicit authenticated SELECT policy documenting read intent.
 - Idempotent (`ON CONFLICT DO NOTHING` + pg_policies existence guards); additive only; no functions. Applied by orchestrator with BEGIN…ROLLBACK rehearsal.
 - Location: `supabase/migrations/20260724124500_id_card_assets_bucket.sql`.
+
+- `migrations/20260725101500_carre_participant_scoring_sealed.sql` — 2026-07-25 — CARRE sealed participant lane: carre_participant_scores (RLS seal super_admin-only) + fn_carre_participant_score (learners, open CARRE cycles) + fn_carre_participant_rollup (leadership, k>=3 floor, aggregates only) + audit_cycles.participant_scoring_open. Applied via Management API 2026-07-25; 10-point rolled-back verification passed.
