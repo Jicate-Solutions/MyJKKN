@@ -227,6 +227,11 @@ interface FeatureRow {
   // UNIFICATION (2026-07-23): false → this registry job has no model yet
   // (provider/model_id are ''); render "Uses default model" + a "Set model" button.
   model_set?: boolean;
+  // VISIBILITY (2026-07-25): the raw registry `enabled` gate. false → this job
+  // is dormant (the Max/API drain will not claim or enqueue it). The service
+  // read returns these rows so the Director can govern their model, but they
+  // MUST be marked so they aren't mistaken for live ones.
+  enabled?: boolean;
 }
 
 function formatInr(n: number): string {
@@ -519,11 +524,35 @@ export function AiModelsDataTable() {
                         f.monthly_spend_cap_inr !== null &&
                         f.month_to_date_cost_inr > f.monthly_spend_cap_inr;
                       const lowSuccess = f.month_to_date_invocations > 0 && f.month_to_date_success_rate < 0.9;
+                      // VISIBILITY (2026-07-25): a dormant registry job (enabled=
+                      // false). The service read returns it so its model stays
+                      // governable, but it must be dimmed + badged so it isn't
+                      // mistaken for a live one on the shared console.
+                      const disabled = f.enabled === false;
                       return (
-                        <TableRow key={f.feature_key} className={overCap ? 'bg-destructive/5' : undefined}>
+                        <TableRow
+                          key={f.feature_key}
+                          className={
+                            [overCap ? 'bg-destructive/5' : '', disabled ? 'opacity-60' : '']
+                              .filter(Boolean)
+                              .join(' ') || undefined
+                          }
+                        >
                           <TableCell>
                             <div className="space-y-0.5">
-                              <div className="font-medium">{f.display_name}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{f.display_name}</span>
+                                {disabled && (
+                                  <Badge
+                                    variant="outline"
+                                    className="gap-1 border-amber-500/50 bg-amber-50 text-[11px] font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-400"
+                                    title="This job is disabled in the registry — the Max/API drain will not claim or enqueue it. Its model is still editable here."
+                                  >
+                                    <PowerOff className="h-3 w-3" />
+                                    Disabled
+                                  </Badge>
+                                )}
+                              </div>
                               {f.description && (
                                 <div className="text-xs text-muted-foreground">{f.description}</div>
                               )}
