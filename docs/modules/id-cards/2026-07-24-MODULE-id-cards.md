@@ -135,6 +135,36 @@ When the audit runs, use the `/carre-audit` scaffolder so evidence is collected 
 
 ---
 
+## Back side (dark)
+
+<!-- Updated: 2026-07-25 — back-side rendering shipped DARK. -->
+
+The render engine can now composite a card **back**, but the feature is **dark**: every template in production has `id_card_templates.back_layout_json` set to `NULL`, and while it is `NULL` the back endpoint answers **404 `back_not_configured`**. Nothing about front rendering or printing changes until a template explicitly opts in.
+
+**How it works**
+
+- `GET /api/id-cards/templates/:id/render?profile_id=…&side=back[&format=png]` renders the back (same auth as the front). `side=front` (or omitting `side`) is the unchanged front path.
+- The default back design prints, from the learner record (team members: from their team-member record): blood group, date of birth, guardian (father, else mother) with phone, permanent address, the person's own contact number, a centred **Code 39 barcode** of the learner's roll number (team members: their id code) with the number beneath, and a full-width green footer band reading `TAMIL NADU, INDIA` (overridable). Missing data simply omits that block — nothing is invented.
+- The barcode is generated in-house (`lib/id-cards/barcode.ts`, dependency-free Code 39: A–Z, 0–9, dash, dot, space; 1:3 narrow/wide; start/stop asterisks).
+
+**`back_layout_json` schema** (every key optional; `{}` = enabled with defaults):
+
+| Key | Meaning |
+|---|---|
+| `background_color` | Hex background (default white) |
+| `background_image` | Back artwork URL — must live in the `id-card-assets` bucket (same allowlist as the front); full-bleed artwork suppresses the footer band |
+| `show_blood_group` `show_dob` `show_guardian` `show_address` `show_barcode` `show_contact` | Toggle the default blocks (all default `true`) |
+| `footer_text` | Footer band text override |
+| `elements` | Positioned extras (same element schema as the front, plus back fields `blood_group` `date_of_birth` `guardian` `address` `contact_phone` `barcode`). On the back, elements **overlay** the default design — this is how a template supplies its institution's contact / email / website lines; the code hardcodes no institution's contacts |
+
+**Enabling it for a template**
+
+Set `back_layout_json` to `{}` (or a fuller object) on that template — the back-design tab (`components/admin/id-cards/id-card-back-design-tab.tsx`: enable switch, back-artwork upload to `id-card-assets/back-backgrounds/…`, preview-with-my-data) is built but **not yet wired into the template page**; until it is, enabling is a deliberate data change.
+
+**Explicit gap — printing is still front-only.** The Windows print bridge downloads and prints **one front PNG per job**; it never requests `side=back`. Duplex printing is a future change on the Windows box (bridge + printer duplex settings), not part of this feature. Until then the back exists for preview and for that future step.
+
+---
+
 ## Related
 
 - In-app guide lane: `/guide?module=id-cards` (registry: `lib/guide/registry.ts`, content: `lib/id-cards/guide/content.ts`)

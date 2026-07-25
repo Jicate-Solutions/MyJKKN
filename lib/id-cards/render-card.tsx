@@ -21,10 +21,12 @@
 import type { ReactElement } from 'react';
 import {
   CARD_FIELDS,
+  BACK_CARD_FIELDS,
   resolveMappedValue,
   initialsFromName,
   truncateForCard,
   type CardField,
+  type BackCardField,
   type CardPersonData,
   type FieldMapping
 } from '@/lib/id-cards/render-data';
@@ -34,8 +36,8 @@ export const CARD_HEIGHT = 638;
 
 const BRAND_GREEN = '#0b6d41';
 
-export type FrontLayoutElement = {
-  field: CardField | 'static_text';
+type LayoutElementOf<F extends string> = {
+  field: F | 'static_text';
   text?: string;
   x: number;
   y: number;
@@ -46,6 +48,9 @@ export type FrontLayoutElement = {
   color?: string;
   align?: 'left' | 'center' | 'right';
 };
+
+export type FrontLayoutElement = LayoutElementOf<CardField>;
+export type BackLayoutElement = LayoutElementOf<BackCardField>;
 
 export type FrontLayout = {
   background_color?: string;
@@ -95,6 +100,56 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * Shared defensive parser for a layout's `elements` array. Identical rules
+ * for front and back — only the allowed-field alphabet differs.
+ */
+function parseElements<F extends string>(
+  raw: unknown,
+  allowedFields: readonly F[]
+): LayoutElementOf<F>[] {
+  if (!Array.isArray(raw)) return [];
+  const elements: LayoutElementOf<F>[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const el = entry as Record<string, unknown>;
+    const field = el.field;
+    if (typeof field !== 'string') continue;
+    if (field !== 'static_text' && !(allowedFields as readonly string[]).includes(field)) {
+      continue;
+    }
+    const x = Number(el.x);
+    const y = Number(el.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+    const parsed: LayoutElementOf<F> = {
+      field: field as LayoutElementOf<F>['field'],
+      x: clamp(Math.round(x), 0, CARD_WIDTH),
+      y: clamp(Math.round(y), 0, CARD_HEIGHT)
+    };
+    if (typeof el.text === 'string') parsed.text = el.text;
+    const width = Number(el.width);
+    if (Number.isFinite(width) && width > 0) {
+      parsed.width = clamp(Math.round(width), 1, CARD_WIDTH);
+    }
+    const height = Number(el.height);
+    if (Number.isFinite(height) && height > 0) {
+      parsed.height = clamp(Math.round(height), 1, CARD_HEIGHT);
+    }
+    const fontSize = Number(el.font_size);
+    if (Number.isFinite(fontSize)) parsed.font_size = clamp(Math.round(fontSize), 8, 120);
+    const fontWeight = Number(el.font_weight);
+    if ([400, 500, 600, 700, 800].includes(fontWeight)) parsed.font_weight = fontWeight;
+    const color = safeColor(el.color);
+    if (color) parsed.color = color;
+    if (el.align === 'left' || el.align === 'center' || el.align === 'right') {
+      parsed.align = el.align;
+    }
+    elements.push(parsed);
+  }
+  return elements;
+}
+
+/**
  * Parse id_card_templates.front_layout_json. Returns null when there is no
  * recognizable content (e.g. the `{}` in prod today) → caller renders the
  * default design.
@@ -128,47 +183,8 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
     if (Object.keys(header).length > 0) layout.header = header;
   }
 
-  if (Array.isArray(obj.elements)) {
-    const elements: FrontLayoutElement[] = [];
-    for (const entry of obj.elements) {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-      const el = entry as Record<string, unknown>;
-      const field = el.field;
-      if (typeof field !== 'string') continue;
-      if (field !== 'static_text' && !(CARD_FIELDS as readonly string[]).includes(field)) {
-        continue;
-      }
-      const x = Number(el.x);
-      const y = Number(el.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-
-      const parsed: FrontLayoutElement = {
-        field: field as FrontLayoutElement['field'],
-        x: clamp(Math.round(x), 0, CARD_WIDTH),
-        y: clamp(Math.round(y), 0, CARD_HEIGHT)
-      };
-      if (typeof el.text === 'string') parsed.text = el.text;
-      const width = Number(el.width);
-      if (Number.isFinite(width) && width > 0) {
-        parsed.width = clamp(Math.round(width), 1, CARD_WIDTH);
-      }
-      const height = Number(el.height);
-      if (Number.isFinite(height) && height > 0) {
-        parsed.height = clamp(Math.round(height), 1, CARD_HEIGHT);
-      }
-      const fontSize = Number(el.font_size);
-      if (Number.isFinite(fontSize)) parsed.font_size = clamp(Math.round(fontSize), 8, 120);
-      const fontWeight = Number(el.font_weight);
-      if ([400, 500, 600, 700, 800].includes(fontWeight)) parsed.font_weight = fontWeight;
-      const color = safeColor(el.color);
-      if (color) parsed.color = color;
-      if (el.align === 'left' || el.align === 'center' || el.align === 'right') {
-        parsed.align = el.align;
-      }
-      elements.push(parsed);
-    }
-    if (elements.length > 0) layout.elements = elements;
-  }
+  const elements = parseElements(obj.elements, CARD_FIELDS);
+  if (elements.length > 0) layout.elements = elements;
 
   const hasContent =
     layout.background_color !== undefined ||
@@ -176,6 +192,96 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
     layout.header !== undefined ||
     (layout.elements?.length ?? 0) > 0;
   return hasContent ? layout : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Back layout (id_card_templates.back_layout_json) — DARK feature
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Schema (every key optional; unknown keys ignored):
+//   {
+//     "background_color": "#ffffff",       // hex only (safeColor)
+//     "background_image": "https://…",     // URL shape here; the ROUTE enforces
+//                                          //   the id-card-assets bucket allowlist
+//     "show_blood_group": true,            // default-back blocks, all default TRUE
+//     "show_dob": true,
+//     "show_guardian": true,
+//     "show_address": true,
+//     "show_barcode": true,                // Code 39 of roll number / staff id
+//     "show_contact": true,                // the person's own phone line
+//     "footer_text": "TAMIL NADU, INDIA",  // bottom green band text override
+//     "elements": [ … ]                    // same element schema as the front,
+//                                          //   alphabet = BACK_CARD_FIELDS
+//                                          //   (+ 'static_text'); on the back
+//                                          //   elements OVERLAY the default
+//                                          //   design (they do not replace it) —
+//                                          //   this is how a template supplies
+//                                          //   its institution's contact/email/
+//                                          //   website lines without the code
+//                                          //   hardcoding any institution.
+//   }
+//
+// Gating semantics (differs from the front on purpose):
+//   back_layout_json NULL  → back side NOT CONFIGURED (route 404s) — the DARK
+//                            default for every template in prod today.
+//   back_layout_json {}    → back side enabled with the default design.
+// parseBackLayout therefore returns a layout for ANY object (even {}), and
+// null only for non-object junk.
+
+export type BackLayout = {
+  background_color?: string;
+  background_image?: string;
+  show_blood_group?: boolean;
+  show_dob?: boolean;
+  show_guardian?: boolean;
+  show_address?: boolean;
+  show_barcode?: boolean;
+  show_contact?: boolean;
+  footer_text?: string;
+  elements?: BackLayoutElement[];
+};
+
+const BACK_BOOLEAN_KEYS = [
+  'show_blood_group',
+  'show_dob',
+  'show_guardian',
+  'show_address',
+  'show_barcode',
+  'show_contact'
+] as const;
+
+/**
+ * Parse id_card_templates.back_layout_json. Defensive like parseFrontLayout,
+ * but `{}` is a VALID enabled layout (defaults), not "no content" — see the
+ * gating-semantics note above. Returns null only for non-object input.
+ */
+export function parseBackLayout(raw: unknown): BackLayout | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const layout: BackLayout = {};
+
+  const bg = safeColor(obj.background_color);
+  if (bg) layout.background_color = bg;
+
+  if (
+    typeof obj.background_image === 'string' &&
+    /^https:\/\/\S+$/i.test(obj.background_image.trim())
+  ) {
+    layout.background_image = obj.background_image.trim();
+  }
+
+  for (const key of BACK_BOOLEAN_KEYS) {
+    if (typeof obj[key] === 'boolean') layout[key] = obj[key] as boolean;
+  }
+
+  if (typeof obj.footer_text === 'string' && obj.footer_text.trim() !== '') {
+    layout.footer_text = obj.footer_text.trim();
+  }
+
+  const elements = parseElements(obj.elements, BACK_CARD_FIELDS);
+  if (elements.length > 0) layout.elements = elements;
+
+  return layout;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,8 +546,8 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
 // ─────────────────────────────────────────────────────────────────────────────
 
 function elementValue(
-  element: FrontLayoutElement,
-  input: CardRenderInput
+  element: { field: CardField | 'static_text'; text?: string },
+  input: { person: CardPersonData; mappings: FieldMapping[]; validUntilLabel: string }
 ): string {
   const { person, mappings, validUntilLabel } = input;
   switch (element.field) {
@@ -601,4 +707,295 @@ export function buildCardElement(input: CardRenderInput): ReactElement {
   }
   // Styling-only overrides (background / header) ride on the default design.
   return defaultDesign(input, layout?.header);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Back side (DARK) — default design + overlay elements
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BackRenderInput = {
+  person: CardPersonData;
+  /** Pre-fetched back artwork as a data URL (route-allowlisted), or null. */
+  backgroundDataUrl: string | null;
+  /**
+   * Pre-generated Code 39 SVG data URL (lib/id-cards/barcode.ts with
+   * showText:false — the value line below the bars is drawn with satori
+   * text, since resvg has no fonts for SVG <text>). null → barcode omitted.
+   */
+  barcodeDataUrl: string | null;
+  layout: BackLayout;
+  mappings: FieldMapping[];
+  validUntilLabel: string;
+};
+
+const BACK_FOOTER_HEIGHT = 64;
+const DEFAULT_BACK_FOOTER_TEXT = 'TAMIL NADU, INDIA';
+
+/** Label + value row for the back's info block. */
+function backInfoRow(
+  key: string,
+  label: string,
+  value: string,
+  options?: { valueSize?: number; valueColor?: string; valueWeight?: number }
+): ReactElement {
+  return (
+    <div key={key} style={{ display: 'flex', alignItems: 'baseline', marginTop: 14 }}>
+      <div
+        style={{
+          display: 'flex',
+          width: 250,
+          flexShrink: 0,
+          fontSize: 18,
+          letterSpacing: 3,
+          color: '#6b7280'
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          fontSize: options?.valueSize ?? 26,
+          fontWeight: options?.valueWeight ?? 600,
+          color: options?.valueColor ?? '#111827'
+        }}
+      >
+        {truncateForCard(value, 60)}
+      </div>
+    </div>
+  );
+}
+
+/** Value resolution for back overlay elements (superset of the front's). */
+function backElementValue(element: BackLayoutElement, input: BackRenderInput): string {
+  const { person } = input;
+  switch (element.field) {
+    case 'blood_group':
+      return person.bloodGroup ?? '';
+    case 'date_of_birth':
+      return person.dateOfBirthLabel ?? '';
+    case 'guardian':
+      return [person.guardianName, person.guardianPhone].filter(Boolean).join('   •   ');
+    case 'address':
+      return person.address ?? '';
+    case 'contact_phone':
+      return person.contactPhone ?? '';
+    case 'barcode':
+      return ''; // rendered as an image, not text
+    case 'name_line_1':
+    case 'roll_number':
+    case 'course':
+    case 'department':
+    case 'valid_until':
+    case 'static_text':
+      // Explicit case list (not `default:`) so the object passed on carries
+      // the narrowed front alphabet under any compiler configuration.
+      return elementValue({ field: element.field, text: element.text }, input);
+    default:
+      return '';
+  }
+}
+
+/**
+ * The back-side compositor. Unlike the front, overlay `elements` ADD to the
+ * default design rather than replacing it — the default back is the
+ * institution-approved layout, and elements exist to place per-template
+ * static lines (institution contact / email / website) plus optional extras.
+ * Full-bleed back artwork suppresses the green footer band (the artwork IS
+ * the design), matching the front's header-band behavior.
+ */
+export function buildBackElement(input: BackRenderInput): ReactElement {
+  const { person, layout, backgroundDataUrl, barcodeDataUrl } = input;
+  const showBloodGroup = layout.show_blood_group ?? true;
+  const showDob = layout.show_dob ?? true;
+  const showGuardian = layout.show_guardian ?? true;
+  const showAddress = layout.show_address ?? true;
+  const showBarcode = layout.show_barcode ?? true;
+  const showContact = layout.show_contact ?? true;
+  const footerText = layout.footer_text ?? DEFAULT_BACK_FOOTER_TEXT;
+
+  const infoRows: ReactElement[] = [];
+  if (showBloodGroup && person.bloodGroup) {
+    infoRows.push(
+      backInfoRow('blood', 'BLOOD GROUP', person.bloodGroup, {
+        valueSize: 34,
+        valueColor: BRAND_GREEN,
+        valueWeight: 800
+      })
+    );
+  }
+  if (showDob && person.dateOfBirthLabel) {
+    infoRows.push(backInfoRow('dob', 'DATE OF BIRTH', person.dateOfBirthLabel));
+  }
+  if (showGuardian && person.guardianName) {
+    infoRows.push(
+      backInfoRow(
+        'guardian',
+        'GUARDIAN',
+        [person.guardianName, person.guardianPhone].filter(Boolean).join('   •   ')
+      )
+    );
+  }
+  if (showAddress && person.address) {
+    infoRows.push(backInfoRow('address', 'ADDRESS', person.address, { valueSize: 22 }));
+  }
+  if (showContact && person.contactPhone) {
+    infoRows.push(backInfoRow('contact', 'CONTACT', person.contactPhone));
+  }
+
+  // Overlay elements — absolutely positioned above the default blocks.
+  const overlays: ReactElement[] = [];
+  (layout.elements ?? []).forEach((element, index) => {
+    const key = `back-el-${index}`;
+    if (element.field === 'barcode') {
+      if (!barcodeDataUrl) return;
+      const w = element.width ?? 400;
+      const h = element.height ?? 90;
+      overlays.push(
+        <img
+          key={key}
+          src={barcodeDataUrl}
+          alt=""
+          width={w}
+          height={h}
+          style={{ position: 'absolute', left: element.x, top: element.y, width: w, height: h }}
+        />
+      );
+      return;
+    }
+    const value = backElementValue(element, input).trim();
+    if (value === '') return;
+    overlays.push(
+      <div
+        key={key}
+        style={{
+          display: 'flex',
+          position: 'absolute',
+          left: element.x,
+          top: element.y,
+          ...(element.width !== undefined ? { width: element.width } : {}),
+          justifyContent:
+            element.align === 'center'
+              ? 'center'
+              : element.align === 'right'
+                ? 'flex-end'
+                : 'flex-start',
+          fontSize: element.font_size ?? 24,
+          fontWeight: element.font_weight ?? 400,
+          color: element.color ?? '#111827'
+        }}
+      >
+        {truncateForCard(value, 80)}
+      </div>
+    );
+  });
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
+        backgroundColor: backgroundDataUrl
+          ? 'transparent'
+          : (layout.background_color ?? '#ffffff'),
+        fontFamily: 'sans-serif'
+      }}
+    >
+      {backgroundDataUrl ? (
+        <img
+          src={backgroundDataUrl}
+          alt=""
+          width={CARD_WIDTH}
+          height={CARD_HEIGHT}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: CARD_WIDTH,
+            height: CARD_HEIGHT,
+            objectFit: 'cover'
+          }}
+        />
+      ) : null}
+
+      {/* Info blocks (upper area) */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flexGrow: 1,
+          padding: '22px 36px 0 36px'
+        }}
+      >
+        {infoRows}
+
+        <div style={{ display: 'flex', flexGrow: 1 }} />
+
+        {/* Centered Code 39 barcode with the encoded value beneath */}
+        {showBarcode && barcodeDataUrl ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              marginBottom: 18
+            }}
+          >
+            <img
+              src={barcodeDataUrl}
+              alt=""
+              width={560}
+              height={110}
+              style={{ width: 560, height: 110 }}
+            />
+            {person.idCode ? (
+              <div
+                style={{
+                  display: 'flex',
+                  fontSize: 24,
+                  fontWeight: 600,
+                  letterSpacing: 6,
+                  color: '#111827',
+                  marginTop: 6
+                }}
+              >
+                {truncateForCard(person.idCode.toUpperCase(), 32)}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {overlays}
+
+      {/* Bottom full-width green band — suppressed under full-bleed artwork */}
+      {backgroundDataUrl ? null : (
+        <div
+          style={{
+            display: 'flex',
+            width: '100%',
+            height: BACK_FOOTER_HEIGHT,
+            backgroundColor: BRAND_GREEN,
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              fontSize: 26,
+              fontWeight: 700,
+              letterSpacing: 6,
+              color: '#ffffff'
+            }}
+          >
+            {truncateForCard(footerText, 46)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

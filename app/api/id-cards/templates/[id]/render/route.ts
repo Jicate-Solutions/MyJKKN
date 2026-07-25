@@ -1,7 +1,13 @@
 export const dynamic = 'force-dynamic';
 
-// GET /api/id-cards/templates/:id/render?profile_id=<uuid>[&format=png|json]
+// GET /api/id-cards/templates/:id/render?profile_id=<uuid>[&format=png|json][&side=front|back]
 // Phase 2 — the real ID-card compositor (replaces the Phase 1C stub).
+//
+// side=back (DARK feature): renders the card BACK from back_layout_json.
+// Every template in prod has back_layout_json NULL → side=back 404s with
+// code 'back_not_configured' until a template explicitly opts in, and the
+// default side=front path is untouched. The Windows print bridge still
+// prints fronts only — duplex is a future box-side change.
 //
 // Pipeline:
 //   1. Auth: user session (super_admin / registrar / admission) OR agent-token.
@@ -27,6 +33,7 @@ import { TEMPLATE_RENDER_ROLES } from '@/lib/id-cards/types';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   assembleCardData,
+  isAssembleFailure,
   parseFieldMappings,
   defaultValidUntilLabel,
   resolvePhotoDataUrl,
@@ -35,15 +42,20 @@ import {
 } from '@/lib/id-cards/render-data';
 import {
   buildCardElement,
+  buildBackElement,
   parseFrontLayout,
+  parseBackLayout,
   CARD_WIDTH,
   CARD_HEIGHT
 } from '@/lib/id-cards/render-card';
+import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
+import type { ReactElement } from 'react';
 
 const paramsSchema = z.string().uuid();
 const querySchema = z.object({
   profile_id: z.string().uuid(),
-  format: z.enum(['json', 'png']).optional().default('json')
+  format: z.enum(['json', 'png']).optional().default('json'),
+  side: z.enum(['front', 'back']).optional().default('front')
 });
 
 type TemplateRow = {
@@ -51,6 +63,7 @@ type TemplateRow = {
   name: string | null;
   institution_id: string | null;
   front_layout_json: unknown;
+  back_layout_json: unknown;
   field_mappings: unknown;
 };
 
@@ -72,7 +85,8 @@ export async function GET(
     const url = new URL(request.url);
     const parsedQuery = querySchema.safeParse({
       profile_id: url.searchParams.get('profile_id'),
-      format: url.searchParams.get('format') ?? undefined
+      format: url.searchParams.get('format') ?? undefined,
+      side: url.searchParams.get('side') ?? undefined
     });
     if (!parsedQuery.success) {
       return jsonError(
@@ -81,7 +95,7 @@ export async function GET(
         400
       );
     }
-    const { profile_id: profileId, format } = parsedQuery.data;
+    const { profile_id: profileId, format, side } = parsedQuery.data;
 
     // Agent path has no Supabase session — use service-role for reads.
     // User path uses the session-bound client opened in requireUser (RLS applies).
@@ -90,7 +104,7 @@ export async function GET(
     // 1. Template (layout + field mappings).
     const { data: template, error: templateError } = await supabase
       .from('id_card_templates')
-      .select('id, name, institution_id, front_layout_json, field_mappings')
+      .select('id, name, institution_id, front_layout_json, back_layout_json, field_mappings')
       .eq('id', parsedId.data)
       .maybeSingle();
 
@@ -107,37 +121,75 @@ export async function GET(
     }
     const templateRow = template as TemplateRow;
 
+    // DARK gate: side=back requires the template to have opted in by setting
+    // back_layout_json non-null ({} = enabled with the default back design).
+    // Every prod template is NULL today, so this 404s everywhere until a
+    // template is explicitly configured — front behavior is untouched.
+    if (
+      side === 'back' &&
+      (templateRow.back_layout_json === null || templateRow.back_layout_json === undefined)
+    ) {
+      return jsonError(
+        'The back side is not configured for this template',
+        'back_not_configured',
+        404
+      );
+    }
+
     // 2. Person data (learner or team member) + institution display name.
     const assembled = await assembleCardData(
       supabase,
       profileId,
       templateRow.institution_id
     );
-    if (!assembled.ok) {
+    if (isAssembleFailure(assembled)) {
       return jsonError(assembled.message, assembled.code, assembled.status);
     }
     const person = assembled.data;
 
-    // 3. Photo fallback chain + QR + card artwork — all fail-soft (never 500
-    // the render). The background fetch is allowlisted to the id-card-assets
-    // bucket inside resolveBackgroundDataUrl.
-    const layout = parseFrontLayout(templateRow.front_layout_json);
-    const [photoDataUrl, qrDataUrl, backgroundDataUrl] = await Promise.all([
-      resolvePhotoDataUrl(person.photoCandidates),
-      makeQrDataUrl(person.qrValue),
-      resolveBackgroundDataUrl(layout?.background_image)
-    ]);
+    let element: ReactElement;
+    if (side === 'back') {
+      // 3b. Back composite (DARK): Code 39 barcode of the learner's roll
+      // number / team member's staff id (pure, no I/O) + optional back
+      // artwork through the SAME id-card-assets allowlist as the front.
+      const backLayout = parseBackLayout(templateRow.back_layout_json) ?? {};
+      const barcodeDataUrl =
+        (backLayout.show_barcode ?? true) && person.idCode
+          ? makeCode39SvgDataUrl(person.idCode, { height: 110, scale: 3, showText: false })
+          : null;
+      const backBackgroundDataUrl = await resolveBackgroundDataUrl(
+        backLayout.background_image
+      );
+      element = buildBackElement({
+        person,
+        backgroundDataUrl: backBackgroundDataUrl,
+        barcodeDataUrl,
+        layout: backLayout,
+        mappings: parseFieldMappings(templateRow.field_mappings),
+        validUntilLabel: defaultValidUntilLabel()
+      });
+    } else {
+      // 3. Photo fallback chain + QR + card artwork — all fail-soft (never 500
+      // the render). The background fetch is allowlisted to the id-card-assets
+      // bucket inside resolveBackgroundDataUrl.
+      const layout = parseFrontLayout(templateRow.front_layout_json);
+      const [photoDataUrl, qrDataUrl, backgroundDataUrl] = await Promise.all([
+        resolvePhotoDataUrl(person.photoCandidates),
+        makeQrDataUrl(person.qrValue),
+        resolveBackgroundDataUrl(layout?.background_image)
+      ]);
 
-    // 4. Composite. Empty front_layout_json (prod today) → default design.
-    const element = buildCardElement({
-      person,
-      photoDataUrl,
-      qrDataUrl,
-      backgroundDataUrl,
-      layout,
-      mappings: parseFieldMappings(templateRow.field_mappings),
-      validUntilLabel: defaultValidUntilLabel()
-    });
+      // 4. Composite. Empty front_layout_json (prod today) → default design.
+      element = buildCardElement({
+        person,
+        photoDataUrl,
+        qrDataUrl,
+        backgroundDataUrl,
+        layout,
+        mappings: parseFieldMappings(templateRow.field_mappings),
+        validUntilLabel: defaultValidUntilLabel()
+      });
+    }
 
     const image = new ImageResponse(element, {
       width: CARD_WIDTH,
@@ -152,7 +204,7 @@ export async function GET(
         headers: {
           'content-type': 'image/png',
           'cache-control': 'no-store',
-          'content-disposition': `inline; filename="id-card-${profileId}.png"`
+          'content-disposition': `inline; filename="id-card-${profileId}${side === 'back' ? '-back' : ''}.png"`
         }
       });
     }

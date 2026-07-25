@@ -2,10 +2,15 @@
 // template-design-client — browser-side helpers for the Card design tab.
 // Created: 2026-07-24 — Canva-background workflow.
 //
-//   • fetchTemplatesWithLayout() — templates incl. front_layout_json
+//   • fetchTemplatesWithLayout() — templates incl. front/back layout JSON
 //   • uploadCardBackground()     — PNG/JPEG/WebP → id-card-assets bucket
 //   • setTemplateBackground()    — merge/remove background_image in
 //                                  front_layout_json (other keys preserved)
+//
+// Back side (DARK, 2026-07-25): backEnabledOf / setTemplateBackEnabled /
+// backImageUrlOf / uploadCardBackBackground / setTemplateBackBackground —
+// same patterns against back_layout_json (null = back side off; {} = on
+// with the default back design).
 //
 // All calls go through the session-scoped browser client, so RLS and the
 // storage policies (id_cards.templates.edit) stay in force.
@@ -18,6 +23,7 @@ export type TemplateDesignRow = {
   name: string | null;
   active: boolean;
   front_layout_json: Record<string, unknown> | null;
+  back_layout_json: Record<string, unknown> | null;
 };
 
 const BUCKET = 'id-card-assets';
@@ -39,7 +45,7 @@ export async function fetchTemplatesWithLayout(): Promise<TemplateDesignRow[]> {
   // id_card_templates is not yet present in the generated Database types
   // (types/supabase.ts) — cast for this one query. RLS still applies.
   const { data, error } = await (supabase.from('id_card_templates' as never) as any)
-    .select('id, name, active, front_layout_json')
+    .select('id, name, active, front_layout_json, back_layout_json')
     .order('active', { ascending: false })
     .order('name', { ascending: true });
 
@@ -86,6 +92,82 @@ export async function setTemplateBackground(
   const supabase = createClientSupabaseClient();
   const { error } = await (supabase.from('id_card_templates' as never) as any)
     .update({ front_layout_json: next, updated_at: new Date().toISOString() })
+    .eq('id', template.id);
+  if (error) throw new Error(error.message);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Back side (DARK feature)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Back side is enabled when back_layout_json is non-null ({} = defaults). */
+export function backEnabledOf(row: TemplateDesignRow): boolean {
+  return row.back_layout_json !== null && row.back_layout_json !== undefined;
+}
+
+export function backImageUrlOf(row: TemplateDesignRow): string | null {
+  const value = row.back_layout_json?.background_image;
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * Turn the back side on ({} → default back design) or off (null).
+ * Turning it off DISCARDS the template's back configuration — the caller's
+ * UI copy must say so.
+ */
+export async function setTemplateBackEnabled(
+  template: TemplateDesignRow,
+  enabled: boolean
+): Promise<void> {
+  const next: Record<string, unknown> | null = enabled
+    ? { ...(template.back_layout_json ?? {}) }
+    : null;
+  const supabase = createClientSupabaseClient();
+  const { error } = await (supabase.from('id_card_templates' as never) as any)
+    .update({ back_layout_json: next, updated_at: new Date().toISOString() })
+    .eq('id', template.id);
+  if (error) throw new Error(error.message);
+}
+
+/** Upload back artwork and return its public URL. Same rules as the front. */
+export async function uploadCardBackBackground(
+  templateId: string,
+  file: File
+): Promise<string> {
+  if (!(ALLOWED_BACKGROUND_TYPES as readonly string[]).includes(file.type)) {
+    throw new Error('Artwork must be a PNG, JPEG or WebP image.');
+  }
+  if (file.size > BACKGROUND_MAX_UPLOAD_BYTES) {
+    throw new Error('Artwork is larger than 6 MB — export a smaller file.');
+  }
+  const supabase = createClientSupabaseClient();
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+  const path = `back-backgrounds/${templateId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, file, { cacheControl: '3600', upsert: false });
+  if (error) throw new Error(error.message);
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+/**
+ * Set (url) or clear (null) the back artwork, preserving every other key in
+ * back_layout_json. Only meaningful while the back side is enabled.
+ */
+export async function setTemplateBackBackground(
+  template: TemplateDesignRow,
+  url: string | null
+): Promise<void> {
+  const next: Record<string, unknown> = { ...(template.back_layout_json ?? {}) };
+  if (url) {
+    next.background_image = url;
+  } else {
+    delete next.background_image;
+  }
+  const supabase = createClientSupabaseClient();
+  const { error } = await (supabase.from('id_card_templates' as never) as any)
+    .update({ back_layout_json: next, updated_at: new Date().toISOString() })
     .eq('id', template.id);
   if (error) throw new Error(error.message);
 }
