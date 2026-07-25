@@ -2190,3 +2190,6 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function NEW: `fn_bug_duplicate_candidates(uuid,integer,real)` — trigram shortlist with a deliberately LOW 0.15 floor (under `fn_bug_cluster_scan`'s 0.45) so same-defect/different-wording pairs reach the AI judge; **service_role ONLY** (revoked from anon, PUBLIC *and* authenticated — it reads bug text across institutions)
 - Advisory only: verdict lands in `bug_reports.metadata.ai_duplicate_check`; never sets `duplicate_of`, never resolves, never notifies
 - Location: `supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql` — **NOT applied to prod** (rolled-back-validated only; 7-point battery A–G PASSED, incl. the BUG-005356 acceptance test)
+
+### NAAC coverage tag fields — skill/IKS/value-ed/cultural (2026-07-26)
+- `supabase/migrations/20260726005531_naac_coverage_tag_fields.sql` — additive booleans for live NAAC-2024 metric queries: `bos_course_syllabi.is_skill_based` (1.4), `bos_course_syllabi.is_iks` (1.6), `vac_courses.is_value_education` (6.4), all `NOT NULL DEFAULT false` + COMMENTs; `cdc_clubs.club_type` COMMENT only (column already exists free-text, no CHECK — 6.2 cultural clubs = `club_type='cultural'`, UI already offers it) — **NOT applied to prod** (BEGIN…ROLLBACK-validated 2026-07-26; DB apply is Director-gated)
