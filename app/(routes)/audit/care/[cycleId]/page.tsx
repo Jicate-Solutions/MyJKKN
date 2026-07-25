@@ -44,6 +44,7 @@ import {
   useUpsertCarreScore,
   useCarreItemEvidence,
   useCarreParticipantRollup,
+  useCarreParticipantActivity,
 } from '@/hooks/audit';
 import {
   CareScoreSheet,
@@ -152,6 +153,9 @@ export default function CultureAuditDetailPage({
   // nothing for everyone else, so no page-level guard is needed.
   const evidenceQ = useCarreItemEvidence(isCarre ? cycleId : undefined);
   const rollupQ = useCarreParticipantRollup(isCarre ? cycleId : undefined);
+  // Cycle-level participation line — appears once >= 3 distinct learners have
+  // scored ANYTHING in the sealed lane, even before any per-item group hits k.
+  const activityQ = useCarreParticipantActivity(isCarre ? cycleId : undefined);
   const evidenceByCode = useMemo(() => {
     const map: Record<string, LiveEvidence> = {};
     for (const row of evidenceQ.data ?? []) {
@@ -160,6 +164,7 @@ export default function CultureAuditDetailPage({
     return map;
   }, [evidenceQ.data]);
   const sealedRollup = rollupQ.data ?? [];
+  const sealedActivity = activityQ.data ?? null;
 
   async function handleScore(code: string, score: number) {
     if (!detail?.is_owner) return;
@@ -436,8 +441,10 @@ export default function CultureAuditDetailPage({
           </CardContent>
         </Card>
 
-        {/* Sealed participant voice — k≥3 aggregates only, never identities. */}
-        {isCarre && sealedRollup.length > 0 && (
+        {/* Sealed participant voice — k≥3 aggregates only, never identities.
+            Renders when the cycle-level participation line exists (>= 3
+            distinct sealed scorers) OR any per-item group has hit k. */}
+        {isCarre && (sealedActivity !== null || sealedRollup.length > 0) && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -449,6 +456,22 @@ export default function CultureAuditDetailPage({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {sealedActivity && (
+                <p className="text-sm">
+                  <strong>{sealedActivity.scorers} learners</strong> have spoken
+                  through the sealed lane (
+                  {sealedActivity.items_scored}{' '}
+                  {sealedActivity.items_scored === 1 ? 'item' : 'items'} touched)
+                  — per-item medians appear once an item&apos;s lane (lived
+                  experience or observer) reaches 3 scorers.
+                  {sealedActivity.last_activity && (
+                    <span className="text-xs text-muted-foreground">
+                      {' '}
+                      Last activity {formatDate(sealedActivity.last_activity)}.
+                    </span>
+                  )}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Learners scored these items through the sealed lane. Only groups
                 with <strong>3 or more scorers</strong> appear — a lone voice can
@@ -456,27 +479,29 @@ export default function CultureAuditDetailPage({
                 below the Director seal. This is measured participant experience;
                 it never overwrites your human score.
               </p>
-              <div className="rounded-md border divide-y">
-                {sealedRollup.map((r) => (
-                  <div
-                    key={`${r.parameter_code}-${r.lane}`}
-                    className="flex items-center gap-3 p-2.5 text-xs"
-                  >
-                    <span className="font-mono text-[11px] text-muted-foreground w-16 flex-shrink-0">
-                      {r.parameter_code.replace(/^CARR?E-/, '')}
-                    </span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {r.lane === 'own' ? 'lived experience' : 'observer'}
-                    </Badge>
-                    <span className="text-muted-foreground">
-                      {r.scorers} scorers
-                    </span>
-                    <span className="ml-auto font-semibold tabular-nums">
-                      median {Number(r.median_score)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              {sealedRollup.length > 0 && (
+                <div className="rounded-md border divide-y">
+                  {sealedRollup.map((r) => (
+                    <div
+                      key={`${r.parameter_code}-${r.lane}`}
+                      className="flex items-center gap-3 p-2.5 text-xs"
+                    >
+                      <span className="font-mono text-[11px] text-muted-foreground w-16 flex-shrink-0">
+                        {r.parameter_code.replace(/^CARR?E-/, '')}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {r.lane === 'own' ? 'lived experience' : 'observer'}
+                      </Badge>
+                      <span className="text-muted-foreground">
+                        {r.scorers} scorers
+                      </span>
+                      <span className="ml-auto font-semibold tabular-nums">
+                        median {Number(r.median_score)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
