@@ -9331,6 +9331,54 @@ BEGIN
 END;
 $$;
 
+-- =====================================================
+-- admission_years_enforce_single_current() — Added 2026-07-25
+-- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
+-- Wired by trg_admission_years_single_current in 04_triggers.sql.
+--
+-- Holds two invariants for admission_years.is_current, the flag the Admission
+-- Year module uses to declare which cohort new leads/enquiries default to:
+--   1. An inactive cohort can never be the current one.
+--   2. Promoting a cohort demotes the institution's previous current cohort.
+--
+-- SECURITY DEFINER because the demotion writes sibling rows the acting user may
+-- not hold an UPDATE policy for; the WHERE clause pins the write to the same
+-- institution_id the user was already permitted to update, so this does not
+-- widen scope. search_path pinned per the repo's definer-function rule.
+--
+-- Recursion is bounded: the inner UPDATE sets is_current = false, and the
+-- IF NEW.is_current guard stops the re-entrant invocation immediately.
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.admission_years_enforce_single_current()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT NEW.is_active THEN
+    NEW.is_current := false;
+  END IF;
+
+  IF NEW.is_current THEN
+    UPDATE public.admission_years
+       SET is_current = false,
+           updated_at = timezone('utc'::text, now())
+     WHERE institution_id = NEW.institution_id
+       AND id <> NEW.id
+       AND is_current;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- SECURITY DEFINER makes PostgREST expose this as an RPC to `anon`
+-- (supabase linter 0028). Safe to revoke — PostgreSQL checks EXECUTE on a
+-- trigger function at CREATE TRIGGER time, not on each fire.
+REVOKE EXECUTE ON FUNCTION public.admission_years_enforce_single_current()
+  FROM anon, authenticated;
+
 -- =====================================================================
 -- Updated: 2026-04-24 - Admission lead auto-assignment to counselors
 -- Context: Pre-2026-04-24 no trigger existed to route new leads to an

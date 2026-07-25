@@ -892,14 +892,14 @@ function LeadDetailPageContent() {
 
   // (Edit-form admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
-  // Clear admission_year_id when primary program changes (old value stale)
-  useEffect(() => {
-    setEditForm((prev) =>
-      prev.admission_year_id
-        ? { ...prev, admission_year_id: '' }
-        : prev
-    );
-  }, [editPrimaryProgramId]);
+  // NOTE (2026-07-25): the effect that cleared admission_year_id whenever the
+  // primary program changed is gone. It dated from when admission_years carried
+  // a per-program dimension; that was dropped 2026-06-05 (admission years are
+  // institution-wide now), so program had stopped invalidating the cohort.
+  // Worse, openEditDialog() sets editForm.admission_year_id and
+  // editPrimaryProgramId in the same batch — so the effect fired on every dialog
+  // open and blanked the cohort it had just loaded, writing NULL back on save.
+  // Institution changes still clear it, in handleEditChange below.
 
   // Toggle for alternative programs — excludes the chosen primary.
   const toggleEditAlternativeProgram = (programId: string) => {
@@ -988,6 +988,13 @@ function LeadDetailPageContent() {
   const handleEditSubmit = async () => {
     if (!lead || !editForm.first_name.trim() || !editForm.phone.trim()) {
       toast.error('First name and phone are required');
+      return;
+    }
+    // Required since 2026-07-25 — mirrors the create form. The picker pre-fills
+    // the institution's current cohort, so this only fires when the institution
+    // has no admission years configured or the user cleared it.
+    if (!editForm.admission_year_id) {
+      toast.error('Admission year is required');
       return;
     }
     const selectedState = indianStates.find((s) => s.id === editForm.state);
@@ -2393,6 +2400,8 @@ function LeadDetailPageContent() {
                         value={editForm.admission_year_id}
                         onChange={(v) => handleEditChange('admission_year_id', v)}
                         id="edit-admission_year"
+                        autoSelectCurrent
+                        required
                       />
                     </div>
                     <div>

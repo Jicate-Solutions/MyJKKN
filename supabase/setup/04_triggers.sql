@@ -974,6 +974,24 @@ CREATE TRIGGER trg_validate_learner_admission_year_scope
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_learner_admission_year_scope();
 
+-- =====================================================
+-- admission_years single-current enforcement — Added 2026-07-25
+-- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
+-- Calls admission_years_enforce_single_current() (02_functions.sql), which
+-- demotes the institution's previous is_current row and clears is_current on
+-- any cohort being deactivated. Runs BEFORE the partial unique index
+-- admission_years_one_current_per_institution is evaluated, so promoting a
+-- cohort is a single toggle instead of a 23505 the client has to work around.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_admission_years_single_current
+  ON public.admission_years;
+
+CREATE TRIGGER trg_admission_years_single_current
+  BEFORE INSERT OR UPDATE OF is_current, is_active
+  ON public.admission_years
+  FOR EACH ROW
+  EXECUTE FUNCTION public.admission_years_enforce_single_current();
+
 -- =====================================================================
 -- Updated: 2026-04-24 - Auto-assign counselor on admission_leads INSERT
 -- Pairs with fn_auto_assign_counselor() in 02_functions.sql.

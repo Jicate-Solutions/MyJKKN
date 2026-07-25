@@ -8903,6 +8903,7 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
+          is_current: boolean
           updated_at: string
           year: number
         }
@@ -8913,6 +8914,7 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year: number
         }
@@ -8923,6 +8925,7 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year?: number
         }
