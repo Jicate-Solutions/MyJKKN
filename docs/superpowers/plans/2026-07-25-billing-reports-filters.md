@@ -390,14 +390,27 @@ Expected exactly: `fg=1449, pmss=435, s75=204, other=4873, all_four=6961, unfilt
 
 Still inside a `BEGIN … ROLLBACK` with the function created, run:
 
+**The argument must be a literal, not a sub-SELECT.** PostgreSQL refuses to inline a set-returning function whose arguments contain a sub-SELECT, so passing `(SELECT id FROM degrees LIMIT 1)` produces a `Function Scan` **on correct code** — a false failure. Fetch the uuid first, then paste it in:
+
 ```sql
+SELECT id::text FROM public.degrees LIMIT 1;   -- copy the value
+
 EXPLAIN (COSTS OFF)
 SELECT count(*) FROM public.billing_report_student_cohort(
-  NULL, (SELECT id FROM public.degrees LIMIT 1), NULL, NULL, NULL, NULL, NULL);
+  NULL, '<PASTE_DEGREE_UUID>'::uuid, NULL, NULL, NULL, NULL, NULL);
 ```
 
-Expected: the plan mentions `learners_profiles` (an Index Scan or Bitmap Heap Scan on `idx_learners_profiles_degree_id`, or a Seq Scan with a filter on `degree_id`).
-**Failure signal:** a `Function Scan on billing_report_student_cohort` node means it did not inline — check that you did not add `SET search_path` or `SECURITY DEFINER`.
+Expected: an Index Only Scan (or Index/Bitmap Heap Scan) on `idx_learners_profiles_degree_id`, with `learners_profiles lp` — the function's own internal alias — appearing directly in the plan. Verified 2026-07-25 on prod via a rolled-back probe:
+
+```
+Aggregate
+  ->  Index Only Scan using idx_learners_profiles_degree_id on learners_profiles lp
+        Index Cond: (degree_id = 'f1ab9cc0-…'::uuid)
+```
+
+**Failure signal:** a `Function Scan on billing_report_student_cohort` node — but only trust it if the argument was a literal. If it was a sub-SELECT, the test is wrong, not the function. A real failure means `SET search_path` or `SECURITY DEFINER` crept in; confirm with `SELECT prosecdef, proconfig FROM pg_proc WHERE proname='billing_report_student_cohort'` (both must be `false` / `NULL`).
+
+Note: RLS on `learners_profiles` does **not** block inlining — confirmed by probe.
 
 - [ ] **Step 4: Commit the migration file (not yet applied)**
 
@@ -2144,12 +2157,18 @@ Expected: `discounts_via_bill = raw_discounts`, `refunds_via_receipt = raw_refun
 
 - [ ] **Step 3: Confirm the helper still inlines in production**
 
+**Use a literal uuid, never a sub-SELECT** — a sub-SELECT argument blocks inlining and yields a false failure (see Task 2 Step 3).
+
 ```sql
+SELECT id::text FROM degrees LIMIT 1;   -- copy the value
+
 EXPLAIN (COSTS OFF)
 SELECT count(*) FROM billing_report_student_cohort(
-  NULL, (SELECT id FROM degrees LIMIT 1), NULL, NULL, NULL, NULL, NULL);
+  NULL, '<PASTE_DEGREE_UUID>'::uuid, NULL, NULL, NULL, NULL, NULL);
 ```
-Expected: a scan node on `learners_profiles`, **not** `Function Scan on billing_report_student_cohort`.
+Expected: an Index Only Scan on `idx_learners_profiles_degree_id` with `learners_profiles lp` in the plan — **not** `Function Scan on billing_report_student_cohort`.
+
+Belt-and-braces (independent of plan shape): `SELECT prosecdef, proconfig FROM pg_proc WHERE proname='billing_report_student_cohort'` must return `false` / `NULL` — those two conditions *are* PostgreSQL's inlining criteria.
 
 - [ ] **Step 4: Permission denial**
 
