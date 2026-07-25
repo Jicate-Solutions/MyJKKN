@@ -85,7 +85,7 @@ export interface AiJobStatusResponse {
 }
 
 export const LANE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'max', label: 'Max (subscription seat)' },
+  { value: 'max', label: 'Max (₹0 lane)' },
   { value: 'api', label: 'API (paid)' },
   { value: 'either', label: 'Either' },
 ];

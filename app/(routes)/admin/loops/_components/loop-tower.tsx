@@ -904,7 +904,7 @@ export function LoopTower({
                   exit='stop token'
                   tone='stone'
                   kind='engine'
-                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max subscription lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
+                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
                   chips={
                     <>
                       <Chip
