@@ -1,104 +1,158 @@
 'use client';
 
 // ============================================================================
-// IdCardTemplateEditor — Two-tab template editor.
-// Created: 2026-05-07.
+// IdCardTemplateEditor — template editor tabs.
+// Created: 2026-05-07. Rewired: 2026-07-25.
 //
-// Tab 1: Field Mappings — LookupTable (Shape C) — card-field → db-column.
-// Tab 2: Photo Fallback — CascadeStepList (Shape A) — ordered fallback chain.
+// Tab 1: Card design — per-template artwork (IdCardDesignTab, live).
+// Tab 2: Field mappings — per-template `field_mappings` jsonb on
+//         id_card_templates, the SAME column the render engine reads
+//         (parseFieldMappings in the render route). Served by
+//         GET/PUT /api/id-cards/template/[id]/mappings.
+//         The old /api/id-cards/template/mappings endpoints never existed —
+//         the tab stubbed to defaults and its Save posted into the void.
 //
-// Reads sides from GET /api/id-cards/policy (stubs to 1 on 404).
-// Reads mappings from GET /api/id-cards/template (stubs to defaults on 404).
+// Photo fallback: the old tab was REMOVED — the fallback chain is hardcoded
+// in lib/id-cards/render-data.ts (learner photo / team-member picture →
+// profile avatar → printed initials); there is no editable substrate. A
+// muted note below the tabs explains the fixed behaviour.
+//
+// Sides badge: GET /api/id-cards/policy?institution_id=<uuid>. The endpoint
+// REQUIRES institution_id and wraps responses as { data: IdCardPolicy }, so
+// sides lives at data.sides (the old top-level `json.sides` read plus the
+// missing query param made the badge always claim "Single-sided").
+// Fail-soft: any failure → 1.
 // ============================================================================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Info } from 'lucide-react';
 
-import { LookupTable, CascadeStepList } from '@/lib/admin/policy-shell';
+import { LookupTable } from '@/lib/admin/policy-shell';
 import type {
   LookupConfig,
   LookupColumn,
-  CascadeConfig,
-  CascadeStepView,
   FieldSchema,
   PolicyHandlers,
 } from '@/lib/admin/policy-shell';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  fetchTemplatesWithLayout,
+  type TemplateDesignRow,
+} from '@/lib/services/id-cards/template-design-client';
 
 import {
   CARD_FIELD_LABELS,
   DB_COLUMN_OPTIONS,
   type FieldMappingRow,
-  type PhotoFallbackStep,
   type CardField,
 } from '@/app/(routes)/admin/id-cards/_types';
 import { IdCardDesignTab } from '@/components/admin/id-cards/id-card-design-tab';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Stub data — used when Agent C's routes are not live yet
-// ──────────────────────────────────────────────────────────────────────────────
-const STUB_FIELD_MAPPINGS: FieldMappingRow[] = [
-  { id: '1', card_field: 'name_line_1', db_column: 'learners_profiles.first_name' },
-  { id: '2', card_field: 'roll_number', db_column: 'learners_profiles.roll_number' },
-  { id: '3', card_field: 'course', db_column: 'learners_profiles.program_id' },
-  { id: '4', card_field: 'department', db_column: 'learners_profiles.department_id' },
-  { id: '5', card_field: 'valid_until', db_column: 'learners_profiles.register_number' },
-  { id: '6', card_field: 'qr_code', db_column: 'learners_profiles.id' },
-  { id: '7', card_field: 'photo', db_column: 'learners_profiles.student_photo_url' },
-];
-
-const STUB_PHOTO_FALLBACK: PhotoFallbackStep[] = [
-  {
-    id: '1',
-    sort_order: 1,
-    label: 'Learner uploaded photo',
-    source: 'learners_profiles.student_photo_url',
-    is_active: true,
-  },
-  {
-    id: '2',
-    sort_order: 2,
-    label: 'Placeholder silhouette',
-    source: 'system:placeholder',
-    is_active: true,
-  },
-];
+// Display order for mapping rows = the order fields appear on the card.
+const CARD_FIELD_ORDER = Object.keys(CARD_FIELD_LABELS) as CardField[];
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Fetch helpers — stub on 404/error
+// Pure helpers (exported for unit tests)
 // ──────────────────────────────────────────────────────────────────────────────
-async function fetchFieldMappings(): Promise<FieldMappingRow[]> {
-  try {
-    const res = await fetch('/api/id-cards/template/mappings');
-    if (res.ok) return res.json();
-    return STUB_FIELD_MAPPINGS;
-  } catch {
-    return STUB_FIELD_MAPPINGS;
-  }
-}
 
-async function fetchPhotoFallback(): Promise<PhotoFallbackStep[]> {
-  try {
-    const res = await fetch('/api/id-cards/template/photo-fallback');
-    if (res.ok) return res.json();
-    return STUB_PHOTO_FALLBACK;
-  } catch {
-    return STUB_PHOTO_FALLBACK;
-  }
-}
-
-async function fetchSides(): Promise<1 | 2> {
-  try {
-    const res = await fetch('/api/id-cards/policy');
-    if (res.ok) {
-      const json = await res.json();
-      return json?.sides === 2 ? 2 : 1;
+/**
+ * Extract `sides` from a GET /api/id-cards/policy response body.
+ * Envelope (lib/id-cards/responses.ts): { data: IdCardPolicy } — sides lives
+ * at data.sides. Anything unexpected → 1 (fail-soft).
+ */
+export function parseSidesFromPolicyResponse(json: unknown): 1 | 2 {
+  if (json && typeof json === 'object') {
+    const data = (json as { data?: unknown }).data;
+    if (data && typeof data === 'object' && (data as { sides?: unknown }).sides === 2) {
+      return 2;
     }
-    return 1;
+  }
+  return 1;
+}
+
+/**
+ * Defensive parse of a GET /api/id-cards/template/[id]/mappings response body
+ * into table rows (id = card_field — one mapping per field), sorted in card
+ * order. Malformed entries are dropped, never thrown.
+ */
+export function toMappingRows(json: unknown): FieldMappingRow[] {
+  const list =
+    json && typeof json === 'object'
+      ? (json as { data?: { mappings?: unknown } }).data?.mappings
+      : undefined;
+  if (!Array.isArray(list)) return [];
+  const rows: FieldMappingRow[] = [];
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object') continue;
+    const cf = (entry as Record<string, unknown>).card_field;
+    const col = (entry as Record<string, unknown>).db_column;
+    if (typeof cf !== 'string' || typeof col !== 'string') continue;
+    if (!(CARD_FIELD_ORDER as readonly string[]).includes(cf)) continue;
+    if (rows.some((r) => r.card_field === cf)) continue;
+    rows.push({ id: cf, card_field: cf as CardField, db_column: col });
+  }
+  rows.sort(
+    (a, b) =>
+      CARD_FIELD_ORDER.indexOf(a.card_field) - CARD_FIELD_ORDER.indexOf(b.card_field)
+  );
+  return rows;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Fetch helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function errorMessageOf(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: { message?: unknown } };
+    if (typeof body?.error?.message === 'string') return body.error.message;
+  } catch {
+    // fall through to the generic message
+  }
+  return `HTTP ${res.status}`;
+}
+
+async function fetchSides(institutionId: string | null): Promise<1 | 2> {
+  // The policy endpoint requires an institution scope. Without one (rare —
+  // a couple of super_admin profiles have no institution_id) we fail soft
+  // to the conservative single-sided default.
+  if (!institutionId) return 1;
+  try {
+    const res = await fetch(
+      `/api/id-cards/policy?institution_id=${encodeURIComponent(institutionId)}`
+    );
+    if (!res.ok) return 1;
+    return parseSidesFromPolicyResponse(await res.json());
   } catch {
     return 1;
   }
+}
+
+async function fetchTemplateMappings(templateId: string): Promise<FieldMappingRow[]> {
+  const res = await fetch(`/api/id-cards/template/${templateId}/mappings`);
+  if (!res.ok) throw new Error(await errorMessageOf(res));
+  return toMappingRows(await res.json());
+}
+
+async function putTemplateMappings(
+  templateId: string,
+  mappings: ReadonlyArray<{ card_field: CardField; db_column: string }>
+): Promise<void> {
+  const res = await fetch(`/api/id-cards/template/${templateId}/mappings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mappings }),
+  });
+  if (!res.ok) throw new Error(await errorMessageOf(res));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -115,7 +169,7 @@ function buildMappingFormSchema(
       englishHint: 'Which zone on the printed card this data appears in.',
       required: true,
       disabled: !!editing, // can't change the card field on an existing mapping
-      options: (Object.keys(CARD_FIELD_LABELS) as CardField[]).map((f) => ({
+      options: CARD_FIELD_ORDER.map((f) => ({
         value: f,
         label: CARD_FIELD_LABELS[f],
       })),
@@ -162,163 +216,95 @@ const mappingConfig: LookupConfig<FieldMappingRow> = {
   columns: mappingColumns,
   rowHint: (row) => {
     if (row.card_field === 'photo') {
-      return 'Photo source is also governed by the Photo Fallback tab. This mapping sets the primary source; the fallback tab adds alternatives.';
+      return 'This sets the primary photo source. If it has no image, the print engine automatically falls back to the profile avatar and finally to printed initials.';
     }
     return null;
   },
   formSchema: buildMappingFormSchema,
   addLabel: 'Add mapping',
-  emptyMessage: 'No field mappings configured. Add a mapping to start printing cards.',
+  emptyMessage:
+    'No field mappings configured for this template — cards print with the built-in defaults. Add a mapping to override a field.',
   entityNoun: 'Mapping',
 };
-
-function buildMappingHandlers(
-  reload: () => void,
-): PolicyHandlers<FieldMappingRow> {
-  return {
-    onLoad: fetchFieldMappings,
-    onSave: async (values) => {
-      const res = await fetch('/api/id-cards/template/mappings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      reload();
-      return res.json();
-    },
-    onDelete: async (row) => {
-      const res = await fetch(`/api/id-cards/template/mappings/${row.id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    },
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Photo Fallback — CascadeConfig<PhotoFallbackStep>
-// ──────────────────────────────────────────────────────────────────────────────
-function buildFallbackFormSchema(): ReadonlyArray<FieldSchema> {
-  return [
-    {
-      name: 'label',
-      kind: 'text',
-      englishLabel: 'Step label',
-      englishHint:
-        'Plain-English name for this fallback source. Shown in the admin UI only.',
-      placeholder: 'e.g. Learner uploaded photo',
-      required: true,
-    },
-    {
-      name: 'source',
-      kind: 'text',
-      englishLabel: 'Source identifier',
-      englishHint:
-        'Either a database column path (e.g. learners_profiles.student_photo_url) or a system key (e.g. system:placeholder).',
-      placeholder: 'learners_profiles.student_photo_url',
-      required: true,
-    },
-    {
-      name: 'sort_order',
-      kind: 'number',
-      englishLabel: 'Step order',
-      englishHint:
-        'Lower numbers are tried first. Step 1 is the primary source; the last step is the last resort.',
-      min: 1,
-      step: 1,
-      required: true,
-    },
-    {
-      name: 'is_active',
-      kind: 'toggle',
-      englishLabel: 'Active?',
-      englishHint: 'When off, this fallback step is skipped.',
-    },
-  ];
-}
-
-function renderFallbackStep(row: PhotoFallbackStep): CascadeStepView {
-  return {
-    title: `Step ${row.sort_order}: ${row.label}`,
-    explanation: `Try to find a photo using: ${row.source}`,
-    metaLines: [
-      row.source.startsWith('system:')
-        ? 'Built-in source'
-        : `Column: ${row.source}`,
-    ],
-    isActive: row.is_active,
-  };
-}
-
-const fallbackConfig: CascadeConfig<PhotoFallbackStep> = {
-  title: 'Photo Fallback Chain',
-  explainer: null,
-  orderBy: 'sort_order',
-  groupBy: null,
-  groupTitleFor: () => '',
-  renderStep: renderFallbackStep,
-  formSchema: buildFallbackFormSchema,
-  addLabel: 'Add fallback step',
-  emptyMessage:
-    'No photo fallback steps configured. Add at least one step (e.g., a placeholder silhouette) to ensure every card prints.',
-  entityNoun: 'Fallback step',
-};
-
-function buildFallbackHandlers(): PolicyHandlers<PhotoFallbackStep> {
-  return {
-    onLoad: fetchPhotoFallback,
-    onSave: async (values, editing) => {
-      const method = editing ? 'PATCH' : 'POST';
-      const url = editing
-        ? `/api/id-cards/template/photo-fallback/${editing.id}`
-        : '/api/id-cards/template/photo-fallback';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    },
-    onDelete: async (row) => {
-      const res = await fetch(
-        `/api/id-cards/template/photo-fallback/${row.id}`,
-        { method: 'DELETE' },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    },
-    onToggle: async (row, _field, next) => {
-      const res = await fetch(
-        `/api/id-cards/template/photo-fallback/${row.id}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_active: next }),
-        },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    },
-  };
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────────────────────────────────────
 export function IdCardTemplateEditor() {
+  const { profile, isLoading: authLoading } = useAuth();
   const [sides, setSides] = useState<1 | 2 | null>(null);
-  const [reloadTick, setReloadTick] = useState(0);
+  const [templates, setTemplates] = useState<TemplateDesignRow[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string>('');
 
+  const institutionId = profile?.institution_id ?? null;
+
+  // Sides badge — wait for auth to resolve (loading is NOT "no institution").
   useEffect(() => {
-    fetchSides().then(setSides);
+    if (authLoading) return;
+    let cancelled = false;
+    fetchSides(institutionId).then((value) => {
+      if (!cancelled) setSides(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, institutionId]);
+
+  // Template list for the mappings tab picker (session client, RLS applies).
+  useEffect(() => {
+    let cancelled = false;
+    fetchTemplatesWithLayout()
+      .then((rows) => {
+        if (cancelled) return;
+        setTemplates(rows);
+        setSelectedId((prev) =>
+          prev && rows.some((r) => r.id === prev) ? prev : (rows[0]?.id ?? '')
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn('[id-cards/template-editor] template list load failed:', err);
+        setTemplates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const triggerReload = useCallback(() => {
-    setReloadTick((t) => t + 1);
-  }, []);
+  // Memoized so LookupTable's load effect doesn't re-fire every render.
+  const mappingHandlers = useMemo<PolicyHandlers<FieldMappingRow>>(
+    () => ({
+      onLoad: () =>
+        selectedId ? fetchTemplateMappings(selectedId) : Promise.resolve([]),
+      onSave: async (values, editing) => {
+        const cardField = String(values.card_field ?? '') as CardField;
+        const dbColumn = String(values.db_column ?? '');
+        const current = await fetchTemplateMappings(selectedId);
+        if (!editing && current.some((m) => m.card_field === cardField)) {
+          throw new Error(
+            'That card field already has a mapping — edit the existing row instead.'
+          );
+        }
+        const replacedField = editing ? editing.card_field : cardField;
+        const next = current
+          .filter((m) => m.card_field !== replacedField)
+          .map((m) => ({ card_field: m.card_field, db_column: m.db_column }));
+        next.push({ card_field: cardField, db_column: dbColumn });
+        await putTemplateMappings(selectedId, next);
+        return { id: cardField, card_field: cardField, db_column: dbColumn };
+      },
+      onDelete: async (row) => {
+        const current = await fetchTemplateMappings(selectedId);
+        const next = current
+          .filter((m) => m.card_field !== row.card_field)
+          .map((m) => ({ card_field: m.card_field, db_column: m.db_column }));
+        await putTemplateMappings(selectedId, next);
+      },
+    }),
+    [selectedId]
+  );
 
-  const mappingHandlers = buildMappingHandlers(triggerReload);
-  const fallbackHandlers = buildFallbackHandlers();
+  const selectedTemplate = templates?.find((t) => t.id === selectedId) ?? null;
 
   return (
     <div className="space-y-4">
@@ -346,7 +332,6 @@ export function IdCardTemplateEditor() {
         <TabsList>
           <TabsTrigger value="design">Card design</TabsTrigger>
           <TabsTrigger value="mappings">Field mappings</TabsTrigger>
-          <TabsTrigger value="photo-fallback">Photo fallback</TabsTrigger>
         </TabsList>
 
         <TabsContent value="design" className="mt-4">
@@ -361,47 +346,66 @@ export function IdCardTemplateEditor() {
         <TabsContent value="mappings" className="mt-4">
           <div className="mb-3 text-sm text-muted-foreground">
             Each row maps one zone on the printed card (left column) to the
-            learner record column that fills it (right column). Changing a
-            mapping takes effect on the next batch of cards printed — previously
-            printed cards are not affected.
+            learner record column that fills it (right column). Mappings are
+            saved per template and take effect on the next card printed —
+            previously printed cards are not affected.
           </div>
-          <LookupTable
-            key={`mappings-${reloadTick}`}
-            config={mappingConfig}
-            handlers={mappingHandlers}
-            newRowDefaults={{ card_field: 'name_line_1', db_column: 'learners_profiles.first_name' }}
-            rowToFormValues={(row) => ({
-              card_field: row.card_field,
-              db_column: row.db_column,
-            })}
-          />
-        </TabsContent>
 
-        <TabsContent value="photo-fallback" className="mt-4">
-          <div className="mb-3 text-sm text-muted-foreground">
-            When a learner doesn&apos;t have a photo at the primary source, MyJKKN
-            tries each step below in order. The first step that finds a photo
-            wins. Steps marked &quot;Off&quot; are skipped. Drag-reorder by editing the
-            step number.
-          </div>
-          <CascadeStepList
-            config={fallbackConfig}
-            handlers={fallbackHandlers}
-            newRowDefaults={{
-              label: '',
-              source: '',
-              sort_order: 3,
-              is_active: true,
-            }}
-            rowToFormValues={(row) => ({
-              label: row.label,
-              source: row.source,
-              sort_order: row.sort_order,
-              is_active: row.is_active,
-            })}
-          />
+          {templates === null ? (
+            <div className="py-6 text-sm text-muted-foreground">
+              Loading templates…
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+              No templates exist yet. Templates are created when the first card
+              is set up — once one exists, its field mappings are managed here.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-sm text-muted-foreground">Template:</span>
+                <Select value={selectedId} onValueChange={setSelectedId}>
+                  <SelectTrigger className="w-72">
+                    <SelectValue placeholder="Choose a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {(t.name ?? 'Untitled template') +
+                          (t.active ? '' : ' (inactive)')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedTemplate && (
+                <LookupTable
+                  key={selectedId}
+                  config={mappingConfig}
+                  handlers={mappingHandlers}
+                  newRowDefaults={{
+                    card_field: 'name_line_1',
+                    db_column: 'learners_profiles.first_name',
+                  }}
+                  rowToFormValues={(row) => ({
+                    card_field: row.card_field,
+                    db_column: row.db_column,
+                  })}
+                />
+              )}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
+
+      {/* Photo fallback: no editable substrate — the chain is fixed in the
+          print engine (lib/id-cards/render-data.ts). Explains, no dead UI. */}
+      <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+        Photo fallback: when a learner has no uploaded photo (or a team member
+        has no profile picture), cards automatically fall back to the account
+        avatar, and finally to printed initials. This order is fixed in the
+        print engine today — an editing screen is planned.
+      </div>
     </div>
   );
 }
