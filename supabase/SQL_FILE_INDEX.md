@@ -2154,3 +2154,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function REPLACED: `fn_carre_item_evidence` — academic A4 block rebuilt (single attendance scan + jsonb_each once + hash-join vs feedback sessions; was >110s timeout, now <0.5s server-side; adds median session reach). Anon lock re-asserted.
 - Function NEW: `fn_carre_participant_context(uuid)` — learner-gated read path for the sealed scoring door (cycle + frozen catalog + caller's own rows only; the seal is untouched)
 - Location: `supabase/migrations/20260725110000_fix_carre_evidence_academic_block.sql`, `supabase/migrations/20260725114500_carre_participant_context.sql` — **both APPLIED to prod via Mgmt API 2026-07-25** (rolled-back-validated first; 7-point lane battery passed)
+
+### CARRE Calibration Mirror — predict-then-see (2026-07-25)
+- Table: `carre_calibration_predictions` (RLS: SELECT own rows or super_admin; writes RPC-only)
+- Functions NEW: `fn_carre_predict_median` (team members; frozen after k≥3 reveal; HARD data-gate: CARRE-A3 at 3+ rejected while caller's own OD approval queue > 0) · `fn_carre_calibration_mirror` (caller's predictions + k≥3 'own'-lane reveals + abs error) · `fn_carre_predict_context` (team-member mirror of the learner context RPC)
+- Location: `supabase/migrations/20260725123000_carre_calibration_mirror.sql`, `supabase/migrations/20260725124500_carre_predict_context.sql` — **both APPLIED to prod via Mgmt API 2026-07-25** (rolled-back-validated; 7-point battery incl. live 29-queue A3 gate PASSED)
