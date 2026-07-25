@@ -36,6 +36,7 @@ import type {
   LoopRegistryRow,
   LoopEdgeRow,
   LoopAuditRow,
+  LoopConflictRow,
 } from './_components/types';
 
 async function cnt(query: unknown): Promise<number | null> {
@@ -783,10 +784,10 @@ export default async function LoopControlTowerPage({
   // Feeds the Tower's per-loop chips + the Wiring view. New prod tables — a
   // missing/lagging migration must never break this page, so every leg falls
   // back to an empty array (same swallow-to-empty philosophy as cnt() above).
-  const [registry, edges, audits] = await Promise.all([
+  const [registry, edges, audits, conflicts] = await Promise.all([
     admin
       .from('loop_registry')
-      .select('loop_key,name,stack_tier,loop_class,gates,description')
+      .select('loop_key,name,stack_tier,loop_class,gates,description,owner_email,counter_metric')
       .eq('is_active', true)
       // PromiseLike has no .catch — rejection handler is .then's 2nd arg.
       .then(
@@ -812,6 +813,14 @@ export default async function LoopControlTowerPage({
       .then(
         (r) => (r.data ?? []) as LoopAuditRow[],
         () => [] as LoopAuditRow[]
+      ),
+    admin
+      .from('loop_conflicts')
+      .select('conflict_key, title, loops, description, arbiter_email, status, ruling')
+      .eq('status', 'open')
+      .then(
+        (r) => (r.data ?? []) as LoopConflictRow[],
+        () => [] as LoopConflictRow[]
       ),
   ]);
 
@@ -1262,11 +1271,11 @@ export default async function LoopControlTowerPage({
       </div>
 
       {view === 'wiring' ? (
-        <LoopWiring registry={registry} edges={edges} audits={audits} />
+        <LoopWiring registry={registry} edges={edges} audits={audits} conflicts={conflicts} />
       ) : (
         <>
           <div className="mb-6">
-            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} />
+            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
         </>

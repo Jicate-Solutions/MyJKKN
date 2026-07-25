@@ -81,6 +81,18 @@ export interface LoopRegistryRow {
   gates: Record<'g' | 'a' | 'm' | 'f', GateState>;
   routine_id?: string | null;
   is_active?: boolean;
+  owner_email?: string | null;
+  counter_metric?: string | null;
+}
+
+export interface LoopConflictRow {
+  conflict_key: string;
+  title: string;
+  loops: string[];
+  description: string;
+  arbiter_email: string;
+  status: 'open' | 'ruled' | 'resolved';
+  ruling?: string | null;
 }
 
 export interface LoopEdgeRow {

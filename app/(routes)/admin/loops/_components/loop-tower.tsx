@@ -26,7 +26,7 @@
 // ============================================================================
 
 import Link from 'next/link';
-import type { LoopRegistryRow, LoopAuditRow, GateState } from './types';
+import type { LoopRegistryRow, LoopAuditRow, LoopConflictRow, GateState } from './types';
 import { isBadVerdict, isVerifiedVerdict } from '@/lib/ai-routines/loop-governance';
 
 /** One loop's 7-day closure: `den` iterations opened in the window, `num`
@@ -241,7 +241,7 @@ function RegistryChip({
   return (
     <a
       href={`#loop-${row.loop_key}`}
-      title={row.description ?? row.name}
+      title={`${row.description ?? row.name} · owner: ${row.owner_email ?? 'unowned'}`}
       className={`flex min-w-[152px] flex-col gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] leading-tight shadow-sm transition-colors hover:brightness-95 dark:hover:brightness-125 ${tint}`}
     >
       <span className='font-semibold text-foreground'>{name}</span>
@@ -250,6 +250,19 @@ function RegistryChip({
         <GateMiniDot g={row.gates.a} />
         <GateMiniDot g={row.gates.m} />
         <GateMiniDot g={row.gates.f} />
+        {row.counter_metric ? (
+          <span
+            title={'PAIRED · ' + row.counter_metric}
+            className='ml-1 h-1.5 w-1.5 flex-none rounded-full border border-emerald-500 bg-emerald-500'
+            aria-hidden='true'
+          />
+        ) : (
+          <span
+            title='UNPAIRED — no counter-metric named yet'
+            className='ml-1 h-1.5 w-1.5 flex-none rounded-full border border-amber-500 bg-transparent'
+            aria-hidden='true'
+          />
+        )}
       </span>
       {closure !== undefined &&
         (closure === 'not-instrumented' ? (
@@ -665,10 +678,53 @@ function ManagementStrip({ s }: { s: LoopTowerStats }) {
   );
 }
 
+// ── Open conflicts strip ─────────────────────────────────────────────────────
+// One amber card per OPEN loop_conflicts row — cross-loop conflicts awaiting an
+// arbiter's ruling. Renders nothing when no conflict is open; a resolved
+// conflict leaves the page rather than lingering as decoration.
+function OpenConflictsStrip({ conflicts }: { conflicts: LoopConflictRow[] }) {
+  if (conflicts.length === 0) return null;
+  return (
+    <div className='mb-4' aria-label='Open conflicts — loops pulling against each other'>
+      <h3 className='mb-1.5 text-sm font-semibold'>Open conflicts — loops pulling against each other</h3>
+      <div className='flex flex-col gap-2'>
+        {conflicts.map((c) => (
+          <div
+            key={c.conflict_key}
+            className='rounded-lg border border-amber-400/70 bg-amber-50/60 px-3.5 py-2.5 dark:border-amber-700/60 dark:bg-amber-950/30'
+          >
+            <div className='flex flex-wrap items-center gap-1.5'>
+              <span className='text-[13px] font-bold text-amber-900 dark:text-amber-200'>{c.title}</span>
+              {c.loops.map((k) => (
+                <span
+                  key={k}
+                  className='rounded border border-amber-500/40 bg-amber-100/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/40 dark:text-amber-300'
+                >
+                  {k}
+                </span>
+              ))}
+            </div>
+            <p className='mt-1 line-clamp-2 text-[12px] leading-snug text-amber-800/90 dark:text-amber-300/90'>
+              {c.description}
+            </p>
+            <p className='mt-1 flex flex-wrap items-center gap-2 font-mono text-[10.5px] text-amber-700 dark:text-amber-400'>
+              arbiter: {c.arbiter_email}
+              <span className='rounded-full border border-amber-500/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider'>
+                {c.status}
+              </span>
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function LoopTower({
   stats,
   registry,
   latestAuditByKey,
+  conflicts,
 }: {
   stats: LoopTowerStats;
   /** Active loop_registry rows — optional so this component still renders
@@ -676,6 +732,8 @@ export function LoopTower({
    *  banner shows instead of chips). */
   registry?: LoopRegistryRow[];
   latestAuditByKey?: Map<string, LoopAuditRow>;
+  /** OPEN loop_conflicts rows — optional; absent/empty renders nothing. */
+  conflicts?: LoopConflictRow[];
 }) {
   const s = stats;
   const reg = registry ?? [];
@@ -708,6 +766,8 @@ export function LoopTower({
           </p>
         )}
       </div>
+
+      <OpenConflictsStrip conflicts={conflicts ?? []} />
 
       <Ring
         num='6 · Oversight'
@@ -904,7 +964,7 @@ export function LoopTower({
                   exit='stop token'
                   tone='stone'
                   kind='engine'
-                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max subscription lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
+                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
                   chips={
                     <>
                       <Chip

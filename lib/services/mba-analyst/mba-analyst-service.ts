@@ -49,6 +49,9 @@ export interface MbaAssociatePosting {
   assigned_by: string | null;
   assigned_at: string;
   is_active: boolean;
+  // Per-assignment money gate. When true, this posting unlocks the department's
+  // is_sensitive (financial) analyst views for the Associate. Default false.
+  include_financial: boolean;
   created_at: string;
   updated_at: string;
   // Enriched display fields (null when the join could not resolve).
@@ -146,6 +149,7 @@ export class MbaAnalystService {
       assigned_by: string | null;
       assigned_at: string;
       is_active: boolean;
+      include_financial: boolean;
       created_at: string;
       updated_at: string;
     },
@@ -196,10 +200,16 @@ export class MbaAnalystService {
    * Post an Associate to a department. Idempotent: re-assigning an existing
    * (associate, area) pair re-activates it. RLS requires
    * `improvement.board.manage`. The returned row is enriched.
+   *
+   * `includeFinancial` (default false) sets the per-assignment money gate: when
+   * true, the posting unlocks that department's is_sensitive (financial) analyst
+   * views for the Associate. Managers always see money regardless; this only
+   * affects what a posted Associate receives from fn_mba_analyst_views.
    */
   static async assignPosting(
     associateUserId: string,
-    areaId: string
+    areaId: string,
+    includeFinancial: boolean = false
   ): Promise<MbaAssociatePosting> {
     const supabase = this.getSupabase();
 
@@ -218,6 +228,7 @@ export class MbaAnalystService {
           assigned_by: assignedBy,
           assigned_at: new Date().toISOString(),
           is_active: true,
+          include_financial: includeFinancial,
         },
         { onConflict: 'associate_user_id,area_id' }
       )
@@ -229,6 +240,37 @@ export class MbaAnalystService {
       throw new Error(error.message || 'Failed to assign.');
     }
     if (!data) throw new Error('Failed to assign — no data returned.');
+
+    const [profiles, areas] = await Promise.all([
+      this.fetchProfiles([data.associate_user_id]),
+      this.fetchAreas([data.area_id]),
+    ]);
+    return this.enrich(data, profiles, areas);
+  }
+
+  /**
+   * Flip the per-assignment money gate on an existing posting without disturbing
+   * its assignment timestamp. RLS requires `improvement.board.manage`. Returns
+   * the enriched updated row.
+   */
+  static async setPostingFinancial(
+    id: string,
+    includeFinancial: boolean
+  ): Promise<MbaAssociatePosting> {
+    const supabase = this.getSupabase();
+
+    const { data, error } = (await (supabase as any)
+      .from('mba_associate_postings')
+      .update({ include_financial: includeFinancial })
+      .eq('id', id)
+      .select('*')
+      .single()) as { data: any | null; error: any };
+
+    if (error) {
+      logger.error(MODULE, 'Error updating posting financial toggle', error);
+      throw new Error(error.message || 'Failed to update financial access.');
+    }
+    if (!data) throw new Error('Failed to update — no data returned.');
 
     const [profiles, areas] = await Promise.all([
       this.fetchProfiles([data.associate_user_id]),

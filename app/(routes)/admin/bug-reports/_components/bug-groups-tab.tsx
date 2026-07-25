@@ -1385,7 +1385,7 @@ function LoopStepper({
 
       <p className='text-[11px] text-muted-foreground border-t border-border/60 mt-1 pt-1.5'>
         AI proposes and never acts alone — you own merge &amp; deploy, sending to
-        reporters, and resolve. AI runs cost ₹0 (Max plan).
+        reporters, and resolve. AI runs cost ₹0 (Max lane).
       </p>
     </div>
   );

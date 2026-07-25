@@ -102,7 +102,7 @@ const ROUTINE_TYPE_LABELS: Record<AIRoutine['type'], string> = {
 // grouping memo keeps stable references.
 const LANE_ORDER = ['max', 'api', 'either'] as const;
 const LANE_LABEL: Record<string, string> = {
-  max: 'Max lane · ₹0 subscription seat',
+  max: 'Max lane · ₹0',
   api: 'API lane · paid',
   either: 'Either lane',
 };
@@ -185,17 +185,6 @@ function LaneBadge({ f, routines, scheduleMap }: {
     return (
       <Badge variant="outline" className="mt-1 gap-1 text-[11px] font-normal text-muted-foreground">
         <Zap className="h-3 w-3" /> Max on demand
-      </Badge>
-    );
-  }
-  if (f.config_json?.lane === 'api_policy') {
-    return (
-      <Badge
-        variant="outline"
-        className="mt-1 text-[11px] font-normal text-muted-foreground"
-        title="Serves learners or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
-      >
-        API only · policy
       </Badge>
     );
   }
@@ -412,7 +401,7 @@ export function AiModelsDataTable() {
 
   // UNIFICATION (2026-07-23): section by registry LANE (Max / API / Either),
   // not category — the Director governs by where a job runs and what it costs.
-  // Max first (the ₹0 subscription lane), then API (paid), then the rest. Rows
+  // Max first (the ₹0 lane), then API (paid), then the rest. Rows
   // within a lane sort by category then display name for a stable read.
   const grouped = useMemo(() => {
     if (!features) return [];
@@ -559,6 +548,31 @@ export function AiModelsDataTable() {
                               <div className="text-xs text-muted-foreground/70 font-mono">
                                 {f.feature_key}
                               </div>
+                              {(() => {
+                                const jt = jobTypeMap.get(f.feature_key);
+                                if (!jt) return null;
+                                return jt.loop_key ? (
+                                  <Link
+                                    href={`/admin/loops#loop-${jt.loop_key}`}
+                                    title={`This job serves the ${jt.loop_key} loop — click to see it in the Loop Control Tower`}
+                                  >
+                                    <Badge
+                                      variant="outline"
+                                      className="mt-1 font-mono text-[11px] font-normal text-[#0b6d41] hover:underline"
+                                    >
+                                      {jt.loop_key}
+                                    </Badge>
+                                  </Link>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="mt-1 text-[11px] font-normal text-muted-foreground"
+                                    title="Not yet claimed by any governance loop"
+                                  >
+                                    unclaimed
+                                  </Badge>
+                                );
+                              })()}
                               {/* UNIFICATION: per-row lane badge removed — the
                                   console now sections by lane, so it was redundant. */}
                               {!f.is_active && (

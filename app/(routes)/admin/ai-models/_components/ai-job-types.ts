@@ -42,6 +42,7 @@ export interface AiJobType {
   max_inflight: number;
   schedulable: boolean;
   enabled: boolean;
+  loop_key: string | null;
   input_schema: InputSchemaField[];
   expected_seconds: number | null;
   // Optional — included by the list payload IF the backend joins
@@ -85,7 +86,7 @@ export interface AiJobStatusResponse {
 }
 
 export const LANE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'max', label: 'Max (subscription seat)' },
+  { value: 'max', label: 'Max (₹0 lane)' },
   { value: 'api', label: 'API (paid)' },
   { value: 'either', label: 'Either' },
 ];
