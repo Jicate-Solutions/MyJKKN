@@ -2145,3 +2145,5 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Public-read is DELIBERATE: backgrounds are brand artwork with no learner data; public URLs let the render engine and admin previews fetch without signing. Writes gated on `id_cards.templates.edit` (or admin) via three `storage.objects` policies (insert/update/delete) + an explicit authenticated SELECT policy documenting read intent.
 - Idempotent (`ON CONFLICT DO NOTHING` + pg_policies existence guards); additive only; no functions. Applied by orchestrator with BEGIN…ROLLBACK rehearsal.
 - Location: `supabase/migrations/20260724124500_id_card_assets_bucket.sql`.
+
+- `migrations/20260725093000_carre_compliance_work_signals.sql` — 2026-07-25 — 4 CARRE/compliance practice signals (od handled/waiting, correctives open, audits scored) in work_signal_types + fn_work_signals_for; acts-not-scores, Respect excluded; applied via Management API 2026-07-25.
