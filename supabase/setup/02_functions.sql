@@ -22468,3 +22468,31 @@ GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uui
 
 COMMENT ON FUNCTION public.fn_attendance_dashboard_section_stats(date, uuid, uuid, uuid, uuid, uuid, uuid, uuid) IS
   'Attendance Dashboard section-wise stats for one date. Aggregates in Postgres (233 rows) instead of shipping ~4k learner rows to the client. Attributes each mark to the learner''s own section so merged classes cannot exceed 100%. Optional degree/department/programme/semester/section params back the dashboard''s Advanced Filters; they narrow rows only — the returned shape is unchanged.';
+
+-- ============================================================================
+-- fn_billing_bill_default_academic_year (2026-07-25)
+-- Fills billing_student_bills.academic_year_id when an INSERT leaves it NULL.
+-- Four insert paths exist (student-bill-service, onboarding-service, the bulk
+-- import route, and the admission_account_transition_with_bills RPC) and none
+-- set it reliably; 58.5% of academic bills were unstamped before this landed.
+-- An explicitly supplied year is never overwritten.
+-- SECURITY DEFINER because learners_profiles is RLS-gated.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_billing_bill_default_academic_year()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.academic_year_id IS NULL THEN
+    SELECT lp.academic_year_id
+      INTO NEW.academic_year_id
+    FROM public.learners_profiles lp
+    JOIN public.academic_years ay ON ay.id = lp.academic_year_id
+    WHERE lp.id = NEW.student_id
+      AND ay.institution_id = NEW.institution_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
