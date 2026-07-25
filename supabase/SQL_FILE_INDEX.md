@@ -2178,3 +2178,9 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - **Clarification asks** (`20260725133000_session_clarification_requests.sql`, PR #2374): ask→outcome trace (learner-only writes, self-reported outcome, leadership read via audit.cycle.view)
 - **Sealed participation line** (`20260725153000_carre_participant_activity_line.sql`, PR #2373): `fn_carre_participant_activity` — cycle-level scorers/items/last-activity, k≥3 floor ON THE COUNT ITSELF
 - Batteries: 10/10 (A) · 10/10 (B) · 14/14 (C) · 5/5 (D), all rolled-back; reviews: 4× minor, 0 critical
+
+### SCF practicals — subdivided (lab) rosters reach the learner feedback path (2026-07-25)
+- Function NEW: `fn_attendance_slot_students(jsonb)` — shared, pure, IMMUTABLE helper returning the effective roster for one attendance slot: top-level `students[]` when non-empty, otherwise the flattened `groups[].students[]` of a subdivided practical/lab slot. Never NULL. SQL twin of `slotStudents()` in `lib/services/academic/attendance-report-service.ts` (PR #1865).
+- Functions REPLACED (Present-gate now reads BOTH shapes; anon lock re-asserted on each): `fn_scf_pending_for_learner(integer)` · `fn_scf_submit_feedback(date,uuid,text,smallint,jsonb,text,text)` (the 2026-07-22 regex-CASE `::uuid` guard preserved byte-identical) · `fn_scf_confirmation_status(date,date)`
+- Why: all 302 subdivided periods in production (2025-11-25 → 2026-07-24) carry an EMPTY top-level `students[]`, so no practical was listed as pending or accepted for submission; theory sessions were unaffected, which masked it as a perception issue.
+- Location: `supabase/migrations/20260725183000_scf_practicals_subdivided_roster.sql` — **rolled-back-validated on prod 2026-07-25 (9-point battery PASSED: bug reproduced pre-fix, submit succeeds post-fix, pending 1→2, confirmation 52→65, theory control byte-identical, anon locked on all 4). NOT YET APPLIED — awaiting Director approval.**
