@@ -7,13 +7,30 @@ export const dynamic = 'force-dynamic';
 // only one row with the matching id+status='pending' will exist before the update,
 // and only the winning UPDATE returns a row. 0 rows back → 409 (already claimed
 // or terminal).
+//
+// DUPLEX CONTRACT (additive, 2026-07-25):
+//   Response data = the claimed job row + `has_back: boolean`.
+//   has_back=true  ⇔ the job's template has back_layout_json set (non-null),
+//                    i.e. GET /api/id-cards/templates/:tid/render
+//                    ?profile_id=...&side=back&format=png returns the back PNG
+//                    with the SAME agent bearer token (requireUserOrAgent runs
+//                    before any side handling on that route).
+//   has_back=false → front-only card; ?side=back would 404 back_not_configured.
+//   Fail-soft: if the template lookup errors, has_back is false (bridge prints
+//   the front only — never blocks a claim on the duplex hint).
+//   Backward compatible: pre-duplex bridges ignore unknown fields, so this
+//   field is dark until a bridge version reads it AND a template opts in.
 
 import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
 import { jsonOk, jsonError } from '@/lib/id-cards/responses';
 import { requireAgentToken, isAuthFailure } from '@/lib/id-cards/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import type { IdCardPrintJob } from '@/lib/id-cards/types';
+import {
+  hasBackSide,
+  type IdCardPrintJob,
+  type IdCardPrintJobPickup
+} from '@/lib/id-cards/types';
 
 const idSchema = z.string().uuid();
 
@@ -60,7 +77,34 @@ export async function POST(
       );
     }
 
-    return jsonOk<IdCardPrintJob>(claimed as IdCardPrintJob);
+    const claimedJob = claimed as IdCardPrintJob;
+
+    // Duplex hint (see DUPLEX CONTRACT in the header). Fail-soft: any error
+    // reading the template degrades to has_back=false — the claim already
+    // succeeded and a front-only print is always safe.
+    let hasBack = false;
+    try {
+      const { data: template, error: templateError } = await service
+        .from('id_card_templates')
+        .select('back_layout_json')
+        .eq('id', claimedJob.template_id)
+        .maybeSingle();
+      if (templateError) {
+        console.warn(
+          '[id-cards/jobs/pickup] has_back lookup skipped:',
+          templateError.message
+        );
+      } else {
+        hasBack = hasBackSide(template?.back_layout_json);
+      }
+    } catch (lookupErr) {
+      console.warn('[id-cards/jobs/pickup] has_back lookup skipped:', lookupErr);
+    }
+
+    return jsonOk<IdCardPrintJobPickup>({
+      ...claimedJob,
+      has_back: hasBack
+    });
   } catch (err) {
     console.error('[id-cards/jobs/pickup] unexpected:', err);
     return jsonError('Unexpected server error', 'internal_error', 500);
