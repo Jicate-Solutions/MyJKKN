@@ -727,9 +727,31 @@ export interface TransactionSummary {
   total_refunds: number;
 }
 
+export type ReportSchemeKey =
+  | 'first_graduate'
+  | 'pmss'
+  | 'scholarship_7_5'
+  | 'other';
+
+export const REPORT_SCHEME_OPTIONS: { value: ReportSchemeKey; label: string }[] = [
+  { value: 'first_graduate', label: 'First Graduate' },
+  { value: 'pmss', label: 'PMSS' },
+  { value: 'scholarship_7_5', label: '7.5% Scholarship' },
+  { value: 'other', label: 'Others / Not Applicable' },
+];
+
 export interface BillingReportFilters {
   institution_id?: string;
+  /** Academic year id, or the ACADEMIC_YEAR_UNSPECIFIED sentinel for bills with no year. */
+  academic_year_id?: string;
+  degree_id?: string;
   department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  item_category_id?: string;
+  /** Empty or absent means no scheme restriction. */
+  schemes?: ReportSchemeKey[];
   student_id?: string;
   date_from?: string;
   date_to?: string;
