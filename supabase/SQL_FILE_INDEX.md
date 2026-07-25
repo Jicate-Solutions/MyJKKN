@@ -2149,3 +2149,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Location: `supabase/migrations/20260724124500_id_card_assets_bucket.sql`.
 
 - `migrations/20260725101500_carre_participant_scoring_sealed.sql` — 2026-07-25 — CARRE sealed participant lane: carre_participant_scores (RLS seal super_admin-only) + fn_carre_participant_score (learners, open CARRE cycles) + fn_carre_participant_rollup (leadership, k>=3 floor, aggregates only) + audit_cycles.participant_scoring_open. Applied via Management API 2026-07-25; 10-point rolled-back verification passed.
+
+### CARRE Evidence RPC fix + Sealed-Lane Context (2026-07-25)
+- Function REPLACED: `fn_carre_item_evidence` — academic A4 block rebuilt (single attendance scan + jsonb_each once + hash-join vs feedback sessions; was >110s timeout, now <0.5s server-side; adds median session reach). Anon lock re-asserted.
+- Function NEW: `fn_carre_participant_context(uuid)` — learner-gated read path for the sealed scoring door (cycle + frozen catalog + caller's own rows only; the seal is untouched)
+- Location: `supabase/migrations/20260725110000_fix_carre_evidence_academic_block.sql`, `supabase/migrations/20260725114500_carre_participant_context.sql` — **both APPLIED to prod via Mgmt API 2026-07-25** (rolled-back-validated first; 7-point lane battery passed)

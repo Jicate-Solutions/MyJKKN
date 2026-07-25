@@ -410,6 +410,11 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
   '/audit/care/coverage',
+  //  - /audit/care/voice          : sealed participant scoring door (learner-
+  //    gated by fn_carre_participant_context/score server-side). Unlisted by
+  //    design — the Director opens a cycle's lane deliberately and shares the
+  //    link; a sealed lane is not advertised platform-wide.
+  '/audit/care/voice',
 
   // Intentionally unlisted (Director decision 2026-07-24): the open Compliance &
   // Tracking Board is reached by a shared direct link, deliberately NOT on any nav
