@@ -54,6 +54,7 @@ import {
   resolveMappedValue,
   initialsFromName,
   truncateForCard,
+  svgCoverImageDataUrl,
   type CardField,
   type BackCardField,
   type CardPersonData,
@@ -396,6 +397,68 @@ function photoBox(
   );
 }
 
+/**
+ * ROTATION-SAFE cover image (2026-07-25): satori mispaints bitmaps inside a
+ * transformed (rotated) subtree whenever any crop machinery is involved —
+ * objectFit:'cover' lands the bitmap at a wrong offset/scale (isolated by
+ * Lane H), and an overflow-clipped absolutely-positioned <img> mispaints too
+ * (verified locally while building this fix). The ONE image shape proven
+ * good under the rotation is the QR's: a plain in-flow <img> at its exact
+ * natural size with no cropping at the satori level. So the cover-crop
+ * happens INSIDE an SVG-wrapper data URL (the SVG viewport cuts the
+ * overflow; resvg rasterizes nested data-URL images — that is how every
+ * card bitmap already renders), and satori only ever sees an exact-size
+ * plain <img>. Used for EVERY bitmap inside the rotated portrait wrapper;
+ * landscape paths keep objectFit unchanged (proven fine without an ancestor
+ * transform).
+ */
+function rotationSafeCoverImg(
+  dataUrl: string,
+  boxW: number,
+  boxH: number,
+  cornerRadius: number = 0
+): ReactElement {
+  const cropped = svgCoverImageDataUrl(dataUrl, boxW, boxH, cornerRadius);
+  if (!cropped) {
+    // Unparseable bitmap header → stretch-fill fallback: mild distortion
+    // beats a mispainted or missing photo, and still no crop machinery.
+    return (
+      <img
+        src={dataUrl}
+        alt=""
+        width={boxW}
+        height={boxH}
+        style={{ width: boxW, height: boxH }}
+      />
+    );
+  }
+  return (
+    <img
+      src={cropped}
+      alt=""
+      width={boxW}
+      height={boxH}
+      style={{ width: boxW, height: boxH }}
+    />
+  );
+}
+
+/** photoBox for the rotated portrait subtree — same API, rotation-safe. */
+function rotationSafePhotoBox(
+  photoDataUrl: string | null,
+  fullName: string,
+  width: number,
+  height: number,
+  cornerRadius: number = 0
+): ReactElement {
+  if (!photoDataUrl) {
+    // Initials placeholder is plain divs — already rotation-safe (proven in
+    // the #2385 portrait renders).
+    return photoBox(null, fullName, width, height);
+  }
+  return rotationSafeCoverImg(photoDataUrl, width, height, cornerRadius);
+}
+
 function headerBand(institutionName: string | null, overrides?: FrontLayout['header']): ReactElement {
   const bg = overrides?.background_color ?? BRAND_GREEN;
   const color = overrides?.text_color ?? '#ffffff';
@@ -652,33 +715,47 @@ function elementValue(
  * canvas the elements were authored in — the landscape card by default, or
  * the portrait canvas when the layout opted into portrait orientation (the
  * portrait wrapper then rotates this whole composition into the output).
+ * `rotationSafeImages` is set ONLY by the portrait path: every bitmap then
+ * renders via the geometric cover-crop (satori mispaints objectFit under a
+ * rotated ancestor — see rotationSafeCoverImg). Landscape defaults stay
+ * byte-identical.
  */
 function customDesign(
   input: CardRenderInput,
   layout: FrontLayout,
   width: number = CARD_WIDTH,
-  height: number = CARD_HEIGHT
+  height: number = CARD_HEIGHT,
+  rotationSafeImages: boolean = false
 ): ReactElement {
   const { person, photoDataUrl, qrDataUrl, backgroundDataUrl } = input;
   const children: ReactElement[] = [];
 
   if (backgroundDataUrl) {
     children.push(
-      <img
-        key="background"
-        src={backgroundDataUrl}
-        alt=""
-        width={width}
-        height={height}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width,
-          height,
-          objectFit: 'cover'
-        }}
-      />
+      rotationSafeImages ? (
+        <div
+          key="background"
+          style={{ display: 'flex', position: 'absolute', top: 0, left: 0 }}
+        >
+          {rotationSafeCoverImg(backgroundDataUrl, width, height)}
+        </div>
+      ) : (
+        <img
+          key="background"
+          src={backgroundDataUrl}
+          alt=""
+          width={width}
+          height={height}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width,
+            height,
+            objectFit: 'cover'
+          }}
+        />
+      )
     );
   }
 
@@ -695,6 +772,30 @@ function customDesign(
     if (element.field === 'photo') {
       const w = element.width ?? 300;
       const h = element.height ?? 380;
+      if (rotationSafeImages && photoDataUrl) {
+        // No overflow:'hidden' and no objectFit under the rotated wrapper —
+        // both mispaint (see rotationSafeCoverImg). The bitmap is cropped and
+        // corner-rounded inside its SVG wrapper; the border draws its own
+        // rounding. Photo sized to the content box (border is 4px each side).
+        children.push(
+          <div
+            key={key}
+            style={{
+              display: 'flex',
+              position: 'absolute',
+              left: element.x,
+              top: element.y,
+              width: w,
+              height: h,
+              borderRadius: 12,
+              border: `4px solid ${BRAND_GREEN}`
+            }}
+          >
+            {rotationSafePhotoBox(photoDataUrl, person.fullName, w - 8, h - 8, 8)}
+          </div>
+        );
+        return;
+      }
       children.push(
         <div
           key={key}
@@ -851,20 +952,10 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
       }}
     >
       {backgroundDataUrl ? (
-        <img
-          src={backgroundDataUrl}
-          alt=""
-          width={PORTRAIT_WIDTH}
-          height={PORTRAIT_HEIGHT}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: PORTRAIT_WIDTH,
-            height: PORTRAIT_HEIGHT,
-            objectFit: 'cover'
-          }}
-        />
+        // Geometric cover — objectFit is unreliable under the rotated wrapper.
+        <div style={{ display: 'flex', position: 'absolute', top: 0, left: 0 }}>
+          {rotationSafeCoverImg(backgroundDataUrl, PORTRAIT_WIDTH, PORTRAIT_HEIGHT)}
+        </div>
       ) : null}
 
       {/* Header band — suppressed under full-bleed artwork */}
@@ -952,11 +1043,13 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
             marginTop: 52,
             borderRadius: 14,
             border: `4px solid ${BRAND_GREEN}`,
-            overflow: 'hidden',
+            // overflow:'hidden' clips mispaint bitmaps under the rotated
+            // wrapper — only the (plain-div) initials placeholder may use it.
+            ...(photoDataUrl ? {} : { overflow: 'hidden' }),
             flexShrink: 0
           }}
         >
-          {photoBox(photoDataUrl, person.fullName, 300, 380)}
+          {rotationSafePhotoBox(photoDataUrl, person.fullName, 292, 372, 10)}
         </div>
 
         {/* Name — red, bold, caps */}
@@ -1089,7 +1182,7 @@ export function buildCardElement(input: CardRenderInput): ReactElement {
   if (layout?.orientation === 'portrait' || layout?.orientation === 'portrait-flipped') {
     const content =
       layout.elements && layout.elements.length > 0
-        ? customDesign(input, layout, PORTRAIT_WIDTH, PORTRAIT_HEIGHT)
+        ? customDesign(input, layout, PORTRAIT_WIDTH, PORTRAIT_HEIGHT, true)
         : portraitDefaultDesign(input);
     return rotatePortraitIntoCanvas(content, layout.orientation);
   }
