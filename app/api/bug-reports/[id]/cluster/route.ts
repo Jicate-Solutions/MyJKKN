@@ -68,6 +68,13 @@ export async function GET(
         'id, status, member_count, seed_bug_id, module_names, metadata, first_seen_at, last_scan_at'
       )
       .contains('member_ids', [reportId])
+      // DISMISSED groups are excluded deliberately. A dismissed cluster is a
+      // grouping a human looked at and REJECTED — "these are not the same bug".
+      // Surfacing it as "part of a group of N similar reports" would assert the
+      // opposite of the decision that was made. Observed live: BUG-004551 sits in
+      // both a dismissed 35-member cluster and the confirmed 32-member one, and
+      // ordering by size alone headlined the rejected grouping.
+      .in('status', ['proposed', 'confirmed'])
       .order('member_count', { ascending: false })
       .limit(5);
 
@@ -79,7 +86,14 @@ export async function GET(
       return NextResponse.json({ data: null });
     }
 
-    const shaped = clusters.map((c: any) => {
+    // A confirmed group outranks a merely proposed one regardless of size — it
+    // carries a human decision, which is the more useful headline.
+    const ranked = [...clusters].sort((a: any, b: any) => {
+      if (a.status !== b.status) return a.status === 'confirmed' ? -1 : 1;
+      return (b.member_count ?? 0) - (a.member_count ?? 0);
+    });
+
+    const shaped = ranked.map((c: any) => {
       const fixability = c.metadata?.fixability ?? null;
       const verdict = fixability?.verdict ?? null;
       const fix = fixability?.fix ?? null;
@@ -88,10 +102,6 @@ export async function GET(
       const myVerify = verify?.per_bug?.[reportId] ?? null;
 
       return {
-        verify_status: verify?.status ?? null,
-        verify_tally: verify?.tally ?? null,
-        my_verify_verdict:
-          typeof myVerify?.verdict === 'string' ? myVerify.verdict : null,
         id: c.id,
         status: c.status,
         member_count: c.member_count,
@@ -111,7 +121,13 @@ export async function GET(
         fix_status: fix?.status ?? null,
         fix_pr_url: typeof fix?.pr_url === 'string' ? fix.pr_url : null,
         fix_pr_number:
-          typeof fix?.pr_number === 'number' ? fix.pr_number : null
+          typeof fix?.pr_number === 'number' ? fix.pr_number : null,
+        // Did the group's fix actually hold? The tally is group-wide;
+        // my_verify_verdict is this report's own line from that pass.
+        verify_status: verify?.status ?? null,
+        verify_tally: verify?.tally ?? null,
+        my_verify_verdict:
+          typeof myVerify?.verdict === 'string' ? myVerify.verdict : null
       };
     });
 
