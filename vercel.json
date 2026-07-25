@@ -68,6 +68,14 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/rcltp-question-generate?mode=enqueue&secret=${CRON_SECRET}",
+      "schedule": "47 18 * * *"
+    },
+    {
+      "path": "/api/cron/rcltp-question-generate?mode=collect&secret=${CRON_SECRET}",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },

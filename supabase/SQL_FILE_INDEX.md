@@ -2149,3 +2149,5 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Location: `supabase/migrations/20260724124500_id_card_assets_bucket.sql`.
 
 - `migrations/20260725101500_carre_participant_scoring_sealed.sql` — 2026-07-25 — CARRE sealed participant lane: carre_participant_scores (RLS seal super_admin-only) + fn_carre_participant_score (learners, open CARRE cycles) + fn_carre_participant_rollup (leadership, k>=3 floor, aggregates only) + audit_cycles.participant_scoring_open. Applied via Management API 2026-07-25; 10-point rolled-back verification passed.
+
+- `migrations/20260731140000_rcltp_question_gen_max_lane.sql` — 2026-07-25 — RCLTP Part-B question generation onto the ₹0 Max lane: repairs `rcltp.question_generation` (prompt_template `{{prompt}}` + prompt-only input_schema — both were NULL/`[]`, which fail the seat before the model runs) and registers stage 2 `rcltp.question_keycheck` for the INDEPENDENT answer-key pass that feeds ai_agreed_count. Adds config row `rcltp.question_generation.nightly_cap` (NOT EXISTS guard — platform_policies uniqueness is an expression index). Config only; no tables, functions, or policies.
