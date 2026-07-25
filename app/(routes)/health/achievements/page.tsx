@@ -21,8 +21,14 @@ import type {
   HealthSportsAchievement,
   SportLevel,
   AchievementType,
+  AchievementCategory,
 } from '@/types/health-sports';
-import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
+import {
+  JKKN_SPORTS,
+  SPORT_LEVELS,
+  ACHIEVEMENT_CATEGORIES,
+  ACHIEVEMENT_CATEGORY_LABELS,
+} from '@/types/health-sports';
 import {
   Trophy,
   BadgeCheck,
@@ -198,9 +204,10 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
       {/* Medal icon */}
       <div className="text-4xl leading-none">{typeInfo?.emoji || '🏆'}</div>
 
-      {/* Sport */}
+      {/* Sport (or award category for academic / cultural / other awards) */}
       <p className="text-sm font-bold text-gray-900 leading-tight">
-        {achievement.sport}
+        {achievement.sport ??
+          ACHIEVEMENT_CATEGORY_LABELS[achievement.category ?? 'other']}
       </p>
 
       {/* Event */}
@@ -307,6 +314,7 @@ function AddAchievementForm({
   onSuccess: () => void;
 }) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [category, setCategory] = useState<AchievementCategory>('sports');
   const [sport, setSport] = useState('');
   const [eventName, setEventName] = useState('');
   const [level, setLevel] = useState<SportLevel | ''>('');
@@ -318,8 +326,12 @@ function AddAchievementForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!sport || !eventName || !level || !achievementType) {
-      setError('Sport, event name, level, and achievement type are required.');
+    if (!eventName || !level || !achievementType || (category === 'sports' && !sport)) {
+      setError(
+        category === 'sports'
+          ? 'Sport, event name, level, and achievement type are required.'
+          : 'Event / award name, level, and achievement type are required.',
+      );
       return;
     }
     setSaving(true);
@@ -327,7 +339,8 @@ function AddAchievementForm({
     try {
       await HealthSportsService.addAchievement(learnerId, {
         achievement_date: date,
-        sport,
+        category,
+        sport: category === 'sports' ? sport : null,
         event_name: eventName,
         event_level: level as SportLevel,
         achievement_type: achievementType as AchievementType,
@@ -335,6 +348,7 @@ function AddAchievementForm({
         certificate_url: certificateUrl || undefined,
         verified: false,
       });
+      setCategory('sports');
       setSport('');
       setEventName('');
       setLevel('');
@@ -371,6 +385,27 @@ function AddAchievementForm({
             </div>
 
             <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">Category</Label>
+              <Select
+                value={category}
+                onValueChange={(v) => setCategory(v as AchievementCategory)}
+              >
+                <SelectTrigger className="h-9 bg-white">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ACHIEVEMENT_CATEGORIES.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.emoji} {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {category === 'sports' && (
+            <div className="space-y-1.5">
               <Label className="text-xs font-medium text-gray-600">Sport</Label>
               <Select value={sport} onValueChange={setSport}>
                 <SelectTrigger className="h-9 bg-white">
@@ -385,17 +420,21 @@ function AddAchievementForm({
                 </SelectContent>
               </Select>
             </div>
-          </div>
+          )}
 
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-gray-600">
-              Event / Tournament Name
+              Event / Award Name
             </Label>
             <Input
               type="text"
               value={eventName}
               onChange={(e) => setEventName(e.target.value)}
-              placeholder="e.g. Inter-College Volleyball Championship 2026"
+              placeholder={
+                category === 'sports'
+                  ? 'e.g. Inter-College Volleyball Championship 2026'
+                  : 'e.g. State-Level Paper Presentation Award 2026'
+              }
               className="h-9 bg-white"
             />
           </div>
