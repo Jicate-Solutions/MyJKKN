@@ -332,14 +332,26 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'induction.generate_playbook': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'induction.session_effectiveness': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'cdc.career_guidance': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
-    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
-    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
-    'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
-    'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
+    // 2026-07-25 — was the dated snapshot 'claude-sonnet-4-20250514', which
+    // pins an ageing model the moment Supabase is unreachable. Swapped for
+    // the always-latest Sonnet family alias (see ai-providers.ts — 'sonnet'
+    // and 'opus' are the ONLY Claude family aliases this codebase resolves).
+    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'sonnet'),
+    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'sonnet'),
+    // 2026-07-25 — de-dated from 'claude-haiku-4-5-20251001'. ai-providers.ts
+    // documents that id as "dated alias of claude-haiku-4-5" with identical
+    // pricing (₹0.085/₹0.425 per 1K tokens on both) — same tier, no upgrade,
+    // just dropping the snapshot date.
+    'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
     // rcltp generate route is MyJKKN-gated scaffold (no model in code yet) —
     // forward-default to the platform workhorse.
     'rcltp.question_generation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
+    // Deliberately LEFT dated (not de-dated): 'claude-3-5-haiku-20241022' has
+    // no undated sibling id in ai-providers.ts — 3.5 vs 4.5 is a genuine
+    // version bump, not a snapshot-of-the-same-model de-dating, so touching
+    // this would be an unrequested model upgrade. Out of scope for this fix.
     'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     // Procurement PDF extraction (2026-07-11) — mirrors the pre-adoption hardcode
