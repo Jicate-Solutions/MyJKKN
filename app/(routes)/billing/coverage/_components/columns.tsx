@@ -8,7 +8,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import type { LifecycleStatus } from '@/types/learner-profile';
 import { formatCurrency } from '@/lib/utils';
-import { Building, Bus, GraduationCap, User } from 'lucide-react';
+import { Building, GraduationCap } from 'lucide-react';
 import type { BillCoverageRow } from '@/types/billing-coverage';
 
 // ── Column ids MUST match the RPC's sort whitelist ─────────────────────────
@@ -99,16 +99,14 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
     ),
     // Widest column: the name is what people scan for, and roll/register
     // number ride underneath it so the identifier columns can stay narrow.
-    size: 280,
+    size: 480,
     minSize: 220,
-    maxSize: 420,
+    maxSize: 520,
     cell: ({ row }) => {
       const r = row.original;
       return (
         <div className='flex items-center gap-2 py-0.5'>
-          <span className='flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted'>
-            <User className='h-3.5 w-3.5 text-muted-foreground' />
-          </span>
+          
           <div className='min-w-0'>
             <Link
               href={`/billing/schedule/students/${r.learner_id}`}
@@ -140,7 +138,7 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
     cell: ({ row }) => (
       <LifecycleStatusBadge
         status={row.original.lifecycle_status as LifecycleStatus}
-        showIcon
+      
       />
     )
   },
@@ -154,21 +152,6 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
     minSize: 145,
     maxSize: 220,
     cell: ({ row }) => coverageBadge(row.original.coverage_state)
-  },
-  {
-    accessorKey: 'roll_number',
-    id: 'roll_number',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Roll Number' />
-    ),
-    size: 130,
-    minSize: 110,
-    maxSize: 180,
-    cell: ({ row }) => (
-      <span className='font-medium tabular-nums'>
-        {row.original.roll_number ?? '—'}
-      </span>
-    )
   },
   {
     accessorKey: 'institution_name',
@@ -261,28 +244,7 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
       );
     }
   },
-  {
-    // Derived boolean — not in the RPC's sort whitelist, so sorting is off.
-    accessorKey: 'uses_transport',
-    id: 'uses_transport',
-    header: 'Transport',
-    size: 115,
-    minSize: 95,
-    maxSize: 150,
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.uses_transport ? (
-        <Badge
-          variant='outline'
-          className='gap-1 border-indigo-300 bg-indigo-100 text-indigo-800 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-        >
-          <Bus className='h-3 w-3' />
-          Bus
-        </Badge>
-      ) : (
-        <span className='text-muted-foreground'>—</span>
-      )
-  },
+ 
   {
     accessorKey: 'gender',
     id: 'gender',
