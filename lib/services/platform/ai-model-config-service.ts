@@ -332,8 +332,13 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'induction.generate_playbook': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'induction.session_effectiveness': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'cdc.career_guidance': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
-    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
-    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
+    // 2026-07-25 — was the dated snapshot 'claude-sonnet-4-20250514', which
+    // pins an ageing model the moment Supabase is unreachable. Swapped for
+    // the always-latest Sonnet family alias (see ai-providers.ts — 'sonnet'
+    // and 'opus' are the ONLY Claude family aliases this codebase resolves;
+    // there is no 'haiku' alias, so haiku-family dated ids below are untouched).
+    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'sonnet'),
+    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'sonnet'),
     'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
     'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
     // rcltp generate route is MyJKKN-gated scaffold (no model in code yet) —
