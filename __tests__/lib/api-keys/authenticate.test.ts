@@ -160,10 +160,10 @@ describe('resolveInstitutionId', () => {
     expect(resolveInstitutionId(ctx, req)).toBe('inst-a');
   });
 
-  it('returns null when key is bound but query param differs', () => {
+  it('clamps to the key institution when key is bound but query param differs (fail-closed)', () => {
     const ctx = { institutionId: 'inst-a' } as never;
     const req = makeRequest('token', 'http://localhost/api?institutionId=inst-b');
-    expect(resolveInstitutionId(ctx, req)).toBeNull();
+    expect(resolveInstitutionId(ctx, req)).toBe('inst-a');
   });
 
   it('returns query param when key is not bound', () => {

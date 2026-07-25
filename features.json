@@ -1,6 +1,6 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-05-16",
+  "lastUpdated": "2026-07-22",
   "_schema": {
     "version": "2.0",
     "updated": "2026-05-02",
@@ -16,6 +16,34 @@
     "enforcement": "Specs missing `outcome_metric` block are invalid. /myjkkn-chain Q0 enforces this gate at spec-time. Cross-domain commitments mirrored to ~/Vaults/JKKNKB/Strategy/Locked-Initiatives.md via /lock-initiative skill."
   },
   "features": [
+    {
+      "id": "per-job-model-selection-maxlane",
+      "name": "Per-job AI model selection on the Max lane (+ safety-judge floor)",
+      "status": "self-verified",
+      "outcome_metric": {
+        "metric_name": "count(DISTINCT ai_model_usage.model_id) recorded on the free lane (was 1 placeholder 'max-subscription'; real per-model rows once jobs are switched)",
+        "baseline_value": "1 ('max-subscription' placeholder) as of 2026-07-23 morning; drain now records the real model per job",
+        "threshold_90d": "Free-lane usage shows the real Claude model per run (proven: Opus probe recorded claude-opus-4-8); Director can set any job's model from /admin/ai-models and it takes effect",
+        "kill_criterion": "If a model pick in /admin/ai-models does not change what the free-lane drain runs, the source-of-truth wiring is broken — re-audit ai_job_types vs ai_model_config",
+        "verdict_date": "2026-10-23",
+        "verdict_status": "HIT (shipped + live + visually verified via CFT; Opus probe ran Opus on prod)"
+      },
+      "notes": "SHIPPED + LIVE 2026-07-23. fn_ai_claim (ai_job_types-first resolution) + fn_ai_job_type_set_model (safety-judge floor) applied to prod; Windows drain patched (honors per-job model, records real model+tokens; Opus proven). UI = PR #2307 (usage-by-model panel + Claude-only picker + Opus-volume warning + safety floor) MERGED + DEPLOYED, visually verified. Source of truth = ai_job_types. Memory: project_per_job_model_selection_maxlane."
+    },
+    {
+      "id": "ai-model-autocompare-loop",
+      "name": "Feature A — auto-compare model-quality loop (switch → judge old vs new → warn)",
+      "status": "self-verified",
+      "outcome_metric": {
+        "metric_name": "count(model_switch_evaluations WHERE status='verdict_ready') — switches that reached a real old-vs-new verdict",
+        "baseline_value": "0 (substrate applied 2026-07-23; no collect loop running yet)",
+        "threshold_90d": "≥1 real switch reaches a verdict via ≥20 judged comparisons by 2026-10-23",
+        "kill_criterion": "If the collect loop never accumulates comparisons after deploy, the loop is inert — decide whether the free-seat replay cost is worth it (drain also ETIMEDOUTs on large prompts).",
+        "verdict_date": "2026-10-23",
+        "verdict_status": "ON TRACK — SHIPPED + DEPLOYED + verified live 2026-07-23 (PR #2310 merged). Collect loop proven E2E (a real scf.freetext_carry switch recorded a genuine old_better comparison via the cron; RPC verdict flip proven rolled-back). Cron scheduled (vercel.json 9,39). Metric increments once a REAL switch reaches ~20 comparisons."
+      },
+      "notes": "PR #2310 MERGED + DEPLOYED + verified live (cron 401, switches 401, /admin/ai-models 200 as super_admin, both card+usage-panel render). Full loop: switch-detection (130001) → discover recent NEW-model source jobs → replay OLD model via model_compare.replay pinned by payload._model_override (honored in fn_ai_claim 130003 — NO drain change; proven on live drain w/ haiku) → model_compare.judge ({{prompt}} fix codified 130002) → fn_model_switch_record_comparison (service_role-only) → conservative verdict. Cron /api/cron/model-compare-collect (state machine = model_switch_replays table; glue-guarded; per-run capped; in vercel.json 9,39). Warning UI on /admin/ai-models pixel-verified (amber new_worse / yellow tie). Recommendation-only, never auto-reverts. npm run build green. Memory: project_per_job_model_selection_maxlane (STATUS)."
+    },
     {
       "id": "counselor-rules-engine-substrate",
       "name": "Counselor rules-engine — Phases 1-8a shipped (verdict 2026-06-30)",
@@ -46,33 +74,33 @@
     },
     {
       "id": "hr-sprint-1-foundation",
-      "name": "HR Sprint 1 \u2014 Shadow Tenant + Employee Master",
+      "name": "HR Sprint 1 — Shadow Tenant + Employee Master",
       "status": "self-verified",
       "notes": "PR #163 merged+deployed, PR #165 hotfix (FK disambig) merged. 7 tables live: hr_organizations(11), user_hr_access, hr_cadres(44), hr_designations(187), hr_staff_details(393), hr_employees, hr_additional_roles. Routes /hr, /hr/employees live."
     },
     {
       "id": "hr-sprint-2-policies",
-      "name": "HR Sprint 2 \u2014 Policy Management (19 versioned tables)",
+      "name": "HR Sprint 2 — Policy Management (19 versioned tables)",
       "status": "self-verified",
       "notes": "PR #167 merged+deployed. 19 CRUDable policy tables with edit-as-supersede versioning. 3 SECURITY DEFINER RPCs (history, diff, restore). Generic PolicyEditor drives all 19 routes via registry."
     },
     {
       "id": "hr-sprint-3-leave-workflow",
-      "name": "HR Sprint 3 \u2014 Staff Leave Workflow",
+      "name": "HR Sprint 3 — Staff Leave Workflow",
       "status": "self-verified",
       "notes": "PR #176 merged+deployed+browser-verified. 6 tables + 3 triggers + 1 RPC + 2358 seed rows. 8 pages + 9 API routes + 10 hooks. 28 interview decisions locked in spec."
     },
     {
       "id": "hr-leave-unification",
-      "name": "HR \u2014 Unify leave_types \u2190 hr_leave_types (single catalog)",
+      "name": "HR — Unify leave_types ← hr_leave_types (single catalog)",
       "status": "self-verified",
       "notes": "PR #182 merged+deployed. leave_types now 74 rows (8 learner + 8 cols extended with scope+policy cols + 66 staff migrated with UUID preservation). hr_leave_types dropped, replaced with read-only compat VIEW."
     },
     {
       "id": "hr-sprint-6-command-center",
-      "name": "HR Sprint 6 \u2014 Command Center Dashboard",
+      "name": "HR Sprint 6 — Command Center Dashboard",
       "status": "self-verified",
-      "notes": "PR #204 merged+deployed 2026-04-16 12:11 IST. Rebuilt from spec after Apr-15 revert event. 10 files \u00b7 2,244 LOC \u00b7 0 TS errors. Verified live on www.jkkn.ai/hr: 11-institution super-admin grid renders; access-log has 39 rows / 3 users (decision #18 working); 4 realtime tables in supabase_realtime publication. Follow-up PR #210 fixes 3 drill-down 404s to non-existent Sprint 2/3 pages."
+      "notes": "PR #204 merged+deployed 2026-04-16 12:11 IST. Rebuilt from spec after Apr-15 revert event. 10 files · 2,244 LOC · 0 TS errors. Verified live on www.jkkn.ai/hr: 11-institution super-admin grid renders; access-log has 39 rows / 3 users (decision #18 working); 4 realtime tables in supabase_realtime publication. Follow-up PR #210 fixes 3 drill-down 404s to non-existent Sprint 2/3 pages."
     },
     {
       "id": "pr-preflight-skill",
@@ -82,15 +110,15 @@
     },
     {
       "id": "hr-employees-non-staff-scope",
-      "name": "Kill /hr/employees \u2194 /staff/list duplication \u2014 scope to non-staff only",
+      "name": "Kill /hr/employees ↔ /staff/list duplication — scope to non-staff only",
       "status": "self-verified",
       "notes": "PR #203 merged 2026-04-15. The two URLs were showing the same 393 staff rows because HRPersonService unioned both tables with no opt-out. Added include_staff filter (default true for back-compat; /hr/employees passes false). Renamed sidebar label to 'Non-Staff Workforce'. Split /hr hero CTA into two (Full-Time Staff vs Non-Staff). Bidirectional cross-links. Polymorphic schema untouched."
     },
     {
       "id": "hr-sprint-6-drill-404-fix",
-      "name": "Sprint 6 follow-up \u2014 fix 3 drill-down 404s",
+      "name": "Sprint 6 follow-up — fix 3 drill-down 404s",
       "status": "pending-merge",
-      "notes": "PR #210 open. Post-merge silent-failure sweep caught 3 dead drill_urls: /hr/leave/blackouts (no admin page exists), /hr/policies/leave-types and /hr/policies/approval-flows (dynamic [table] route needs actual table names \u2014 leave_types and hr_approval_flows). 1 file \u00b7 3 string changes \u00b7 zero logic."
+      "notes": "PR #210 open. Post-merge silent-failure sweep caught 3 dead drill_urls: /hr/leave/blackouts (no admin page exists), /hr/policies/leave-types and /hr/policies/approval-flows (dynamic [table] route needs actual table names — leave_types and hr_approval_flows). 1 file · 3 string changes · zero logic."
     },
     {
       "id": "hr-employees-100-cap-fix",
@@ -144,7 +172,7 @@
       "id": "call-details-page",
       "name": "Call Details Page",
       "status": "self-verified",
-      "notes": "PR #11 merged. Clickable rows \u2192 detail page with info, audio player, notes editor, lead card, call history."
+      "notes": "PR #11 merged. Clickable rows → detail page with info, audio player, notes editor, lead card, call history."
     },
     {
       "id": "exotel-price-classification",
@@ -162,7 +190,7 @@
       "id": "call-transcription",
       "name": "Call Recording Transcription",
       "status": "planned",
-      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download \u2192 transcribe \u2192 extract intent."
+      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download → transcribe → extract intent."
     },
     {
       "id": "multi-college-leads",
@@ -172,43 +200,250 @@
     },
     {
       "id": "dashboard-decision-queue-actionable",
-      "name": "Dashboard Decision Queue \u2014 actionable digest cards",
+      "name": "Dashboard Decision Queue — actionable digest cards",
       "status": "self-verified",
       "notes": "4-PR wave 2026-04-27: #513 cards link to action_config.url, #522 generators emit actionable URLs (+76 backfilled rows), #518 ?category= filter, #521 ?stale_min_days= filter. Browser-verified on jkkn.ai. PR #418 (cron auth fix) prerequisite landed earlier."
     },
     {
       "id": "see-as-user-impersonation",
-      "name": "See As User \u2014 admin impersonation with director-only write mode",
+      "name": "See As User — admin impersonation with director-only write mode",
       "status": "deployed-awaiting-test",
-      "notes": "PRs #166\u2192#185 merged 2026-04-15. Real session swap via admin.generateLink+verifyOtp+setSession (PR #179 architectural fix). Director-only write mode + boobalan.a@jkkn.ac.in allowlist (PR #181). Exit re-issues admin session via generateLink instead of cookie backup (PR #185 \u2014 fixes 4KB cookie size ceiling truncation). Reusable skill at ~/.claude/skills/see-as-user/. NOT yet user-verified post-#185 deploy: needs director to walk Start\u2192Exit end-to-end and confirm admin lands back on permissions-audit STILL LOGGED IN. See progress.txt 2026-04-27 entry P0 task."
+      "notes": "PRs #166→#185 merged 2026-04-15. Real session swap via admin.generateLink+verifyOtp+setSession (PR #179 architectural fix). Director-only write mode + boobalan.a@jkkn.ac.in allowlist (PR #181). Exit re-issues admin session via generateLink instead of cookie backup (PR #185 — fixes 4KB cookie size ceiling truncation). Reusable skill at ~/.claude/skills/see-as-user/. NOT yet user-verified post-#185 deploy: needs director to walk Start→Exit end-to-end and confirm admin lands back on permissions-audit STILL LOGGED IN. See progress.txt 2026-04-27 entry P0 task."
     },
     {
       "id": "counselor-funnel-progression-enablement",
-      "name": "Counselor funnel-progression enablement \u2014 close the 0%-conversion process gap",
+      "name": "Counselor funnel-progression enablement — close the 0%-conversion process gap",
       "status": "planned",
-      "notes": "Filed 2026-05-03 as P0-2 outcome of session brief: v_dashboard_conversion_monthly correctly reports 0% across all 35 leaderboard rows because admission_leads has ZERO leads in any success state (enrolled/offer_accepted/token_paid/confirmed) ALL-TIME. admission_lead_stage_history shows zero success transitions in 30 days. admission_applications table is empty. Director verdict: process gap, not data bug \u2014 counselors are tracking offers/enrollments offline (paper/Excel/external) instead of in MyJKKN. NEXT: interview counselors to identify the friction (workflow steps, UI gaps, mobile vs web, training), then design + ship a friction-removal in MyJKKN. Outcome will be measured by the existing matview \u2014 once counselors record offers in MyJKKN, conversion_pct will become non-zero on the leaderboard.",
+      "notes": "Filed 2026-05-03 as P0-2 outcome of session brief: v_dashboard_conversion_monthly correctly reports 0% across all 35 leaderboard rows because admission_leads has ZERO leads in any success state (enrolled/offer_accepted/token_paid/confirmed) ALL-TIME. admission_lead_stage_history shows zero success transitions in 30 days. admission_applications table is empty. Director verdict: process gap, not data bug — counselors are tracking offers/enrollments offline (paper/Excel/external) instead of in MyJKKN. NEXT: interview counselors to identify the friction (workflow steps, UI gaps, mobile vs web, training), then design + ship a friction-removal in MyJKKN. Outcome will be measured by the existing matview — once counselors record offers in MyJKKN, conversion_pct will become non-zero on the leaderboard.",
       "outcome_metric": {
         "metric_name": "v_dashboard_conversion_monthly: count of rows where converted_count > 0",
         "baseline_value": "0 of 35 rows have any conversions (measured 2026-05-03 14:01 IST)",
         "threshold_90d": "At least 10 of 35 rows show converted_count >= 1 by 2026-08-01",
-        "kill_criterion": "If 0 rows show conversions by 2026-08-01, the friction-removal hypothesis is wrong \u2014 escalate to organizational change-management vs MyJKKN feature work",
+        "kill_criterion": "If 0 rows show conversions by 2026-08-01, the friction-removal hypothesis is wrong — escalate to organizational change-management vs MyJKKN feature work",
         "verdict_date": "2026-08-01",
         "verdict_status": "PENDING"
       }
     },
     {
       "id": "wave-5-recruitment-workflow-repair",
-      "name": "Wave 5 \u2014 Recruitment Workflow Substrate Repair (5 fixes; verdict 2026-08-14)",
+      "name": "Wave 5 — Recruitment Workflow Substrate Repair (5 fixes; verdict 2026-08-14)",
       "status": "shipped",
       "outcome_metric": {
-        "metric_name": "Recruitment workflow stage coverage \u2014 count of distinct successful state transitions (submitted \u2192 scheduled \u2192 scored \u2192 approved \u2192 offered \u2192 joined \u2192 onboarded) executable end-to-end via authenticated UI without 500s",
-        "baseline_value": "1 of 7 stages working (only submit\u2192pending_approval pre-Wave-5; interview-scheduling 500'd because table didn't exist, scoring 500'd, jobs 500'd, onboarding-start 400'd, submit UI silently failed)",
+        "metric_name": "Recruitment workflow stage coverage — count of distinct successful state transitions (submitted → scheduled → scored → approved → offered → joined → onboarded) executable end-to-end via authenticated UI without 500s",
+        "baseline_value": "1 of 7 stages working (only submit→pending_approval pre-Wave-5; interview-scheduling 500'd because table didn't exist, scoring 500'd, jobs 500'd, onboarding-start 400'd, submit UI silently failed)",
         "threshold_90d": "All 7 stages executable end-to-end by 2026-08-14 (90-day verdict). Measured by: a fresh test candidate walked through every stage without intervention.",
-        "kill_criterion": "If <4 stages working by 2026-08-14, recruitment module is fundamentally broken \u2014 re-audit with a fresh /assumption-thrash before scoping additional recruitment work",
+        "kill_criterion": "If <4 stages working by 2026-08-14, recruitment module is fundamentally broken — re-audit with a fresh /assumption-thrash before scoping additional recruitment work",
         "verdict_date": "2026-08-14",
         "verdict_status": "PENDING (Wave 5 just shipped 2026-05-16; T4.3 period orchestration depends on this substrate being stable)"
       },
-      "notes": "Shipped 2026-05-16 via 1 inline action + 4 parallel fullstack-developer Agent spawns + 1 \u03b2-prime re-spawn (\u03b2 stalled at 600s no-progress mid-investigation). The 5 fixes (PR numbers may shift; check Jicate-Solutions/MyJKKN PR list for the actual numbers landed today after 03:00 UTC):\n- Inline: applied dormant migration 20260509100200_create_hr_recruitment_jobs.sql to prod via Management API (table+7 indexes+4 RLS policies live)\n- Agent \u03b1 (PR #937): hr_recruitment_interviews substrate \u2014 16 cols + GIN index on panel_member_ids + 4 RLS policies. Override of spec: pulled mode/status enum values from types/hr-recruitment.ts (caught spec being stale \u2014 service writes `status='rescheduled'` which spec didn't include)\n- Agent \u03b2-prime (PR TBD): hr_recruitment_scorecards substrate \u2014 UNIQUE(interview_id, interviewer_id) + 4 RLS policies. \u03b2 stalled, \u03b2-prime shipped with pre-baked schema + RLS helpers.\n- Agent \u03b3 (PR #939): /hr/recruitment/submit form fix. Override of spec: form is plain useState (not RHF as my prompt claimed); transform is correct; real bug was silent `return` guard. Fix replaces with collect-and-toast pattern (15+/-1).\n- Agent \u03b4 (PR #938): onboarding_checklists seed migration \u2014 4 rows (Administrative Leadership / Non-Technical Admin / Supporting Technical / Teaching Faculty). Override of spec: 4 rows not 5 because cadreMap collapses 5 role_categories to 3 unique names. End-to-end verified candidate 6a53fd18 onboarding now starts.\n\nThree distinct agent overrides of my prompts all proved correct. Meta-learning: when spec disagrees with reality, agent should call it out, not silently fall in either direction (Rule 21 protected).\n\nTest artifact in prod: candidate 6a53fd18-544b-48f1-b6ce-16248ef187db ('WorkflowTest 20260516 Sample Candidate'), status=joined, with 9-step onboarding populated. Director may delete via Management API when ready; useful as audit trail until then.\n\nAlso fixed: CLAUDE.md port-drift documented (3104 design vs 3000 reality), memory feedback_dev_server_port_drift_3104_vs_3000.md saved. Wave 5 outcome metric set conservatively \u2014 7-stage coverage by 90 days is realistic given T4.3 dependency."
+      "notes": "Shipped 2026-05-16 via 1 inline action + 4 parallel fullstack-developer Agent spawns + 1 β-prime re-spawn (β stalled at 600s no-progress mid-investigation). The 5 fixes (PR numbers may shift; check Jicate-Solutions/MyJKKN PR list for the actual numbers landed today after 03:00 UTC):\n- Inline: applied dormant migration 20260509100200_create_hr_recruitment_jobs.sql to prod via Management API (table+7 indexes+4 RLS policies live)\n- Agent α (PR #937): hr_recruitment_interviews substrate — 16 cols + GIN index on panel_member_ids + 4 RLS policies. Override of spec: pulled mode/status enum values from types/hr-recruitment.ts (caught spec being stale — service writes `status='rescheduled'` which spec didn't include)\n- Agent β-prime (PR TBD): hr_recruitment_scorecards substrate — UNIQUE(interview_id, interviewer_id) + 4 RLS policies. β stalled, β-prime shipped with pre-baked schema + RLS helpers.\n- Agent γ (PR #939): /hr/recruitment/submit form fix. Override of spec: form is plain useState (not RHF as my prompt claimed); transform is correct; real bug was silent `return` guard. Fix replaces with collect-and-toast pattern (15+/-1).\n- Agent δ (PR #938): onboarding_checklists seed migration — 4 rows (Administrative Leadership / Non-Technical Admin / Supporting Technical / Teaching Faculty). Override of spec: 4 rows not 5 because cadreMap collapses 5 role_categories to 3 unique names. End-to-end verified candidate 6a53fd18 onboarding now starts.\n\nThree distinct agent overrides of my prompts all proved correct. Meta-learning: when spec disagrees with reality, agent should call it out, not silently fall in either direction (Rule 21 protected).\n\nTest artifact in prod: candidate 6a53fd18-544b-48f1-b6ce-16248ef187db ('WorkflowTest 20260516 Sample Candidate'), status=joined, with 9-step onboarding populated. Director may delete via Management API when ready; useful as audit trail until then.\n\nAlso fixed: CLAUDE.md port-drift documented (3104 design vs 3000 reality), memory feedback_dev_server_port_drift_3104_vs_3000.md saved. Wave 5 outcome metric set conservatively — 7-stage coverage by 90 days is realistic given T4.3 dependency."
+    },
+    {
+      "id": "scf-freetext-carryforward",
+      "name": "SCF free-text carry-forward — learner's own words re-asked next session (AI-summarized, private)",
+      "status": "in-progress",
+      "outcome": "2026-07-19: Built same-day off an 8-decision Director interview (re-confirmed 8/8 on re-ask + decision 9 banner-copy fix). DB + ₹0 job type LIVE on prod; loop proven pre-merge on 150 real texts (two-concern split verified). PR #2179 open (rebased, Director merge pending). Next: deploy → Monday live-verify re-asks → weekly false-carry sample. Kill switch scf.freetext_carry.enabled."
+    },
+    {
+      "id": "referral-2025-26-payment-history-import",
+      "name": "F1 — Referral payment history importer (already-paid list)",
+      "status": "built-pr-open",
+      "spec": "SPECS.md §6 F1",
+      "priority": "P0 — gates every other feature (D16)",
+      "outcome_metric": {
+        "metric_name": "count(consultant_commission_transactions WHERE status='paid' AND notes LIKE '%historical-2025-26%') — historical payments recorded before any new payout run",
+        "baseline_value": "0 rows as of 2026-07-21 (every payment table empty; no payment history has ever existed)",
+        "threshold_90d": "100% of the Director's already-paid list loaded and reconciled, with a zero-silent-failure exception report, by 2026-10-19",
+        "kill_criterion": "If the already-paid list cannot be produced or is known incomplete, HALT the release — do not compute any amount. Double payment is unrecoverable.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING — not started; awaiting Director file"
+      },
+      "test_steps": [
+        "Upload a file whose columns do NOT match the template — confirm it is REFUSED before any row is read (D23).",
+        "Upload a valid file — confirm every row gets a verdict (ok/flagged/blocked/no_match) and nothing is written yet.",
+        "Press Approve — confirm ONLY clean rows are promoted; flagged and no-match rows remain on a to-do list (D18).",
+        "Confirm an approved clean row writes canonical attribution (learners_profiles.referred_by_id), NOT a payment record (D20/D28).",
+        "Confirm an already-paid row is recorded to the double-pay ledger and cannot be paid again.",
+        "As a non-senior user, try to override a flag or edit an amount — confirm it is refused; as a senior user it works and is logged (D19/D22).",
+        "Edit a row's amount as senior — confirm the row is re-validated and the change is recorded.",
+        "Upload a second file containing a student already recorded from the first — confirm it is flagged 'already on record', not silently re-added (D24).",
+        "After approval, confirm the registrar enrolment check-list is auto-generated for exactly the claimed students (D25).",
+        "A matched student with recent attendance shows GREEN 'confirmed studying'; one without shows AMBER 'registrar to check' (D33).",
+        "Approving an already-paid row creates a 'paid' commission record, and the generator then SKIPS that learner (no double-pay) (D34).",
+        "A non-senior can upload and preview but the Approve-save button is disabled/blocked for them; a senior can approve (D35).",
+        "A row for a student already attributed to a DIFFERENT referrer is written as a DISPUTE against the existing record, NOT overwriting it (D36).",
+        "A row with agreed=5000, already_paid=3000 records 2000 as still owed; a row with only paid=3000 and no agreed figure records nothing owed (D37).",
+        "A clean row with a blank amount is recorded as 'amount to be set' and cannot be paid until an amount exists (D38).",
+        "Uploading a file where >~a third of rows don't match triggers a strong warning + confirm before any write (D39).",
+        "A non-admin, non-uploader cannot open a past upload's contents (D40)."
+      ],
+      "notes": "Validator PROVEN on prod 2026-07-22 (fn_validate_referral_import_batch + staging tables; all 9 verdict classes correct, zero footprint; branch feat/referral-2025-26-importer, NOT applied). Template docs/referral-2025-26-import-template.xlsx delivered. Match key=application_id (100% unique). Decisions: refuse wrong-column file (D23); approve promotes CLEAN rows only (D18); approve records canonical attribution not payments (D20/D28); senior-only logged overrides+edits (D19/D21/D22); dedup across uploads (D24); auto-emit registrar check-list (D25). UI screen = next slice. | UPLOAD SCREEN decisions D33-D40 (2026-07-22/23): show enrolment status inline (D33); already-paid rows create paid record (D34); upload/preview=any admission staff, approve=senior (D35); conflict=write-once + dispute, NO credit rule (no evidence layer: referral_code 0%, is_verified 98% non-discriminating) (D36); owed=agreed-paid only if file shows higher agreed (D37); blank amount=record as 'to be set', not payable (D38); messy file=warn+confirm then approve good rows (D39); access=admission admins+uploader (D40). Write to consultant_lead_attributions (full record), not just referred_by_id, so verify/dispute/contest work. | UPLOAD SCREEN BUILT (PR #2296): enrich+promote proven on prod (write-once, dispute-on-conflict, paid-ledger, owed, enrolment). UI /admission/consultants/import."
+    },
+    {
+      "id": "referral-2025-26-claim-matching",
+      "name": "F2 — Claim matching + exception report",
+      "status": "specified",
+      "spec": "SPECS.md §6 F2",
+      "priority": "P0",
+      "outcome_metric": {
+        "metric_name": "Percentage of submitted 2025-26 referral claims resolved to exactly one bucket (matched / flagged-with-reason)",
+        "baseline_value": "0% — 2025-26 has 0 attribution rows in learners_profiles (capture began 2026-02-26)",
+        "threshold_90d": "100% of claims bucketed with zero silent drops by 2026-10-19",
+        "kill_criterion": "If >20% of claims cannot be matched to a real admission, STOP and re-request the source data — the file is not fit to pay from.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING — awaiting Director claim file"
+      },
+      "test_steps": [
+        "Submit two claims naming the SAME student from different referrers — confirm BOTH are held and flagged, and NEITHER is payable (D12).",
+        "Submit a claim where referrer id equals the referred learner id — confirm it is BLOCKED outright (D11).",
+        "Submit a claim where referrer and student share a surname — confirm it is FLAGGED for review, NOT auto-rejected (D11).",
+        "Submit a claim naming a referral type but no resolvable referrer — confirm it lands on the review list and is not dropped (D13).",
+        "Sum matched + flagged and confirm it equals total rows submitted — proves zero silent drops.",
+        "Confirm a claim for a student outside admission year 2025-26 is rejected with that reason."
+      ],
+      "notes": "Must reproduce the 135-unlinked class of failure as a FLAG, not a drop. referred_by_id has no FK and is polymorphic by referral_type (consultant→education_consultants, faculty→staff, student→learners_profiles) — the importer must validate the pointer."
+    },
+    {
+      "id": "referral-2025-26-enrolment-verification",
+      "name": "F3 — Enrolment verification (attendance/feedback auto-confirm + registrar fallback)",
+      "status": "specified",
+      "spec": "SPECS.md §6 F3",
+      "priority": "P0 — required by eligibility rule D6",
+      "outcome_metric": {
+        "metric_name": "Percentage of claimed students auto-confirmed by recent attendance/feedback, and percentage of the remainder confirmed by registrar, before payment",
+        "baseline_value": "lifecycle_status unusable (319 impossible 'graduated'); measured presence coverage ~53% of cohort have recent attendance/feedback, ~47% have NONE (college doesn't mark attendance in-system)",
+        "threshold_90d": "100% of claimed students either auto-confirmed (attendance/feedback) or registrar-confirmed before approval; 0 auto-rejections on missing data; by 2026-10-19",
+        "kill_criterion": "If ANY claimed student is auto-rejected purely for missing attendance/feedback, HALT — absence of signal is a system-coverage gap, not proof of leaving (D30).",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING"
+      },
+      "test_steps": [
+        "Claim a student with recent 'Present' attendance — confirm they are AUTO-CONFIRMED with no registrar step (D29).",
+        "Claim a student who submitted recent session feedback but has no attendance — confirm auto-confirmed (feedback = presence).",
+        "Claim a student with NO attendance and NO feedback — confirm they go to the registrar worklist, and are NOT auto-rejected (D30).",
+        "Confirm a student whose only attendance is from February (stale) is NOT auto-confirmed under the this-term rule (D31) and falls to registrar.",
+        "Auto-confirm a student, then simulate them leaving, then run the payout — confirm the payment-time re-check catches it and blocks payment (D32).",
+        "Confirm no code path treats 'no attendance record' as 'not studying'."
+      ],
+      "notes": "D29-D32. Auto-confirm = recent (this-term) attendance OR session_feedback = proof of presence. student_attendance.attendance_data is JSONB per-session (student_id+status inside); session_feedback.student_id is direct. No signal => registrar (NEVER auto-reject, D30). Re-check at payment time (D32). This REPLACES the manual-registrar-for-all approach."
+    },
+    {
+      "id": "referral-2025-26-rate-table",
+      "name": "F4 — Per-course / per-institution flat rate table",
+      "status": "specified",
+      "spec": "SPECS.md §6 F4",
+      "priority": "P0",
+      "outcome_metric": {
+        "metric_name": "count(consultant_commission_structures WHERE is_active) covering every course/institution present in the claim set",
+        "baseline_value": "0 rows for 49 active consultants (2026-07-21)",
+        "threshold_90d": "100% of claimed courses/institutions have a traceable active rate by 2026-10-19",
+        "kill_criterion": "If the Director cannot supply rates, HALT — do not infer, average or invent a rate. An invented rate is not a debt.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING — awaiting Director rate table"
+      },
+      "test_steps": [
+        "Set a rate for one course, confirm it saves and is readable back.",
+        "Change the rate and confirm no code deployment was needed (config, not code — D3).",
+        "Request a computation for a course with NO rate — confirm a clear refusal, never a default or zero.",
+        "Confirm the rate applied to any claim is traceable to a specific rate row.",
+        "Confirm no rate path reads student fee amounts (D3 removes that dependency)."
+      ],
+      "notes": "D3: flat amount varying by course/institution — deliberately NOT a percentage of fees, because fee data is patchy (only 33% of the 2025-26 cohort has any 2026 receipt) and a percentage rate would create a third data blocker."
+    },
+    {
+      "id": "referral-commission-calculator-repair",
+      "name": "F5 — Repair calculateCommission against the real structures schema",
+      "status": "specified",
+      "spec": "SPECS.md §6 F5 / §2.2",
+      "priority": "P1",
+      "outcome_metric": {
+        "metric_name": "count of phantom column references in ConsultantService.calculateCommission (rate_type, calculation_method, milestone_config, max_commission_per_student)",
+        "baseline_value": "4 phantom references, 0 callers (2026-07-21)",
+        "threshold_90d": "0 phantom references; still 0 auto-trigger callers; by 2026-10-19",
+        "kill_criterion": "If repair cannot be verified against a real rate row, leave the method UNWIRED — a silently-flat commission is worse than no commission.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING"
+      },
+      "test_steps": [
+        "Compute with a percentage-type rate and confirm the result is NOT the flat base_rate.",
+        "Compute with a milestone rate and confirm the milestone is applied.",
+        "Compute with a cap and confirm the cap binds.",
+        "Compute for a consultant with NO rate and confirm a clear 'No rate set' refusal, not 0 and not a crash.",
+        "Confirm consultant_commission_trigger_config auto-triggers remain creates_commission=false (D15).",
+        "Confirm no admission event creates a commission automatically."
+      ],
+      "notes": "Fails SOFT today: phantom branches fall through so every commission computes as flat base_rate, silently ignoring percentages, milestones and caps. Harmless only because it has 0 callers — dangerous the moment anyone wires it."
+    },
+    {
+      "id": "referral-2025-26-agency-payout-run",
+      "name": "F6 — Agency payout run (wave 1, four-stage approval)",
+      "status": "specified",
+      "spec": "SPECS.md §6 F6",
+      "priority": "P0",
+      "outcome_metric": {
+        "metric_name": "Total net amount paid to agencies for AY 2025-26 with a named approver and bank reference on every transaction",
+        "baseline_value": "Rs.0 — consultant_payout_batches has 0 rows; no referral payment has ever been recorded",
+        "threshold_90d": "100% of approved 2025-26 agency claims paid, each with approver + timestamp + reference, by 2026-10-19",
+        "kill_criterion": "If any payment can be recorded without a named approver, STOP the run — that is the exact defect PR #2219 fixed.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING — blocked on F1-F4"
+      },
+      "test_steps": [
+        "Attempt to approve while signed in as the person who prepared the batch — confirm it is refused (D10 separation of duties).",
+        "Walk a batch through all four stages and confirm each stage records a distinct named user and timestamp.",
+        "Approve a transaction and re-query the DB — confirm status actually changed and approved_by/approved_at are set (regression test for the PGRST204 silent no-op).",
+        "Attempt to pay a claim already marked paid in the F1 history — confirm it is blocked.",
+        "Confirm a claim with unconfirmed enrolment (F3) cannot enter a batch.",
+        "Verify the batch total equals the sum of its transactions.",
+        "First real run: pay only a small group of agencies with complete bank details, confirm end-to-end, THEN widen (D27)."
+      ],
+      "notes": "Wave 1 = agencies only (D7). Rail is fully present: bank details, PAN/GST, and the prepare→review→approve→process chain all exist and are empty. Depends on PR #2219 being merged. D26: built in parallel with the importer. D27: first live run is a small agency group, then widen. D28: release machinery is shared with 2026-27 (718 referrals already captured) — prove there too."
+    },
+    {
+      "id": "referral-2025-26-staff-entitlement-register",
+      "name": "F7 — Staff entitlement register (wave 2, paid via payroll)",
+      "status": "specified",
+      "spec": "SPECS.md §6 F7",
+      "priority": "P1",
+      "outcome_metric": {
+        "metric_name": "count of staff referral entitlements recorded, and count marked paid via payroll reference",
+        "baseline_value": "0 recorded, 0 payable — staff CANNOT receive a commission row (FK to education_consultants); 51 distinct staff referrers exist in 2026-27",
+        "threshold_90d": "100% of eligible staff entitlements calculated and recorded by 2026-10-19; payment deferred to payroll go-live",
+        "kill_criterion": "If Finance does not confirm the payroll treatment in writing, do NOT pay staff by any route — an employee paid as a supplier is an audit exposure.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING — blocked on F8 for payment, not for calculation"
+      },
+      "test_steps": [
+        "Record a staff entitlement and confirm no bank details are stored for that person (D5).",
+        "Attempt to mark a staff entitlement paid before payroll is live — confirm it is BLOCKED.",
+        "Confirm staff entitlements are excluded from the agency payout batch (F6).",
+        "Confirm the entitlement survives and remains reportable while awaiting wave 2 — nothing is lost or forgotten.",
+        "Confirm a staff referrer resolves to a staff row, not an education_consultants row."
+      ],
+      "notes": "D4/D5/D7: staff ARE owed, calculated now, paid in wave 2 through payroll with salary. Deliberately no supplier-style payment route. Students are excluded entirely — tracking only."
+    },
+    {
+      "id": "hr-payroll-stand-up",
+      "name": "F8 — Stand up the MyJKKN payroll module (separate project)",
+      "status": "specified",
+      "spec": "SPECS.md §6 F8 / §1.5",
+      "priority": "P2 — prerequisite for F7 payment only; must NOT block F6",
+      "outcome_metric": {
+        "metric_name": "count(hr_employees) and count(hr_payslips) — payroll operational readiness",
+        "baseline_value": "hr_employees=0 of 844 staff; hr_pay_scales=0; hr_attendance_records=0; hr_payslips=0; only hr_pay_components (98) is populated (2026-07-21)",
+        "threshold_90d": "844 staff loaded into hr_employees and at least one parallel-run payroll period reconciled against the current external process, by 2026-10-19",
+        "kill_criterion": "If a parallel run does not reconcile to the existing salary process, do NOT cut over — this is people's actual pay.",
+        "verdict_date": "2026-10-19",
+        "verdict_status": "PENDING — not started"
+      },
+      "test_steps": [
+        "Load staff into hr_employees and confirm the count matches the 844 in the staff table.",
+        "Generate a payslip for one employee and confirm line items compute correctly.",
+        "Run a full period in parallel with the existing process and reconcile totals to the rupee before any cutover.",
+        "Add a one-off referral incentive as a payslip line item (is_one_off=true) and confirm it appears correctly.",
+        "Confirm no referral entitlement can be marked paid until a real payslip carries it."
+      ],
+      "notes": "D8: tracked as its own project so it does not become an unbounded blocker. hr_incentive_schemes (payout_formula, eligibility_criteria, cap_amount) is the designed home for the staff referral incentive. Payroll is BUILT (93 hr_* tables) but UNPOPULATED — the work is a data migration and cutover, not new code."
     }
   ]
 }

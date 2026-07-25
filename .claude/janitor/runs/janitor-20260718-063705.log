@@ -1,0 +1,125 @@
+[06:37:05] janitor run 20260718-063705  DRY_RUN=0
+From https://github.com/Jicate-Solutions/MyJKKN
+ * branch                main       -> FETCH_HEAD
+[06:37:07] open PRs: 15
+[06:37:08] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/adherence-rebase feat/loop-adherence-alerts-v2 525d94ea5acc8dab32ab7879de5f7503db9c0b6f
+[06:37:08] SKIP checked-out feat/loop-adherence-alerts-v2
+[06:37:24] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/ai-config-merge feat/ai-config-merge-resolver-flip 45694a6ab9a352bdfe20044e07b12399b9558386
+[06:37:24] SKIP checked-out feat/ai-config-merge-resolver-flip
+[06:37:25] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/ai-config-unify fix/ai-models-registry-service-role 64ffbd5af1337e49deed598c481e4a394a3dfc32
+[06:37:25] SKIP checked-out fix/ai-models-registry-service-role
+[06:37:29] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/audit-fw-filter fix/audit-framework-filter 7f2b24238cab5487653d4c88fccf8211c6dd740e
+[06:37:29] SKIP checked-out fix/audit-framework-filter
+[06:37:31] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/audit-ux-fix fix/audit-ux-confusions 090945cead1e4565564801f7e7c127a2f5123fe6
+[06:37:31] SKIP checked-out fix/audit-ux-confusions
+[06:37:34] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/byow-authz fix/byow-authz-department-gate e7998826dd6d89e036a03b3772a249ae68818185
+[06:37:34] SKIP checked-out fix/byow-authz-department-gate
+[06:37:36] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/byow-deptid-fix fix/byow-department-id-contract 6937c2cabcb6d1a9db91b23a20ec407ea42989e1
+[06:37:36] SKIP checked-out fix/byow-department-id-contract
+[06:37:38] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/capgap-gov-aimodels feat/capgap-ai-models-card d7305222612eb9643e3ac31eb52446cf88291207
+[06:37:38] SKIP checked-out feat/capgap-ai-models-card
+[06:37:40] WT-REMOVED(blob-history) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/capgap-gov-routine feat/capgap-routine-governance e7f482f4ebddadfc375ea0d2b7351856f3e6c680
+[06:37:40] SKIP checked-out feat/capgap-routine-governance
+[06:37:42] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/capgap-gov-tower feat/capgap-loop-registry 04a18d2ba4d2f0a1812f3a2e7e66c7d62084d559
+[06:37:42] SKIP checked-out feat/capgap-loop-registry
+[06:37:44] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/capgap-phase3 feat/capgap-loop-phase3 addc8658a4572debc33d54d01806d9cbb449e6d7
+[06:37:44] SKIP checked-out feat/capgap-loop-phase3
+[06:37:50] WT-REMOVED(blob-history) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/gate4-adapt feat/audit-gate4-adapt 401bc930c0e7e4a5e515d5427b5739f5518a33b3
+[06:37:50] SKIP checked-out feat/audit-gate4-adapt
+[06:37:58] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lane-b fix/notifications-global-counts eaaccbd102f77ca063681b8f0cd63e2febbf3a4f
+[06:37:58] SKIP checked-out fix/notifications-global-counts
+[06:38:01] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lc-deadcode chore/drop-dead-lc-selection-helper 5aa75cfa61111d2b61ab1166decc15ac6dae07e7
+[06:38:01] SKIP checked-out chore/drop-dead-lc-selection-helper
+[06:38:03] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lc-od-scope feat/lc-od-scope-match-and-return 29caf3a1575d4b7fd38a687f639caa2992d596a5
+[06:38:03] SKIP checked-out feat/lc-od-scope-match-and-return
+[06:38:08] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lz-escalation feat/loop-zero-escalation-v2 0d5fc53d19e97aaaf1c4c6d5dbfb52e56cf5b42f
+[06:38:08] SKIP checked-out feat/loop-zero-escalation-v2
+[06:38:10] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lz-induction-effectiveness feat/loop-zero-induction-effectiveness-v2 2eacd1957531e858bf1047455f0d769d9ca4dca1
+[06:38:10] SKIP checked-out feat/loop-zero-induction-effectiveness-v2
+[06:38:12] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lz-induction-playbook feat/loop-zero-induction-playbook-v2 a370c67d277d544adf4077f0970f5b12093950f8
+[06:38:12] SKIP checked-out feat/loop-zero-induction-playbook-v2
+[06:38:14] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lz-learner-notes feat/loop-zero-learner-notes-v2 a94850a613f8257fcfcb529f808ee27168c48e0a
+[06:38:14] SKIP checked-out feat/loop-zero-learner-notes-v2
+[06:38:16] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/lz-scf feat/loop-zero-scf-v2 89f7e23a59d98d58be06c2885c7ef58f2e0eaacf
+[06:38:16] SKIP checked-out feat/loop-zero-scf-v2
+[06:38:19] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/notif-fix-0715 fix/notifications-align-and-dedupe 50192e1a23d5edc95a2eab950f30c80f65a1563e
+[06:38:19] SKIP checked-out fix/notifications-align-and-dedupe
+[06:38:20] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/notif-markread-0715b fix/notifications-no-mass-mark-read 64f6ebc569d4d632bf90a3cb5b7ab87bbb9d4ee0
+[06:38:20] SKIP checked-out fix/notifications-no-mass-mark-read
+[06:38:28] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/sf100-mentors feat/sf100-external-mentors c8fb135bdce5cafaa4e23f9ec6fc9e5c95de913f
+[06:38:28] SKIP checked-out feat/sf100-external-mentors
+[06:38:32] WT-REMOVED(merge-tree) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/standing-rc feat/audit-standing-report-card 0ed6cf5e5abc3270d6a91d736c53ca8b0b8191bc
+[06:38:32] SKIP checked-out feat/audit-standing-report-card
+[06:38:33] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/strip-rebase feat/loop-runlog-strip-v2 87e526ea7c1ae8eded8e5fd63ed1772622012ffb
+[06:38:33] SKIP checked-out feat/loop-runlog-strip-v2
+[06:38:35] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/stripcell-rebase feat/strip-pillars-live-v2 63e6d866999bbf4158c1941398c541c4971b5a44
+[06:38:35] SKIP checked-out feat/strip-pillars-live-v2
+[06:38:37] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/verify-3105 verify-notif-3105 98a974bb0ea1030f0d8aca911a517d8996e1aabe
+[06:38:37] SKIP checked-out verify-notif-3105
+[06:38:49] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/wf_6ccd50e1-e30-1 fix/notifications-api-event-rollups 5958aa5130ce469e3c452ac8b5b9915f0f6d16a7
+[06:38:49] SKIP checked-out fix/notifications-api-event-rollups
+[06:38:56] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/wf_6ccd50e1-e30-2 fix/notifications-inbox-honest-rollup 1bd87545314a9ab0b595867c8a30c8e80099a58a
+[06:38:56] SKIP checked-out fix/notifications-inbox-honest-rollup
+[06:39:04] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/wf_6ccd50e1-e30-3 DETACHED 400360b390b96431c92c0d0d074ff260381fc9cd
+[06:39:11] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/wf_6ccd50e1-e30-4 fix/notification-badges-real-count 84201f895a691de09cbf87e3292eb7d764ce174d
+[06:39:11] SKIP checked-out fix/notification-badges-real-count
+[06:39:13] WT-REMOVED(ancestry) /Users/omm/PROJECTS/MyJKKN/.claude/worktrees/wf_b82ad564-182-1 fix/ig-silence-title-names-department d7fd2a421d5db055d11a5c778cb24428d8752e02
+[06:39:13] SKIP checked-out fix/ig-silence-title-names-department
+[06:39:17] SKIP open-pr branch audit-developer-jargon-leaks-2026-05-17
+[06:39:18] BRANCH-DELETED(merge-tree) chore/drop-dead-lc-selection-helper
+[06:39:46] BRANCH-DELETED(merge-tree) feat/ai-config-merge-resolver-flip
+[06:39:46] BRANCH-DELETED(blob-history) feat/ai-config-page-unify
+[06:39:46] SKIP young branch feat/ai-external-door-b2a
+[06:40:02] SKIP young branch feat/ai-stats-b2a
+[06:40:03] SKIP young branch feat/announcements-batch2-0717
+[06:40:03] SKIP young branch feat/announcements-fixes-0717
+[06:40:03] SKIP young branch feat/announcements-types-0717
+[06:40:07] BRANCH-DELETED(blob-history) feat/audit-gate4-adapt
+[06:40:07] BRANCH-DELETED(merge-tree) feat/audit-redesign-phase2
+[06:40:08] BRANCH-DELETED(merge-tree) feat/audit-standing-report-card
+[06:40:28] BRANCH-DELETED(merge-tree) feat/capgap-ai-models-card
+[06:40:29] BRANCH-DELETED(merge-tree) feat/capgap-loop-phase3
+[06:40:29] BRANCH-DELETED(merge-tree) feat/capgap-loop-registry
+[06:40:29] BRANCH-DELETED(blob-history) feat/capgap-routine-governance
+[06:40:57] SKIP young branch feat/dashboard-friendly-empty-states-and-hod-dual-view
+[06:41:07] SKIP young branch feat/dashboard-zero-cards-and-fair-ranking
+[06:41:22] SKIP young branch feat/favorite-star-discoverability
+[06:41:22] SKIP young branch feat/favorites-tab-aware-star
+[06:41:22] SKIP young branch feat/favorites-tab-debt-fixes
+[06:41:22] SKIP young branch feat/favorites-tab-rollout
+[06:41:22] SKIP young branch feat/favorites-tab-wave2
+[06:41:22] SKIP young branch feat/favorites-tab-wave3
+[06:41:40] SKIP open-pr branch feat/id-card-substrate-api
+[06:41:40] SKIP open-pr branch feat/id-card-substrate-db-a07697
+[06:41:40] SKIP open-pr branch feat/id-card-substrate-ui
+[06:41:53] BRANCH-DELETED(ancestry) feat/lc-od-scope-match-and-return
+[06:41:54] BRANCH-DELETED(ancestry) feat/loop-adherence-alerts-v2
+[06:41:54] BRANCH-DELETED(ancestry) feat/loop-runlog-strip-v2
+[06:41:55] BRANCH-DELETED(ancestry) feat/loop-zero-escalation-v2
+[06:41:55] BRANCH-DELETED(ancestry) feat/loop-zero-induction-effectiveness-v2
+[06:41:55] BRANCH-DELETED(ancestry) feat/loop-zero-induction-playbook-v2
+[06:41:55] BRANCH-DELETED(ancestry) feat/loop-zero-learner-notes-v2
+[06:41:55] BRANCH-DELETED(ancestry) feat/loop-zero-scf-v2
+[06:42:50] BRANCH-DELETED(ancestry) feat/sf100-external-mentors
+[06:43:02] BRANCH-DELETED(ancestry) feat/strip-pillars-live-v2
+[06:43:07] BRANCH-DELETED(blob-history) feat/terminology-senior-learners-blocking
+[06:43:20] SKIP young branch feat/work-signals-spine-phase0
+[06:43:31] BRANCH-DELETED(merge-tree) fix/ai-models-registry-service-role
+[06:43:34] BRANCH-DELETED(ancestry) fix/audit-framework-filter
+[06:43:34] BRANCH-DELETED(merge-tree) fix/audit-log-finding-operability
+[06:43:34] BRANCH-DELETED(ancestry) fix/audit-ux-confusions
+[06:43:34] BRANCH-DELETED(merge-tree) fix/auditor-guide-all-staff-lanes
+[06:43:34] SKIP open-pr branch fix/auto-triage-enquiries-accounts
+[06:43:39] BRANCH-DELETED(merge-tree) fix/byow-authz-department-gate
+[06:43:39] BRANCH-DELETED(merge-tree) fix/byow-department-id-contract
+[06:43:49] BRANCH-DELETED(ancestry) fix/ig-silence-title-names-department
+[06:43:51] BRANCH-DELETED(blob-history) fix/lc-cross-institution-executive-gates
+[06:43:56] BRANCH-DELETED(ancestry) fix/notification-badges-real-count
+[06:43:57] BRANCH-DELETED(ancestry) fix/notifications-align-and-dedupe
+[06:43:57] BRANCH-DELETED(ancestry) fix/notifications-api-event-rollups
+[06:43:57] BRANCH-DELETED(ancestry) fix/notifications-global-counts
+[06:43:58] BRANCH-DELETED(ancestry) fix/notifications-inbox-honest-rollup
+[06:43:58] BRANCH-DELETED(ancestry) fix/notifications-no-mass-mark-read
+[06:44:09] BRANCH-DELETED(merge-tree) fix/scf-anonymity-jkkn-terms
+[06:45:05] BRANCH-DELETED(ancestry) verify-notif-3105
+[06:47:46] janitor: -32 worktrees, -38 branches; now 100 wt / 1278 br; 1162 unproven branches in registry
