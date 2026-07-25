@@ -43,7 +43,19 @@ For AY 2026-2027 there are 3,116 active learners; 1,218 have some bill, but only
 query returns 2,544 learners, **of which at least 646 already have bills**. The
 failure mode is an accountant regenerating an existing bill.
 
-Across the full agreed scope the backfill removes 1,044 false positives:
+**Post-implementation correction (measured 2026-07-25 after the backfill ran).**
+Of those 646, only **279** were true false positives — bills that existed but
+carried no academic year. The other **367** have bills stamped with a *prior*
+year (366 with 2025-2026, plus older) and no bill for 2026-2027, which is a
+genuine gap, not noise. Verified: zero of the 367 still carry a NULL year.
+
+So the backfill's job was narrower than first estimated, and the flagged
+population is correspondingly more real. In the 2026-2027 active cohort,
+learners with a bill stamped for their own year went 572 → 851 (+279), and the
+flagged count went 2,544 → 2,265. The residual 367 should be read as
+"billed last year, not billed this year" — the highest-value rows on the screen.
+
+Across the full agreed scope the pre-backfill projection was:
 
 | Lifecycle | In scope | Flagged before backfill | Flagged after backfill |
 |---|---|---|---|
