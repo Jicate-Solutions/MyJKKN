@@ -27,17 +27,26 @@ export function useBillingDashboardMetrics(filters: BillingReportFilters = {}) {
   // re-trigger the effect forever.
   const key = JSON.stringify(filters);
 
+  // Guards against out-of-order responses: e.g. pick an institution then
+  // clear it fires two requests, and if the first (with-institution) one
+  // resolves last it would overwrite the correct cleared-filter result.
+  const reqId = useRef(0);
+
   const fetchMetrics = useCallback(async () => {
+    const myReq = ++reqId.current;
     try {
       setLoading(true);
       setError(null);
-      setMetrics(await BillingReportService.getDashboardMetrics(JSON.parse(key)));
+      const res = await BillingReportService.getDashboardMetrics(JSON.parse(key));
+      if (myReq !== reqId.current) return; // superseded by a newer request
+      setMetrics(res);
     } catch (err) {
+      if (myReq !== reqId.current) return; // don't surface a stale error either
       const msg = err instanceof Error ? err.message : 'Failed to fetch dashboard metrics';
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (myReq === reqId.current) setLoading(false);
     }
   }, [key]);
 
@@ -61,34 +70,57 @@ function useReportList<T>(
   const key = JSON.stringify(filters);
   const prevKey = useRef(key);
 
-  // A filter change invalidates the current page number — page 7 of the old
-  // result set is meaningless against the new one.
-  useEffect(() => {
-    if (prevKey.current !== key) {
-      prevKey.current = key;
-      setPage(1);
-    }
-  }, [key]);
+  // Guards against two failure modes:
+  //  1. Out-of-order responses — a later request resolving before an
+  //     earlier one must not have its result overwritten.
+  //  2. Stale-page fetches — see the fetch effect below.
+  const reqId = useRef(0);
 
   const fetchReport = useCallback(async () => {
+    // On the render where `filters` just changed, `page` here may still be
+    // the OLD page for the NEW key (e.g. page 7, offset 300) because the
+    // page-reset effect below hasn't run yet this commit. `prevKey.current`
+    // hasn't been updated by that effect yet either — effects run in
+    // declaration order within a commit, and this effect (declared first)
+    // fires before it — so `prevKey.current !== key` reliably detects that
+    // transitional render. Skip ONLY when that page is actually stale
+    // (page !== 1): if we were already on page 1, there is nothing to
+    // reset and no further render will happen to retry the fetch, since
+    // the reset effect's `setPage(1)` below would be a same-value no-op.
+    if (prevKey.current !== key && page !== 1) return;
+
+    const myReq = ++reqId.current;
     try {
       setLoading(true);
       setError(null);
       const res = await fetcher(JSON.parse(key), page);
+      if (myReq !== reqId.current) return; // superseded by a newer request
       setReport(res.rows);
       setTotalCount(res.totalCount);
     } catch (err) {
+      if (myReq !== reqId.current) return; // don't surface a stale error either
       const msg = err instanceof Error ? err.message : `Failed to fetch ${label}`;
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (myReq === reqId.current) setLoading(false);
     }
     // `fetcher` is a module-level static method; stable by construction.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, page, label]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
+
+  // A filter change invalidates the current page number — page 7 of the old
+  // result set is meaningless against the new one. Declared AFTER the fetch
+  // effect above so it runs second within the same commit (see the comment
+  // inside fetchReport for why the ordering matters).
+  useEffect(() => {
+    if (prevKey.current !== key) {
+      prevKey.current = key;
+      setPage(1);
+    }
+  }, [key]);
 
   return { report, totalCount, page, setPage, loading, error, refetch: fetchReport, pageSize: REPORT_PAGE_SIZE };
 }

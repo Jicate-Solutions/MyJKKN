@@ -85,7 +85,8 @@ export function InvoiceReportTab({
     }
   };
 
-  const totalInvoices = report.length;
+  // Sum over the fetched PAGE only — the RPC does not return a true
+  // cross-page total, so the card below is labelled "(this page)".
   const totalAmount = report.reduce(
     (sum, invoice) => sum + invoice.grand_total,
     0
@@ -128,13 +129,13 @@ export function InvoiceReportTab({
             <FileText className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalInvoices}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Amount</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Amount (this page)</CardTitle>
             <FileText className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>

@@ -118,7 +118,7 @@ export function OutstandingReportTab({
             <Users className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalCount}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 

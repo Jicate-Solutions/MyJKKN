@@ -223,7 +223,9 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
     }
   };
 
-  const totalRefunds = report.length;
+  // Derived from the fetched PAGE only — the RPC does not return true
+  // cross-page totals for the amount or the processed subset, so those
+  // cards below are labelled "(this page)".
   const totalRefundAmount = report.reduce(
     (sum, refund) => sum + refund.refund_amount,
     0
@@ -384,14 +386,14 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                         <CreditCard className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
                       <CardContent>
-                        <div className='text-2xl font-bold'>{totalRefunds}</div>
+                        <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
                       </CardContent>
                     </Card>
 
                     <Card>
                       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                         <CardTitle className='text-sm font-medium'>
-                          Processed Refunds
+                          Processed Refunds (this page)
                         </CardTitle>
                         <Receipt className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
@@ -405,7 +407,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                     <Card>
                       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                         <CardTitle className='text-sm font-medium'>
-                          Total Refund Amount
+                          Total Refund Amount (this page)
                         </CardTitle>
                         <IndianRupee className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>
@@ -419,7 +421,7 @@ export function RefundReportTab({ filters, canExport }: RefundReportTabProps) {
                     <Card>
                       <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
                         <CardTitle className='text-sm font-medium'>
-                          Net Refund Amount
+                          Net Refund Amount (this page)
                         </CardTitle>
                         <IndianRupee className='h-4 w-4 text-muted-foreground' />
                       </CardHeader>

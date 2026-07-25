@@ -125,7 +125,9 @@ export function DiscountReportTab({
     }
   };
 
-  const totalDiscounts = report.length;
+  // These are derived from the fetched PAGE only — the RPC does not return a
+  // true cross-page total for the amount or the approved subset, so both
+  // cards below are labelled "(this page)".
   const totalDiscountAmount = report.reduce(
     (sum, discount) => sum + discount.discount_amount,
     0
@@ -171,14 +173,14 @@ export function DiscountReportTab({
             <Receipt className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalDiscounts}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Approved Discounts
+              Approved Discounts (this page)
             </CardTitle>
             <Percent className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
@@ -191,7 +193,7 @@ export function DiscountReportTab({
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Amount</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Amount (this page)</CardTitle>
             <IndianRupee className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>

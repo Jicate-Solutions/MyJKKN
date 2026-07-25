@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -71,6 +71,16 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
   const [collapsed, setCollapsed] = useState(false);
   const h = useAcademicHierarchyFilters(filters);
 
+  // Single-institution users never see the Institution select (rendered
+  // only when hasMultiInstitutionAccess below), so nothing else would ever
+  // assign institution_id — leaving every dependent select permanently
+  // disabled. Auto-pin it once the accessible institution list resolves.
+  useEffect(() => {
+    if (!h.loading.institutions && h.institutions.length === 1 && !filters.institution_id) {
+      onFilterChange({ institution_id: h.institutions[0].id });
+    }
+  }, [h.loading.institutions, h.institutions, filters.institution_id, onFilterChange]);
+
   const set = (key: string, value: string | undefined) =>
     onFilterChange(h.cascadeClear(key, value) as Partial<BillingReportFilters>);
 
@@ -101,7 +111,16 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
       out.push({ key: 'schemes', label: REPORT_SCHEME_OPTIONS.find((o) => o.value === s)?.label ?? s });
     }
     return out;
-  }, [filters, h, schemes]);
+    // `h` is a fresh object literal every render (useAcademicHierarchyFilters
+    // doesn't memoise its return value), so depending on it here would never
+    // actually memoise anything. Depend on the specific option arrays this
+    // callback reads instead — each is individually stable between renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    filters, schemes,
+    h.institutions, h.academicYears, h.degrees, h.departments,
+    h.programs, h.semesters, h.sections, h.categories,
+  ]);
 
   const clearAll = () =>
     onFilterChange({

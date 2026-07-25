@@ -84,6 +84,9 @@ export function CollectionReportTab({
     }
   };
 
+  // These are sums over the fetched PAGE only — the RPC does not return a
+  // true cross-page total, so the money cards below are labelled "(this
+  // page)" rather than implying they cover all `totalCount` records.
   const totalCollected = report.reduce(
     (sum, collection) => sum + collection.net_amount,
     0
@@ -92,7 +95,6 @@ export function CollectionReportTab({
     (sum, collection) => sum + collection.total_refunds,
     0
   );
-  const totalTransactions = report.length;
 
   if (loading) {
     return (
@@ -131,13 +133,13 @@ export function CollectionReportTab({
             <Receipt className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
-            <div className='text-2xl font-bold'>{totalTransactions}</div>
+            <div className='text-2xl font-bold'>{totalCount.toLocaleString('en-IN')}</div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Net Collected</CardTitle>
+            <CardTitle className='text-sm font-medium'>Net Collected (this page)</CardTitle>
             <TrendingUp className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
@@ -149,7 +151,7 @@ export function CollectionReportTab({
 
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-            <CardTitle className='text-sm font-medium'>Total Refunds</CardTitle>
+            <CardTitle className='text-sm font-medium'>Total Refunds (this page)</CardTitle>
             <AlertCircle className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
           <CardContent>
