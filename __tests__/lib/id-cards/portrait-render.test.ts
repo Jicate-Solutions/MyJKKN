@@ -261,9 +261,8 @@ describe('CARD_FIELDS — portrait-engine additions', () => {
 
 describe('buildCardElement — portrait rotation wrapper', () => {
   it('keeps the OUTPUT canvas 1014x638 and rotates one inner 638x1014 wrapper (+90°)', () => {
-    const tree = buildCardElement(baseInput()) as {
-      props: { style: Record<string, unknown>; children: { props: { style: Record<string, unknown> } } };
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tree = buildCardElement(baseInput()) as any;
     expect(tree.props.style.width).toBe(CARD_WIDTH);
     expect(tree.props.style.height).toBe(CARD_HEIGHT);
     const wrapper = tree.props.children.props.style;
@@ -308,7 +307,7 @@ describe('buildCardElement — portrait default design', () => {
     expect(nameStyle.fontWeight).toBe(800);
   });
 
-  it('team-member card: STAFF ID / DEPT / DESIG lines, no learner lines', () => {
+  it('team-member card: identity lines present, learner lines absent', () => {
     const tree = buildCardElement(baseInput({ person: teamMember }));
     const text = collectText(tree).join(' | ');
     expect(text).toContain('MEENA DEVI');
