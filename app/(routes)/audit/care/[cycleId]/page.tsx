@@ -462,7 +462,8 @@ export default function CultureAuditDetailPage({
                   through the sealed lane (
                   {sealedActivity.items_scored}{' '}
                   {sealedActivity.items_scored === 1 ? 'item' : 'items'} touched)
-                  — per-item medians appear once any item reaches 3 scorers.
+                  — per-item medians appear once an item&apos;s lane (lived
+                  experience or observer) reaches 3 scorers.
                   {sealedActivity.last_activity && (
                     <span className="text-xs text-muted-foreground">
                       {' '}
