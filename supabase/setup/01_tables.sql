@@ -4167,8 +4167,8 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidate_packages (
   candidate_id            uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
   hr_organization_id      uuid,                                           -- mirrors parent for org-level queries
   proposed_by             uuid NOT NULL REFERENCES public.profiles(id),
-  proposed_ctc_amount     numeric NOT NULL,                               -- the CTC being proposed
-  proposed_ctc_breakdown  jsonb,                                          -- optional: basic/HRA/DA/PF structure
+  proposed_monthly_salary           numeric,                              -- the monthly salary being proposed (optional — may be decided later)
+  proposed_monthly_salary_breakdown jsonb,                                -- optional: basic/HRA/DA/PF structure
   currency                text NOT NULL DEFAULT 'INR',
   is_counter_offer        boolean NOT NULL DEFAULT false,                 -- true if Director counter to HR's proposal
   parent_package_id       uuid REFERENCES public.hr_recruitment_candidate_packages(id), -- for negotiation chain
