@@ -415,6 +415,10 @@ const NAV_EXCLUDE = new Set<string>([
   //    design — the Director opens a cycle's lane deliberately and shares the
   //    link; a sealed lane is not advertised platform-wide.
   '/audit/care/voice',
+  //  - /audit/care/predict        : predict-then-see calibration mirror for
+  //    team members (fn_carre_predict_* gate server-side). Unlisted like the
+  //    voice door — shared per cycle with the team being audited.
+  '/audit/care/predict',
 
   // Intentionally unlisted (Director decision 2026-07-24): the open Compliance &
   // Tracking Board is reached by a shared direct link, deliberately NOT on any nav
