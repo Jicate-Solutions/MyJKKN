@@ -114,6 +114,8 @@ export function CoverageTable({
               <TableHead>Institution</TableHead>
               <TableHead>Programme</TableHead>
               <TableHead>Academic Year</TableHead>
+              <TableHead>Accommodation</TableHead>
+              <TableHead>Transport</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className='text-right'>Bills</TableHead>
               <TableHead className='text-right'>Total Billed</TableHead>
@@ -124,7 +126,7 @@ export function CoverageTable({
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={11}
                   className='h-24 text-center text-muted-foreground'
                 >
                   No learners match these filters.
@@ -147,6 +149,14 @@ export function CoverageTable({
                   <TableCell>{r.institution_name ?? '—'}</TableCell>
                   <TableCell>{r.program_name ?? '—'}</TableCell>
                   <TableCell>{r.academic_year_name ?? '—'}</TableCell>
+                  <TableCell>{r.accommodation_type ?? '—'}</TableCell>
+                  <TableCell>
+                    {r.uses_transport ? (
+                      <Badge variant='outline'>Bus</Badge>
+                    ) : (
+                      <span className='text-muted-foreground'>—</span>
+                    )}
+                  </TableCell>
                   <TableCell className='capitalize'>
                     {r.lifecycle_status}
                   </TableCell>

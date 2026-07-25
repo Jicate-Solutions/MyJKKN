@@ -36,6 +36,11 @@ export async function exportCoverageToExcel(
     ],
     ['Billing Category', filters.billing_category_id ?? 'Any'],
     [
+      'Accommodation',
+      (filters.accommodation_type_ids ?? []).join(', ') || 'Any'
+    ],
+    ['Transport', filters.transport ?? 'any'],
+    [
       'Non-billing institutions',
       filters.include_non_billing_institutions ? 'Included' : 'Excluded'
     ],
@@ -57,6 +62,8 @@ export async function exportCoverageToExcel(
       'Institution',
       'Programme',
       'Academic Year',
+      'Accommodation',
+      'Transport',
       'Lifecycle Status',
       'Bills',
       'Total Billed',
@@ -71,6 +78,8 @@ export async function exportCoverageToExcel(
       r.institution_name ?? '',
       r.program_name ?? '',
       r.academic_year_name ?? '',
+      r.accommodation_type ?? '',
+      r.uses_transport ? 'Bus' : '',
       r.lifecycle_status,
       r.bill_count,
       r.total_billed,

@@ -36,6 +36,8 @@ export function CoverageClient() {
     institution_ids: null,
     lifecycle_statuses: [...LEARNER_SCOPE_DEFAULT],
     billing_category_id: null,
+    accommodation_type_ids: null,
+    transport: 'any',
     coverage_state: 'not_generated',
     include_non_billing_institutions: false,
     search: null,

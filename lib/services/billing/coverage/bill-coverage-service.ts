@@ -29,6 +29,8 @@ interface RawCoverageRow {
   out_program_name: string | null;
   out_academic_year_id: string | null;
   out_academic_year_name: string | null;
+  out_accommodation_type: string | null;
+  out_uses_transport: boolean | null;
   out_bill_count: number;
   out_total_billed: number | string;
   out_coverage_state: string;
@@ -52,7 +54,13 @@ export class BillCoverageService extends BaseService {
           : [...LEARNER_SCOPE_DEFAULT],
       p_billing_category_id: filters.billing_category_id ?? null,
       p_include_non_billing_institutions:
-        filters.include_non_billing_institutions ?? false
+        filters.include_non_billing_institutions ?? false,
+      p_accommodation_type_ids:
+        filters.accommodation_type_ids && filters.accommodation_type_ids.length > 0
+          ? filters.accommodation_type_ids
+          : null,
+      // Transport is a separate dimension from accommodation — the two compose.
+      p_transport: filters.transport ?? 'any'
     };
   }
 
@@ -89,6 +97,8 @@ export class BillCoverageService extends BaseService {
       program_name: r.out_program_name,
       academic_year_id: r.out_academic_year_id,
       academic_year_name: r.out_academic_year_name,
+      accommodation_type: r.out_accommodation_type,
+      uses_transport: r.out_uses_transport === true,
       bill_count: Number(r.out_bill_count),
       total_billed: Number(r.out_total_billed),
       coverage_state: r.out_coverage_state as BillCoverageRow['coverage_state'],

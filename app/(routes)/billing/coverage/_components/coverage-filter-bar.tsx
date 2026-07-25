@@ -1,6 +1,8 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { Download, Loader2, Search } from 'lucide-react';
+import { LookupService } from '@/lib/services/admission/lookup-service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -53,6 +55,16 @@ export function CoverageFilterBar({
   const { data: academicYears } = useAcademicYears(selectedInstitutionId);
   const { categories } = useBillingCategories({ isActive: true, limit: 1000 });
 
+  // accommodation_types is a small global lookup (4 active rows) — no
+  // institution scoping, so it is safe to cache for the session.
+  const { data: accommodationTypes } = useQuery({
+    queryKey: ['accommodation-types', 'active'],
+    queryFn: () => LookupService.listAccommodationTypes(true),
+    staleTime: 30 * 60 * 1000
+  });
+
+  const selectedAccommodationId = filters.accommodation_type_ids?.[0];
+
   const statuses = filters.lifecycle_statuses ?? [...LEARNER_SCOPE_DEFAULT];
 
   const toggleStatus = (status: string) => {
@@ -67,7 +79,7 @@ export function CoverageFilterBar({
 
   return (
     <div className='space-y-4 rounded-lg border p-4'>
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
         {/* Institution */}
         <div className='space-y-1.5'>
           <Label className='text-xs'>Institution</Label>
@@ -144,6 +156,51 @@ export function CoverageFilterBar({
                   {c.category_name}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Accommodation */}
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Accommodation</Label>
+          <Select
+            value={selectedAccommodationId ?? ALL}
+            onValueChange={(v) =>
+              onChange({ accommodation_type_ids: v === ALL ? null : [v] })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any accommodation' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any accommodation</SelectItem>
+              {(accommodationTypes ?? []).map((a: any) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Transport — a separate dimension, not an accommodation value.
+            Day scholars and hostellers both appear under "Uses bus", so this
+            composes with the accommodation filter rather than replacing it. */}
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Transport</Label>
+          <Select
+            value={filters.transport ?? 'any'}
+            onValueChange={(v) =>
+              onChange({ transport: v as BillCoverageFilters['transport'] })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='any'>Any transport</SelectItem>
+              <SelectItem value='bus'>Uses bus</SelectItem>
+              <SelectItem value='no_bus'>No bus</SelectItem>
             </SelectContent>
           </Select>
         </div>

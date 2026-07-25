@@ -18,6 +18,16 @@ export const LEARNER_SCOPE_DEFAULT = [
   'account'
 ] as const;
 
+/**
+ * Transport is a SEPARATE dimension from accommodation, not a third
+ * accommodation value. 1,148 of 4,345 day scholars use the bus, as do 11
+ * hostellers — the two overlap, so they filter independently.
+ *
+ * 'bus' means bus_required IS TRUE OR a transport route is assigned;
+ * bus_required is null on most learners, so the route is the stronger signal.
+ */
+export type TransportFilter = 'any' | 'bus' | 'no_bus';
+
 export interface BillCoverageFilters {
   /** Target academic year. Null means "each learner's own current year". */
   academic_year_id?: string | null;
@@ -25,6 +35,9 @@ export interface BillCoverageFilters {
   lifecycle_statuses?: string[] | null;
   /** When set, coverage means "a live bill in this category". */
   billing_category_id?: string | null;
+  /** Hostel / Day Scholar / Paying Guest / Not Applicable — from accommodation_types. */
+  accommodation_type_ids?: string[] | null;
+  transport?: TransportFilter;
   coverage_state?: CoverageState | 'all';
   /** Institutions with zero bills in ANY year are hidden unless this is true. */
   include_non_billing_institutions?: boolean;
@@ -44,6 +57,8 @@ export interface BillCoverageRow {
   program_name: string | null;
   academic_year_id: string | null;
   academic_year_name: string | null;
+  accommodation_type: string | null;
+  uses_transport: boolean;
   bill_count: number;
   total_billed: number;
   coverage_state: CoverageState;
