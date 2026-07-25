@@ -431,3 +431,136 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.get_billing_reports_refunds(uuid[], uuid, boolean, uuid, uuid, uuid, uuid, uuid, uuid, text[], uuid, date, date, int, int) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.get_billing_reports_refunds(uuid[], uuid, boolean, uuid, uuid, uuid, uuid, uuid, uuid, text[], uuid, date, date, int, int) TO authenticated, service_role;
+
+-- 6) DASHBOARD — one jsonb payload replacing 15 client round-trips -----------
+CREATE OR REPLACE FUNCTION public.get_billing_reports_dashboard(
+  p_institution_ids uuid[] DEFAULT NULL,
+  p_academic_year_id uuid DEFAULT NULL,
+  p_academic_year_unspecified boolean DEFAULT false,
+  p_item_category_id uuid DEFAULT NULL,
+  p_degree_id uuid DEFAULT NULL, p_department_id uuid DEFAULT NULL,
+  p_program_id uuid DEFAULT NULL, p_semester_id uuid DEFAULT NULL,
+  p_section_id uuid DEFAULT NULL, p_schemes text[] DEFAULT NULL,
+  p_student_id uuid DEFAULT NULL,
+  p_date_from date DEFAULT NULL, p_date_to date DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE
+  v_inst uuid[];
+  v_students uuid[];
+  v_billed numeric; v_collected numeric;
+  v_result jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.reports.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.reports.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'total_students', 0, 'total_bills', 0, 'total_amount_billed', 0,
+      'total_amount_collected', 0, 'total_outstanding', 0, 'total_overdue', 0,
+      'collection_rate', 0,
+      'recent_transactions', jsonb_build_object('receipts', '[]'::jsonb, 'bills', '[]'::jsonb, 'refunds', '[]'::jsonb),
+      'monthly_collection', '[]'::jsonb, 'institution_wise_summary', '[]'::jsonb);
+  END IF;
+
+  -- Cohort hoisted ONCE into an array. Do not inline the helper into the
+  -- sub-queries below: it would be re-planned per aggregate.
+  SELECT array_agg(student_id) INTO v_students
+  FROM public.billing_report_student_cohort(
+    v_inst, p_degree_id, p_department_id, p_program_id,
+    p_semester_id, p_section_id, p_schemes);
+  v_students := COALESCE(v_students, ARRAY[]::uuid[]);
+
+  WITH bills AS (
+    SELECT b.*
+    FROM public.billing_student_bills b
+    WHERE b.institution_id = ANY(v_inst)
+      AND b.student_id = ANY(v_students)
+      AND (p_student_id IS NULL OR b.student_id = p_student_id)
+      AND (p_item_category_id IS NULL OR b.item_category_id = p_item_category_id)
+      AND (CASE
+             WHEN p_academic_year_unspecified THEN b.academic_year_id IS NULL
+             WHEN p_academic_year_id IS NOT NULL THEN b.academic_year_id = p_academic_year_id
+             ELSE true END)
+  ),
+  bills_in_range AS (
+    SELECT * FROM bills
+    WHERE (p_date_from IS NULL OR (created_at AT TIME ZONE 'Asia/Kolkata')::date >= p_date_from)
+      AND (p_date_to   IS NULL OR (created_at AT TIME ZONE 'Asia/Kolkata')::date <= p_date_to)
+  ),
+  receipts AS (
+    SELECT r.*
+    FROM public.billing_receipts r
+    WHERE r.institution_id = ANY(v_inst)
+      AND r.student_id = ANY(v_students)
+      AND (p_student_id IS NULL OR r.student_id = p_student_id)
+      AND (p_date_from IS NULL OR r.receipt_date >= p_date_from)
+      AND (p_date_to   IS NULL OR r.receipt_date <= p_date_to)
+      AND (
+        (p_item_category_id IS NULL AND p_academic_year_id IS NULL AND NOT p_academic_year_unspecified)
+        OR EXISTS (SELECT 1 FROM bills b2
+                   JOIN public.billing_receipt_items ri ON ri.bill_id = b2.id
+                   WHERE ri.receipt_id = r.id)
+      )
+  )
+  SELECT jsonb_build_object(
+    'total_students', (SELECT COUNT(DISTINCT student_id) FROM bills),
+    'total_bills',    (SELECT COUNT(*) FROM bills_in_range),
+    'total_amount_billed',    COALESCE((SELECT SUM(final_amount) FROM bills_in_range), 0),
+    'total_amount_collected', COALESCE((SELECT SUM(payment_amount) FROM receipts), 0),
+    'total_outstanding', COALESCE((SELECT SUM(balance_amount) FROM bills
+                                   WHERE status IN ('unpaid','partially_paid','overdue')
+                                     AND COALESCE(balance_amount,0) > 0), 0),
+    'total_overdue', COALESCE((SELECT SUM(balance_amount) FROM bills
+                               WHERE status IN ('unpaid','partially_paid','overdue')
+                                 AND COALESCE(balance_amount,0) > 0
+                                 AND due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date), 0),
+    'collection_rate', 0,  -- filled below once billed/collected are known
+    'recent_transactions', jsonb_build_object(
+      'receipts', COALESCE((SELECT jsonb_agg(x) FROM (
+          SELECT id, receipt_number, receipt_date, payment_amount, payment_mode
+          FROM receipts ORDER BY receipt_date DESC LIMIT 10) x), '[]'::jsonb),
+      'bills', COALESCE((SELECT jsonb_agg(x) FROM (
+          SELECT id, bill_description, due_date, final_amount, status
+          FROM bills_in_range ORDER BY created_at DESC LIMIT 10) x), '[]'::jsonb),
+      'refunds', COALESCE((SELECT jsonb_agg(x) FROM (
+          SELECT rf.id, rf.refund_amount, rf.refund_date, rf.approval_status
+          FROM public.billing_refunds rf
+          JOIN receipts r2 ON r2.id = rf.receipt_id
+          ORDER BY rf.created_at DESC LIMIT 10) x), '[]'::jsonb)),
+    'monthly_collection', COALESCE((SELECT jsonb_agg(x ORDER BY x.month) FROM (
+        SELECT to_char(receipt_date, 'YYYY-MM') AS month, SUM(payment_amount) AS amount
+        FROM receipts GROUP BY 1) x), '[]'::jsonb),
+    'institution_wise_summary', COALESCE((SELECT jsonb_agg(x) FROM (
+        SELECT i.id AS institution_id, i.name AS institution_name,
+               COUNT(b.id) AS total_bills,
+               COALESCE(SUM(b.final_amount), 0) AS amount_billed,
+               COALESCE((SELECT SUM(r3.payment_amount) FROM receipts r3
+                         WHERE r3.institution_id = i.id), 0) AS amount_collected,
+               COALESCE(SUM(b.balance_amount) FILTER (
+                 WHERE b.status IN ('unpaid','partially_paid','overdue')
+                   AND COALESCE(b.balance_amount,0) > 0), 0) AS outstanding
+        FROM public.institutions i
+        LEFT JOIN bills b ON b.institution_id = i.id
+        WHERE i.id = ANY(v_inst)
+        GROUP BY i.id, i.name
+        ORDER BY i.name) x), '[]'::jsonb)
+  ) INTO v_result;
+
+  v_billed    := (v_result->>'total_amount_billed')::numeric;
+  v_collected := (v_result->>'total_amount_collected')::numeric;
+
+  RETURN jsonb_set(v_result, '{collection_rate}', to_jsonb(
+    CASE WHEN v_billed > 0 THEN round(v_collected / v_billed * 100, 2) ELSE 0 END));
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_billing_reports_dashboard(uuid[], uuid, boolean, uuid, uuid, uuid, uuid, uuid, uuid, text[], uuid, date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_reports_dashboard(uuid[], uuid, boolean, uuid, uuid, uuid, uuid, uuid, uuid, text[], uuid, date, date) TO authenticated, service_role;
+
+NOTIFY pgrst;
