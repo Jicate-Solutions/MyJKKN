@@ -202,11 +202,16 @@ export class SessionFeedbackService {
     periodId: string,
   ): Promise<ClarificationRequestRow | null> {
     const supabase = getSupabase();
+    // Deterministic single row even for broad-RLS viewers (leadership can see
+    // several learners' asks for one session — a bare maybeSingle() would
+    // throw on >1 row). Learners still only ever see their own row via RLS.
     const { data, error } = await supabase
       .from('session_clarification_requests')
       .select('*')
       .eq('attendance_date', attendanceDate)
       .eq('period_id', periodId)
+      .order('asked_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
     if (error) throw new Error(`Failed to load clarification request: ${error.message}`);
     return (data as ClarificationRequestRow) ?? null;
