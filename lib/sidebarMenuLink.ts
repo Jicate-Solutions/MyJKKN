@@ -165,6 +165,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/analytics': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
   '/improvement-board/postings': 'improvement.board.manage',
+  // MBA Team Rotation — the rota chart is viewable by associates; team-builder
+  // and cycle-setup are manager-only (improvement.board.manage).
+  '/improvement-board/rotation': 'improvement.ideas.view',
+  '/improvement-board/rotation/teams': 'improvement.board.manage',
+  '/improvement-board/rotation/config': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -1510,7 +1515,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
-            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' }
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
+            // MBA Team Rotation — rota chart (associates + managers); team-builder
+            // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
+            { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
+            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' }
           ]
         },
         {

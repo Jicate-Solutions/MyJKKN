@@ -36,6 +36,10 @@
       "schedule": "53 4 * * *"
     },
     {
+      "path": "/api/cron/mba-rotation-tick?secret=${CRON_SECRET}",
+      "schedule": "7 5 * * *"
+    },
+    {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },
