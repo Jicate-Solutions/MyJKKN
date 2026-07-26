@@ -84,6 +84,7 @@ export const GUIDES: ImprovementGuideBook = {
         'Track it through review to impact',
         'Climb the Impact Leaderboard',
         'Read your department analytics as an MBA Analyst',
+        'See which department your team works with this rotation',
       ],
       sections: [
         {
@@ -242,6 +243,34 @@ export const GUIDES: ImprovementGuideBook = {
             },
           ],
         },
+        {
+          id: 'view-rotation',
+          title: 'See your team rotation',
+          requires: REQUIRES.view,
+          steps: [
+            {
+              action: 'Open **Team Rotation** to see the rota chart for your cycle.',
+              detail:
+                'The rota is a grid. Each row is a team, each column is a period (a block of time), and each cell shows the department that team works with during that period.',
+              platforms: {
+                web: 'Left sidebar → **Improvement Board** → **Team Rotation**.',
+                mobile: 'Tap the menu (**☰**) → **Improvement Board** → **Team Rotation**.',
+              },
+              link: { label: 'Open Team Rotation', href: '/improvement-board/rotation' },
+            },
+            {
+              action: 'Find the **highlighted period** — that is the one running now.',
+              detail:
+                'The current period is marked on the chart, so you can read straight across your team’s row to see which department you are paired with this block.',
+            },
+            {
+              action: 'Read across your team’s row to see where you go next.',
+              detail:
+                'The cells to the right of the current period are the departments your team rotates to in the blocks ahead, so you can see what is coming.',
+              tip: 'The rota is set by a Senior Learner. If a period looks empty, the schedule for that block has not been generated yet — it is not a mistake on your side.',
+            },
+          ],
+        },
       ],
     },
 
@@ -264,6 +293,7 @@ export const GUIDES: ImprovementGuideBook = {
         'Score it and weigh the AI priority',
         'Recognise impact on the leaderboard',
         'Assign MBA Associates to the departments they analyse',
+        'Build teams and run the team rotation',
       ],
       sections: [
         {
@@ -371,6 +401,34 @@ export const GUIDES: ImprovementGuideBook = {
             },
           ],
         },
+        {
+          id: 'set-up-rotation',
+          title: 'Build teams and run the rotation',
+          steps: [
+            {
+              action: 'Open **Rotation Teams** to build teams of MBA Associates by hand.',
+              detail:
+                'Group your associates into the teams that will rotate together. You decide who is on each team.',
+              platforms: {
+                web: 'Left sidebar → **Improvement Board** → **Rotation Teams**.',
+                mobile: 'Tap the menu (**☰**) → **Improvement Board** → **Rotation Teams**.',
+              },
+              link: { label: 'Open Rotation Teams', href: '/improvement-board/rotation/teams' },
+            },
+            {
+              action: 'Open **Rotation Setup** to configure the cycle and generate the rota.',
+              detail:
+                'Set the period length, the start date, and which departments are in the rotation, then generate the schedule. Add exam or holiday blackouts so no team is rotated during a break.',
+              link: { label: 'Open Rotation Setup', href: '/improvement-board/rotation/config' },
+            },
+            {
+              action: 'Open **Team Rotation** to check the generated rota.',
+              detail:
+                'The chart shows every team’s department for every period, with the current period highlighted. Associates see this same chart (read-only), so they always know where their team is posted.',
+              link: { label: 'Open Team Rotation', href: '/improvement-board/rotation' },
+            },
+          ],
+        },
       ],
     },
   },
@@ -394,6 +452,9 @@ export const GUIDES: ImprovementGuideBook = {
     { term: 'MBA Analyst', def: 'An MBA Associate posted to a department to read its analytics. The "My Analytics" page shows the department(s) they cover.' },
     { term: 'Analyst assignment', def: 'Posting an associate onto a department so that department’s analytics appear on their My Analytics page. Managed on the Analyst Assignments page; an associate can cover several departments.' },
     { term: 'De-identified / k≥5 suppressed', def: 'How the analytics are shown: figures are aggregated and never named, and any group smaller than five is hidden to protect privacy.' },
+    { term: 'Team rotation', def: 'The schedule that pairs each MBA Associate team with a department for a block of time, then rotates them to another — so associates learn how several departments really run.' },
+    { term: 'Rota chart', def: 'The grid on the Team Rotation page: rows are teams, columns are periods, and each cell is the department that team works with that period. The current period is highlighted.' },
+    { term: 'Period (rotation)', def: 'One block of time in a rotation cycle. A team stays with one department for a period, then moves to the next department in the following period.' },
   ],
 
   plannedLocaleNote: 'A Tamil version is planned — English only for now.',
