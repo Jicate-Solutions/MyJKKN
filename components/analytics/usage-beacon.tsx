@@ -42,6 +42,21 @@ import { usePathname } from 'next/navigation';
 /** Set once the server tells us tracking is off, to stop beaconing this session. */
 const DISABLED_KEY = 'jkkn.usageBeacon.disabled';
 
+/** Last path beaconed + when, so a REMOUNT of the same path doesn't double-count. */
+const LAST_KEY = 'jkkn.usageBeacon.last';
+
+// A remount resets any in-memory ref, so the ref alone cannot deduplicate.
+// MyJKKN's login lands on /dashboard and then reloads it with a `?v=<ts>`
+// cache-buster — a full remount of the SAME path ~2s later. Verified against
+// production on 2026-07-26: that wrote two `dashboard` page_visit rows per
+// login, which would inflate the dashboard against every other module in
+// exactly the comparison this feature exists to support.
+//
+// 10s is long enough to absorb a cache-buster reload or a double-submit, short
+// enough that genuine re-visits still count. Deliberate trade-off: a user who
+// leaves a module and returns within 10s is counted once.
+const DEDUPE_WINDOW_MS = 10_000;
+
 function isDisabledForSession(): boolean {
   try {
     return sessionStorage.getItem(DISABLED_KEY) === '1';
@@ -59,6 +74,31 @@ function markDisabledForSession(): void {
   }
 }
 
+/** True when this exact path was already beaconed inside the dedupe window. */
+function isDuplicate(pathname: string): boolean {
+  try {
+    const raw = sessionStorage.getItem(LAST_KEY);
+    if (!raw) return false;
+    const sep = raw.indexOf('|');
+    if (sep < 0) return false;
+    const at = Number(raw.slice(0, sep));
+    const path = raw.slice(sep + 1);
+    if (!Number.isFinite(at)) return false;
+    return path === pathname && Date.now() - at < DEDUPE_WINDOW_MS;
+  } catch {
+    // Storage blocked — fall back to the in-memory ref only.
+    return false;
+  }
+}
+
+function markSent(pathname: string): void {
+  try {
+    sessionStorage.setItem(LAST_KEY, `${Date.now()}|${pathname}`);
+  } catch {
+    // Ignore.
+  }
+}
+
 export function UsageBeacon() {
   const pathname = usePathname();
   // Guards React's double-invoked effects in dev and any same-path re-render.
@@ -68,8 +108,11 @@ export function UsageBeacon() {
     if (!pathname) return;
     if (lastSent.current === pathname) return;
     if (isDisabledForSession()) return;
+    // Survives remounts, which the ref above does not.
+    if (isDuplicate(pathname)) return;
 
     lastSent.current = pathname;
+    markSent(pathname);
 
     // `url` is the only field Mode 1 of the endpoint needs; it does the
     // module mapping server-side via mapUrlToModule() so the client never
