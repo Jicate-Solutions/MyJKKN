@@ -220,5 +220,19 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only, all in MyJKKN (COE is read-only, never written): upserts obe_course_outcomes (never overwrites existing COs), obe_course_attainment_rollup, and is_auto=true quality_evidence_mappings rows (NAAC 7.3.d + NBA T1_CO, loop_key copo_attainment). Never clobbers manually-curated (is_auto=false) mappings. No notifications, no external messages.",
     "safeToManualTrigger": true,
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'copo-attainment' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Fully idempotent — re-running refreshes the same rollup + evidence rows. NO-OPS entirely while copo_attainment.master_enabled=false (ships DARK). Blocker for true CO-tagged attainment: Academic Office must author assessment→CO maps (obe_assessment_co_marks is the target substrate)."
+  },
+  {
+    "id": "usage-rollup",
+    "name": "Usage Analytics — nightly rollup + retention",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:07 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/usage-rollup",
+    "callsClaude": false,
+    "whatItDoes": "Turns raw platform usage events into the aggregates every usage dashboard actually reads. Each night it recomputes the last 2 days of module_usage_daily (which module was used, how much, by whom), feature_usage_summary, and institution_health_scores, then archives usage_events older than 12 months. Before this existed, usage_events had grown to 25,832 rows while module_usage_daily's newest row was 2026-02-06 — the day the tables were created — because nothing in the codebase ever called the four compute_/archive_ RPCs. Every usage read surface (/api/analytics/usage/dashboard, /modules, /trends via LifecycleDashboardService) queries those aggregate tables rather than raw events, so the adoption dashboards had been serving five-month-old numbers.",
+    "configKnobs": "?days=N recomputes the last N days (default 2 — yesterday plus today, since today's events are still arriving and a missed run must self-heal on the next fire). Capped at 400 days; a manual trigger with ?days=180 backfills the Feb-onward history that was never rolled up. Retention fixed at 12 months (archive_old_usage_events' own default). Days are processed oldest-first so a partial failure leaves the RECENT end unprocessed, which the next default 2-day run repairs automatically. No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts module_usage_daily, feature_usage_summary and institution_health_scores rows for each target date, and moves usage_events rows older than 12 months into usage_events_archive. Aggregate counts only — no learner identities are emitted. No notifications, no external messages. Does not write usage_events itself.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'usage-rollup' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: the compute_* RPCs are idempotent per target_date and archival is a no-op when nothing is old enough. Returns HTTP 207 with an `errors[]` array when some days succeeded and some failed, so a partial run is visible instead of reading as clean. Companion to the Usage Beacon (PR #2440), which is what finally makes page views land in usage_events — the beacon fills the raw table, this routine makes it readable."
   }
 ];
