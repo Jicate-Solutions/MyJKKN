@@ -32,12 +32,20 @@ import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
  * sub-committees use "sub". Ad-hoc inspections use "inspection".
  * "cluster" is the cross-college Cluster Academic Council (CAC).
  */
+// Mirrors the LIVE accreditation_committees_committee_type_check constraint,
+// verified against prod 2026-07-26. The previous list drifted: it offered
+// 'sub' | 'ad_hoc' | 'review' (which the CHECK rejects, so creating one threw)
+// and omitted 'icc' | 'anti_ragging' | 'grievance' | 'coordinator' | 'statutory'
+// (real types the UI could therefore never create — including the ICC and
+// anti-ragging cells NAAC metric 7.7 asks for).
 export type CommitteeType =
   | 'main'
-  | 'sub'
+  | 'icc'
+  | 'anti_ragging'
+  | 'grievance'
+  | 'coordinator'
   | 'inspection'
-  | 'ad_hoc'
-  | 'review'
+  | 'statutory'
   | 'cluster';
 
 /**
@@ -58,6 +66,8 @@ export interface AccreditationCommittee {
   body_code: AccreditationBodyCode;
   committee_name: string;
   committee_type: CommitteeType;
+  /** Standing roster for committees that span institutions (cluster councils). */
+  member_institution_ids?: string[];
   chair_user_id: string | null;
   formed_at: string; // date
   term_end: string | null; // date
@@ -89,7 +99,10 @@ export interface CommitteeListFilters {
 }
 
 export interface CreateCommitteePayload {
+  /** Filing location. For a cluster council this is the umbrella row, NOT ownership. */
   institution_id: string;
+  /** Cluster roster — every institution the council spans. Required for committee_type 'cluster'. */
+  member_institution_ids?: string[];
   body_code: AccreditationBodyCode;
   committee_name: string;
   committee_type: CommitteeType;
@@ -100,6 +113,7 @@ export interface CreateCommitteePayload {
 }
 
 export interface UpdateCommitteePayload {
+  member_institution_ids?: string[];
   committee_name?: string;
   committee_type?: CommitteeType;
   chair_user_id?: string | null;
@@ -183,6 +197,7 @@ export class AccreditationCommitteeService {
         body_code: payload.body_code,
         committee_name: payload.committee_name,
         committee_type: payload.committee_type,
+        member_institution_ids: payload.member_institution_ids ?? [],
         chair_user_id: payload.chair_user_id ?? null,
         formed_at: payload.formed_at,
         term_end: payload.term_end ?? null,

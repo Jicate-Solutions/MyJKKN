@@ -22,6 +22,7 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -80,11 +81,15 @@ function useJKKNInstitutions() {
     queryKey: ['institutions', 'jkkn-iqac'],
     queryFn: async (): Promise<Institution[]> => {
       const sb = createClientSupabaseClient() as any;
+      // NO iqac_code filter. It previously restricted this list to the 8 IQAC
+      // colleges, which made a Cluster Academic Council impossible to express:
+      // JKKN Main Office (its filing home) and BOTH schools (JKKN Matric Higher
+      // Secondary School, Nattraja Vidhyalya CBSE) were absent from the picker,
+      // and the CAC exists precisely to cluster the colleges AND the schools.
       const { data, error } = await sb
         .from('institutions')
         .select('id, name, iqac_code, institution_type')
-        .not('iqac_code', 'is', null)
-        .order('iqac_code');
+        .order('name');
       if (error) throw error;
       return (data ?? []) as Institution[];
     },
@@ -92,12 +97,19 @@ function useJKKNInstitutions() {
   });
 }
 
+// These keys are the ONLY values the database accepts (verified against the live
+// accreditation_committees_committee_type_check constraint, 2026-07-26). The old
+// list offered 'sub' / 'ad_hoc' / 'review' — all three rejected on save — and
+// hid 'icc' / 'anti_ragging' / 'grievance' / 'coordinator' / 'statutory', so the
+// cells NAAC 7.7 asks about could not be formed here at all.
 const COMMITTEE_TYPE_LABELS: Record<CommitteeType, string> = {
   main: 'Main IQAC',
-  sub: 'Sub-committee',
+  coordinator: 'Department coordinator',
+  icc: 'Internal Complaints Committee (ICC)',
+  anti_ragging: 'Anti-ragging committee',
+  grievance: 'Grievance redressal cell',
   inspection: 'Inspection panel',
-  ad_hoc: 'Ad-hoc',
-  review: 'Review',
+  statutory: 'Statutory committee',
   cluster: 'Cluster council (CAC)',
 };
 
@@ -193,7 +205,7 @@ export default function NAACCommitteesPage() {
                       <SelectValue placeholder="Select college" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All 8 colleges</SelectItem>
+                      <SelectItem value="all">All institutions</SelectItem>
                       {(institutions ?? []).map((inst) => (
                         <SelectItem key={inst.id} value={inst.id}>
                           {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
@@ -290,6 +302,13 @@ export default function NAACCommitteesPage() {
                                 ? `[${institution.iqac_code}] `
                                 : ''}
                               {institution.name}
+                              {c.committee_type === 'cluster' && ' · filed here'}
+                            </div>
+                          )}
+                          {(c.member_institution_ids?.length ?? 0) > 0 && (
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Spans {c.member_institution_ids!.length}{' '}
+                              institutions
                             </div>
                           )}
                         </TableCell>
@@ -358,17 +377,54 @@ function CreateCommitteeDialog({
   );
   const [termEnd, setTermEnd] = useState<string>('');
   const [notes, setNotes] = useState('');
+  // Cluster roster. Seeded with every IQAC college the first time 'cluster' is
+  // chosen; the schools are ticked by hand because nothing in the data marks an
+  // institution as a school, and inventing that taxonomy here would be a guess.
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+
+  const isCluster = type === 'cluster';
+  const clusterRosterTooSmall = isCluster && memberIds.length < 2;
 
   const create = useCreateNAACCommittee();
+
+  const toggleMember = (id: string) =>
+    setMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id],
+    );
+
+  // When the Director switches to a cluster council, pre-tick the colleges and
+  // file it at Main Office — the umbrella row that belongs to every college and
+  // none. Both remain editable.
+  const handleTypeChange = (next: CommitteeType) => {
+    setType(next);
+    if (next === 'cluster') {
+      if (memberIds.length === 0) {
+        setMemberIds(
+          (institutions ?? []).filter((i) => i.iqac_code).map((i) => i.id),
+        );
+      }
+      const mainOffice = (institutions ?? []).find(
+        (i) => i.name === 'JKKN Main Office',
+      );
+      if (mainOffice) setInstitutionId(mainOffice.id);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!name.trim() || !institutionId || !formedAt) {
       toast.error('Committee name, institution, and formed date are required');
       return;
     }
+    if (clusterRosterTooSmall) {
+      toast.error(
+        'A cluster council must include at least two institutions — that is what makes it a cluster.',
+      );
+      return;
+    }
     try {
       await create.mutateAsync({
         institution_id: institutionId,
+        member_institution_ids: isCluster ? memberIds : [],
         body_code: 'NAAC',
         committee_name: name.trim(),
         committee_type: type,
@@ -381,6 +437,7 @@ function CreateCommitteeDialog({
       setName('');
       setNotes('');
       setTermEnd('');
+      setMemberIds([]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to create committee';
       toast.error(msg);
@@ -397,22 +454,34 @@ function CreateCommitteeDialog({
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Form new IQAC committee</DialogTitle>
+          <DialogTitle>
+            {isCluster
+              ? 'Form the Cluster Academic Council'
+              : 'Form new IQAC committee'}
+          </DialogTitle>
           <DialogDescription>
-            NAAC mandates one main IQAC per college, with the Principal as
-            Chairman. Sub-committees handle attribute-specific work.
+            {isCluster
+              ? 'One council across the whole of JKKN Institutions — every college and school together. It integrates academic planning, shares resources instead of duplicating them, and coordinates quality improvement across disciplinary lines, so time, money and effort are not spent twice.'
+              : 'NAAC mandates one main IQAC per college, with the Principal as Chairman. Other committee types handle attribute-specific work.'}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           {isSuperAdmin && (
             <div className="space-y-1.5">
-              <Label>Institution</Label>
+              <Label>{isCluster ? 'Filed under' : 'Institution'}</Label>
               <Select value={institutionId} onValueChange={setInstitutionId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select college" />
+                  <SelectValue
+                    placeholder={
+                      isCluster ? 'Select the umbrella row' : 'Select college'
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {institutions.map((inst) => (
+                  {(isCluster
+                    ? institutions
+                    : institutions.filter((i) => i.iqac_code)
+                  ).map((inst) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
                       {inst.name}
@@ -420,6 +489,12 @@ function CreateCommitteeDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {isCluster && (
+                <p className="text-xs text-muted-foreground">
+                  Where the council is filed, not who owns it. JKKN Main Office
+                  is the umbrella row that belongs to every college and none.
+                </p>
+              )}
             </div>
           )}
 
@@ -436,7 +511,7 @@ function CreateCommitteeDialog({
             <Label>Type</Label>
             <Select
               value={type}
-              onValueChange={(v) => setType(v as CommitteeType)}
+              onValueChange={(v) => handleTypeChange(v as CommitteeType)}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -452,6 +527,45 @@ function CreateCommitteeDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {isCluster && (
+            <div className="space-y-1.5">
+              <Label>
+                Institutions in the cluster{' '}
+                <span className="font-normal text-muted-foreground">
+                  ({memberIds.length} selected)
+                </span>
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Tick every college and school the council holds together. The
+                colleges are pre-ticked; add the schools.
+              </p>
+              <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border p-2">
+                {institutions.map((inst) => (
+                  <label
+                    key={inst.id}
+                    htmlFor={`member-${inst.id}`}
+                    className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted/60"
+                  >
+                    <Checkbox
+                      id={`member-${inst.id}`}
+                      checked={memberIds.includes(inst.id)}
+                      onCheckedChange={() => toggleMember(inst.id)}
+                    />
+                    <span>
+                      {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
+                      {inst.name}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {clusterRosterTooSmall && (
+                <p className="text-xs text-destructive">
+                  Pick at least two — a cluster of one is not a cluster.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -490,7 +604,10 @@ function CreateCommitteeDialog({
           >
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={create.isPending}>
+          <Button
+            onClick={handleSubmit}
+            disabled={create.isPending || clusterRosterTooSmall}
+          >
             {create.isPending ? 'Creating…' : 'Create committee'}
           </Button>
         </DialogFooter>
