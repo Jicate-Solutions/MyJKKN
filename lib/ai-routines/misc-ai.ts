@@ -164,6 +164,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'facility-teaching-naac-snapshots' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same snapshot + evidence rows (snapshot natural key institution_id+metric_code+ay_label; junction natural key source_table+source_id+body_code+metric_code). Wave 2B of the module→evidence-spine integration."
   },
   {
+    "id": "sustainability-naac-evidence",
+    "name": "Accreditation — Sustainability Evidence Snapshots (NAAC 10.2 / 10.3)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 05:05 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/sustainability-naac-evidence",
+    "callsClaude": false,
+    "whatItDoes": "Reads the monthly utility meter register (electricity kWh, water kL, waste kg, solar kWh generated — entered per campus per month at /accreditation/manage/utility-readings) and computes one sustainability_naac_evidence snapshot per campus per academic year, then upserts the matching quality_evidence_mappings rows: NAAC 10.2 water & waste management, and 10.3 progress towards net zero. 10.3 is a DIRECTION, not a level — each campus is compared against its own prior months, because the assessment rewards progressing towards net zero rather than a one-off figure. This is the only substrate Attribute 10 has: before it, that attribute held zero evidence rows on prod.",
+    "configKnobs": "platform_policies 'sustainability.min_months_for_trend' (default 2) is the honest-gating threshold. HONEST GATES, all three deliberate: a campus with NO readings in the AY gets no snapshot and no evidence row (absence, never a fabricated zero); 10.2 emits only when water and/or waste has been reported for at least that many distinct months; 10.3 emits only when electricity has enough months AND a direction is computable (year-on-year AVERAGE PER REPORTED MONTH when a prior AY exists, else first-vs-latest month inside this AY — raw totals are never compared, since a partial current year would report a fake ±80% swing). Expect 'skipped_thin' to be high in the first months of entry: that is correct behaviour, not a failure. NAAC 10.4 is NOT emitted here — it comes from a closed audit_cycles row with module_key='sustainability' via fn_sync_audit_cycle_evidence. period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no LLM.",
+    "sideEffects": "DB writes only: upserts sustainability_naac_evidence snapshots (one per campus per AY, and only for campuses that reported) and is_auto=true rows into quality_evidence_mappings (NAAC 10.2 / 10.3), refreshing metadata + mapped_at on re-run and withdrawing its own stale auto rows per metric when a gate stops holding (e.g. readings deleted → the metric disappears rather than dropping to zero). NEVER touches manually-curated (is_auto=false) mappings. Meter totals only — no learner or Senior Learner identities. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'sustainability-naac-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — snapshots upsert on (institution_id, academic_year), mappings on the junction natural key. Depends entirely on a named person per campus entering four numbers each month; if the register stays empty the routine correctly emits nothing. Attribute 10 green substrate; same snapshot-table pattern as hr-naac-evidence."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",
