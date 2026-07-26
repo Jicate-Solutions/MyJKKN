@@ -14,7 +14,9 @@
 // cannot independently account for. Allowed = {verbatim evidence values}
 // ∪ {structural aggregates the validator RECOMPUTES itself: total rows,
 // per-loop counts, distinct-course counts} ∪ {context numbers from the
-// period label + metric code}. Anything else → verdict 'ungrounded'.
+// period label + metric code} ∪ {the year components of a genuine academic-year
+// range — '2026-27' also allows 2027, since prose and evidence spell the same
+// academic year both ways}. Anything else → verdict 'ungrounded'.
 //
 // A draft that comes back 'ungrounded' is NOT approvable in the UI. This gate
 // is conservative by design: plainer prose is an acceptable price for a gate
@@ -50,8 +52,25 @@ export interface GroundingResult {
 }
 
 // ── token regexes ──────────────────────────────────────────────────────────
-// ISO date first (so its digits are not later mis-read as bare numbers).
+// A FULL ISO-8601 timestamp (date + time, optional fraction + zone), matched
+// and compared as ONE atomic token. Evidence metadata carries values like
+// '2026-07-26T04:29:45.706507+00:00'; when the model quotes one verbatim the
+// old strip order left the time behind ('T04:29:45.706507+00:00') and the bare
+// -number pass then read '29' and '45.706507' as ungrounded figures. Treating
+// the timestamp atomically is also STRICTER than the old behaviour: a
+// fabricated timestamp is rejected whole instead of leaking matching fragments.
+const ISO_TS_RE =
+  /\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:[Zz]|[+-]\d{2}:?\d{2})?/g;
+// ISO date next (so its digits are not later mis-read as bare numbers).
 const ISO_DATE_RE = /\b\d{4}-\d{2}-\d{2}\b/g;
+// An academic-year range: '2026-27' or '2026-2027'. The tail MUST be the
+// successor year, which is what keeps this conservative — an ISO fragment like
+// '2026-07' can never qualify (07 is not 27), so no arbitrary 4-digit number is
+// blanket-allowed. Both the abbreviated and expanded components are then
+// allowed, because prose legitimately writes the same academic year either way
+// ('AY 2026-27' vs '2026-2027') and the BoS evidence rows store the expanded
+// form while the period label carries the abbreviated one.
+const ACADEMIC_YEAR_RE = /\b(\d{4})-(\d{2}|\d{4})\b/g;
 // A "code" token contains BOTH a letter and a digit (e.g. MR3691, EDU101).
 // Pure-numeric course codes (e.g. 383813) are intentionally treated as numbers
 // and checked against the allowed-number set instead.
@@ -75,6 +94,32 @@ interface AllowedSets {
   numbers: Set<string>; // numKey values
   codes: Set<string>; // upper-cased
   dates: Set<string>; // YYYY-MM-DD
+  timestamps: Set<string>; // full ISO-8601, canonicalised
+}
+
+/** Canonical key for a full ISO timestamp: case-folded, and sub-second precision
+ *  dropped so quoting '…T04:29:45+00:00' for an evidence value of
+ *  '…T04:29:45.706507+00:00' still matches. Truncation is bounded to the
+ *  fraction — a different second, minute, hour or zone is still a mismatch. */
+function tsKey(raw: string): string {
+  return raw.toUpperCase().replace(/\.\d+/, '');
+}
+
+/** Allow the year components of every genuine academic-year range in `text`.
+ *  '2026-27' and '2026-2027' both yield {2026, 27, 2027}; a non-successor pair
+ *  (e.g. the '2026-07' inside an ISO date) yields nothing. */
+function collectAcademicYears(text: string, sets: AllowedSets): void {
+  for (const m of text.matchAll(ACADEMIC_YEAR_RE)) {
+    const start = Number.parseInt(m[1], 10);
+    const tail = Number.parseInt(m[2], 10);
+    const next = start + 1;
+    const isAbbrev = m[2].length === 2 && tail === next % 100;
+    const isExpanded = m[2].length === 4 && tail === next;
+    if (!isAbbrev && !isExpanded) continue;
+    sets.numbers.add(numKey(String(start)));
+    sets.numbers.add(numKey(String(next)));
+    sets.numbers.add(numKey(String(next % 100)));
+  }
 }
 
 /** Recursively collect every primitive token from an arbitrary JSON value. */
@@ -87,8 +132,19 @@ function collect(value: unknown, sets: AllowedSets): void {
   if (typeof value === 'string') {
     const iso = isoDatePart(value);
     if (iso) sets.dates.add(iso);
+    // full ISO timestamp(s) → allowed as atomic tokens
+    for (const t of value.match(ISO_TS_RE) ?? []) sets.timestamps.add(tsKey(t));
+    // academic-year range(s) → allow both the abbreviated and expanded years
+    collectAcademicYears(value, sets);
     // numeric-looking string → allowed number
     if (/^-?\d+(?:\.\d+)?$/.test(value.trim())) sets.numbers.add(numKey(value));
+    // A number written INSIDE a free-text evidence value (e.g. the event name
+    // 'Annual Cultural Day 2024 (Retro)') is a verbatim evidence value and must
+    // be quotable. Date/time components are stripped FIRST so this never
+    // re-opens the fragments ISO_TS_RE deliberately keeps atomic — a '29' that
+    // only exists as the minutes of a timestamp stays ungrounded.
+    const prose = value.replace(ISO_TS_RE, ' ').replace(ISO_DATE_RE, ' ');
+    for (const n of prose.match(NUMBER_RE) ?? []) sets.numbers.add(numKey(n));
     // mixed alnum token(s) inside the string → allowed code(s)
     for (const c of value.match(CODE_RE) ?? []) sets.codes.add(c.toUpperCase());
     return;
@@ -124,7 +180,10 @@ function structuralNumbers(evidence: EvidenceRow[]): string[] {
 /** Add every number/code/date fragment of a free-text context string. */
 function collectContext(text: string | undefined, sets: AllowedSets): void {
   if (!text) return;
+  for (const t of text.match(ISO_TS_RE) ?? []) sets.timestamps.add(tsKey(t));
   for (const d of text.match(ISO_DATE_RE) ?? []) sets.dates.add(d);
+  // e.g. period 'AY 2026-27' also allows the expanded 2027 / '2026-2027' form.
+  collectAcademicYears(text, sets);
   for (const c of text.match(CODE_RE) ?? []) sets.codes.add(c.toUpperCase());
   for (const n of text.match(NUMBER_RE) ?? []) sets.numbers.add(numKey(n));
 }
@@ -139,7 +198,12 @@ export function validateGrounding(
   evidence: EvidenceRow[],
   context: GroundingContext = {},
 ): GroundingResult {
-  const sets: AllowedSets = { numbers: new Set(), codes: new Set(), dates: new Set() };
+  const sets: AllowedSets = {
+    numbers: new Set(),
+    codes: new Set(),
+    dates: new Set(),
+    timestamps: new Set(),
+  };
 
   // 1) verbatim evidence tokens (walk metadata + the source_id/metric_code cols)
   for (const row of evidence) {
@@ -152,13 +216,27 @@ export function validateGrounding(
   // 3) context tokens (period label, metric code/name, scope label)
   collectContext(context.period, sets);
   collectContext(context.metricCode, sets);
+  // A dotted metric code also licenses its individual parts: '7.10.1' allows 7,
+  // 10 and 1, because the prose legitimately refers to "Attribute 7" /
+  // "Criterion 7.10". These come from the validator's own context argument, not
+  // from the model, so they can never launder a fabricated figure.
+  for (const part of (context.metricCode ?? '').split('.')) {
+    if (/^\d+$/.test(part)) sets.numbers.add(numKey(part));
+  }
   collectContext(context.metricName, sets);
   collectContext(context.scopeLabel, sets);
 
   const offending: string[] = [];
   let remaining = narrativeMd;
 
-  // Extract in strip order: dates → codes → bare numbers.
+  // Extract in strip order: full timestamps → dates → codes → bare numbers.
+  // Timestamps go first so a verbatim-quoted evidence timestamp is never
+  // shredded into its time fragments and re-read as unaccounted numbers.
+  for (const t of remaining.match(ISO_TS_RE) ?? []) {
+    if (!sets.timestamps.has(tsKey(t))) offending.push(t);
+  }
+  remaining = remaining.replace(ISO_TS_RE, ' ');
+
   for (const d of remaining.match(ISO_DATE_RE) ?? []) {
     if (!sets.dates.has(d)) offending.push(d);
   }

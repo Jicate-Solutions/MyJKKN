@@ -128,8 +128,15 @@ export function buildGroundingPrompt(args: {
 }
 
 /** Citation-marker pattern; stripped before grounding validation so the [E#]
- *  tokens are not themselves read as ungrounded alphanumeric codes. */
-export const CITATION_MARKER_RE = /\[E\d+\]/g;
+ *  tokens are not themselves read as ungrounded alphanumeric codes.
+ *
+ *  Matches a SINGLE marker (`[E1]`) and the GROUPED form the model legitimately
+ *  emits when one sentence draws on several records (`[E1,E2]`, `[E1, E2, E3]`).
+ *  Before this handled the grouped form, the literal string
+ *  `[E1, E2, E3, E4, E5, E7, E8]` survived stripping and the validator's CODE_RE
+ *  then read E1…E8 as ungrounded factual codes — a false-positive that blocked
+ *  a real drafted narrative on production (2026-07-26). */
+export const CITATION_MARKER_RE = /\[E\d+(?:\s*,\s*E\d+)*\]/g;
 
 /** Remove [E#] citation markers so the validator sees only factual prose. */
 export function stripCitationMarkers(md: string): string {
