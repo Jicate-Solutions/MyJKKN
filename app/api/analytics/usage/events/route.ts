@@ -5,6 +5,40 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { UsageTrackingService } from '@/lib/services/analytics/usage-tracking-service';
 import type { UsageEventType } from '@/types/usage-analytics';
 
+// ---------------------------------------------------------------------------
+// Kill switch — platform_policies 'analytics.usage_beacon.enabled', dark by
+// default (added 2026-07-26 with the UsageBeacon client). This endpoint is the
+// ONLY authority: the client caches our answer but must never be trusted to
+// gate itself. Fail-safe — any error reading the policy means "off".
+//
+// Cached in-process for 60s because the beacon fires on every page navigation
+// and a policy round-trip per view would be pure overhead.
+// ---------------------------------------------------------------------------
+const POLICY_KEY = 'analytics.usage_beacon.enabled';
+const POLICY_TTL_MS = 60_000;
+
+let policyCache: { value: boolean; expiresAt: number } | null = null;
+
+async function isBeaconEnabled(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>
+): Promise<boolean> {
+  const now = Date.now();
+  if (policyCache && policyCache.expiresAt > now) return policyCache.value;
+
+  try {
+    const { data, error } = await supabase.rpc('fn_get_policy_bool', {
+      p_key: POLICY_KEY,
+      p_default: false,
+    });
+    const value = error ? false : data === true;
+    policyCache = { value, expiresAt: now + POLICY_TTL_MS };
+    return value;
+  } catch {
+    policyCache = { value: false, expiresAt: now + POLICY_TTL_MS };
+    return false;
+  }
+}
+
 /**
  * POST /api/analytics/usage/events
  * Client-side tracking endpoint.
@@ -24,6 +58,12 @@ export async function POST(request: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Dark => write nothing and tell the client to stand down for the session.
+    // Checked after auth so an unauthenticated caller still gets a plain 401.
+    if (!(await isBeaconEnabled(supabase))) {
+      return NextResponse.json({ success: true, tracked: false });
     }
 
     const { data: profile } = await supabase
@@ -62,7 +102,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, tracked: true });
   } catch (error) {
     console.error('[analytics/usage/events] Error:', error);
     return NextResponse.json(
