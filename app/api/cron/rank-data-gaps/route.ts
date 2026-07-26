@@ -248,6 +248,43 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Feed-forward (explore/exploit): per-area TRACK RECORD — of the gaps
+    // ACCEPTED in each area, how many produced an applied improvement. Computed
+    // inline from mba_data_gaps (service-role read) rather than calling
+    // fn_mba_gap_area_hit_rate, so the loop stays decoupled from that RPC's
+    // grant — Task 4 gates the RPC to managers, but this cron must keep working.
+    // Mirrors the RPC's logic exactly (accepted = status; produced = outcome).
+    const areaTrack = new Map<string, AreaTrackRecord>();
+    {
+      const { data: outcomeRows } = await admin
+        .from('mba_data_gaps')
+        .select('area_id, status, gap_outcome');
+      const agg = new Map<string, { accepted: number; produced: number }>();
+      for (const r of (outcomeRows ?? []) as Array<{
+        area_id: string;
+        status: string;
+        gap_outcome: string | null;
+      }>) {
+        if (!r.area_id) continue;
+        const cur = agg.get(r.area_id) ?? { accepted: 0, produced: 0 };
+        if (r.status === 'accepted') cur.accepted++;
+        if (r.gap_outcome === 'produced_applied_improvement') cur.produced++;
+        agg.set(r.area_id, cur);
+      }
+      for (const [aid, v] of agg.entries()) {
+        areaTrack.set(aid, {
+          accepted: v.accepted,
+          produced: v.produced,
+          // 1-decimal, matching fn_mba_gap_area_hit_rate's ROUND(...,1); NULL
+          // when no accepted gaps yet (unproven → the prompt tells it to explore).
+          hit_rate_pct:
+            v.accepted > 0
+              ? Math.round((1000 * v.produced) / v.accepted) / 10
+              : null,
+        });
+      }
+    }
+
     const byInstitution = new Map<string, RankableGap[]>();
     for (const raw of rows) {
       if (!raw.institution_id) continue; // no institution → cannot rank comparatively
