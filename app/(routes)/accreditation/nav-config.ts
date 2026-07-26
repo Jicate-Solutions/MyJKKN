@@ -48,6 +48,11 @@ const config: ModuleNavConfig = {
           icon: 'Handshake',
           href: '/accreditation/manage/collaborations',
         },
+        {
+          label: 'Utility Readings',
+          icon: 'Leaf',
+          href: '/accreditation/manage/utility-readings',
+        },
       ],
     },
     {

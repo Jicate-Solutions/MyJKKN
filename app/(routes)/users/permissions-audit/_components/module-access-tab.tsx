@@ -44,6 +44,7 @@ import {
 } from '@/lib/permissions-audit/module-mappings';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AssignUserDialog } from './assign-user-dialog';
+import { CreateScopedRoleDialog } from './create-scoped-role-dialog';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -218,6 +219,12 @@ export function ModuleAccessTab() {
   const [assignFor, setAssignFor] = useState<{
     roleKey: string;
     roleName: string;
+  } | null>(null);
+  // The action a scoped role is being created for (opens CreateScopedRoleDialog).
+  const [createFor, setCreateFor] = useState<{
+    moduleLabel: string;
+    actionLabel: string;
+    permKeys: string[];
   } | null>(null);
   // This tab's data (matrix API) is super-admin-only, so anyone who can see it
   // can assign. The server endpoint still enforces roles.assign independently.
@@ -786,7 +793,12 @@ export function ModuleAccessTab() {
                             </span>
                           </Badge>
                         </Link>
-                        {isSuperAdmin && (
+                        {/* No Assign on the super-admin bypass chip: assigning
+                            super_admin from a permission-scoped lens would grant
+                            EVERYTHING, not the scoped action the auditor is looking
+                            at — a footgun. Genuine super-admin grants belong in
+                            Role Management, with full context. */}
+                        {isSuperAdmin && !alwaysGrants && (
                           <button
                             type='button'
                             title={`Assign a user to ${meta.name}`}
@@ -805,6 +817,25 @@ export function ModuleAccessTab() {
                   {rolesGranted.length === 1 && rolesGranted[0]?.alwaysGrants && (
                     <div className='text-xs text-muted-foreground italic mt-1'>
                       Only super admins have this. No other role grants it.
+                    </div>
+                  )}
+                  {isSuperAdmin && permKeys.length > 0 && (
+                    <div className='mt-2'>
+                      <Button
+                        size='sm'
+                        variant='ghost'
+                        className='h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground'
+                        onClick={() =>
+                          setCreateFor({
+                            moduleLabel: moduleLabel(module),
+                            actionLabel: verb.label,
+                            permKeys
+                          })
+                        }
+                      >
+                        <Plus className='h-3 w-3' /> Create a role for &ldquo;
+                        {verb.label}&rdquo; only
+                      </Button>
                     </div>
                   )}
                   {perms.length > 0 && (
@@ -845,6 +876,23 @@ export function ModuleAccessTab() {
           roleKey={assignFor.roleKey}
           roleName={assignFor.roleName}
           onAssigned={loadMatrix}
+        />
+      )}
+
+      {createFor && (
+        <CreateScopedRoleDialog
+          open={!!createFor}
+          onOpenChange={(o) => {
+            if (!o) setCreateFor(null);
+          }}
+          moduleLabel={createFor.moduleLabel}
+          actionLabel={createFor.actionLabel}
+          permKeys={createFor.permKeys}
+          onCreated={(role) => {
+            loadMatrix();
+            // Chain straight into assigning a user to the freshly-created role.
+            setAssignFor({ roleKey: role.roleKey, roleName: role.roleName });
+          }}
         />
       )}
     </div>

@@ -1391,6 +1391,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
       { key: 'accreditation.collaborations.manage', label: 'Manage MoU & Grants Register (add/edit/delete records)' },
 
+      // Monthly utility meter register (Attribute 10, 2026-07-26) —
+      // /accreditation/manage/utility-readings. Readings auto-emit NAAC 10.2
+      // (water & waste) + 10.3 (net-zero progress); a campus with no readings
+      // emits nothing rather than a zero.
+      { key: 'accreditation.sustainability_readings.view', label: 'View Monthly Utility Readings' },
+      { key: 'accreditation.sustainability_readings.manage', label: 'Enter Monthly Utility Readings (per campus, per month)' },
+
       // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
       // accreditation_officer (existing system role) is the primary IIQA Coordinator;
       // principal signs off; super_admin / director submits to NAAC.
