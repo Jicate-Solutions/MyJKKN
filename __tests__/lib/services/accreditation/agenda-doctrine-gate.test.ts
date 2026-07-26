@@ -16,7 +16,7 @@ describe('checkAgendaDoctrine — a compliant agenda', () => {
   it('passes an agenda made only of blockers, decisions and carried items', () => {
     const agenda = [
       '1. Hostel block C fire-safety certificate is still not issued — decide who escalates.',
-      '2. Carried: appoint a laboratory Senior Learner for the pharmacology practical.',
+      '2. Carried: appoint a learning-lab Senior Learner for the pharmacology practical.',
       '3. Decision needed: whether the mess vendor contract is renewed or re-tendered.',
     ].join('\n');
     const res = checkAgendaDoctrine(agenda);

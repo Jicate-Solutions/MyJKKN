@@ -456,7 +456,7 @@ export function buildAgendaPrompt(facts: AgendaFactSet): string {
     `HARD RULES (an automated gate rejects any violation):`,
     `1. Use ONLY numbers, dates, and codes that appear verbatim in the facts above. Never invent, estimate, round, or compute a figure.`,
     `2. Do not state who will attend. Attendance is not recorded in this system.`,
-    `3. Write "learner", never "student". Write "Senior Learner" where teaching staff is meant.`,
+    `3. Write "learner", never "student". Write "Senior Learner" for anyone in a teaching role.`,
     `4. No preamble, no sign-off, no commentary about these instructions.`,
   ]
     .filter((l) => l !== undefined)
@@ -505,7 +505,7 @@ export function buildMinutesPolishPrompt(facts: MinutesFactSet): string {
     `2. You may NOT drop a resolution. Every resolution listed above must appear in your write-up. A gate checks for omissions and rejects the draft if one is missing.`,
     `3. Do NOT state who attended or how many attended. Attendance is not recorded in this system, so any attendance sentence would be fabricated.`,
     `4. Keep the Action-Taken-Report structure: what was reviewed and its outcome, then what was resolved with its owner and target date.`,
-    `5. Write "learner", never "student". Write "Senior Learner" where teaching staff is meant.`,
+    `5. Write "learner", never "student". Write "Senior Learner" for anyone in a teaching role.`,
     `6. Return the minutes prose only — no preamble, no headings other than the report's own, no commentary about these instructions.`,
   ].join('\n');
 }
