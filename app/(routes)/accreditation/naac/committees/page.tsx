@@ -3,7 +3,8 @@
 // /accreditation/naac/committees — IQAC committee list (PR-A8 commit 2).
 //
 // Scopes:
-//   - super_admin sees all committees across all 8 JKKN colleges
+//   - super_admin's "All institutions" scope applies NO institution filter at
+//     all — it returns committees from every institution, not only the colleges
 //   - institution users see their own institution's committees
 //   - RLS on accreditation_committees + role_has_institution_access() enforces
 //
@@ -58,15 +59,20 @@ import {
   ShieldCheck,
   Calendar,
   Building2,
+  Network,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { findUmbrellaRow } from './_lib/umbrella-row';
 import {
   useNAACCommittees,
   useCreateNAACCommittee,
 } from '@/hooks/accreditation/use-naac-committees';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { CommitteeType } from '@/lib/services/accreditation/accreditation-committee-service';
+import type {
+  AccreditationCommittee,
+  CommitteeType,
+} from '@/lib/services/accreditation/accreditation-committee-service';
 import { toast } from 'sonner';
 
 interface Institution {
@@ -137,10 +143,35 @@ export default function NAACCommitteesPage() {
     effectiveScope === '' ? 'all' : effectiveScope,
   );
 
+  // 'all' passes institutionId: undefined to the service — i.e. NO institution
+  // filter whatsoever. It is not "the 8 colleges"; it is every institution the
+  // viewer's RLS lets through, schools and Main Office included. Say that.
   const activeInstitutionName = useMemo(() => {
-    if (effectiveScope === 'all') return 'All 8 colleges';
+    if (effectiveScope === 'all') {
+      return institutions
+        ? `All institutions (${institutions.length})`
+        : 'All institutions';
+    }
     return institutions?.find((i) => i.id === effectiveScope)?.name ?? '—';
   }, [effectiveScope, institutions]);
+
+  // A cluster council spans institutions; it is only FILED against one of them.
+  // Listing it inside the per-institution table makes it read as belonging to
+  // its filing row, so it gets its own section instead.
+  const clusterCommittees = useMemo(
+    () => (committees ?? []).filter((c) => c.committee_type === 'cluster'),
+    [committees],
+  );
+  const institutionCommittees = useMemo(
+    () => (committees ?? []).filter((c) => c.committee_type !== 'cluster'),
+    [committees],
+  );
+
+  const institutionsById = useMemo(() => {
+    const map = new Map<string, Institution>();
+    (institutions ?? []).forEach((i) => map.set(i.id, i));
+    return map;
+  }, [institutions]);
 
   const handleScopeChange = (value: string) => {
     setScope(value);
@@ -256,10 +287,39 @@ export default function NAACCommitteesPage() {
           </CardContent>
         </Card>
 
+        {/* Cluster councils — bodies that span institutions, not bodies inside one */}
+        {!isLoading && clusterCommittees.length > 0 && (
+          <Card className="border-2 border-amber-300 bg-amber-50/40 dark:bg-amber-950/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Network className="h-5 w-5 text-amber-600" />
+                Cluster councils
+              </CardTitle>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Councils that hold several institutions together rather than
+                sitting inside one. Each is filed against a single row so it can
+                be found and governed, but it belongs to every institution it
+                spans.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {clusterCommittees.map((c) => (
+                <ClusterCouncilCard
+                  key={c.id}
+                  committee={c}
+                  institutionsById={institutionsById}
+                />
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* List */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Active Committees</CardTitle>
+            <CardTitle className="text-base">
+              Committees held by one institution
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -268,12 +328,18 @@ export default function NAACCommitteesPage() {
                 <Skeleton className="h-8 w-full" />
                 <Skeleton className="h-8 w-full" />
               </div>
-            ) : (committees ?? []).length === 0 ? (
+            ) : institutionCommittees.length === 0 ? (
               <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-                No committees yet.{' '}
-                {canCreate
-                  ? 'Click “New committee” to form the first IQAC.'
-                  : 'Ask your IQAC chairman to form a committee.'}
+                {clusterCommittees.length > 0 ? (
+                  'No committee here is held by a single institution — the cluster councils above span several.'
+                ) : (
+                  <>
+                    No committees yet.{' '}
+                    {canCreate
+                      ? 'Click “New committee” to form the first IQAC.'
+                      : 'Ask your IQAC chairman to form a committee.'}
+                  </>
+                )}
               </div>
             ) : (
               <Table>
@@ -288,7 +354,7 @@ export default function NAACCommitteesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(committees ?? []).map((c) => {
+                  {institutionCommittees.map((c) => {
                     const institution = institutions?.find(
                       (i) => i.id === c.institution_id,
                     );
@@ -302,7 +368,6 @@ export default function NAACCommitteesPage() {
                                 ? `[${institution.iqac_code}] `
                                 : ''}
                               {institution.name}
-                              {c.committee_type === 'cluster' && ' · filed here'}
                             </div>
                           )}
                           {(c.member_institution_ids?.length ?? 0) > 0 && (
@@ -350,6 +415,86 @@ export default function NAACCommitteesPage() {
         </Card>
       </div>
     </ContentLayout>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Cluster council row — surfaces what makes the body a cluster: the roster of
+// institutions it spans, and the fact that its institution_id is a filing
+// location rather than an owner.
+// ----------------------------------------------------------------------------
+
+function ClusterCouncilCard({
+  committee,
+  institutionsById,
+}: {
+  committee: AccreditationCommittee & { member_count: number };
+  institutionsById: Map<string, Institution>;
+}) {
+  const memberIds = committee.member_institution_ids ?? [];
+  const memberNames = memberIds
+    .map((id) => institutionsById.get(id))
+    .filter((inst): inst is Institution => !!inst)
+    .map((inst) => `${inst.iqac_code ? `[${inst.iqac_code}] ` : ''}${inst.name}`);
+  const filedUnder = institutionsById.get(committee.institution_id)?.name;
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">{committee.committee_name}</span>
+            <Badge variant="outline" className="text-[11px]">
+              {COMMITTEE_TYPE_LABELS[committee.committee_type]}
+            </Badge>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            <Network className="h-4 w-4 text-amber-600" />
+            {memberIds.length > 0
+              ? `Spans ${memberIds.length} institution${
+                  memberIds.length === 1 ? '' : 's'
+                }`
+              : 'Cluster roster not recorded'}
+          </div>
+
+          {memberNames.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {memberNames.join(' · ')}
+            </p>
+          )}
+
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Filed under {filedUnder ?? 'an institution row'} — a filing
+              location, not an owner. The council belongs to every institution
+              it spans.
+            </span>
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-4">
+          <div className="text-xs text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              Formed {committee.formed_at}
+            </div>
+            <div>Term end {committee.term_end ?? '—'}</div>
+          </div>
+          <div className="flex items-center gap-1 text-sm">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium">{committee.member_count}</span>
+          </div>
+          <Link href={`/accreditation/naac/committees/${committee.id}`}>
+            <Button size="sm" variant="outline">
+              Manage
+              <ArrowRight className="ml-1 h-3 w-3" />
+            </Button>
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -403,9 +548,7 @@ function CreateCommitteeDialog({
           (institutions ?? []).filter((i) => i.iqac_code).map((i) => i.id),
         );
       }
-      const mainOffice = (institutions ?? []).find(
-        (i) => i.name === 'JKKN Main Office',
-      );
+      const mainOffice = findUmbrellaRow(institutions ?? []);
       if (mainOffice) setInstitutionId(mainOffice.id);
     }
   };
