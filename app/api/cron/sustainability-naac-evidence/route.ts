@@ -1,34 +1,38 @@
 // =====================================================================
-// Accreditation — Event feedback → NAAC 7.3.f satisfaction evidence
+// Accreditation — Sustainability evidence snapshots (Attribute 10)
 // =====================================================================
-// Recomputes one event_feedback_naac_evidence snapshot per institution
-// per academic year from the three event feedback channels
-// (event_session_feedback + event_day_feedback + event_program_feedback)
-// and upserts the matching quality_evidence_mappings rows via
-// fn_event_feedback_refresh_naac_evidence():
-//   7.3.f  Quality Assurance System — periodic stakeholder satisfaction
-//          survey with feedback provided (Attribute 7, Governance)
+// Recomputes one sustainability_naac_evidence snapshot per institution
+// THAT REPORTED METER READINGS in the current academic year, then upserts
+// the matching quality_evidence_mappings rows via
+// fn_sustainability_refresh_naac_evidence():
+//   10.2  water & waste management
+//   10.3  progressing towards net zero (direction, not a snapshot)
+// NAAC 10.4 (green audits) is NOT emitted here — it comes from the audit
+// module: a closed audit_cycles row with module_key='sustainability' emits
+// it through fn_sync_audit_cycle_evidence's trigger fan-out.
 //
-// K-anonymous by construction (k=5): counts and mean ratings only, no
-// rating-derived statistic below 5 responses, and never a free-text
-// comment or a learner identity. An institution with no feedback gets no
-// snapshot and no evidence row; a snapshot whose source rows vanish is
-// zeroed and its auto mapping withdrawn.
+// Honest gating — an institution with no readings produces NO snapshot and
+// NO evidence row, never a fabricated zero. 10.2/10.3 stay dark until the
+// reading series is long enough (platform_policies
+// 'sustainability.min_months_for_trend', default 2) and, for 10.3, a
+// direction is actually computable. The response's 'skipped_thin' key is
+// how many metric slots were withheld for insufficient data — expect it to
+// be high in the first months of entry; that is correct, not a failure.
 //
 // Idempotent by construction: snapshots upsert on (institution_id,
 // academic_year); mappings upsert on the junction's natural key
-// (source_table, source_id, body_code, metric_code), refreshing metadata
-// + mapped_at, never clobbering manually-curated (is_auto=false)
-// mappings. Safe to re-run any time.
+// (source_table, source_id, body_code, metric_code), refreshing metadata +
+// mapped_at, never clobbering manually-curated (is_auto=false) mappings.
+// Safe to re-run any time.
 //
-// Fired daily (05:19 IST) by the AI-routine dispatcher (ai_routine_schedules
-// row 'event-feedback-naac-evidence' — day/time editable in
+// Fired daily (05:05 IST) by the AI-routine dispatcher (ai_routine_schedules
+// row 'sustainability-naac-evidence' — day/time editable in
 // /admin/ai-routines), NOT a raw vercel.json cron. Response spreads the fn's
 // jsonb summary; the numeric 'count' key is on the dispatcher's summarize()
 // allowlist.
 //
 // Auth: CRON_SECRET via Authorization: Bearer <secret> ONLY (constant-time).
-// Does not call Claude. Created 2026-07-26.
+// Does not call Claude. Created 2026-07-26 (Attribute 10 green substrate).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -56,13 +60,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const supabase = createServiceRoleClient();
 
-  const { data, error } = await supabase.rpc('fn_event_feedback_refresh_naac_evidence');
+  const { data, error } = await supabase.rpc('fn_sustainability_refresh_naac_evidence');
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // fn returns {"snapshots": n, "zeroed": n, "withdrawn": n, "mapped_7_3_f": n,
-  // "k_threshold": 5, "count": total} — spread so the dispatcher records it.
+  // fn returns {"academic_year": "...", "snapshots": n, "water_waste_10_2": n,
+  // "net_zero_10_3": n, "withdrawn": n, "skipped_thin": n, "count": total}
+  // — spread so the dispatcher records it.
   const summary = (data ?? {}) as Record<string, number | string>;
   return NextResponse.json({ ok: true, ...summary });
 }

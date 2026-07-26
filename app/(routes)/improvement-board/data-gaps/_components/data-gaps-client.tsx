@@ -34,7 +34,9 @@ import {
   CheckCircle2,
   XCircle,
   Copy,
-  ArrowUpRight
+  ArrowUpRight,
+  Clock,
+  Undo2
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -77,6 +79,10 @@ const STATUS_META: Record<
   duplicate: {
     label: 'Duplicate',
     className: 'border-muted bg-muted text-muted-foreground'
+  },
+  parked: {
+    label: 'Parked',
+    className: 'border-violet-200 bg-violet-50 text-violet-700'
   }
 };
 
@@ -106,6 +112,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'filed', label: 'Filed' },
   { value: 'accepted', label: 'Accepted' },
+  { value: 'parked', label: 'Parked (someday)' },
   { value: 'not_feasible', label: 'Not feasible' },
   { value: 'duplicate', label: 'Duplicate' }
 ];
@@ -213,10 +220,14 @@ function DataGapsBoard() {
         // Reload so the row reflects the new status + any freshly linked idea.
         const rows = await MbaDataGapService.listDataGaps();
         setGaps(rows);
+        const TRIAGE_TOAST: Partial<Record<DataGapStatus, string>> = {
+          accepted: 'Accepted — an improvement idea was created on the board.',
+          parked: 'Set aside for later — it stays on the someday wishlist.',
+          triaged: 'Moved back to the queue.'
+        };
         toast.success(
-          status === 'accepted'
-            ? 'Accepted — an improvement idea was created on the board.'
-            : `Marked ${STATUS_META[status].label.toLowerCase()}.`
+          TRIAGE_TOAST[status] ??
+            `Marked ${STATUS_META[status].label.toLowerCase()}.`
         );
       } catch (err) {
         toast.error(
@@ -315,6 +326,7 @@ function DataGapsBoard() {
               ? GAP_CLASS_META[gap.gap_class]
               : null;
             const canAct = OPEN_STATUSES.includes(gap.status);
+            const isParked = gap.status === 'parked';
 
             return (
               <Card key={gap.id}>
@@ -412,6 +424,16 @@ function DataGapsBoard() {
                           size="sm"
                           variant="outline"
                           disabled={isBusy}
+                          onClick={() => handleTriage(gap, 'parked')}
+                          title="Set aside for later — keep it on the someday wishlist without accepting or rejecting it"
+                        >
+                          <Clock className="mr-1.5 h-4 w-4" />
+                          Later
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy}
                           onClick={() => handleTriage(gap, 'not_feasible')}
                         >
                           <XCircle className="mr-1.5 h-4 w-4" />
@@ -425,6 +447,22 @@ function DataGapsBoard() {
                         >
                           <Copy className="mr-1.5 h-4 w-4" />
                           Duplicate
+                        </Button>
+                      </>
+                    ) : isParked ? (
+                      <>
+                        <span className="text-muted-foreground text-xs">
+                          On the someday wishlist
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy}
+                          onClick={() => handleTriage(gap, 'triaged')}
+                          title="Bring this back into the live triage queue"
+                        >
+                          <Undo2 className="mr-1.5 h-4 w-4" />
+                          Reconsider
                         </Button>
                       </>
                     ) : (

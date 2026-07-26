@@ -76,10 +76,13 @@
 --   3. quality_evidence_source_registry row 'event_feedback_snapshot'
 --      (WHERE NOT EXISTS — ON CONFLICT fails 42P10 on expression indexes).
 --      Non-colliding with the live 'event' → events row from #2408.
---   4. ai_routine_schedules row 'event-feedback-naac-evidence' (daily 05:05
---      IST, minute_of_day 305 — verified free against the live 200-340 band:
---      221 copo, 231 capgap, 247 usage-rollup, 263 loop-evidence, 277 hr +
---      facility, 291 coe). Fired by the AI-routine dispatcher, day/time
+--   4. ai_routine_schedules row 'event-feedback-naac-evidence' (daily 05:19
+--      IST, minute_of_day 319). Originally 305; MOVED after PR #2456
+--      (sustainability evidence) merged claiming 305 with the identical
+--      "verified free" reasoning — both were built in parallel against the same
+--      pre-merge snapshot, so both read the same free slot. Live occupancy
+--      re-read 2026-07-26: 291/343/350/365/380 in the 280-380 band, 319 clear.
+--      Fired by the AI-routine dispatcher, day/time
 --      editable in /admin/ai-routines; NOT a raw vercel.json cron. Route:
 --      /api/cron/event-feedback-naac-evidence.
 --
@@ -518,14 +521,14 @@ COMMENT ON FUNCTION public.fn_event_feedback_refresh_naac_evidence() IS
   'Upserts one event_feedback_naac_evidence snapshot per institution per academic year from event_session_feedback + event_day_feedback + event_program_feedback, then upserts NAAC 7.3.f (stakeholder satisfaction) rows into quality_evidence_mappings. K-anonymous k=5: no rating-derived statistic below 5 responses, never a free-text comment, never a learner identity. Honest gating: no feedback → no row; a snapshot whose source rows vanish is zeroed and its auto mapping withdrawn. Idempotent on the junction natural key; refreshes metadata/mapped_at on re-run; never clobbers manual (is_auto=false) mappings. service_role only (cron event-feedback-naac-evidence).';
 
 -- ----------------------------------------------------------------------------
--- 4. Dispatcher schedule seed — daily 05:05 IST (minute_of_day 305; clear of
---    the live 221/231/247/263/277/291 slots). Fired by the AI-routine
+-- 4. Dispatcher schedule seed — daily 05:19 IST (minute_of_day 319; clear of
+--    the live 291/343/350/365/380 slots and of 305, which merged #2456 takes). Fired by the AI-routine
 --    dispatcher, which resolves triggerPath from the AI_ROUTINES registry
 --    (lib/ai-routines/misc-ai.ts); day/time editable in /admin/ai-routines.
 --    routine_id is a plain unique column, so ON CONFLICT is correct here.
 -- ----------------------------------------------------------------------------
 INSERT INTO public.ai_routine_schedules (routine_id, enabled, managed, days_of_week, minute_of_day)
-VALUES ('event-feedback-naac-evidence', true, true, ARRAY[0,1,2,3,4,5,6]::smallint[], 305)
+VALUES ('event-feedback-naac-evidence', true, true, ARRAY[0,1,2,3,4,5,6]::smallint[], 319)
 ON CONFLICT (routine_id) DO NOTHING;
 
 -- ----------------------------------------------------------------------------

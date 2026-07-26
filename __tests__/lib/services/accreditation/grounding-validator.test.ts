@@ -287,3 +287,37 @@ describe('validateGrounding — criterion references are labels, not figures', (
     expect(bad.ungroundedTokens).toContain('3');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Number-word compounds ('3-year', '5-day') — the number is the only factual
+// part; the descriptor word is not evidence. Regression for the residual
+// false-positive that systematically blocked Metric 7.10.1 (3-year retention).
+// ---------------------------------------------------------------------------
+describe('validateGrounding — number-word compounds', () => {
+  const rows: EvidenceRow[] = [
+    {
+      source_id: 'r1',
+      metric_code: '7.10.1',
+      metadata: { measure: 'retention_3y', baseline_count: 21, retained_count: 18, retention_pct: 85.7 },
+    },
+  ];
+  const ctx: GroundingContext = { metricCode: '7.10.1', period: 'AY 2026-27' };
+
+  it('grounds a descriptor whose number is in the evidence (3 from retention_3y)', () => {
+    const r = validateGrounding('Faculty retention over the 3-year window: 18 of 21 retained.', rows, ctx);
+    expect(r.verdict).toBe('grounded');
+    expect(r.ungroundedTokens).toEqual([]);
+  });
+
+  it('STILL blocks a fabricated figure in compound shape (92 not in evidence)', () => {
+    const r = validateGrounding('Retention reached 92-percent this cycle.', rows, ctx);
+    expect(r.verdict).toBe('ungrounded');
+    expect(r.ungroundedTokens).toContain('92');
+  });
+
+  it('does not mistake a real alnum code for a compound (MR3691 stays code-checked)', () => {
+    const r = validateGrounding('for course MR3691', rows, ctx);
+    expect(r.verdict).toBe('ungrounded');
+    expect(r.ungroundedTokens).toContain('MR3691');
+  });
+});
