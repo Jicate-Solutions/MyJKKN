@@ -2190,6 +2190,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function NEW: `fn_bug_duplicate_candidates(uuid,integer,real)` — trigram shortlist with a deliberately LOW 0.15 floor (under `fn_bug_cluster_scan`'s 0.45) so same-defect/different-wording pairs reach the AI judge; **service_role ONLY** (revoked from anon, PUBLIC *and* authenticated — it reads bug text across institutions)
 - Advisory only: verdict lands in `bug_reports.metadata.ai_duplicate_check`; never sets `duplicate_of`, never resolves, never notifies
 - Location: `supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql` — **NOT applied to prod** (rolled-back-validated only; 7-point battery A–G PASSED, incl. the BUG-005356 acceptance test)
+### CAC cluster committee type + affected-colleges tag (2026-07-26)
+- `supabase/migrations/20260726005202_cac_cluster_committee_type.sql` — C1: adds `cluster` to the `accreditation_committees.committee_type` CHECK (constraint found dynamically, recreated same-name); C7: `accreditation_committee_resolutions.affected_institution_ids uuid[] NOT NULL DEFAULT {}` — two-spine routing tag (a cluster/CAC resolution names the colleges it touches; their IQAC briefs pick it up). **NOT applied to prod — Director-gated; validated BEGIN..ROLLBACK only.**
 
 ### COE Pass-Percentage Mirror — Wave 3 (2026-07-26)
 - Catalog: NAAC `8.2.2` ("Pass percentage in university examinations (Affiliated colleges)") verified LIVE + active on prod — migration ASSERTS it (fails loudly if missing), does NOT seed
@@ -2198,6 +2200,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Deck metric 5.7 (exam↔result day counts) honestly SKIPPED: `final_marks.published_date` NULL on all 29,144 rows; `examination_sessions.result_declaration_date` is a 2026-06-05 backfill artifact (one value implies declaration 552 days post-exam)
 - Registry row: `quality_evidence_source_registry` source_kind `coe_result_snapshot`; schedule seed: `ai_routine_schedules` row `coe-result-naac-snapshots` (daily 04:51 IST, minute 291)
 - Location: `supabase/migrations/20260726053000_coe_result_naac_snapshots.sql` — **NOT applied to prod** (rolled-back-validated only; DB apply Director-gated)
+### NAAC coverage tag fields — skill/IKS/value-ed/cultural (2026-07-26)
+- `supabase/migrations/20260726005531_naac_coverage_tag_fields.sql` — additive booleans for live NAAC-2024 metric queries: `bos_course_syllabi.is_skill_based` (1.4), `bos_course_syllabi.is_iks` (1.6), `vac_courses.is_value_education` (6.4), all `NOT NULL DEFAULT false` + COMMENTs; `cdc_clubs.club_type` COMMENT only (column already exists free-text, no CHECK — 6.2 cultural clubs = `club_type='cultural'`, UI already offers it) — **NOT applied to prod** (BEGIN…ROLLBACK-validated 2026-07-26; DB apply is Director-gated)
 ### Loop Constitution — birth-gate + per-loop charter (2026-07-26)
 - `loop_registry.owner_email` → NOT NULL + non-empty CHECK (`loop_registry_owner_nonempty`): an owner-less loop birth now fails at INSERT (receipt: `carre-audit` born owner-less 07-25; backfilled to Director in the same migration)
 - Charter columns NEW (config, not code — one row per loop): `outcome_metric`, `baseline_window`, `intervention`, `verdict_owner`, `remeasure_window`; RECEIPTS RULE in column comments — a leg is written only when it demonstrably runs; any NULL leg = the Tower relabels the row a METER (receipt: `mess` claimed all gates on with measured 0)
