@@ -82,6 +82,67 @@ export interface CreateMeetingPayload {
   convene_now?: boolean;
 }
 
+/** Which desk-work document the AI drafted for a sitting. */
+export type MeetingDraftKind = 'agenda' | 'minutes';
+
+/**
+ * One AI-drafted committee document (agenda papers or minutes prose), plus the
+ * output of every deterministic gate that ran on it. A row is only ever written
+ * by the SECDEF cron RPC; the table itself is SELECT-only to session clients.
+ */
+export interface MeetingAiDraft {
+  id: string;
+  committee_id: string;
+  institution_id: string;
+  meeting_id: string;
+  draft_kind: MeetingDraftKind;
+  body_md: string | null;
+  /** The exact fact block the prompt was handed (the replay audit trail). */
+  source_facts: Record<string, unknown>;
+  grounding_verdict: 'grounded' | 'ungrounded' | null;
+  ungrounded_tokens: string[];
+  /** Scope-d hits: platform-readable figures found on an AGENDA. */
+  forbidden_number_hits: Array<{
+    token: string;
+    line: string;
+    lineNo: number;
+    reason: string;
+  }>;
+  /** Scope-c hits: resolution ids the polished prose dropped. */
+  omitted_resolution_ids: string[];
+  model: string | null;
+  ai_job_id: string | null;
+  generated_at: string | null;
+  status: 'ai_drafted' | 'convener_okayed' | 'discarded';
+  okayed_at: string | null;
+  okayed_by: string | null;
+  revision_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A proposed sitting awaiting the convener. Until status flips to
+ * 'convener_confirmed' NO meeting row exists and nothing has reached anyone —
+ * the date and the member list are computed from real rows (cadence policy +
+ * active membership), never generated.
+ */
+export interface MeetingSittingProposal {
+  id: string;
+  committee_id: string;
+  institution_id: string;
+  proposed_for: string; // date
+  proposed_member_ids: string[];
+  rationale: string | null;
+  status: 'ai_proposed' | 'convener_confirmed' | 'declined';
+  created_meeting_id: string | null;
+  decided_at: string | null;
+  decided_by: string | null;
+  decline_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PassResolutionPayload {
   committee_id: string;
   meeting_id: string;
@@ -347,5 +408,36 @@ export class CommitteeMeetingService {
       .single();
     if (error) throw error;
     return data as CommitteeResolution;
+  }
+
+  // ------------------- AI assistant drafts / proposals --------------------
+  // READ-ONLY here. Both tables carry a SELECT-only RLS policy: every write
+  // goes through the SECDEF RPCs (which own the state machine and the three
+  // refusal gates), called from the server actions with the SESSION client.
+
+  /** AI drafts (agenda + minutes prose) for a committee's meetings. */
+  static async listMeetingDrafts(committeeId: string): Promise<MeetingAiDraft[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('accreditation_meeting_drafts')
+      .select('*')
+      .eq('committee_id', committeeId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as MeetingAiDraft[];
+  }
+
+  /** The single sitting proposal still waiting on the convener, if any. */
+  static async pendingProposal(
+    committeeId: string,
+  ): Promise<MeetingSittingProposal | null> {
+    const { data, error } = await (this.supabase as any)
+      .from('accreditation_meeting_proposals')
+      .select('*')
+      .eq('committee_id', committeeId)
+      .eq('status', 'ai_proposed')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    return ((data ?? [])[0] as MeetingSittingProposal) ?? null;
   }
 }
