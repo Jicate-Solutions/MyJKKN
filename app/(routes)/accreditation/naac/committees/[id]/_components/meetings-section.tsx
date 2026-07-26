@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -155,6 +156,61 @@ function ownerDisplay(
     return profileName(profiles?.[r.owner_user_id]) ?? 'Unassigned';
   }
   return 'Unassigned';
+}
+
+interface InstitutionLite {
+  id: string;
+  name: string;
+  iqac_code: string | null;
+  institution_type: string;
+}
+
+/**
+ * Same institutions list (and query key) the committees list page uses —
+ * shared react-query cache, no new fetch mechanism.
+ */
+function useJKKNInstitutions(enabled = true) {
+  return useQuery({
+    queryKey: ['institutions', 'jkkn-iqac'],
+    queryFn: async (): Promise<InstitutionLite[]> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('institutions')
+        .select('id, name, iqac_code, institution_type')
+        .not('iqac_code', 'is', null)
+        .order('iqac_code');
+      if (error) throw error;
+      return (data ?? []) as InstitutionLite[];
+    },
+    enabled,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/**
+ * C7 chips: the colleges a (cluster) resolution touches. Renders nothing
+ * when the resolution carries no tags.
+ */
+function AffectedCollegesChips({
+  ids,
+}: {
+  ids: string[] | null | undefined;
+}) {
+  const tagIds = ids ?? [];
+  const { data: institutions } = useJKKNInstitutions(tagIds.length > 0);
+  if (tagIds.length === 0) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      {tagIds.map((iid) => {
+        const inst = institutions?.find((i) => i.id === iid);
+        return (
+          <Badge key={iid} variant="outline" className="text-[10px]">
+            {inst?.iqac_code ?? inst?.name ?? 'College'}
+          </Badge>
+        );
+      })}
+    </span>
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -549,9 +605,12 @@ function HeldMeetingWorkview({
                 className="rounded-md border bg-card px-3 py-2 text-sm"
               >
                 <div>{r.resolution_text}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Owner: {ownerDisplay(r, profiles)}
-                  {r.due_date ? ` · due ${r.due_date}` : ''}
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>
+                    Owner: {ownerDisplay(r, profiles)}
+                    {r.due_date ? ` · due ${r.due_date}` : ''}
+                  </span>
+                  <AffectedCollegesChips ids={r.affected_institution_ids} />
                 </div>
               </li>
             ))}
@@ -640,6 +699,7 @@ function ReviewRow({
                 Escalate to Director
               </Badge>
             )}
+            <AffectedCollegesChips ids={resolution.affected_institution_ids} />
           </div>
         </div>
         {canManage && (
@@ -814,6 +874,18 @@ function PassResolutionForm({
   const [text, setText] = useState('');
   const [ownerLabel, setOwnerLabel] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [affectedIds, setAffectedIds] = useState<string[]>([]);
+
+  // C7: a cluster (CAC) resolution names the colleges it touches; those
+  // colleges' IQAC briefs pick it up. Per-college committees skip the field.
+  const isCluster = committee.committee_type === 'cluster';
+  const { data: institutions } = useJKKNInstitutions(isCluster);
+
+  const toggleAffected = (id: string, checked: boolean) => {
+    setAffectedIds((cur) =>
+      checked ? [...cur, id] : cur.filter((x) => x !== id),
+    );
+  };
 
   const submit = async () => {
     if (!text.trim()) {
@@ -835,11 +907,15 @@ function PassResolutionForm({
         resolution_text: text.trim(),
         owner_label: ownerLabel.trim(),
         due_date: dueDate || null,
+        ...(isCluster && affectedIds.length > 0
+          ? { affected_institution_ids: affectedIds }
+          : {}),
       });
       toast.success('Resolution passed');
       setText('');
       setOwnerLabel('');
       setDueDate('');
+      setAffectedIds([]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to pass resolution');
     }
@@ -870,6 +946,29 @@ function PassResolutionForm({
           {pass.isPending ? 'Passing…' : 'Pass resolution'}
         </Button>
       </div>
+      {isCluster && (
+        <div className="space-y-1.5 pt-1">
+          <Label className="text-xs">Affected colleges (optional)</Label>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {(institutions ?? []).map((inst) => (
+              <label
+                key={inst.id}
+                className="flex cursor-pointer items-center gap-1.5 text-xs"
+              >
+                <Checkbox
+                  checked={affectedIds.includes(inst.id)}
+                  onCheckedChange={(v) => toggleAffected(inst.id, v === true)}
+                />
+                {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
+                {inst.name}
+              </label>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Tags route this cluster resolution to each college's IQAC brief.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1055,11 +1154,14 @@ function MinutedMeetingBody({ meeting }: { meeting: CommitteeMeeting }) {
                 className="rounded-md border bg-card px-3 py-2 text-sm"
               >
                 <div>{r.resolution_text}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  Owner: {ownerDisplay(r, profiles)}
-                  {r.due_date ? ` · due ${r.due_date}` : ''}
-                  {' · '}
-                  {r.status === 'open' ? 'still open' : r.status}
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>
+                    Owner: {ownerDisplay(r, profiles)}
+                    {r.due_date ? ` · due ${r.due_date}` : ''}
+                    {' · '}
+                    {r.status === 'open' ? 'still open' : r.status}
+                  </span>
+                  <AffectedCollegesChips ids={r.affected_institution_ids} />
                 </div>
               </li>
             ))}
