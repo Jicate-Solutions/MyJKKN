@@ -163,7 +163,11 @@ describe('rollupNaacMarks — the deck-collision and superseded rows', () => {
   });
 });
 
-describe('rollupNaacMarks — the live cluster figure the dashboard renders', () => {
+// NOTE (2026-07-27): this block is a dated snapshot of the UNSCOPED cluster
+// query. The dashboard now folds evidence through the 8-college list before
+// rolling it up — see the "cluster evidence scope" block below for the live
+// figures it renders. Every assertion here still holds for this fixture.
+describe('rollupNaacMarks — the 2026-07-26 unscoped cluster snapshot', () => {
   const r = rollupNaacMarks(METRICS, LIVE_EVIDENCE);
 
   it('earns 320.29 of 900 from the 148 live evidence rows', () => {
@@ -197,6 +201,91 @@ describe('rollupNaacMarks — the live cluster figure the dashboard renders', ()
       return sum + sumNaacMarks(r, codes).marksEarned;
     }, 0);
     expect(Math.round(total * 100) / 100).toBe(320.29);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cluster evidence scope.
+//
+// /accreditation/naac fetches cluster evidence with NO institution filter (one
+// round-trip feeds both the headline and the per-college table), but its college
+// list is `iqac_code IS NOT NULL` — 8 of the 14 rows in `institutions`. On prod
+// 2026-07-27 that put 17 of 150 NAAC evidence rows on institutions that are not
+// assessed colleges: JKKN Matric HSS + Nattraja Vidhyalya CBSE (school), Jicate
+// Solutions (company), JKKN Main Office (admin_office) and JKKN Testing
+// Institution. The Evidence-rows tile therefore read 150 under a selector
+// labelled "Cluster (all 8 colleges)" while the eight rows beneath it summed to
+// 133.
+//
+// The page now rebuilds the cluster map from the per-institution buckets. These
+// tests pin the property that makes that safe: the two populations share an
+// identical set of metric codes, so under Binary scoring (full marks on the
+// first credited row, no partial credit) NOT ONE MARK MOVES — only the counts.
+// ---------------------------------------------------------------------------
+
+/** Every NAAC evidence row, prod 2026-07-27 — 150 rows, 13 institutions. */
+const CLUSTER_UNSCOPED: Record<string, number> = {
+  '7.3.d': 47, '1.2': 13, '2.2.2': 11, '2.2.3': 11, '7.10.1': 11,
+  '2.1': 10, '3.1.1': 8, '8.2.2': 8, '7.3.f': 6, '3.4.1': 6,
+  '5.1.1': 6, '5.4.1': 3, '8.2.1': 2, '9.1': 2, '4.4.2': 1,
+  '5.3.1': 1, '6.3.1': 1, '6.3.2': 1, '7.1.1': 1, '8.4.1': 1,
+};
+
+/** The same rows restricted to the 8 iqac_code colleges — 133 rows. */
+const CLUSTER_COLLEGES_ONLY: Record<string, number> = {
+  '7.3.d': 47, '1.2': 13, '2.2.2': 8, '2.2.3': 8, '7.10.1': 8,
+  '2.1': 7, '3.1.1': 6, '8.2.2': 8, '7.3.f': 5, '3.4.1': 4,
+  '5.1.1': 6, '5.4.1': 3, '8.2.1': 2, '9.1': 2, '4.4.2': 1,
+  '5.3.1': 1, '6.3.1': 1, '6.3.2': 1, '7.1.1': 1, '8.4.1': 1,
+};
+
+describe('rollupNaacMarks — cluster evidence scope', () => {
+  const unscoped = rollupNaacMarks(METRICS, CLUSTER_UNSCOPED);
+  const colleges = rollupNaacMarks(METRICS, CLUSTER_COLLEGES_ONLY);
+
+  it('has fixtures that total the row counts prod reports (150 and 133)', () => {
+    const sum = (m: Record<string, number>) =>
+      Object.values(m).reduce((a, b) => a + b, 0);
+    expect(sum(CLUSTER_UNSCOPED)).toBe(150);
+    expect(sum(CLUSTER_COLLEGES_ONLY)).toBe(133);
+  });
+
+  // This is the property the fix rests on. If a future evidence row lands on a
+  // metric that ONLY a non-college institution can evidence, this breaks first
+  // and the scope change stops being marks-neutral.
+  it('drops no metric code when non-college institutions are excluded', () => {
+    expect(Object.keys(CLUSTER_COLLEGES_ONLY).sort()).toEqual(
+      Object.keys(CLUSTER_UNSCOPED).sort(),
+    );
+  });
+
+  it('moves not one mark — 320.29 either way', () => {
+    expect(unscoped.marksEarned).toBe(320.29);
+    expect(colleges.marksEarned).toBe(320.29);
+    expect(colleges.marksPossible).toBe(NAAC_TOTAL_MARKS);
+    expect(marksPct(colleges.marksEarned, NAAC_TOTAL_MARKS)).toBe(35.6);
+  });
+
+  it('moves not one metric — 17 of 57 earning either way', () => {
+    expect(unscoped.metricsEarning).toBe(17);
+    expect(colleges.metricsEarning).toBe(17);
+  });
+
+  // The whole point of the change: the tile reconciles with the table.
+  it('reports 133 evidence rows, matching the per-college table, not 150', () => {
+    expect(unscoped.evidenceRows).toBe(150);
+    expect(colleges.evidenceRows).toBe(133);
+  });
+
+  // 7.3.f is a facet of 7.3.1; one of its 6 rows belongs to JKKN Main Office.
+  // Excluding that row must not cost 7.3.1 its marks.
+  it('keeps facet credit when a facet loses a non-college row', () => {
+    expect(CLUSTER_UNSCOPED['7.3.f']).toBe(6);
+    expect(CLUSTER_COLLEGES_ONLY['7.3.f']).toBe(5);
+    expect(colleges.byCode['7.3.1']!.marksEarned).toBe(
+      unscoped.byCode['7.3.1']!.marksEarned,
+    );
+    expect(colleges.byCode['7.3.1']!.marksEarned).toBeGreaterThan(0);
   });
 });
 
