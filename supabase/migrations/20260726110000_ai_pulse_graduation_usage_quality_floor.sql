@@ -56,12 +56,18 @@ VALUES
 ON CONFLICT (config_key) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- 2. Graduate RPC — usage branch gains the quality FLOOR. CRON/system only.
---    Only the usage OR-branch changes: it now requires score >= v_usage_min_score
---    IN ADDITION TO the distinct-copier bar. The checklist branch (score >= v_min)
---    is UNCHANGED. When prompt_graduation_by_usage_enabled is false, the branch is
---    `false AND ...` -> the WHERE reduces to score>=v_min, BYTE-IDENTICAL to today.
---    Same signature, so the existing cron exercises it unchanged.
+-- 2. Graduate RPC — usage branch gains the quality FLOOR + disqualification guard.
+--    CRON/system only. Two changes:
+--      (a) the usage OR-branch now requires score >= v_usage_min_score IN ADDITION
+--          TO the distinct-copier bar (the friend-group farming fix); and
+--      (b) `AND b.disqualified_at IS NULL` is added to the UPDATE's WHERE clause so
+--          a champion-DISQUALIFIED build never graduates by EITHER path — closing a
+--          latent hole where a score>=80 build that had been disqualified could
+--          still be re-graduated by the cron.
+--    The checklist branch (score >= v_min) is otherwise UNCHANGED. When
+--    prompt_graduation_by_usage_enabled is false the usage branch is `false AND ...`
+--    -> the WHERE reduces to (score>=v_min AND disqualified_at IS NULL). Same
+--    signature, so the existing cron exercises it unchanged.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_ai_pulse_graduate_prompt_builds(p_cycle_id uuid DEFAULT NULL)
  RETURNS integer
@@ -108,6 +114,7 @@ BEGIN
     UPDATE ai_pulse_prompt_builds b
     SET graduated_at = now(), updated_at = now()
     WHERE b.graduated_at IS NULL
+      AND b.disqualified_at IS NULL          -- champion-disqualified builds never graduate (either path)
       AND b.grade_status = 'graded'
       AND b.topic_type IS NOT NULL
       AND b.topic_id IS NOT NULL
