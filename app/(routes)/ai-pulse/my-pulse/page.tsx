@@ -34,6 +34,7 @@ import { PdeProgressCard } from './_components/pde-progress-card';
 import { DomainStarterCard } from './_components/domain-starter-card';
 import { PromptBuilderCard } from './_components/prompt-builder-card';
 import { SharedLibraryCard } from './_components/shared-library-card';
+import { ClassmatesPromptsCard } from './_components/classmates-prompts-card';
 import { WeekSwitcher, type SwitcherCycle } from './_components/week-switcher';
 
 // "Week of Jul 23" style label for the cycle switcher; falls back to the cycle
@@ -220,6 +221,13 @@ export default async function AiPulseLearnerPage({
               dark today → empty → byte-identical to now). */}
           <div className="md:col-span-2">
             <SharedLibraryCard cycleId={cycle?.id} />
+          </div>
+          {/* Classmates' prompts — decent (score 60–79) NON-star peer prompts on
+              the learner's topics, matched by subject name across all colleges.
+              Copying one pings the distinct-copier counter (v2 popularity path).
+              Renders nothing until such prompts exist → byte-identical to now. */}
+          <div className="md:col-span-2">
+            <ClassmatesPromptsCard cycleId={cycle?.id} />
           </div>
           {/* Gold Standard — "this week" recognition; only on the current cycle. */}
           {isCurrentCycle && gold && (

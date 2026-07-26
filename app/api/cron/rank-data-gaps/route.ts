@@ -40,6 +40,13 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import {
+  buildRankingPrompt,
+  GAP_CLASSES,
+  type GapClass,
+  type RankableGap,
+  type AreaTrackRecord,
+} from '@/lib/services/mba-data-gap/rank-data-gaps-prompt';
 
 const JOB_TYPE = 'improvement.rank_data_gaps';
 // Rank only the un-triaged queue — where triage-priority adds value. Once a gap
@@ -50,28 +57,9 @@ const RANKABLE_STATUSES = ['filed', 'triaged'];
 const MIN_GAPS_TO_RANK = 2;
 const COLLECT_CAP = 50;
 
-const GAP_CLASSES = ['type_a_surface', 'type_b_capture', 'uncertain'] as const;
-type GapClass = (typeof GAP_CLASSES)[number];
-
-// Why the filer thinks the data is missing → a short phrase for the prompt.
-const GAP_TYPE_HINT: Record<string, string> = {
-  not_captured: 'filer believes it is not recorded anywhere',
-  not_surfaced: 'filer believes it is recorded but has no view/report',
-  unsure: 'filer is unsure whether it is recorded',
-};
-
 // ── types ──────────────────────────────────────────────────────────────────
-
-interface RankableGap {
-  id: string;
-  institution_id: string | null;
-  area_id: string;
-  gap_type: string;
-  title: string;
-  what_missing: string | null;
-  what_analysis: string | null;
-  what_decision: string | null;
-}
+// GAP_CLASSES, GapClass, RankableGap, GAP_TYPE_HINT and buildRankingPrompt now
+// live in lib/services/mba-data-gap/rank-data-gaps-prompt.ts (pure + testable).
 
 interface RankContext {
   run_id: string;
@@ -84,51 +72,6 @@ interface GapRankEntry {
   rank: number;
   gap_class: GapClass | null;
   reason: string | null;
-}
-
-// ── prompt ─────────────────────────────────────────────────────────────────
-
-function buildRankingPrompt(
-  gaps: RankableGap[],
-  areaLabel: Map<string, string>,
-  areaFreq: Map<string, number>,
-): string {
-  const blocks = gaps
-    .map((g, i) => {
-      const label = areaLabel.get(g.area_id) ?? 'Department';
-      const freq = areaFreq.get(g.area_id) ?? 1;
-      return `[${i + 1}] gap_id: ${g.id}
-    Title: ${g.title}
-    Department / area: ${label}
-    Gaps filed for this same area (frequency signal): ${freq}
-    Filer's read on why it is missing: ${GAP_TYPE_HINT[g.gap_type] ?? g.gap_type}
-    What data is missing: ${g.what_missing?.trim() || '(not stated)'}
-    What analysis it would enable: ${g.what_analysis?.trim() || '(not stated)'}
-    What decision it would inform: ${g.what_decision?.trim() || '(not stated)'}`;
-    })
-    .join('\n\n');
-
-  return `You are a prioritisation assistant for an Indian higher-education institution's Improvement Board. Below are DATA GAPS filed by management learners (Associates): each names data the institution is not analysing, what analysis it would enable, and what decision it would inform.
-
-For EVERY gap assign:
-- rank: unique integer 1..N, where 1 = highest priority to act on.
-- value: integer 1-5 (5 = would inform the most important decisions).
-- feasibility: integer 1-5 (5 = easiest to surface or capture).
-- gap_class: EXACTLY one of:
-    "type_a_surface" — the data almost certainly ALREADY EXISTS in a campus system (attendance, fees, LMS, admissions, HR, exams, etc.) and just needs a view or report to be surfaced.
-    "type_b_capture" — the institution genuinely DOES NOT record this yet, so a new capture/form/field would have to be built first.
-    "uncertain" — it is unclear from what was filed whether the data already exists.
-- reason: ONE short sentence (max 200 characters) on why it sits where it does and why that class.
-
-Prioritise gaps that would inform important decisions, are feasible to act on, and recur across many filings (a higher frequency signal for an area means more Associates are blocked on it). Use ONLY the information given; do not invent facts. Include EVERY gap_id exactly once and use the EXACT gap_id strings shown.
-
-Return ONLY valid JSON (no markdown, no code fences, no commentary), exactly:
-{ "rankings": [ { "gap_id": "<uuid>", "rank": <int>, "value": <int>, "feasibility": <int>, "gap_class": "type_a_surface|type_b_capture|uncertain", "reason": "..." } ] }
-
-DATA GAPS:
-${blocks}
-
-Return the JSON now.`;
 }
 
 // ── parse ──────────────────────────────────────────────────────────────────
@@ -305,6 +248,43 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Feed-forward (explore/exploit): per-area TRACK RECORD — of the gaps
+    // ACCEPTED in each area, how many produced an applied improvement. Computed
+    // inline from mba_data_gaps (service-role read) rather than calling
+    // fn_mba_gap_area_hit_rate, so the loop stays decoupled from that RPC's
+    // grant — Task 4 gates the RPC to managers, but this cron must keep working.
+    // Mirrors the RPC's logic exactly (accepted = status; produced = outcome).
+    const areaTrack = new Map<string, AreaTrackRecord>();
+    {
+      const { data: outcomeRows } = await admin
+        .from('mba_data_gaps')
+        .select('area_id, status, gap_outcome');
+      const agg = new Map<string, { accepted: number; produced: number }>();
+      for (const r of (outcomeRows ?? []) as Array<{
+        area_id: string;
+        status: string;
+        gap_outcome: string | null;
+      }>) {
+        if (!r.area_id) continue;
+        const cur = agg.get(r.area_id) ?? { accepted: 0, produced: 0 };
+        if (r.status === 'accepted') cur.accepted++;
+        if (r.gap_outcome === 'produced_applied_improvement') cur.produced++;
+        agg.set(r.area_id, cur);
+      }
+      for (const [aid, v] of agg.entries()) {
+        areaTrack.set(aid, {
+          accepted: v.accepted,
+          produced: v.produced,
+          // 1-decimal, matching fn_mba_gap_area_hit_rate's ROUND(...,1); NULL
+          // when no accepted gaps yet (unproven → the prompt tells it to explore).
+          hit_rate_pct:
+            v.accepted > 0
+              ? Math.round((1000 * v.produced) / v.accepted) / 10
+              : null,
+        });
+      }
+    }
+
     const byInstitution = new Map<string, RankableGap[]>();
     for (const raw of rows) {
       if (!raw.institution_id) continue; // no institution → cannot rank comparatively
@@ -330,7 +310,7 @@ export async function GET(request: NextRequest) {
       };
       const res = await enqueueJobsLane(admin, {
         jobType: JOB_TYPE,
-        prompt: buildRankingPrompt(list, areaLabel, areaFreq),
+        prompt: buildRankingPrompt(list, areaLabel, areaFreq, areaTrack),
         context: context as unknown as Record<string, unknown>,
         // per institution, per day → daily re-run does not double-enqueue.
         dedupeKey: `${JOB_TYPE}|${institutionId}|${dayStamp}`,

@@ -129,9 +129,15 @@ function useNAACMetrics() {
 }
 
 interface NAACEvidence {
-  /** Evidence rows per metric_code across the selected scope. */
-  scoped: Record<string, number>;
-  /** Evidence rows per institution_id, then per metric_code. */
+  /**
+   * Evidence rows per institution_id, then per metric_code.
+   *
+   * Deliberately the ONLY shape returned. This used to also carry a flat
+   * `scoped` map summed over every row the query saw, which for the cluster
+   * view is unfiltered and so included institutions that are not assessed
+   * colleges — see the `scopedEvidence` note in the page component. Callers
+   * must fold through the college list themselves so that trap cannot return.
+   */
   byInstitution: Record<string, Record<string, number>>;
 }
 
@@ -151,19 +157,17 @@ function useNAACEvidenceCounts(institutionId: string | 'cluster') {
       }
       const { data, error } = await query;
       if (error) throw error;
-      const scoped: Record<string, number> = {};
       const byInstitution: Record<string, Record<string, number>> = {};
       for (const row of (data ?? []) as {
         metric_code: string;
         institution_id: string | null;
       }[]) {
-        scoped[row.metric_code] = (scoped[row.metric_code] ?? 0) + 1;
         if (!row.institution_id) continue;
         const bucket = byInstitution[row.institution_id] ?? {};
         bucket[row.metric_code] = (bucket[row.metric_code] ?? 0) + 1;
         byInstitution[row.institution_id] = bucket;
       }
-      return { scoped, byInstitution };
+      return { byInstitution };
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -208,12 +212,41 @@ export default function NAACDashboardPage() {
     return acc;
   }, {});
 
+  // Evidence for the selected scope, restricted to the NAAC-assessed colleges.
+  //
+  // The cluster query is deliberately unfiltered (one round-trip feeds both the
+  // headline and the per-college table), so `scoped` also carries evidence
+  // belonging to institutions that are NOT assessed colleges — the college list
+  // is `iqac_code IS NOT NULL` (8 rows) while `institutions` holds 14. On prod
+  // 2026-07-27 that put 17 of 150 NAAC evidence rows on two schools, a company,
+  // the admin office and "JKKN Testing Institution", so the Evidence-rows tile
+  // read 150 under a selector labelled "Cluster (all 8 colleges)" while the
+  // eight college rows beneath it summed to 133. Rebuilding the map from the
+  // per-institution buckets keeps the headline and the table on one population.
+  //
+  // Marks-neutral by construction here, and verified against prod: every metric
+  // code carrying non-college evidence also carries college evidence, so no code
+  // loses its credit. See __tests__/…/naac-marks.test.ts ("cluster evidence
+  // scope"). Only the row COUNTS move (150 → 133).
+  const scopedEvidence = useMemo(() => {
+    if (!evidenceCounts) return {};
+    const out: Record<string, number> = {};
+    for (const inst of institutions ?? []) {
+      const bucket = evidenceCounts.byInstitution[inst.id];
+      if (!bucket) continue;
+      for (const [code, n] of Object.entries(bucket)) {
+        out[code] = (out[code] ?? 0) + n;
+      }
+    }
+    return out;
+  }, [institutions, evidenceCounts]);
+
   // Marks rollup for the selected scope. Evidence on a facet row credits the
   // row that holds the Binary metric's marks — see naac-marks.ts for why a
   // per-catalog-row rollup would silently zero 36% of live NAAC evidence.
   const rollup = useMemo(
-    () => rollupNaacMarks(metrics ?? [], evidenceCounts?.scoped ?? {}),
-    [metrics, evidenceCounts],
+    () => rollupNaacMarks(metrics ?? [], scopedEvidence),
+    [metrics, scopedEvidence],
   );
 
   // One rollup per college, from the same single query.
@@ -225,7 +258,10 @@ export default function NAACDashboardPage() {
     }));
   }, [institutions, metrics, evidenceCounts]);
 
-  const isLoading = metricsLoading || evidenceLoading;
+  // institutionsLoading is load-bearing now: `scopedEvidence` folds evidence
+  // through the college list, so rendering before that list arrives would flash
+  // a real-looking "0 of 900" instead of a skeleton.
+  const isLoading = metricsLoading || evidenceLoading || institutionsLoading;
   const coveragePct = marksPct(rollup.marksEarned, NAAC_TOTAL_MARKS);
 
   return (
@@ -595,20 +631,39 @@ export default function NAACDashboardPage() {
               are now counted.
             </p>
             <p>
-              <strong>Open Director decisions, not settled here.</strong>{' '}Live
-              college types are autonomous (5), self (2) and aided (1) — there is
-              no &quot;affiliated&quot; type in the platform, so one{' '}
+              <strong>Open Director decisions, not settled here.</strong> The 8
+              assessed colleges are autonomous (5), self (2) and aided (1) — there
+              is no &quot;affiliated&quot; type in the platform, so one{' '}
               <code>max_score</code> column cannot express both deck columns and
-              all 8 colleges are scored against the <em>Autonomous</em>{' '}ceiling.
-              Whether self / aided colleges should instead be scored on the
-              deck&apos;s Affiliated column is undecided. That column is also
-              unreconciled at source: it totals <strong>860, not 900</strong> — a
-              40-mark double-count where the deck shifts metrics 1.4/1.6/1.7 into
-              5.4/5.5/5.3 for affiliated colleges while still printing the
-              Attribute-1 marks. Metric 8.2.2 (pass percentage) is affiliated-only
-              and shows as ⚑ flagged with 0 earned: its evidence is real and
-              visible, but the deck gives it no Autonomous marks and it is{' '}
+              all 8 are scored against the <em>Autonomous</em>{' '}ceiling. Whether
+              self / aided colleges should instead be scored on the deck&apos;s
+              Affiliated column is undecided. Note that 5 / 2 / 1 is the census{' '}
+              <em>of the 8 colleges</em>, not of the{' '}
+              <code>institutions</code>{' '}table, which holds 14 rows — autonomous
+              5, aided 1, self <strong>8</strong>. The six extra{' '}
+              <code>self</code>{' '}rows are two schools, two companies, the admin
+              office and a test institution, so a per-type rule keyed on{' '}
+              <code>institution_type</code>{' '}alone would sweep in six
+              non-colleges. Metric 8.2.2 (pass percentage) is affiliated-only and
+              shows as ⚑ flagged with 0 earned: its evidence is real and visible,
+              but the deck gives it no Autonomous marks and it is{' '}
               <em>not</em> a facet of 8.2.1.
+            </p>
+            <p>
+              <strong>The Affiliated column total is unverified.</strong> This
+              page previously stated it totals &quot;860, not 900 — a 40-mark
+              double-count&quot;. That claim is withdrawn as unsourced, not
+              replaced with another number. Two things are wrong with it. A
+              column totalling 860 against a 900 ceiling is a{' '}
+              <em>shortfall</em>, which is the opposite of a double-count. And
+              the three Attribute-1 rows it names (1.4, 1.6, 1.7) carry{' '}
+              <strong>20 marks between them</strong>, not 40 — so the figure does
+              not derive from the rows cited. No affiliated mark values exist in
+              this database or anywhere in the codebase; the source deck
+              (NAAC Reforms 2024 Binary, pp. 41-63) is not in the repository in
+              any form. Whether the Affiliated column reconciles to 900 has to be
+              read off the deck itself before anything is built on it. Nothing on
+              this page is scored from that column today.
             </p>
             <p>
               Sibling body dashboards (<code>/accreditation</code>,{' '}

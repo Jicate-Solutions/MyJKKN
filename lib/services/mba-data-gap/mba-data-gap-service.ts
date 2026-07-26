@@ -48,6 +48,20 @@ export type DataGapStatus =
  */
 export type DataGapClass = 'type_a_surface' | 'type_b_capture' | 'uncertain';
 
+/**
+ * Measured outcome of a gap (Phase 3-4 measurement). NULL until
+ * fn_mba_measure_gap_outcomes has run. `accepted_stalled` = accepted, but its
+ * linked improvement idea has not shipped after 30 days — a manager should chase
+ * it (distinct from `accepted_pending_improvement`, which is still fresh).
+ */
+export type DataGapOutcome =
+  | 'produced_applied_improvement'
+  | 'accepted_pending_improvement'
+  | 'accepted_stalled'
+  | 'improvement_dropped'
+  | 'not_accepted'
+  | 'pending';
+
 /** A row returned by fn_mba_list_data_gaps (already joined for display). */
 export interface MbaDataGap {
   id: string;
@@ -72,6 +86,9 @@ export interface MbaDataGap {
   priority_reason: string | null;
   gap_class: DataGapClass | null;
   ranked_at: string | null;
+  // Phase 3-4 — measured outcome (NULL until the measure cron has run).
+  gap_outcome: DataGapOutcome | null;
+  outcome_measured_at: string | null;
   created_at: string;
   updated_at: string;
 }

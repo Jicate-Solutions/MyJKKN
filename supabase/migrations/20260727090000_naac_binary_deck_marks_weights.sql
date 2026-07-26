@@ -40,6 +40,28 @@
 --   the Attribute-1 marks. That defect is flagged here, in the column comment
 --   and on the dashboard; it is NOT quietly folded into any total.
 --
+--   ┌── CORRECTION 2026-07-27 (migration 20260727123000) ─────────────────────┐
+--   │ The paragraph immediately above is WITHDRAWN as unsourced. It is left   │
+--   │ in place because this file is already applied; do not act on it.        │
+--   │  · "860 … a 40-mark double-count" is self-contradictory: a column       │
+--   │    totalling 860 against a 900 ceiling is a SHORTFALL of 40. A          │
+--   │    double-count inflates a total, it cannot deflate one.                │
+--   │  · The three Attribute-1 rows named (1.4, 1.6, 1.7) carry 10 + 5 + 5    │
+--   │    = 20.00 marks in this very file's VALUES list, not 40. The figure    │
+--   │    does not derive from the rows it cites.                              │
+--   │  · No affiliated mark values exist in the database or the repository,   │
+--   │    and the source deck (pp. 41-63) is not checked in, so 860 cannot be  │
+--   │    confirmed or refuted from here.                                      │
+--   │ Nothing is scored from the Affiliated column, so no total moves. The    │
+--   │ replacement column COMMENT states only what is verifiable.              │
+--   └─────────────────────────────────────────────────────────────────────────┘
+--
+--   Also corrected there: the "autonomous (5) / self (2) / aided (1)" census on
+--   line 25-26 is the census of the 8 IQAC colleges, NOT of `institutions`,
+--   which holds 14 rows — autonomous 5, aided 1, self 8. The six extra `self`
+--   rows are two schools, two companies, the admin office and a test
+--   institution. A per-type rule keyed on institution_type alone sweeps them in.
+--
 -- THE ATTRIBUTE-2 SCALE (the deck's own over-count, kept visible)
 --   Attribute 2's printed sub-scores exceed its attribute total in the source
 --   deck: 10 + 25 + 25 + 25 = 85 printed against an attribute total of 50
@@ -73,9 +95,20 @@
 --   dashboard has ever shown roughly halves. Coverage did not get worse; the
 --   ceiling became true.
 --
--- APPLY STATUS: **NOT applied to any database.** Validated on prod inside ONE
+-- APPLY STATUS: ~~NOT applied to any database.~~ Validated on prod inside ONE
 --   BEGIN … ROLLBACK batch via the Management API (assertion output in the PR
 --   body). Application is Director-gated.
+--
+--   ⚠ STALE — CORRECTED 2026-07-27. This migration **IS APPLIED** to prod
+--   kvizhngldtiuufknvehv. Verified three independent ways: 69 active NAAC rows ·
+--   SUM(max_score) = 900.00 exactly · all 69 rows carry the
+--   "[deck-marks 2026-07-27]" notes stamp · all 10 attribute totals match the
+--   deck (75/50/50/50/150/125/100/125/100/75).
+--   It is NOT recorded in supabase_migrations.schema_migrations — that table's
+--   newest row is 20260725191500, so nothing applied via the Management API
+--   since 07-25 is recorded. That is a property of the apply path, not of this
+--   file. Re-running is safe: the UPDATEs are idempotent and the seeds use
+--   WHERE NOT EXISTS.
 -- ============================================================================
 
 BEGIN;

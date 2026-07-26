@@ -132,6 +132,10 @@
       "schedule": "12 3 * * *"
     },
     {
+      "path": "/api/cron/accreditation-narrative-capout-notice",
+      "schedule": "52 19 * * *"
+    },
+    {
       "path": "/api/cron/model-compare-collect?secret=${CRON_SECRET}",
       "schedule": "9,39 * * * *"
     },
@@ -390,6 +394,10 @@
     {
       "path": "/api/cron/aipulse-prompt-graduate?secret=${CRON_SECRET}",
       "schedule": "35 1 * * *"
+    },
+    {
+      "path": "/api/cron/aipulse-prompt-dedup?secret=${CRON_SECRET}",
+      "schedule": "50 1 * * *"
     },
     {
       "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",

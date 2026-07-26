@@ -162,3 +162,111 @@ export async function reportPromptBuild(buildId: string, reason: string): Promis
   });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Read: classmates' NON-star prompts (score 60–79) for the learner's topics
+// ---------------------------------------------------------------------------
+// The "classmates' prompts" feed (v2 PR B, decision #5). Same topic-fan-out as
+// the graduated library, but over fn_ai_pulse_topic_peer_prompts, which returns
+// decent-but-not-yet-star peer builds (matched by subject NAME across all
+// colleges). Copying one of these is what lets popularity promote a not-yet-star
+// prompt — the copy recorder now accepts non-graduated, cross-college targets.
+
+const PEER_PER_TOPIC_LIMIT = 6;
+
+export interface PeerPromptRow {
+  id: string; // ai_pulse_prompt_builds.id — the non-star build being shown
+  assembled_prompt: string;
+  score: number | null;
+  used_count: number;
+  topic_type: string; // carried from the topic we queried, for grouping
+}
+
+async function fetchPeerPrompts(cycleId?: string | null): Promise<PeerPromptRow[]> {
+  const supabase = createClientSupabaseClient() as any;
+  void cycleId; // topics + peer reads are not cycle-scoped; kept for the queryKey only.
+
+  // 1) resolve the learner's OWN topics (their subject(s) + programme).
+  const { data: topicRows, error: topicsErr } = await supabase.rpc('fn_ai_pulse_my_topics');
+  if (topicsErr) {
+    logger.error(MODULE, 'fn_ai_pulse_my_topics failed (peer)', topicsErr);
+    throw new Error(topicsErr.message ?? 'Failed to load your topics');
+  }
+
+  const seen = new Set<string>();
+  const topics: MyTopic[] = [];
+  for (const t of (topicRows ?? []) as Array<{ topic_type: string | null; topic_id: string | null }>) {
+    if (!t.topic_type || !t.topic_id) continue;
+    const key = `${t.topic_type}:${t.topic_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    topics.push({ topic_type: t.topic_type, topic_id: t.topic_id });
+    if (topics.length >= MAX_TOPICS) break;
+  }
+  if (topics.length === 0) return []; // no topics → empty → card hides
+
+  // 2) fetch the top peer prompts for each topic, in parallel.
+  const perTopic = await Promise.all(
+    topics.map(async (t) => {
+      const { data, error } = await supabase.rpc('fn_ai_pulse_topic_peer_prompts', {
+        p_topic_type: t.topic_type,
+        p_topic_id: t.topic_id,
+        p_limit: PEER_PER_TOPIC_LIMIT,
+      });
+      if (error) {
+        logger.error(MODULE, 'fn_ai_pulse_topic_peer_prompts failed', error);
+        return [] as PeerPromptRow[];
+      }
+      return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+        id: String(row.id),
+        assembled_prompt: String(row.assembled_prompt ?? ''),
+        // PostgREST returns numeric/bigint as strings — coerce here.
+        score: row.score == null ? null : Number(row.score),
+        used_count: Number(row.used_count ?? 0),
+        topic_type: t.topic_type,
+      }));
+    }),
+  );
+
+  // 3) flatten + dedup by build id, best score first.
+  const byId = new Map<string, PeerPromptRow>();
+  for (const row of perTopic.flat()) {
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity),
+  );
+}
+
+export function usePeerPrompts(cycleId?: string | null): UseQueryResult<PeerPromptRow[], Error> {
+  return useQuery<PeerPromptRow[], Error>({
+    queryKey: ['ai-pulse', 'peer-prompts', cycleId ?? 'latest'],
+    queryFn: () => fetchPeerPrompts(cycleId),
+    staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Write: record a copy of a peer/graduated build (best-effort popularity ping)
+// ---------------------------------------------------------------------------
+// Returns the new distinct-copier count, or null if the ping was a no-op (dark
+// gate off, self-copy, below the score floor, not a learner). Never throws into
+// the UI — a copy to the clipboard must succeed even if the ping is refused.
+
+export async function recordPromptCopy(buildId: string): Promise<number | null> {
+  try {
+    const supabase = createClientSupabaseClient() as any;
+    const { data, error } = await supabase.rpc('fn_ai_pulse_record_prompt_build_use', {
+      p_build_id: buildId,
+      p_action: 'copy',
+    });
+    if (error) {
+      logger.dev(MODULE, 'record copy ping failed', error);
+      return null;
+    }
+    return data == null ? null : Number(data);
+  } catch (e) {
+    logger.dev(MODULE, 'record copy ping threw', e);
+    return null;
+  }
+}
