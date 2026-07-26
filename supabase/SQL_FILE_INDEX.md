@@ -2190,3 +2190,7 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function NEW: `fn_bug_duplicate_candidates(uuid,integer,real)` — trigram shortlist with a deliberately LOW 0.15 floor (under `fn_bug_cluster_scan`'s 0.45) so same-defect/different-wording pairs reach the AI judge; **service_role ONLY** (revoked from anon, PUBLIC *and* authenticated — it reads bug text across institutions)
 - Advisory only: verdict lands in `bug_reports.metadata.ai_duplicate_check`; never sets `duplicate_of`, never resolves, never notifies
 - Location: `supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql` — **NOT applied to prod** (rolled-back-validated only; 7-point battery A–G PASSED, incl. the BUG-005356 acceptance test)
+### Curriculum dry-out guard — empty-BoS threshold policy seed (2026-07-26)
+- Policy row: `curriculum_ai.dryout_threshold` = 3 (global, number) — after this many delivered AI refusals for a course whose BoS syllabus is empty (no units, no CLOs), the weekly lesson-spine bulk-mint cron parks it until the syllabus content changes (fingerprint compare); parked state surfaced in the cron response (`skipped_dried_out` + `dried_out[]`)
+- No new function/table; WHERE NOT EXISTS identity guard (expression-index 42P10 pattern); cron falls back to in-code default 3 until applied
+- Location: `supabase/migrations/20260726103000_seed_curriculum_dryout_threshold_policy.sql` — **NOT applied to prod (file-only at PR time; application Director-gated)**
