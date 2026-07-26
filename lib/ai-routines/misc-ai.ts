@@ -108,6 +108,21 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
   },
   {
+    "id": "accreditation-committee-ai-drafts",
+    "name": "Accreditation — AI Committee Assistant (agenda papers · sitting proposal · minutes prose)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:13 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/accreditation-committee-ai-drafts",
+    "callsClaude": true,
+    "whatItDoes": "Takes the desk work out of a committee sitting. Before a scheduled sitting it drafts the pre-meeting brief plus a proposed agenda; after a sitting it turns the decisions already entered into the formal minutes prose; and for a committee overdue by its configured cadence it proposes a sitting date. A human okays or confirms every one of the three — nothing is final without a person, and nothing is sent to anyone.",
+    "configKnobs": "accreditation.meeting.agenda_lead_days=3 (how early the agenda is drafted), accreditation.meeting.cadence_days=90 (when a committee counts as overdue), accreditation.meeting.proposal_enabled=false (master switch for sitting proposals — OFF by default). Both AI job types ship DARK (ai_job_types.enabled=false): accreditation.cac_brief and accreditation.meeting_minutes_polish. Runs on the ₹0 Max lane (provider=anthropic, model_id='sonnet' family alias).",
+    "sideEffects": "DB writes only, all human-gated. Upserts ai_drafted rows into accreditation_meeting_drafts and ai_proposed rows into accreditation_meeting_proposals, and enqueues ai_jobs on the Max lane. It NEVER creates a meeting, never writes minutes_summary, and never touches the Universal Booking engine (meeting_bookings / meeting_agendas / the webhook dispatcher / calendar sync) — that engine invites real people. NO notifications, NO emails, NO invites. Only a convener pressing Confirm creates a sitting.",
+    "safeToManualTrigger": true,
+    "notes": "Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-committee-ai-drafts' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: idempotent (one draft per meeting+kind, one pending proposal per committee, both guarded by unique keys) and a no-op while the job types are DARK. Three deterministic gates run on every model draft before a human can okay it: the grounding validator (no invented fact), the forbidden-agenda gate (no platform-readable figure on an agenda — the Director's doctrine), and an omission check (the minutes may not silently drop a resolution).",
+    "maxLane": true
+  },
+  {
     "id": "accreditation-loop-evidence",
     "name": "Accreditation — Loop→AQAR Evidence Rollup (NAAC 7.3 Quality Assurance System)",
     "category": "misc-ai",
