@@ -388,6 +388,10 @@
       "schedule": "35 1 * * *"
     },
     {
+      "path": "/api/cron/aipulse-prompt-dedup?secret=${CRON_SECRET}",
+      "schedule": "50 1 * * *"
+    },
+    {
       "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",
       "schedule": "53 */6 * * *"
     },
