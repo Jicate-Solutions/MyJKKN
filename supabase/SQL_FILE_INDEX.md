@@ -2190,3 +2190,10 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function NEW: `fn_bug_duplicate_candidates(uuid,integer,real)` — trigram shortlist with a deliberately LOW 0.15 floor (under `fn_bug_cluster_scan`'s 0.45) so same-defect/different-wording pairs reach the AI judge; **service_role ONLY** (revoked from anon, PUBLIC *and* authenticated — it reads bug text across institutions)
 - Advisory only: verdict lands in `bug_reports.metadata.ai_duplicate_check`; never sets `duplicate_of`, never resolves, never notifies
 - Location: `supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql` — **NOT applied to prod** (rolled-back-validated only; 7-point battery A–G PASSED, incl. the BUG-005356 acceptance test)
+
+### Loop Constitution — birth-gate + per-loop charter (2026-07-26)
+- `loop_registry.owner_email` → NOT NULL + non-empty CHECK (`loop_registry_owner_nonempty`): an owner-less loop birth now fails at INSERT (receipt: `carre-audit` born owner-less 07-25; backfilled to Director in the same migration)
+- Charter columns NEW (config, not code — one row per loop): `outcome_metric`, `baseline_window`, `intervention`, `verdict_owner`, `remeasure_window`; RECEIPTS RULE in column comments — a leg is written only when it demonstrably runs; any NULL leg = the Tower relabels the row a METER (receipt: `mess` claimed all gates on with measured 0)
+- Charter seeds: scf, bug-triage, feeder, induction-session (4 chartered loops, 18 honest meters)
+- Doctrine: `docs/architecture/loop-constitution.md` (same PR)
+- Location: `supabase/migrations/20260726012000_loop_constitution_birth_gate_and_charter.sql` — **NOT applied to prod** (rolled-back-validated 2026-07-26: 5-assert battery PASSED incl. negative control on the assert channel; apply is Director-gated)
