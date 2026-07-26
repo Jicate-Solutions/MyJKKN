@@ -938,6 +938,32 @@ async function mapStaffToProfiles(
   return map;
 }
 
+/**
+ * Is this staff member on APPROVED leave that covers `todayISO`?
+ * Reads `hr_leave_applications` (employee_id is a FK to staff.id, so the same
+ * staff id the RACI/owner resolution uses applies directly). A row counts when
+ * status='approved' and start_date <= today <= end_date. Fail-OPEN: any query
+ * error returns false so a leave-table hiccup never silently suppresses a
+ * legitimate accountability nudge.
+ */
+async function isStaffOnApprovedLeave(
+  db: SupabaseClient,
+  staffId: string | null | undefined,
+  todayISO: string
+): Promise<boolean> {
+  if (!staffId) return false;
+  const { data, error } = await db
+    .from('hr_leave_applications')
+    .select('id')
+    .eq('employee_id', staffId)
+    .eq('status', 'approved')
+    .lte('start_date', todayISO)
+    .gte('end_date', todayISO)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
 /** The single active global rule for a project metric (or null when inactive). */
 async function loadActiveProjectRule(
   db: SupabaseClient,
@@ -1163,9 +1189,9 @@ export async function evaluateProjectTriggers(
           const accountableStaff = buckets.accountable[0] ?? null;
           // No Accountable, or the Accountable has left → the project owner
           // answers (Director 2026-06-27). The active-only staff map below makes
-          // a departed Accountable fall through automatically.
-          // [Fast-follow: also escalate when the Accountable is on approved leave
-          //  today — pending confirmation of the staff <-> hr employee link.]
+          // a departed Accountable fall through automatically. And if the
+          // resolved Accountable is on approved leave today, their nudge is
+          // deferred one run (isStaffOnApprovedLeave, below).
           const projectOwnerStaff = t.projects?.owner_staff_id ?? null;
           const otherStaff = [
             ...buckets.responsible,
@@ -1183,12 +1209,32 @@ export async function evaluateProjectTriggers(
             : { recipientIds: [] as string[], createdBy: null, fallbackToAdmin: true };
           const headIds = head.recipientIds;
 
-          let accountableProfile =
-            (accountableStaff ? staffMap.get(accountableStaff) : null) ??
-            (projectOwnerStaff ? staffMap.get(projectOwnerStaff) : null) ??
-            null;
-          if (!accountableProfile) accountableProfile = admins[0] ?? null;
+          // The staff who actually answers for this task: the RACI Accountable
+          // if they map to an active profile, else the project owner.
+          const accountableStaffId =
+            accountableStaff && staffMap.get(accountableStaff)
+              ? accountableStaff
+              : projectOwnerStaff && staffMap.get(projectOwnerStaff)
+                ? projectOwnerStaff
+                : null;
+          const accountableProfile = accountableStaffId
+            ? staffMap.get(accountableStaffId) ?? null
+            : null;
+          // No real Accountable and no project owner to answer for it → do NOT
+          // fall back to nagging a super-admin. Skip this task and leave a
+          // diagnostic instead.
           if (!accountableProfile) {
+            logger.warn(MODULE, `task ${t.id}: no accountable resolved — skipped`);
+            result.skipped_no_recipient++;
+            continue;
+          }
+          // The Accountable is on approved leave today → defer their nudge this
+          // run rather than nag someone who is away. It re-evaluates next run.
+          if (await isStaffOnApprovedLeave(db, accountableStaffId, today)) {
+            logger.warn(
+              MODULE,
+              `accountable ${accountableStaffId} on approved leave — deferred`
+            );
             result.skipped_no_recipient++;
             continue;
           }
@@ -1256,10 +1302,25 @@ export async function evaluateProjectTriggers(
               : { recipientIds: [] as string[], createdBy: null, fallbackToAdmin: true };
             const headIds = head.recipientIds;
 
-            let accountableProfile =
+            const accountableProfile =
               (p.owner_staff_id ? staffMap.get(p.owner_staff_id) : null) ?? null;
-            if (!accountableProfile) accountableProfile = admins[0] ?? null;
+            // No project owner to answer for it → do NOT fall back to nagging a
+            // super-admin. Skip this project and leave a diagnostic instead.
             if (!accountableProfile) {
+              logger.warn(
+                MODULE,
+                `project ${p.id}: no accountable resolved — skipped`
+              );
+              result.skipped_no_recipient++;
+              continue;
+            }
+            // Owner on approved leave today → defer their nudge this run rather
+            // than nag someone who is away. It re-evaluates next run.
+            if (await isStaffOnApprovedLeave(db, p.owner_staff_id, today)) {
+              logger.warn(
+                MODULE,
+                `accountable ${p.owner_staff_id} on approved leave — deferred`
+              );
               result.skipped_no_recipient++;
               continue;
             }
