@@ -16,6 +16,7 @@ import {
   Award,
   Flame,
   Medal,
+  Mic,
   Sparkles,
   Trophy,
   Users,
@@ -61,6 +62,7 @@ const BADGE_META: Record<
   quiz_ace: { label: 'Quiz Ace', Icon: Award, className: 'bg-violet-100 text-violet-700' },
   loyal_streak: { label: 'Loyal Streak', Icon: Flame, className: 'bg-orange-100 text-orange-700' },
   first_quiz: { label: 'First Quiz', Icon: Sparkles, className: 'bg-teal-100 text-teal-700' },
+  session_host: { label: 'Session Host', Icon: Mic, className: 'bg-emerald-100 text-emerald-700' },
 };
 
 function BadgeChips({
@@ -421,6 +423,9 @@ function SeniorStandingCard({ allTime }: { allTime: boolean }) {
     ['Sessions', data.attend_pts],
     ['Quiz', data.quiz_pts],
   ];
+  // Facilitation credit (hosting/running a session) only shows for the staff who
+  // actually ran one, so the ~150 attendee-only cards stay clean.
+  if (data.facilitate_pts > 0) parts.push(['Facilitated', data.facilitate_pts]);
 
   return (
     <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white">
