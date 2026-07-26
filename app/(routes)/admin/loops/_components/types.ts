@@ -83,6 +83,17 @@ export interface LoopRegistryRow {
   is_active?: boolean;
   owner_email?: string | null;
   counter_metric?: string | null;
+  // ── Charter legs (Director-adopted rule, 2026-07-26) ───────────────────────
+  // Five nullable columns landing in a sibling migration. A leg is written
+  // ONLY with a receipt that it actually runs; any NULL leg means the row is
+  // honestly a METER, not a loop. All optional here because the columns may
+  // not exist in prod until that migration applies — a missing/undefined leg
+  // must read exactly like NULL (= Meter), never crash the page.
+  outcome_metric?: string | null;
+  baseline_window?: string | null;
+  intervention?: string | null;
+  verdict_owner?: string | null;
+  remeasure_window?: string | null;
 }
 
 export interface LoopConflictRow {
