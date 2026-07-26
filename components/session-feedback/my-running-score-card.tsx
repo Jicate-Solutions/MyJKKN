@@ -6,8 +6,9 @@
 // departments to, shown to the student continuously instead of surfacing as
 // a surprise at university-submission time.
 //
-// Bands mirror the audit thresholds: >=75% eligible · 65–75% condonation
-// band · <65% at risk. SELF-SCOPED server-side (fn_my_running_attendance
+// Bands mirror the audit thresholds (eligible · condonation band · at risk),
+// read from platform_policies via useEligibilityThresholds() — defaults 75/65,
+// configurable per institution. SELF-SCOPED server-side (fn_my_running_attendance
 // reads only the caller's own learner rows) — no props, no ids.
 //
 // Self-hides on error/empty: this card is additive to the attendance page,
@@ -32,18 +33,26 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import type { MyRunningAttendanceRow } from '@/types/exam-audit';
+import { useEligibilityThresholds } from '@/hooks/academic/use-eligibility-thresholds';
+import type { EligibilityThresholds } from '@/lib/services/exam-audit/compute';
 
-const ELIGIBILITY = 75;
-const CONDONATION = 65;
-
-function band(pct: number | null): { label: string; cls: string } {
+function band(
+  pct: number | null,
+  t: EligibilityThresholds,
+): { label: string; cls: string } {
   if (pct === null) return { label: '—', cls: 'text-muted-foreground' };
-  if (pct >= ELIGIBILITY) return { label: 'Eligible', cls: 'text-green-600' };
-  if (pct >= CONDONATION) return { label: 'Condonation band', cls: 'text-amber-600' };
+  if (pct >= t.eligibility) return { label: 'Eligible', cls: 'text-green-600' };
+  if (pct >= t.condonation) return { label: 'Condonation band', cls: 'text-amber-600' };
   return { label: 'At risk', cls: 'text-red-600' };
 }
 
 export function MyRunningScoreCard() {
+  // Thresholds are configuration, not constants (2026-07-26). Self-scoped card, so
+  // no institution id is passed — fn_get_policy resolves the caller's own scope.
+  const { thresholds } = useEligibilityThresholds();
+  const ELIGIBILITY = thresholds.eligibility;
+  const CONDONATION = thresholds.condonation;
+
   const { data } = useQuery<{ courses: MyRunningAttendanceRow[] }>({
     queryKey: ['my-running-attendance'],
     queryFn: async () => {
@@ -98,7 +107,7 @@ export function MyRunningScoreCard() {
             </TableHeader>
             <TableBody>
               {rows.map((r) => {
-                const b = band(r.pct);
+                const b = band(r.pct, thresholds);
                 return (
                   <TableRow key={r.course_id ?? r.course_code ?? 'unknown'}>
                     <TableCell className="font-medium">

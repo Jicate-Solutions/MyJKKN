@@ -321,8 +321,27 @@ export function computeExamAuditPrograms(input: {
 // same way — both call these. (Attendance gates who may SIT the exam; it never
 // decides the internal marks.)
 
+// FALLBACK defaults only. The live values come from platform_policies
+// (POLICY_KEYS.EXAM_ELIGIBILITY_*) and are resolved at the edge — API routes use
+// getPolicyInt(), client components use useEligibilityThresholds(). These constants
+// are what those helpers fall back to when the policy row is missing or the RPC
+// fails, so the numbers here must stay equal to the seeded row values.
+// This module stays PURE (no policy import) so it can be reasoned about and unit
+// tested without a Supabase client.
 export const ATTENDANCE_ELIGIBILITY = 75; // university norm
 export const CONDONATION_FLOOR = 65; // condonation band below eligibility
+
+export type EligibilityThresholds = {
+  /** pct at or above this is eligible */
+  eligibility: number;
+  /** pct below this is at risk of ineligibility */
+  condonation: number;
+};
+
+export const DEFAULT_ELIGIBILITY_THRESHOLDS: EligibilityThresholds = {
+  eligibility: ATTENDANCE_ELIGIBILITY,
+  condonation: CONDONATION_FLOOR,
+};
 
 /** Sum per-course attendance rows into one {present,total} per student. */
 export function aggregateAttendanceByStudent(
@@ -338,13 +357,19 @@ export function aggregateAttendanceByStudent(
   return byStudent;
 }
 
+// The 'below_65' / 'below_75' bucket NAMES are a stable API (types, response
+// payloads, the drill-down UI) and deliberately keep their historical labels even
+// when the configured thresholds differ — they mean "at risk" and "needs
+// condonation", not literally 65 and 75. Render the numbers from the resolved
+// thresholds, never from the bucket name.
 export function eligibilityBucket(
   att: { present: number; total: number } | undefined,
+  thresholds: EligibilityThresholds = DEFAULT_ELIGIBILITY_THRESHOLDS,
 ): ExamAuditAttendanceBucket {
   if (!att || att.total === 0) return 'no_record';
   const pct = (100 * att.present) / att.total;
-  if (pct < CONDONATION_FLOOR) return 'below_65';
-  if (pct < ATTENDANCE_ELIGIBILITY) return 'below_75';
+  if (pct < thresholds.condonation) return 'below_65';
+  if (pct < thresholds.eligibility) return 'below_75';
   return 'ok';
 }
 
@@ -366,8 +391,11 @@ export function computeExamAuditStudentDetail(input: {
   provenance: CoeCiaProvenanceRow[];
   programs: CoeProgramRef[];
   attendanceByStudent: Map<string, { present: number; total: number }>;
+  /** Resolved from platform_policies by the caller; falls back to 75/65. */
+  thresholds?: EligibilityThresholds;
 }): ExamAuditStudentDetailRow[] {
   const { programCode, registrations, provenance, programs, attendanceByStudent } = input;
+  const thresholds = input.thresholds ?? DEFAULT_ELIGIBILITY_THRESHOLDS;
   const programNameById = new Map(programs.map((p) => [p.id, p]));
 
   // Student → registration program (the SAME fallback map the overview builds).
@@ -443,7 +471,7 @@ export function computeExamAuditStudentDetail(input: {
   const out: ExamAuditStudentDetailRow[] = [];
   for (const [sid, s] of byStudent) {
     const att = attendanceByStudent.get(sid);
-    const bucket = eligibilityBucket(att);
+    const bucket = eligibilityBucket(att, thresholds);
     out.push({
       student_id: sid,
       student_name: s.name,
