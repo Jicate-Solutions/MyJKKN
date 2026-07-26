@@ -1,12 +1,16 @@
 'use client';
 
 /**
- * MBA Team Rotation — rota chart (client).
+ * Team Rotation — rota chart (client).
  *
  * Renders the rotary chart for a chosen cycle: rows = teams, columns = periods,
  * each cell = the department that team occupies that period. The period whose
- * date window contains today is highlighted as "now". Viewable by any MBA
- * Associate (improvement.ideas.view); managers see manage links (teams / setup).
+ * date window contains today is highlighted as "now". Viewable by any cohort
+ * member (improvement.ideas.view); managers see manage links (teams / setup).
+ *
+ * PHASE 3 — cohort-generic: a cycle names the cohort it serves. The cohort lookup
+ * is best-effort and NEVER blocks the page: a cycle list of zero still renders the
+ * empty state, and a missing cohort backend just omits the label.
  *
  * Gating branches on the loading state FIRST so a viewer never sees a
  * denied-looking flash while permissions resolve, and a denied user gets an
@@ -45,6 +49,7 @@ import {
   type MbaRotationCycle,
   type MbaRotationSlot,
   type MbaTeam,
+  type TeachingCohortOption,
 } from '@/lib/services/mba-rotation/mba-rotation-service';
 
 function LoadingState() {
@@ -110,21 +115,28 @@ function RotationChart({ canManage }: { canManage: boolean }) {
   const [cycleId, setCycleId] = useState<string>('');
   const [slots, setSlots] = useState<MbaRotationSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [cohorts, setCohorts] = useState<TeachingCohortOption[]>([]);
+  const [cohortsSupported, setCohortsSupported] = useState(false);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
       try {
-        const [nextCycles, nextAreas, nextTeams] = await Promise.all([
+        // listCohortOptions() never throws; a rejection here would come only from
+        // the three real loads, and must still leave the empty state renderable.
+        const [nextCycles, nextAreas, nextTeams, cohortState] = await Promise.all([
           MbaRotationService.listCycles(),
           ImprovementService.listAreas(),
           MbaRotationService.listTeams(),
+          MbaRotationService.listCohortOptions(),
         ]);
         if (!alive) return;
         setCycles(nextCycles);
         setAreas(nextAreas);
         setTeams(nextTeams);
+        setCohorts(cohortState.options);
+        setCohortsSupported(cohortState.supported);
         // Default to the first active cycle, else the newest.
         const active = nextCycles.find((c) => c.status === 'active');
         setCycleId(active?.id ?? nextCycles[0]?.id ?? '');
@@ -169,6 +181,11 @@ function RotationChart({ canManage }: { canManage: boolean }) {
     const m = new Map(teams.map((t) => [t.id, t.name]));
     return (id: string) => m.get(id) ?? 'Team';
   }, [teams]);
+
+  const cohortLabel = useMemo(() => {
+    const m = new Map(cohorts.map((c) => [c.cohort_key, c.display_name]));
+    return (key: string) => m.get(key) ?? key;
+  }, [cohorts]);
 
   // Build the grid: ordered periods (with windows) + ordered team ids +
   // cell[team][period] = area label.
@@ -284,6 +301,14 @@ function RotationChart({ canManage }: { canManage: boolean }) {
                 <Badge className={STATUS_STYLE[selectedCycle.status] ?? ''}>
                   {selectedCycle.status}
                 </Badge>
+                {cohortsSupported && (
+                  <>
+                    <Badge variant="secondary">
+                      {cohortLabel(selectedCycle.cohort_key)}
+                    </Badge>
+                    <span aria-hidden>·</span>
+                  </>
+                )}
                 <span>{selectedCycle.period_weeks}-week periods</span>
                 <span aria-hidden>·</span>
                 <span>starts {fmt(selectedCycle.start_date)}</span>
