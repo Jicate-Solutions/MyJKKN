@@ -36,7 +36,8 @@ import {
   Building2,
   Lock,
   Inbox,
-  AlertTriangle
+  AlertTriangle,
+  FileWarning
 } from 'lucide-react';
 import {
   Select,
@@ -54,9 +55,29 @@ import {
   ImprovementService,
   type ImprovementArea
 } from '@/lib/services/improvement/improvement-service';
+import { ReportDataGapDialog } from '../../_components/report-data-gap-dialog';
 
 interface AnalyticsClientProps {
   userId: string;
+}
+
+/** Dialog state shared by the empty-state "Report a data gap" buttons. `areaId`
+ *  is left undefined when the Associate has no department selected — the dialog
+ *  then shows its own department picker. */
+interface GapDialogState {
+  open: boolean;
+  areaId?: string;
+  areaLabel?: string;
+}
+
+/** A small "Report a data gap" button for the empty-analytics states. */
+function ReportGapButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="outline" size="sm" onClick={onClick}>
+      <FileWarning className="mr-2 h-4 w-4" />
+      Report a data gap
+    </Button>
+  );
 }
 
 /** One posted-to department plus its resolved analyst views. */
@@ -248,6 +269,7 @@ export function AnalyticsClient({ userId }: AnalyticsClientProps) {
 function AnalyticsBoard({ userId }: AnalyticsClientProps) {
   const [loading, setLoading] = useState(true);
   const [sections, setSections] = useState<AreaAnalytics[]>([]);
+  const [gap, setGap] = useState<GapDialogState>({ open: false });
 
   useEffect(() => {
     let alive = true;
@@ -325,9 +347,11 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
               <p className="font-medium">No department assigned yet</p>
               <p className="text-muted-foreground text-sm">
                 Once a manager assigns you to a department, its analytics will
-                show up here.
+                show up here. Missing something you expected to analyse? Report a
+                data gap and a manager will review it.
               </p>
             </div>
+            <ReportGapButton onClick={() => setGap({ open: true })} />
           </CardContent>
         </Card>
       ) : (
@@ -355,11 +379,20 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
                 </Card>
               ) : section.views.length === 0 ? (
                 <Card>
-                  <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+                  <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
                     <Inbox className="text-muted-foreground/50 h-8 w-8" />
                     <p className="text-muted-foreground text-sm">
                       No analyst data for this department yet.
                     </p>
+                    <ReportGapButton
+                      onClick={() =>
+                        setGap({
+                          open: true,
+                          areaId: section.areaId,
+                          areaLabel: section.areaLabel
+                        })
+                      }
+                    />
                   </CardContent>
                 </Card>
               ) : (
@@ -373,6 +406,13 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
           ))}
         </div>
       )}
+
+      <ReportDataGapDialog
+        open={gap.open}
+        onOpenChange={(o) => setGap((g) => ({ ...g, open: o }))}
+        areaId={gap.areaId}
+        areaLabel={gap.areaLabel}
+      />
     </div>
   );
 }
@@ -395,6 +435,7 @@ function ManagerAnalyticsBoard() {
   const [views, setViews] = useState<MbaAnalystView[]>([]);
   const [viewsLoading, setViewsLoading] = useState(false);
   const [viewsError, setViewsError] = useState(false);
+  const [gap, setGap] = useState<GapDialogState>({ open: false });
 
   // Load the department list once.
   useEffect(() => {
@@ -523,11 +564,20 @@ function ManagerAnalyticsBoard() {
         </Card>
       ) : views.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+          <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
             <Inbox className="text-muted-foreground/50 h-8 w-8" />
             <p className="text-muted-foreground text-sm">
               No analyst data for {selectedLabel ?? 'this department'} yet.
             </p>
+            <ReportGapButton
+              onClick={() =>
+                setGap({
+                  open: true,
+                  areaId: selectedAreaId,
+                  areaLabel: selectedLabel ?? undefined
+                })
+              }
+            />
           </CardContent>
         </Card>
       ) : (
@@ -546,6 +596,13 @@ function ManagerAnalyticsBoard() {
           </div>
         </section>
       )}
+
+      <ReportDataGapDialog
+        open={gap.open}
+        onOpenChange={(o) => setGap((g) => ({ ...g, open: o }))}
+        areaId={gap.areaId}
+        areaLabel={gap.areaLabel}
+      />
     </div>
   );
 }
