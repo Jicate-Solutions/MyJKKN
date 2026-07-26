@@ -108,6 +108,21 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cohort-moat-autopropose' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Safe to manual-trigger: it only queues PENDING suggestions (no auto-apply, no messages), and re-running is a no-op for cohorts that already have one. Does nothing at all until a cohort genuinely closes with both arms scored."
   },
   {
+    "id": "accreditation-committee-ai-drafts",
+    "name": "Accreditation — AI Committee Assistant (agenda papers · sitting proposal · minutes prose)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:13 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/accreditation-committee-ai-drafts",
+    "callsClaude": true,
+    "whatItDoes": "Takes the desk work out of a committee sitting. Before a scheduled sitting it drafts the pre-meeting brief plus a proposed agenda; after a sitting it turns the decisions already entered into the formal minutes prose; and for a committee overdue by its configured cadence it proposes a sitting date. A human okays or confirms every one of the three — nothing is final without a person, and nothing is sent to anyone.",
+    "configKnobs": "accreditation.meeting.agenda_lead_days=3 (how early the agenda is drafted), accreditation.meeting.cadence_days=90 (when a committee counts as overdue), accreditation.meeting.proposal_enabled=false (master switch for sitting proposals — OFF by default). Both AI job types ship DARK (ai_job_types.enabled=false): accreditation.cac_brief and accreditation.meeting_minutes_polish. Runs on the ₹0 Max lane (provider=anthropic, model_id='sonnet' family alias).",
+    "sideEffects": "DB writes only, all human-gated. Upserts ai_drafted rows into accreditation_meeting_drafts and ai_proposed rows into accreditation_meeting_proposals, and enqueues ai_jobs on the Max lane. It NEVER creates a meeting, never writes minutes_summary, and never touches the Universal Booking engine (meeting_bookings / meeting_agendas / the webhook dispatcher / calendar sync) — that engine invites real people. NO notifications, NO emails, NO invites. Only a convener pressing Confirm creates a sitting.",
+    "safeToManualTrigger": true,
+    "notes": "Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-committee-ai-drafts' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: idempotent (one draft per meeting+kind, one pending proposal per committee, both guarded by unique keys) and a no-op while the job types are DARK. Three deterministic gates run on every model draft before a human can okay it: the grounding validator (no invented fact), the forbidden-agenda gate (no platform-readable figure on an agenda — the Director's doctrine), and an omission check (the minutes may not silently drop a resolution).",
+    "maxLane": true
+  },
+  {
     "id": "accreditation-loop-evidence",
     "name": "Accreditation — Loop→AQAR Evidence Rollup (NAAC 7.3 Quality Assurance System)",
     "category": "misc-ai",
@@ -162,6 +177,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: upserts facility_teaching_naac_evidence snapshot rows (one per institution × metric × AY) and is_auto=true quality_evidence_mappings rows (NAAC 5.1.1 / 3.1.1 / 3.4.1), refreshing metadata + mapped_at on re-run. NEVER touches manually-curated (is_auto=false) mappings. Counts only — no Senior Learner or learner identities. No notifications, no external messages.",
     "safeToManualTrigger": true,
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'facility-teaching-naac-snapshots' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same snapshot + evidence rows (snapshot natural key institution_id+metric_code+ay_label; junction natural key source_table+source_id+body_code+metric_code). Wave 2B of the module→evidence-spine integration."
+  },
+  {
+    "id": "event-feedback-naac-evidence",
+    "name": "Accreditation — Event Feedback Satisfaction Snapshots (NAAC 7.3.f)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 05:19 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/event-feedback-naac-evidence",
+    "callsClaude": false,
+    "whatItDoes": "Turns the events module's three feedback channels — session, day and programme — into NAAC 7.3.f evidence of a periodic stakeholder satisfaction survey. Each night it aggregates every rating per institution per academic year into response counts, distinct-respondent counts, events covered, per-channel and overall mean rating, satisfied share (rating >= 4) and the year-on-year trend, then maps that snapshot into quality_evidence_mappings. Before this, 12,510 live feedback rows reached the accreditation spine as nothing at all, because the events emitter only fires on events a human has hand-tagged with NAAC criteria and none of these were.",
+    "configKnobs": "K-anonymity floor k=5, hardcoded — deliberately NOT a platform_policies row, because a floor an operator can lower to 1 is not a floor. No rating-derived statistic is stored below k, and the overall mean/share is additionally withheld unless the pooled below-k channels are empty or themselves >= k (complementary suppression, so no hidden channel mean is recoverable by subtraction). Satisfied = rating >= 4 on the live 1-5 integer scale. period_label = 'AY YYYY-YY' (June cutoff, IST) via fn_accreditation_ay_label. Trend noise band = ±0.05 rating points. No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts event_feedback_naac_evidence snapshots (one per institution per academic year) and is_auto=true quality_evidence_mappings rows (NAAC 7.3.f), refreshing metadata + mapped_at on re-run. A snapshot whose source feedback has disappeared is zeroed and its auto mapping withdrawn, so a zero never stands in as survey evidence. NEVER touches manually-curated (is_auto=false) mappings and never collides with the existing 7.3.f rows from scf_ai_suggestions (different source_table in the junction's natural key). Counts and means only — free-text comments are never read, and learner identities appear only inside count(DISTINCT ...). No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'event-feedback-naac-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — snapshots upsert on (institution_id, academic_year), mappings on the junction natural key source_table+source_id+body_code+metric_code. Honest gating: an institution with no feedback for an academic year gets no snapshot and no evidence row. Wave 2C of the module→evidence-spine integration; same snapshot-table pattern as hr_naac_evidence."
   },
   {
     "id": "sustainability-naac-evidence",

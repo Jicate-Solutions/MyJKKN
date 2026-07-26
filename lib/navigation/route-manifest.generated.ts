@@ -496,6 +496,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "label": "Consent",
                 "iconName": "FileText",
                 "children": []
+              },
+              {
+                "path": "/accreditation/naac/surveys/stakeholders",
+                "label": "Stakeholders",
+                "iconName": "FileText",
+                "children": []
               }
             ]
           }

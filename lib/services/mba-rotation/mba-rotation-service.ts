@@ -25,9 +25,21 @@
  * These tables are live-in-prod but not in the generated `types/supabase.ts`, so
  * queries cast through `(supabase as any)` — the same pattern the improvement,
  * mba-analyst, and bug-reports services use for un-typed tables. Row shapes are
- * typed here instead. The associate picker + the 14 improvement_areas are NOT
+ * typed here instead. The member picker + the 14 improvement_areas are NOT
  * duplicated here — consumers reuse `MbaAnalystService.listAssociates()` and
  * `ImprovementService.listAreas()`.
+ *
+ * PHASE 3 — cohort-generic (migration `20260727040000_rotation_cohort_generic.sql`):
+ * a team and a cycle each carry a `cohort_key`, so the engine serves ANY
+ * teaching-enterprise cohort, not only MBA. A cycle round-robins ONLY the teams
+ * of its own cohort, and the scheduler requires each member to still hold THEIR
+ * cohort's learner role.
+ *
+ * ⚠️ A MyJKKN deploy ships CODE, not DB migrations, so this service must work
+ * BOTH before and after the Phase-3 migration is applied. Every cohort read is
+ * defaulted and every cohort write is opt-in behind `listCohortOptions().supported`
+ * — which is false while `fn_teaching_cohort_options` does not yet exist. In that
+ * state the module behaves exactly as it did before Phase 3.
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -37,10 +49,28 @@ const MODULE = 'mba-rotation';
 
 export type MbaRotationCycleStatus = 'draft' | 'active' | 'paused' | 'completed';
 
+/**
+ * The cohort every pre-Phase-3 team and cycle belongs to. Also the DB column
+ * default, so an un-migrated writer lands on it too.
+ */
+export const DEFAULT_COHORT_KEY = 'mba_associate';
+
+/** One entry of the cohort picker (`fn_teaching_cohort_options`). */
+export interface TeachingCohortOption {
+  cohort_key: string;
+  display_name: string;
+}
+
+const DEFAULT_COHORT_OPTION: TeachingCohortOption = {
+  cohort_key: DEFAULT_COHORT_KEY,
+  display_name: 'MBA Associate',
+};
+
 /** A row from `mba_teams`, optionally enriched with its member list + count. */
 export interface MbaTeam {
   id: string;
   name: string;
+  cohort_key: string;
   institution_id: string | null;
   created_by: string | null;
   is_active: boolean;
@@ -64,6 +94,7 @@ export interface MbaTeamMember {
 export interface MbaRotationCycle {
   id: string;
   name: string;
+  cohort_key: string;
   institution_id: string | null;
   period_weeks: number;
   start_date: string;
@@ -146,6 +177,49 @@ export class MbaRotationService {
     return map;
   }
 
+  // ── Cohorts ──────────────────────────────────────────────────────────────
+
+  /**
+   * The cohorts a team or cycle may belong to, plus whether the Phase-3 backend
+   * is live. `supported: false` means `fn_teaching_cohort_options` is not there
+   * yet (the migration has not been applied) — callers then hide the cohort
+   * picker and must NOT send `cohort_key` on a write, because the column does
+   * not exist either. Never throws: a missing RPC degrades to the MBA cohort.
+   */
+  static async listCohortOptions(): Promise<{
+    options: TeachingCohortOption[];
+    supported: boolean;
+  }> {
+    const supabase = this.getSupabase();
+    try {
+      const { data, error } = (await (supabase as any).rpc(
+        'fn_teaching_cohort_options'
+      )) as { data: TeachingCohortOption[] | null; error: any };
+
+      if (error) {
+        logger.warn(
+          MODULE,
+          'fn_teaching_cohort_options unavailable — using the MBA cohort only',
+          error
+        );
+        return { options: [DEFAULT_COHORT_OPTION], supported: false };
+      }
+      const rows = (data ?? [])
+        .filter((r) => !!r?.cohort_key)
+        .map((r) => ({
+          cohort_key: r.cohort_key,
+          display_name: r.display_name || r.cohort_key,
+        }));
+      return {
+        options: rows.length > 0 ? rows : [DEFAULT_COHORT_OPTION],
+        supported: true,
+      };
+    } catch (err) {
+      logger.warn(MODULE, 'Cohort options lookup failed — using the MBA cohort only', err);
+      return { options: [DEFAULT_COHORT_OPTION], supported: false };
+    }
+  }
+
   // ── Teams ────────────────────────────────────────────────────────────────
 
   /** List teams with their members (names resolved) + member counts. */
@@ -202,14 +276,26 @@ export class MbaRotationService {
       const list = (membersByTeam.get(t.id) ?? []).sort((a, b) =>
         (a.name ?? '').localeCompare(b.name ?? '')
       );
-      return { ...t, member_count: list.length, members: list } as MbaTeam;
+      return {
+        ...t,
+        // Pre-Phase-3 rows (and any read taken before the migration lands) have
+        // no cohort_key column — they are the MBA cohort by definition.
+        cohort_key: t.cohort_key || DEFAULT_COHORT_KEY,
+        member_count: list.length,
+        members: list,
+      } as MbaTeam;
     });
   }
 
-  /** Create a team. RLS requires `improvement.board.manage`. */
+  /**
+   * Create a team. RLS requires `improvement.board.manage`.
+   * `cohortKey` is only sent when the caller knows the Phase-3 column exists
+   * (see `listCohortOptions().supported`); omitting it lets the DB default apply.
+   */
   static async createTeam(
     name: string,
-    institutionId: string | null = null
+    institutionId: string | null = null,
+    cohortKey?: string | null
   ): Promise<{ id: string }> {
     const supabase = this.getSupabase();
     const {
@@ -217,9 +303,16 @@ export class MbaRotationService {
     } = await supabase.auth.getSession();
     const createdBy = session?.user?.id ?? null;
 
+    const payload: Record<string, unknown> = {
+      name: name.trim(),
+      institution_id: institutionId,
+      created_by: createdBy,
+    };
+    if (cohortKey) payload.cohort_key = cohortKey;
+
     const { data, error } = (await (supabase as any)
       .from('mba_teams')
-      .insert({ name: name.trim(), institution_id: institutionId, created_by: createdBy })
+      .insert(payload)
       .select('id')
       .single()) as { data: { id: string } | null; error: any };
 
@@ -321,6 +414,7 @@ export class MbaRotationService {
     return rows.map((r) => ({
       ...r,
       config: r.config ?? {},
+      cohort_key: r.cohort_key || DEFAULT_COHORT_KEY,
       department_count: depCount.get(r.id) ?? 0,
       slot_count: slotCount.get(r.id) ?? 0,
     })) as MbaRotationCycle[];
@@ -330,6 +424,9 @@ export class MbaRotationService {
    * Create a cycle + seed its department set (all 14 by default when areaIds is
    * omitted — the caller passes the resolved area ids). RLS requires
    * `improvement.board.manage`.
+   *
+   * `cohortKey` decides which teams the rota will round-robin: the generator only
+   * places teams whose cohort matches. Sent only when the Phase-3 column exists.
    */
   static async createCycle(input: {
     name: string;
@@ -337,6 +434,7 @@ export class MbaRotationService {
     startDate: string;
     institutionId?: string | null;
     areaIds: string[];
+    cohortKey?: string | null;
   }): Promise<{ id: string }> {
     const supabase = this.getSupabase();
     const {
@@ -344,16 +442,19 @@ export class MbaRotationService {
     } = await supabase.auth.getSession();
     const createdBy = session?.user?.id ?? null;
 
+    const payload: Record<string, unknown> = {
+      name: input.name.trim(),
+      period_weeks: input.periodWeeks,
+      start_date: input.startDate,
+      institution_id: input.institutionId ?? null,
+      status: 'draft',
+      created_by: createdBy,
+    };
+    if (input.cohortKey) payload.cohort_key = input.cohortKey;
+
     const { data, error } = (await (supabase as any)
       .from('mba_rotation_cycles')
-      .insert({
-        name: input.name.trim(),
-        period_weeks: input.periodWeeks,
-        start_date: input.startDate,
-        institution_id: input.institutionId ?? null,
-        status: 'draft',
-        created_by: createdBy,
-      })
+      .insert(payload)
       .select('id')
       .single()) as { data: { id: string } | null; error: any };
 

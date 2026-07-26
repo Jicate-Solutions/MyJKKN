@@ -294,19 +294,31 @@ export class MbaAnalystService {
   }
 
   /**
-   * The active MBA Associate members, for the assignment picker. Backed by the
-   * SECDEF RPC `fn_mba_list_associates` (board managers only) — a direct
-   * `user_roles` query would silently truncate for non-admin managers.
+   * The active cohort members, for the assignment / team pickers. Backed by a
+   * SECDEF RPC (board managers only) — a direct `user_roles` query would
+   * silently truncate for non-admin managers.
+   *
+   * With no argument this keeps the original, proven MBA path
+   * (`fn_mba_list_associates`), which every existing caller uses. Pass a
+   * `cohortKey` (Phase 3) to read a specific cohort's learners through
+   * `fn_teaching_cohort_list_learners` — only do that once
+   * `MbaRotationService.listCohortOptions().supported` is true, because that RPC
+   * ships with the Phase-3 migration and a deploy carries CODE, not migrations.
    */
-  static async listAssociates(): Promise<MbaAssociateLite[]> {
+  static async listAssociates(cohortKey?: string | null): Promise<MbaAssociateLite[]> {
     const supabase = this.getSupabase();
-    const { data, error } = (await (supabase as any).rpc(
-      'fn_mba_list_associates'
-    )) as { data: MbaAssociateLite[] | null; error: any };
+    const { data, error } = (await (cohortKey
+      ? (supabase as any).rpc('fn_teaching_cohort_list_learners', {
+          p_cohort_key: cohortKey,
+        })
+      : (supabase as any).rpc('fn_mba_list_associates'))) as {
+      data: MbaAssociateLite[] | null;
+      error: any;
+    };
 
     if (error) {
-      logger.error(MODULE, 'Error listing associates', error);
-      throw new Error(error.message || 'Failed to load MBA Associates.');
+      logger.error(MODULE, 'Error listing cohort members', error);
+      throw new Error(error.message || 'Failed to load the cohort members.');
     }
     return data ?? [];
   }
