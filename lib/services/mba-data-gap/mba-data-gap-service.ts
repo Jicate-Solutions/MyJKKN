@@ -87,6 +87,20 @@ export interface DataGapFilters {
   status?: DataGapStatus;
 }
 
+/**
+ * One Associate's data-gap track record (Phase 3 measurement moat), as returned
+ * by fn_mba_gap_track_record: how many gaps they filed, how many were accepted,
+ * and how many went on to produce an APPLIED improvement. For a non-manager the
+ * RPC self-scopes to the caller, so the list holds only their own row.
+ */
+export interface MbaGapTrackRecord {
+  associate_id: string;
+  associate_name: string | null;
+  filed: number;
+  accepted: number;
+  produced_improvement: number;
+}
+
 export class MbaDataGapService {
   private static getSupabase() {
     return createClientSupabaseClient();
@@ -156,6 +170,27 @@ export class MbaDataGapService {
     if (error) {
       logger.error(MODULE, 'Error listing data gaps', error);
       throw new Error(error.message || 'Failed to load data gaps.');
+    }
+    return data ?? [];
+  }
+
+  /**
+   * Track record for the data-gap loop (Phase 3). A manager may pass an
+   * associateId (or null for every associate); a non-manager is forced to their
+   * own record inside the RPC, so passing null from an Associate's own view
+   * returns just their row (or an empty list before they have filed anything).
+   */
+  static async getTrackRecord(
+    associateId?: string | null
+  ): Promise<MbaGapTrackRecord[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc('fn_mba_gap_track_record', {
+      p_associate_id: associateId ?? null
+    })) as { data: MbaGapTrackRecord[] | null; error: any };
+
+    if (error) {
+      logger.error(MODULE, 'Error loading data-gap track record', error);
+      throw new Error(error.message || 'Failed to load your data-gap track record.');
     }
     return data ?? [];
   }

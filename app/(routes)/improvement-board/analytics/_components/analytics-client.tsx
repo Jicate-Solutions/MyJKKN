@@ -37,7 +37,10 @@ import {
   Lock,
   Inbox,
   AlertTriangle,
-  FileWarning
+  FileWarning,
+  TrendingUp,
+  CheckCircle2,
+  Target
 } from 'lucide-react';
 import {
   Select,
@@ -55,6 +58,10 @@ import {
   ImprovementService,
   type ImprovementArea
 } from '@/lib/services/improvement/improvement-service';
+import {
+  MbaDataGapService,
+  type MbaGapTrackRecord
+} from '@/lib/services/mba-data-gap/mba-data-gap-service';
 import { ReportDataGapDialog } from '../../_components/report-data-gap-dialog';
 
 interface AnalyticsClientProps {
@@ -77,6 +84,66 @@ function ReportGapButton({ onClick }: { onClick: () => void }) {
       <FileWarning className="mr-2 h-4 w-4" />
       Report a data gap
     </Button>
+  );
+}
+
+/**
+ * "Your data-gap impact" — the Phase-3 measurement card for the Associate's own
+ * view. Self-contained: fetches its own track record (fn_mba_gap_track_record
+ * self-scopes to the caller) and renders NOTHING until the Associate has filed
+ * at least one gap, so it never disturbs the existing analytics layout. Shows
+ * filed → accepted → produced-an-improvement, the outcome the loop measures.
+ */
+function DataGapImpactCard({ userId }: { userId: string }) {
+  const [record, setRecord] = useState<MbaGapTrackRecord | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const rows = await MbaDataGapService.getTrackRecord(null);
+        if (alive) setRecord(rows[0] ?? null);
+      } catch {
+        if (alive) setRecord(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  if (!record || record.filed <= 0) return null;
+
+  const stats = [
+    { label: 'Filed', value: record.filed, icon: FileWarning },
+    { label: 'Accepted', value: record.accepted, icon: CheckCircle2 },
+    { label: 'Produced an improvement', value: record.produced_improvement, icon: Target }
+  ];
+
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardContent className="py-4">
+        <div className="mb-3 flex items-center gap-2">
+          <TrendingUp className="text-primary h-4 w-4" />
+          <h2 className="text-sm font-semibold">Your data-gap impact</h2>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {stats.map((s) => (
+            <div key={s.label} className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-1.5 text-2xl font-bold">
+                <s.icon className="text-muted-foreground h-4 w-4" />
+                {s.value.toLocaleString()}
+              </span>
+              <span className="text-muted-foreground text-xs">{s.label}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-muted-foreground mt-3 text-xs">
+          Data gaps you filed that a manager accepted, and how many went on to
+          produce an applied improvement. Updated after each measurement run.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -337,6 +404,9 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
           protect privacy.
         </p>
       </div>
+
+      {/* Phase-3 measurement: the Associate's own data-gap track record. */}
+      <DataGapImpactCard userId={userId} />
 
       {/* Not posted to any department */}
       {sections.length === 0 ? (
