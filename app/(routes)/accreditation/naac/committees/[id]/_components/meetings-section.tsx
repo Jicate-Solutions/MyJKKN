@@ -64,6 +64,16 @@ import {
   useReviewedInMeeting,
   useReviewResolution,
 } from '@/hooks/accreditation/use-naac-committee-meetings';
+import {
+  useMeetingAiDrafts,
+  usePendingSittingProposal,
+} from '@/hooks/accreditation/use-naac-meeting-drafts';
+import type { MeetingAiDraft } from '@/lib/services/accreditation/committee-meeting-service';
+import {
+  AgendaDraftPanel,
+  MinutesPolishOffer,
+  SittingProposalCard,
+} from './ai-assistant-panels';
 import { toast } from 'sonner';
 
 // ----------------------------------------------------------------------------
@@ -227,6 +237,17 @@ export function MeetingsSection({
   const { data: meetings, isLoading } = useCommitteeMeetings(committee.id);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // AI committee assistant (DARK until the Director flips the job types on, so
+  // both of these legitimately return nothing today).
+  const { data: aiDrafts, isLoading: draftsLoading } = useMeetingAiDrafts(committee.id);
+  const { data: proposal, isLoading: proposalLoading } = usePendingSittingProposal(committee.id);
+
+  /** The live AI draft of one kind for one meeting (discarded ones are ignored). */
+  const draftFor = (meetingId: string, kind: 'agenda' | 'minutes'): MeetingAiDraft | undefined =>
+    (aiDrafts ?? []).find(
+      (d) => d.meeting_id === meetingId && d.draft_kind === kind && d.status !== 'discarded',
+    );
+
   const canWrite = canManage && committee.is_active;
 
   return (
@@ -244,6 +265,11 @@ export function MeetingsSection({
         </div>
       </CardHeader>
       <CardContent>
+        <SittingProposalCard
+          proposal={proposal}
+          isLoading={proposalLoading}
+          canManage={canWrite}
+        />
         {isLoading ? (
           <div className="space-y-2">
             <Skeleton className="h-10 w-full" />
@@ -270,6 +296,9 @@ export function MeetingsSection({
                 onToggle={() =>
                   setExpandedId((cur) => (cur === m.id ? null : m.id))
                 }
+                agendaDraft={draftFor(m.id, 'agenda')}
+                minutesDraft={draftFor(m.id, 'minutes')}
+                draftsLoading={draftsLoading}
               />
             ))}
           </div>
@@ -371,12 +400,18 @@ function MeetingRow({
   canManage,
   expanded,
   onToggle,
+  agendaDraft,
+  minutesDraft,
+  draftsLoading,
 }: {
   meeting: CommitteeMeeting;
   committee: AccreditationCommittee;
   canManage: boolean;
   expanded: boolean;
   onToggle: () => void;
+  agendaDraft?: MeetingAiDraft;
+  minutesDraft?: MeetingAiDraft;
+  draftsLoading: boolean;
 }) {
   return (
     <div className="rounded-lg border">
@@ -408,13 +443,21 @@ function MeetingRow({
       {expanded && (
         <div className="border-t px-3 py-3">
           {meeting.status === 'scheduled' && (
-            <ScheduledMeetingBody meeting={meeting} canManage={canManage} />
+            <ScheduledMeetingBody
+              meeting={meeting}
+              canManage={canManage}
+              agendaDraft={agendaDraft}
+              draftsLoading={draftsLoading}
+            />
           )}
           {meeting.status === 'held' && (
             <HeldMeetingWorkview
               meeting={meeting}
               committee={committee}
               canManage={canManage}
+              agendaDraft={agendaDraft}
+              minutesDraft={minutesDraft}
+              draftsLoading={draftsLoading}
             />
           )}
           {meeting.status === 'minuted' && (
@@ -438,19 +481,26 @@ function MeetingRow({
 function ScheduledMeetingBody({
   meeting,
   canManage,
+  agendaDraft,
+  draftsLoading,
 }: {
   meeting: CommitteeMeeting;
   canManage: boolean;
+  agendaDraft?: MeetingAiDraft;
+  draftsLoading: boolean;
 }) {
   const markHeld = useMarkMeetingHeld();
   const cancel = useCancelMeeting();
 
   if (!canManage) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Scheduled{meeting.scheduled_for ? ` for ${meeting.scheduled_for}` : ''}
-        . The review opens once the meeting is held.
-      </p>
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Scheduled{meeting.scheduled_for ? ` for ${meeting.scheduled_for}` : ''}
+          . The review opens once the meeting is held.
+        </p>
+        <AgendaDraftPanel draft={agendaDraft} isLoading={draftsLoading} canManage={false} />
+      </div>
     );
   }
 
@@ -465,42 +515,46 @@ function ScheduledMeetingBody({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        onClick={() =>
-          run(
-            () =>
-              markHeld.mutateAsync({
-                meetingId: meeting.id,
-                committeeId: meeting.committee_id,
-              }),
-            'Meeting marked held — review is open',
-          )
-        }
-        disabled={markHeld.isPending || cancel.isPending}
-      >
-        <CheckCircle2 className="mr-2 h-4 w-4" />
-        Mark held
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() =>
-          run(
-            () =>
-              cancel.mutateAsync({
-                meetingId: meeting.id,
-                committeeId: meeting.committee_id,
-              }),
-            'Meeting cancelled',
-          )
-        }
-        disabled={markHeld.isPending || cancel.isPending}
-      >
-        <XCircle className="mr-2 h-4 w-4" />
-        Cancel meeting
-      </Button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          onClick={() =>
+            run(
+              () =>
+                markHeld.mutateAsync({
+                  meetingId: meeting.id,
+                  committeeId: meeting.committee_id,
+                }),
+              'Meeting marked held — review is open',
+            )
+          }
+          disabled={markHeld.isPending || cancel.isPending}
+        >
+          <CheckCircle2 className="mr-2 h-4 w-4" />
+          Mark held
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            run(
+              () =>
+                cancel.mutateAsync({
+                  meetingId: meeting.id,
+                  committeeId: meeting.committee_id,
+                }),
+              'Meeting cancelled',
+            )
+          }
+          disabled={markHeld.isPending || cancel.isPending}
+        >
+          <XCircle className="mr-2 h-4 w-4" />
+          Cancel meeting
+        </Button>
+      </div>
+      <Separator />
+      <AgendaDraftPanel draft={agendaDraft} isLoading={draftsLoading} canManage />
     </div>
   );
 }
@@ -513,10 +567,16 @@ function HeldMeetingWorkview({
   meeting,
   committee,
   canManage,
+  agendaDraft,
+  minutesDraft,
+  draftsLoading,
 }: {
   meeting: CommitteeMeeting;
   committee: AccreditationCommittee;
   canManage: boolean;
+  agendaDraft?: MeetingAiDraft;
+  minutesDraft?: MeetingAiDraft;
+  draftsLoading: boolean;
 }) {
   const { data: openResolutions, isLoading: openLoading } = useOpenResolutions(
     committee.id,
@@ -618,6 +678,17 @@ function HeldMeetingWorkview({
         )}
       </div>
 
+      {agendaDraft && (
+        <>
+          <Separator />
+          <AgendaDraftPanel
+            draft={agendaDraft}
+            isLoading={draftsLoading}
+            canManage={canManage}
+          />
+        </>
+      )}
+
       {canManage && (
         <>
           <Separator />
@@ -627,6 +698,7 @@ function HeldMeetingWorkview({
               reviewed={reviewedHere ?? []}
               passed={passedHere ?? []}
               profiles={profiles}
+              minutesDraft={minutesDraft}
             />
           </div>
         </>
@@ -1025,11 +1097,13 @@ function CloseMeetingDialog({
   reviewed,
   passed,
   profiles,
+  minutesDraft,
 }: {
   meeting: CommitteeMeeting;
   reviewed: CommitteeResolution[];
   passed: CommitteeResolution[];
   profiles: Record<string, ProfileLite> | undefined;
+  minutesDraft?: MeetingAiDraft;
 }) {
   const [open, setOpen] = useState(false);
   const [minutes, setMinutes] = useState('');
@@ -1083,6 +1157,10 @@ function CloseMeetingDialog({
           rows={12}
           className="font-mono text-xs"
         />
+        {/* The AI write-up is an alternative offered BESIDE the structural
+            prefill, never an auto-overwrite: "Use this text" only fills the box
+            above, and closeMeeting stays the sole writer of minutes_summary. */}
+        <MinutesPolishOffer draft={minutesDraft} onUse={setMinutes} />
         <DialogFooter>
           <Button
             variant="outline"
