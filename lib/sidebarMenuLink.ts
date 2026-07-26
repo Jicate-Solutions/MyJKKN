@@ -165,6 +165,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/analytics': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
   '/improvement-board/postings': 'improvement.board.manage',
+  // MBA Data Gaps — manager-only triage of gaps Associates reported.
+  '/improvement-board/data-gaps': 'improvement.board.manage',
   // MBA Team Rotation — the rota chart is viewable by associates; team-builder
   // and cycle-setup are manager-only (improvement.board.manage).
   '/improvement-board/rotation': 'improvement.ideas.view',
@@ -1523,6 +1525,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
+            // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
+            { href: '/improvement-board/data-gaps', label: 'Data Gaps', active: pathname === '/improvement-board/data-gaps' },
             // MBA Team Rotation — rota chart (associates + managers); team-builder
             // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },

@@ -4,8 +4,17 @@
 // ============================================================================
 // AI Pulse — Shared Prompt Library (learner-facing peer graduated prompts)
 // ============================================================================
-// Read + report surface for graduated peer prompt-builds, over two SECURITY
+// Read + report surface for graduated peer prompt-builds, over SECURITY
 // DEFINER, anon-locked RPCs (browser/authenticated client is all that's needed):
+//
+//   * fn_ai_pulse_my_topics()
+//       returns the CURRENT learner's finest course/programme topics
+//       (topic_type, topic_id, topic_label), self-scoped from
+//       auth.uid() -> profiles.learner_id (never a caller-supplied id). A thin
+//       wrapper over the service-role-only fn_ai_pulse_learner_topics, added in
+//       20260803030000_ai_pulse_my_topics_wrapper.sql. Every learner resolves
+//       at least their programme topic, so the library works even for a learner
+//       who has never built a prompt of their own.
 //
 //   * fn_ai_pulse_topic_graduated_prompts(p_topic_type, p_topic_id, p_limit)
 //       returns the top graduated peer prompts for ONE topic, anonymised
@@ -18,11 +27,12 @@
 //       20260726034212_ai_pulse_prompt_build_reports.sql (learner flags, a
 //       champion later disqualifies). Refuses self-report + cross-institution.
 //
-// Topic sourcing: the graduated read is per-topic, so we first read the
-// learner's OWN builds (fn_ai_pulse_my_prompt_builds — returns topic_type +
-// topic_id) to discover the topics they've practised, then fetch the best peer
-// prompts for those same topics. Both feeds are dark today, so the library is
-// empty and the card renders nothing (byte-identical to the current page).
+// Topic sourcing: the graduated read is per-topic, so we first resolve the
+// learner's OWN topics via fn_ai_pulse_my_topics (their subject(s) + programme),
+// then fetch the best peer prompts for those same topics. The topics feed is
+// live for every learner; the graduated feed is dark today, so the library is
+// still empty and the card renders nothing (byte-identical to the current page)
+// until prompt graduation is switched on.
 //
 // Type note: none of these ai_pulse_* RPCs are in the generated Supabase types,
 // so the client is cast to `any` — the same convention as leaderboard-service /
@@ -53,39 +63,39 @@ export interface GraduatedPromptRow {
   topic_type: string; // carried from the topic we queried, for grouping
 }
 
-interface MyBuildTopic {
+interface MyTopic {
   topic_type: string;
   topic_id: string;
 }
 
 // ---------------------------------------------------------------------------
-// Read: graduated peer prompts for the learner's own build-topics
+// Read: graduated peer prompts for the learner's course/programme topics
 // ---------------------------------------------------------------------------
 
 async function fetchSharedLibrary(cycleId?: string | null): Promise<GraduatedPromptRow[]> {
   const supabase = createClientSupabaseClient() as any;
+  void cycleId; // topics + graduated reads are not cycle-scoped; kept for the hook's queryKey only.
 
-  // 1) discover the learner's topics from their own builds.
-  const { data: builds, error: buildsErr } = await supabase.rpc(
-    'fn_ai_pulse_my_prompt_builds',
-    { p_cycle_id: cycleId ?? null },
-  );
-  if (buildsErr) {
-    logger.error(MODULE, 'fn_ai_pulse_my_prompt_builds failed', buildsErr);
-    throw new Error(buildsErr.message ?? 'Failed to load your builds');
+  // 1) resolve the learner's OWN topics (their subject(s) + programme). Sourced
+  //    from fn_ai_pulse_my_topics so EVERY learner resolves at least their
+  //    programme topic — not only those who have built a prompt themselves.
+  const { data: topicRows, error: topicsErr } = await supabase.rpc('fn_ai_pulse_my_topics');
+  if (topicsErr) {
+    logger.error(MODULE, 'fn_ai_pulse_my_topics failed', topicsErr);
+    throw new Error(topicsErr.message ?? 'Failed to load your topics');
   }
 
   const seen = new Set<string>();
-  const topics: MyBuildTopic[] = [];
-  for (const b of (builds ?? []) as Array<{ topic_type: string | null; topic_id: string | null }>) {
-    if (!b.topic_type || !b.topic_id) continue;
-    const key = `${b.topic_type}:${b.topic_id}`;
+  const topics: MyTopic[] = [];
+  for (const t of (topicRows ?? []) as Array<{ topic_type: string | null; topic_id: string | null }>) {
+    if (!t.topic_type || !t.topic_id) continue;
+    const key = `${t.topic_type}:${t.topic_id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    topics.push({ topic_type: b.topic_type, topic_id: b.topic_id });
+    topics.push({ topic_type: t.topic_type, topic_id: t.topic_id });
     if (topics.length >= MAX_TOPICS) break;
   }
-  if (topics.length === 0) return []; // dark today → empty → card hides
+  if (topics.length === 0) return []; // no topics → empty → card hides
 
   // 2) fetch the top graduated peer prompts for each topic, in parallel.
   const perTopic = await Promise.all(
