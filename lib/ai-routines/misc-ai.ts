@@ -277,5 +277,34 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: upserts module_usage_daily, feature_usage_summary and institution_health_scores rows for each target date, and moves usage_events rows older than 12 months into usage_events_archive. Aggregate counts only — no learner identities are emitted. No notifications, no external messages. Does not write usage_events itself.",
     "safeToManualTrigger": true,
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'usage-rollup' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: the compute_* RPCs are idempotent per target_date and archival is a no-op when nothing is old enough. Returns HTTP 207 with an `errors[]` array when some days succeeded and some failed, so a partial run is visible instead of reading as clean. Companion to the Usage Beacon (PR #2440), which is what finally makes page views land in usage_events — the beacon fills the raw table, this routine makes it readable."
+  },
+  {
+    "id": "measure-gap-outcomes",
+    "name": "Improvement Board — Data-Gap Outcome Measurement",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 05:33 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/measure-gap-outcomes",
+    "callsClaude": false,
+    "whatItDoes": "The measurement leg of the data-gap self-improving loop. Each night it recomputes every filed gap's outcome from its own status and its linked improvement idea's status: accepted + idea applied/verified → produced_applied_improvement; accepted + idea still not shipped → accepted_pending_improvement; accepted + idea stalled past 30 days → accepted_stalled; dropped / not-accepted / pending. That measured outcome feeds each area's hit-rate, which the ranking cron then weights on — so the loop learns from its own results.",
+    "configKnobs": "Stalled threshold = 30 days (an accepted gap whose linked idea hasn't shipped). Pure SQL via fn_mba_measure_gap_outcomes (service-role only). No model, no thresholds beyond the 30-day window.",
+    "sideEffects": "DB writes only: recomputes gap_outcome + outcome_measured_at on every mba_data_gaps row via fn_mba_measure_gap_outcomes. Idempotent — safe to re-run any time. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'measure-gap-outcomes' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Fully idempotent — re-running recomputes the same outcomes. Companion to rank-data-gaps (the feed-forward wire reads the hit-rate this produces); scheduled 18 min BEFORE it."
+  },
+  {
+    "id": "rank-data-gaps",
+    "maxLane": true,
+    "name": "Improvement Board — AI Data-Gap Ranking (Max lane)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 05:51 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/rank-data-gaps",
+    "callsClaude": true,
+    "whatItDoes": "Ranks each institution's un-triaged MBA data gaps by value × feasibility so managers triage the highest-value first, classifies each as type_a_surface / type_b_capture / uncertain, and feeds each area's measured hit-rate into the ranking as an explore/exploit weight — proven areas up, and unproven dark departments up too for a fair shot. Collect-first: it drains the previous run's ranking jobs and writes priority_rank/reason/class back, then enqueues one ranking job per institution on the ₹0 Max lane.",
+    "configKnobs": "MIN_GAPS_TO_RANK=2 (a lone gap has no comparative rank), COLLECT_CAP=50, RANKABLE_STATUSES=[filed,triaged], job_type='improvement.rank_data_gaps' (₹0 Max lane, model_id='sonnet' family alias). Per-area hit-rate is computed INLINE from mba_data_gaps (decoupled from the manager-gated fn_mba_gap_area_hit_rate). Per-institution/day dedupe key.",
+    "sideEffects": "DB writes only: writes priority_rank / priority_reason / gap_class / ranked_at onto mba_data_gaps rows, and enqueues 'improvement.rank_data_gaps' jobs on the Max lane. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Fires via the AI-routine dispatcher (ai_routine_schedules row 'rank-data-gaps' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later: a ?mode=collect tick drains the previous run's jobs. Idempotent: per-institution/day dedupe stops double-enqueue and collect claims each job once. Scheduled AFTER measure-gap-outcomes so the ranking reads today's fresh hit-rate."
   }
 ];
