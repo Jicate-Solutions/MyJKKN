@@ -374,6 +374,7 @@ SET search_path = public
 AS $$
 DECLARE
   s public.accreditation_stakeholder_surveys%ROWTYPE;
+  v_found     boolean;
   v_invited   integer := 0;
   v_responded integer := 0;
   v_means     jsonb;
@@ -382,8 +383,17 @@ DECLARE
   c_min_for_means constant integer := 5;
 BEGIN
   SELECT * INTO s FROM public.accreditation_stakeholder_surveys WHERE id = p_survey_id;
+  -- Capture FOUND immediately: every later SELECT INTO overwrites it (a
+  -- count(*) always returns a row, so it always sets FOUND true).
+  v_found := FOUND;
 
-  IF FOUND THEN
+  -- Count ONLY for a cycle that could possibly emit. A draft or active cycle
+  -- stops here, which is what makes the child-row triggers cheap: building a
+  -- roster of 1,100 alumni fires 1,100 syncs that each do one indexed row read
+  -- and no counting at all.
+  IF v_found
+     AND s.status = 'closed'
+     AND EXISTS (SELECT 1 FROM public.institutions i WHERE i.id = s.institution_id) THEN
     SELECT count(*) INTO v_invited
     FROM public.accreditation_stakeholder_invites WHERE survey_id = s.id;
 
@@ -391,11 +401,10 @@ BEGIN
     FROM public.accreditation_stakeholder_responses WHERE survey_id = s.id;
   END IF;
 
-  -- Honest gating: closed cycle + at least one response + a real institution.
-  IF NOT FOUND
-     OR s.status <> 'closed'
-     OR v_responded < 1
-     OR NOT EXISTS (SELECT 1 FROM public.institutions i WHERE i.id = s.institution_id) THEN
+  -- Honest gating, in ONE test: v_responded is still 0 for a missing row, a
+  -- non-closed cycle, a cycle whose institution does not exist, AND a closed
+  -- cycle nobody answered. No responses means no evidence row.
+  IF v_responded < 1 THEN
     -- Withdraw ONLY this emitter's key. source_table already scopes this to
     -- rows this emitter wrote (bos_meetings rows carry source_table
     -- 'bos_meetings' and can never match), and metric_code is pinned so a
