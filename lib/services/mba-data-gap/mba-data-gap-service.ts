@@ -27,14 +27,18 @@ const MODULE = 'mba-data-gap';
 /** Why the Associate believes the data is missing. */
 export type DataGapType = 'not_captured' | 'not_surfaced' | 'unsure';
 
-/** Triage lifecycle of a filed gap. */
+/**
+ * Triage lifecycle of a filed gap. `parked` is a visible "someday" wishlist —
+ * deferred (not rejected), and reversible back to `triaged`.
+ */
 export type DataGapStatus =
   | 'filed'
   | 'triaged'
   | 'accepted'
   | 'not_feasible'
   | 'captured_elsewhere'
-  | 'duplicate';
+  | 'duplicate'
+  | 'parked';
 
 /**
  * AI classification (Phase 2): whether the missing data already exists and just
