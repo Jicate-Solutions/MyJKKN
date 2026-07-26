@@ -42,7 +42,8 @@ import {
   MbaDataGapService,
   type MbaDataGap,
   type DataGapStatus,
-  type DataGapType
+  type DataGapType,
+  type DataGapClass
 } from '@/lib/services/mba-data-gap/mba-data-gap-service';
 
 /* -------------------------------------------------------------------------- */
@@ -75,6 +76,25 @@ const STATUS_META: Record<
   },
   duplicate: {
     label: 'Duplicate',
+    className: 'border-muted bg-muted text-muted-foreground'
+  }
+};
+
+/** AI classification badge (Phase 2). NULL class renders nothing. */
+const GAP_CLASS_META: Record<
+  DataGapClass,
+  { label: string; className: string }
+> = {
+  type_a_surface: {
+    label: 'Data exists — surface it',
+    className: 'border-green-200 bg-green-50 text-green-700'
+  },
+  type_b_capture: {
+    label: 'Not captured — build it',
+    className: 'border-amber-200 bg-amber-50 text-amber-700'
+  },
+  uncertain: {
+    label: 'Needs a closer look',
     className: 'border-muted bg-muted text-muted-foreground'
   }
 };
@@ -291,6 +311,9 @@ function DataGapsBoard() {
           {filtered.map((gap) => {
             const isBusy = busy.has(gap.id);
             const meta = STATUS_META[gap.status];
+            const classMeta = gap.gap_class
+              ? GAP_CLASS_META[gap.gap_class]
+              : null;
             const canAct = OPEN_STATUSES.includes(gap.status);
 
             return (
@@ -299,7 +322,17 @@ function DataGapsBoard() {
                   {/* Title row */}
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium">{gap.title}</p>
+                      <div className="flex items-start gap-2">
+                        {gap.priority_rank != null && (
+                          <span
+                            className="border-primary/30 bg-primary/10 text-primary mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums"
+                            title="AI priority — lower is higher value to triage first"
+                          >
+                            #{gap.priority_rank}
+                          </span>
+                        )}
+                        <p className="font-medium">{gap.title}</p>
+                      </div>
                       <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                         <span className="flex items-center gap-1">
                           <Building2 className="h-3.5 w-3.5" />
@@ -311,10 +344,26 @@ function DataGapsBoard() {
                         <span>Filed by {gap.filer_name ?? 'an Associate'}</span>
                       </div>
                     </div>
-                    <Badge variant="outline" className={`shrink-0 text-xs ${meta.className}`}>
-                      {meta.label}
-                    </Badge>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <Badge variant="outline" className={`text-xs ${meta.className}`}>
+                        {meta.label}
+                      </Badge>
+                      {classMeta && (
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${classMeta.className}`}
+                        >
+                          {classMeta.label}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+                  {/* AI priority reason (why it ranks where it does) */}
+                  {gap.priority_reason && (
+                    <p className="text-muted-foreground text-xs italic">
+                      {gap.priority_reason}
+                    </p>
+                  )}
 
                   {/* Detail */}
                   <div className="space-y-1.5 text-sm">
