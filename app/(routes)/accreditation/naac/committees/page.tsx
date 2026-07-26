@@ -63,6 +63,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { findUmbrellaRow } from './_lib/umbrella-row';
 import {
   useNAACCommittees,
   useCreateNAACCommittee,
@@ -547,9 +548,7 @@ function CreateCommitteeDialog({
           (institutions ?? []).filter((i) => i.iqac_code).map((i) => i.id),
         );
       }
-      const mainOffice = (institutions ?? []).find(
-        (i) => i.name === 'JKKN Main Office',
-      );
+      const mainOffice = findUmbrellaRow(institutions ?? []);
       if (mainOffice) setInstitutionId(mainOffice.id);
     }
   };
