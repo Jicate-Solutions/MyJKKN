@@ -142,6 +142,29 @@ self.addEventListener("push", (event: PushEvent) => {
     ],
   };
 
+  // Badging API: reflect new activity on the installed app icon while the app is
+  // closed or backgrounded. If a sender includes a numeric `unread_count` in
+  // payload.data, show that exact number; otherwise show a non-specific flag —
+  // the client's AppBadgeSync corrects it to the exact count on next focus.
+  // Fully guarded and swallowed so badging can NEVER block the notification.
+  try {
+    const swNav = (self as unknown as {
+      navigator?: { setAppBadge?: (n?: number) => Promise<void> };
+    }).navigator;
+    if (swNav && typeof swNav.setAppBadge === "function") {
+      const raw = (payload.data as { unread_count?: unknown } | undefined)?.unread_count;
+      const count =
+        typeof raw === "number" && Number.isFinite(raw) && raw >= 0
+          ? Math.floor(raw)
+          : undefined;
+      void (count !== undefined ? swNav.setAppBadge(count) : swNav.setAppBadge())?.catch?.(
+        () => {}
+      );
+    }
+  } catch {
+    // badging unsupported or threw — ignore; the notification still shows.
+  }
+
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
