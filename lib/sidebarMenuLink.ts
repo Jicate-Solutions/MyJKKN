@@ -1022,6 +1022,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
   '/accreditation/naac/surveys/stakeholders': 'accreditation.naac.surveys.stakeholder.view', // employer + alumni half of NAAC 1.2
   '/accreditation/naac/narratives': 'accreditation.naac.narrative.view',         // AI narrative drafter (list)
+  '/accreditation/naac/narratives/owners': 'accreditation.naac.narrative.manage', // IQAC owner-assignment desk
   '/accreditation/naac/narratives/[id]': 'accreditation.naac.narrative.view',    // AI narrative drafter (detail)
   '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
   '/accreditation/nba': 'accreditation.nba.view',               // PR-A10

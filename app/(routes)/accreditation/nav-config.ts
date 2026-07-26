@@ -75,6 +75,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/accreditation/naac/narratives'],
         },
         {
+          label: 'Assign Narrative Owners',
+          icon: 'UserCheck',
+          href: '/accreditation/naac/narratives/owners',
+          matchPaths: ['/accreditation/naac/narratives/owners'],
+        },
+        {
           label: 'IQAC Committees',
           icon: 'Users',
           href: '/accreditation/naac/committees',
