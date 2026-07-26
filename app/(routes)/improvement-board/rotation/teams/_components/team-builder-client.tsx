@@ -1,12 +1,17 @@
 'use client';
 
 /**
- * MBA Team Rotation — team builder (client).
- * Manager-only (improvement.board.manage). Build teams of MBA Associates by
- * hand: create a team, add/remove associates, (de)activate or delete a team.
- * The associate picker is backed by the manager-gated SECDEF fn_mba_list_associates
- * (via MbaAnalystService.listAssociates) — never a raw user_roles read, which RLS
- * self-scopes and would silently truncate the picker.
+ * Team Rotation — team builder (client).
+ * Manager-only (improvement.board.manage). Build teams by hand: create a team,
+ * add/remove members, (de)activate or delete a team.
+ *
+ * PHASE 3 — cohort-generic: a team belongs to ONE teaching-enterprise cohort,
+ * chosen on creation, and its member picker only offers THAT cohort's learners.
+ * The picker is backed by the manager-gated SECDEF pickers (via
+ * MbaAnalystService.listAssociates) — never a raw user_roles read, which RLS
+ * self-scopes and would silently truncate the list. When the Phase-3 migration
+ * is not applied yet the cohort chooser is hidden and everything behaves exactly
+ * as before (single MBA cohort).
  *
  * Gating branches on the loading state FIRST (CLAUDE.md #27).
  */
@@ -43,7 +48,9 @@ import {
 } from '@/lib/services/mba-analyst/mba-analyst-service';
 import {
   MbaRotationService,
+  DEFAULT_COHORT_KEY,
   type MbaTeam,
+  type TeachingCohortOption,
 } from '@/lib/services/mba-rotation/mba-rotation-service';
 
 function LoadingState() {
@@ -95,18 +102,53 @@ export function TeamBuilderClient() {
 function TeamBuilder() {
   const [loading, setLoading] = useState(true);
   const [teams, setTeams] = useState<MbaTeam[]>([]);
-  const [associates, setAssociates] = useState<MbaAssociateLite[]>([]);
+  /** cohort_key -> that cohort's learners (the picker source per team). */
+  const [membersByCohort, setMembersByCohort] = useState<Map<string, MbaAssociateLite[]>>(
+    new Map()
+  );
+  const [cohorts, setCohorts] = useState<TeachingCohortOption[]>([]);
+  const [cohortsSupported, setCohortsSupported] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamCohort, setNewTeamCohort] = useState(DEFAULT_COHORT_KEY);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
-    const [nextTeams, nextAssociates] = await Promise.all([
+    const [cohortState, nextTeams] = await Promise.all([
+      MbaRotationService.listCohortOptions(),
       MbaRotationService.listTeams(),
-      MbaAnalystService.listAssociates(),
     ]);
+    setCohorts(cohortState.options);
+    setCohortsSupported(cohortState.supported);
     setTeams(nextTeams);
-    setAssociates(nextAssociates);
+    setNewTeamCohort((prev) =>
+      cohortState.options.some((o) => o.cohort_key === prev)
+        ? prev
+        : (cohortState.options[0]?.cohort_key ?? DEFAULT_COHORT_KEY)
+    );
+
+    // One picker read per cohort in play. A cohort whose role has no holders (or
+    // that predates the backend) simply yields an empty list — never a hard fail
+    // that would blank the whole page.
+    const keys = Array.from(
+      new Set([
+        ...cohortState.options.map((o) => o.cohort_key),
+        ...nextTeams.map((t) => t.cohort_key),
+      ])
+    );
+    const entries = await Promise.all(
+      keys.map(async (key) => {
+        try {
+          const list = await MbaAnalystService.listAssociates(
+            cohortState.supported ? key : undefined
+          );
+          return [key, list] as const;
+        } catch {
+          return [key, [] as MbaAssociateLite[]] as const;
+        }
+      })
+    );
+    setMembersByCohort(new Map(entries));
   }, []);
 
   useEffect(() => {
@@ -144,7 +186,13 @@ function TeamBuilder() {
     if (!name) return;
     setCreating(true);
     try {
-      await MbaRotationService.createTeam(name);
+      // cohort_key only when the Phase-3 column exists; otherwise the DB default
+      // (the MBA cohort) applies and the insert stays valid.
+      await MbaRotationService.createTeam(
+        name,
+        null,
+        cohortsSupported ? newTeamCohort : null
+      );
       setNewTeamName('');
       await refresh();
       toast.success(`Created team "${name}"`);
@@ -218,6 +266,20 @@ function TeamBuilder() {
     [teams]
   );
 
+  /** Distinct learners available across every cohort in play. */
+  const totalMembers = useMemo(() => {
+    const ids = new Set<string>();
+    for (const list of membersByCohort.values()) {
+      for (const m of list) ids.add(m.user_id);
+    }
+    return ids.size;
+  }, [membersByCohort]);
+
+  const cohortLabel = useMemo(() => {
+    const m = new Map(cohorts.map((c) => [c.cohort_key, c.display_name]));
+    return (key: string) => m.get(key) ?? key;
+  }, [cohorts]);
+
   if (loading) return <LoadingState />;
 
   return (
@@ -235,8 +297,8 @@ function TeamBuilder() {
           Rotation Teams
         </h1>
         <p className="text-muted-foreground mt-1">
-          Build teams of MBA Associates by hand. Each team rotates through the
-          departments together.
+          Build teams by hand. Each team belongs to one cohort and rotates through
+          the departments together.
         </p>
       </div>
 
@@ -248,8 +310,17 @@ function TeamBuilder() {
         <span aria-hidden>·</span>
         <span>
           <span className="text-foreground font-semibold">{assignedCount}</span> of{' '}
-          {associates.length} associates on a team
+          {totalMembers} learners on a team
         </span>
+        {cohortsSupported && (
+          <>
+            <span aria-hidden>·</span>
+            <span>
+              <span className="text-foreground font-semibold">{cohorts.length}</span>{' '}
+              cohort{cohorts.length === 1 ? '' : 's'}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Create team */}
@@ -266,6 +337,23 @@ function TeamBuilder() {
               }}
             />
           </div>
+          {cohortsSupported && (
+            <div className="sm:w-56">
+              <label className="mb-1 block text-sm font-medium">Cohort</label>
+              <Select value={newTeamCohort} onValueChange={setNewTeamCohort}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a cohort" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cohorts.map((c) => (
+                    <SelectItem key={c.cohort_key} value={c.cohort_key}>
+                      {c.display_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Button onClick={handleCreate} disabled={creating || !newTeamName.trim()}>
             {creating ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -288,15 +376,23 @@ function TeamBuilder() {
         <div className="grid gap-3">
           {teams.map((team) => {
             const heldIds = new Set(team.members.map((m) => m.associate_user_id));
-            const available = associates.filter((a) => !heldIds.has(a.user_id));
+            // Picker scoped to THIS team's cohort — a team can never be given
+            // another cohort's learner.
+            const cohortMembers = membersByCohort.get(team.cohort_key) ?? [];
+            const available = cohortMembers.filter((a) => !heldIds.has(a.user_id));
             const isBusy = busy.has(team.id);
             return (
               <Card key={team.id} className={team.is_active ? '' : 'opacity-70'}>
                 <CardContent className="space-y-3 p-4">
                   {/* Team header */}
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{team.name}</p>
+                      {cohortsSupported && (
+                        <Badge variant="secondary" className="text-xs">
+                          {cohortLabel(team.cohort_key)}
+                        </Badge>
+                      )}
                       {!team.is_active && (
                         <Badge variant="outline" className="text-xs">
                           inactive
@@ -339,7 +435,7 @@ function TeamBuilder() {
                     <div className="flex flex-wrap gap-1.5">
                       {team.members.map((m) => (
                         <Badge key={m.id} variant="secondary" className="gap-1 pr-1">
-                          {m.name || m.email || 'Associate'}
+                          {m.name || m.email || 'Learner'}
                           <button
                             type="button"
                             onClick={() =>
@@ -359,27 +455,29 @@ function TeamBuilder() {
                   {/* Add member */}
                   {available.length === 0 ? (
                     <span className="text-muted-foreground text-xs">
-                      All associates are on this team.
+                      {cohortMembers.length === 0
+                        ? `No learners hold the ${cohortLabel(team.cohort_key)} cohort role yet.`
+                        : `Every ${cohortLabel(team.cohort_key)} learner is on this team.`}
                     </span>
                   ) : (
                     <Select
                       value=""
                       disabled={isBusy}
                       onValueChange={(userId) => {
-                        const a = associates.find((x) => x.user_id === userId);
-                        if (a) handleAddMember(team.id, a.user_id, a.name ?? a.email ?? 'associate');
+                        const a = cohortMembers.find((x) => x.user_id === userId);
+                        if (a) handleAddMember(team.id, a.user_id, a.name ?? a.email ?? 'member');
                       }}
                     >
                       <SelectTrigger className="w-64">
                         <span className="flex items-center gap-1.5">
                           <UserPlus className="h-4 w-4" />
-                          <SelectValue placeholder="Add an associate" />
+                          <SelectValue placeholder="Add a learner" />
                         </span>
                       </SelectTrigger>
                       <SelectContent>
                         {available.map((a) => (
                           <SelectItem key={a.user_id} value={a.user_id}>
-                            {a.name || a.email || 'Associate'}
+                            {a.name || a.email || 'Learner'}
                           </SelectItem>
                         ))}
                       </SelectContent>

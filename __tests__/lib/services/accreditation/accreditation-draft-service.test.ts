@@ -76,6 +76,47 @@ describe('parseModelDraft', () => {
     const d = parseModelDraft('{"narrative_md":"x","citations":[{"marker":"E1"},{"marker":"E2","source_id":"y"}]}');
     expect(d.citations).toEqual([{ marker: 'E2', source_id: 'y' }]);
   });
+
+  // Shape of a real blocked 7.10.1 draft on production (2026-07-26): the model
+  // emitted a broken block, said so in English, then emitted the correct one.
+  // The old first-{-to-last-} slice spanned both plus the sentence between them,
+  // so JSON.parse threw and the ENTIRE blob was stored as the narrative —
+  // dragging the embedded "marker": "E1" into the prose, where the grounding
+  // gate rightly flagged it as an unaccounted code.
+  it('takes the final block when the model corrects itself mid-reply', () => {
+    const d = parseModelDraft(
+      '```json\n{"narrative_md": "Retention is 100% [E1]"],"citations": [{"marker": "E1", "source_id": "a"}]}\n```\n\n' +
+        'Wait, I need to fix a stray bracket. Let me correct that.\n\n' +
+        '```json\n{"narrative_md": "Retention is 100% [E1].","citations": [{"marker": "E1", "source_id": "a"}]}\n```\n',
+    );
+    expect(d.narrative_md).toBe('Retention is 100% [E1].');
+    expect(d.citations).toEqual([{ marker: 'E1', source_id: 'a' }]);
+    // The failure that actually mattered: no markup or JSON left in the prose.
+    expect(d.narrative_md).not.toContain('```');
+    expect(d.narrative_md).not.toContain('narrative_md');
+    expect(d.narrative_md).not.toContain('Wait, I need to fix');
+  });
+
+  it('accepts narrative_md as an array of paragraphs', () => {
+    const d = parseModelDraft('{"narrative_md":["First para.","Second para."],"citations":[]}');
+    expect(d.narrative_md).toBe('First para.\n\nSecond para.');
+  });
+
+  it('is not confused by braces inside the narrative prose', () => {
+    const d = parseModelDraft('{"narrative_md":"The set {A, B} was reviewed [E1].","citations":[]}');
+    expect(d.narrative_md).toBe('The set {A, B} was reviewed [E1].');
+  });
+
+  it('parses a single fenced JSON block', () => {
+    const d = parseModelDraft('```json\n{"narrative_md":"Fenced but valid.","citations":[]}\n```');
+    expect(d.narrative_md).toBe('Fenced but valid.');
+  });
+
+  it('strips a wrapping fence from a bare-markdown reply', () => {
+    const d = parseModelDraft('```\nJust prose, no JSON at all.\n```');
+    expect(d.narrative_md).toBe('Just prose, no JSON at all.');
+    expect(d.citations).toEqual([]);
+  });
 });
 
 describe('buildGroundingPrompt', () => {

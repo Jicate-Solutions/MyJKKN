@@ -172,6 +172,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/rotation': 'improvement.ideas.view',
   '/improvement-board/rotation/teams': 'improvement.board.manage',
   '/improvement-board/rotation/config': 'improvement.board.manage',
+  // Teaching-enterprise cohorts — the config rows that decide WHO participates
+  // (programme + semester window) and WHAT they get (role + contribution mode).
+  // Manager-only (improvement.board.manage); super admins pass via that check.
+  '/admin/teaching-cohorts': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -1532,7 +1536,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
             { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
-            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' }
+            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' },
+            // Teaching-enterprise cohort config — manager-only, hidden from
+            // participants via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
           ]
         },
         {

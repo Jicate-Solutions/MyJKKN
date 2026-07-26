@@ -143,28 +143,112 @@ export function stripCitationMarkers(md: string): string {
   return md.replace(CITATION_MARKER_RE, '');
 }
 
-/**
- * Parse the model output into a draft. Robust to a bare-markdown reply (no JSON):
- * falls back to treating the whole text as the narrative with no citations, so a
- * malformed reply still flows through the grounding gate (and is caught there).
- */
-export function parseModelDraft(text: string): ParsedDraft {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try {
-      const obj = JSON.parse(text.slice(start, end + 1));
-      if (obj && typeof obj.narrative_md === 'string') {
-        const citations = Array.isArray(obj.citations)
-          ? obj.citations
-              .filter((c: any) => c && typeof c.marker === 'string' && typeof c.source_id === 'string')
-              .map((c: any) => ({ marker: c.marker, source_id: c.source_id }))
-          : [];
-        return { narrative_md: obj.narrative_md, citations };
+/** Every balanced top-level `{…}` region in the text, in the order they appear.
+ *
+ *  Scanned brace-by-brace rather than sliced from the first `{` to the last `}`,
+ *  because a model reply can legitimately contain MORE THAN ONE object. String
+ *  literals and their escapes are tracked so a brace inside the prose (or an
+ *  escaped quote) cannot open or close a region. */
+function jsonObjectSlices(text: string): string[] {
+  const slices: string[] = [];
+  let depth = 0;
+  let startIdx = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      if (depth === 0) startIdx = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && startIdx !== -1) {
+        slices.push(text.slice(startIdx, i + 1));
+        startIdx = -1;
+      } else if (depth < 0) {
+        // A stray closing brace in prose — resynchronise instead of going negative.
+        depth = 0;
+        startIdx = -1;
       }
-    } catch {
-      /* fall through to bare-text fallback */
     }
   }
-  return { narrative_md: text.trim(), citations: [] };
+  return slices;
+}
+
+/** Accept `narrative_md` as prose or as an array of paragraphs. */
+function coerceNarrative(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() ? value : null;
+  if (Array.isArray(value) && value.length > 0 && value.every((p) => typeof p === 'string')) {
+    const joined = value.join('\n\n').trim();
+    return joined ? joined : null;
+  }
+  return null;
+}
+
+function extractCitations(obj: any): ParsedDraft['citations'] {
+  return Array.isArray(obj?.citations)
+    ? obj.citations
+        .filter((c: any) => c && typeof c.marker === 'string' && typeof c.source_id === 'string')
+        .map((c: any) => ({ marker: c.marker, source_id: c.source_id }))
+    : [];
+}
+
+/**
+ * Parse the model output into a draft.
+ *
+ * Candidates are tried LAST-FIRST, because a model that corrects itself mid-reply
+ * leaves its FINAL block as the answer. This is not hypothetical: a live 7.10.1
+ * draft on production (2026-07-26) read
+ *
+ *     ```json
+ *     {…first object, stray bracket…}
+ *     ```
+ *     Wait, I need to fix a stray bracket. Let me correct that.
+ *     ```json
+ *     {…second, correct object…}
+ *     ```
+ *
+ * The old first-`{`-to-last-`}` slice spanned BOTH objects plus the English
+ * sentence between them, so `JSON.parse` threw and the whole blob — code fences,
+ * the model's self-talk and both JSON objects — was stored as the narrative.
+ * That polluted the prose AND leaked the embedded `"marker": "E1"` into it, which
+ * the grounding gate then correctly flagged as an unaccounted code. The draft was
+ * unrecoverable and re-drafted every night.
+ *
+ * Still robust to a bare-markdown reply (no JSON at all): falls back to the whole
+ * text, minus any wrapping code fence, so a genuinely malformed reply keeps
+ * flowing through the grounding gate rather than being silently accepted.
+ */
+export function parseModelDraft(text: string): ParsedDraft {
+  const candidates = jsonObjectSlices(text);
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    try {
+      const obj = JSON.parse(candidates[i]);
+      const narrative = coerceNarrative(obj?.narrative_md);
+      if (narrative !== null) {
+        return { narrative_md: narrative, citations: extractCitations(obj) };
+      }
+    } catch {
+      /* malformed candidate — try the one before it */
+    }
+  }
+  return { narrative_md: stripWrappingFence(text), citations: [] };
+}
+
+/** Drop a single wrapping ```-fence so the fallback stores prose, not markup. */
+function stripWrappingFence(text: string): string {
+  return text
+    .trim()
+    .replace(/^```[a-zA-Z]*\s*\n?/, '')
+    .replace(/\n?```$/, '')
+    .trim();
 }

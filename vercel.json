@@ -32,6 +32,10 @@
       "schedule": "17,47 * * * *"
     },
     {
+      "path": "/api/cron/teaching-cohort-sync?secret=${CRON_SECRET}",
+      "schedule": "11 4 * * *"
+    },
+    {
       "path": "/api/cron/mba-associate-sync?secret=${CRON_SECRET}",
       "schedule": "53 4 * * *"
     },
