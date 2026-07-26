@@ -785,15 +785,29 @@ export default async function LoopControlTowerPage({
   // missing/lagging migration must never break this page, so every leg falls
   // back to an empty array (same swallow-to-empty philosophy as cnt() above).
   const [registry, edges, audits, conflicts] = await Promise.all([
-    admin
-      .from('loop_registry')
-      .select('loop_key,name,stack_tier,loop_class,gates,description,owner_email,counter_metric')
-      .eq('is_active', true)
-      // PromiseLike has no .catch — rejection handler is .then's 2nd arg.
-      .then(
-        (r) => (r.data ?? []) as LoopRegistryRow[],
-        () => [] as LoopRegistryRow[]
-      ),
+    // Charter-aware read with a pre-charter fallback: the five charter-leg
+    // columns (outcome_metric … remeasure_window) land in a SIBLING migration,
+    // and enumerating a column that doesn't exist yet errors the WHOLE select —
+    // which would swallow the registry to empty and blank every ring chip.
+    // Try charter-aware first; on error retry with the pre-charter list, so
+    // the page renders identically before and after that migration applies
+    // (missing legs read as undefined → the honesty badge treats them as NULL,
+    // i.e. Meter).
+    (async (): Promise<LoopRegistryRow[]> => {
+      const cols =
+        'loop_key,name,stack_tier,loop_class,gates,description,owner_email,counter_metric';
+      try {
+        const r = await admin
+          .from('loop_registry')
+          .select(`${cols},outcome_metric,baseline_window,intervention,verdict_owner,remeasure_window`)
+          .eq('is_active', true);
+        if (!r.error) return (r.data ?? []) as LoopRegistryRow[];
+        const f = await admin.from('loop_registry').select(cols).eq('is_active', true);
+        return (f.data ?? []) as LoopRegistryRow[];
+      } catch {
+        return [] as LoopRegistryRow[];
+      }
+    })(),
     admin
       .from('loop_edges')
       .select('from_key,to_key,what_flows,note,is_draft')
@@ -829,6 +843,15 @@ export default async function LoopControlTowerPage({
   const latestAuditByKey = new Map<string, LoopAuditRow>();
   for (const a of audits) {
     if (!latestAuditByKey.has(a.loop_key)) latestAuditByKey.set(a.loop_key, a);
+  }
+
+  // Latest SIM-layer audit per loop — the weekly known-delta regress cron
+  // (Sundays 07:53 IST) writes layer='sim' rows. Tracked separately from
+  // latestAuditByKey because a newer walk/full audit for the same loop must
+  // not hide the sim row the charter badge's "verified" leg depends on.
+  const latestSimByKey = new Map<string, LoopAuditRow>();
+  for (const a of audits) {
+    if (a.layer === 'sim' && !latestSimByKey.has(a.loop_key)) latestSimByKey.set(a.loop_key, a);
   }
 
   const asOf = new Date().toISOString().slice(0, 10);
@@ -1275,7 +1298,7 @@ export default async function LoopControlTowerPage({
       ) : (
         <>
           <div className="mb-6">
-            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} conflicts={conflicts} />
+            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
         </>
