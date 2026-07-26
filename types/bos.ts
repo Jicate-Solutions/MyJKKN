@@ -657,6 +657,12 @@ export interface BosCourseSyllabus {
   total_hours?: number;
   contact_hours?: number;
 
+  // NAAC-2024 coverage tags
+  /** NAAC metric 1.4 — skill/apprenticeship-focused course */
+  is_skill_based?: boolean;
+  /** NAAC metric 1.6 — contains Indian Knowledge System content */
+  is_iks?: boolean;
+
   // Versioning
   version_number: number;
   is_latest: boolean;
