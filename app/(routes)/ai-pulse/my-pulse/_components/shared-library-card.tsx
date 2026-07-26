@@ -20,8 +20,8 @@
 
 'use client';
 
-import { useState } from 'react';
-import { Library, Flag, Loader2, Sparkles, Users } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Library, Flag, Loader2, Sparkles, Users, Copy, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import {
@@ -54,6 +54,7 @@ import {
   useSharedLibrary,
   reportPromptBuild,
   reportErrorMessage,
+  recordPromptCopy,
   type GraduatedPromptRow,
 } from '@/lib/services/ai-pulse/shared-library-service';
 
@@ -82,6 +83,29 @@ function PeerPromptItem({ row }: { row: GraduatedPromptRow }) {
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
   const [reported, setReported] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [usedCount, setUsedCount] = useState(row.used_count);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(row.assembled_prompt);
+    } catch {
+      // Clipboard can be blocked (permissions / insecure context) — the usage
+      // ping still fires so the copy intent is captured.
+    }
+    setCopied(true);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(false), 1600);
+    const next = await recordPromptCopy(row.id);
+    if (typeof next === 'number' && next > usedCount) setUsedCount(next);
+  }
 
   async function handleSend() {
     setPending(true);
@@ -112,10 +136,10 @@ function PeerPromptItem({ row }: { row: GraduatedPromptRow }) {
               {row.score}
             </Badge>
           )}
-          {row.used_count > 0 && (
+          {usedCount > 0 && (
             <Badge variant="outline" className="gap-1">
               <Users className="h-3 w-3" aria-hidden />
-              {row.used_count}
+              used {usedCount} {usedCount === 1 ? 'time' : 'times'}
             </Badge>
           )}
         </div>
@@ -125,7 +149,27 @@ function PeerPromptItem({ row }: { row: GraduatedPromptRow }) {
         {row.assembled_prompt}
       </p>
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={handleCopy}
+          aria-label="Copy this prompt"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3" aria-hidden />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" aria-hidden />
+              Copy
+            </>
+          )}
+        </Button>
         {reported ? (
           <span className="text-xs text-muted-foreground">Thanks, we’ll review it.</span>
         ) : (
