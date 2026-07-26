@@ -1020,6 +1020,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
   '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
   '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/naac/surveys/stakeholders': 'accreditation.naac.surveys.stakeholder.view', // employer + alumni half of NAAC 1.2
   '/accreditation/naac/narratives': 'accreditation.naac.narrative.view',         // AI narrative drafter (list)
   '/accreditation/naac/narratives/[id]': 'accreditation.naac.narrative.view',    // AI narrative drafter (detail)
   '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
