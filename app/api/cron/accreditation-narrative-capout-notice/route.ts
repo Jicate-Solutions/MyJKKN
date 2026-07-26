@@ -128,6 +128,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         source: SOURCE,
       });
 
+      // The row may ONLY be claimed once a notice provably exists — either this
+      // call created one, or 'idempotent' proves an earlier call did. Claiming
+      // on any other outcome would mark the narrative "told" while nobody was
+      // told, which is precisely the silence this route exists to end.
+      const delivered = outcome.skipped === 'idempotent' || outcome.notified > 0;
+      if (!delivered) {
+        summary.errors++;
+        console.error(
+          '[accred-capout] fanout delivered nothing, leaving unclaimed for retry:',
+          row.narrative_id,
+          outcome.skipped ?? 'no notification row returned',
+        );
+        continue;
+      }
+
       if (outcome.skipped === 'idempotent') summary.already_sent++;
       else summary.notified++;
 
