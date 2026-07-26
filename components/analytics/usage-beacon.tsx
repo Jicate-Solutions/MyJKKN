@@ -82,9 +82,17 @@ function isDuplicate(pathname: string): boolean {
     const sep = raw.indexOf('|');
     if (sep < 0) return false;
     const at = Number(raw.slice(0, sep));
+    // Everything after the FIRST separator is the path, so a '|' inside a
+    // pathname parses correctly.
     const path = raw.slice(sep + 1);
     if (!Number.isFinite(at)) return false;
-    return path === pathname && Date.now() - at < DEDUPE_WINDOW_MS;
+    const age = Date.now() - at;
+    // age < 0 means the stored stamp is in the future — the clock jumped
+    // backward (NTP correction, manual change). Without the `age >= 0` guard
+    // a negative age reads as "within the window" and silently drops every
+    // view of that path until the clock catches up. Treat it as not-duplicate
+    // and let markSent() below restamp it.
+    return path === pathname && age >= 0 && age < DEDUPE_WINDOW_MS;
   } catch {
     // Storage blocked — fall back to the in-memory ref only.
     return false;
