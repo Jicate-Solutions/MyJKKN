@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus, Rocket, Trophy } from 'lucide-react';
+import { GeneralEventsSection } from './_components/general-events-section';
 
 interface EventTypeCard {
   title: string;
@@ -132,6 +133,11 @@ export default function EventsHubPage() {
             );
           })}
         </div>
+
+        {/* Wizard-created events with no dedicated console — list, NAAC
+            evidence tags, and a minimal edit dialog. Owns its own
+            loading/error state so a fetch failure never blanks the hub. */}
+        <GeneralEventsSection />
       </div>
     </ContentLayout>
   );
