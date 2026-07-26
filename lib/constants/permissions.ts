@@ -1359,6 +1359,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
       { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
 
+      // Employer + alumni course feedback — the EXTERNAL half of NAAC 1.2
+      // (bos_meetings supplies the internal half). view = see cycles, the chase
+      // list and the comments; manage = create/open/close a cycle, build the
+      // recipient list, remove a respondent on request.
+      { key: 'accreditation.naac.surveys.stakeholder.view', label: 'View Employer & Alumni Feedback' },
+      { key: 'accreditation.naac.surveys.stakeholder.manage', label: 'Run Employer & Alumni Feedback Cycles' },
+
       // NAAC AI narrative drafter — grounded, human-verified per-metric narratives.
       // view = see drafts; edit = owning Senior Learner edits + okays;
       // approve = Principal approve / Director submit / request revision;

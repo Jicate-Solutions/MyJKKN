@@ -103,6 +103,12 @@ const config: ModuleNavConfig = {
           href: '/accreditation/naac/surveys/8.4-export',
           matchPaths: ['/accreditation/naac/surveys/8.4-export'],
         },
+        {
+          label: 'Employer & Alumni Feedback',
+          icon: 'Building2',
+          href: '/accreditation/naac/surveys/stakeholders',
+          matchPaths: ['/accreditation/naac/surveys/stakeholders'],
+        },
       ],
     },
     {
