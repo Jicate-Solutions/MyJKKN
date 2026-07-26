@@ -19,6 +19,7 @@ import {
   type SubmitBatchRequest,
 } from '@/lib/services/platform/ai-clients/batch';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 import { resend } from '@/lib/resend';
@@ -595,7 +596,20 @@ export async function GET(request: NextRequest) {
     }
 
     // ── 2) SUBMIT newly-queued clicks as ONE batch ────────────────────────────
-    try {
+    // Per-feature Max-lane defer: when maxlane:<routine-id> is enabled with
+    // max_only=true, this feature is pinned to the ₹0 Max lane — the paid Batch
+    // API path stands down and a sibling cron drains its queued rows onto ai_jobs
+    // (this finishes the 2026-07-13 ₹0 migration for lesson-spine regen, which
+    // was left on this paid-only queue while generate moved to the free lane).
+    // routineId mirrors the sibling-cron naming (dots/underscores → dashes:
+    // curriculum.lesson_spine_regen → curriculum-lesson-spine-regen). Fail-open:
+    // no row / not max_only → the paid path runs unchanged, so every other
+    // feature is unaffected. COLLECT above still runs, draining any legacy
+    // in-flight paid batch so a flip never orphans work.
+    const submitRoutineId = featureKey.replace(/[._]/g, '-');
+    const deferSubmit = await shouldDeferToMaxLane(submitRoutineId);
+    if (deferSubmit) stat.submit = { deferred_to_max_lane: submitRoutineId };
+    if (!deferSubmit) try {
       const { data: claimed, error: claimErr } = await admin.rpc('fn_ai_task_claim_queued', {
         p_feature_key: featureKey,
         p_max: CLAIM_CAP,

@@ -560,16 +560,23 @@ const curriculumLessonSpineRegen: AiTaskType = {
     // Read the course's BoS-FIXED taxonomy (bos_regulation_taxonomies via the syllabus's
     // regulation_id). 'finks' → Fink-primary prompt, 'blooms' → Bloom-primary. No taxonomy
     // fixed → skip-and-flag; never silently default to Fink (Director rule).
+    // NOTE: a regulation can carry MORE THAN ONE taxonomy row in prod (duplicate
+    // saves — e.g. regulation 4dc273c5 has 34 identical 'blooms' rows). .maybeSingle()
+    // ERRORS on >1 row → data null → the course was wrongly skipped as 'no_taxonomy'
+    // (a false skip that stranded ~38% of the Arts Bloom backfill, 305 courses, and
+    // showed faculty a misleading "set the taxonomy" message when it was already set).
+    // Use limit(1) + [0] — byte-identical to the Max-box twin's read — so a duplicated
+    // (but consistent) taxonomy resolves correctly instead of vanishing.
     let taxonomy: RegenTaxonomy | null = null;
     const regId = syllabus.regulation_id;
     if (regId) {
-      const { data: taxRow } = await admin
+      const { data: taxRows } = await admin
         .from('bos_regulation_taxonomies')
         .select('taxonomy_type')
         .eq('regulation_id', regId)
         .eq('institutions_id', course.institution_id)
-        .maybeSingle();
-      const tt = taxRow?.taxonomy_type;
+        .limit(1);
+      const tt = taxRows?.[0]?.taxonomy_type;
       taxonomy = tt === 'finks' || tt === 'blooms' ? tt : null;
     }
     if (!taxonomy) {
