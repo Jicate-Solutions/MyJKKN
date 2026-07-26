@@ -254,24 +254,36 @@ describe('validateGrounding — numbers inside free-text evidence values', () =>
   });
 });
 
-describe('validateGrounding — dotted metric code parts', () => {
-  // Blocked live on metric 7.10.1: the prose said "Attribute 7: Governance",
-  // but only '7.10' and '1' were derived from the code, never the bare '7'.
-  it('allows each numeric part of the metric code', () => {
-    const rows: EvidenceRow[] = [
-      { source_id: 'e1', metric_code: '7.10.1', metadata: { retention_pct: 0 } },
-    ];
-    const ctx: GroundingContext = { period: 'AY 2026-27', metricCode: '7.10.1' };
-    expect(validateGrounding('Under Attribute 7: Governance', rows, ctx).verdict).toBe('grounded');
-    expect(validateGrounding('Criterion 7.10 covers retention', rows, ctx).verdict).toBe('grounded');
+describe('validateGrounding — criterion references are labels, not figures', () => {
+  const RET_ROWS: EvidenceRow[] = [
+    { source_id: 'e1', metric_code: '7.10.1', metadata: { retention_pct: 0 } },
+  ];
+  const RET_CTX: GroundingContext = { period: 'AY 2026-27', metricCode: '7.10.1' };
+
+  // Blocked live on metric 7.10.1: the prose said "Attribute 7: Governance", but
+  // NUMBER_RE only derived '7.10' and '1' from the code, never the bare '7'.
+  it('allows a reference to a dotted prefix of the metric under review', () => {
+    expect(validateGrounding('Under Attribute 7: Governance', RET_ROWS, RET_CTX).verdict).toBe('grounded');
+    expect(validateGrounding('Criterion 7.10 covers retention', RET_ROWS, RET_CTX).verdict).toBe('grounded');
+    expect(validateGrounding('Metric 7.10.1 reports retention', RET_ROWS, RET_CTX).verdict).toBe('grounded');
   });
 
-  it('does not allow a number absent from the metric code', () => {
-    const rows: EvidenceRow[] = [
-      { source_id: 'e1', metric_code: '7.10.1', metadata: { retention_pct: 0 } },
-    ];
-    const bad = validateGrounding('Under Attribute 9', rows, { metricCode: '7.10.1' });
+  it('rejects a reference to an unrelated criterion', () => {
+    const bad = validateGrounding('Under Attribute 9', RET_ROWS, RET_CTX);
     expect(bad.verdict).toBe('ungrounded');
     expect(bad.ungroundedTokens).toContain('9');
+  });
+
+  // The important guard: the phrase scope means a metric-code digit never
+  // becomes quotable as a free-standing figure.
+  it('does NOT make a metric-code digit quotable as a bare count', () => {
+    const rows: EvidenceRow[] = [
+      { source_id: 'f1', metric_code: '3.2.1', metadata: { papers_published: 2 } },
+    ];
+    const ctx: GroundingContext = { metricCode: '3.2.1' };
+    expect(validateGrounding('Under Criterion 3, research output', rows, ctx).verdict).toBe('grounded');
+    const bad = validateGrounding('3 papers were published.', rows, ctx);
+    expect(bad.verdict).toBe('ungrounded');
+    expect(bad.ungroundedTokens).toContain('3');
   });
 });

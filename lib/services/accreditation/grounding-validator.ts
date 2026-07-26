@@ -177,6 +177,28 @@ function structuralNumbers(evidence: EvidenceRow[]): string[] {
   return out;
 }
 
+// A criterion/attribute REFERENCE — 'Attribute 7', 'Criterion 7.10',
+// 'Metric 7.10.1'. Such a number names the metric being written about; it is a
+// label, not a factual claim, so it must not be read as an unaccounted figure.
+const CRITERION_REF_RE = /\b(?:attribute|criterion|criteria|metric|standard)s?\s+(\d+(?:\.\d+)*)/gi;
+
+/** Remove criterion references whose number is a dotted PREFIX of the metric
+ *  code under review, so 'Attribute 7' is not read as the bare number 7 in a
+ *  7.10.1 narrative. Deliberately phrase-scoped and prefix-checked: the digits
+ *  are dropped only inside such a phrase, so this can never make a metric-code
+ *  digit quotable as a free-standing count ('3 papers were published' stays
+ *  ungrounded under metric 3.2.1), and an unrelated reference such as
+ *  'Criterion 6' is left in place to be flagged. */
+function stripCriterionRefs(md: string, metricCode: string | undefined): string {
+  if (!metricCode) return md;
+  const parts = metricCode.split('.');
+  const prefixes = new Set<string>();
+  for (let i = 1; i <= parts.length; i++) prefixes.add(parts.slice(0, i).join('.'));
+  return md.replace(CRITERION_REF_RE, (whole, num: string) =>
+    prefixes.has(num) ? ' ' : whole,
+  );
+}
+
 /** Add every number/code/date fragment of a free-text context string. */
 function collectContext(text: string | undefined, sets: AllowedSets): void {
   if (!text) return;
@@ -216,18 +238,13 @@ export function validateGrounding(
   // 3) context tokens (period label, metric code/name, scope label)
   collectContext(context.period, sets);
   collectContext(context.metricCode, sets);
-  // A dotted metric code also licenses its individual parts: '7.10.1' allows 7,
-  // 10 and 1, because the prose legitimately refers to "Attribute 7" /
-  // "Criterion 7.10". These come from the validator's own context argument, not
-  // from the model, so they can never launder a fabricated figure.
-  for (const part of (context.metricCode ?? '').split('.')) {
-    if (/^\d+$/.test(part)) sets.numbers.add(numKey(part));
-  }
   collectContext(context.metricName, sets);
   collectContext(context.scopeLabel, sets);
 
   const offending: string[] = [];
-  let remaining = narrativeMd;
+  // Drop 'Attribute 7' / 'Criterion 7.10' style references to THIS metric before
+  // any token pass — they name the metric rather than assert a figure.
+  let remaining = stripCriterionRefs(narrativeMd, context.metricCode);
 
   // Extract in strip order: full timestamps → dates → codes → bare numbers.
   // Timestamps go first so a verbatim-quoted evidence timestamp is never
