@@ -163,6 +163,15 @@ export class TaskService {
    * Enforces two RACI invariants the meeting engine relies on:
    *  - one role per person per task (re-assigning replaces the person's prior role);
    *  - exactly one Accountable per task (a new Accountable clears the previous one).
+   *
+   * The delete-then-insert below is the friendly-UX path (it silently replaces
+   * rather than erroring on the happy path). As of migration
+   * 20260726121724_project_task_assignees_raci_db_constraints.sql, both
+   * invariants are ALSO backstopped at the DB layer — uq_project_task_assignees
+   * UNIQUE (task_id, staff_id) for one-role-per-person and the partial unique
+   * index ix_pta_one_accountable for one-Accountable-per-task — so a concurrent
+   * assign that races this delete-then-insert raises 23505 instead of leaving
+   * two Accountables. The DB is defense-in-depth; the logic here is unchanged.
    */
   static async assign(
     supabase: SupabaseClient,

@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { Poppins, Noto_Sans_Tamil, DM_Serif_Display, IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
+import { AppBadgeSync } from '@/components/notifications/app-badge-sync';
 import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
@@ -238,6 +239,10 @@ export default function RootLayout({
                 {/* Sticky preview banner — renders only when a preview session
                     cookie is active. Non-dismissible by design. */}
                 <PreviewBanner />
+                {/* Headless: syncs the installed-PWA icon badge (Badging API) to
+                    the global unread count. Renders nothing; mounted app-wide so
+                    the badge tracks the count on every authenticated page. */}
+                <AppBadgeSync />
                 <PushNotificationProvider>{children}</PushNotificationProvider>
                 {/* ONE route-aware platform Help FAB (replaces the 3 per-module
                     FABs). Server-resolves the viewer's visible+filtered lanes,
