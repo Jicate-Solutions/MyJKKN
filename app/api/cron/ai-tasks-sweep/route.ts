@@ -21,7 +21,6 @@ import {
 } from '@/lib/services/platform/ai-clients/batch';
 import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
-import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 import { resend } from '@/lib/resend';
@@ -665,29 +664,40 @@ export async function GET(request: NextRequest) {
         const ctx = item.context ?? {};
         const uid = ctx.requested_by ? String(ctx.requested_by) : null;
         const courseCode = ctx.course_code ? String(ctx.course_code) : null;
+        // Close the ORIGINATING ai_task_queue row, whose id is stashed in _ctx at
+        // enqueue (see SUBMIT below). item.jobId is the ai_jobs id — it never
+        // matches an ai_task_queue row, so marking by it silently no-ops, stranding
+        // the task in 'submitting' forever (and hanging the requester's button).
+        // Legacy jobs enqueued before task_id was stashed have none: still record
+        // the artifact (recordResult), just skip the row-close we cannot target.
+        const taskId = typeof ctx.task_id === 'string' ? ctx.task_id : null;
         try {
           if (item.message) {
             const result = await tt.recordResult(admin, ctx, item.message);
-            await admin.rpc('fn_ai_task_mark_done', { p_task_id: item.jobId, p_result: result });
+            if (taskId) await admin.rpc('fn_ai_task_mark_done', { p_task_id: taskId, p_result: result });
             laneRecorded++;
-            await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.jobId, outcome: 'done' });
+            if (taskId) await notifyOutcome(admin, tt, { uid, courseCode, taskId, outcome: 'done' });
           } else {
             // Drain completed but produced no usable text — fail the task so the
             // requester is told, rather than leaving it silently in-flight.
-            await admin.rpc('fn_ai_task_mark_failed', {
-              p_task_id: item.jobId,
-              p_error: 'max lane returned no usable text',
-            });
+            if (taskId) {
+              await admin.rpc('fn_ai_task_mark_failed', {
+                p_task_id: taskId,
+                p_error: 'max lane returned no usable text',
+              });
+              await notifyOutcome(admin, tt, { uid, courseCode, taskId, outcome: 'failed' });
+            }
             laneFailed++;
-            await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.jobId, outcome: 'failed' });
           }
         } catch (e) {
-          await admin.rpc('fn_ai_task_mark_failed', {
-            p_task_id: item.jobId,
-            p_error: e instanceof Error ? e.message : 'record failed',
-          });
+          if (taskId) {
+            await admin.rpc('fn_ai_task_mark_failed', {
+              p_task_id: taskId,
+              p_error: e instanceof Error ? e.message : 'record failed',
+            });
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId, outcome: 'failed' });
+          }
           laneFailed++;
-          await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.jobId, outcome: 'failed' });
         }
       }
       stat.collect_jobs_lane = { claimed: laneItems.length, recorded: laneRecorded, failed: laneFailed };
@@ -695,21 +705,14 @@ export async function GET(request: NextRequest) {
       stat.collect_jobs_lane = { error: e instanceof Error ? e.message : 'jobs-lane collect failed' };
     }
 
-    // ── 2) SUBMIT newly-queued clicks as ONE batch ────────────────────────────
-    // Per-feature Max-lane defer: when maxlane:<routine-id> is enabled with
-    // max_only=true, this feature is pinned to the ₹0 Max lane — the paid Batch
-    // API path stands down and a sibling cron drains its queued rows onto ai_jobs
-    // (this finishes the 2026-07-13 ₹0 migration for lesson-spine regen, which
-    // was left on this paid-only queue while generate moved to the free lane).
-    // routineId mirrors the sibling-cron naming (dots/underscores → dashes:
-    // curriculum.lesson_spine_regen → curriculum-lesson-spine-regen). Fail-open:
-    // no row / not max_only → the paid path runs unchanged, so every other
-    // feature is unaffected. COLLECT above still runs, draining any legacy
-    // in-flight paid batch so a flip never orphans work.
-    const submitRoutineId = featureKey.replace(/[._]/g, '-');
-    const deferSubmit = await shouldDeferToMaxLane(submitRoutineId);
-    if (deferSubmit) stat.submit = { deferred_to_max_lane: submitRoutineId };
-    if (!deferSubmit) try {
+    // ── 2) SUBMIT newly-queued clicks ─────────────────────────────────────────
+    // On lane='jobs' (the ₹0 default) each claimed task is enqueued on the free
+    // #1998 ai_jobs registry; on 'batch' it goes to the paid Anthropic Message
+    // Batches API. Lesson-spine regen used to have a per-feature Max-lane defer +
+    // its own sibling cron here; both were retired once this sweep itself gained
+    // the ₹0 jobs lane — regen now flows through the SAME path as every other
+    // on-demand task, so there is no second mechanism to strand its rows.
+    try {
       const { data: claimed, error: claimErr } = await admin.rpc('fn_ai_task_claim_queued', {
         p_feature_key: featureKey,
         p_max: CLAIM_CAP,
@@ -752,7 +755,9 @@ export async function GET(request: NextRequest) {
               customId: row.id,
               params: built.params,
               // carry requested_by so the collect step can notify the requester (P2)
-              context: { ...built.itemContext, requested_by: row.requested_by },
+              // and task_id so it can close THIS ai_task_queue row (item.jobId is the
+              // ai_jobs id and never matches a task row — see the jobs-lane collect).
+              context: { ...built.itemContext, requested_by: row.requested_by, task_id: row.id },
               dedupeKey: row.dedupe_key,
             });
           }
