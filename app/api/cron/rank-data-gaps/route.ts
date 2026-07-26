@@ -74,51 +74,6 @@ interface GapRankEntry {
   reason: string | null;
 }
 
-// ── prompt ─────────────────────────────────────────────────────────────────
-
-function buildRankingPrompt(
-  gaps: RankableGap[],
-  areaLabel: Map<string, string>,
-  areaFreq: Map<string, number>,
-): string {
-  const blocks = gaps
-    .map((g, i) => {
-      const label = areaLabel.get(g.area_id) ?? 'Department';
-      const freq = areaFreq.get(g.area_id) ?? 1;
-      return `[${i + 1}] gap_id: ${g.id}
-    Title: ${g.title}
-    Department / area: ${label}
-    Gaps filed for this same area (frequency signal): ${freq}
-    Filer's read on why it is missing: ${GAP_TYPE_HINT[g.gap_type] ?? g.gap_type}
-    What data is missing: ${g.what_missing?.trim() || '(not stated)'}
-    What analysis it would enable: ${g.what_analysis?.trim() || '(not stated)'}
-    What decision it would inform: ${g.what_decision?.trim() || '(not stated)'}`;
-    })
-    .join('\n\n');
-
-  return `You are a prioritisation assistant for an Indian higher-education institution's Improvement Board. Below are DATA GAPS filed by management learners (Associates): each names data the institution is not analysing, what analysis it would enable, and what decision it would inform.
-
-For EVERY gap assign:
-- rank: unique integer 1..N, where 1 = highest priority to act on.
-- value: integer 1-5 (5 = would inform the most important decisions).
-- feasibility: integer 1-5 (5 = easiest to surface or capture).
-- gap_class: EXACTLY one of:
-    "type_a_surface" — the data almost certainly ALREADY EXISTS in a campus system (attendance, fees, LMS, admissions, HR, exams, etc.) and just needs a view or report to be surfaced.
-    "type_b_capture" — the institution genuinely DOES NOT record this yet, so a new capture/form/field would have to be built first.
-    "uncertain" — it is unclear from what was filed whether the data already exists.
-- reason: ONE short sentence (max 200 characters) on why it sits where it does and why that class.
-
-Prioritise gaps that would inform important decisions, are feasible to act on, and recur across many filings (a higher frequency signal for an area means more Associates are blocked on it). Use ONLY the information given; do not invent facts. Include EVERY gap_id exactly once and use the EXACT gap_id strings shown.
-
-Return ONLY valid JSON (no markdown, no code fences, no commentary), exactly:
-{ "rankings": [ { "gap_id": "<uuid>", "rank": <int>, "value": <int>, "feasibility": <int>, "gap_class": "type_a_surface|type_b_capture|uncertain", "reason": "..." } ] }
-
-DATA GAPS:
-${blocks}
-
-Return the JSON now.`;
-}
-
 // ── parse ──────────────────────────────────────────────────────────────────
 
 function toIntOrNull(v: unknown): number | null {
