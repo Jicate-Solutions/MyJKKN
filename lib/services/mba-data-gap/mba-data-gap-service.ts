@@ -36,6 +36,14 @@ export type DataGapStatus =
   | 'captured_elsewhere'
   | 'duplicate';
 
+/**
+ * AI classification (Phase 2): whether the missing data already exists and just
+ * needs surfacing (type_a_surface), genuinely is not recorded yet
+ * (type_b_capture), or is unclear (uncertain). NULL until the rank-data-gaps
+ * cron has classified it.
+ */
+export type DataGapClass = 'type_a_surface' | 'type_b_capture' | 'uncertain';
+
 /** A row returned by fn_mba_list_data_gaps (already joined for display). */
 export interface MbaDataGap {
   id: string;
@@ -55,6 +63,11 @@ export interface MbaDataGap {
   triaged_by: string | null;
   triaged_at: string | null;
   triage_note: string | null;
+  // Phase 2 — AI ranking + classification (NULL until the cron has ranked it).
+  priority_rank: number | null;
+  priority_reason: string | null;
+  gap_class: DataGapClass | null;
+  ranked_at: string | null;
   created_at: string;
   updated_at: string;
 }
