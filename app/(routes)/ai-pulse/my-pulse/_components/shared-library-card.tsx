@@ -58,7 +58,7 @@ import {
 } from '@/lib/services/ai-pulse/shared-library-service';
 
 // Preset report reasons. Every value is a NON-EMPTY string — Radix Select
-// throws on an empty-string <SelectItem value="">, and the pre-selected default
+// throws on an empty-string SelectItem value, and the pre-selected default
 // means the form is always submittable.
 const REPORT_REASONS: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'inaccurate', label: 'Wrong or misleading' },
