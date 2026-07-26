@@ -51,22 +51,32 @@ export default async function AiPulseLeaderboardPage() {
     profile?.is_super_admin === true || profile?.role === 'super_admin';
   const viewerInstitutionId: string | null = profile?.institution_id ?? null;
 
-  // Dark-launch flag — defensive: if the config row / substrate isn't present,
-  // treat as disabled rather than throwing.
+  // Dark-launch flags — defensive: if the config rows / substrate aren't
+  // present, treat as disabled rather than throwing. The learner board and the
+  // Senior Learner (staff/faculty) board have INDEPENDENT switches so each can
+  // go live on its own schedule.
   let enabled = false;
+  let seniorEnabled = false;
   try {
     const { data: cfg } = await supabase
       .from('ai_pulse_policies')
-      .select('value_jsonb')
-      .eq('config_key', 'leaderboard_enabled')
-      .eq('is_active', true)
-      .maybeSingle();
-    enabled = cfg?.value_jsonb === true;
+      .select('config_key, value_jsonb')
+      .in('config_key', ['leaderboard_enabled', 'leaderboard_staff_board_enabled'])
+      .eq('is_active', true);
+    for (const row of cfg ?? []) {
+      if (row.config_key === 'leaderboard_enabled') enabled = row.value_jsonb === true;
+      if (row.config_key === 'leaderboard_staff_board_enabled')
+        seniorEnabled = row.value_jsonb === true;
+    }
   } catch {
     enabled = false;
+    seniorEnabled = false;
   }
 
   const showBoard = enabled || isSuperAdmin;
+  // The Senior Learner tab appears only when its own flag is on, or for a super
+  // admin previewing. A normal Senior Learner sees nothing while it is dark.
+  const showSeniorBoard = seniorEnabled || isSuperAdmin;
 
   return (
     <ContentLayout title="AI Pulse Leaderboard">
@@ -101,7 +111,11 @@ export default async function AiPulseLeaderboardPage() {
                 </CardContent>
               </Card>
             )}
-            <LeaderboardTabs viewerInstitutionId={viewerInstitutionId} />
+            <LeaderboardTabs
+              viewerInstitutionId={viewerInstitutionId}
+              showSeniorBoard={showSeniorBoard}
+              seniorBoardEnabled={seniorEnabled}
+            />
           </>
         ) : (
           <Card>
