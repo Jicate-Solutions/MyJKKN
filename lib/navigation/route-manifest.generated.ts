@@ -441,6 +441,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Metrics",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/accreditation/manage/utility-readings",
+            "label": "Utility Readings",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },
@@ -478,7 +484,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/accreditation/naac/narratives",
             "label": "Narratives",
             "iconName": "FileText",
-            "children": []
+            "children": [
+              {
+                "path": "/accreditation/naac/narratives/owners",
+                "label": "Owners",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/accreditation/naac/surveys",
@@ -702,6 +715,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/saml",
         "label": "Saml",
         "iconName": "KeyRound",
+        "children": []
+      },
+      {
+        "path": "/admin/teaching-cohorts",
+        "label": "Teaching Cohorts",
+        "iconName": "Layers",
         "children": []
       },
       {

@@ -159,3 +159,39 @@ describe('service + validator integration', () => {
     expect(verdict.ungroundedTokens).toContain('97');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: lock in the 3 Director-confirmed policies (interview 2026-07-26)
+// so a future edit cannot silently drop them.
+// ---------------------------------------------------------------------------
+describe('confirmed-behaviour regression (Director interview 2026-07-26)', () => {
+  const prompt = buildGroundingPrompt({
+    metric: { metric_code: '7.3.f', metric_name: 'Quality Assurance System', category: 'Attribute 7' },
+    rows: [ROW],
+    period: 'AY 2026-27',
+    scopeLabel: 'JKKN College',
+  });
+
+  it('THIN-DATA: the prompt tells the model to admit thin/empty evidence', () => {
+    expect(prompt.toLowerCase()).toContain('thin');
+  });
+
+  it('AI-MATH: the prompt forbids computing/deriving figures and percentages', () => {
+    expect(prompt.toLowerCase()).toContain('never');
+    expect(prompt.toLowerCase()).toMatch(/raw counts|derived percentage|compute/);
+  });
+
+  it('AI-MATH gate: a derived percentage not in the evidence is blocked', () => {
+    const r = validateGrounding('Retention was 86% this year.', [ROW], { metricCode: '7.3.f' });
+    expect(r.verdict).toBe('ungrounded');
+    expect(r.ungroundedTokens).toContain('86');
+  });
+
+  it('HUMAN-EDIT gate: the SAME validator backs the human-edit re-check', () => {
+    // okayNarrative re-runs validateGrounding on the edited text, so a human-typed
+    // figure not in the evidence is rejected exactly like an AI-invented one.
+    const r = validateGrounding('An editor added 250 graduates.', [ROW], { metricCode: '7.3.f' });
+    expect(r.verdict).toBe('ungrounded');
+    expect(r.ungroundedTokens).toContain('250');
+  });
+});
