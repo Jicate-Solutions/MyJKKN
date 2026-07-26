@@ -1370,6 +1370,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
 
+      // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
+      // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
+      { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
+      { key: 'accreditation.collaborations.manage', label: 'Manage MoU & Grants Register (add/edit/delete records)' },
+
       // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
       // accreditation_officer (existing system role) is the primary IIQA Coordinator;
       // principal signs off; super_admin / director submits to NAAC.
