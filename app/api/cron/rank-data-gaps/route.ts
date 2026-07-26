@@ -310,7 +310,7 @@ export async function GET(request: NextRequest) {
       };
       const res = await enqueueJobsLane(admin, {
         jobType: JOB_TYPE,
-        prompt: buildRankingPrompt(list, areaLabel, areaFreq),
+        prompt: buildRankingPrompt(list, areaLabel, areaFreq, areaTrack),
         context: context as unknown as Record<string, unknown>,
         // per institution, per day → daily re-run does not double-enqueue.
         dedupeKey: `${JOB_TYPE}|${institutionId}|${dayStamp}`,
