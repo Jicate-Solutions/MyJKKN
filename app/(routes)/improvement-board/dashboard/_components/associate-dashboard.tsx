@@ -34,7 +34,8 @@ import {
   ShieldAlert,
   Activity,
   BadgeCheck,
-  LayoutGrid
+  LayoutGrid,
+  FileWarning
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -43,6 +44,10 @@ import {
   type ImprovementIdeaStatus,
   type ImprovementLeaderboardEntry
 } from '@/lib/services/improvement/improvement-service';
+import {
+  MbaDataGapService,
+  type MbaDataGap
+} from '@/lib/services/mba-data-gap/mba-data-gap-service';
 import {
   BOARD_COLUMNS,
   STATUS_LABEL,
@@ -87,17 +92,22 @@ export function AssociateDashboard({
 
   const [ideas, setIdeas] = useState<ImprovementIdeaEnriched[] | null>(null);
   const [board, setBoard] = useState<ImprovementLeaderboardEntry[] | null>(null);
+  const [gaps, setGaps] = useState<MbaDataGap[] | null>(null);
 
   useEffect(() => {
     if (!canView) return;
     let cancelled = false;
     Promise.all([
       ImprovementService.listIdeas(),
-      ImprovementService.leaderboard()
-    ]).then(([i, b]) => {
+      ImprovementService.leaderboard(),
+      // Filing recognition is a nice-to-have — never let a gap-RPC hiccup block
+      // the ideas/board dashboard, so this branch degrades to an empty list.
+      MbaDataGapService.listDataGaps().catch(() => [] as MbaDataGap[])
+    ]).then(([i, b, g]) => {
       if (cancelled) return;
       setIdeas(i);
       setBoard(b);
+      setGaps(g);
     });
     return () => {
       cancelled = true;
@@ -119,6 +129,19 @@ export function AssociateDashboard({
   const myBoardEntry = useMemo(
     () => (board || []).find((r) => r.author_id === currentUserId) || null,
     [board, currentUserId]
+  );
+
+  // --- My data-gap contributions (filing recognition) -----------------------
+  // Own gaps only — the list RPC returns ALL rows for a manager, so filter by
+  // filed_by to stay correct for an associate who also manages the board.
+  const myGaps = useMemo(
+    () => (gaps || []).filter((g) => g.filed_by === currentUserId),
+    [gaps, currentUserId]
+  );
+  const gapsFiled = myGaps.length;
+  const gapsBecameIdeas = useMemo(
+    () => myGaps.filter((g) => g.status === 'accepted').length,
+    [myGaps]
   );
 
   // --- Board pulse (aggregate, RLS-scoped) ----------------------------------
@@ -286,6 +309,30 @@ export function AssociateDashboard({
                   </CardContent>
                 </Card>
               </>
+            )}
+
+            {/* Filing recognition — a little credit for spotting a gap, and a
+                nudge toward the bigger reward when it becomes a fix. Honest by
+                design: no impact points until a gap is accepted into an idea. */}
+            {gapsFiled > 0 && (
+              <Card className="border-violet-200 bg-violet-50/60">
+                <CardContent className="flex items-start gap-3 p-4">
+                  <FileWarning className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+                  <div className="text-sm">
+                    <p className="font-medium">
+                      You&apos;ve flagged {gapsFiled} data{' '}
+                      {gapsFiled === 1 ? 'gap' : 'gaps'}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5">
+                      {gapsBecameIdeas > 0
+                        ? `${gapsBecameIdeas} became ${
+                            gapsBecameIdeas === 1 ? 'an idea' : 'ideas'
+                          } on the board with your name on it — those earn impact as they move forward.`
+                        : 'Spotting missing data is a real contribution. When a manager accepts one, it becomes an improvement idea with your name on it.'}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </section>
 
