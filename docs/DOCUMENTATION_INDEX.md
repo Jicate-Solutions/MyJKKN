@@ -12,6 +12,7 @@ Architecture and design specs live under `specs/` at the repo root (not under `d
 
 - [specs/counselor-taxonomy-spec.md](../specs/counselor-taxonomy-spec.md) — Counselor taxonomy spec: 4 personas (admission, learner, staff, health). DRAFT awaiting Omm review.
 - [specs/ai-pulse-usage-axis-and-graduation-flip-runbook-2026-07-26.md](../specs/ai-pulse-usage-axis-and-graduation-flip-runbook-2026-07-26.md) — AI Pulse prompt-build usage axis: reuse-signal substrate (decision #20) + the two-stage graduation flip/rollback runbook. Substrate shipped DARK; activation is the Director's call.
+- [specs/ai-pulse-golive-flip-runbook-2026-07-26.md](../specs/ai-pulse-golive-flip-runbook-2026-07-26.md) — AI Pulse go-live flip runbook: consolidated Director-facing runbook to turn on all 4 dark AI Pulse features (prompt graduation, usage axis, Senior Learners leaderboard, reach-weighted publish). Exact flip + rollback SQL per feature, recommended sequence, preconditions, and verification reads. All flag names/defaults cross-checked against live prod.
 
 ---
 
