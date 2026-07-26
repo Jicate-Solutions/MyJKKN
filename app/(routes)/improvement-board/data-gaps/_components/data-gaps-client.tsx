@@ -36,7 +36,8 @@ import {
   Copy,
   ArrowUpRight,
   Clock,
-  Undo2
+  Undo2,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -112,6 +113,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'filed', label: 'Filed' },
   { value: 'accepted', label: 'Accepted' },
+  { value: 'stalled', label: 'Stalled' },
   { value: 'parked', label: 'Parked (someday)' },
   { value: 'not_feasible', label: 'Not feasible' },
   { value: 'duplicate', label: 'Duplicate' }
@@ -242,8 +244,17 @@ function DataGapsBoard() {
 
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return gaps;
+    // "Stalled" is a measured OUTCOME (accepted but its idea never shipped), not
+    // a status — filter on gap_outcome for that view.
+    if (statusFilter === 'stalled')
+      return gaps.filter((g) => g.gap_outcome === 'accepted_stalled');
     return gaps.filter((g) => g.status === statusFilter);
   }, [gaps, statusFilter]);
+
+  const stalledCount = useMemo(
+    () => gaps.filter((g) => g.gap_outcome === 'accepted_stalled').length,
+    [gaps]
+  );
 
   const openCount = useMemo(
     () => gaps.filter((g) => OPEN_STATUSES.includes(g.status)).length,
@@ -278,6 +289,12 @@ function DataGapsBoard() {
         <div className="text-muted-foreground text-sm">
           <span className="text-foreground font-semibold">{openCount}</span> open
           {' · '}
+          {stalledCount > 0 && (
+            <>
+              <span className="font-semibold text-red-600">{stalledCount}</span>{' '}
+              stalled{' · '}
+            </>
+          )}
           <span className="text-foreground font-semibold">{gaps.length}</span>{' '}
           total
         </div>
@@ -366,6 +383,16 @@ function DataGapsBoard() {
                           className={`text-xs ${classMeta.className}`}
                         >
                           {classMeta.label}
+                        </Badge>
+                      )}
+                      {gap.gap_outcome === 'accepted_stalled' && (
+                        <Badge
+                          variant="outline"
+                          className="border-red-200 bg-red-50 text-xs text-red-700"
+                          title="Accepted but its improvement idea hasn't shipped in over 30 days — worth chasing"
+                        >
+                          <AlertTriangle className="mr-1 h-3 w-3" />
+                          Stalled
                         </Badge>
                       )}
                     </div>
