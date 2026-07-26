@@ -40,6 +40,13 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import {
+  buildRankingPrompt,
+  GAP_CLASSES,
+  type GapClass,
+  type RankableGap,
+  type AreaTrackRecord,
+} from '@/lib/services/mba-data-gap/rank-data-gaps-prompt';
 
 const JOB_TYPE = 'improvement.rank_data_gaps';
 // Rank only the un-triaged queue — where triage-priority adds value. Once a gap
