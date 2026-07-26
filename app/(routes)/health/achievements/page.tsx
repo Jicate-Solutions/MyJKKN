@@ -339,14 +339,21 @@ function AddAchievementForm({
     try {
       await HealthSportsService.addAchievement(learnerId, {
         achievement_date: date,
-        category,
-        sport: category === 'sports' ? sport : null,
         event_name: eventName,
         event_level: level as SportLevel,
         achievement_type: achievementType as AchievementType,
         description: description || undefined,
         certificate_url: certificateUrl || undefined,
         verified: false,
+        // Deploy-order safety (same pattern as PR #2403's new-column handling):
+        // the `category` column ships in migration 20260726114500, which is
+        // Director-gated and may apply AFTER this UI deploys. Sports entries
+        // keep the EXACT legacy payload shape (no `category` key) so today's
+        // flow keeps working pre-migration — the DB default 'sports' backfills
+        // category once the column exists. Non-sports categories require the
+        // new column and fail with a clear message until the migration is
+        // applied (see catch below).
+        ...(category === 'sports' ? { sport } : { category, sport: null }),
       });
       setCategory('sports');
       setSport('');
@@ -356,8 +363,21 @@ function AddAchievementForm({
       setDescription('');
       setCertificateUrl('');
       onSuccess();
-    } catch {
-      setError('Failed to save achievement. Please try again.');
+    } catch (err) {
+      const msg =
+        typeof (err as { message?: unknown } | null)?.message === 'string'
+          ? (err as { message: string }).message
+          : '';
+      // Pre-migration, PostgREST rejects the unknown `category` column
+      // (PGRST204 "Could not find the 'category' column ... in the schema
+      // cache") — surface what is actually wrong instead of a generic error.
+      if (category !== 'sports' && /category|schema cache/i.test(msg)) {
+        setError(
+          'Academic, cultural and other awards are not enabled on this server yet (database update pending). Sports achievements still save normally.',
+        );
+      } else {
+        setError('Failed to save achievement. Please try again.');
+      }
     } finally {
       setSaving(false);
     }
