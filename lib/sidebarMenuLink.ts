@@ -392,6 +392,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -2278,6 +2279,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
       ]
