@@ -108,9 +108,13 @@ REVOKE EXECUTE ON FUNCTION public.fn_ai_pulse_clear_prompt_build_reports(uuid) F
 GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_clear_prompt_build_reports(uuid) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 4. Shared-library read — EXCLUDE auto-hidden builds. A graduated build is
---    hidden when >= prompt_report_autohide_threshold DISTINCT learners have
---    flagged it AND a champion has NOT cleared it (report_cleared_at IS NULL).
+-- 4. Shared-library read — EXCLUDE hidden builds. A graduated build is hidden
+--    when EITHER:
+--      (a) a champion has DISQUALIFIED it (disqualified_at IS NOT NULL) — the
+--          strong "actually bad" verdict; hides independently of flag count and
+--          overrides a clear, OR
+--      (b) >= prompt_report_autohide_threshold DISTINCT learners have flagged it
+--          AND a champion has NOT cleared it (report_cleared_at IS NULL).
 --    Signature is UNCHANGED (id, assembled_prompt, score, graduated_at,
 --    used_count) — verified live via pg_get_function_result — so CREATE OR
 --    REPLACE is sufficient and the sole TS caller (shared-library-service.ts) is
@@ -159,6 +163,9 @@ BEGIN
     AND b.topic_type = p_topic_type
     AND b.topic_id = p_topic_id
     AND b.institution_id = v_inst          -- strict same-institution scope
+    -- Champion disqualify: a disqualified build NEVER surfaces, regardless of
+    -- flag count or a prior clear (the strong "actually bad" verdict wins).
+    AND b.disqualified_at IS NULL
     -- Auto-hide: exclude a build with >= threshold DISTINCT learner flags that a
     -- champion has NOT cleared. UNIQUE(build_id, reporter_profile_id) on the
     -- reports ledger means distinct reporters == distinct flags.
