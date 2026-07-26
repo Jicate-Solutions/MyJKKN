@@ -396,8 +396,8 @@ export const GUIDES: GuideBook = {
           title: "Check eligibility risk before the visit",
           steps: [
             {
-              action: `Read the **<${ATTENDANCE_ELIGIBILITY}% / <${CONDONATION_FLOOR}% / No record** columns — they count the exam-registered students against JKKN's own day-one attendance.`,
-              detail: `Below ${ATTENDANCE_ELIGIBILITY}% needs condonation; below ${CONDONATION_FLOOR}% risks ineligibility; 'No record' means the student is registered for the university exam but absent from JKKN attendance entirely — the university got their attendance from a manual register with nothing in our system behind it.`,
+              action: `Read the **<${ATTENDANCE_ELIGIBILITY}% / <${CONDONATION_FLOOR}% / No record** columns — they count the exam-registered learners against JKKN's own day-one attendance.`,
+              detail: `Below ${ATTENDANCE_ELIGIBILITY}% needs condonation; below ${CONDONATION_FLOOR}% risks ineligibility; 'No record' means the learner is registered for the university exam but absent from JKKN attendance entirely — the university got their attendance from a manual register with nothing in our system behind it.`,
               prerequisite:
                 "Audit 'No record' programs FIRST — those are the ones where the manual register is the only evidence that exists.",
             },
