@@ -27,8 +27,9 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 export type BadgeKey = 'first_prompt' | 'gold_prompt' | 'quiz_ace' | 'loyal_streak';
 
 // Senior Learner (staff/faculty) board badges. Builds/starters/publish do not
-// exist for profile-keyed participants, so their badges are quiz + loyalty only.
-export type SeniorBadgeKey = 'first_quiz' | 'quiz_ace' | 'loyal_streak';
+// exist for profile-keyed participants, so their badges are quiz + loyalty +
+// session_host (earned by hosting/running a live AI Pulse session).
+export type SeniorBadgeKey = 'first_quiz' | 'quiz_ace' | 'loyal_streak' | 'session_host';
 
 export interface IndividualRow {
   rank: number;
@@ -98,8 +99,10 @@ export interface MySeniorCard {
   quality_pts: number;
   attend_pts: number;
   quiz_pts: number;
+  facilitate_pts: number;
   sessions_attended: number;
   quizzes_taken: number;
+  sessions_facilitated: number;
   streak_weeks: number;
   badges: SeniorBadgeKey[];
 }
@@ -290,8 +293,10 @@ export function useMySeniorLeaderboardCard(
         quality_pts: num(r.quality_pts),
         attend_pts: num(r.attend_pts),
         quiz_pts: num(r.quiz_pts),
+        facilitate_pts: num(r.facilitate_pts),
         sessions_attended: num(r.sessions_attended),
         quizzes_taken: num(r.quizzes_taken),
+        sessions_facilitated: num(r.sessions_facilitated),
         streak_weeks: num(r.streak_weeks),
         badges: seniorBadges(r.badges),
       } as MySeniorCard;
