@@ -164,6 +164,11 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // relocation wave-2) — covered by the base ['/ai-query', 'System'] mapping
   // below; override dropped.
   ['/admin/reset-driver-passwords', 'System'],
+  // Teaching-enterprise cohort config. Lives under /admin (super-admin URL
+  // space) but belongs to the Improvement Board module — it is gated by
+  // improvement.board.manage and edits that module's participant layer. Must
+  // stay ABOVE the '/admin' catch-all so the longest-prefix scan picks it.
+  ['/admin/teaching-cohorts', 'Improvement Board'],
   // /admin/hr relocated to /hr/admin (2026-06-10 admin-cluster relocation) —
   // covered by the base ['/hr', 'Staff'] mapping below; override dropped.
   // Meta surface modules (catalog consolidation 2026-05-30, κ).
