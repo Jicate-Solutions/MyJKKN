@@ -328,6 +328,31 @@ export default function PurchaseOrderDetailPage() {
           )}
         </div>
 
+        {/* Accreditation classification — tagged POs auto-emit NAAC library
+            purchase-bill evidence once approved (DB trigger, Wave 2D). */}
+        {canCreate ? (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="is-library-resource"
+              checked={!!po.is_library_resource}
+              onCheckedChange={(c) =>
+                run(
+                  () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
+                  c
+                    ? 'Tagged as library resource — counts as accreditation evidence once approved'
+                    : 'Library-resource tag removed'
+                )
+              }
+            />
+            <Label htmlFor="is-library-resource" className="text-sm cursor-pointer">
+              Library resource purchase{' '}
+              <span className="text-muted-foreground">(accreditation evidence)</span>
+            </Label>
+          </div>
+        ) : po.is_library_resource ? (
+          <Badge variant="secondary">Library resource</Badge>
+        ) : null}
+
         {po.status === 'rejected' && po.rejection_reason && (
           <Card className="border-destructive/40">
             <CardContent className="pt-6">
