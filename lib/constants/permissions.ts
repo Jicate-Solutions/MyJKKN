@@ -1638,6 +1638,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.mess.menu.view', label: 'View Mess Menu' },
       { key: 'campus_living.mess.menu.publish', label: 'Publish Menu' },
       { key: 'campus_living.mess.menu.approve', label: 'Approve Menu' },
+      { key: 'campus_living.mess.menu.manage', label: 'Manage Menu Loop (recommendations + verdicts)' },
 
       // Mess — meals
       { key: 'campus_living.mess.meals.view', label: 'View Meal Records' },
