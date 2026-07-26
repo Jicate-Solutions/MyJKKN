@@ -2190,6 +2190,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - Function NEW: `fn_bug_duplicate_candidates(uuid,integer,real)` — trigram shortlist with a deliberately LOW 0.15 floor (under `fn_bug_cluster_scan`'s 0.45) so same-defect/different-wording pairs reach the AI judge; **service_role ONLY** (revoked from anon, PUBLIC *and* authenticated — it reads bug text across institutions)
 - Advisory only: verdict lands in `bug_reports.metadata.ai_duplicate_check`; never sets `duplicate_of`, never resolves, never notifies
 - Location: `supabase/migrations/20260802020000_bug_duplicate_check_job_and_candidates.sql` — **NOT applied to prod** (rolled-back-validated only; 7-point battery A–G PASSED, incl. the BUG-005356 acceptance test)
+### CAC cluster committee type + affected-colleges tag (2026-07-26)
+- `supabase/migrations/20260726005202_cac_cluster_committee_type.sql` — C1: adds `cluster` to the `accreditation_committees.committee_type` CHECK (constraint found dynamically, recreated same-name); C7: `accreditation_committee_resolutions.affected_institution_ids uuid[] NOT NULL DEFAULT {}` — two-spine routing tag (a cluster/CAC resolution names the colleges it touches; their IQAC briefs pick it up). **NOT applied to prod — Director-gated; validated BEGIN..ROLLBACK only.**
 
 ### Loop Constitution — birth-gate + per-loop charter (2026-07-26)
 - `loop_registry.owner_email` → NOT NULL + non-empty CHECK (`loop_registry_owner_nonempty`): an owner-less loop birth now fails at INSERT (receipt: `carre-audit` born owner-less 07-25; backfilled to Director in the same migration)
