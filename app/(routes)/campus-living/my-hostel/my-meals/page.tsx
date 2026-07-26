@@ -209,7 +209,6 @@ export default function MyMealsPage() {
           onChoose={(day, meal, label) =>
             setChoiceDialog({ open: true, day, meal, label })
           }
-          profileId={context.profileId}
         />
 
         {canChoose && context.gender && (

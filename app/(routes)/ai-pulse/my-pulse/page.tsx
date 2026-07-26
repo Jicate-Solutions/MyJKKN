@@ -33,7 +33,6 @@ import { PulseImpactCard } from './_components/pulse-impact-card';
 import { PdeProgressCard } from './_components/pde-progress-card';
 import { DomainStarterCard } from './_components/domain-starter-card';
 import { PromptBuilderCard } from './_components/prompt-builder-card';
-import { SharedLibraryCard } from './_components/shared-library-card';
 import { WeekSwitcher, type SwitcherCycle } from './_components/week-switcher';
 
 // "Week of Jul 23" style label for the cycle switcher; falls back to the cycle
@@ -213,13 +212,6 @@ export default async function AiPulseLearnerPage({
               (prompt_build_enabled off). */}
           <div className="md:col-span-2">
             <PromptBuilderCard cycleId={cycle?.id} />
-          </div>
-          {/* Prompt library — the best GRADUATED peer prompts on the learner's
-              topics, each with a learner "Report" control (champion disqualifies).
-              Renders nothing until prompt graduation is switched on (both feeds
-              dark today → empty → byte-identical to now). */}
-          <div className="md:col-span-2">
-            <SharedLibraryCard cycleId={cycle?.id} />
           </div>
           {/* Gold Standard — "this week" recognition; only on the current cycle. */}
           {isCurrentCycle && gold && (

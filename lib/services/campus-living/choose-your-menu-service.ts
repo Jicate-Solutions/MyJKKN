@@ -64,8 +64,6 @@ export interface MyMealsContext {
   hasMessAccess: boolean;
   /** learners_profiles.id — the key mess_* engagement rows are owned by. */
   learnerId: string | null;
-  /** profiles.id (== auth.uid()) — the key mess_meal_ratings rows are owned by. */
-  profileId: string | null;
   /** Mess-plan key (mess_categories.menu_tier_key), NOT room tier. */
   tierKey: ChooseMenuTierKey | string;
   gender: MenuGender | null;
@@ -226,7 +224,6 @@ export class ChooseYourMenuService {
       hasMessPlan: false,
       hasMessAccess: false,
       learnerId: null,
-      profileId: null,
       tierKey: 'classic',
       gender: null,
     };
@@ -311,7 +308,6 @@ export class ChooseYourMenuService {
       hasMessPlan,
       hasMessAccess: hasActiveAllocation || hasMessPlan,
       learnerId,
-      profileId: user.id,
       tierKey,
       gender,
     };

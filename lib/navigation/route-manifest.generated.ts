@@ -1963,7 +1963,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/billing/reports",
         "label": "Reports",
         "iconName": "FileBarChart",
-        "children": []
+        "children": [
+          {
+            "path": "/billing/reports/accountant",
+            "label": "Accountant",
+            "iconName": "FileBarChart",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/billing/schedule",

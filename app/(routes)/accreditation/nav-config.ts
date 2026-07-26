@@ -43,11 +43,6 @@ const config: ModuleNavConfig = {
           icon: 'MessageSquareWarning',
           href: '/accreditation/manage/grievance-categories',
         },
-        {
-          label: 'MoUs & Grants',
-          icon: 'Handshake',
-          href: '/accreditation/manage/collaborations',
-        },
       ],
     },
     {

@@ -332,27 +332,20 @@ export class OnboardingService {
 
   /**
    * Creates billing_student_bills rows from learner.fee_items (or legacy fields).
-   * Returns the number of bills inserted (0 if learner already has bills, or if
-   * no billable fee data exists). Idempotent — calling twice is a no-op the
-   * second time because the bill-existence guard skips already-billed learners.
+   * Returns the number of bills inserted (0 if learner already has bills,
+   * 0 if no fee data exists, or 0 for hostellers — see below). Idempotent —
+   * calling twice is a no-op the second time because the bill-existence guard
+   * skips already-billed learners.
    *
-   * CUTOVER HISTORY — read before re-adding an accommodation check here.
-   * 2026-06-06 this method skipped hostellers entirely, mirroring the same guard
-   * in `admission_account_transition_with_bills`, because Campus Living
-   * (campus_living_generate_hostel_year_bills) also emitted academic bills and
-   * the two would double-bill: the Campus Living dedup keys on hostel_year_id
-   * and cannot bridge a NULL one written from here.
-   * 2026-06-21 that academic branch was REMOVED from Campus Living — core
-   * academic fees now come from admission_fee_structures for EVERYONE.
-   * 2026-07-25 the paired skip here was retired. Leaving it in place had
-   * stranded 17 hostellers (Rs 27,36,500) with resolved fee_items and zero
-   * bills — silent, because every admission screen showed a complete structure.
-   *
-   * What replaces it: hostel / mess / transport CATEGORIES are skipped for
-   * every learner, hosteller or day scholar, since Campus Living owns
-   * hostel+mess and TMS owns transport. Only a POSITIVE kind match is skipped,
-   * so a fee with an unmapped or inactive category is still billed rather than
-   * silently dropped.
+   * CUTOVER (hostel billing → Campus Living): hostellers
+   * (accommodation_types.code='hostel') are billed via the Campus Living
+   * generation run (campus_living_generate_hostel_year_bills, hostel_year-
+   * stamped). This method returns 0 for them WITHOUT inserting academic bills,
+   * mirroring the `admission_account_transition_with_bills` RPC guard — otherwise
+   * the academic portion double-bills (the dedup index can't bridge a NULL
+   * hostel_year here vs a set one there). A returned 0 is counted as `skipped`
+   * by the bulk-generate caller (hooks/billing/use-onboarding.ts), exactly like
+   * an already-billed or no-fee learner. Day scholars are unaffected.
    */
   static async createBillsFromProfile(learnerId: string): Promise<number> {
     try {
@@ -367,6 +360,23 @@ export class OnboardingService {
 
       if (fetchError) throw fetchError;
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
+
+      // CUTOVER guard — hostellers are billed via Campus Living, not here.
+      // Skip academic bill insertion entirely (return 0 → counted as skipped).
+      if (learner.accommodation_type_id) {
+        const { data: accType, error: accError } = await supabase
+          .from('accommodation_types')
+          .select('code')
+          .eq('id', learner.accommodation_type_id)
+          .single();
+        if (accError) throw accError;
+        if (accType?.code === 'hostel') {
+          console.info(
+            `[billing/onboarding] createBillsFromProfile skipped learner ${learnerId}: hosteller — billed via campus living`
+          );
+          return 0;
+        }
+      }
 
       // Idempotency guard — if learner already has bills, do nothing.
       // Bulk-generate flows rely on this to skip already-billed learners.
@@ -384,27 +394,17 @@ export class OnboardingService {
       const currentUserId = userData?.user?.id ?? null;
 
       // Fetch billing categories (global, no institution filter as of 2026-04-28)
-      const { data: itemCategories, error: categoryError } = await supabase
+      const { data: itemCategories } = await supabase
         .from('billing_categories')
-        .select('id, category_name, kind')
+        .select('id, category_name')
         .eq('is_active', true);
-      if (categoryError) throw categoryError;
 
       const categoryLookup: Record<string, string> = {};
-      const kindById: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
           categoryLookup[cat.category_name] = cat.id;
-          kindById[cat.id] = cat.kind;
         }
       }
-
-      // Owned by Campus Living (hostel, mess) and TMS (transport) — never
-      // billed from the admission path. See the CUTOVER HISTORY note above.
-      const FOREIGN_MODULE_KINDS = new Set(['hostel', 'mess', 'transport']);
-      const isForeignModule = (categoryId?: string | null) =>
-        !!categoryId && FOREIGN_MODULE_KINDS.has(kindById[categoryId]);
-      let skippedForeign = 0;
 
       // Due date = 30 days from now
       const dueDate = new Date();
@@ -425,10 +425,6 @@ export class OnboardingService {
         for (const item of feeItems) {
           const amount = Number(item?.amount ?? 0);
           if (amount <= 0) continue;
-          if (isForeignModule(item.category_id)) {
-            skippedForeign++;
-            continue;
-          }
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
@@ -454,10 +450,6 @@ export class OnboardingService {
           if (amount > 0) {
             const description = BILL_DESCRIPTIONS[fieldName] ?? fieldName;
             const categoryId = categoryLookup[description] || null;
-            if (isForeignModule(categoryId)) {
-              skippedForeign++;
-              continue;
-            }
             billsToInsert.push({
               student_id: learnerId,
               institution_id: learner.institution_id,
@@ -480,16 +472,6 @@ export class OnboardingService {
       }
 
       if (billsToInsert.length === 0) {
-        // Everything this learner owes belongs to another module (a hosteller
-        // whose structure is hostel/mess only, say). That is a legitimate
-        // no-op, not an error — return 0 so the bulk-generate caller counts it
-        // as `skipped`, exactly like an already-billed learner.
-        if (skippedForeign > 0) {
-          console.info(
-            `[billing/onboarding] createBillsFromProfile: learner ${learnerId} has ${skippedForeign} fee item(s), all owned by Campus Living/TMS — nothing to bill here`
-          );
-          return 0;
-        }
         throw new Error(
           `No fee items or finance values found for learner ${learnerId}`
         );

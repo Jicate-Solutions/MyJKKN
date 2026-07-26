@@ -16,14 +16,6 @@
 // estimate counts real printable cards, not raw matches. Learners without an
 // account are reported and excluded up front.
 //
-// Photo policy (Director 2026-07-25): a card without a photo prints an
-// initials box and wastes a ribbon panel, so learners with NO photo are
-// excluded by default and reported as a copyable follow-up list. "Has a
-// photo" mirrors the render engine's fallback chain (lib/id-cards/
-// render-data.ts): learners_profiles.student_photo_url OR profiles.avatar_url
-// non-empty. A checkbox restores the old include-everyone behavior.
-// (student_photo_url is an existing DB identifier — terminology-exempt.)
-//
 // The actual confirm → sequential enqueue → results flow reuses the existing
 // BulkPrintDialog (shipped in the Phase 2 bulk substrate) unchanged.
 //
@@ -32,11 +24,10 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Loader2, Printer, Users } from 'lucide-react';
+import { Loader2, Printer, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -54,7 +45,7 @@ import {
   BulkPrintDialog,
   type BulkPrintLearner
 } from '@/components/id-cards/bulk-print-dialog';
-import { resolveAccountsForLearners } from '@/lib/services/id-cards/print-jobs-client';
+import { resolveProfileIdsForLearners } from '@/lib/services/id-cards/print-jobs-client';
 import type { LifecycleStatus } from '@/types/learner-profile';
 
 type CohortMode = 'freshers' | 'class';
@@ -68,8 +59,8 @@ const COHORT_ENTITY_TYPES: Array<'institution' | 'school'> = [
 ];
 
 // Plain-English lifecycle choices. Card-worthy statuses only — enquiries,
-// rejected and exited learners are never offered. (Exported for unit tests.)
-export const STATUS_CHOICES: ReadonlyArray<{
+// rejected and exited learners are never offered.
+const STATUS_CHOICES: ReadonlyArray<{
   value: string;
   label: string;
   statuses: LifecycleStatus[];
@@ -93,10 +84,6 @@ export const STATUS_CHOICES: ReadonlyArray<{
 
 type StatusChoiceValue = (typeof STATUS_CHOICES)[number]['value'];
 
-// Default 'active_admitted' — Director 2026-07-25: batch printing exists for
-// admission week, so freshly admitted learners must be in by default.
-export const DEFAULT_STATUS_CHOICE: StatusChoiceValue = 'active_admitted';
-
 const ALL_SECTIONS = 'all';
 const FETCH_PAGE_SIZE = 1000;
 
@@ -108,27 +95,6 @@ interface ProgramOption {
 interface SectionOption {
   id: string;
   section_name: string;
-}
-
-/** A matched learner left out of the batch because no photo is on record. */
-interface NoPhotoLearner {
-  name: string;
-  rollNumber: string | null;
-}
-
-/**
- * "Has a photo" = the card would render with a real photo, per the render
- * engine's fallback chain (learners_profiles photo → profiles.avatar_url).
- * Either being a non-empty string counts — never skip a learner whose card
- * would print fine off their account avatar. (Exported for unit tests.)
- */
-export function hasPrintablePhoto(
-  learnerPhotoUrl: string | null,
-  avatarUrl: string | null
-): boolean {
-  return (
-    (learnerPhotoUrl ?? '').trim() !== '' || (avatarUrl ?? '').trim() !== ''
-  );
 }
 
 export function IdCardBatchPrint() {
@@ -145,9 +111,8 @@ export function IdCardBatchPrint() {
   const [admissionYearId, setAdmissionYearId] = useState('');
   const [programId, setProgramId] = useState('');
   const [sectionId, setSectionId] = useState<string>(ALL_SECTIONS);
-  const [statusChoice, setStatusChoice] = useState<StatusChoiceValue>(
-    DEFAULT_STATUS_CHOICE
-  );
+  const [statusChoice, setStatusChoice] =
+    useState<StatusChoiceValue>('active');
 
   const [admissionYears, setAdmissionYears] = useState<AdmissionYear[] | null>(
     null
@@ -162,9 +127,6 @@ export function IdCardBatchPrint() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogLearners, setDialogLearners] = useState<BulkPrintLearner[]>([]);
   const [skippedNoAccount, setSkippedNoAccount] = useState(0);
-  // Photo policy: default OFF = skip learners without photos (ribbon saver).
-  const [includeNoPhoto, setIncludeNoPhoto] = useState(false);
-  const [skippedNoPhoto, setSkippedNoPhoto] = useState<NoPhotoLearner[]>([]);
 
   const statuses = useMemo<LifecycleStatus[]>(
     () =>
@@ -314,10 +276,6 @@ export function IdCardBatchPrint() {
   const prepareAndReview = async () => {
     if (!cohortReady) return;
     setPreparing(true);
-    // Fresh reports every prepare — stale lists from a previous cohort would
-    // mislead the office.
-    setSkippedNoAccount(0);
-    setSkippedNoPhoto([]);
     try {
       const supabase = createClientSupabaseClient();
 
@@ -329,12 +287,11 @@ export function IdCardBatchPrint() {
         first_name: string | null;
         last_name: string | null;
         roll_number: string | null;
-        student_photo_url: string | null;
       }> = [];
       for (let from = 0; ; from += FETCH_PAGE_SIZE) {
         let query = supabase
           .from('learners_profiles')
-          .select('id, first_name, last_name, roll_number, student_photo_url')
+          .select('id, first_name, last_name, roll_number')
           .eq('institution_id', institutionId)
           .in('lifecycle_status', statuses)
           .order('program_id')
@@ -361,89 +318,50 @@ export function IdCardBatchPrint() {
 
       // Resolve accounts up front — only learners with an account
       // (profiles.learner_id) can get a card, and the ribbon estimate
-      // must count real printable cards. avatar_url rides along as the
-      // second link of the photo fallback chain.
-      const accountMap = await resolveAccountsForLearners(
+      // must count real printable cards.
+      const profileMap = await resolveProfileIdsForLearners(
         matched.map((l) => l.id)
       );
 
-      // Two separate skip reasons, two separate reports:
-      //   • no account  — a card is impossible until the account is activated.
-      //   • no photo    — a card WOULD print, but as an initials box; skipped
-      //     by default to save ribbon (checkbox overrides).
       const printable: BulkPrintLearner[] = [];
-      const noPhoto: NoPhotoLearner[] = [];
-      let noAccount = 0;
+      let skipped = 0;
       for (const l of matched) {
         const name =
           [l.first_name, l.last_name].filter(Boolean).join(' ').trim() ||
           'Unnamed learner';
-        const account = accountMap.get(l.id);
-        if (!account) {
-          noAccount += 1;
-          continue;
+        if (profileMap.has(l.id)) {
+          printable.push({
+            learnerId: l.id,
+            name,
+            rollNumber: l.roll_number
+          });
+        } else {
+          skipped += 1;
         }
-        if (
-          !includeNoPhoto &&
-          !hasPrintablePhoto(l.student_photo_url, account.avatarUrl)
-        ) {
-          noPhoto.push({ name, rollNumber: l.roll_number });
-          continue;
-        }
-        printable.push({
-          learnerId: l.id,
-          name,
-          rollNumber: l.roll_number
-        });
       }
 
-      setDialogLearners(printable);
-      setSkippedNoAccount(noAccount);
-      setSkippedNoPhoto(noPhoto);
-
       if (printable.length === 0) {
-        if (noPhoto.length > 0) {
-          toast.error(
-            `No cards to print: ${noPhoto.length} learner${noPhoto.length === 1 ? ' has' : 's have'} no photo yet${noAccount > 0 ? ` and ${noAccount} ${noAccount === 1 ? 'has' : 'have'} no account` : ''}. Collect photos (list below), or tick "Include learners without photos" to print initials-box cards anyway.`
-          );
-        } else {
-          toast.error(
-            `None of the ${matched.length} matching learners have an account yet — no cards can be printed.`
-          );
-        }
+        toast.error(
+          `None of the ${matched.length} matching learners have an account yet — no cards can be printed.`
+        );
         return;
       }
 
-      // The inline notes below sit behind the modal overlay, so surface
-      // exclusions via toast too (react-hot-toast renders above it).
-      if (noAccount > 0) {
+      if (skipped > 0) {
+        // The inline note below sits behind the modal overlay, so surface
+        // the exclusion via toast too (react-hot-toast renders above it).
         toast(
-          `${noAccount} learner${noAccount === 1 ? '' : 's'} without an account excluded — ${printable.length} card${printable.length === 1 ? '' : 's'} ready to queue.`
+          `${skipped} learner${skipped === 1 ? '' : 's'} without an account excluded — ${printable.length} card${printable.length === 1 ? '' : 's'} ready to queue.`
         );
       }
-      if (noPhoto.length > 0) {
-        toast(
-          `${noPhoto.length} learner${noPhoto.length === 1 ? '' : 's'} without a photo left out — see the list below the dialog to chase photos.`
-        );
-      }
+      setDialogLearners(printable);
+      setSkippedNoAccount(skipped);
       setDialogOpen(true);
     } catch (err) {
       console.error('[id-cards] Failed to prepare batch:', err);
       toast.error('Failed to load the cohort. Please try again.');
     } finally {
       setPreparing(false);
-    }
-  };
-
-  const copyNoPhotoList = async () => {
-    const text = skippedNoPhoto
-      .map((l) => (l.rollNumber ? `${l.name}\t${l.rollNumber}` : l.name))
-      .join('\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success('List copied — paste it into a chat or sheet.');
-    } catch {
-      toast.error('Could not copy — your browser blocked clipboard access.');
     }
   };
 
@@ -590,25 +508,6 @@ export function IdCardBatchPrint() {
             </SelectContent>
           </Select>
         </div>
-
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id="include-no-photo"
-            checked={includeNoPhoto}
-            onCheckedChange={(v) => setIncludeNoPhoto(v === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor="include-no-photo" className="cursor-pointer">
-              Include learners without photos (prints an initials box)
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Left unticked, learners with no photo on record are skipped and
-              listed so photos can be collected first — each card uses one
-              ribbon panel either way.
-            </p>
-          </div>
-        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-muted/30 p-4">
@@ -642,54 +541,13 @@ export function IdCardBatchPrint() {
         </Button>
       </div>
 
-      {skippedNoAccount > 0 && (
+      {skippedNoAccount > 0 && dialogLearners.length > 0 && (
         <p className="text-sm text-muted-foreground">
           {skippedNoAccount} matching learner
           {skippedNoAccount === 1 ? ' has' : 's have'} no account yet and{' '}
           {skippedNoAccount === 1 ? 'is' : 'are'} not included — ID cards
           become available once the learner account is activated.
         </p>
-      )}
-
-      {skippedNoPhoto.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-amber-300/60 bg-amber-50/60 p-4 text-sm dark:border-amber-500/40 dark:bg-amber-950/20">
-          <p className="font-medium text-amber-700 dark:text-amber-400">
-            {skippedNoPhoto.length} learner
-            {skippedNoPhoto.length === 1 ? ' has' : 's have'} no photo yet and{' '}
-            {skippedNoPhoto.length === 1 ? 'was' : 'were'} left out — collect
-            photos, then print them as a follow-up batch.
-          </p>
-          <details>
-            <summary className="cursor-pointer text-muted-foreground">
-              Show the {skippedNoPhoto.length} name
-              {skippedNoPhoto.length === 1 ? '' : 's'}
-            </summary>
-            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-              {skippedNoPhoto.map((l, i) => (
-                <li
-                  key={`${l.name}-${l.rollNumber ?? i}`}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span className="truncate">{l.name}</span>
-                  {l.rollNumber && (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {l.rollNumber}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </details>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={copyNoPhotoList}
-          >
-            <Copy className="mr-2 h-3.5 w-3.5" />
-            Copy list
-          </Button>
-        </div>
       )}
 
       <BulkPrintDialog

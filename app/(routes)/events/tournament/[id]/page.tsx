@@ -74,7 +74,6 @@ import { RegistrationFormCard } from './_components/registration-form-card';
 import { DivisionFeeBadge } from './_components/division-fee-badge';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
 import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
-import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -505,10 +504,6 @@ export default function TournamentManagePage() {
                       Committee member — view only, tasks editable
                     </Badge>
                   )}
-                  {/* NAAC evidence tags (events.naac_criteria) — set via the
-                      Edit dialog; the evidence emitter picks these up once the
-                      tournament completes. */}
-                  <NaacCriteriaChips codes={tournament.naac_criteria ?? []} />
                 </div>
               </div>
             </div>

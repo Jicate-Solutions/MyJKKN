@@ -55,15 +55,6 @@ export function filterByPermissions(
       return true;
     }
 
-    // MBA Analyst dashboard — associates reach it via improvement.ideas.view;
-    // board managers / MBA Faculty (improvement.board.manage) also get the link
-    // so they can view ANY department's analytics via the on-page picker. The
-    // page-level `can()` gate enforces the actual capability.
-    if (page.path === '/improvement-board/analytics') {
-      return !!(permissions['improvement.ideas.view'] ||
-                permissions['improvement.board.manage']);
-    }
-
     // Check specific permission from merged role permissions
     if (permissions[page.permission]) return true;
 
@@ -87,12 +78,5 @@ export function isPageAccessible(
   // Marathon ops & committees — page-level guards handle committee membership
   if (permission === 'events.marathon.live_ops.manage' ||
       permission === 'events.marathon.committees.manage') return true;
-  // MBA Analyst dashboard — associates (improvement.ideas.view) OR board
-  // managers / MBA Faculty (improvement.board.manage). Page-level `can()` gate
-  // enforces the actual capability.
-  if (pagePath === '/improvement-board/analytics') {
-    return !!(permissions['improvement.ideas.view'] ||
-              permissions['improvement.board.manage']);
-  }
   return !!permissions[permission];
 }

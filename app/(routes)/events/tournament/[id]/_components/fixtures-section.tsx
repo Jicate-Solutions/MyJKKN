@@ -34,8 +34,6 @@ import {
   useAwardAchievements,
   useGenerateKnockoutFromPools,
 } from '@/hooks/events/use-tournament-fixtures';
-import { useMediaQuery } from '@/hooks/use-media-query';
-import { MobileScoreSheet } from './mobile-score-sheet';
 
 function MatchStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -234,9 +232,6 @@ export function DivisionFixtures({
   const poolKnockout = useGenerateKnockoutFromPools(eventId);
   const [scheduling, setScheduling] = useState<TournamentMatch | null>(null);
   const [recording, setRecording] = useState<TournamentMatch | null>(null);
-  // Phones get the one-handed courtside score sheet; wider screens keep the dialog.
-  // Only read after a tap (recording != null), which is always post-hydration.
-  const isPhone = useMediaQuery('(max-width: 640px)');
   const hasCompleted = matches.some((m) => m.status === 'completed');
   // pools_ko: offer "generate knockout" once every pool match is decided and no KO exists yet
   const poolMatches = matches.filter((m) => m.pool);
@@ -414,22 +409,14 @@ export function DivisionFixtures({
           onOpenChange={(v) => !v && setScheduling(null)}
         />
       )}
-      {recording &&
-        (isPhone ? (
-          <MobileScoreSheet
-            eventId={eventId}
-            match={recording}
-            open={!!recording}
-            onOpenChange={(v) => !v && setRecording(null)}
-          />
-        ) : (
-          <ResultDialog
-            eventId={eventId}
-            match={recording}
-            open={!!recording}
-            onOpenChange={(v) => !v && setRecording(null)}
-          />
-        ))}
+      {recording && (
+        <ResultDialog
+          eventId={eventId}
+          match={recording}
+          open={!!recording}
+          onOpenChange={(v) => !v && setRecording(null)}
+        />
+      )}
     </div>
   );
 }

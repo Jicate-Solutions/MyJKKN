@@ -165,11 +165,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/analytics': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
   '/improvement-board/postings': 'improvement.board.manage',
-  // MBA Team Rotation — the rota chart is viewable by associates; team-builder
-  // and cycle-setup are manager-only (improvement.board.manage).
-  '/improvement-board/rotation': 'improvement.ideas.view',
-  '/improvement-board/rotation/teams': 'improvement.board.manage',
-  '/improvement-board/rotation/config': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -392,7 +387,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
-  '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -659,6 +653,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
+  '/billing/reports/accountant': 'billing.reports.view',
   '/billing/analytics': 'billing.analytics.view',
   '/billing/payment-accounts': 'billing.payment_accounts.view',
   '/billing/transport': 'billing.transport.view',
@@ -1516,12 +1511,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
-            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
-            // MBA Team Rotation — rota chart (associates + managers); team-builder
-            // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
-            { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
-            { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
-            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' }
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' }
           ]
         },
         {
@@ -2279,7 +2269,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
-            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
       ]
@@ -2454,7 +2443,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
-            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
+            { href: '/billing/reports', label: 'Reports', active: pathname === '/billing/reports' },
+            { href: '/billing/reports/accountant', label: 'Accountant Reports', active: pathname.startsWith('/billing/reports/accountant') },
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },

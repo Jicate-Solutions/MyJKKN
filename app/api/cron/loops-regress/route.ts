@@ -42,7 +42,6 @@ import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 const LOOP_FNS: { loopKey: string; fn: string }[] = [
   { loopKey: 'scf', fn: 'fn_loops_regress_scf' },
   { loopKey: 'feeder', fn: 'fn_loops_regress_feeder' },
-  { loopKey: 'mess', fn: 'fn_loops_regress_mess' },
 ];
 
 type RegressRow = {

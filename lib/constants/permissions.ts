@@ -760,13 +760,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.onboarding.execute', label: 'Execute Onboarding Steps' },
       // Dashboard (Sprint 6) — HR Command Center
       { key: 'hr.dashboard.view', label: 'View HR Command Center' },
-      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' },
-      // Sanctioned faculty posts register (Wave 2A, 2026-07-26) —
-      // /hr/admin/sanctioned-posts. The nightly hr-naac-evidence refresh
-      // compares filled strength against this register to emit NAAC 2.2.1
-      // (cadre strength vs sanctioned posts) evidence.
-      { key: 'hr.sanctioned_posts.view', label: 'View Sanctioned Senior Learner Posts' },
-      { key: 'hr.sanctioned_posts.manage', label: 'Manage Sanctioned Senior Learner Posts' }
+      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' }
     ]
   },
   {
@@ -1376,11 +1370,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
 
-      // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
-      // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
-      { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
-      { key: 'accreditation.collaborations.manage', label: 'Manage MoU & Grants Register (add/edit/delete records)' },
-
       // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
       // accreditation_officer (existing system role) is the primary IIQA Coordinator;
       // principal signs off; super_admin / director submits to NAAC.
@@ -1643,7 +1632,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.mess.menu.view', label: 'View Mess Menu' },
       { key: 'campus_living.mess.menu.publish', label: 'Publish Menu' },
       { key: 'campus_living.mess.menu.approve', label: 'Approve Menu' },
-      { key: 'campus_living.mess.menu.manage', label: 'Manage Menu Loop (recommendations + verdicts)' },
 
       // Mess — meals
       { key: 'campus_living.mess.meals.view', label: 'View Meal Records' },

@@ -37,27 +37,6 @@ export type IdCardPrintJob = {
   result: { success: boolean; error_message: string | null } | null;
 };
 
-// Pickup response shape (POST /api/id-cards/jobs/:id/pickup) — the claimed job
-// row PLUS the duplex hint. `has_back` tells the print bridge whether the
-// job's template has a configured back side (back_layout_json non-null), i.e.
-// whether GET .../render?side=back will return a PNG instead of 404
-// back_not_configured. Additive field: bridges that predate it ignore it and
-// keep printing fronts only, so shipping this is dark by construction.
-export type IdCardPrintJobPickup = IdCardPrintJob & {
-  has_back: boolean;
-};
-
-/**
- * Duplex hint: does a template row's back_layout_json mean "back side
- * configured"? Mirrors the render route's DARK gate exactly — any non-null /
- * non-undefined value (including `{}` = default back design) counts as
- * configured; NULL (every prod template until it opts in) does not.
- * Pure so the pickup route and tests share one definition.
- */
-export function hasBackSide(backLayoutJson: unknown): boolean {
-  return backLayoutJson !== null && backLayoutJson !== undefined;
-}
-
 // Allowlist of writeable platform_policies keys for the id-card subsystem.
 // Anything outside this list is rejected by PATCH /api/id-cards/policy.
 // Keep in sync with Agent A's reader fn schema.

@@ -1,175 +1,204 @@
 'use client';
 
-import React from 'react';
+import Link from 'next/link';
+import { AlertCircle, ShieldOff } from 'lucide-react';
 import {
-  DataTable,
-  type DataFetchParams
-} from '@/components/data-table/data-table';
-import { columns } from './columns';
-import { BillCoverageService } from '@/lib/services/billing/coverage/bill-coverage-service';
-import type {
-  BillCoverageFilters,
-  BillCoverageRow
-} from '@/types/billing-coverage';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { getErrorMessage } from '@/lib/utils';
+import type { BillCoverageRow } from '@/types/billing-coverage';
 
 interface CoverageTableProps {
-  /** Dimension filters from the filter bar. Search, sort and paging come from
-   *  the DataTable itself. */
-  filters: BillCoverageFilters;
-  canExport: boolean;
+  rows: BillCoverageRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  isLoading: boolean;
+  error: unknown;
+  onPageChange: (page: number) => void;
 }
 
-// ── Export shaping ─────────────────────────────────────────────────────────
-// The shared DataTable export resolves each cell via a FLAT key lookup on the
-// transformed row; an empty columnMapping produces an empty file. A
-// BillCoverageRow is already flat, so this transform exists to FORMAT rather
-// than to flatten: booleans become readable, nulls become blank instead of
-// "null", and coverage_state becomes its UI label.
-const COVERAGE_EXPORT_LABELS: Record<string, string> = {
-  generated: 'Generated',
-  not_generated: 'Not Generated',
-  cannot_evaluate: 'Cannot Evaluate'
-};
+const nf = new Intl.NumberFormat('en-IN');
+const currency = (n: number) =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(n);
 
-function transformCoverageForExport(
-  r: BillCoverageRow
-): Record<string, string | number> {
-  return {
-    rollNumber: r.roll_number ?? '',
-    registerNumber: r.register_number ?? '',
-    learnerName: r.full_name || '',
-    gender: r.gender ?? '',
-    institution: r.institution_name ?? '',
-    programme: r.program_name ?? '',
-    semesterSection: r.semester_section ?? '',
-    academicYear: r.academic_year_name ?? '',
-    accommodation: r.accommodation_type ?? '',
-    transport: r.uses_transport ? 'Bus' : '',
-    lifecycleStatus: r.lifecycle_status,
-    bills: r.bill_count,
-    totalBilled: r.total_billed,
-    coverage: COVERAGE_EXPORT_LABELS[r.coverage_state] ?? r.coverage_state
-  };
+function coverageBadge(state: BillCoverageRow['coverage_state']) {
+  if (state === 'generated') {
+    return (
+      <Badge className='border-green-200 bg-green-100 text-green-800'>
+        Generated
+      </Badge>
+    );
+  }
+  if (state === 'cannot_evaluate') {
+    return <Badge variant='outline'>Cannot evaluate</Badge>;
+  }
+  return (
+    <Badge className='border-orange-200 bg-orange-100 text-orange-800'>
+      Not generated
+    </Badge>
+  );
 }
 
-export function CoverageTable({ filters, canExport }: CoverageTableProps) {
-  // Re-key the table whenever a dimension filter changes so it resets to page 1.
-  // Without this a narrowed result set can leave the user on a page that no
-  // longer exists, rendering an empty grid — which on this screen reads as
-  // "no gaps", the opposite of the truth.
-  const filterKey = React.useMemo(
-    () =>
-      JSON.stringify([
-        filters.academic_year_id ?? null,
-        filters.institution_ids ?? null,
-        filters.lifecycle_statuses ?? null,
-        filters.billing_category_id ?? null,
-        filters.accommodation_type_ids ?? null,
-        filters.transport ?? 'any',
-        filters.gender ?? null,
-        filters.coverage_state ?? 'not_generated',
-        filters.include_non_billing_institutions ?? false
-      ]),
-    [
-      filters.academic_year_id,
-      filters.institution_ids,
-      filters.lifecycle_statuses,
-      filters.billing_category_id,
-      filters.accommodation_type_ids,
-      filters.transport,
-      filters.gender,
-      filters.coverage_state,
-      filters.include_non_billing_institutions
-    ]
-  );
+export function CoverageTable({
+  rows,
+  total,
+  page,
+  pageSize,
+  isLoading,
+  error,
+  onPageChange
+}: CoverageTableProps) {
+  // An error must never render as an empty table. On this screen an empty
+  // table reads as "no gaps" — the exact opposite of the truth.
+  if (error) {
+    const message = getErrorMessage(error);
+    const denied =
+      typeof message === 'string' &&
+      (message.includes('42501') || message.includes('permission denied'));
 
-  const fetchData = React.useCallback(
-    async (params: DataFetchParams) => {
-      const { rows, total } = await BillCoverageService.getLearners({
-        ...filters,
-        search: params.search || null,
-        page: params.page,
-        page_size: params.limit,
-        sort_by: params.sort_by || null,
-        sort_dir: (params.sort_order as 'asc' | 'desc') || 'asc'
-      });
+    return (
+      <Alert variant='destructive'>
+        {denied ? (
+          <ShieldOff className='h-4 w-4' />
+        ) : (
+          <AlertCircle className='h-4 w-4' />
+        )}
+        <AlertTitle>
+          {denied ? 'Not permitted' : 'Could not load bill coverage'}
+        </AlertTitle>
+        <AlertDescription>
+          {denied
+            ? 'You do not have permission to view bill coverage. Ask an administrator for the billing.coverage.view permission.'
+            : message}
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
-      return {
-        success: true,
-        data: rows,
-        pagination: {
-          page: params.page,
-          limit: params.limit,
-          total_pages: Math.max(1, Math.ceil(total / Math.max(params.limit, 1))),
-          total_items: total
-        }
-      };
-    },
-    [filters]
-  );
+  if (isLoading) {
+    return (
+      <div className='space-y-2'>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className='h-12 w-full' />
+        ))}
+      </div>
+    );
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
 
   return (
-    <DataTable<BillCoverageRow, unknown>
-      key={filterKey}
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      idField='learner_id'
-      exportConfig={{
-        entityName: 'bill-coverage',
-        // Keys are the FLAT keys emitted by transformCoverageForExport.
-        columnMapping: {
-          rollNumber: 'Roll Number',
-          registerNumber: 'Register Number',
-          learnerName: 'Learner',
-          gender: 'Gender',
-          institution: 'Institution',
-          programme: 'Programme',
-          semesterSection: 'Semester · Section',
-          academicYear: 'Academic Year',
-          accommodation: 'Accommodation',
-          transport: 'Transport',
-          lifecycleStatus: 'Lifecycle Status',
-          bills: 'Bills',
-          totalBilled: 'Total Billed',
-          coverage: 'Coverage'
-        },
-        columnWidths: [
-          { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 10 },
-          { wch: 28 }, { wch: 26 }, { wch: 20 }, { wch: 14 },
-          { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 8 },
-          { wch: 14 }, { wch: 16 }
-        ],
-        headers: [
-          'rollNumber',
-          'registerNumber',
-          'learnerName',
-          'gender',
-          'institution',
-          'programme',
-          'semesterSection',
-          'academicYear',
-          'accommodation',
-          'transport',
-          'lifecycleStatus',
-          'bills',
-          'totalBilled',
-          'coverage'
-        ],
-        transformFunction: transformCoverageForExport
-      }}
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        // billing.coverage.export is granted separately from .view — a role may
-        // read the gap list without being allowed to take it off-platform.
-        enableExport: canExport,
-        enableRowSelection: true,
-        enableSearch: true,
-        enableColumnFilters: false,
-        enableColumnVisibility: true,
-        enableColumnResizing: true,
-        columnResizingTableId: 'billing-coverage-table'
-      }}
-    />
+    <div className='space-y-4'>
+      <div className='overflow-x-auto rounded-lg border'>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Roll Number</TableHead>
+              <TableHead>Learner</TableHead>
+              <TableHead>Institution</TableHead>
+              <TableHead>Programme</TableHead>
+              <TableHead>Academic Year</TableHead>
+              <TableHead>Accommodation</TableHead>
+              <TableHead>Transport</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className='text-right'>Bills</TableHead>
+              <TableHead className='text-right'>Total Billed</TableHead>
+              <TableHead>Coverage</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={11}
+                  className='h-24 text-center text-muted-foreground'
+                >
+                  No learners match these filters.
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((r) => (
+                <TableRow key={r.learner_id}>
+                  <TableCell className='font-medium'>
+                    {r.roll_number ?? '—'}
+                  </TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/billing/schedule/students/${r.learner_id}`}
+                      className='text-primary hover:underline'
+                    >
+                      {r.full_name || 'Unnamed'}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{r.institution_name ?? '—'}</TableCell>
+                  <TableCell>{r.program_name ?? '—'}</TableCell>
+                  <TableCell>{r.academic_year_name ?? '—'}</TableCell>
+                  <TableCell>{r.accommodation_type ?? '—'}</TableCell>
+                  <TableCell>
+                    {r.uses_transport ? (
+                      <Badge variant='outline'>Bus</Badge>
+                    ) : (
+                      <span className='text-muted-foreground'>—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className='capitalize'>
+                    {r.lifecycle_status}
+                  </TableCell>
+                  <TableCell className='text-right'>{r.bill_count}</TableCell>
+                  <TableCell className='text-right'>
+                    {r.total_billed > 0 ? currency(r.total_billed) : '—'}
+                  </TableCell>
+                  <TableCell>{coverageBadge(r.coverage_state)}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+        <p className='text-sm text-muted-foreground'>
+          Showing {nf.format(from)}–{nf.format(to)} of {nf.format(total)} learner
+          {total === 1 ? '' : 's'}
+        </p>
+        <div className='flex items-center gap-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+          >
+            Previous
+          </Button>
+          <span className='text-sm text-muted-foreground'>
+            Page {nf.format(page)} of {nf.format(totalPages)}
+          </span>
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -38,22 +38,11 @@ import {
   Inbox,
   AlertTriangle
 } from 'lucide-react';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   MbaAnalystService,
   type MbaAnalystView
 } from '@/lib/services/mba-analyst/mba-analyst-service';
-import {
-  ImprovementService,
-  type ImprovementArea
-} from '@/lib/services/improvement/improvement-service';
 
 interface AnalyticsClientProps {
   userId: string;
@@ -227,20 +216,10 @@ function ViewCard({ view }: { view: MbaAnalystView }) {
 export function AnalyticsClient({ userId }: AnalyticsClientProps) {
   const { can, isLoading: permsLoading } = usePermissions();
 
-  // Branch on loading FIRST so a permitted user never sees the no-access panel
-  // flash while permissions resolve.
+  // Branch on loading FIRST so a permitted associate never sees the no-access
+  // panel flash while permissions resolve.
   if (permsLoading) return <LoadingState />;
-
-  const canManage = can('improvement.board.manage');
-  const canView = can('improvement.ideas.view');
-
-  if (!canView && !canManage) return <NoAccessPanel />;
-
-  // A board manager / MBA Faculty sees a department PICKER — they can read ANY
-  // department's analytics (financial views included), because the delivery RPC
-  // bypasses the posting gate and returns money views for managers. An MBA
-  // Associate without manage rights keeps the "my assigned departments" view.
-  if (canManage) return <ManagerAnalyticsBoard />;
+  if (!can('improvement.ideas.view')) return <NoAccessPanel />;
 
   return <AnalyticsBoard userId={userId} />;
 }
@@ -372,179 +351,6 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
             </section>
           ))}
         </div>
-      )}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Manager / MBA Faculty view — department picker (any department)            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * For a board manager / MBA Faculty (improvement.board.manage): a picker over
- * ALL departments. On selection, the delivery RPC returns that department's
- * de-identified, k≥5-suppressed views — financial views included, because the
- * RPC bypasses the posting gate for managers. This does NOT change the RPC; it
- * only lets a manager choose which department to read.
- */
-function ManagerAnalyticsBoard() {
-  const [areas, setAreas] = useState<ImprovementArea[]>([]);
-  const [areasLoading, setAreasLoading] = useState(true);
-  const [selectedAreaId, setSelectedAreaId] = useState<string>('');
-  const [views, setViews] = useState<MbaAnalystView[]>([]);
-  const [viewsLoading, setViewsLoading] = useState(false);
-  const [viewsError, setViewsError] = useState(false);
-
-  // Load the department list once.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setAreasLoading(true);
-      try {
-        const list = await ImprovementService.listAreas();
-        if (alive) setAreas(list);
-      } finally {
-        if (alive) setAreasLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  // Fetch analytics whenever the selected department changes.
-  useEffect(() => {
-    if (!selectedAreaId) {
-      setViews([]);
-      setViewsError(false);
-      return;
-    }
-    let alive = true;
-    (async () => {
-      setViewsLoading(true);
-      setViewsError(false);
-      try {
-        const result = await MbaAnalystService.getAnalystViews(selectedAreaId);
-        if (alive) setViews(result.views);
-      } catch {
-        if (alive) {
-          setViews([]);
-          setViewsError(true);
-        }
-      } finally {
-        if (alive) setViewsLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [selectedAreaId]);
-
-  const selectedLabel = useMemo(
-    () => areas.find((a) => a.id === selectedAreaId)?.label ?? null,
-    [areas, selectedAreaId]
-  );
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <Button variant="ghost" size="sm" asChild className="mb-2 -ml-2">
-          <Link href="/improvement-board">
-            <ArrowLeft className="mr-1.5 h-4 w-4" />
-            Improvement Board
-          </Link>
-        </Button>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <BarChart3 className="text-primary h-6 w-6" />
-          Department Analytics
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Pick a department to read its analytics. Figures are de-identified and
-          small groups are hidden to protect privacy. As a manager you can read
-          every department, financial views included.
-        </p>
-      </div>
-
-      {/* Department picker */}
-      <div className="max-w-sm">
-        {areasLoading ? (
-          <Skeleton className="h-10 w-full" />
-        ) : areas.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No departments are available to read yet.
-          </p>
-        ) : (
-          <Select value={selectedAreaId} onValueChange={setSelectedAreaId}>
-            <SelectTrigger>
-              <span className="flex items-center gap-1.5">
-                <Building2 className="h-4 w-4" />
-                <SelectValue placeholder="Choose a department…" />
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              {areas.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {/* Results */}
-      {!selectedAreaId ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Building2 className="text-muted-foreground/50 h-10 w-10" />
-            <div>
-              <p className="font-medium">Choose a department to begin</p>
-              <p className="text-muted-foreground text-sm">
-                Its de-identified analytics will show up here.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : viewsLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 w-full" />
-          ))}
-        </div>
-      ) : viewsError ? (
-        <Card>
-          <CardContent className="text-muted-foreground flex items-center gap-2 py-8 text-sm">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Couldn&apos;t load analytics for this department. Please try again
-            shortly.
-          </CardContent>
-        </Card>
-      ) : views.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-            <Inbox className="text-muted-foreground/50 h-8 w-8" />
-            <p className="text-muted-foreground text-sm">
-              No analyst data for {selectedLabel ?? 'this department'} yet.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Building2 className="text-muted-foreground h-5 w-5" />
-            <h2 className="text-lg font-semibold">{selectedLabel}</h2>
-            <Badge variant="secondary" className="text-xs">
-              {views.length} {views.length === 1 ? 'view' : 'views'}
-            </Badge>
-          </div>
-          <div className="grid gap-4">
-            {views.map((view) => (
-              <ViewCard key={view.view_name} view={view} />
-            ))}
-          </div>
-        </section>
       )}
     </div>
   );

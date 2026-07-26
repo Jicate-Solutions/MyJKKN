@@ -122,48 +122,6 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'accreditation-loop-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same evidence rows (natural key source_table+source_id+body_code+metric_code). Loop→AQAR bridge PR 1/2; PR 2 renders these rows in the /accreditation UI by loop_key."
   },
   {
-    "id": "coe-result-naac-snapshots",
-    "name": "Accreditation — COE Pass-Percentage Mirror (NAAC 8.2.2)",
-    "category": "misc-ai",
-    "type": "cron",
-    "schedule": "Daily · 04:51 IST (editable via dispatcher)",
-    "triggerPath": "/api/cron/coe-result-naac-snapshots",
-    "callsClaude": false,
-    "whatItDoes": "Each night it mirrors the COE exam system's declared university-exam results into the accreditation evidence spine: it reads COE's per-course final-marks summary view directly from the COE database (cross-project, server-side credentials), aggregates pass percentage per institution per examination session, writes coe_naac_evidence snapshot rows (fanning the CAS campus numbers out to both its MyJKKN institutions), and maps each row to NAAC Metric 8.2.2 'Pass percentage in university examinations' in quality_evidence_mappings — so the pass-percentage narrative is backed by live COE numbers instead of nothing.",
-    "configKnobs": "Emission gate pinned: only sessions with published results emit (published_count > 0 — planned/empty sessions produce nothing). Denominator = published learner-course entries; pass % = passed/published, recorded with all raw counts in row metadata. Exam-calendar adherence (deck metric 5.7) is deliberately NOT computed: COE's published_date is NULL on every final-marks row and result_declaration_date is a backfill artifact — no honest day count exists. period_label = 'AY YYYY-YY' from the session's exam window (June cutoff), falling back to the session code. No model, no thresholds.",
-    "sideEffects": "DB writes only: upserts coe_naac_evidence snapshot rows (one per MyJKKN institution × metric × COE examination session) and is_auto=true quality_evidence_mappings rows (NAAC 8.2.2), refreshing metadata on re-run. NEVER touches manually-curated (is_auto=false) mappings (pre-excluded before the upsert). Aggregate counts only — no learner identities. Read-only against the COE database. No notifications, no external messages.",
-    "safeToManualTrigger": true,
-    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'coe-result-naac-snapshots' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Requires the server-only COE_SUPABASE_URL + COE_SUPABASE_SERVICE_ROLE_KEY env vars (fails closed with 503 when absent — already set in Vercel prod, verified 2026-07-06). Safe to manual-trigger: fully idempotent — re-running refreshes the same snapshot + evidence rows (snapshot natural key institution_id+metric_code+session_code; junction natural key source_table+source_id+body_code+metric_code). Wave 3 of the module→evidence-spine integration."
-  },
-  {
-    "id": "hr-naac-evidence",
-    "name": "Accreditation — HR Evidence Snapshots (NAAC 2.1 / 2.2.x / 7.10.1)",
-    "category": "misc-ai",
-    "type": "cron",
-    "schedule": "Daily · 04:37 IST (editable via dispatcher)",
-    "triggerPath": "/api/cron/hr-naac-evidence",
-    "callsClaude": false,
-    "whatItDoes": "Recomputes one hr_naac_evidence snapshot per institution (its active Senior Learners) for the current academic year and upserts the matching quality_evidence_mappings rows: NAAC 2.1 Senior Learner-to-learner ratio (FSR), 2.2.1 cadre strength vs sanctioned posts, 2.2.2 Senior Learner PhD %, 2.2.3 average teaching experience + cadre-level distribution, and 7.10.1 three-year Senior Learner retention. HR records become live accreditation evidence instead of a manual spreadsheet exercise.",
-    "configKnobs": "Teaching head-count = employment_categories.is_teaching AND the HR profile's is_active flag (role_type reads 'teacher' for everyone, including drivers — not used). Learners = learners_profiles.lifecycle_status='active'. Cadre from designation pattern match (legacy 'Reader' counts as associate level). 2.2.1 emits ONLY for institutions with sanctioned_posts rows for the current AY (managed at /hr/admin/sanctioned-posts) — never zeroed or faked. period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
-    "sideEffects": "DB writes only: upserts hr_naac_evidence snapshots (one per institution per AY) and is_auto=true rows into quality_evidence_mappings (NAAC 2.1 / 2.2.1 / 2.2.2 / 2.2.3 / 7.10.1), refreshing metadata + mapped_at on re-run and withdrawing its own stale auto rows when an emit-condition stops holding. NEVER touches manually-curated (is_auto=false) mappings. No notifications, no external messages.",
-    "safeToManualTrigger": true,
-    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'hr-naac-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — snapshots upsert on (institution_id, academic_year), mappings on the junction natural key. Wave 2A of the module→evidence-spine integration; same snapshot-table pattern as obe_course_attainment_rollup."
-  },
-  {
-    "id": "facility-teaching-naac-snapshots",
-    "name": "Accreditation — Teaching & Facilities Evidence Snapshots (NAAC 5.1.1 / 3.1.1 / 3.4.1)",
-    "category": "misc-ai",
-    "type": "cron",
-    "schedule": "Daily · 04:37 IST (editable via dispatcher)",
-    "triggerPath": "/api/cron/facility-teaching-naac-snapshots",
-    "callsClaude": false,
-    "whatItDoes": "Each night it computes per-institution NAAC evidence snapshots from live module data: lesson-plan / pedagogy-tagging coverage from the lesson spine (Metric 5.1.1), facilities-in-daily-use from the resource registry plus hostel/mess/health/sports activity counts (Metric 3.1.1), and IT infrastructure with the learner:computer ratio from the resource registry's 'IT & Digital Resources' category (Metric 3.4.1). Each snapshot row fans out to quality_evidence_mappings so the accreditation narrative is backed by live counts instead of nothing.",
-    "configKnobs": "Emission gates pinned: no lessons → no 5.1.1 row; no resources → no 3.1.1 row; no IT/computing resources → no 3.4.1 row (nothing fabricated for thin institutions). IT source is the resource registry — ims_item_categories carries no computing categories (surveyed 2026-07-26), so the IMS path is skipped. Ratio only where computer units > 0; units = sum(coalesce(current_stock_quantity, 1)). period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
-    "sideEffects": "DB writes only: upserts facility_teaching_naac_evidence snapshot rows (one per institution × metric × AY) and is_auto=true quality_evidence_mappings rows (NAAC 5.1.1 / 3.1.1 / 3.4.1), refreshing metadata + mapped_at on re-run. NEVER touches manually-curated (is_auto=false) mappings. Counts only — no Senior Learner or learner identities. No notifications, no external messages.",
-    "safeToManualTrigger": true,
-    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'facility-teaching-naac-snapshots' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same snapshot + evidence rows (snapshot natural key institution_id+metric_code+ay_label; junction natural key source_table+source_id+body_code+metric_code). Wave 2B of the module→evidence-spine integration."
-  },
-  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",

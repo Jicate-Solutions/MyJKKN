@@ -49,7 +49,6 @@ import {
   useCreateDivision,
 } from '@/hooks/events/use-tournaments';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
@@ -236,9 +235,6 @@ function EditTournamentForm({
     venue: tournament.venue ?? '',
     is_public: tournament.is_public ?? false,
     allow_external_registration: tournament.allow_external_registration ?? false,
-    // NAAC evidence tags — the writer for the events → evidence-spine
-    // emitter (naac_criteria text[] on events; empty array = untagged).
-    naac_criteria: tournament.naac_criteria ?? [],
   });
 
   // Which division is being edited + the touched-fields overlay for it.
@@ -277,7 +273,6 @@ function EditTournamentForm({
           venue: form.venue.trim() || undefined,
           is_public: form.is_public,
           allow_external_registration: form.allow_external_registration,
-          naac_criteria: form.naac_criteria,
         },
       });
 
@@ -499,14 +494,6 @@ function EditTournamentForm({
             />
           </div>
         </div>
-
-        {/* NAAC evidence tags — writes events.naac_criteria; the evidence
-            emitter picks tagged events up once they complete. */}
-        <NaacCriteriaField
-          value={form.naac_criteria}
-          onChange={(next) => setForm((prev) => ({ ...prev, naac_criteria: next }))}
-          disabled={isPending}
-        />
 
         <div className="space-y-1.5">
           <Label htmlFor="t-desc">Description</Label>

@@ -26,10 +26,6 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export type BadgeKey = 'first_prompt' | 'gold_prompt' | 'quiz_ace' | 'loyal_streak';
 
-// Senior Learner (staff/faculty) board badges. Builds/starters/publish do not
-// exist for profile-keyed participants, so their badges are quiz + loyalty only.
-export type SeniorBadgeKey = 'first_quiz' | 'quiz_ace' | 'loyal_streak';
-
 export interface IndividualRow {
   rank: number;
   learner_id: string;
@@ -70,40 +66,6 @@ export interface MyCard {
   badges: BadgeKey[];
 }
 
-// Senior Learner (profile-keyed) board — a row on the parallel staff/faculty
-// board. Scored on attendance + quiz only (decision #18).
-export interface SeniorRow {
-  rank: number;
-  profile_id: string;
-  senior_name: string;
-  role: string | null;
-  department_name: string | null;
-  institution_name: string | null;
-  total_pts: number;
-  participation_pts: number;
-  quality_pts: number;
-  sessions_attended: number;
-  quizzes_taken: number;
-  streak_weeks: number;
-  badges: SeniorBadgeKey[];
-}
-
-// The signed-in Senior Learner's own standing card.
-export interface MySeniorCard {
-  profile_id: string;
-  rank: number;
-  total_seniors: number;
-  total_pts: number;
-  participation_pts: number;
-  quality_pts: number;
-  attend_pts: number;
-  quiz_pts: number;
-  sessions_attended: number;
-  quizzes_taken: number;
-  streak_weeks: number;
-  badges: SeniorBadgeKey[];
-}
-
 // ---------------------------------------------------------------------------
 // Coercion helpers (PostgREST returns numeric as string)
 // ---------------------------------------------------------------------------
@@ -112,8 +74,6 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 const badges = (v: unknown): BadgeKey[] => (Array.isArray(v) ? (v as BadgeKey[]) : []);
-const seniorBadges = (v: unknown): SeniorBadgeKey[] =>
-  Array.isArray(v) ? (v as SeniorBadgeKey[]) : [];
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -218,83 +178,6 @@ export function useMyLeaderboardCard(
         streak_weeks: num(r.streak_weeks),
         badges: badges(r.badges),
       } as MyCard;
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Senior Learner (staff/faculty) board — the SEPARATE, profile-keyed board.
-// Backed by fn_ai_pulse_leaderboard_staff / fn_ai_pulse_my_staff_leaderboard
-// from migration 20260726120000_ai_pulse_staff_leaderboard.sql. Same anon-lock
-// + `any`-cast convention as the learner hooks above.
-// ---------------------------------------------------------------------------
-
-/** Senior Learner individual board — weekly (latest/given cycle) or all-time. */
-export function useSeniorBoard(
-  allTime: boolean,
-  cycleId: string | null = null,
-): UseQueryResult<SeniorRow[]> {
-  return useQuery({
-    queryKey: ['ai-pulse-lb-seniors', allTime, cycleId],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient() as any;
-      const { data, error } = await supabase.rpc('fn_ai_pulse_leaderboard_staff', {
-        p_cycle_id: cycleId,
-        p_all_time: allTime,
-        p_limit: 100,
-      });
-      if (error) throw error;
-      return (data ?? []).map(
-        (r: any): SeniorRow => ({
-          rank: num(r.rank),
-          profile_id: r.profile_id,
-          senior_name: r.staff_name || 'Senior Learner',
-          role: r.role ?? null,
-          department_name: r.department_name ?? null,
-          institution_name: r.institution_name ?? null,
-          total_pts: num(r.total_pts),
-          participation_pts: num(r.participation_pts),
-          quality_pts: num(r.quality_pts),
-          sessions_attended: num(r.sessions_attended),
-          quizzes_taken: num(r.quizzes_taken),
-          streak_weeks: num(r.streak_weeks),
-          badges: seniorBadges(r.badges),
-        }),
-      );
-    },
-  });
-}
-
-/** The signed-in Senior Learner's own card (rank + points + badges + streak). */
-export function useMySeniorLeaderboardCard(
-  allTime: boolean,
-  cycleId: string | null = null,
-): UseQueryResult<MySeniorCard | null> {
-  return useQuery({
-    queryKey: ['ai-pulse-lb-my-senior', allTime, cycleId],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient() as any;
-      const { data, error } = await supabase.rpc('fn_ai_pulse_my_staff_leaderboard', {
-        p_cycle_id: cycleId,
-        p_all_time: allTime,
-      });
-      if (error) throw error;
-      const r = Array.isArray(data) ? data[0] : data;
-      if (!r) return null;
-      return {
-        profile_id: r.profile_id,
-        rank: num(r.rank),
-        total_seniors: num(r.total_staff),
-        total_pts: num(r.total_pts),
-        participation_pts: num(r.participation_pts),
-        quality_pts: num(r.quality_pts),
-        attend_pts: num(r.attend_pts),
-        quiz_pts: num(r.quiz_pts),
-        sessions_attended: num(r.sessions_attended),
-        quizzes_taken: num(r.quizzes_taken),
-        streak_weeks: num(r.streak_weeks),
-        badges: seniorBadges(r.badges),
-      } as MySeniorCard;
     },
   });
 }

@@ -23,7 +23,6 @@ import {
   REPORT_SCHEME_OPTIONS,
   type BillingReportFilters,
   type ReportSchemeKey,
-  type AccommodationCode,
 } from '@/types/billing-schedule';
 
 interface ReportFiltersProps {
@@ -93,7 +92,7 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
     });
 
   const accommodationCodes = filters.accommodation_codes ?? [];
-  const toggleAccommodation = (code: AccommodationCode, on: boolean) =>
+  const toggleAccommodation = (code: string, on: boolean) =>
     onFilterChange({
       accommodation_codes: on
         ? [...accommodationCodes, code]

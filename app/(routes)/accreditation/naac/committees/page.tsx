@@ -98,7 +98,6 @@ const COMMITTEE_TYPE_LABELS: Record<CommitteeType, string> = {
   inspection: 'Inspection panel',
   ad_hoc: 'Ad-hoc',
   review: 'Review',
-  cluster: 'Cluster council (CAC)',
 };
 
 export default function NAACCommitteesPage() {
