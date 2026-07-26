@@ -136,6 +136,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'hr-naac-evidence' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — snapshots upsert on (institution_id, academic_year), mappings on the junction natural key. Wave 2A of the module→evidence-spine integration; same snapshot-table pattern as obe_course_attainment_rollup."
   },
   {
+    "id": "facility-teaching-naac-snapshots",
+    "name": "Accreditation — Teaching & Facilities Evidence Snapshots (NAAC 5.1.1 / 3.1.1 / 3.4.1)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 04:37 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/facility-teaching-naac-snapshots",
+    "callsClaude": false,
+    "whatItDoes": "Each night it computes per-institution NAAC evidence snapshots from live module data: lesson-plan / pedagogy-tagging coverage from the lesson spine (Metric 5.1.1), facilities-in-daily-use from the resource registry plus hostel/mess/health/sports activity counts (Metric 3.1.1), and IT infrastructure with the learner:computer ratio from the resource registry's 'IT & Digital Resources' category (Metric 3.4.1). Each snapshot row fans out to quality_evidence_mappings so the accreditation narrative is backed by live counts instead of nothing.",
+    "configKnobs": "Emission gates pinned: no lessons → no 5.1.1 row; no resources → no 3.1.1 row; no IT/computing resources → no 3.4.1 row (nothing fabricated for thin institutions). IT source is the resource registry — ims_item_categories carries no computing categories (surveyed 2026-07-26), so the IMS path is skipped. Ratio only where computer units > 0; units = sum(coalesce(current_stock_quantity, 1)). period_label = 'AY YYYY-YY' (June cutoff, IST). No model, no thresholds.",
+    "sideEffects": "DB writes only: upserts facility_teaching_naac_evidence snapshot rows (one per institution × metric × AY) and is_auto=true quality_evidence_mappings rows (NAAC 5.1.1 / 3.1.1 / 3.4.1), refreshing metadata + mapped_at on re-run. NEVER touches manually-curated (is_auto=false) mappings. Counts only — no Senior Learner or learner identities. No notifications, no external messages.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'facility-teaching-naac-snapshots' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: fully idempotent — re-running refreshes the same snapshot + evidence rows (snapshot natural key institution_id+metric_code+ay_label; junction natural key source_table+source_id+body_code+metric_code). Wave 2B of the module→evidence-spine integration."
+  },
+  {
     "id": "overnight-bugfix",
     "maxLane": true,
     "name": "Overnight Bug-Fixer (draft-PR pipeline)",
