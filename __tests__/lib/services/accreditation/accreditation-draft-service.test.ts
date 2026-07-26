@@ -34,6 +34,31 @@ describe('stripCitationMarkers', () => {
       'rose to 3.80  with 3 of 5  better',
     );
   });
+
+  // Regression (prod 2026-07-26): the model legitimately GROUPS citations when a
+  // sentence draws on several records. Before the grouped form was stripped, the
+  // literal string below survived into the validator, whose CODE_RE then read
+  // E1…E8 as ungrounded factual codes and blocked a correct narrative.
+  it('removes grouped [E#, E#] markers', () => {
+    expect(stripCitationMarkers('The BoS met [E1, E2, E3, E4, E5, E7, E8] last term')).toBe(
+      'The BoS met  last term',
+    );
+  });
+
+  it('removes grouped markers with and without spaces', () => {
+    expect(stripCitationMarkers('a [E1,E2] b [E1, E2] c [E10,  E11 ,E12] d')).toBe(
+      'a  b  c  d',
+    );
+  });
+
+  it('leaves a non-citation bracket alone', () => {
+    expect(stripCitationMarkers('see [Table 2] and [E1]')).toBe('see [Table 2] and ');
+  });
+
+  it('leaves no E-marker residue for the validator to flag', () => {
+    const stripped = stripCitationMarkers('BoS approved 4 revisions [E1, E2, E3].');
+    expect(stripped).not.toMatch(/\bE\d+\b/);
+  });
 });
 
 describe('parseModelDraft', () => {
