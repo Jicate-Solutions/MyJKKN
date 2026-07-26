@@ -30,13 +30,15 @@ import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
  * primary committee (NAAC → IQAC, NIRF → NIRF-Coordination, NBA → NBA-Cell,
  * DCI → Local-Inspection-Panel, etc.). "main" is the default per-body primary;
  * sub-committees use "sub". Ad-hoc inspections use "inspection".
+ * "cluster" is the cross-college Cluster Academic Council (CAC).
  */
 export type CommitteeType =
   | 'main'
   | 'sub'
   | 'inspection'
   | 'ad_hoc'
-  | 'review';
+  | 'review'
+  | 'cluster';
 
 /**
  * Member roles. NAAC IQAC mandates chairman/coordinator/member/secretary;
