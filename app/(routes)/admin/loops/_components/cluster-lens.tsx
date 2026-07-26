@@ -146,7 +146,7 @@ export function ClusterLens({
                 className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-foreground"
                 title={m.name}
               >
-                {m.short_name || m.name}
+                {m.display_name || m.name}
               </span>
             ))}
           </div>

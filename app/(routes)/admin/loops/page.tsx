@@ -1402,7 +1402,7 @@ export default async function LoopControlTowerPage({
     const [instRows, presetRows, presetResolutionRows] = await Promise.all([
       admin
         .from('institutions')
-        .select('id, name, short_name')
+        .select('id, name, display_name')
         .eq('is_active', true)
         .order('name')
         // PromiseLike has no .catch — rejection handler is .then's 2nd arg.

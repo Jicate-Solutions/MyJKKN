@@ -119,7 +119,9 @@ export interface LoopAuditRow {
 export interface ClusterInstitutionOption {
   id: string;
   name: string;
-  short_name?: string | null;
+  /** institutions.display_name — the live table's short label column (there is
+   *  no short_name column; selecting one 400s the whole read, CFT 2026-07-26). */
+  display_name?: string | null;
 }
 
 /** A picker preset read from accreditation_committees committee_type='cluster'

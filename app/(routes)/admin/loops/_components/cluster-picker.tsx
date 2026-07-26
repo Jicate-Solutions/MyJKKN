@@ -118,7 +118,7 @@ export function ClusterPicker({
               className="h-3.5 w-3.5 flex-none accent-emerald-600"
             />
             <span className="truncate" title={i.name}>
-              {i.short_name || i.name}
+              {i.display_name || i.name}
             </span>
           </label>
         ))}
