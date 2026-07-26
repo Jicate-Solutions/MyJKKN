@@ -517,6 +517,16 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.session_feedback.verdict.write',
         label: 'Set Loop-Note Verdicts (leadership override)'
       },
+      // 2026-07-26: SCF note-safety loop Phase 0 — opens the learner-note
+      // review queue to a named human reviewer (grantable via Role Management;
+      // seeded on the scf_note_reviewer role). The DB gate on
+      // fn_scf_learner_notes_review / _pending is is_super_admin() OR this
+      // key. Key name is fixed by the note-safety spec (§6.3). Mixed prefix in
+      // this category is deliberate precedent (see faculty.calendar.view above).
+      {
+        key: 'scf.notes.review',
+        label: 'Review AI-Drafted Learner Support Notes (note-safety Phase 0)'
+      },
       {
         key: 'academic.curriculum.lesson.manage',
         label: 'Manage Curriculum Lessons (leadership override: edit, approve/reject AI drafts)'

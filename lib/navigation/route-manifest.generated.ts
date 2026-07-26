@@ -298,6 +298,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/session-feedback/note-review",
+            "label": "Learner Note Review",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/academic/session-feedback/principal",
             "label": "Principal",
             "iconName": "FileText",
@@ -418,6 +424,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Manage",
         "iconName": "Settings",
         "children": [
+          {
+            "path": "/accreditation/manage/collaborations",
+            "label": "Collaborations",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/accreditation/manage/grievance-categories",
             "label": "Grievance Categories",
@@ -4032,6 +4044,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/admin/sanctioned-posts",
+            "label": "Sanctioned Posts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/admin/shift-templates",
             "label": "Shift Templates",
             "iconName": "FileText",
@@ -4399,6 +4417,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Postings",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/improvement-board/rotation",
+        "label": "Rotation",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/improvement-board/rotation/config",
+            "label": "Config",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/improvement-board/rotation/teams",
+            "label": "Teams",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
       }
     ]
   },

@@ -472,6 +472,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admin lane of session feedback (D2 gate) — leadership-view key
   // (menu-visibility gap fix 2026-07-12)
   '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
+  // SCF note-safety loop Phase 0 (2026-07-26): the named-reviewer queue for
+  // AI-drafted learner support notes. Its own key (note-safety spec §6.3),
+  // held by the scf_note_reviewer role; the review/pending RPCs enforce the
+  // same permission server-side. Separate surface from the super-admin
+  // /admin/learner-notes queue (same RPCs underneath).
+  '/academic/session-feedback/note-review': 'scf.notes.review',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -1722,6 +1728,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Session Escalations',
           active: pathname.startsWith('/academic/session-feedback/principal'),
           icon: Activity,
+          submenus: []
+        },
+        {
+          // SCF note-safety loop Phase 0 (2026-07-26): the named reviewer's
+          // queue for AI-drafted learner support notes. Visible only to
+          // holders of scf.notes.review (via MENU_PERMISSIONS) — today the
+          // scf_note_reviewer role — plus the super-admin bypass. The page's
+          // RPCs re-enforce the same permission server-side.
+          href: '/academic/session-feedback/note-review',
+          label: 'Learner Note Review',
+          active: pathname.startsWith('/academic/session-feedback/note-review'),
+          icon: ClipboardCheck,
           submenus: []
         },
         {
