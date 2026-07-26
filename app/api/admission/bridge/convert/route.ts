@@ -123,6 +123,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .maybeSingle();
   const accommodationTypeId: string | null = accRow?.id ?? null;
 
+  // ── 5b. Resolve the institution's ACTIVE academic year (BUG-005352) ─────────
+  // Profiles created by this bridge never carried academic_year_id, so every
+  // downstream year-keyed read found nothing: fn_learner_current_year_academic_fee
+  // matches bills on academic_year_id = learners_profiles.academic_year_id, and
+  // trg_billing_bill_default_academic_year copies the year FROM this profile
+  // column onto new bills. NULL here → unstamped bills → fee lookup empty →
+  // fresher reads as "not eligible" for hostel allocation. Same active-AY
+  // resolution the campus-living RPCs use (~8 migrations share the idiom).
+  const { data: activeAy } = await (svc as any)
+    .from('academic_years')
+    .select('id')
+    .eq('institution_id', lead.institution_id)
+    .eq('is_active', true)
+    .order('start_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const academicYearId: string | null = activeAy?.id ?? null;
+  if (!academicYearId) {
+    console.warn(
+      '[bridge/convert] No active academic year for institution',
+      lead.institution_id,
+      '— academic_year_id left NULL (fee-eligibility lookups will not resolve until stamped)'
+    );
+  }
+
   // ── 5. Map fields ────────────────────────────────────────────────────────────
   const profileData = {
     // Name
@@ -149,6 +174,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Excel export) to derive the legacy integer from the FK in their
     // response shape, so external consumers see no change.
     admission_year_id: resolvedAdmissionYearId,
+    // BUG-005352: stamp the institution's active academic year at creation so
+    // the billing default-AY trigger and fee-eligibility functions can resolve.
+    academic_year_id: academicYearId,
     // Parent (best-effort)
     father_name: lead.parent_name || '',
     father_mobile: lead.parent_phone || '',
