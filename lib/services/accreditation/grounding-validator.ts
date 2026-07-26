@@ -77,6 +77,13 @@ const ACADEMIC_YEAR_RE = /\b(\d{4})-(\d{2}|\d{4})\b/g;
 const CODE_RE = /\b(?=[A-Za-z0-9-]*[A-Za-z])(?=[A-Za-z0-9-]*\d)[A-Za-z0-9-]+\b/g;
 // A bare number: integer or decimal, optional thousands commas.
 const NUMBER_RE = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g;
+// A number-word compound: a leading number joined by a hyphen to a plain word
+// ('3-year', '5-day', '2-fold'). The NUMBER is the only factual part — the word
+// is a descriptor, not evidence — so we check the number and ignore the word,
+// rather than letting CODE_RE flag the whole compound as an unaccounted code.
+// A fabricated figure in this shape ('92-percent') is still caught, because its
+// number is still checked against the allowed-number set.
+const NUM_WORD_RE = /\b\d+(?:\.\d+)?-[A-Za-z]+\b/g;
 
 /** Canonical key for numeric equality: 3.80 → "3.8", trims trailing zeros. */
 function numKey(raw: string): string {
@@ -258,6 +265,16 @@ export function validateGrounding(
     if (!sets.dates.has(d)) offending.push(d);
   }
   remaining = remaining.replace(ISO_DATE_RE, ' ');
+
+  // Number-word compounds ('3-year', '5-day') BEFORE codes: decompose to the
+  // number and check that (the word is a descriptor, not evidence), so a
+  // grounded descriptor passes while a fabricated figure in the same shape
+  // ('92-percent') still fails on its number.
+  for (const m of remaining.match(NUM_WORD_RE) ?? []) {
+    const num = m.match(/^\d+(?:\.\d+)?/)![0];
+    if (!sets.numbers.has(numKey(num))) offending.push(num);
+  }
+  remaining = remaining.replace(NUM_WORD_RE, ' ');
 
   for (const c of remaining.match(CODE_RE) ?? []) {
     if (!sets.codes.has(c.toUpperCase())) offending.push(c);

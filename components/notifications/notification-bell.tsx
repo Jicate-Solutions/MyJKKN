@@ -20,6 +20,7 @@ import {
 } from '@/hooks/notification/use-notifications';
 import { useAuth } from '@/hooks/use-auth';
 import { NotificationItem } from './notification-item';
+import { collapseDuplicates } from '@/lib/notifications/collapse-duplicates';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
 import {
@@ -43,6 +44,11 @@ export function NotificationBell() {
   // 2026-07-15 the bell fetched every unread row fully joined, on a 30s poll,
   // just to read `.length` — an array length standing in for a COUNT.
   const notifications = data?.notifications ?? [];
+  // Fold near-duplicate repeats (e.g. 20 hourly "AI runner appears down") into a
+  // single row with a count — exactly like the full inbox. The bell was rendering
+  // every raw copy, drowning out everything else. Display-only: clicking still
+  // opens the representative.
+  const foldedNotifications = collapseDuplicates(notifications);
   const unreadCount = data?.unreadCount ?? 0;
 
   const handleNotificationClick = async (
@@ -179,18 +185,32 @@ export function NotificationBell() {
 
             {!isLoading && notifications.length > 0 && (
               <div className='divide-y'>
-                {notifications.slice(0, UNREAD_PREVIEW_LIMIT).map((notification) => (
-                  <NotificationItem
-                    key={notification.id}
-                    notification={notification}
-                    onClick={() =>
-                      handleNotificationClick(
-                        notification.id,
-                        notification.action_url
-                      )
-                    }
-                  />
-                ))}
+                {foldedNotifications
+                  .slice(0, UNREAD_PREVIEW_LIMIT)
+                  .map((notification) => {
+                    const stackCount = notification.__stackCount || 1;
+                    return (
+                      <div key={notification.id} className='relative'>
+                        <NotificationItem
+                          notification={notification}
+                          onClick={() =>
+                            handleNotificationClick(
+                              notification.id,
+                              notification.action_url
+                            )
+                          }
+                        />
+                        {stackCount > 1 && (
+                          <Badge
+                            variant='secondary'
+                            className='absolute right-3 top-3 text-[10px] px-1.5 py-0 pointer-events-none'
+                          >
+                            ×{stackCount}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </ScrollArea>
