@@ -16,14 +16,45 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   submitBatch,
   collectEndedBatches,
+  markJobCollected,
   type SubmitBatchRequest,
 } from '@/lib/services/platform/ai-clients/batch';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 import { allTaskFeatureKeys, getTaskType } from '@/lib/ai-tasks/registry';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
 import { resend } from '@/lib/resend';
 
 const CLAIM_CAP = 50;
+
+// ─── ₹0 lane switch for on-demand tasks (Director directive 2026-07-26) ──────
+// 'jobs'  → enqueue every claimed task on the free #1998 ai_jobs registry (₹0,
+//           drained by the Max seat). 'batch' → the legacy PAID Anthropic
+//           Message Batches fallback, kept only so an in-flight bundle can still
+//           be drained and so the decision is reversible from a config row.
+//
+// FAIL-SAFE DIRECTION IS DELIBERATELY INVERTED vs the curriculum generate cron.
+// That cron falls back to the paid path on a policy read error so work is never
+// delayed. Here the Director's instruction is that paid spend stops entirely and
+// "everything queues free and slower" — so a policy hiccup must NOT silently
+// resume billing. On any read error we stay on the free lane: work waits, money
+// does not move. Slower is the accepted cost; unexpected spend is not.
+const TASK_LANE_KEY = 'loops.ai_tasks.submit_lane';
+
+async function readTaskLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'batch'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', {
+      p_key: TASK_LANE_KEY,
+      p_scope_id: null,
+    });
+    if (error) return 'jobs';
+    return data === 'batch' ? 'batch' : 'jobs';
+  } catch {
+    return 'jobs';
+  }
+}
 // Loop-lane outage pager threshold (Director-ratified 2026-07-13 §B.5, "page
 // immediately", 30 min "filters Windows-update reboots"). Distinct from the
 // 10-min RUNNER_STALE_MS runner-down check below (Director-only, business-hours):
@@ -548,7 +579,9 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
   const started = Date.now();
   const hasKey = Boolean(process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY);
-  const features: Record<string, unknown> = {};
+  // Read once per run so every feature in this sweep uses one consistent lane.
+  const lane = await readTaskLane(admin);
+  const features: Record<string, unknown> = { _lane: lane };
 
   for (const featureKey of allTaskFeatureKeys()) {
     const tt = getTaskType(featureKey);
@@ -556,7 +589,7 @@ export async function GET(request: NextRequest) {
     const stat: Record<string, unknown> = {};
 
     // ── 1) COLLECT ended batches → record → reflect back ──────────────────────
-    let recorded = 0, failedCollect = 0, jobs = 0;
+    let recorded = 0, failedCollect = 0, jobs = 0, collectedJobs = 0;
     try {
       const collected = await collectEndedBatches(featureKey);
       jobs = collected.length;
@@ -588,10 +621,77 @@ export async function GET(request: NextRequest) {
             await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.customId, outcome: 'failed' });
           }
         }
+
+        // Updated: 2026-07-26 — FINALIZE the job. collectEndedBatches()
+        // deliberately leaves the job in 'collecting' so the caller can
+        // domain-record first (see batch.ts header); the three other collect
+        // callers each call markJobCollected, this one never did. Every item
+        // above reaches a terminal task state (mark_done or mark_failed, both
+        // branches and the catch), so the job is fully drained here and must
+        // be closed. Without this the job is re-claimed on every tick, re-drains
+        // the same results, and burns its retry budget until the PAID batch
+        // expires — observed in production as three expired batches at 103/104
+        // collect_attempts and a fourth wedged at 19, all phase='user_task'
+        // (the only phase this route submits). Finalize failure is logged, not
+        // thrown, so one bad job cannot strand the remaining jobs' finalize.
+        try {
+          await markJobCollected(job.jobId);
+          collectedJobs++;
+        } catch (finErr) {
+          console.error(
+            `[cron/ai-tasks-sweep] ${featureKey}: job ${job.jobId} drained but finalize failed —`,
+            finErr instanceof Error ? finErr.message : finErr,
+          );
+        }
       }
-      stat.collect = { jobs, recorded, failed: failedCollect };
+      stat.collect = { jobs, collected: collectedJobs, recorded, failed: failedCollect };
     } catch (e) {
       stat.collect = { error: e instanceof Error ? e.message : 'collect failed' };
+    }
+
+    // ── 1b) JOBS-LANE COLLECT — drain done ai_jobs (₹0 Max lane) ──────────────
+    // Records the SAME way as the paid path above (tt.recordResult →
+    // fn_ai_task_mark_done), so a task's stored result is identical whichever
+    // lane produced it. Runs ALWAYS, independent of the lane switch and of
+    // hasKey: the Max seat needs no Anthropic key, and draining unconditionally
+    // means a flip back to 'batch' never orphans work already queued on the free
+    // lane. fn_ai_collect_claim stamps delivered_at, so each result is recorded
+    // at most once.
+    let laneRecorded = 0, laneFailed = 0;
+    try {
+      const laneItems = await collectJobsLane(admin, [featureKey], CLAIM_CAP);
+      for (const item of laneItems) {
+        const ctx = item.context ?? {};
+        const uid = ctx.requested_by ? String(ctx.requested_by) : null;
+        const courseCode = ctx.course_code ? String(ctx.course_code) : null;
+        try {
+          if (item.message) {
+            const result = await tt.recordResult(admin, ctx, item.message);
+            await admin.rpc('fn_ai_task_mark_done', { p_task_id: item.jobId, p_result: result });
+            laneRecorded++;
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.jobId, outcome: 'done' });
+          } else {
+            // Drain completed but produced no usable text — fail the task so the
+            // requester is told, rather than leaving it silently in-flight.
+            await admin.rpc('fn_ai_task_mark_failed', {
+              p_task_id: item.jobId,
+              p_error: 'max lane returned no usable text',
+            });
+            laneFailed++;
+            await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.jobId, outcome: 'failed' });
+          }
+        } catch (e) {
+          await admin.rpc('fn_ai_task_mark_failed', {
+            p_task_id: item.jobId,
+            p_error: e instanceof Error ? e.message : 'record failed',
+          });
+          laneFailed++;
+          await notifyOutcome(admin, tt, { uid, courseCode, taskId: item.jobId, outcome: 'failed' });
+        }
+      }
+      stat.collect_jobs_lane = { claimed: laneItems.length, recorded: laneRecorded, failed: laneFailed };
+    } catch (e) {
+      stat.collect_jobs_lane = { error: e instanceof Error ? e.message : 'jobs-lane collect failed' };
     }
 
     // ── 2) SUBMIT newly-queued clicks as ONE batch ────────────────────────────
@@ -621,7 +721,12 @@ export async function GET(request: NextRequest) {
               uid, courseCode, taskId: row.id,
               outcome: reason === 'not_enough_feedback' ? 'empty' : 'done',
             });
-          } else if (!hasKey) {
+          } else if (lane === 'batch' && !hasKey) {
+            // Only the PAID batch lane needs an Anthropic key. On the ₹0 lane the
+            // Max seat runs the job, so a missing key must NOT resolve the task as
+            // 'ai_not_configured' — that would silently discard every request the
+            // moment the key is removed, which is exactly what switching the paid
+            // lane off does.
             await admin.rpc('fn_ai_task_mark_done', {
               p_task_id: row.id,
               p_result: { suggestion: null, reason: 'ai_not_configured' },
@@ -647,16 +752,68 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      if (requests.length > 0) {
+      if (requests.length > 0 && lane === 'jobs') {
+        // ₹0 MAX LANE — enqueue each claimed task as an ai_job instead of buying a
+        // paid batch. The seeded job type's glue prompt_template is {{prompt}}, so
+        // we pass the SAME assembled prompt buildSubmitItem produced (system +
+        // user), extracted from the request, and the model sees identical
+        // instructions. No Anthropic key is used on this path.
+        //
+        // NOTE the model is deliberately NOT forwarded. The registry stores family
+        // aliases ('sonnet'/'opus') which the Max CLI resolves to current-latest;
+        // the paid HTTP API rejects them outright (not_found_error: model: sonnet —
+        // observed on all 34 requests of the 2026-07-25 bundle). Letting the seat
+        // resolve its own model is both correct and always-latest.
+        let enqueued = 0, inFlight = 0, enqueueFailed = 0;
+        const submittedIds: string[] = [];
+        for (const req of requests) {
+          const system = typeof req.params.system === 'string' ? req.params.system : '';
+          const userContent = req.params.messages?.[0]?.content;
+          const user = typeof userContent === 'string' ? userContent : JSON.stringify(userContent);
+          const r = await enqueueJobsLane(admin, {
+            jobType: featureKey,
+            prompt: `${system}\n\n${user}`,
+            context: req.context ?? {},
+            dedupeKey: req.dedupeKey ?? req.customId,
+          });
+          if (r.ok) {
+            enqueued++;
+            submittedIds.push(req.customId);
+          } else if (r.reason === 'in_flight') {
+            // Already queued/claimed on the free lane — treat as handled so the
+            // task is not requeued into a duplicate.
+            inFlight++;
+            submittedIds.push(req.customId);
+          } else {
+            // Could not enqueue (unknown/disabled job type, no seat owner, error).
+            // Requeue below so the next sweep retries rather than losing the click.
+            enqueueFailed++;
+            console.warn(
+              `[cron/ai-tasks-sweep] ${featureKey}: jobs-lane enqueue failed (${r.reason}): ${r.error ?? ''}`,
+            );
+          }
+        }
+        if (submittedIds.length > 0) {
+          await admin.rpc('fn_ai_task_mark_submitted', { p_task_ids: submittedIds });
+        }
+        const requeueIds = requests.map((r) => r.customId).filter((id) => !submittedIds.includes(id));
+        if (requeueIds.length > 0) {
+          await admin.rpc('fn_ai_task_requeue', { p_task_ids: requeueIds });
+        }
+        stat.submit = {
+          lane: 'jobs', claimed: rows.length, submitted: enqueued, in_flight: inFlight,
+          requeued: requeueIds.length, skipped, erroredBuild,
+        };
+      } else if (requests.length > 0) {
         const modelId = String(requests[0].params.model);
         try {
           const res = await submitBatch({ featureKey, phase: 'user_task', modelId, requests });
           await admin.rpc('fn_ai_task_mark_submitted', { p_task_ids: requests.map((r) => r.customId) });
-          stat.submit = { claimed: rows.length, submitted: res?.requestCount ?? requests.length, skipped, erroredBuild, jobId: res?.jobId ?? null };
+          stat.submit = { lane: 'batch', claimed: rows.length, submitted: res?.requestCount ?? requests.length, skipped, erroredBuild, jobId: res?.jobId ?? null };
         } catch (e) {
           // Submit failed → requeue for the next sweep (nothing billed on a reserve/create failure).
           await admin.rpc('fn_ai_task_requeue', { p_task_ids: requests.map((r) => r.customId) });
-          stat.submit = { claimed: rows.length, submitted: 0, skipped, erroredBuild, submit_error: e instanceof Error ? e.message : 'submit failed' };
+          stat.submit = { lane: 'batch', claimed: rows.length, submitted: 0, skipped, erroredBuild, submit_error: e instanceof Error ? e.message : 'submit failed' };
         }
       } else {
         stat.submit = { claimed: rows.length, submitted: 0, skipped, erroredBuild };
