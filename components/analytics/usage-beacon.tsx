@@ -8,10 +8,19 @@
 // CONTEXT: `usage_events`, `module_usage_daily`, `feature_usage_summary`,
 // `institution_health_scores`, the `compute_*` rollup RPCs, the
 // `UsageTrackingService`, and `POST /api/analytics/usage/events` have all been
-// live since 2026-02-06. `UsageTrackingService.trackPageVisit`'s own docstring
-// says "Called from the browser via POST /api/analytics/usage/events" — but
-// nothing in the browser ever called it, so the table stayed empty and no
-// module's adoption could be measured.
+// live since 2026-02-06.
+//
+// What DOES write today: the endpoint's explicit mode ({module,feature,
+// event_type}), from 16 `trackUsage()` call sites in 6 services — billing
+// invoices + receipts, academic attendance + timetables, learner profiles,
+// exports. So `usage_events` holds create/update/delete/export rows for those
+// six areas and nothing else.
+//
+// What NEVER wrote: page visits. `UsageTrackingService.trackPageVisit`'s own
+// docstring says "Called from the browser via POST /api/analytics/usage/events"
+// — but no browser code ever called it. Without page visits, adoption of a
+// module is invisible unless someone happens to write data in it, so every
+// read-mostly module reads as zero.
 //
 // This component is that caller. One mount in `app/(routes)/layout.tsx` covers
 // every page under the authenticated shell — present and future — instead of
