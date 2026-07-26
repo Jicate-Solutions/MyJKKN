@@ -17,15 +17,23 @@ import { UnifiedAccessMapTab } from './unified-access-map-tab';
 import { RlsAuditTab } from './rls-audit-tab';
 import { ExportReportsTab } from './export-reports-tab';
 import { AIDebuggerTab } from './ai-debugger-tab';
-import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
 import { ModuleAccessTab } from './module-access-tab';
 import { ComplianceReportButton } from './compliance-report-button';
 import { useTabParam } from '@/hooks/use-tab-param';
 
-/** All valid tab values — used to sanitize the ?tab= URL param. */
+/**
+ * All valid tab values — used to sanitize the ?tab= URL param.
+ *
+ * 'ask' was removed 2026-07-26. Its backend
+ * (/api/users/permissions-audit/ai-debug) is hardcoded to Gemini and returns
+ * "GEMINI_API_KEY not configured in environment" in production, so the box was
+ * a dead control — and it was the DEFAULT landing tab, so every super-admin hit
+ * it first. Dropping it from this list also makes a stale ?tab=ask deep-link
+ * fall back to DEFAULT_TAB instead of opening a broken pane. Re-add here, in
+ * TabsList and in TabsContent once the tab has a working backend.
+ */
 const TAB_VALUES = [
-  'ask',
   'activity',
   'unified',
   'module-access',
@@ -38,7 +46,7 @@ const TAB_VALUES = [
   'ai-debug',
 ] as const;
 
-const DEFAULT_TAB = 'ask';
+const DEFAULT_TAB = 'activity';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -99,8 +107,7 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
-          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-11 lg:gap-0 lg:overflow-visible'>
-            <TabsTrigger value='ask'>Ask</TabsTrigger>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-10 lg:gap-0 lg:overflow-visible'>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
             <TabsTrigger value='module-access'>Module → Roles</TabsTrigger>
@@ -112,10 +119,6 @@ export function PermissionsAuditClient() {
             <TabsTrigger value='export'>Export</TabsTrigger>
             <TabsTrigger value='ai-debug'>AI Debugger</TabsTrigger>
           </TabsList>
-
-          <TabsContent value='ask'>
-            <AskTab />
-          </TabsContent>
 
           <TabsContent value='activity'>
             <ActivityTimelineTab />
