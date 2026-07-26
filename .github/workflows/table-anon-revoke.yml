@@ -1,0 +1,53 @@
+name: New-table anon-lock
+
+# Every NEW table added in a migration must explicitly lock anon
+# (REVOKE ALL ... FROM anon, or an explicit GRANT ... TO anon for an
+# intentionally-public table). Enforces the CLAUDE.md rule
+# "Every new table needs explicit REVOKE ALL ... FROM anon, PUBLIC".
+#
+# WHY this is a CI guard and not a database default: Supabase ships
+# ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, and on
+# hosted Supabase that default cannot be reliably suppressed (the supabase_admin
+# owner default cannot be altered). So every new public-schema table is born with
+# SELECT/INSERT/UPDATE/DELETE granted to the anon key that ships in every page of
+# https://www.jkkn.ai. RLS is not a substitute — CREATE TABLE AS never enables it,
+# and an RLS policy written TO PUBLIC still applies to anon.
+# See scripts/ci/check-table-anon-revoke.mjs header.
+#
+# Sibling of .github/workflows/secdef-anon-revoke.yml, which enforces the same
+# rule for SECURITY DEFINER functions. Kept as a SEPARATE workflow on purpose so
+# it reports as its own status check and cannot change the pass/fail meaning of
+# the existing one.
+#
+# PR-scoped: inspects only migration files added/modified relative to the PR base,
+# so the large backlog of pre-existing unlocked tables does not fail every PR.
+# Static SQL-text scan (like the Radix empty-value gate) — see script for limits.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci/check-table-anon-revoke.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: New tables lock anon
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-table-anon-revoke.mjs --base "origin/${{ github.base_ref }}"
