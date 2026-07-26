@@ -63,6 +63,12 @@ export interface CommitteeResolution {
   reviewed_in_meeting_id: string | null; // where last reviewed/closed
   outcome_note: string | null;
   closed_at: string | null;
+  /**
+   * C7 routing tag (two-spine weave): a cluster (CAC) resolution names the
+   * colleges it touches; those colleges' IQAC briefs pick it up. Empty for
+   * ordinary per-college resolutions.
+   */
+  affected_institution_ids: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -84,6 +90,8 @@ export interface PassResolutionPayload {
   owner_label?: string | null;
   owner_user_id?: string | null;
   due_date?: string | null;
+  /** C7: optional affected-colleges routing tag (cluster/CAC resolutions). */
+  affected_institution_ids?: string[];
 }
 
 function isUniqueViolation(e: unknown): boolean {
@@ -276,6 +284,13 @@ export class CommitteeMeetingService {
         owner_label: payload.owner_label ?? null,
         due_date: payload.due_date ?? null,
         status: 'open',
+        // C7: only sent when tags are chosen — keeps plain IQAC resolution
+        // writes working even before the Director-gated migration is applied
+        // (the column defaults to '{}' once it exists).
+        ...(payload.affected_institution_ids &&
+        payload.affected_institution_ids.length > 0
+          ? { affected_institution_ids: payload.affected_institution_ids }
+          : {}),
         created_by: await this.currentUserId(),
       })
       .select('*')
