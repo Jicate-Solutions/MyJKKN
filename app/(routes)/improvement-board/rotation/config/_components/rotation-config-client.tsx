@@ -1,16 +1,22 @@
 'use client';
 
 /**
- * MBA Team Rotation — cycle setup (client).
- * Manager-only (improvement.board.manage). Create rotation cycles (period length
- * 2-3 weeks, start date, department set — all 14 by default), add exam/holiday
- * blackouts to skip, generate the rota, and move a cycle through
+ * Team Rotation — cycle setup (client).
+ * Manager-only (improvement.board.manage). Create rotation cycles (cohort, period
+ * length 2-3 weeks, start date, department set — all 14 by default), add
+ * exam/holiday blackouts to skip, generate the rota, and move a cycle through
  * draft → active → paused/completed. The daily cron applies only ACTIVE cycles.
+ *
+ * PHASE 3 — cohort-generic: a cycle serves ONE cohort, chosen at creation, and
+ * the generator round-robins only that cohort's active teams. The cohort is fixed
+ * after creation so a live rota can never silently change who it covers. When the
+ * Phase-3 migration is not applied yet the chooser is hidden and the module
+ * behaves exactly as before (single MBA cohort).
  *
  * Gating branches on the loading state FIRST (CLAUDE.md #27).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -45,8 +51,10 @@ import {
 } from '@/lib/services/improvement/improvement-service';
 import {
   MbaRotationService,
+  DEFAULT_COHORT_KEY,
   type MbaRotationCycle,
   type MbaRotationCycleStatus,
+  type TeachingCohortOption,
 } from '@/lib/services/mba-rotation/mba-rotation-service';
 
 const STATUS_STYLE: Record<string, string> = {
@@ -108,20 +116,32 @@ function RotationConfig() {
   const [cycles, setCycles] = useState<MbaRotationCycle[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  const [cohorts, setCohorts] = useState<TeachingCohortOption[]>([]);
+  const [cohortsSupported, setCohortsSupported] = useState(false);
+
   // Create form
   const [name, setName] = useState('');
+  const [cohortKey, setCohortKey] = useState(DEFAULT_COHORT_KEY);
   const [periodWeeks, setPeriodWeeks] = useState('2');
   const [startDate, setStartDate] = useState(todayISO());
   const [pickedAreas, setPickedAreas] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
-    const [nextAreas, nextCycles] = await Promise.all([
+    const [nextAreas, nextCycles, cohortState] = await Promise.all([
       ImprovementService.listAreas(),
       MbaRotationService.listCycles(),
+      MbaRotationService.listCohortOptions(),
     ]);
     setAreas(nextAreas);
     setCycles(nextCycles);
+    setCohorts(cohortState.options);
+    setCohortsSupported(cohortState.supported);
+    setCohortKey((prev) =>
+      cohortState.options.some((o) => o.cohort_key === prev)
+        ? prev
+        : (cohortState.options[0]?.cohort_key ?? DEFAULT_COHORT_KEY)
+    );
     // Default: all departments picked for a new cycle.
     setPickedAreas((prev) => (prev.size === 0 ? new Set(nextAreas.map((a) => a.id)) : prev));
   }, []);
@@ -148,6 +168,11 @@ function RotationConfig() {
     setCycles(await MbaRotationService.listCycles());
   }, []);
 
+  const cohortLabel = useMemo(() => {
+    const m = new Map(cohorts.map((c) => [c.cohort_key, c.display_name]));
+    return (key: string) => m.get(key) ?? key;
+  }, [cohorts]);
+
   const toggleArea = (id: string) =>
     setPickedAreas((prev) => {
       const next = new Set(prev);
@@ -172,6 +197,8 @@ function RotationConfig() {
         periodWeeks: Number(periodWeeks),
         startDate,
         areaIds: Array.from(pickedAreas),
+        // Only sent when the Phase-3 column exists; else the DB default applies.
+        cohortKey: cohortsSupported ? cohortKey : null,
       });
       setName('');
       setPickedAreas(new Set(areas.map((a) => a.id)));
@@ -219,6 +246,26 @@ function RotationConfig() {
                 placeholder="e.g. 2026 Odd-semester rotation"
               />
             </div>
+            {cohortsSupported && (
+              <div>
+                <Label className="mb-1 block">Cohort</Label>
+                <Select value={cohortKey} onValueChange={setCohortKey}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a cohort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cohorts.map((c) => (
+                      <SelectItem key={c.cohort_key} value={c.cohort_key}>
+                        {c.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Only this cohort&apos;s teams are placed on the rota.
+                </p>
+              </div>
+            )}
             <div>
               <Label className="mb-1 block">Period length</Label>
               <Select value={periodWeeks} onValueChange={setPeriodWeeks}>
@@ -321,6 +368,11 @@ function RotationConfig() {
                     )}
                     <span className="font-semibold">{c.name}</span>
                     <Badge className={STATUS_STYLE[c.status] ?? ''}>{c.status}</Badge>
+                    {cohortsSupported && (
+                      <Badge variant="secondary" className="text-xs">
+                        {cohortLabel(c.cohort_key)}
+                      </Badge>
+                    )}
                   </div>
                   <span className="text-muted-foreground text-xs">
                     {c.period_weeks}-wk · {c.department_count} depts · {c.slot_count} slots
@@ -331,6 +383,7 @@ function RotationConfig() {
                   <CycleEditor
                     cycle={c}
                     areas={areas}
+                    cohortName={cohortsSupported ? cohortLabel(c.cohort_key) : null}
                     onChanged={refreshCycles}
                   />
                 )}
@@ -348,10 +401,13 @@ function RotationConfig() {
 function CycleEditor({
   cycle,
   areas,
+  cohortName,
   onChanged,
 }: {
   cycle: MbaRotationCycle;
   areas: ImprovementArea[];
+  /** Display name of the cycle's cohort, or null when the backend predates Phase 3. */
+  cohortName: string | null;
   onChanged: () => Promise<void> | void;
 }) {
   const [depIds, setDepIds] = useState<Set<string>>(new Set());
@@ -440,7 +496,9 @@ function CycleEditor({
       await onChanged();
       if (r.slots_created === 0) {
         toast.error(
-          'No rota generated — a cycle needs at least one active team and one department.'
+          cohortName
+            ? `No rota generated — this cycle needs at least one ACTIVE ${cohortName} team and one department.`
+            : 'No rota generated — a cycle needs at least one active team and one department.'
         );
       } else {
         toast.success(
@@ -515,6 +573,15 @@ function CycleEditor({
 
   return (
     <div className="mt-4 space-y-5 border-t pt-4">
+      {/* Cohort — fixed after creation so a live rota never changes who it covers */}
+      {cohortName && (
+        <p className="text-muted-foreground text-xs">
+          Cohort: <span className="text-foreground font-medium">{cohortName}</span> — set
+          when the cycle was created and fixed from then on. Only this cohort&apos;s
+          active teams are placed on the rota.
+        </p>
+      )}
+
       {/* Basics */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>

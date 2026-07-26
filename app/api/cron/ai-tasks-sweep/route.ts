@@ -156,14 +156,22 @@ async function runnerDownHealthCheck(
   // A live runner stamps this every ~2 min, so a missing pulse means it is down.
   const heartbeatStale = !(heartbeatAgeMs < RUNNER_STALE_MS);
 
-  // 2) Oldest non-terminal ai_job stuck past the cutoff.
-  const staleCutoffIso = new Date(now - RUNNER_STALE_MS).toISOString();
+  // 2) A job genuinely STUCK IN PROCESSING — one a worker CLAIMED but never
+  //    finished. A merely-old PENDING (unclaimed) job is a healthy queue backlog
+  //    being drained, NOT a stuck runner. Keying this on requested_at (queue time)
+  //    meant a large legitimate backlog — e.g. ~500 pending curriculum jobs —
+  //    fired an hourly FALSE "AI runner appears down" for its whole duration while
+  //    the runner was alive and steadily draining. Key on claimed_at (processing
+  //    time), with a generous window since real AI jobs can run several minutes.
+  const STUCK_CLAIMED_MS = 30 * 60 * 1000;
+  const stuckCutoffIso = new Date(now - STUCK_CLAIMED_MS).toISOString();
   const { data: stuckRows } = await admin
     .from('ai_jobs')
-    .select('id, job_type, status, requested_at')
+    .select('id, job_type, status, requested_at, claimed_at')
     .not('status', 'in', TERMINAL_STATUSES)
-    .lt('requested_at', staleCutoffIso)
-    .order('requested_at', { ascending: true })
+    .not('claimed_at', 'is', null)
+    .lt('claimed_at', stuckCutoffIso)
+    .order('claimed_at', { ascending: true })
     .limit(1);
   const stuckJob = Array.isArray(stuckRows) && stuckRows.length > 0 ? stuckRows[0] : null;
 
@@ -200,7 +208,7 @@ async function runnerDownHealthCheck(
     ? `${Math.round(heartbeatAgeMs / 60000)} min`
     : 'never fired / no heartbeat row';
   const stuckLabel = stuckJob
-    ? `job ${stuckJob.id} (${stuckJob.job_type}, status=${stuckJob.status}, queued ${new Date(stuckJob.requested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST)`
+    ? `job ${stuckJob.id} (${stuckJob.job_type}, status=${stuckJob.status}, claimed ${new Date(stuckJob.claimed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST, not completed)`
     : 'none';
   const nowIst = nowDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
