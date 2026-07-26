@@ -57,28 +57,9 @@ const RANKABLE_STATUSES = ['filed', 'triaged'];
 const MIN_GAPS_TO_RANK = 2;
 const COLLECT_CAP = 50;
 
-const GAP_CLASSES = ['type_a_surface', 'type_b_capture', 'uncertain'] as const;
-type GapClass = (typeof GAP_CLASSES)[number];
-
-// Why the filer thinks the data is missing → a short phrase for the prompt.
-const GAP_TYPE_HINT: Record<string, string> = {
-  not_captured: 'filer believes it is not recorded anywhere',
-  not_surfaced: 'filer believes it is recorded but has no view/report',
-  unsure: 'filer is unsure whether it is recorded',
-};
-
 // ── types ──────────────────────────────────────────────────────────────────
-
-interface RankableGap {
-  id: string;
-  institution_id: string | null;
-  area_id: string;
-  gap_type: string;
-  title: string;
-  what_missing: string | null;
-  what_analysis: string | null;
-  what_decision: string | null;
-}
+// GAP_CLASSES, GapClass, RankableGap, GAP_TYPE_HINT and buildRankingPrompt now
+// live in lib/services/mba-data-gap/rank-data-gaps-prompt.ts (pure + testable).
 
 interface RankContext {
   run_id: string;
