@@ -186,6 +186,10 @@ function DataGapsBoard() {
   const [gaps, setGaps] = useState<MbaDataGap[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [ownerEditing, setOwnerEditing] = useState<Set<string>>(new Set());
+  const [dupsByGap, setDupsByGap] = useState<
+    Map<string, DuplicateSuggestion[] | 'loading'>
+  >(new Map());
 
   const load = useCallback(async () => {
     const rows = await MbaDataGapService.listDataGaps();
