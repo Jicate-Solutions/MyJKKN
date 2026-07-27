@@ -111,7 +111,7 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardTitle className="text-base">Scorecard</CardTitle>
           <CardDescription>

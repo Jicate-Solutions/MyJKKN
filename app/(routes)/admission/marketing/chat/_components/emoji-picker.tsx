@@ -50,7 +50,7 @@ export function EmojiPicker({ onSelect, trigger }: EmojiPickerProps) {
           </button>
         )}
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" side="top" align="start">
+      <PopoverContent className="w-[calc(100vw-2rem)] max-w-80 p-0 sm:w-80" side="top" align="start">
         <div className="border-b p-2">
           <Input
             placeholder="Search emoji..."

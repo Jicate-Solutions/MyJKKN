@@ -61,7 +61,7 @@ export function PatternCard({ pattern }: PatternCardProps) {
         </div>
 
         {/* Summary metrics */}
-        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Users className="h-3 w-3" /> {pattern.people_affected} people
           </span>

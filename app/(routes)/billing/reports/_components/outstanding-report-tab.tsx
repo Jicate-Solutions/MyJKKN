@@ -152,7 +152,7 @@ export function OutstandingReportTab({
       {/* Report Table */}
       <Card>
         <CardHeader>
-          <div className='flex justify-between items-center'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <CardTitle>Outstanding Report</CardTitle>
             {canExport && (
               <div className='flex items-center gap-2'>

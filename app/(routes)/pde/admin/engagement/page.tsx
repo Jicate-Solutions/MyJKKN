@@ -214,7 +214,7 @@ export default function EngagementDashboardPage() {
         </Breadcrumb>
 
         {/* Header + Filter */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold">Engagement Dashboard</h1>
             <p className="text-muted-foreground">
@@ -222,7 +222,7 @@ export default function EngagementDashboardPage() {
             </p>
           </div>
           <Select value={courseFilter} onValueChange={setCourseFilter}>
-            <SelectTrigger className="w-[240px]">
+            <SelectTrigger className="w-full sm:w-[240px] shrink-0">
               <SelectValue placeholder="Filter by course" />
             </SelectTrigger>
             <SelectContent>

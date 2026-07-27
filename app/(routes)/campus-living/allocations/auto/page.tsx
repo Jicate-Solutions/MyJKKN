@@ -285,7 +285,7 @@ export default function AutoAllocatePage() {
           <Switch checked={strict} onCheckedChange={(v) => { setStrict(v); setCandidates(null); }} />
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button
             variant="outline"
             onClick={runPreview}

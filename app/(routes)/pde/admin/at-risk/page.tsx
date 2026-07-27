@@ -144,7 +144,7 @@ export default function AtRiskLearnersPage() {
         </Breadcrumb>
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <ShieldAlert className="h-6 w-6 text-red-500" />
@@ -159,7 +159,7 @@ export default function AtRiskLearnersPage() {
             value={courseFilter || 'all'}
             onValueChange={(v) => setCourseFilter(v === 'all' ? undefined : v)}
           >
-            <SelectTrigger className="w-[240px]">
+            <SelectTrigger className="w-full sm:w-[240px] shrink-0">
               <SelectValue placeholder="Filter by course" />
             </SelectTrigger>
             <SelectContent>

@@ -112,12 +112,12 @@ export default async function AgentBoardPage() {
               {trainingWins.map((win) => (
                 <Card key={win.id}>
                   <CardContent className="py-3 px-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium">{win.name}</p>
-                        <p className="text-xs text-muted-foreground">{win.category}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{win.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{win.category}</p>
                       </div>
-                      <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 text-[10px]">
+                      <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 text-[10px] shrink-0">
                         Resolved via training
                       </Badge>
                     </div>
@@ -137,7 +137,7 @@ export default async function AgentBoardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-6 text-sm">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
               <div>
                 <span className="text-lg font-bold">{impactSummary.agents_deployed}</span>
                 <span className="text-muted-foreground ml-1">agents deployed</span>

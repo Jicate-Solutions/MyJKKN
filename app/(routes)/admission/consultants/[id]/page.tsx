@@ -345,7 +345,7 @@ function ConsultantDetailContent() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-6">
           <Avatar className="h-24 w-24">
             <AvatarImage src={consultant.profile_photo_url || ''} alt={consultant.name} />
@@ -361,7 +361,7 @@ function ConsultantDetailContent() {
                 Contact: {consultant.contact_person}
               </p>
             )}
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
               <Badge className={getTypeColor(consultant.consultant_type)}>
                 {consultant.consultant_type.replace('_', ' ')}
               </Badge>
@@ -377,16 +377,16 @@ function ConsultantDetailContent() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm text-muted-foreground">
               {consultant.email && (
-                <span className="flex items-center gap-1">
-                  <Mail className="h-4 w-4" />
+                <span className="flex items-center gap-1 min-w-0 break-all">
+                  <Mail className="h-4 w-4 shrink-0" />
                   {consultant.email}
                 </span>
               )}
               {consultant.phone && (
                 <span className="flex items-center gap-1">
-                  <Phone className="h-4 w-4" />
+                  <Phone className="h-4 w-4 shrink-0" />
                   {consultant.phone}
                 </span>
               )}
@@ -502,7 +502,7 @@ function ConsultantDetailContent() {
 
       {/* Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="commission-structure">Commission Structure</TabsTrigger>
           <TabsTrigger value="referrals">Recent Referrals</TabsTrigger>

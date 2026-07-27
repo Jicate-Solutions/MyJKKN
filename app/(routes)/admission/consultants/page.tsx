@@ -428,7 +428,7 @@ function ConsultantsPageContent() {
 
       {/* Consultants Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2">
             <Handshake className="h-5 w-5" />
             Education Consultants

@@ -172,14 +172,14 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
       <div className='space-y-6 mt-4'>
         {/* Back Button */}
 
-        <div className='flex justify-between items-center'>
-          <div className='flex items-center gap-4'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center'>
+          <div className='flex items-center gap-4 min-w-0'>
             <Button variant='outline' size='sm' asChild>
               <Link href='/staff/list' className='flex items-center gap-2'>
                 <ArrowLeft className='h-4 w-4' />
               </Link>
             </Button>
-            <div className='flex flex-col'>
+            <div className='flex flex-col min-w-0'>
               <h1 className='text-2xl font-bold py-1'>
                 {staff.first_name} {staff.last_name}
               </h1>
@@ -188,7 +188,7 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
               </p>
             </div>
           </div>
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2 shrink-0'>
             {/* Phase 2 — one-click ID-card printing (hidden without id_cards.jobs.manage).
                 Team members link to accounts via staff.profile_id (set by the
                 sync_staff_to_profiles trigger); email match is the fallback. */}
@@ -229,11 +229,11 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 src={staff.profile_picture}
                 firstName={staff.first_name}
                 lastName={staff.last_name}
-                className='h-20 w-20'
+                className='h-20 w-20 shrink-0'
                 fallbackClassName='text-lg'
               />
-              <div className='space-y-1'>
-                <div className='flex items-center gap-2'>
+              <div className='space-y-1 min-w-0'>
+                <div className='flex flex-wrap items-center gap-2'>
                   <h2 className='text-xl font-semibold'>
                     {staff.first_name} {staff.last_name}
                   </h2>
@@ -249,7 +249,7 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 </p>
                 <Link
                   href={`mailto:${staff.institution_email}`}
-                  className='text-sm text-muted-foreground hover:text-primary'
+                  className='block text-sm text-muted-foreground hover:text-primary break-all'
                 >
                   {staff.institution_email || 'Not Assigned'}
                 </Link>

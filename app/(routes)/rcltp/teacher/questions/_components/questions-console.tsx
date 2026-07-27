@@ -939,7 +939,7 @@ export function QuestionsConsole() {
           </p>
         </div>
         <Select value={instFilter} onValueChange={setInstFilter}>
-          <SelectTrigger className='w-56'>
+          <SelectTrigger className='w-full sm:w-56'>
             <SelectValue placeholder='Filter by school' />
           </SelectTrigger>
           <SelectContent>

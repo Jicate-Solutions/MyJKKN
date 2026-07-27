@@ -208,7 +208,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang='en' suppressHydrationWarning>
+    <html lang='en' className='overflow-x-hidden' suppressHydrationWarning>
       <head>
         {/* Preconnect to critical third-party origins — shaves ~200-400ms off first request */}
         <link
@@ -225,7 +225,7 @@ export default function RootLayout({
           href='https://apis.google.com'
         />
       </head>
-      <body className={`${poppins.variable} ${notoSansTamil.variable} ${dmSerifDisplay.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable} font-sans antialiased`} suppressHydrationWarning>
+      <body className={`${poppins.variable} ${notoSansTamil.variable} ${dmSerifDisplay.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable} font-sans antialiased overflow-x-hidden`} suppressHydrationWarning>
         <ReactQueryProvider>
           <ThemeProvider
             attribute='class'

@@ -2217,7 +2217,7 @@ function LeadDetailPageContent() {
                 {/* Personal Info */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="edit-first_name">First Name *</Label>
                       <Input
@@ -2303,7 +2303,7 @@ function LeadDetailPageContent() {
                       className="mt-1"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label>State</Label>
                       <Select value={editForm.state} onValueChange={(v) => handleEditChange('state', v)}>
@@ -2358,7 +2358,7 @@ function LeadDetailPageContent() {
                 {/* Parent / Guardian */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Parent / Guardian</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="edit-parent_name">Parent Name</Label>
                       <Input
@@ -2393,7 +2393,7 @@ function LeadDetailPageContent() {
                 {/* Academic & Interest */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <AdmissionYearSelect
                         institutionId={editProgramsInstitutionId}

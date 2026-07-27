@@ -97,7 +97,7 @@ export function RunAnalysisButton() {
   }, [running, router, stopTimer]);
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       {running && (
         <span className="text-xs text-muted-foreground tabular-nums" aria-live="polite">
           {elapsed}s elapsed · expected ~{EXPECTED_SECONDS}s

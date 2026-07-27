@@ -391,7 +391,7 @@ export function BillingScheduleDataTable({
       ).length;
 
       return (
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           {canCreateBills && (
             <Button
               onClick={() => router.push('/billing/schedule/bulk-create')}

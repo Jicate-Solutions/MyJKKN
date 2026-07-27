@@ -194,7 +194,7 @@ export default function ApplicationHubPage() {
   return (
     <ContentLayout title='Application Hub'>
       <div className='space-y-6'>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-2xl font-bold py-1'>Application Hub</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
@@ -204,7 +204,7 @@ export default function ApplicationHubPage() {
               )}
             </p>
           </div>
-          <div className='flex gap-2'>
+          <div className='flex gap-2 shrink-0'>
             <Button
               onClick={handleRefresh}
               variant='outline'

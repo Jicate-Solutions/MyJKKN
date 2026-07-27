@@ -141,7 +141,7 @@ export default function ServiceRequestsHubPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="my-requests">My Requests</TabsTrigger>
             {canApprove && (
               <TabsTrigger value="pending-approvals">Pending Approvals</TabsTrigger>

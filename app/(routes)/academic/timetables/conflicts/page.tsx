@@ -499,17 +499,17 @@ function TimetableConflictsPageInner() {
             onValueChange={setActiveTab}
             className='w-full'
           >
-            <TabsList className='grid w-full grid-cols-2'>
+            <TabsList className='flex w-full justify-start overflow-x-auto sm:grid sm:grid-cols-2'>
               <TabsTrigger
                 value='staff-mismatch'
-                className='flex items-center gap-2'
+                className='flex shrink-0 items-center gap-2 whitespace-nowrap'
               >
                 <AlertTriangle className='h-4 w-4' />
                 Staff Mismatches ({conflictsByType.STAFF_MISMATCH.length})
               </TabsTrigger>
               <TabsTrigger
                 value='missing-plans'
-                className='flex items-center gap-2'
+                className='flex shrink-0 items-center gap-2 whitespace-nowrap'
               >
                 <AlertTriangle className='h-4 w-4' />
                 Missing Plans ({conflictsByType.NO_STAFF_PLAN.length})
@@ -526,7 +526,7 @@ function TimetableConflictsPageInner() {
                   <p className='text-sm text-muted-foreground'>
                     Timetables where assigned staff differs from staff planning
                   </p>
-                  <div className='flex gap-2 flex-wrap'>
+                  <div className='flex flex-col gap-2 min-[360px]:flex-row min-[360px]:flex-wrap'>
                     <Button
                       onClick={loadConflicts}
                       variant='outline'
@@ -592,8 +592,8 @@ function TimetableConflictsPageInner() {
                               isSelected ? 'border-primary bg-primary/5' : ''
                             }`}
                           >
-                            <div className='flex items-start justify-between'>
-                              <div className='flex items-start gap-3'>
+                            <div className='flex items-start justify-between gap-2'>
+                              <div className='flex min-w-0 flex-1 items-start gap-3'>
                                 {canSync && (
                                   <Checkbox
                                     checked={isSelected}
@@ -636,7 +636,7 @@ function TimetableConflictsPageInner() {
                                   </div>
                                 </div>
                               </div>
-                              <div>
+                              <div className='shrink-0'>
                                 {canSync && (
                                   <Button
                                     size='sm'
@@ -684,7 +684,7 @@ function TimetableConflictsPageInner() {
                     {adapt('Courses')} in timetables that don&apos;t have staff planning
                     configured
                   </p>
-                  <div className='flex gap-2 flex-wrap'>
+                  <div className='flex flex-col gap-2 min-[360px]:flex-row min-[360px]:flex-wrap'>
                     <Button
                       onClick={loadConflicts}
                       variant='outline'

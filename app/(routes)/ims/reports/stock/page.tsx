@@ -194,7 +194,7 @@ function StockReportPageInner() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='levels'>Stock Levels</TabsTrigger>
             <TabsTrigger value='expiring'>Expiring Items</TabsTrigger>
             <TabsTrigger value='valuation'>Valuation</TabsTrigger>
@@ -264,9 +264,9 @@ function StockReportPageInner() {
           <TabsContent value='expiring'>
             <Card>
               <CardHeader>
-                <div className='flex items-center justify-between'>
+                <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                   <CardTitle>Expiring Items</CardTitle>
-                  <div className='flex gap-2'>
+                  <div className='flex flex-wrap gap-2'>
                     {[30, 60, 90].map((days) => (
                       <Button
                         key={days}

@@ -175,7 +175,7 @@ function StatCard({
       className={`rounded-2xl border p-4 text-center ${accent} shadow-sm`}
     >
       <div className="text-2xl mb-1">{emoji}</div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-2xl font-bold text-gray-900 break-words">{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
     </div>
   );
