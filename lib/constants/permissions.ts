@@ -542,6 +542,16 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.internal_marks.exam_audit.view',
         label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
       },
+      // 2026-07-27: gates EDITING the exam attendance eligibility thresholds
+      // (platform_policies academic.exam_eligibility.attendance_pct /
+      // .condonation_floor_pct). Previously any is_admin() role could move a
+      // regulatory threshold; setting it to 0 would make every learner eligible.
+      // Enforced in RLS by 20260727060000_exam_eligibility_manage_permission.sql —
+      // granting this key is what actually confers the ability.
+      {
+        key: 'academic.exam_eligibility.manage',
+        label: 'Change exam attendance eligibility thresholds (75% / 65%)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'
