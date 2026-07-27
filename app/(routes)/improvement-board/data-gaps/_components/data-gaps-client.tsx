@@ -426,7 +426,7 @@ function DataGapsBoard() {
         </Card>
       ) : (
         <div className="grid gap-3">
-          {filtered.map((gap) => {
+          {sortedFiltered.map((gap) => {
             const isBusy = busy.has(gap.id);
             const meta = STATUS_META[gap.status];
             const classMeta = gap.gap_class
@@ -434,9 +434,17 @@ function DataGapsBoard() {
               : null;
             const canAct = OPEN_STATUSES.includes(gap.status);
             const isParked = gap.status === 'parked';
+            const isQuickWin =
+              gap.class_confirmed && gap.gap_class === 'type_a_surface';
+            const dups = dupsByGap.get(gap.id);
 
             return (
-              <Card key={gap.id}>
+              <Card
+                key={gap.id}
+                className={
+                  isQuickWin ? 'border-emerald-300 bg-emerald-50/30' : undefined
+                }
+              >
                 <CardContent className="space-y-3 p-4">
                   {/* Title row */}
                   <div className="flex flex-wrap items-start justify-between gap-2">
