@@ -10,6 +10,13 @@
 //   that lived here was removed 2026-05-07 along with the underlying column.
 // - Added Entry Type (required); Academic Year + Section relaxed to optional
 //   2026-05-21 — counsellors set those during onboarding, not on enquiry capture.
+// - 2026-07-27: Entry Type FIRST YEAR locks Semester to the program's structural
+//   "Freshers" row and Section to its "A". Other entry types are untouched and
+//   keep the real-term auto-pick (which filters Freshers out).
+// - 2026-07-27: Admission Year, Academic Year and Section are required again.
+//   The asterisks here reflect the enquiry form's contract; transfer-enquiry-dialog
+//   reuses this section against a schema that keeps them optional (same pre-existing
+//   mismatch Semester already has there).
 // - Added Roll Number, College Email, Register Number (optional)
 // - Added Regulation and Batch fields (optional)
 // - Matches admissions form structure completely
@@ -255,6 +262,55 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const sections = currentSectionToUse && !filteredSections.find((s: Section) => s.id === watchedSectionId)
     ? [currentSectionToUse, ...filteredSections]
     : filteredSections;
+
+  // ──────────────────────────────────────────────────────────────────────
+  // FIRST YEAR → locked Freshers semester + section A (2026-07-27)
+  // ──────────────────────────────────────────────────────────────────────
+  // Every active program carries a structural "Freshers" semester (order 0)
+  // with a section "A" beneath it. First-year admits are parked there at
+  // capture time and moved into a real term during onboarding.
+  //
+  // This deliberately does NOT touch the entry-type auto-pick below, which
+  // still filters Freshers out — LATERAL ENTRY / RE-ADMISSION / COLLEGE
+  // TRANSFER keep targeting real academic terms and stay editable.
+  //
+  // 3 active programs (M.A. ENGLISH, M.Sc. MATHEMATICS — both Aided — and
+  // B.Ed Historical Aggregate) have NULL degree_id/department_id and so can
+  // never receive a Freshers row. `lockToFreshers` stays false for them and
+  // the dropdowns behave normally rather than locking to nothing.
+  const freshersSemester = semesters.find((s: Semester) => isFreshersSemester(s));
+  // Plain derivation, not useMemo: the result is a string id, so the effect
+  // below already gets a stable primitive dependency. Memoising an array
+  // .find() that returns a primitive buys nothing and trips the
+  // exhaustive-deps "conditional array" warning that `departments` carries.
+  const sectionAId = sections.find(
+    (s: Section) => s.section_name?.trim().toUpperCase() === 'A',
+  )?.id;
+  const lockToFreshers =
+    watchedEntryType === 'FIRST YEAR' && !!freshersSemester;
+
+  // Enforce the pair. Runs on load and on every cascade step because the
+  // lists arrive asynchronously: semester must be committed FIRST so the
+  // sections query refetches for it, then the next pass picks up section A.
+  // Both branches no-op once the value already matches, so this settles
+  // instead of looping.
+  useEffect(() => {
+    if (!lockToFreshers || !freshersSemester) return;
+    if (watchedSemesterId !== freshersSemester.id) {
+      form.setValue('semester_id', freshersSemester.id);
+      return;
+    }
+    if (sectionAId && watchedSectionId !== sectionAId) {
+      form.setValue('section_id', sectionAId);
+    }
+  }, [
+    lockToFreshers,
+    freshersSemester,
+    sectionAId,
+    watchedSemesterId,
+    watchedSectionId,
+    form,
+  ]);
 
   // Filter active academic years and include current selection if not in filtered list
   const watchedAcademicYearId = form.watch('academic_year_id');
@@ -574,6 +630,20 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   //                    pick Semester III (semester_order=3). Detect
                   //                    program type by checking whether the first
                   //                    semester's name contains "Year".
+                  // 2026-07-27: FIRST YEAR no longer auto-picks a real term —
+                  // it parks the admit in the program's Freshers semester, and
+                  // the effect above commits semester + section A. Leaving
+                  // FIRST YEAR must clear section_id, because section A belongs
+                  // to the Freshers semester and would otherwise persist as a
+                  // stale cross-semester reference.
+                  if (value === 'FIRST YEAR' && freshersSemester?.id) {
+                    form.setValue('semester_id', freshersSemester.id);
+                    return;
+                  }
+                  if (watchedEntryType === 'FIRST YEAR') {
+                    form.setValue('section_id', '');
+                  }
+
                   if (semesters.length === 0) return;
                   // The default "Freshers" semester is org structure, not an
                   // academic term, and carries semester_order = 0. Drop it
@@ -743,6 +813,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   form.setValue('admission_year', row?.year ?? null);
                 }}
                 label="Admission Year"
+                required
               />
               <FormMessage />
             </FormItem>
@@ -755,7 +826,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           name="academic_year_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Academic Year</FormLabel>
+              <FormLabel>
+                Academic Year <span className="text-red-500">*</span>
+              </FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}
@@ -785,7 +858,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                The academic year for admission
+                The academic year for admission (required)
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -811,10 +884,10 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   }
                 }}
                 value={field.value || ''}
-                disabled={!watchedProgramId || loadingSemesters}
+                disabled={!watchedProgramId || loadingSemesters || lockToFreshers}
               >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger className={lockToFreshers ? 'bg-muted/40' : ''}>
                     <SelectValue placeholder="Select semester" />
                   </SelectTrigger>
                 </FormControl>
@@ -837,28 +910,39 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                The semester for enrollment (required)
+                {lockToFreshers
+                  ? 'Locked — first-year admits start in the Freshers semester. To change, switch Entry Type.'
+                  : 'The semester for enrollment (required)'}
               </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
 
-        {/* Section — optional 2026-05-21 (was required). Counsellors set
-         *  this during onboarding once the student is placed in a section. */}
+        {/* Section — required again 2026-07-27 (relaxed to optional 2026-05-21
+         *  so counsellors could capture an enquiry before placement). Early
+         *  capture still works via Save Draft / Save & Next, which skip
+         *  validation; only final Submit demands a section. */}
         <FormField
           control={form.control}
           name="section_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Section</FormLabel>
+              <FormLabel>
+                Section <span className="text-red-500">*</span>
+              </FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}
-                disabled={!watchedSemesterId || !watchedInstitutionId || loadingSections}
+                disabled={
+                  !watchedSemesterId ||
+                  !watchedInstitutionId ||
+                  loadingSections ||
+                  lockToFreshers
+                }
               >
                 <FormControl>
-                  <SelectTrigger>
+                  <SelectTrigger className={lockToFreshers ? 'bg-muted/40' : ''}>
                     <SelectValue placeholder="Select section" />
                   </SelectTrigger>
                 </FormControl>
@@ -881,7 +965,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                The section assignment (required)
+                {lockToFreshers
+                  ? 'Locked — first-year admits start in section A of the Freshers semester. To change, switch Entry Type.'
+                  : 'The section assignment (required)'}
               </FormDescription>
               <FormMessage />
             </FormItem>
