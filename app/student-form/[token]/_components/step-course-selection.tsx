@@ -15,6 +15,7 @@ import { Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Language } from './language-toggle';
 import { ENTRY_TYPE_OPTIONS } from '@/lib/constants/learner-dropdown-values';
+import { isFreshersSemester } from '@/lib/constants/semesters';
 
 interface Props {
   lang: Language;
@@ -116,9 +117,13 @@ function autoPickSemester(
   semesters: SemesterRow[],
 ): string | undefined {
   if (semesters.length === 0) return undefined;
-  const sorted = [...semesters].sort(
-    (a, b) => (a.semester_order ?? 0) - (b.semester_order ?? 0),
-  );
+  // The default "Freshers" semester is org structure, not an academic term, and
+  // carries semester_order = 0. Drop it BEFORE sorting so it can never land at
+  // sorted[0] — the FIRST YEAR fallback, the /year/i year-based probe and the
+  // lateral-entry positional fallbacks all read sorted by position.
+  const sorted = [...semesters]
+    .filter((s) => !isFreshersSemester(s))
+    .sort((a, b) => (a.semester_order ?? 0) - (b.semester_order ?? 0));
   if (entryType === 'FIRST YEAR') {
     const target = sorted.find((s) => s.initial_semester === true) ?? sorted[0];
     return target?.id;

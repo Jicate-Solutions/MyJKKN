@@ -39,6 +39,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
+import { isFreshersSemester } from '@/lib/constants/semesters';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
@@ -574,9 +575,16 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   //                    program type by checking whether the first
                   //                    semester's name contains "Year".
                   if (semesters.length === 0) return;
-                  const sorted = [...semesters].sort(
-                    (a: any, b: any) => (a.semester_order ?? 0) - (b.semester_order ?? 0)
-                  );
+                  // The default "Freshers" semester is org structure, not an
+                  // academic term, and carries semester_order = 0. Drop it
+                  // BEFORE sorting so it can never land at sorted[0] — the
+                  // FIRST YEAR fallback, the /year/i probe and the lateral-entry
+                  // positional fallbacks all read sorted by position.
+                  const sorted = [...semesters]
+                    .filter((s: any) => !isFreshersSemester(s))
+                    .sort(
+                      (a: any, b: any) => (a.semester_order ?? 0) - (b.semester_order ?? 0)
+                    );
                   if (value === 'FIRST YEAR') {
                     const target = sorted.find((s: any) => s.initial_semester === true) ?? sorted[0];
                     if (target?.id) form.setValue('semester_id', target.id);
