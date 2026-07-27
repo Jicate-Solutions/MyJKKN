@@ -252,6 +252,78 @@ function DataGapsBoard() {
     []
   );
 
+  const toggleOwnerEditing = (id: string) =>
+    setOwnerEditing((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleAssignOwner = useCallback(
+    async (gap: MbaDataGap, ownerId: string | null) => {
+      setBusyFor(gap.id, true);
+      try {
+        await MbaDataGapService.assignOwner(gap.id, ownerId);
+        await load();
+        setOwnerEditing((prev) => {
+          const n = new Set(prev);
+          n.delete(gap.id);
+          return n;
+        });
+        toast.success(
+          ownerId ? 'Owner assigned.' : 'Owner cleared — back to the shared board.'
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : 'Could not assign the owner.'
+        );
+      } finally {
+        setBusyFor(gap.id, false);
+      }
+    },
+    [load]
+  );
+
+  const handleConfirmClass = useCallback(
+    async (gap: MbaDataGap, gapClass: DataGapClass) => {
+      setBusyFor(gap.id, true);
+      try {
+        await MbaDataGapService.confirmClass(gap.id, gapClass);
+        await load();
+        toast.success(
+          gapClass === 'type_a_surface'
+            ? 'Confirmed as a quick win — moved to the top.'
+            : 'Type confirmed.'
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : 'Could not confirm the type.'
+        );
+      } finally {
+        setBusyFor(gap.id, false);
+      }
+    },
+    [load]
+  );
+
+  const handleFindDuplicates = useCallback(async (gap: MbaDataGap) => {
+    setDupsByGap((prev) => new Map(prev).set(gap.id, 'loading'));
+    try {
+      const dups = await MbaDataGapService.suggestDuplicates(gap.id);
+      setDupsByGap((prev) => new Map(prev).set(gap.id, dups));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not check for duplicates.'
+      );
+      setDupsByGap((prev) => {
+        const n = new Map(prev);
+        n.delete(gap.id);
+        return n;
+      });
+    }
+  }, []);
+
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return gaps;
     // "Stalled" is a measured OUTCOME (accepted but its idea never shipped), not
