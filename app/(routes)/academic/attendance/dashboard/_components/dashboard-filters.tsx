@@ -196,7 +196,7 @@ export function DashboardFilters({
   return (
     <Card className='border-0 shadow-lg bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/20 dark:via-indigo-950/20 dark:to-purple-950/20'>
       <CardHeader className='pb-4'>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <CardTitle className='flex items-center gap-2 text-lg'>
             <Filter className='h-5 w-5 text-blue-600 dark:text-blue-400' />
             {title}
@@ -231,23 +231,23 @@ export function DashboardFilters({
 
       <CardContent className='space-y-4'>
         {/* Quick Info Bar */}
-        <div className='flex items-center justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg border border-blue-200 dark:border-blue-800'>
-          <div className='flex items-center gap-4'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg border border-blue-200 dark:border-blue-800'>
+          <div className='flex flex-wrap items-center gap-2 sm:gap-4 min-w-0'>
             <div className='flex items-center gap-2'>
               <Calendar className='h-4 w-4 text-blue-600 dark:text-blue-400' />
               <span className='text-sm font-medium'>
                 {format(filters.selectedDate, 'EEEE, MMM dd, yyyy')}
               </span>
             </div>
-            <div className='h-4 w-px bg-blue-300 dark:bg-blue-700'></div>
-            <div className='text-sm text-muted-foreground'>
+            <div className='hidden sm:block h-4 w-px bg-blue-300 dark:bg-blue-700'></div>
+            <div className='text-sm text-muted-foreground min-w-0'>
               {getFilterDisplayText()}
             </div>
           </div>
 
           <Badge
             variant='secondary'
-            className='bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+            className='shrink-0 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
           >
             {getActiveFiltersCount()} filter
             {getActiveFiltersCount() !== 1 ? 's' : ''} active

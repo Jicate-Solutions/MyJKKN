@@ -64,7 +64,7 @@ export function DashboardMetrics({
   return (
     <div className='space-y-6'>
       {/* Header with Export */}
-      <div className='flex justify-between items-center'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <h3 className='text-lg font-medium'>Dashboard Overview</h3>
         {canExport && (
           <Button variant='outline' size='sm'>

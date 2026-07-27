@@ -305,7 +305,7 @@ export default function GatePassesPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="pending" className={pendingCount > 0 ? 'text-yellow-600' : ''}>
               Pending ({pendingCount})
             </TabsTrigger>

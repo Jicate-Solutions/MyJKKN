@@ -61,7 +61,7 @@ function SectionHeader({
         <h2 className='text-lg font-semibold'>{title}</h2>
         <p className='max-w-2xl text-sm text-muted-foreground'>{description}</p>
       </div>
-      {action && <div className='flex shrink-0 justify-end gap-2'>{action}</div>}
+      {action && <div className='flex flex-wrap shrink-0 justify-end gap-2'>{action}</div>}
     </div>
   );
 }

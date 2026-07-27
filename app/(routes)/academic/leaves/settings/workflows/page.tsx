@@ -65,14 +65,14 @@ export default function ApprovalWorkflowsPage() {
           {/* Main Content */}
           <Card>
             <CardHeader>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <div>
                   <CardTitle>Approval Workflows</CardTitle>
                   <CardDescription>
                     Define who can approve leave requests based on type and scope
                   </CardDescription>
                 </div>
-                <Button onClick={() => setShowCreateDialog(true)}>
+                <Button onClick={() => setShowCreateDialog(true)} className='shrink-0'>
                   <Plus className='h-4 w-4 mr-2' />
                   Add Workflow
                 </Button>

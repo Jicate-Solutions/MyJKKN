@@ -63,7 +63,7 @@ export default function VisitorsPage() {
               Track visitor check-in/check-out for hostel blocks
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/campus-living/visitors/known">
                 <ShieldCheck className="mr-2 h-4 w-4" />

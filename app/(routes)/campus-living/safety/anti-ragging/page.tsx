@@ -116,7 +116,7 @@ export default function AntiRaggingPage() {
               UGC Regulations 2009 — student & parent affidavit submission and verification
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={() =>

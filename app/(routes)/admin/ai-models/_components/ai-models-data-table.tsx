@@ -337,7 +337,7 @@ export function AiModelsDataTable() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">
             One row per AI-powered MyJKKN feature. Pick which provider and model run it,
@@ -359,6 +359,7 @@ export function AiModelsDataTable() {
           size="sm"
           onClick={loadFeatures}
           disabled={loading}
+          className="shrink-0 self-start sm:self-auto"
         >
           <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh

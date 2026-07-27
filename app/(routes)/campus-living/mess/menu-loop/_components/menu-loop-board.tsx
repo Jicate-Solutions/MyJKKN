@@ -72,14 +72,14 @@ export function MenuLoopBoard() {
     <div className='space-y-6'>
       {/* ── Proposals awaiting a verdict ─────────────────────────────────── */}
       <Card>
-        <CardHeader className='flex flex-row items-center justify-between gap-4 space-y-0'>
+        <CardHeader className='flex flex-col gap-4 space-y-0 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <CardTitle className='text-lg'>Proposals awaiting your verdict</CardTitle>
             <p className='text-sm text-muted-foreground mt-1'>
               Each row is one (tier, meal, week) the loop proposed from resident signal.
             </p>
           </div>
-          <div className='flex items-center gap-2'>
+          <div className='flex items-center gap-2 sm:shrink-0'>
             <label htmlFor='tier-filter' className='text-sm text-muted-foreground'>
               Tier
             </label>
@@ -138,7 +138,7 @@ export function MenuLoopBoard() {
                       )}
                     </p>
                   </div>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     <Button
                       size='sm'
                       variant='default'

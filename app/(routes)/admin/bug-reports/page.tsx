@@ -640,7 +640,7 @@ function AdminBugReportsContent() {
                 Comprehensive analytics and management
               </p>
             </div>
-            <div className='flex gap-2'>
+            <div className='flex flex-wrap gap-2'>
               {selectedReports.length > 0 && (
                 <>
                   <Button
@@ -716,7 +716,7 @@ function AdminBugReportsContent() {
 
           {/* Tabs: Reports List + Reporter Analytics */}
           <Tabs defaultValue='reports'>
-            <TabsList>
+            <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='reports' className='flex items-center gap-2'>
                 <Bug className='w-4 h-4' />
                 Reports List

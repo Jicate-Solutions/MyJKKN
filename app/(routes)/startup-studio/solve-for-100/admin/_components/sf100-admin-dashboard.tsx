@@ -383,7 +383,7 @@ export function SF100AdminDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="w-full justify-start overflow-x-auto">
+        <TabsList className="w-full justify-start overflow-x-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Phase Funnel</TabsTrigger>
           <TabsTrigger value="programs">Programs ({programs.length})</TabsTrigger>
           <TabsTrigger value="enrollments">Enrollments ({totalEnrolled})</TabsTrigger>

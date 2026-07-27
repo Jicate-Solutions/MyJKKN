@@ -47,7 +47,7 @@ export default function AiModelsPage() {
     >
       <ContentLayout title="AI Models — Pick which AI runs each feature, set spend caps, see live usage">
         <Tabs defaultValue="models" className="space-y-4">
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="models">AI Models</TabsTrigger>
             <TabsTrigger value="studio">AI Studio</TabsTrigger>
             <TabsTrigger value="capability-gap-loop">Capability-Gap Loop</TabsTrigger>

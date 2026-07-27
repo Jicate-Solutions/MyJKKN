@@ -366,7 +366,7 @@ export function ChangeRequestsClient({ initialData, effectiveRole }: ChangeReque
     if (props.selectedRows.length === 0) return null;
 
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           onClick={() => handleBulkApprove(props.selectedRows as ProfileChangeRequest[], props.resetSelection)}
           size="sm"

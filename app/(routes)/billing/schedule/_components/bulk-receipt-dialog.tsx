@@ -1466,7 +1466,7 @@ function PreviewPanel({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className='max-h-72 overflow-y-auto rounded border'>
+            <div className='max-h-72 overflow-auto rounded border'>
               <table className='w-full text-sm'>
                 <thead className='text-xs text-muted-foreground sticky top-0 bg-background border-b'>
                   <tr>
@@ -1652,7 +1652,7 @@ function ResultPanel({
             <CardTitle className='text-base'>Receipts created</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className='max-h-64 overflow-y-auto'>
+            <div className='max-h-64 overflow-auto'>
               <table className='w-full text-sm'>
                 <thead className='text-xs text-muted-foreground sticky top-0 bg-background'>
                   <tr>

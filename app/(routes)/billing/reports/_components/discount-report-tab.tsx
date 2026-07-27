@@ -200,7 +200,7 @@ export function DiscountReportTab({
       {/* Discount Report Table */}
       <Card>
         <CardHeader>
-          <div className='flex justify-between items-center'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <CardTitle className='flex items-center gap-2'>
               <Receipt className='h-5 w-5' />
               Discount Report

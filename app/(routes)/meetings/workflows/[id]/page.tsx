@@ -237,12 +237,12 @@ function BuilderContent({ id }: { id: string }) {
       />
 
       <div className="mt-4 space-y-6">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <PageHeader
             title="Edit workflow"
             description="Choose when this runs and the messages it sends. Use the placeholders to personalise each message."
           />
-          <Button variant="ghost" size="sm" onClick={handleDelete} disabled={isDeleting}>
+          <Button variant="ghost" size="sm" className="shrink-0" onClick={handleDelete} disabled={isDeleting}>
             {isDeleting ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
             ) : (
@@ -312,7 +312,7 @@ function BuilderContent({ id }: { id: string }) {
 
         {/* Actions */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold">Messages</h3>
               <p className="text-xs text-muted-foreground">

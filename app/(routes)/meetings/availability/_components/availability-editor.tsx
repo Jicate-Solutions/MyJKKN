@@ -322,7 +322,7 @@ export function AvailabilityEditor({ schedule }: AvailabilityEditorProps) {
                             type="time"
                             value={r.start}
                             onChange={(e) => updateRange(d.key, i, 'start', e.target.value)}
-                            className="w-32"
+                            className="min-w-0 flex-1 sm:w-32 sm:flex-none"
                             aria-label={`${d.label} range ${i + 1} start time`}
                           />
                           <span className="text-sm text-muted-foreground">–</span>
@@ -330,7 +330,7 @@ export function AvailabilityEditor({ schedule }: AvailabilityEditorProps) {
                             type="time"
                             value={r.end}
                             onChange={(e) => updateRange(d.key, i, 'end', e.target.value)}
-                            className="w-32"
+                            className="min-w-0 flex-1 sm:w-32 sm:flex-none"
                             aria-label={`${d.label} range ${i + 1} end time`}
                           />
                           <Button

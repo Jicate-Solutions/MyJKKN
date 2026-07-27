@@ -63,8 +63,8 @@ export default function HRLeaveTypesPage() {
 
         <Card className="mt-4">
           <CardContent className="p-6 space-y-4">
-            <div className="flex items-end justify-between gap-4">
-              <div className="w-72">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="w-full sm:w-72">
                 <Label>Organization</Label>
                 <Select value={hrOrgId} onValueChange={setHrOrgId}>
                   <SelectTrigger><SelectValue placeholder="All organizations" /></SelectTrigger>
@@ -77,7 +77,7 @@ export default function HRLeaveTypesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button disabled={!hrOrgId} onClick={() => { setEditing(null); setDialogOpen(true); }}>
+              <Button className="shrink-0" disabled={!hrOrgId} onClick={() => { setEditing(null); setDialogOpen(true); }}>
                 <Plus className="h-4 w-4 mr-2" /> Add Leave Type
               </Button>
             </div>

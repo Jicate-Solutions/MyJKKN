@@ -469,7 +469,7 @@ export function ModuleAccessTab() {
               </p>
             </div>
             <div className='flex flex-wrap items-center gap-3'>
-              <div className='flex items-center gap-2'>
+              <div className='flex w-full items-center gap-2 sm:w-auto'>
                 <span className='text-xs text-muted-foreground whitespace-nowrap'>
                   Module
                 </span>
@@ -480,7 +480,7 @@ export function ModuleAccessTab() {
                     setSubmodule('__all__');
                   }}
                 >
-                  <SelectTrigger className='w-[260px] h-8 text-xs'>
+                  <SelectTrigger className='min-w-0 flex-1 sm:w-[260px] sm:flex-none h-8 text-xs'>
                     <SelectValue placeholder='Select module' />
                   </SelectTrigger>
                   <SelectContent>
@@ -520,12 +520,12 @@ export function ModuleAccessTab() {
               </div>
 
               {submodules.length > 1 && (
-                <div className='flex items-center gap-2'>
+                <div className='flex w-full items-center gap-2 sm:w-auto'>
                   <span className='text-xs text-muted-foreground whitespace-nowrap'>
                     Sub-module
                   </span>
                   <Select value={submodule} onValueChange={setSubmodule}>
-                    <SelectTrigger className='w-[260px] h-8 text-xs'>
+                    <SelectTrigger className='min-w-0 flex-1 sm:w-[260px] sm:flex-none h-8 text-xs'>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

@@ -298,7 +298,7 @@ export function AiJobTypeEditDialog({
           </div>
 
           {/* tool_set + output_target */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tool_set">Tool set</Label>
               <Input
@@ -328,7 +328,7 @@ export function AiJobTypeEditDialog({
           </div>
 
           {/* allow_rule + lane */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="allow_rule">Who can run it</Label>
               <Input

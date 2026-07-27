@@ -50,7 +50,7 @@ export function LearnerDetailActions({ learner }: LearnerDetailActionsProps) {
     `&email=${encodeURIComponent(learnerEmail)}`;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {/* R4.2 — Learner → Candidate entry point */}
       {isHireable && canCreateRecruitment && (
         <Button variant="outline" asChild>

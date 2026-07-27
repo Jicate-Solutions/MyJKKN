@@ -185,7 +185,7 @@ export default function NAACCommitteesPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {isSuperAdmin && (
                   <Select value={scope} onValueChange={handleScopeChange}>
                     <SelectTrigger className="min-w-[240px] bg-card">

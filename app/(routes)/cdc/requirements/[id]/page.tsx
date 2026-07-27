@@ -193,11 +193,11 @@ function Content() {
       <Card className="mb-4">
         <CardContent className="py-5">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 min-w-0">
               <div className="rounded-lg bg-slate-100 p-2.5"><Building2 className="h-6 w-6 text-slate-500" /></div>
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-slate-900">{req.company_name}</h2>
-                <div className="mt-1.5 text-sm text-slate-500 flex flex-col gap-1">
+                <div className="mt-1.5 text-sm text-slate-500 flex flex-col gap-1 min-w-0 break-words">
                   {req.company_website && <span className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" />{req.company_website}</span>}
                   {(req.hq_city || req.hq_state) && <span className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" />{[req.hq_city, req.hq_state].filter(Boolean).join(', ')}</span>}
                   {req.primary_contact_name && <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" />{req.primary_contact_name}</span>}
@@ -207,7 +207,7 @@ function Content() {
                 </div>
               </div>
             </div>
-            <Badge variant="outline" className={STATUS_META[req.status]?.cls}>{STATUS_META[req.status]?.label}</Badge>
+            <Badge variant="outline" className={`shrink-0 ${STATUS_META[req.status]?.cls ?? ''}`}>{STATUS_META[req.status]?.label}</Badge>
           </div>
 
           {isPending && (

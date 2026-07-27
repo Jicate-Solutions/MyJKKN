@@ -46,9 +46,9 @@ export function SemesterFilter({ semesters, selected, currentSemester }: Semeste
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <Select value={selected} onValueChange={handleSemesterChange}>
-            <SelectTrigger className="w-[300px]">
+            <SelectTrigger className="w-full sm:w-[300px]">
               <SelectValue placeholder="Select a semester" />
             </SelectTrigger>
             <SelectContent>
