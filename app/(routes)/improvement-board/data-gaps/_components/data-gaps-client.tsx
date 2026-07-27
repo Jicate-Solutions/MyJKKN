@@ -37,16 +37,22 @@ import {
   ArrowUpRight,
   Clock,
   Undo2,
-  AlertTriangle
+  AlertTriangle,
+  Check,
+  Zap,
+  UserRound,
+  Search
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
+import { MemberPicker } from '@/components/cohort-core/member-picker';
 import {
   MbaDataGapService,
   type MbaDataGap,
   type DataGapStatus,
   type DataGapType,
-  type DataGapClass
+  type DataGapClass,
+  type DuplicateSuggestion
 } from '@/lib/services/mba-data-gap/mba-data-gap-service';
 
 /* -------------------------------------------------------------------------- */
@@ -180,6 +186,10 @@ function DataGapsBoard() {
   const [gaps, setGaps] = useState<MbaDataGap[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [ownerEditing, setOwnerEditing] = useState<Set<string>>(new Set());
+  const [dupsByGap, setDupsByGap] = useState<
+    Map<string, DuplicateSuggestion[] | 'loading'>
+  >(new Map());
 
   const load = useCallback(async () => {
     const rows = await MbaDataGapService.listDataGaps();
@@ -242,6 +252,78 @@ function DataGapsBoard() {
     []
   );
 
+  const toggleOwnerEditing = (id: string) =>
+    setOwnerEditing((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleAssignOwner = useCallback(
+    async (gap: MbaDataGap, ownerId: string | null) => {
+      setBusyFor(gap.id, true);
+      try {
+        await MbaDataGapService.assignOwner(gap.id, ownerId);
+        await load();
+        setOwnerEditing((prev) => {
+          const n = new Set(prev);
+          n.delete(gap.id);
+          return n;
+        });
+        toast.success(
+          ownerId ? 'Owner assigned.' : 'Owner cleared — back to the shared board.'
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : 'Could not assign the owner.'
+        );
+      } finally {
+        setBusyFor(gap.id, false);
+      }
+    },
+    [load]
+  );
+
+  const handleConfirmClass = useCallback(
+    async (gap: MbaDataGap, gapClass: DataGapClass) => {
+      setBusyFor(gap.id, true);
+      try {
+        await MbaDataGapService.confirmClass(gap.id, gapClass);
+        await load();
+        toast.success(
+          gapClass === 'type_a_surface'
+            ? 'Confirmed as a quick win — moved to the top.'
+            : 'Type confirmed.'
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : 'Could not confirm the type.'
+        );
+      } finally {
+        setBusyFor(gap.id, false);
+      }
+    },
+    [load]
+  );
+
+  const handleFindDuplicates = useCallback(async (gap: MbaDataGap) => {
+    setDupsByGap((prev) => new Map(prev).set(gap.id, 'loading'));
+    try {
+      const dups = await MbaDataGapService.suggestDuplicates(gap.id);
+      setDupsByGap((prev) => new Map(prev).set(gap.id, dups));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Could not check for duplicates.'
+      );
+      setDupsByGap((prev) => {
+        const n = new Map(prev);
+        n.delete(gap.id);
+        return n;
+      });
+    }
+  }, []);
+
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return gaps;
     // "Stalled" is a measured OUTCOME (accepted but its idea never shipped), not
@@ -260,6 +342,14 @@ function DataGapsBoard() {
     () => gaps.filter((g) => OPEN_STATUSES.includes(g.status)).length,
     [gaps]
   );
+
+  // Confirmed quick wins (a manager-confirmed type_a_surface) float to the top —
+  // the fast-track. Stable sort keeps the AI priority order within each group.
+  const sortedFiltered = useMemo(() => {
+    const rank = (g: MbaDataGap) =>
+      g.class_confirmed && g.gap_class === 'type_a_surface' ? 0 : 1;
+    return [...filtered].sort((a, b) => rank(a) - rank(b));
+  }, [filtered]);
 
   if (loading) return <LoadingState />;
 
@@ -336,7 +426,7 @@ function DataGapsBoard() {
         </Card>
       ) : (
         <div className="grid gap-3">
-          {filtered.map((gap) => {
+          {sortedFiltered.map((gap) => {
             const isBusy = busy.has(gap.id);
             const meta = STATUS_META[gap.status];
             const classMeta = gap.gap_class
@@ -344,9 +434,17 @@ function DataGapsBoard() {
               : null;
             const canAct = OPEN_STATUSES.includes(gap.status);
             const isParked = gap.status === 'parked';
+            const isQuickWin =
+              gap.class_confirmed && gap.gap_class === 'type_a_surface';
+            const dups = dupsByGap.get(gap.id);
 
             return (
-              <Card key={gap.id}>
+              <Card
+                key={gap.id}
+                className={
+                  isQuickWin ? 'border-emerald-300 bg-emerald-50/30' : undefined
+                }
+              >
                 <CardContent className="space-y-3 p-4">
                   {/* Title row */}
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -395,6 +493,16 @@ function DataGapsBoard() {
                           Stalled
                         </Badge>
                       )}
+                      {isQuickWin && (
+                        <Badge
+                          variant="outline"
+                          className="border-emerald-300 bg-emerald-50 text-xs text-emerald-700"
+                          title="A manager confirmed this is a quick win (data already exists) — fast-tracked to the top"
+                        >
+                          <Zap className="mr-1 h-3 w-3" />
+                          Quick win
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   {/* AI priority reason (why it ranks where it does) */}
@@ -431,6 +539,165 @@ function DataGapsBoard() {
                       </p>
                     )}
                   </div>
+
+                  {/* Manager tools: confirm type · owner · duplicates */}
+                  {(canAct || gap.status === 'accepted') && (
+                    <div className="space-y-2 border-t pt-2">
+                      {/* Confirm / change the AI Type A/B (only while actionable) */}
+                      {gap.gap_class && !gap.class_confirmed && canAct && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-muted-foreground">
+                            AI type — confirm or change:
+                          </span>
+                          <div className="w-56">
+                            <Select
+                              value={gap.gap_class}
+                              onValueChange={(v) =>
+                                handleConfirmClass(gap, v as DataGapClass)
+                              }
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="type_a_surface">
+                                  Data exists — surface it (quick win)
+                                </SelectItem>
+                                <SelectItem value="type_b_capture">
+                                  Not captured — build it
+                                </SelectItem>
+                                <SelectItem value="uncertain">
+                                  Needs a closer look
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7"
+                            disabled={isBusy}
+                            onClick={() => handleConfirmClass(gap, gap.gap_class!)}
+                          >
+                            Confirm
+                          </Button>
+                        </div>
+                      )}
+                      {gap.class_confirmed && (
+                        <p className="inline-flex items-center gap-1 text-xs text-emerald-700">
+                          <Check className="h-3.5 w-3.5" />
+                          Type confirmed
+                          {isQuickWin ? ' — fast-tracked as a quick win' : ''}
+                        </p>
+                      )}
+
+                      {/* Owner */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-muted-foreground inline-flex items-center gap-1">
+                          <UserRound className="h-3.5 w-3.5" />
+                          Owner:
+                        </span>
+                        {gap.owner_name ? (
+                          <span className="font-medium">{gap.owner_name}</span>
+                        ) : (
+                          <span className="text-muted-foreground italic">
+                            unassigned (shared board)
+                          </span>
+                        )}
+                        {!ownerEditing.has(gap.id) ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2"
+                              disabled={isBusy}
+                              onClick={() => toggleOwnerEditing(gap.id)}
+                            >
+                              {gap.owner_id ? 'Change' : 'Assign'}
+                            </Button>
+                            {gap.owner_id && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-muted-foreground h-6 px-2"
+                                disabled={isBusy}
+                                onClick={() => handleAssignOwner(gap, null)}
+                              >
+                                Clear
+                              </Button>
+                            )}
+                          </>
+                        ) : (
+                          <div className="flex w-full items-center gap-2 pt-1">
+                            <div className="w-72">
+                              <MemberPicker
+                                onSelect={(m) => handleAssignOwner(gap, m.id)}
+                                placeholder="Search team members by name or email…"
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7"
+                              onClick={() => toggleOwnerEditing(gap.id)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Duplicate suggestions (very-similar look-alikes) */}
+                      {canAct && (
+                        <div className="text-xs">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2"
+                            disabled={dups === 'loading'}
+                            onClick={() => handleFindDuplicates(gap)}
+                          >
+                            <Search className="mr-1 h-3.5 w-3.5" />
+                            Check for duplicates
+                          </Button>
+                          {dups === 'loading' && (
+                            <span className="text-muted-foreground ml-2">Checking…</span>
+                          )}
+                          {Array.isArray(dups) &&
+                            (dups.length === 0 ? (
+                              <span className="text-muted-foreground ml-2">
+                                No likely duplicates.
+                              </span>
+                            ) : (
+                              <div className="bg-muted/30 mt-1 space-y-1 rounded-md border p-2">
+                                <p className="text-muted-foreground">
+                                  Very similar gaps in this department:
+                                </p>
+                                {dups.map((d) => (
+                                  <div key={d.id} className="truncate">
+                                    {d.title}{' '}
+                                    <span className="text-muted-foreground">
+                                      · {Math.round(d.similarity * 100)}% match ·{' '}
+                                      {d.status}
+                                    </span>
+                                  </div>
+                                ))}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-1 h-7"
+                                  disabled={isBusy}
+                                  onClick={() => handleTriage(gap, 'duplicate')}
+                                >
+                                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                                  Mark THIS gap as a duplicate
+                                </Button>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Actions / resolution */}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
