@@ -15,7 +15,21 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import toast from 'react-hot-toast';
-import type { ImportResult } from '@/lib/utils/mappings/student-bill-excel-mappings';
+import type {
+  ImportResult,
+  LearnerMatchMode
+} from '@/lib/utils/mappings/student-bill-excel-mappings';
+
+/**
+ * How each bill's learner was identified. Surfaced in the report (and, for
+ * name-only rows, in the dialog) because a bill created from a name alone is
+ * the one worth a second look before the run is signed off.
+ */
+const MATCH_MODE_LABELS: Record<LearnerMatchMode, string> = {
+  roll: 'Roll Number',
+  'roll+name': 'Roll Number + Name',
+  name: 'Name only'
+};
 
 interface ImportBillsDialogProps {
   open: boolean;
@@ -177,13 +191,14 @@ export function ImportBillsDialog({
       );
 
       const successAoa: unknown[][] = [
-        ['Excel Row', 'Roll Number', 'Student Name', 'Billing Category', 'Due Date', 'Billing Amount', 'Academic Year', 'Bill ID', 'Status']
+        ['Excel Row', 'Roll Number', 'Learner Name', 'Matched By', 'Billing Category', 'Due Date', 'Billing Amount', 'Academic Year', 'Bill ID', 'Status']
       ];
       (result.successes ?? []).forEach((s) =>
         successAoa.push([
           s.row,
           s.roll_number,
           s.student_name,
+          s.matched_by ? MATCH_MODE_LABELS[s.matched_by] : '',
           s.billing_category,
           s.due_date,
           s.billing_amount,
@@ -199,7 +214,7 @@ export function ImportBillsDialog({
       );
 
       const failedAoa: unknown[][] = [
-        ['Excel Row', 'Roll Number', 'Student Name', 'Field', 'Error Reason', 'Status']
+        ['Excel Row', 'Roll Number', 'Learner Name', 'Field', 'Error Reason', 'Status']
       ];
       result.errors.forEach((e) =>
         failedAoa.push([
@@ -263,9 +278,11 @@ export function ImportBillsDialog({
             Bulk Upload Bills from Excel
           </DialogTitle>
           <DialogDescription>
-            Each row in the Excel file becomes one bill. Roll numbers must
-            already exist in the system; billing categories must match the
-            dropdown values from the template.
+            Each row in the Excel file becomes one bill. Identify the learner
+            by roll number, by first/last name, or by both — a name is what
+            separates two learners sharing a roll number, and the only way to
+            bill someone who has no roll number yet. Billing categories must
+            match the dropdown values from the template.
           </DialogDescription>
         </DialogHeader>
 
@@ -438,6 +455,17 @@ export function ImportBillsDialog({
                           <span className='text-gray-600 dark:text-gray-400'>
                             {' '}· {s.billing_category} · ₹{s.billing_amount} · due {s.due_date}
                           </span>
+                          {/* Flag name-only matches inline. These carry the
+                              most identification risk, so they're worth
+                              eyeballing before the run is signed off. */}
+                          {s.matched_by === 'name' && (
+                            <Badge
+                              variant='outline'
+                              className='ml-2 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200'
+                            >
+                              Matched by name
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     ))}

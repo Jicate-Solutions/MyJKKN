@@ -453,8 +453,9 @@ export default function BulkCreateBillsPage() {
                 </p>
                 <p className='text-sm text-muted-foreground'>
                   Download the Excel template, fill one row per bill, then
-                  upload to create them all at once. Each row needs a roll
-                  number, billing category, due date, and amount.
+                  upload to create them all at once. Each row needs a billing
+                  category, due date, amount, and a way to identify the
+                  learner — roll number, first/last name, or both.
                 </p>
               </div>
             </div>
