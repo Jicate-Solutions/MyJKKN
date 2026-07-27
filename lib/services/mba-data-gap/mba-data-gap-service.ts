@@ -81,7 +81,7 @@ export interface MbaDataGap {
   triaged_by: string | null;
   triaged_at: string | null;
   triage_note: string | null;
-  // Phase 4 v2 — optional named owner (any staff); NULL = shared board.
+  // Phase 4 v2 — optional named owner (any team member); NULL = shared board.
   owner_id: string | null;
   owner_name: string | null;
   // Phase 2 — AI ranking + classification (NULL until the cron has ranked it).
