@@ -285,6 +285,9 @@ function DataGapsBoard() {
         </p>
       </div>
 
+      {/* Managers-only contributor scoreboard (ranked by real improvements) */}
+      <ContributorScoreboard />
+
       {/* Summary + filter */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-muted-foreground text-sm">
