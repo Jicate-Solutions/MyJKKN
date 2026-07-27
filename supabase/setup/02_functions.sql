@@ -8885,7 +8885,7 @@ BEGIN
       COALESCE(v_leave.reason, 'No reason provided') || ' | ' ||
         v_leave.start_date::text || ' to ' || v_leave.end_date::text,
       jsonb_build_object('leave_id', v_leave.id, 'employee_id', v_leave.employee_id,
-        'days', v_leave.total_days, 'url', '/hr/leave/applications/' || v_leave.id::text,
+        'days', v_leave.total_days, 'url', '/hr/leave/' || v_leave.id::text,
         'is_emergency', v_leave.is_emergency),
       v_target, v_key, CASE WHEN v_leave.is_emergency THEN 4 ELSE 24 END);
   END LOOP;
