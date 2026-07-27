@@ -12,6 +12,11 @@
  * is best-effort and NEVER blocks the page: a cycle list of zero still renders the
  * empty state, and a missing cohort backend just omits the label.
  *
+ * TEAM OVERLAPS: two teams may legitimately share a department in the same period
+ * (Director ruling — allow it, warn the operator). Detected off the slots already
+ * loaded, then surfaced twice: an amber summary above the grid and an amber mark
+ * on each affected cell. Warning only — nothing is disabled or blocked.
+ *
  * Gating branches on the loading state FIRST so a viewer never sees a
  * denied-looking flash while permissions resolve, and a denied user gets an
  * explicit reason instead of a silent redirect (CLAUDE.md #27).
@@ -37,6 +42,7 @@ import {
   Users,
   Settings,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -46,11 +52,13 @@ import {
 } from '@/lib/services/improvement/improvement-service';
 import {
   MbaRotationService,
+  detectRotationOverlaps,
   type MbaRotationCycle,
   type MbaRotationSlot,
   type MbaTeam,
   type TeachingCohortOption,
 } from '@/lib/services/mba-rotation/mba-rotation-service';
+import { RotationOverlapWarning } from './rotation-overlap-warning';
 
 function LoadingState() {
   return (
@@ -214,6 +222,10 @@ function RotationChart({ canManage }: { canManage: boolean }) {
     return { periods, teamIds: orderedTeamIds, cell, currentPeriod };
   }, [slots, teams]);
 
+  // Two teams in the same department in the same period. Read off the slots the
+  // grid already has — no extra query. Allowed by ruling, so this only warns.
+  const overlaps = useMemo(() => detectRotationOverlaps(slots), [slots]);
+
   const selectedCycle = cycles.find((c) => c.id === cycleId) ?? null;
 
   if (loading) return <LoadingState />;
@@ -318,6 +330,11 @@ function RotationChart({ canManage }: { canManage: boolean }) {
             )}
           </div>
 
+          {/* Doubled-up departments — informational only; renders nothing when clean */}
+          {!slotsLoading && (
+            <RotationOverlapWarning report={overlaps} areaLabel={areaLabel} />
+          )}
+
           {/* Grid */}
           {slotsLoading ? (
             <Skeleton className="h-64 w-full" />
@@ -375,19 +392,44 @@ function RotationChart({ canManage }: { canManage: boolean }) {
                       <td className="border-r p-3 font-medium">{teamName(tid)}</td>
                       {grid.periods.map((p) => {
                         const areaId = grid.cell.get(`${tid}:${p.index}`);
+                        // Doubled up = another team holds this department this
+                        // period. Amber overrides the "now" tint on the cell so
+                        // the exception stays legible inside the current column.
+                        const cellKey = areaId ? `${areaId}:${p.index}` : '';
+                        const doubled = !!areaId && overlaps.cellKeys.has(cellKey);
+                        const teamsHere = doubled
+                          ? (overlaps.teamCountByCell.get(cellKey) ?? 2)
+                          : 0;
+                        const doubledTitle =
+                          doubled && areaId
+                            ? `${areaLabel(areaId)} has ${teamsHere} teams in period ${p.index + 1} — allowed, but check it is intentional.`
+                            : undefined;
                         return (
                           <td
                             key={p.index}
+                            title={doubledTitle}
                             className={`p-3 ${
-                              p.index === grid.currentPeriod
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40'
-                                : ''
+                              doubled
+                                ? 'bg-amber-50 ring-1 ring-inset ring-amber-300 dark:bg-amber-950/40 dark:ring-amber-800'
+                                : p.index === grid.currentPeriod
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40'
+                                  : ''
                             }`}
                           >
                             {areaId ? (
-                              <span className="inline-flex rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                                {areaLabel(areaId)}
-                              </span>
+                              doubled ? (
+                                <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900 dark:bg-amber-900/50 dark:text-amber-100">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                                  {areaLabel(areaId)}
+                                  <span className="font-normal opacity-80">
+                                    · {teamsHere} teams
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                                  {areaLabel(areaId)}
+                                </span>
+                              )
                             ) : (
                               <span className="text-muted-foreground text-xs">&mdash;</span>
                             )}
