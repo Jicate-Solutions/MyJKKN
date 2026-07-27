@@ -101,9 +101,52 @@ export async function GET(request: NextRequest) {
         `senior-learners +${totals.faculty_added} / -${totals.faculty_removed}, ${duration_ms}ms`,
     );
 
+    // ── Leave a record that this run happened ────────────────────────────────
+    // A healthy sweep changes nothing, so "ran and did nothing" and "never
+    // started" are indistinguishable from the outside — on 2026-07-27 it was
+    // impossible to confirm whether the 04:11 run had fired at all. Stamping
+    // each swept cohort makes a dead cron visible in one query.
+    //
+    // Written here rather than inside fn_teaching_cohort_sync on purpose: that
+    // function governs role access for 44 learners and was hardened + no-op
+    // verified on 2026-07-26, and a CREATE OR REPLACE is a blind full-body swap
+    // (that is how the include_financial money gate was silently lost). The
+    // route already holds every count it needs.
+    //
+    // Best-effort by design: a telemetry write must never fail a sync that
+    // already succeeded, so failures are logged and swallowed.
+    let stamped = 0;
+    for (const r of rows) {
+      if (!r.cohort_key) continue;
+      const { error: stampError } = await admin
+        .from('teaching_enterprise_cohorts')
+        .update({
+          last_synced_at: new Date().toISOString(),
+          last_sync_result: {
+            role_added: r.role_added ?? 0,
+            role_removed: r.role_removed ?? 0,
+            role_total: r.role_total ?? 0,
+            faculty_added: r.faculty_added ?? 0,
+            faculty_removed: r.faculty_removed ?? 0,
+            faculty_total: r.faculty_total ?? 0,
+            duration_ms,
+          },
+        })
+        .eq('cohort_key', r.cohort_key);
+
+      if (stampError) {
+        console.warn(
+          `[cron/teaching-cohort-sync] could not stamp ${r.cohort_key}: ${stampError.message}`,
+        );
+      } else {
+        stamped += 1;
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       cohorts_swept: rows.length,
+      cohorts_stamped: stamped,
       totals,
       results: rows,
       duration_ms,
