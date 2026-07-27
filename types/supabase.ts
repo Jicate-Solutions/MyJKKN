@@ -68905,6 +68905,57 @@ export type Database = {
           },
         ]
       }
+      payment_audit_logs: {
+        Row: {
+          actual_amount: number | null
+          client_status: string | null
+          created_at: string
+          description: string | null
+          event_type: string
+          expected_amount: number | null
+          id: string
+          institution_id: string | null
+          ip_address: string | null
+          metadata: Json
+          server_status: string | null
+          student_id: string | null
+          transaction_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          actual_amount?: number | null
+          client_status?: string | null
+          created_at?: string
+          description?: string | null
+          event_type: string
+          expected_amount?: number | null
+          id?: string
+          institution_id?: string | null
+          ip_address?: string | null
+          metadata?: Json
+          server_status?: string | null
+          student_id?: string | null
+          transaction_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          actual_amount?: number | null
+          client_status?: string | null
+          created_at?: string
+          description?: string | null
+          event_type?: string
+          expected_amount?: number | null
+          id?: string
+          institution_id?: string | null
+          ip_address?: string | null
+          metadata?: Json
+          server_status?: string | null
+          student_id?: string | null
+          transaction_id?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       payment_transactions: {
         Row: {
           bill_ids: string[]
