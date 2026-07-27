@@ -81,10 +81,16 @@ export interface MbaDataGap {
   triaged_by: string | null;
   triaged_at: string | null;
   triage_note: string | null;
+  // Phase 4 v2 — optional named owner (any staff); NULL = shared board.
+  owner_id: string | null;
+  owner_name: string | null;
   // Phase 2 — AI ranking + classification (NULL until the cron has ranked it).
   priority_rank: number | null;
   priority_reason: string | null;
   gap_class: DataGapClass | null;
+  // Phase 4 v2 — a manager has confirmed the AI Type A/B guess (only a confirmed
+  // type_a_surface is fast-tracked/highlighted).
+  class_confirmed: boolean;
   ranked_at: string | null;
   // Phase 3-4 — measured outcome (NULL until the measure cron has run).
   gap_outcome: DataGapOutcome | null;
