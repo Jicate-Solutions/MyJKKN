@@ -493,6 +493,16 @@ function DataGapsBoard() {
                           Stalled
                         </Badge>
                       )}
+                      {isQuickWin && (
+                        <Badge
+                          variant="outline"
+                          className="border-emerald-300 bg-emerald-50 text-xs text-emerald-700"
+                          title="A manager confirmed this is a quick win (data already exists) — fast-tracked to the top"
+                        >
+                          <Zap className="mr-1 h-3 w-3" />
+                          Quick win
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   {/* AI priority reason (why it ranks where it does) */}
