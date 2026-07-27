@@ -48,6 +48,7 @@ import {
   type DataGapType,
   type DataGapClass
 } from '@/lib/services/mba-data-gap/mba-data-gap-service';
+import { ContributorScoreboard } from './contributor-scoreboard';
 
 /* -------------------------------------------------------------------------- */
 /* Display metadata                                                           */
