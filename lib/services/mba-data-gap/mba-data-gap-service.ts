@@ -115,6 +115,19 @@ export interface DataGapFilters {
 }
 
 /**
+ * A very-similar look-alike gap returned by fn_mba_suggest_duplicate_gaps — a
+ * suggestion for a manager to confirm, never an auto-merge. `similarity` is a
+ * 0-1 trigram score (only >= 0.6 are returned).
+ */
+export interface DuplicateSuggestion {
+  id: string;
+  title: string;
+  filer_name: string | null;
+  status: DataGapStatus;
+  similarity: number;
+}
+
+/**
  * One Associate's data-gap track record (Phase 3 measurement moat), as returned
  * by fn_mba_gap_track_record: how many gaps they filed, how many were accepted,
  * and how many went on to produce an APPLIED improvement. For a non-manager the
