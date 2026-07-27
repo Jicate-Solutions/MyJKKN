@@ -1573,3 +1573,16 @@ CREATE TRIGGER trg_billing_bill_default_academic_year
 BEFORE INSERT ON public.billing_student_bills
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
+
+-- Default "Freshers" semester + section A (2026-07-27): every new program gets
+-- one semester and one section so downstream modules always have a valid target.
+-- Function body (and the reasoning behind semester_order = 0 /
+-- initial_semester = false) lives in 02_functions.sql.
+-- AFTER INSERT only -- a program whose hierarchy is completed by a later UPDATE
+-- is not retro-seeded.
+DROP TRIGGER IF EXISTS programs_seed_freshers ON public.programs;
+
+CREATE TRIGGER programs_seed_freshers
+  AFTER INSERT ON public.programs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.seed_freshers_semester_for_program();

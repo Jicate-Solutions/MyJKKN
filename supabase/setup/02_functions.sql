@@ -23875,4 +23875,86 @@ REVOKE ALL ON FUNCTION public.get_billing_coverage_learners(
 GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learners(
   uuid, uuid[], text[], uuid, text, boolean, text, integer, integer, uuid[], text, text, text, text) TO authenticated;
 
+-- ── Default "Freshers" semester + section A (2026-07-27) ──
+-- AFTER INSERT trigger on programs; trigger declaration lives in 04_triggers.sql.
+-- Guarantees every program exposes at least one semester and one section, so the
+-- modules hanging off them always have a valid target.
+--
+-- semester_order = 0 / initial_semester = false are load bearing. Both admission
+-- course-selection flows auto-pick the FIRST YEAR semester via
+-- `find(initial_semester) ?? sorted[0]` and probe `sorted[0].semester_name` with
+-- /year/i to classify a program as year- vs semester-based. Claiming the flag --
+-- or letting this row reach sorted[0] -- would silently re-route first-year
+-- admits and mis-target lateral entry. The frontend filters it out of auto-pick;
+-- see lib/constants/semesters.ts.
+--
+-- SECURITY DEFINER because the sections_insert_admin RLS policy gates on the
+-- ACTOR's own institution, so a multi-institution admin creating a program in a
+-- secondary institution would hit a silent "no error, just no row" reject.
+-- Safe without grants: a function returning `trigger` cannot be called directly.
+CREATE OR REPLACE FUNCTION public.seed_freshers_semester_for_program()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+  v_semester_id uuid;
+BEGIN
+  -- semesters declares these NOT NULL but programs allows them null: no-op on a
+  -- partial hierarchy instead of failing the caller's INSERT with 23502.
+  IF NEW.institution_id IS NULL
+     OR NEW.degree_id IS NULL
+     OR NEW.department_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Seeded regardless of is_active: a program created inactive and activated
+  -- later would otherwise be permanently missing its Freshers row.
+  -- semester_code is varchar(20) and program_id runs to 15 chars, so the
+  -- left(...,14) is load bearing -- without it one program overflows.
+  INSERT INTO semesters (
+    institution_id, degree_id, department_id, program_id,
+    semester_code, semester_name, semester_type,
+    semester_order, initial_semester, terminal_semester, is_active
+  )
+  VALUES (
+    NEW.institution_id, NEW.degree_id, NEW.department_id, NEW.id,
+    upper(left(btrim(NEW.program_id), 14)) || '-FRESH',
+    'Freshers', 'odd', 0, false, false, true
+  )
+  ON CONFLICT ON CONSTRAINT unique_semester_hierarchy DO NOTHING
+  RETURNING id INTO v_semester_id;
+
+  -- ON CONFLICT DO NOTHING suppresses RETURNING; re-read so section A is still
+  -- attached rather than silently skipped.
+  IF v_semester_id IS NULL THEN
+    SELECT id INTO v_semester_id
+    FROM semesters
+    WHERE program_id     = NEW.id
+      AND semester_name  = 'Freshers'
+      AND semester_order = 0;
+  END IF;
+
+  IF v_semester_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO sections (
+    institution_id, degree_id, department_id, program_id,
+    semester_id, section_name, is_active
+  )
+  VALUES (
+    NEW.institution_id, NEW.degree_id, NEW.department_id, NEW.id,
+    v_semester_id, 'A', true
+  )
+  ON CONFLICT ON CONSTRAINT sections_unique_per_semester DO NOTHING;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.seed_freshers_semester_for_program() IS
+  'AFTER INSERT trigger on programs: seeds the default "Freshers" semester (semester_order = 0, initial_semester = false) and its section "A". No-ops when the program hierarchy is incomplete. SECURITY DEFINER because sections_insert_admin binds to the actor''s own institution.';
+
 NOTIFY pgrst, 'reload schema';
