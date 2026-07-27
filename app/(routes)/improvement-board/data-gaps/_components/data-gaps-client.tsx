@@ -632,7 +632,7 @@ function DataGapsBoard() {
                             <div className="w-72">
                               <MemberPicker
                                 onSelect={(m) => handleAssignOwner(gap, m.id)}
-                                placeholder="Search staff by name or email…"
+                                placeholder="Search team members by name or email…"
                               />
                             </div>
                             <Button
