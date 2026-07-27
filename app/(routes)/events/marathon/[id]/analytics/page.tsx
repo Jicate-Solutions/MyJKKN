@@ -312,7 +312,7 @@ function YoYBanner({ eventId }: { eventId: string }) {
             <TrendingUp className="h-4 w-4 text-primary" />
             <span className="font-semibold">Year-over-Year Comparison</span>
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap gap-6">
             <div>
               <p className="text-xs text-muted-foreground">Registrations</p>
               <p className="font-bold">

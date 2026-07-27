@@ -52,10 +52,15 @@ function formatIst(iso: string | null): string {
 
 export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   const { data, isLoading, error } = useLiveSession(cycleId);
-  // Champion + Co-Champion both hold the ai_pulse_champion role — gate the
-  // "Issue poll" control on the SAME role the RLS write policy enforces.
-  const { userRoles } = usePermissions();
-  const isChampion = userRoles.some((r) => r.role_key === 'ai_pulse_champion');
+  // Champion + Co-Champion hold the ai_pulse_champion role — gate the "Issue
+  // poll" control on the SAME identity the RLS write policy enforces
+  // (is_super_admin() OR is_admin() OR the champion role). NOTE: usePermissions
+  // short-circuits super admins to userRoles: [], so a super-admin champion is
+  // NOT in userRoles — the isSuperAdmin flag is load-bearing here, otherwise the
+  // control is invisible to every super-admin host (the reason polls never fired).
+  const { userRoles, isSuperAdmin } = usePermissions();
+  const isChampion =
+    isSuperAdmin || userRoles.some((r) => r.role_key === 'ai_pulse_champion');
 
   if (isLoading) {
     return (

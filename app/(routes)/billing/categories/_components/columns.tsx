@@ -131,13 +131,6 @@ export const getColumns = ({
     )
   },
   {
-    accessorKey: 'amount',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Default Amount' />
-    ),
-    cell: ({ row }) => formatAmount(row.original.amount)
-  },
-  {
     accessorKey: 'is_active',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Status' />

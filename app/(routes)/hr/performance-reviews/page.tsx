@@ -196,7 +196,7 @@ export default function HrSelfAppraisalPage() {
           </Card>
         ) : (
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-base">
                 Cycle {openCycle.cycle_year}
                 <span className="ml-3 text-sm font-normal text-muted-foreground">
@@ -257,7 +257,7 @@ export default function HrSelfAppraisalPage() {
               </div>
 
               {!readonly && (
-                <div className="flex gap-2 pt-2 border-t">
+                <div className="flex flex-wrap gap-2 pt-2 border-t">
                   <Button variant="outline" onClick={() => save(false)} disabled={saving}>
                     <Save className="h-4 w-4" />
                     <span className="ml-2">{saving ? 'Saving…' : 'Save draft'}</span>

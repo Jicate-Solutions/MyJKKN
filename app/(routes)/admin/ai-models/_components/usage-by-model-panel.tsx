@@ -208,9 +208,8 @@ export function UsageByModelPanel() {
             {hasFreeLane && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Max subscription rows are calls the free (Max) worker served under one
-                Anthropic subscription seat; the exact Claude model is captured once the
-                drain update lands.
+                Max rows are calls the free (Max) worker served at ₹0; the exact Claude
+                model is captured once the drain update lands.
               </p>
             )}
           </>

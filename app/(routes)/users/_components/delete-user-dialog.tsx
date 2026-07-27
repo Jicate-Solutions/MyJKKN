@@ -78,9 +78,9 @@ export function DeleteUserDialog({
           </div>
 
           <div className='bg-muted p-3 rounded-md space-y-2'>
-            <div className='flex items-center justify-between'>
-              <span className='text-sm font-medium'>Email:</span>
-              <span className='text-sm'>{user.email}</span>
+            <div className='flex items-center justify-between gap-2'>
+              <span className='text-sm font-medium shrink-0'>Email:</span>
+              <span className='text-sm break-all text-right'>{user.email}</span>
             </div>
             <div className='flex items-center justify-between'>
               <span className='text-sm font-medium'>Role:</span>

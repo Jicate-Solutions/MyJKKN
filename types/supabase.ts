@@ -8903,6 +8903,7 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
+          is_current: boolean
           updated_at: string
           year: number
         }
@@ -8913,6 +8914,7 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year: number
         }
@@ -8923,6 +8925,7 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year?: number
         }
@@ -37823,6 +37826,57 @@ export type Database = {
           },
         ]
       }
+      hostel_room_condition_photos: {
+        Row: {
+          drive_file_id: string
+          file_name: string
+          file_size_bytes: number
+          file_url: string
+          id: string
+          mime_type: string
+          room_id: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          drive_file_id: string
+          file_name: string
+          file_size_bytes: number
+          file_url: string
+          id?: string
+          mime_type: string
+          room_id: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          drive_file_id?: string
+          file_name?: string
+          file_size_bytes?: number
+          file_url?: string
+          id?: string
+          mime_type?: string
+          room_id?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_room_condition_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_room_condition_photos_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_room_occupancy"
+            referencedColumns: ["room_id"]
+          },
+        ]
+      }
       hostel_room_eligibility_rules: {
         Row: {
           block_id: string
@@ -44727,7 +44781,7 @@ export type Database = {
           notes: string | null
           parent_package_id: string | null
           proposed_by: string
-          proposed_monthly_salary: number
+          proposed_monthly_salary: number | null
           proposed_monthly_salary_breakdown: Json | null
           status: string
         }
@@ -44743,7 +44797,7 @@ export type Database = {
           notes?: string | null
           parent_package_id?: string | null
           proposed_by: string
-          proposed_monthly_salary: number
+          proposed_monthly_salary?: number | null
           proposed_monthly_salary_breakdown?: Json | null
           status?: string
         }
@@ -44759,7 +44813,7 @@ export type Database = {
           notes?: string | null
           parent_package_id?: string | null
           proposed_by?: string
-          proposed_monthly_salary?: number
+          proposed_monthly_salary?: number | null
           proposed_monthly_salary_breakdown?: Json | null
           status?: string
         }

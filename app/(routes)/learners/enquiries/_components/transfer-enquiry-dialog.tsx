@@ -145,7 +145,7 @@ export function TransferEnquiryDialog({
           <div className="font-medium mb-2">Current</div>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1">
             <dt className="text-muted-foreground">Application ID</dt>
-            <dd className="font-mono">
+            <dd className="font-mono break-all">
               {enquiry.application_id || <span className="italic">— none —</span>}
             </dd>
             <dt className="text-muted-foreground">Learner</dt>

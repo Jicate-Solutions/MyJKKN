@@ -25,6 +25,7 @@ import type {
   BosMinutesChangeLogEntry,
   UpdateBosMeetingDto,
 } from '@/types/bos';
+import { isCouncilMeetingType } from '@/types/bos';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 interface MinutesTabProps {
@@ -118,11 +119,11 @@ export function MinutesTab({ meeting, canEdit }: MinutesTabProps) {
   // Members for the "Suggested by" dropdown.
   const { data: members = [] } = useBosMembersByComposition(meeting.composition_id);
 
-  // Academic Council meetings span every board of the institution, so the
-  // syllabus picker below switches to board-wise mode: no composition filter
-  // (AC's own composition never matches board-level syllabi) and each option
-  // is prefixed with its board name.
-  const isAcademicCouncil = meeting.meeting_type === 'academic_council';
+  // Council meetings (Academic Council / Governing Body) span every board of the
+  // institution, so the syllabus picker below switches to board-wise mode: no
+  // composition filter (the council's own composition never matches board-level
+  // syllabi) and each option is prefixed with its board name.
+  const isAcademicCouncil = isCouncilMeetingType(meeting.meeting_type);
 
   // Syllabi for the "Syllabus / Course" picker — narrowed to this meeting's
   // composition + regulation, matching the SyllabusTab filter so the picker

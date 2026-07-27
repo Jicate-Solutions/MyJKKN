@@ -29,6 +29,8 @@ import type {
   CreateRcltpPartBQuestionDto,
   UpdateRcltpPartBQuestionDto,
   UpdateRcltpQuestionReviewDto,
+  RcltpPassageReviewPriority,
+  RcltpReviewSpotcheck,
 } from '@/types/rcltp';
 import {
   rcltpRange,
@@ -176,6 +178,35 @@ export class RcltpPassagesService {
     }
   }
 
+  /**
+   * Learner-safe read for the "take the assessment" flow. Calls the SECURITY
+   * DEFINER RPC `fn_rcltp_questions_for_take`, which returns ONLY the columns a
+   * learner needs to answer and OMITS `correct_answer` + `ai_meta` (the answer
+   * key). The base-table `select('*')` path (getQuestions) must NEVER be used for
+   * a learner — RLS now blocks it, and it would put the key on the wire. Returns
+   * the same `{ data }` shape the take flow consumes; correct_answer/ai_meta are
+   * forced null so the learner payload can never carry them.
+   */
+  static async getQuestionsForTake(
+    passageId: string
+  ): Promise<{ data: RcltpPartBQuestion[] }> {
+    if (!passageId) return { data: [] };
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_questions_for_take',
+      { p_passage_id: passageId }
+    );
+    if (error) {
+      console.error('RcltpPassagesService.getQuestionsForTake error:', error);
+      throw error;
+    }
+    const rows = ((data ?? []) as Array<Partial<RcltpPartBQuestion>>).map((r) => ({
+      ...r,
+      correct_answer: null, // answer key is never delivered to a learner
+      ai_meta: null,
+    }));
+    return { data: rows as RcltpPartBQuestion[] };
+  }
+
   static async createQuestion(
     input: CreateRcltpPartBQuestionDto
   ): Promise<RcltpPartBQuestion> {
@@ -299,6 +330,94 @@ export class RcltpPassagesService {
     if (error) throw error;
     toast.success('Question review saved');
     return data as RcltpPartBQuestion;
+  }
+
+  /**
+   * Promote MANY reviewed questions in one statement (locked decision #1 —
+   * "approve all AI-agreed"). One `.update().in('id', ids)` round-trip rather
+   * than N mutations: the console can clear a whole passage's agreed drafts
+   * without N network calls, and RLS still evaluates per row, so a caller who
+   * may not touch one of the ids simply does not update it.
+   *
+   * FREEZE BY OMISSION: the patch is an UpdateRcltpQuestionReviewDto (status +
+   * reviewed_by + reviewed_at only). It carries no ai_meta, so the frozen
+   * ai_meta.ai_draft survives untouched — the invariant holds by construction,
+   * exactly as in the single-row reviewQuestion path.
+   *
+   * Returns the rows actually updated, so the caller reports what really landed
+   * rather than what it hoped would land.
+   */
+  static async reviewQuestionsBulk(
+    ids: string[],
+    input: UpdateRcltpQuestionReviewDto
+  ): Promise<RcltpPartBQuestion[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await (this.supabase as any)
+      .from('rcltp_part_b_questions')
+      .update({
+        ...input,
+        reviewed_at: input.reviewed_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', ids)
+      .select();
+    if (error) throw error;
+    const rows = (data ?? []) as RcltpPartBQuestion[];
+    if (rows.length < ids.length) {
+      // Honest partial result — never report N approved when the DB took fewer.
+      toast.success(
+        `Approved ${rows.length} of ${ids.length} — the rest were not permitted or already reviewed.`
+      );
+    } else {
+      toast.success(`Approved ${rows.length} questions`);
+    }
+    return rows;
+  }
+
+  /**
+   * Most-needed-first ordering for the review queue (locked decision #5), via
+   * fn_rcltp_passage_review_priority. Returns one row per visible passage with
+   * its counts and a server-computed priority_rank.
+   */
+  static async getPassageReviewPriority(
+    institutionId?: string | null
+  ): Promise<RcltpPassageReviewPriority[]> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_passage_review_priority',
+      { p_institution_id: institutionId ?? null }
+    );
+    if (error) throw error;
+    return (data ?? []) as RcltpPassageReviewPriority[];
+  }
+
+  /**
+   * This week's anti-rubber-stamp sample for the signed-in Senior Learner
+   * (locked decision #7). The RPC is self-healing: the first call in a week
+   * draws the sample, later calls return the same rows — no scheduler that can
+   * silently stop running.
+   */
+  static async getSpotcheckWeek(): Promise<RcltpReviewSpotcheck[]> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_spotcheck_week'
+    );
+    if (error) throw error;
+    return (data ?? []) as RcltpReviewSpotcheck[];
+  }
+
+  /** Record the outcome of one sampled item: it reads correctly, or it needs a look. */
+  static async resolveSpotcheck(
+    id: string,
+    status: 'confirmed' | 'flagged',
+    note?: string | null
+  ): Promise<void> {
+    const { error } = await (this.supabase as any).rpc(
+      'fn_rcltp_spotcheck_resolve',
+      { p_id: id, p_status: status, p_note: note ?? null }
+    );
+    if (error) throw error;
+    toast.success(
+      status === 'confirmed' ? 'Spot-check confirmed' : 'Flagged for a second look'
+    );
   }
 
   /**

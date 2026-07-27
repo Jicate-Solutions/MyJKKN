@@ -30,8 +30,9 @@ import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AiModelsDataTable } from './_components/ai-models-data-table';
 import { UsageByModelPanel } from './_components/usage-by-model-panel';
-import { AiStudioPanel } from './_components/ai-studio-panel';
 import { CapabilityGapLoopCard } from './_components/capability-gap-loop-card';
+import { ModelSwitchWatchCard } from './_components/model-switch-watch-card';
+import { PromptGraduationCard } from './_components/prompt-graduation-card';
 
 export default function AiModelsPage() {
   return (
@@ -47,18 +48,21 @@ export default function AiModelsPage() {
       }
     >
       <ContentLayout title="AI Models — Pick which AI runs each feature, set spend caps, see live usage">
-        <Tabs defaultValue="models" className="space-y-4">
+        {/* UNIFICATION (2026-07-23): the "AI Models" + "AI Studio" tabs are
+            collapsed into ONE registry-backed console (AiModelsDataTable now
+            lists all 45 ai_job_types jobs grouped by lane, with authoring folded
+            in behind each row's Advanced menu). ai_model_config stays as the
+            silent resolver fallback with no independent tab. */}
+        <Tabs defaultValue="jobs" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="models">AI Models</TabsTrigger>
-            <TabsTrigger value="studio">AI Studio</TabsTrigger>
+            <TabsTrigger value="jobs">AI Jobs</TabsTrigger>
             <TabsTrigger value="capability-gap-loop">Capability-Gap Loop</TabsTrigger>
           </TabsList>
-          <TabsContent value="models" className="space-y-6">
+          <TabsContent value="jobs" className="space-y-6">
+            <ModelSwitchWatchCard />
+            <PromptGraduationCard />
             <UsageByModelPanel />
             <AiModelsDataTable />
-          </TabsContent>
-          <TabsContent value="studio">
-            <AiStudioPanel />
           </TabsContent>
           <TabsContent value="capability-gap-loop">
             <CapabilityGapLoopCard />

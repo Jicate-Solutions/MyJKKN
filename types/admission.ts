@@ -1398,6 +1398,14 @@ export interface AdmissionYear {
   admission_year_name: string;
   year: number;
   is_active: boolean;
+  /**
+   * The cohort new leads/enquiries default to. Exactly one per institution —
+   * enforced in Postgres by a partial unique index plus a BEFORE trigger that
+   * demotes the previous holder (see 20260725_admission_years_is_current_flag).
+   * Distinct from `is_active`, which only controls dropdown visibility and
+   * stays true for historical cohorts so legacy imports can still resolve them.
+   */
+  is_current: boolean;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -1409,6 +1417,7 @@ export interface CreateAdmissionYearDto {
   admission_year_name: string;
   year: number;
   is_active?: boolean;
+  is_current?: boolean;
 }
 
 export type UpdateAdmissionYearDto = Partial<Omit<CreateAdmissionYearDto, 'institution_id'>>;

@@ -32,8 +32,10 @@ import {
 import {
   BosMeetingStatus,
   BOS_MEETING_STATUS_LABELS,
+  bosCallLetterFilename,
   bosMemberTypeLabel,
   isBosChairmanRow,
+  isCouncilMeetingType,
 } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -105,10 +107,11 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
 
   // ── Permission + lifecycle gate ────────────────────────────────────────────
   // BoS: chairman (or super-admin) sends at 'expert_invited'.
-  // Academic Council: the principal (or super-admin) is the convener and sends
-  // the call letters at 'noticed' — they are NOT a bos_members chairman of the
-  // AC body, so the chairman check would wrongly lock them out.
-  const isAc = meetingType === 'academic_council';
+  // Council (Academic Council / Governing Body): the principal (or super-admin)
+  // is the convener and sends the call letters at 'noticed' — they are NOT a
+  // bos_members chairman of the council body, so the chairman check would
+  // wrongly lock them out.
+  const isAc = isCouncilMeetingType(meetingType);
   const notifyStatus = isAc ? NOTIFY_STATUS_AC : NOTIFY_STATUS_BOS;
   const canSend = isAc
     ? scope.isSuperAdmin || scope.isPrincipal
@@ -354,7 +357,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
                     <Button variant='outline' size='sm' className='h-8 gap-1.5' asChild>
                       <a
                         href={`/api/bos/meetings/${meetingId}/preview-pdf?memberId=${m.id}`}
-                        download={`bos-call-letter-${m.display_name.replace(/\s+/g, '-')}.pdf`}
+                        download={bosCallLetterFilename(meetingType, m.display_name)}
                         target='_blank'
                         rel='noopener noreferrer'
                         aria-label={`Download call letter PDF for ${m.display_name}`}

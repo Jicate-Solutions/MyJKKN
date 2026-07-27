@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, FieldErrors } from 'react-hook-form';
+import { useForm, FieldErrors, type Resolver } from 'react-hook-form';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Form } from '@/components/ui/form';
@@ -111,7 +111,9 @@ export const enquiryFormSchema = z.object({
   // 2026-04-23: new source of truth — FK to admission_years (cascading
   // institution + program scoped). Picked via <AdmissionYearSelect/> in
   // the Course Selection tab.
-  admission_year_id: z.string().uuid().nullable().optional().or(z.literal('')),
+  // 2026-07-27: promoted optional → required (see the academic_year_id /
+  // section_id note below for why this is safe for early capture).
+  admission_year_id: z.string().uuid('Admission year is required'),
   learner_type: z.enum(['regular', 'irregular', 'intern']).nullable().optional(),
 
   // Family Information
@@ -175,14 +177,18 @@ export const enquiryFormSchema = z.object({
   degree_id: z.string().nullable().optional(),
   department_id: z.string().nullable().optional(),
   program_id: z.string().min(1, 'Program is required'),
-  // 2026-05-21: academic_year_id and section_id relaxed from required → optional
-  // on the enquiry form. Most enquiries are captured before the student is
-  // placed in an academic-year cohort / section; counsellors set those fields
-  // later during onboarding. Keeping them required was blocking save on the
-  // entry-point form.
-  academic_year_id: z.string().nullable().optional(),
+  // 2026-05-21: academic_year_id and section_id were relaxed required → optional
+  // because most enquiries are captured before the student is placed in an
+  // academic-year cohort / section, and keeping them required blocked save on
+  // the entry-point form.
+  // 2026-07-27: promoted back to required (with admission_year_id above). The
+  // 2026-05-21 concern is covered by "Save Draft" / "Save & Next", which call
+  // form.getValues() and bypass validation entirely — a counsellor can still
+  // capture an enquiry before the cohort/section is known. Only the final
+  // Submit now demands all three.
+  academic_year_id: z.string().min(1, 'Academic year is required'),
   semester_id: z.string().min(1, 'Semester is required'),
-  section_id: z.string().nullable().optional(),
+  section_id: z.string().min(1, 'Section is required'),
   roll_number: z.string().nullable().optional(),
   register_number: z.string().nullable().optional(),
   college_email: z.string().nullable().optional(),
@@ -249,6 +255,21 @@ const requiredFieldsSchema = enquiryFormSchema.extend({
   institution_id: z.string().uuid('Institution is required'),
   program_id: z.string().uuid('Program is required'),
 });
+
+// 2026-07-27: the three fields promoted to required above all live on the
+// Course Selection tab. Surfaces that HIDE that tab (learners/my-profile passes
+// visibleTabs without 'course-selection') must keep them optional — a required
+// field on a tab the user cannot open is an unfixable submit block, and
+// onInvalid would try to switch to a tab that isn't rendered. Those surfaces
+// swap in the relaxed pair below; every other caller renders the tab and gets
+// the strict schemas.
+const COURSE_TAB_OPTIONAL = {
+  admission_year_id: z.string().uuid().nullable().optional().or(z.literal('')),
+  academic_year_id: z.string().nullable().optional(),
+  section_id: z.string().nullable().optional(),
+};
+const relaxedFormSchema = enquiryFormSchema.extend(COURSE_TAB_OPTIONAL);
+const relaxedRequiredFieldsSchema = requiredFieldsSchema.extend(COURSE_TAB_OPTIONAL);
 
 export type EnquiryFormValues = z.infer<typeof enquiryFormSchema>;
 
@@ -529,6 +550,7 @@ const FIELD_LABELS: Record<string, string> = {
   degree_id:                  'Degree',
   department_id:              'Department',
   program_id:                 'Program',
+  admission_year_id:          'Admission Year',
   academic_year_id:           'Academic Year',
   semester_id:                'Semester',
   section_id:                 'Section',
@@ -701,6 +723,10 @@ export function EnquiryForm({
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
     : ALL_TABS;
 
+  // Admission Year / Academic Year / Section are required only when the tab
+  // that renders them is actually reachable (see COURSE_TAB_OPTIONAL above).
+  const showsCourseTab = !visibleTabs || visibleTabs.includes('course-selection');
+
   // Finance tab permission check.
   // BUG-003147/003148/003155/003262: admission_staff had learners.admissions.edit
   // but not learners.finance.edit, so the finance section rendered read-only and
@@ -731,7 +757,9 @@ export function EnquiryForm({
 
   // Initialize form with all fields
   const form = useForm<EnquiryFormValues>({
-    resolver: zodResolver(enquiryFormSchema),
+    resolver: zodResolver(
+      showsCourseTab ? enquiryFormSchema : relaxedFormSchema,
+    ) as Resolver<EnquiryFormValues>,
     defaultValues: learner
       ? (() => {
           console.log('[enquiry-form] Loading learner data:', {
@@ -1654,7 +1682,9 @@ export function EnquiryForm({
     }
 
     // Validate required fields
-    const validation = requiredFieldsSchema.safeParse(values);
+    const validation = (
+      showsCourseTab ? requiredFieldsSchema : relaxedRequiredFieldsSchema
+    ).safeParse(values);
     if (!validation.success) {
       const errors = validation.error.flatten().fieldErrors;
       const errorKeys = Object.keys(errors);

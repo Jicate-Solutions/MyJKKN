@@ -802,17 +802,18 @@ function ExpoEventDetailContent() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="flex items-start gap-3">
           <Button
             variant="outline"
             size="icon"
+            className="shrink-0"
             onClick={() => router.push('/admission/marketing/expos')}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold">{event.event_name}</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold break-words">{event.event_name}</h1>
             {event.organizer_name && (
               <p className="text-muted-foreground mt-0.5">Organised by {event.organizer_name}</p>
             )}
@@ -891,7 +892,7 @@ function ExpoEventDetailContent() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="team">
             Team
@@ -1044,12 +1045,12 @@ function ExpoEventDetailContent() {
         {/* ── Tab 2: Team ── */}
         <TabsContent value="team" className="mt-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Team Members</CardTitle>
                 <CardDescription>People attending this expo event</CardDescription>
               </div>
-              <Button size="sm" onClick={() => setAddMemberOpen(true)}>
+              <Button size="sm" className="shrink-0" onClick={() => setAddMemberOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Member
               </Button>
@@ -1126,14 +1127,14 @@ function ExpoEventDetailContent() {
 
         {/* ── Tab 3: Daily Reports ── */}
         <TabsContent value="reports" className="space-y-4 mt-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
             <div>
               <h3 className="font-semibold">Daily Reports</h3>
               <p className="text-sm text-muted-foreground">
                 Expense and engagement data per day
               </p>
             </div>
-            <Link href={`/admission/marketing/expos/${eventId}/report/new`}>
+            <Link href={`/admission/marketing/expos/${eventId}/report/new`} className="shrink-0">
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Report

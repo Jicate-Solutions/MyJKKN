@@ -265,9 +265,9 @@ function TelephonyPoliciesContent() {
         <Database className="h-4 w-4" />
         <AlertTitle>Telephony policy not seeded</AlertTitle>
         <AlertDescription>
-          The <code>{POLICY_KEYS.TELEPHONY_EXOVOICE_CONFIG}</code> row is
+          The <code className="break-all">{POLICY_KEYS.TELEPHONY_EXOVOICE_CONFIG}</code> row is
           missing in <code>platform_policies</code>. Run the migration{' '}
-          <code>20260503022300_telephony_exovoice_config_policy.sql</code> to
+          <code className="break-all">20260503022300_telephony_exovoice_config_policy.sql</code> to
           seed it.
         </AlertDescription>
       </Alert>

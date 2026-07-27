@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx';
+import { getErrorMessage } from '@/lib/utils';
+import { selectInBatches } from '@/lib/utils/supabase-batched-in';
 import {
   EDITABLE_FIELD_LABELS,
   type BillFieldChange,
@@ -58,6 +60,16 @@ export interface BulkEditChangeSet {
   computed: BulkEditComputedRow[];
   errors: BulkEditError[];
 }
+
+/**
+ * Max ids per `id=in.(...)` filter. PostgREST puts them in the query string on
+ * writes exactly as it does on reads, so the same ~31 KB gateway ceiling (~804
+ * UUIDs) applies to UPDATE. 100 is the repo-wide safe batch.
+ */
+const UPDATE_ID_BATCH = 100;
+
+/** UPDATE requests in flight at once. Bounded so a big apply can't stampede. */
+const UPDATE_CONCURRENCY = 8;
 
 export class BulkEditBillsService {
   /**
@@ -156,19 +168,31 @@ export class BulkEditBillsService {
     }
 
     // Load current bills (RLS-scoped) for all referenced ids.
+    //
+    // MUST stay batched. `.in()` serializes every UUID into the GET query
+    // string (36 chars + an encoded comma = 39 bytes each), so a single call
+    // blows past the Supabase/Kong ~31 KB URL ceiling at ~804 ids and comes
+    // back as a bare HTTP 400 `{ message: 'Bad Request' }` — no PostgREST
+    // code/details, and fast rather than a timeout, so it reads like a broken
+    // query. The export cap is 5000 bills (BULK_EDIT_DOWNLOAD_CAP), i.e. every
+    // upload over ~800 rows failed here before reading a single bill.
     const billIds = raws.map((r) => r.bill_id);
-    const { data: bills, error: billErr } = await client
-      .from('billing_student_bills')
-      .select(
-        `
+    const { data: bills, error: billErr } = await selectInBatches<any>(
+      billIds,
+      (chunk) =>
+        client
+          .from('billing_student_bills')
+          .select(
+            `
         id, institution_id, academic_year_id, item_category_id,
         bill_description, due_date, remarks, status,
         student:learners_profiles(first_name, last_name, roll_number),
         academic_year:academic_years(academic_year_name),
         item_category:billing_categories(category_name)
       `
-      )
-      .in('id', billIds);
+          )
+          .in('id', chunk)
+    );
     if (billErr) throw billErr;
 
     const billById = new Map<string, any>();
@@ -308,6 +332,13 @@ export class BulkEditBillsService {
   /**
    * Apply a change-set: UPDATE each valid-and-changed bill (RLS as the user).
    * Returns applied rows (full, uncapped) + per-row failures. Partial success.
+   *
+   * Rows are grouped by identical payload so ONE request updates every bill
+   * receiving the same edit — the dominant use case (backfilling a single
+   * academic year across thousands of bills) collapses from N requests to a
+   * handful. Groups are then id-batched and run with bounded concurrency, so
+   * the worst case (every row a distinct payload) stays inside maxDuration
+   * instead of serialising N round-trips.
    */
   static async apply(
     changeSet: BulkEditChangeSet,
@@ -316,26 +347,89 @@ export class BulkEditBillsService {
     applied: { bill_id: string; roll_number: string; student_name: string; changes: BillFieldChange[] }[];
     failed: BulkEditError[];
   }> {
-    const applied: { bill_id: string; roll_number: string; student_name: string; changes: BillFieldChange[] }[] = [];
+    const targets = changeSet.computed.filter((r) => r.valid && r.changes.length > 0);
+    if (targets.length === 0) return { applied: [], failed: [] };
+
+    // Group bills whose write payload is byte-identical.
+    const groups = new Map<string, { update: Record<string, unknown>; ids: string[] }>();
+    for (const r of targets) {
+      const key = JSON.stringify(
+        Object.keys(r.update)
+          .sort()
+          .map((k) => [k, r.update[k]])
+      );
+      const existing = groups.get(key);
+      if (existing) existing.ids.push(r.bill_id);
+      else groups.set(key, { update: r.update, ids: [r.bill_id] });
+    }
+
+    // Flatten into id-batched tasks.
+    const tasks: { update: Record<string, unknown>; ids: string[] }[] = [];
+    for (const g of groups.values()) {
+      for (let i = 0; i < g.ids.length; i += UPDATE_ID_BATCH) {
+        tasks.push({ update: g.update, ids: g.ids.slice(i, i + UPDATE_ID_BATCH) });
+      }
+    }
+
+    const rowByBillId = new Map(targets.map((r) => [r.bill_id, r]));
+    const updatedIds = new Set<string>();
+    const erroredIds = new Set<string>();
     const failed: BulkEditError[] = [];
 
-    for (const r of changeSet.computed) {
-      if (!r.valid || r.changes.length === 0) continue;
-      const { error } = await client
-        .from('billing_student_bills')
-        .update(r.update)
-        .eq('id', r.bill_id);
-      if (error) {
-        failed.push({ row: r.row, message: `Update failed for bill ${r.bill_id}: ${error.message}` });
-        continue;
+    const runTask = async (task: { update: Record<string, unknown>; ids: string[] }) => {
+      const failTask = (message: string) => {
+        for (const id of task.ids) {
+          erroredIds.add(id);
+          failed.push({
+            row: rowByBillId.get(id)?.row ?? 0,
+            message: `Update failed for bill ${id}: ${message}`
+          });
+        }
+      };
+      try {
+        // .select('id') returns the rows the DB actually wrote. Verified safe
+        // here: no UPDATE/SELECT policy on this table keys off a column bulk
+        // edit writes, so a written row cannot drop out of the actor's scope.
+        const { data, error } = await client
+          .from('billing_student_bills')
+          .update(task.update)
+          .in('id', task.ids)
+          .select('id');
+        if (error) {
+          failTask(error.message);
+          return;
+        }
+        (data || []).forEach((b: any) => updatedIds.add(b.id));
+      } catch (err) {
+        failTask(getErrorMessage(err));
       }
-      applied.push({
-        bill_id: r.bill_id,
-        roll_number: r.roll_number,
-        student_name: r.student_name,
-        changes: r.changes
-      });
+    };
+
+    for (let i = 0; i < tasks.length; i += UPDATE_CONCURRENCY) {
+      await Promise.all(tasks.slice(i, i + UPDATE_CONCURRENCY).map(runTask));
     }
+
+    // Walk `targets` (not the async results) so the report stays in row order.
+    const applied: { bill_id: string; roll_number: string; student_name: string; changes: BillFieldChange[] }[] = [];
+    for (const r of targets) {
+      if (updatedIds.has(r.bill_id)) {
+        applied.push({
+          bill_id: r.bill_id,
+          roll_number: r.roll_number,
+          student_name: r.student_name,
+          changes: r.changes
+        });
+      } else if (!erroredIds.has(r.bill_id)) {
+        // No error, but the DB didn't return it: RLS declined the write or the
+        // bill disappeared between preview and apply. Previously this counted
+        // as a phantom success.
+        failed.push({
+          row: r.row,
+          message: `Bill ${r.bill_id} was not updated — it no longer exists, or you don't have permission to edit it.`
+        });
+      }
+    }
+    failed.sort((a, b) => a.row - b.row);
 
     return { applied, failed };
   }

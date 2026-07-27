@@ -70,7 +70,7 @@ function NewClinicalCasePageInner() {
         </div>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="builder">Form Builder</TabsTrigger>
             <TabsTrigger value="json">Paste JSON</TabsTrigger>
             <TabsTrigger value="pms">Import from PMS</TabsTrigger>

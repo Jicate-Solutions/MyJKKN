@@ -52,6 +52,10 @@ interface FeatureRow {
   // high-volume warning (D4).
   lane?: string | null;
   month_to_date_invocations?: number;
+  // UNIFICATION follow-up (2026-07-23): false → this registry job has no model
+  // yet (provider/model_id are ''); the dialog runs in "set for the first time"
+  // mode (empty picker, POSTs to the upserting PATCH which creates the row).
+  model_set?: boolean;
 }
 
 // Anthropic's provider id in the AI provider registry (ai-providers.ts) — the
@@ -76,7 +80,9 @@ interface FormState {
 }
 
 function buildFormState(f: FeatureRow | null): FormState {
-  let provider = f?.provider ?? 'openai';
+  // Empty string = a model-less registry job governed for the first time
+  // (UNIFICATION follow-up) — treat as unset so the picker forces a fresh pick.
+  let provider = f?.provider || 'openai';
   let model_id = f?.model_id ?? '';
   // D3: a Max-lane feature can only run on the subscription Claude worker, so
   // the provider is locked to Anthropic. If a max-lane row is somehow stored on
@@ -146,7 +152,15 @@ export function AiModelEditDialog({
   const isSafetyJudgeFeature = isSafetyJudge(feature?.feature_key);
 
   const providerModels = useMemo<ModelOption[]>(() => {
-    const models = getProviderRegistry(form.provider)?.models ?? [];
+    let models = getProviderRegistry(form.provider)?.models ?? [];
+    // Claude picks are restricted to the two always-latest family aliases
+    // (Sonnet/Opus). Haiku and pinned dated versions are no longer selectable —
+    // every Anthropic job rides "latest" so it auto-follows new releases. The
+    // concrete ids stay in the registry only for historical label/pricing lookup.
+    // Non-Anthropic providers (the voice tasks) keep their full model list.
+    if (form.provider === 'anthropic') {
+      models = models.filter((m) => m.id === 'sonnet' || m.id === 'opus');
+    }
     if (!isSafetyJudgeFeature) return models;
     return models.filter((m) => !isBelowSonnet(form.provider, m.id));
   }, [form.provider, isSafetyJudgeFeature]);
@@ -211,7 +225,9 @@ export function AiModelEditDialog({
         throw new Error(payload.error ?? `HTTP ${res.status}`);
       }
 
-      toast.success(`${feature.display_name} updated.`);
+      toast.success(
+        `${feature.display_name} ${feature.model_set === false ? 'model set' : 'updated'}.`,
+      );
       onSaved();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed.';
@@ -225,7 +241,13 @@ export function AiModelEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle>{feature ? `Edit: ${feature.display_name}` : 'Edit AI model'}</DialogTitle>
+          <DialogTitle>
+            {feature
+              ? feature.model_set === false
+                ? `Set a model: ${feature.display_name}`
+                : `Edit: ${feature.display_name}`
+              : 'Edit AI model'}
+          </DialogTitle>
           <DialogDescription>
             Pick which provider and model run this feature. The change takes effect within
             60 seconds (or sooner — the cache invalidates immediately on save).
@@ -320,7 +342,7 @@ export function AiModelEditDialog({
           </div>
 
           {/* Fallback provider/model — optional */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="fallback_provider">Fallback provider (optional)</Label>
               <Select

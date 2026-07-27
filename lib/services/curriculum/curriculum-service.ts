@@ -61,6 +61,10 @@ export interface DraftArtifact {
   sequence_no: number | null;
   learning_outcomes: LessonOutcome[];
   primary_fink_dimension: FinkDimension | null;
+  // BoS-fixed taxonomy this lesson's PRIMARY tag follows. 'blooms' → primary_bloom_level is
+  // the lesson's primary axis; 'finks' (or null = legacy) → primary_fink_dimension is.
+  primary_taxonomy: 'finks' | 'blooms' | null;
+  primary_bloom_level: string | null;   // K1..K6, when primary_taxonomy = 'blooms'
   co_refs: string[];
   source: 'bos_ai' | 'title_ai';
   bos_syllabus_id: string | null;
@@ -96,6 +100,16 @@ export const FINK_OPTIONS: { value: FinkDimension; label: string }[] = [
 
 export function finkLabel(dim?: string | null): string {
   return FINK_OPTIONS.find((f) => f.value === dim)?.label ?? 'Understand (foundational)';
+}
+
+export function bloomLabel(level?: string | null): string {
+  return BLOOM_OPTIONS.find((b) => b.value === level)?.label ?? 'Pick a Bloom level';
+}
+
+/** A lesson is Bloom-primary only when its BoS-fixed taxonomy is 'blooms'; NULL (legacy) or
+ *  'finks' both read as Fink-primary. Central so the UI and service agree on the branch. */
+export function isBloomPrimary(taxonomy?: string | null): boolean {
+  return taxonomy === 'blooms';
 }
 
 export class CurriculumService {
@@ -199,6 +213,8 @@ export class CurriculumService {
       sequenceNo?: number;
       learningOutcomes?: LessonOutcome[];
       primaryFink?: FinkDimension;
+      primaryBloom?: string;
+      primaryTaxonomy?: 'finks' | 'blooms';
       coRefs?: string[];
     },
   ): Promise<string> {
@@ -209,6 +225,8 @@ export class CurriculumService {
       p_sequence_no: edits?.sequenceNo ?? null,
       p_learning_outcomes: edits?.learningOutcomes ?? null,
       p_primary_fink: edits?.primaryFink ?? null,
+      p_primary_bloom_level: edits?.primaryBloom ?? null,
+      p_primary_taxonomy: edits?.primaryTaxonomy ?? null,
       p_co_refs: edits?.coRefs ?? null,
     });
     if (error) throw error;

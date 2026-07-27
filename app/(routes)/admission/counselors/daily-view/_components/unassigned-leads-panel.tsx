@@ -86,7 +86,7 @@ export function UnassignedLeadsPanel({
       </CardHeader>
       <CardContent className="pt-0">
         {/* Assign controls */}
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           <Checkbox
             checked={selectedIds.size === leads.length && leads.length > 0}
             onCheckedChange={toggleAll}
@@ -96,7 +96,7 @@ export function UnassignedLeadsPanel({
           </span>
           <div className="flex-1" />
           <Select value={selectedCounselor} onValueChange={setSelectedCounselor}>
-            <SelectTrigger className="h-8 w-[160px] text-xs">
+            <SelectTrigger className="h-8 w-full sm:w-[160px] text-xs">
               <SelectValue placeholder="Assign to..." />
             </SelectTrigger>
             <SelectContent>

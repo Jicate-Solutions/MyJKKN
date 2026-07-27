@@ -765,6 +765,7 @@ export class LeaveOndutyService {
 
       const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
 
+      let seededApprovers = 0;
       if (steps.length > 0) {
         const approvalRows = await Promise.all(
           steps.map(async (step) => {
@@ -806,7 +807,27 @@ export class LeaveOndutyService {
             await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
             throw new Error(`Failed to seed approvers: ${approvalsError.message}`);
           }
+          seededApprovers = validRows.length;
         }
+      }
+
+      // SAFEGUARD (P1 — silent-strand fix): if no approver row was created, the
+      // application is invisible to every approver (they query
+      // leave_onduty_approvals by approver_id) and would sit `pending` forever —
+      // the exact failure that stranded 54 of 60 applications. Two paths reach
+      // here: no approval flow is configured for this learner's
+      // college + department + semester (steps empty), or a flow exists but no
+      // eligible approver profile was found (validRows empty). Either way, refuse
+      // the submission explicitly and roll back the just-created row rather than
+      // silently accept a request that can never be approved. (Sponsor-gated
+      // applications are excluded — they seed the academic chain after the
+      // sponsor approves, so zero approvers at creation is expected for them.)
+      if (seededApprovers === 0) {
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(
+          'No approver is set up for your class yet, so this request cannot be sent for approval. ' +
+          'Please contact your department office to have the leave / on-duty approver configured, then submit again.'
+        );
       }
     }
 
@@ -2233,6 +2254,61 @@ export class LeaveOndutyService {
   }
 
   /**
+   * Set one learner's status inside a slot, for BOTH slot shapes.
+   *
+   * A normal slot stores its roster as `{ students: [...] }`. A subdivided
+   * practical/lab slot stores it as `{ groups: [{ students: [...] }, ...] }`.
+   * Every caller here used to read `slot.students` only, so on a practical the
+   * guard was falsy and an APPROVED On-Duty silently never converted Absent→OD —
+   * no error, just a console warning and a record saved unchanged. (All 302
+   * subdivided periods in production since 2025-11-25 were affected.)
+   *
+   * Writes through to every copy that holds the learner — the top-level roster
+   * AND each group — so the marking grid (which reads `groups[]`) and the reports
+   * (which read the top-level roster) can never disagree.
+   *
+   * Returns the previous status, or null when the learner is not in the slot at
+   * all. Nothing is written when the learner already holds the target status, so
+   * the caller's "only update if different" contract is preserved exactly.
+   */
+  private static setStudentStatusInSlot(
+    slot: any,
+    studentId: string,
+    newStatus: string
+  ): string | null {
+    if (!slot) return null;
+
+    const rosters: any[][] = [];
+    if (Array.isArray(slot.students)) rosters.push(slot.students);
+    if (Array.isArray(slot.groups)) {
+      for (const group of slot.groups) {
+        if (Array.isArray(group?.students)) rosters.push(group.students);
+      }
+    }
+
+    const entries: any[] = [];
+    let oldStatus: string | null = null;
+
+    for (const roster of rosters) {
+      const index = roster.findIndex((s: any) => s?.student_id === studentId);
+      if (index === -1) continue;
+      if (entries.length === 0) oldStatus = roster[index].status ?? null;
+      entries.push(roster[index]);
+    }
+
+    if (entries.length === 0) return null;
+    if (oldStatus === newStatus) return oldStatus;
+
+    const markedAt = new Date().toISOString();
+    for (const entry of entries) {
+      entry.status = newStatus;
+      entry.marked_at = markedAt;
+    }
+
+    return oldStatus;
+  }
+
+  /**
    * Update attendance for a specific date
    */
   private static async updateAttendanceForDate(
@@ -2363,47 +2439,37 @@ export class LeaveOndutyService {
     for (const slotId of slotIds) {
       console.log('[attendance-integration] Checking slot:', slotId, 'exists:', !!attendanceData[slotId]);
 
-      if (attendanceData[slotId]?.students) {
-        const students = attendanceData[slotId].students;
-        console.log('[attendance-integration] Slot has', students.length, 'students');
-
-        const studentIndex = students.findIndex(
-          (s: any) => s.student_id === application.learner_id
+      // Updated: 2026-07-25 - Was `attendanceData[slotId]?.students`, which is falsy
+      // on a subdivided practical/lab slot (its roster lives in groups[]) — so an
+      // approved On-Duty silently skipped every practical. setStudentStatusInSlot
+      // handles both shapes and keeps them in sync.
+      if (attendanceData[slotId]) {
+        const oldStatus = this.setStudentStatusInSlot(
+          attendanceData[slotId],
+          application.learner_id,
+          newStatus
         );
 
-        console.log('[attendance-integration] Student found at index:', studentIndex);
-
-        if (studentIndex !== -1) {
-          const oldStatus = students[studentIndex].status;
-
-          console.log('[attendance-integration] Student current status:', {
+        if (oldStatus === null) {
+          console.warn('[attendance-integration] Learner not found in slot roster');
+        } else if (oldStatus !== newStatus) {
+          console.log('[attendance-integration] Status updated, creating audit record', {
             old_status: oldStatus,
-            new_status: newStatus,
-            needs_update: oldStatus !== newStatus
+            new_status: newStatus
           });
 
-          // Only update if status is different
-          if (oldStatus !== newStatus) {
-            students[studentIndex].status = newStatus;
-            students[studentIndex].marked_at = new Date().toISOString();
+          // Create audit record
+          await this.createAttendanceUpdateAudit({
+            application_id: application.id,
+            attendance_record_id: attendanceRecord.id,
+            period_slot_id: slotId,
+            student_id: application.learner_id,
+            old_status: oldStatus,
+            new_status: newStatus,
+            updated_by: null, // System update
+          });
 
-            console.log('[attendance-integration] Status updated, creating audit record');
-
-            // Create audit record
-            await this.createAttendanceUpdateAudit({
-              application_id: application.id,
-              attendance_record_id: attendanceRecord.id,
-              period_slot_id: slotId,
-              student_id: application.learner_id,
-              old_status: oldStatus,
-              new_status: newStatus,
-              updated_by: null, // System update
-            });
-
-            updated = true;
-          }
-        } else {
-          console.warn('[attendance-integration] Student not found in slot students list');
+          updated = true;
         }
       } else {
         console.warn('[attendance-integration] Slot not found in attendance data');
@@ -2535,19 +2601,15 @@ export class LeaveOndutyService {
       const attendanceData = { ...attendanceRecord.attendance_data };
 
       // Revert each period
+      // Updated: 2026-07-25 - Same subdivided-slot blind spot as the approve path:
+      // a practical's roster lives in groups[], so the old `?.students` guard left
+      // lab periods un-reverted after a cancellation. Reverts every copy.
       for (const update of recordUpdates) {
-        if (attendanceData[update.period_slot_id]?.students) {
-          const students = attendanceData[update.period_slot_id].students;
-          const studentIndex = students.findIndex(
-            (s: any) => s.student_id === update.student_id
-          );
-
-          if (studentIndex !== -1) {
-            // Revert to old status
-            students[studentIndex].status = update.old_status;
-            students[studentIndex].marked_at = new Date().toISOString();
-          }
-        }
+        this.setStudentStatusInSlot(
+          attendanceData[update.period_slot_id],
+          update.student_id,
+          update.old_status
+        );
       }
 
       // Save reverted attendance

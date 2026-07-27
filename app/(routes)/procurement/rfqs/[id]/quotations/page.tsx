@@ -323,7 +323,7 @@ export default function RfqQuotationsPage() {
   return (
     <ContentLayout title={`${rfq.rfq_number} — Quotations`}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => router.push(`/procurement/rfqs/${rfqId}`)}>
               <ArrowLeft className="h-4 w-4" />
@@ -334,7 +334,7 @@ export default function RfqQuotationsPage() {
             </div>
           </div>
           {canManage && (
-            <Button onClick={() => setAddOpen(true)}>
+            <Button className="shrink-0" onClick={() => setAddOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Add Quotation
             </Button>
@@ -353,17 +353,17 @@ export default function RfqQuotationsPage() {
               <div className="space-y-2">
                 {quotations.map((q) => (
                   <div key={q.id} className="rounded-md border">
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
-                        <p className="text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
+                        <p className="truncate text-xs text-muted-foreground">
                           {q.vendor_quote_number ? `Ref ${q.vendor_quote_number} · ` : ''}
                           Total ₹{Number(q.total_amount ?? 0).toLocaleString()}
                           {q.delivery_time_days ? ` · ${q.delivery_time_days}d delivery` : ''}
                           {q.payment_terms ? ` · ${q.payment_terms}` : ''}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2">
                         {q.document_file_id ? (
                           <Button variant="ghost" size="sm" onClick={() => togglePdf(q.id)}>
                             <FileText className="h-4 w-4 mr-1" />
@@ -703,15 +703,15 @@ export default function RfqQuotationsPage() {
                   setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
                 return (
                   <div key={it.id} className="space-y-1.5 border-b pb-2 last:border-b-0">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 text-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <div className="min-w-0 flex-1 text-sm">
                         {it.item_name}
                         <span className="text-muted-foreground">
                           {' '}
                           ({it.quantity} {it.unit_label || ''})
                         </span>
                       </div>
-                      <div className="w-36">
+                      <div className="w-full sm:w-36">
                         <Input
                           type="number"
                           min={0}
@@ -726,7 +726,7 @@ export default function RfqQuotationsPage() {
                           </p>
                         )}
                       </div>
-                      <div className="w-24">
+                      <div className="w-full sm:w-24">
                         <Input
                           type="number"
                           min={0}

@@ -33,8 +33,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import toast from 'react-hot-toast';
 
 const MODULE = 'ai-pulse/prompt-builder';
+
+// Map the submit RPC's raised exceptions to plain-language messages. Without
+// this the card swallowed every failure silently (onError only logged) — most
+// visibly, an admin/champion (no learner_id) got 'not_a_learner' and saw nothing.
+function submitErrorMessage(e: Error): string {
+  const m = e?.message ?? '';
+  if (m.includes('not_a_learner')) return 'Prompt building is for learners — open it from a learner account.';
+  if (m.includes('prompt_build_disabled')) return 'Prompt building is currently turned off.';
+  if (m.includes('empty_prompt')) return 'Fill in at least a couple of parts before submitting.';
+  return 'Could not submit your prompt. Please try again.';
+}
 
 // The four parts the learner assembles — also the grading checklist.
 const PARTS = [
@@ -105,6 +117,27 @@ function useMyBuilds(cycleId?: string | null) {
   });
 }
 
+// The learner's own topics (their course(s) + programme), self-scoped. Returned
+// finest-first (course over programme), so [0] is the finest topic they have. We
+// stamp each build with this so a high-scoring prompt can graduate into that
+// topic's shared library — a topicless build has no shelf to land on and can
+// never surface. (The submit RPC also resolves this server-side as a fallback;
+// passing it here keeps the learner-visible "files under" label honest.)
+type Topic = { topic_type: string; topic_id: string; topic_label: string };
+
+function useMyTopics() {
+  const supabase = createClientSupabaseClient() as any;
+  return useQuery<Topic[], Error>({
+    queryKey: ['ai-pulse', 'my-topics'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('fn_ai_pulse_my_topics');
+      if (error) throw error;
+      return (data as Topic[]) ?? [];
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
 // ── grade readout (the four checks + score + tips) ──────────────────────────
 
 function GradeView({ grade, status }: { grade: Grade; status: string }) {
@@ -158,6 +191,8 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
   const [parts, setParts] = useState<Record<PartKey, string>>({ ...EMPTY });
   const qc = useQueryClient();
   const builds = useMyBuilds(cycleId);
+  const { data: topics } = useMyTopics();
+  const topic = topics?.[0] ?? null; // finest first (course over programme)
 
   const preview = useMemo(() => assemble(parts), [parts]);
   const filledCount = PARTS.filter((p) => parts[p.key].trim()).length;
@@ -166,15 +201,25 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
     mutationFn: async () => {
       const supabase = createClientSupabaseClient() as any;
       const { error } = await supabase.rpc('fn_ai_pulse_submit_prompt_build', {
-        p_payload: { cycle_id: cycleId ?? null, parts, assembled_prompt: preview },
+        p_payload: {
+          cycle_id: cycleId ?? null,
+          topic_type: topic?.topic_type ?? null,
+          topic_id: topic?.topic_id ?? null,
+          parts,
+          assembled_prompt: preview,
+        },
       });
       if (error) throw error;
     },
     onSuccess: () => {
       setParts({ ...EMPTY });
       qc.invalidateQueries({ queryKey: ['ai-pulse', 'my-prompt-builds'] });
+      toast.success('Submitted! We’re grading your prompt…');
     },
-    onError: (e) => logger.error(MODULE, 'submit failed', e),
+    onError: (e) => {
+      logger.error(MODULE, 'submit failed', e);
+      toast.error(submitErrorMessage(e));
+    },
   });
 
   // DARK gate: render nothing until the feature is switched on.
@@ -227,6 +272,11 @@ export function PromptBuilderCard({ cycleId }: { cycleId?: string | null }) {
             <p className="text-sm leading-relaxed">{preview}</p>
           ) : (
             <p className="text-sm text-muted-foreground">Fill in the parts above and your prompt takes shape here.</p>
+          )}
+          {topic && preview && (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Files under <span className="font-medium text-foreground">{topic.topic_label}</span> — a top-scoring prompt can graduate here for other learners to reuse.
+            </p>
           )}
         </div>
 

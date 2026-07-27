@@ -205,7 +205,7 @@ test_endpoint "/api-management/organizations/courses?limit=2" "Courses List"
 echo "API Tests Completed!"`;
 
   return (
-    <div className='py-4 space-y-6'>
+    <div className='py-4 space-y-6 [&_code]:break-all'>
       <div className='space-y-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4'>
         <div>
           <h1 className='text-2xl font-bold'>CURL Documentation</h1>

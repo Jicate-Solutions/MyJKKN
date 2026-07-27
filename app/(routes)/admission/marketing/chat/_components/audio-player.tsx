@@ -50,7 +50,7 @@ export function AudioPlayer({ url, isOutbound = false }: AudioPlayerProps) {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-2 min-w-[200px]">
+    <div className="flex items-center gap-2 min-w-0 sm:min-w-[200px]">
       <audio ref={audioRef} src={url} preload="metadata" />
       <button
         onClick={togglePlay}

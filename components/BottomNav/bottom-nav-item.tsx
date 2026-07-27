@@ -152,7 +152,7 @@ export function BottomNavItem({
     <motion.button
       onClick={onClick}
       className={cn(
-        'relative flex flex-col items-center justify-center px-2 py-2.5 min-w-[56px] flex-1 gap-1',
+        'relative flex flex-col items-center justify-center px-1 sm:px-2 py-2.5 min-w-0 sm:min-w-[56px] flex-1 gap-1',
         'touch-manipulation transition-colors duration-150'
       )}
       whileTap={{ scale: 0.92 }}

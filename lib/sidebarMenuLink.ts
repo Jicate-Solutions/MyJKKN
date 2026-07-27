@@ -28,6 +28,7 @@ import {
   BookOpen,
   ClipboardCheck,
   Gauge,
+  IdCard,
   Lock,
   LucideIcon,
   LayoutGrid,
@@ -157,7 +158,24 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  '/ceo-rounds': 'ceo_rounds.log',
+  // MBA Analyst dashboard — an associate's own assigned-department analytics.
+  '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA Analyst assignments — manager-only "who covers which department".
+  '/improvement-board/postings': 'improvement.board.manage',
+  // MBA Data Gaps — manager-only triage of gaps Associates reported.
+  '/improvement-board/data-gaps': 'improvement.board.manage',
+  // MBA Team Rotation — the rota chart is viewable by associates; team-builder
+  // and cycle-setup are manager-only (improvement.board.manage).
+  '/improvement-board/rotation': 'improvement.ideas.view',
+  '/improvement-board/rotation/teams': 'improvement.board.manage',
+  '/improvement-board/rotation/config': 'improvement.board.manage',
+  // Teaching-enterprise cohorts — the config rows that decide WHO participates
+  // (programme + semester window) and WHAT they get (role + contribution mode).
+  // Manager-only (improvement.board.manage); super admins pass via that check.
+  '/admin/teaching-cohorts': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -380,6 +398,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -459,6 +478,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admin lane of session feedback (D2 gate) — leadership-view key
   // (menu-visibility gap fix 2026-07-12)
   '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
+  // SCF note-safety loop Phase 0 (2026-07-26): the named-reviewer queue for
+  // AI-drafted learner support notes. Its own key (note-safety spec §6.3),
+  // held by the scf_note_reviewer role; the review/pending RPCs enforce the
+  // same permission server-side. Separate surface from the super-admin
+  // /admin/learner-notes queue (same RPCs underneath).
+  '/academic/session-feedback/note-review': 'scf.notes.review',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -503,6 +528,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // Leaderboard is public to any authenticated learner (Director decision #6);
+  // gate the sidebar entry on the same key as the AI Pulse landing page.
+  '/ai-pulse/leaderboard': 'ai_pulse.view',
   // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
   // lacks the permission its page enforces (each key = the gate on that tab's
   // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
@@ -518,7 +546,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
-  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -545,6 +572,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
+
+  // ID Cards (nav wiring 2026-07-24) — keys from PERMISSION_CATEGORIES
+  // (lib/constants/permissions.ts, id_cards group). Hub redirects to policy.
+  '/admin/id-cards': 'id_cards.jobs.view',
+  '/admin/id-cards/template': 'id_cards.templates.view',
+  '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Batch print enqueues jobs, so it needs the manage key (not just view).
+  '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
+  // so the nav entry mirrors it — no id_cards.* policy-view key exists.
+  '/admin/id-cards/policy': 'super_admin',
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
   // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
@@ -612,7 +650,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
-  '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
@@ -639,6 +676,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
+  '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
 
   // Resource Management
@@ -723,6 +761,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
@@ -981,6 +1020,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
   '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
   '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/naac/surveys/stakeholders': 'accreditation.naac.surveys.stakeholder.view', // employer + alumni half of NAAC 1.2
+  '/accreditation/naac/narratives': 'accreditation.naac.narrative.view',         // AI narrative drafter (list)
+  '/accreditation/naac/narratives/owners': 'accreditation.naac.narrative.manage', // IQAC owner-assignment desk
+  '/accreditation/naac/narratives/[id]': 'accreditation.naac.narrative.view',    // AI narrative drafter (detail)
   '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
   '/accreditation/nba': 'accreditation.nba.view',               // PR-A10
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
@@ -990,6 +1033,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
+  '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1074,6 +1118,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -1337,6 +1385,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents': 'ims.indents.view',
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
+  // Phase D: HOD queue — gated on view (queue itself is scoped by
+  // departments.head_of_department_id, so non-HODs just see an empty state)
+  '/ims/indents/hod-approvals': 'ims.indents.view',
   '/ims/indents/[id]': 'ims.indents.view',
   '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
@@ -1475,8 +1526,33 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Lightbulb,
           submenus: [
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
-            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+            { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
+            { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
+            // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
+            { href: '/improvement-board/data-gaps', label: 'Data Gaps', active: pathname === '/improvement-board/data-gaps' },
+            // MBA Team Rotation — rota chart (associates + managers); team-builder
+            // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
+            { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
+            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' },
+            // Teaching-enterprise cohort config — manager-only, hidden from
+            // participants via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
           ]
+        },
+        {
+          // CEO Rounds — the daily rounds log (participation-graded attendance,
+          // rotating-associate summary, Rounds-task → Board link). Gated by
+          // ceo_rounds.log via MENU_PERMISSIONS.
+          href: '/ceo-rounds',
+          label: 'CEO Rounds',
+          active: pathname === '/ceo-rounds' || pathname.startsWith('/ceo-rounds/'),
+          icon: ClipboardList,
+          submenus: []
         }
       ]
     },
@@ -1669,6 +1745,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // SCF note-safety loop Phase 0 (2026-07-26): the named reviewer's
+          // queue for AI-drafted learner support notes. Visible only to
+          // holders of scf.notes.review (via MENU_PERMISSIONS) — today the
+          // scf_note_reviewer role — plus the super-admin bypass. The page's
+          // RPCs re-enforce the same permission server-side.
+          href: '/academic/session-feedback/note-review',
+          label: 'Learner Note Review',
+          active: pathname.startsWith('/academic/session-feedback/note-review'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
           // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
           // cross-college rollup (submission + understanding per college / faculty
           // / day). Cross-college reach is super-admin-only, so the sidebar entry
@@ -1821,6 +1909,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/referral-rates',
+              label: 'Rates & Generate',
+              active: pathname === '/admission/consultants/referral-rates'
             },
             {
               href: '/admission/consultants/import',
@@ -2218,6 +2311,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
       ]
@@ -2384,6 +2478,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
@@ -2424,6 +2519,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
+            { href: '/ims/indents/hod-approvals', label: 'Indents · HOD Approvals', active: pathname === '/ims/indents/hod-approvals' },
             { href: '/ims/transfers', label: 'Transfers', active: pathname.startsWith('/ims/transfers') },
             { href: '/ims/sales', label: 'Sales (POS)', active: pathname === '/ims/sales' },
             { href: '/ims/sales/history', label: 'Sales · History', active: pathname === '/ims/sales/history' },
@@ -2532,6 +2628,20 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
           ]
+        },
+        {
+          // ID Cards (nav wiring 2026-07-24) — print queue, template editor
+          // and printer policy for the on-prem card-print bridge.
+          href: '/admin/id-cards',
+          label: 'ID Cards',
+          active: pathname.startsWith('/admin/id-cards'),
+          icon: IdCard,
+          submenus: [
+            { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
+            { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
+            { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
+          ]
         }
       ]
     },
@@ -2597,10 +2707,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
-            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }

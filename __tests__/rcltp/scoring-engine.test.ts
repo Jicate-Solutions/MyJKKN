@@ -109,6 +109,33 @@ describe('gradePartB', () => {
     expect(gradePartB([], questions).comprehensionScore).toBeNull();
   });
 
+  it('credits a correct stretch (bonus) item but excludes it from the denominator', () => {
+    // 1 core (correct, max 1) + 1 stretch (correct, max 1): 2 earned / 1 core-denominator
+    // → 200%, clamped to 100. A struggling reader is lifted, never past 100.
+    const qs: PartBQuestion[] = [
+      { id: 'core', correct_answer: 'A', max_score: 1 },
+      { id: 'stretch', correct_answer: 'B', max_score: 1, is_stretch: true },
+    ];
+    const responses: PartBResponse[] = [
+      { id: 'r1', question_id: 'core', response: 'A' },
+      { id: 'r2', question_id: 'stretch', response: 'B' },
+    ];
+    expect(gradePartB(responses, qs).comprehensionScore).toBe(100);
+  });
+
+  it('never penalises a wrong stretch item (0 added to both numerator and denominator)', () => {
+    // 1 core (correct, max 1) + 1 stretch (wrong): 1 earned / 1 core-denominator = 100%.
+    const qs: PartBQuestion[] = [
+      { id: 'core', correct_answer: 'A', max_score: 1 },
+      { id: 'stretch', correct_answer: 'B', max_score: 1, is_stretch: true },
+    ];
+    const responses: PartBResponse[] = [
+      { id: 'r1', question_id: 'core', response: 'A' },
+      { id: 'r2', question_id: 'stretch', response: 'definitely wrong' },
+    ];
+    expect(gradePartB(responses, qs).comprehensionScore).toBe(100);
+  });
+
   it('never marks a blank response correct', () => {
     const responses: PartBResponse[] = [{ id: 'r1', question_id: 'q1', response: null }];
     const out = gradePartB(responses, questions);

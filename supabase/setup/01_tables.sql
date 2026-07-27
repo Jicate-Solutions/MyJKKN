@@ -919,7 +919,8 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts (
     receipt_date DATE NOT NULL,
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    payment_mode VARCHAR(20) NOT NULL,
+    payment_mode VARCHAR(20) NOT NULL
+        CHECK (payment_mode IN ('cash', 'online', 'bank_transfer', 'dd', 'cheque', 'combined')),
     payment_reference_number VARCHAR(100),
     payment_amount NUMERIC(15,2) NOT NULL,
     payment_paid_date DATE NOT NULL,
@@ -2161,6 +2162,7 @@ ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 -- SECTION: ADMISSION SETTINGS - ADMISSION YEARS
 -- Added: 2026-04-21 - Per-program admission year tracking
 -- Updated: 2026-06-05 - Institution-wide admission year (program scope dropped); one row per (institution, year)
+-- Updated: 2026-07-25 - is_current flag (migration 20260725_admission_years_is_current_flag.sql)
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS public.admission_years (
@@ -2169,6 +2171,13 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
     admission_year_name VARCHAR(150) NOT NULL,
     year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
     is_active BOOLEAN NOT NULL DEFAULT true,
+    -- Added 2026-07-25. The cohort new leads/enquiries default to — exactly one
+    -- per institution. Distinct from is_active, which only controls dropdown
+    -- visibility and stays true for historical cohorts (every one of the 47 rows
+    -- was is_active=true, including 2002-2003) so legacy imports still resolve
+    -- them. Enforced by admission_years_one_current_per_institution (below) plus
+    -- trg_admission_years_single_current (04_triggers.sql).
+    is_current BOOLEAN NOT NULL DEFAULT false,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -2177,6 +2186,9 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
 
 CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);
 CREATE INDEX IF NOT EXISTS idx_admission_years_name ON admission_years(admission_year_name);
+CREATE UNIQUE INDEX IF NOT EXISTS admission_years_one_current_per_institution
+    ON public.admission_years (institution_id)
+    WHERE is_current;
 
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
@@ -4166,8 +4178,8 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidate_packages (
   candidate_id            uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
   hr_organization_id      uuid,                                           -- mirrors parent for org-level queries
   proposed_by             uuid NOT NULL REFERENCES public.profiles(id),
-  proposed_ctc_amount     numeric NOT NULL,                               -- the CTC being proposed
-  proposed_ctc_breakdown  jsonb,                                          -- optional: basic/HRA/DA/PF structure
+  proposed_monthly_salary           numeric,                              -- the monthly salary being proposed (optional — may be decided later)
+  proposed_monthly_salary_breakdown jsonb,                                -- optional: basic/HRA/DA/PF structure
   currency                text NOT NULL DEFAULT 'INR',
   is_counter_offer        boolean NOT NULL DEFAULT false,                 -- true if Director counter to HR's proposal
   parent_package_id       uuid REFERENCES public.hr_recruitment_candidate_packages(id), -- for negotiation chain
@@ -6341,3 +6353,17 @@ CREATE TABLE IF NOT EXISTS public.bug_clusters (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat (migration
+-- 20260724045622_id_card_agent_status.sql). Singleton row (id=1) recording the
+-- last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs
+-- with a valid agent token; read by the print-queue UI "Print bridge online /
+-- silent" chip. Written via the service-role client only.
+CREATE TABLE IF NOT EXISTS public.id_card_agent_status (
+  id           SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  last_poll_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.id_card_agent_status IS
+  'Singleton heartbeat (id=1): last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs. Updated via the service-role client; read by the print-queue UI bridge-status chip.';

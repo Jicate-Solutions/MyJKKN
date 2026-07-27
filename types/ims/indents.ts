@@ -117,7 +117,9 @@ export type CreateImsIndentDto = {
 
 export const INDENT_STATUS_CONFIG: Record<ImsIndentStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   draft: { label: 'Draft', variant: 'secondary' },
-  pending_local_approval: { label: 'Awaiting Branch Approval', variant: 'outline' },
+  // Phase D: dual-purpose status — HOD approval for department-scoped
+  // requesters (internal scope); branch approval for inter-institution scope.
+  pending_local_approval: { label: 'Awaiting HOD Approval', variant: 'outline' },
   pending_approval: { label: 'Pending Approval', variant: 'outline' },
   approved: { label: 'Approved', variant: 'default' },
   rejected: { label: 'Rejected', variant: 'destructive' },

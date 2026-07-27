@@ -1,16 +1,22 @@
 // =====================================================================
-// PDE clinical-case "due tomorrow" reminder
+// PDE clinical-case deadline reminders
 // =====================================================================
 // A learner gets one notification when a case is assigned. This cron adds the
-// second half a deadline needs: a nudge the day BEFORE it is due (user decision
-// 2026-07-23) for assigned learners who have not finished yet.
+// deadline nudges (user decisions 2026-07-23 / 2026-07-24):
+//   • the day BEFORE the deadline ("due tomorrow"), and
+//   • ON the deadline day ("due today — last chance").
 //
-// Daily, morning IST. Computes tomorrow's IST date, asks fn_pde_due_soon_reminders
-// for every assigned + enrolled + not-yet-completed learner whose case is due that
-// day, and delivers one in-app nudge each. Idempotent via deliverInApp's
-// idempotency_key (assessment + user + due-date) — safe to run more than once a day.
+// Audience each window: assigned + enrolled learners who have NOT passed the case
+// yet AND still have attempts left (fn_pde_due_soon_reminders, cap from the global
+// clinical-reasoning policy). Works for open (nudged) and class_only (locked)
+// assignments alike.
 //
-// Auth: CRON_SECRET via `Authorization: Bearer <secret>` or `?secret=`.
+// One notification per learner per window: if several cases are due the same day,
+// they are combined into a single "N cases due …" card that links to the case
+// list; a single case links straight to itself. Idempotent via deliverInApp's
+// idempotency_key (window + learner + due-date) — safe to run more than once a day.
+//
+// Runs daily, morning IST. Auth: CRON_SECRET via `Authorization: Bearer` or `?secret=`.
 // =====================================================================
 
 export const dynamic = 'force-dynamic';
@@ -20,10 +26,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { deliverInApp } from '@/lib/social/notify';
 
-/** Tomorrow's date in IST as 'YYYY-MM-DD' (JKKN is India-only; +05:30, no DST). */
-function tomorrowISO_IST(): string {
+/** A date in IST as 'YYYY-MM-DD' (JKKN is India-only; +05:30, no DST). */
+function istDateISO(offsetDays: number): string {
   const ist = new Date(Date.now() + 5.5 * 3600 * 1000); // shift into IST wall-clock
-  ist.setUTCDate(ist.getUTCDate() + 1);
+  ist.setUTCDate(ist.getUTCDate() + offsetDays);
   return ist.toISOString().slice(0, 10);
 }
 
@@ -32,6 +38,12 @@ interface Recipient {
   case_title: string;
   user_id: string;
   due_at: string;
+}
+
+interface WindowSpec {
+  offset: number;      // 0 = today, 1 = tomorrow
+  when: string;        // 'today' | 'tomorrow' — used in copy
+  prefix: string;      // idempotency + category discriminator
 }
 
 export async function GET(request: NextRequest) {
@@ -48,42 +60,77 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const dueDate = tomorrowISO_IST();
-  const result = {
-    ok: true,
-    due_date: dueDate,
-    candidates: 0,
-    delivered: 0,
-    duplicate: 0,
-    errors: 0,
-    elapsed_ms: 0,
-  };
 
-  const { data: rows, error } = await admin.rpc('fn_pde_due_soon_reminders', { p_due_date: dueDate });
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message, due_date: dueDate }, { status: 500 });
-  }
-  const recipients = (Array.isArray(rows) ? rows : []) as Recipient[];
-  result.candidates = recipients.length;
+  // Global attempt cap (default 5) — used to skip learners who are out of tries.
+  const { data: capData } = await admin.rpc('fn_get_policy_clinical_reasoning', {
+    p_key: 'lifetime_attempts_per_case',
+  });
+  const cap = Number(capData) > 0 ? Number(capData) : 5;
 
-  for (const r of recipients) {
-    const outcome = await deliverInApp(admin, {
-      recipientId: r.user_id,
-      title: 'A clinical case is due tomorrow ⏰',
-      body: `"${r.case_title}" is due tomorrow. Open it and finish before the deadline.`,
-      url: `/pde/learn/cases/${r.assessment_id}`,
-      category: 'pde.case.due_soon',
-      idempotencyKey: `pde-case-due-soon:${r.assessment_id}:${r.user_id}:${dueDate}`,
-      metadata: {
-        kind: 'pde_case_due_soon',
-        assessment_id: r.assessment_id,
-        due_at: r.due_at,
-        due_date: dueDate,
-      },
+  const windows: WindowSpec[] = [
+    { offset: 1, when: 'tomorrow', prefix: 'due-soon' },
+    { offset: 0, when: 'today', prefix: 'due-today' },
+  ];
+
+  const result: Record<string, unknown> = { ok: true, cap, windows: {}, elapsed_ms: 0 };
+
+  for (const w of windows) {
+    const dueDate = istDateISO(w.offset);
+    const tally = { due_date: dueDate, candidates: 0, learners: 0, delivered: 0, duplicate: 0, errors: 0 };
+
+    const { data: rows, error } = await admin.rpc('fn_pde_due_soon_reminders', {
+      p_due_date: dueDate,
+      p_max_attempts: cap,
     });
-    if (outcome === 'delivered') result.delivered++;
-    else if (outcome === 'duplicate') result.duplicate++;
-    else result.errors++;
+    if (error) {
+      (result.windows as Record<string, unknown>)[w.when] = { ...tally, error: error.message };
+      continue;
+    }
+    const recipients = (Array.isArray(rows) ? rows : []) as Recipient[];
+    tally.candidates = recipients.length;
+
+    // One notification per learner: combine multiple cases due the same day.
+    const byLearner = new Map<string, Recipient[]>();
+    for (const r of recipients) {
+      const list = byLearner.get(r.user_id) ?? [];
+      list.push(r);
+      byLearner.set(r.user_id, list);
+    }
+    tally.learners = byLearner.size;
+
+    for (const [userId, cases] of byLearner) {
+      const single = cases.length === 1;
+      const title = single
+        ? `A clinical case is due ${w.when} ⏰`
+        : `${cases.length} clinical cases are due ${w.when} ⏰`;
+      const lead = w.when === 'today' ? 'Last chance — ' : '';
+      const body = single
+        ? `${lead}"${cases[0].case_title}" is due ${w.when}. Open it and finish before the deadline.`
+        : `${lead}You have ${cases.length} clinical cases due ${w.when}: ${cases
+            .map((c) => `"${c.case_title}"`)
+            .join(', ')}. Open them from your case list.`;
+      const url = single ? `/pde/learn/cases/${cases[0].assessment_id}` : '/pde/learn/cases';
+
+      const outcome = await deliverInApp(admin, {
+        recipientId: userId,
+        title,
+        body,
+        url,
+        category: single ? `pde.case.${w.prefix.replace('-', '_')}` : `pde.case.${w.prefix.replace('-', '_')}.batch`,
+        idempotencyKey: `pde-${w.prefix}:${userId}:${dueDate}`,
+        metadata: {
+          kind: 'pde_case_due_reminder',
+          when: w.when,
+          due_date: dueDate,
+          assessment_ids: cases.map((c) => c.assessment_id),
+        },
+      });
+      if (outcome === 'delivered') tally.delivered++;
+      else if (outcome === 'duplicate') tally.duplicate++;
+      else tally.errors++;
+    }
+
+    (result.windows as Record<string, unknown>)[w.when] = tally;
   }
 
   result.elapsed_ms = Date.now() - started;

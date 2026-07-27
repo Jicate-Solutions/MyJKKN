@@ -160,7 +160,7 @@ export function DemographicAnalytics({
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
           <div>
             <CardTitle className='flex items-center gap-2'>
               <Users className='h-5 w-5' />
@@ -175,7 +175,7 @@ export function DemographicAnalytics({
       </CardHeader>
       <CardContent>
         <Tabs defaultValue='gender' className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='gender'>Gender</TabsTrigger>
             <TabsTrigger value='age'>Age Groups</TabsTrigger>
             <TabsTrigger value='marital'>Marital Status</TabsTrigger>
