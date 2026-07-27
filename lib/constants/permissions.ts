@@ -542,6 +542,16 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.internal_marks.exam_audit.view',
         label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
       },
+      // 2026-07-27: gates EDITING the exam attendance eligibility thresholds
+      // (platform_policies academic.exam_eligibility.attendance_pct /
+      // .condonation_floor_pct). Previously any is_admin() role could move a
+      // regulatory threshold; setting it to 0 would make every learner eligible.
+      // Enforced in RLS by 20260727060000_exam_eligibility_manage_permission.sql —
+      // granting this key is what actually confers the ability.
+      {
+        key: 'academic.exam_eligibility.manage',
+        label: 'Change exam attendance eligibility thresholds (75% / 65%)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'
@@ -1385,6 +1395,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.ncte.view', label: 'View NCTE Dashboard' },
       { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
       { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' },
+
+      // Cluster Academic Council — a peer tab in the same row, but JKKN's own
+      // governance body rather than an outside regulator, so it has no
+      // scorecard and nothing to submit. Read-only: forming a council and
+      // editing its roster stay on the committees hub under the
+      // accreditation.naac.committees.* keys.
+      { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
 
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.

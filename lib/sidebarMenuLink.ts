@@ -1033,6 +1033,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
+  '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',

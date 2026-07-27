@@ -148,6 +148,105 @@ export interface MbaRotationGenerateResult {
   slots_created: number;
 }
 
+// ── Team-overlap detection ───────────────────────────────────────────────────
+//
+// `mba_rotation_slots` is UNIQUE (cycle_id, team_id, period_index) — one team
+// holds one department per period. NOTHING constrains the other direction, so two
+// teams MAY share a department in the same period, and the generator will produce
+// exactly that whenever a cycle has more active teams than departments:
+// `fn_mba_rotation_generate` places team `ti` in department `(ti + period) % D`,
+// so teams whose indexes are congruent mod D collide in EVERY period.
+//
+// The Director's ruling is ALLOW-AND-WARN: the schedule stands, the operator is
+// told. So this is detection only — it never blocks a save, a generate, or a read.
+
+/** One (department, period) pair carrying more than one team. */
+export interface MbaRotationOverlap {
+  area_id: string;
+  period_index: number;
+  /** The teams sharing that department in that period (2+), de-duplicated. */
+  team_ids: string[];
+}
+
+/** What the UI needs to mark cells and write a one-line summary. */
+export interface MbaRotationOverlapReport {
+  hasOverlap: boolean;
+  /** Doubled-up pairs, ordered by period then area. */
+  overlaps: MbaRotationOverlap[];
+  /** `${area_id}:${period_index}` — O(1) cell lookup while rendering the grid. */
+  cellKeys: Set<string>;
+  /** `${area_id}:${period_index}` -> how many teams are in that cell. */
+  teamCountByCell: Map<string, number>;
+  /** area_id -> the period indexes where it is doubled up, ascending. */
+  byArea: Map<string, number[]>;
+  /** How many distinct departments are doubled up. */
+  areaCount: number;
+  /** How many (department, period) pairs are doubled up. */
+  pairCount: number;
+}
+
+/**
+ * Find every (department, period) that carries more than one team.
+ *
+ * Pure and synchronous — it reads the slots a page has ALREADY loaded, so no
+ * extra round-trip. Pass ONE cycle's slots (what `listSlots` returns); the
+ * returned `cellKeys` are keyed by area+period only, on that assumption.
+ *
+ * An empty/absent slot list returns a clean report with `hasOverlap: false`,
+ * which is the live production state today (0 cycles, 0 teams, 0 slots) and must
+ * render no warning at all.
+ */
+export function detectRotationOverlaps(
+  slots: MbaRotationSlot[] | null | undefined
+): MbaRotationOverlapReport {
+  const grouped = new Map<string, MbaRotationOverlap>();
+
+  for (const s of slots ?? []) {
+    if (!s || !s.area_id || !s.team_id || s.period_index === null || s.period_index === undefined) {
+      continue;
+    }
+    // cycle_id is in the key so a caller that mixes cycles cannot manufacture a
+    // false collision; single-cycle callers are unaffected.
+    const key = `${s.cycle_id ?? ''}|${s.area_id}|${s.period_index}`;
+    let entry = grouped.get(key);
+    if (!entry) {
+      entry = { area_id: s.area_id, period_index: s.period_index, team_ids: [] };
+      grouped.set(key, entry);
+    }
+    // The UNIQUE constraint makes a repeated team impossible; dedupe anyway so a
+    // duplicated row can never fake an overlap.
+    if (!entry.team_ids.includes(s.team_id)) entry.team_ids.push(s.team_id);
+  }
+
+  const overlaps = Array.from(grouped.values())
+    .filter((e) => e.team_ids.length > 1)
+    .sort((a, b) => a.period_index - b.period_index || a.area_id.localeCompare(b.area_id));
+
+  const cellKeys = new Set<string>();
+  const teamCountByCell = new Map<string, number>();
+  const byArea = new Map<string, number[]>();
+
+  for (const o of overlaps) {
+    const cellKey = `${o.area_id}:${o.period_index}`;
+    cellKeys.add(cellKey);
+    teamCountByCell.set(cellKey, Math.max(teamCountByCell.get(cellKey) ?? 0, o.team_ids.length));
+    const periods = byArea.get(o.area_id) ?? [];
+    if (!periods.includes(o.period_index)) periods.push(o.period_index);
+    byArea.set(o.area_id, periods);
+  }
+  for (const periods of byArea.values()) periods.sort((a, b) => a - b);
+
+  return {
+    hasOverlap: overlaps.length > 0,
+    overlaps,
+    cellKeys,
+    teamCountByCell,
+    byArea,
+    areaCount: byArea.size,
+    pairCount: overlaps.length,
+  };
+}
+
 type ProfileLite = { id: string; full_name: string | null; email: string | null };
 
 export class MbaRotationService {

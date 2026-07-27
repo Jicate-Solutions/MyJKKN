@@ -13,6 +13,12 @@
  * Phase-3 migration is not applied yet the chooser is hidden and the module
  * behaves exactly as before (single MBA cohort).
  *
+ * TEAM OVERLAPS: generating a rota may legitimately place two teams in the same
+ * department in the same period (Director ruling — allow it, warn the operator).
+ * After a successful generate the new rota is read back once and any doubled-up
+ * departments are named in an amber note under the buttons. Warning only: nothing
+ * is disabled, no save is blocked, and a failed check stays silent.
+ *
  * Gating branches on the loading state FIRST (CLAUDE.md #27).
  */
 
@@ -52,10 +58,16 @@ import {
 import {
   MbaRotationService,
   DEFAULT_COHORT_KEY,
+  detectRotationOverlaps,
   type MbaRotationCycle,
   type MbaRotationCycleStatus,
+  type MbaRotationOverlapReport,
   type TeachingCohortOption,
 } from '@/lib/services/mba-rotation/mba-rotation-service';
+import {
+  RotationOverlapWarning,
+  rotationOverlapHeadline,
+} from '../../_components/rotation-overlap-warning';
 
 const STATUS_STYLE: Record<string, string> = {
   draft: 'bg-muted text-muted-foreground',
@@ -418,6 +430,13 @@ function CycleEditor({
   const [startDate, setStartDate] = useState(cycle.start_date);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Set after a generate that produced a doubled-up rota; null = nothing to say.
+  const [overlaps, setOverlaps] = useState<MbaRotationOverlapReport | null>(null);
+
+  const areaLabel = useMemo(() => {
+    const m = new Map(areas.map((a) => [a.id, a.label]));
+    return (id: string) => m.get(id) ?? 'Department';
+  }, [areas]);
 
   // Blackout add form
   const [boName, setBoName] = useState('');
@@ -468,6 +487,8 @@ function CycleEditor({
       });
       await MbaRotationService.setDepartments(cycle.id, Array.from(depIds));
       await onChanged();
+      // The saved rota is now stale, so any overlap note about it is stale too.
+      setOverlaps(null);
       toast.success('Saved. Regenerate the rota to apply the changes.');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not save.');
@@ -494,6 +515,7 @@ function CycleEditor({
     try {
       const r = await MbaRotationService.generateRota(cycle.id);
       await onChanged();
+      setOverlaps(null);
       if (r.slots_created === 0) {
         toast.error(
           cohortName
@@ -504,6 +526,21 @@ function CycleEditor({
         toast.success(
           `Rota built: ${r.periods} periods × ${r.teams} teams → ${r.slots_created} slots.`
         );
+        // Read back ONLY the rota just built, to name the doubled-up departments
+        // exactly rather than infer them. One query, on an explicit button press.
+        // Two teams in one department is allowed, so a failure to check it must
+        // never look like a failed generate — swallow and stay quiet.
+        try {
+          const report = detectRotationOverlaps(await MbaRotationService.listSlots(cycle.id));
+          setOverlaps(report.hasOverlap ? report : null);
+          if (report.hasOverlap) {
+            toast(`Heads up: ${rotationOverlapHeadline(report)}. Allowed — see the note below.`, {
+              icon: '⚠️',
+            });
+          }
+        } catch {
+          setOverlaps(null);
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not generate the rota.');
@@ -637,6 +674,9 @@ function CycleEditor({
           <Link href="/improvement-board/rotation">View rota</Link>
         </Button>
       </div>
+
+      {/* Doubled-up departments in the rota just generated — warning only */}
+      {overlaps && <RotationOverlapWarning report={overlaps} areaLabel={areaLabel} />}
 
       {/* Blackouts */}
       <div className="space-y-2">

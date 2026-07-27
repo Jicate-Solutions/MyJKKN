@@ -83,7 +83,7 @@ export function buildRankingPrompt(
       return `[${i + 1}] gap_id: ${g.id}
     Title: ${g.title}
     Department / area: ${label}
-    Gaps filed for this same area (frequency signal): ${freq}
+    Different people blocked on this area (frequency signal): ${freq}
     Track record for this area (explore/exploit signal): ${track}
     Filer's read on why it is missing: ${GAP_TYPE_HINT[g.gap_type] ?? g.gap_type}
     What data is missing: ${g.what_missing?.trim() || '(not stated)'}
@@ -104,7 +104,7 @@ For EVERY gap assign:
     "uncertain" — it is unclear from what was filed whether the data already exists.
 - reason: ONE short sentence (max 200 characters) on why it sits where it does and why that class.
 
-Prioritise gaps that would inform important decisions, are feasible to act on, and recur across many filings (a higher frequency signal for an area means more Associates are blocked on it).
+Prioritise gaps that would inform important decisions, are feasible to act on, and recur across many people (a higher frequency signal means more DIFFERENT Associates are blocked on this area, not one person filing repeatedly).
 
 Track record (explore/exploit) — each gap shows whether past ACCEPTED gaps in its area went on to produce a real applied improvement:
 - Rank UP areas with a PROVEN track record (a high hit-rate): acting on them has paid off before (exploit).
