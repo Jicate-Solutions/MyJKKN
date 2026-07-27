@@ -133,6 +133,20 @@ describe('buildGroundingPrompt', () => {
     expect(p).toContain('ONLY FACTS');
     expect(p).toContain('STRICT JSON');
   });
+
+  it('ISO-DATE: instructs the model to reproduce dates in the evidence ISO form, not prose', () => {
+    const p = buildGroundingPrompt({
+      metric: { metric_code: '7.3.f', metric_name: 'Quality Assurance System', category: 'Attribute 7' },
+      rows: [ROW],
+      period: 'AY 2026-27',
+      scopeLabel: 'JKKN College',
+    });
+    // Kills the prose-date false-positive class prompt-side: the model is told to
+    // reproduce dates in the exact ISO digits (2026-06-05), never a prose reword
+    // ("5 June 2026"). The grounding validator is intentionally left untouched.
+    expect(p).toContain('exact ISO form');
+    expect(p.toLowerCase()).toContain('never reword');
+  });
 });
 
 describe('service + validator integration', () => {
@@ -157,6 +171,19 @@ describe('service + validator integration', () => {
     const verdict = validateGrounding(clean, [ROW], { period: 'AY 2026-27', metricCode: '7.3.f' });
     expect(verdict.verdict).toBe('ungrounded');
     expect(verdict.ungroundedTokens).toContain('97');
+  });
+
+  // Why the rank-3 prompt nudge matters: the validator keeps evidence dates
+  // ATOMIC (ISO_DATE_RE) and does not leak their digits into the bare-number pool,
+  // so the ISO form of a real evidence date is grounded. The fix is prompt-side
+  // (steer the model to emit that ISO form) — the validator is correctly left as-is.
+  it('DATE-FORM: the evidence date reproduced in ISO form is grounded', () => {
+    const iso = validateGrounding(
+      'The measured cycle ran from 2026-06-05 to 2026-07-05.',
+      [ROW],
+      { period: 'AY 2026-27', metricCode: '7.3.f' },
+    );
+    expect(iso.verdict).toBe('grounded');
   });
 });
 

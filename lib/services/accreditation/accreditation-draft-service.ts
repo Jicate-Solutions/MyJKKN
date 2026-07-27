@@ -113,6 +113,8 @@ export function buildGroundingPrompt(args: {
     `HARD RULES (an automated gate rejects any violation):`,
     `1. Use ONLY numbers, dates, and course codes that appear verbatim in the facts above.`,
     `   Never invent, estimate, round, or compute a figure. Quote exact values (e.g. 3.80, not ~3.8).`,
+    `   Reproduce every date in the exact ISO form the facts use (e.g. 2026-06-05), character for`,
+    `   character — never reword it into prose like "5 June 2026"; the gate matches dates literally.`,
     `2. Express proportions as the raw counts from the facts (e.g. "3 of 5 respondents"),`,
     `   NEVER as a derived percentage.`,
     `3. Cite every factual sentence with the [E#] marker(s) of the record(s) it draws from.`,
