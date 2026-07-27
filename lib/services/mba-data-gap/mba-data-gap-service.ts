@@ -231,4 +231,21 @@ export class MbaDataGapService {
     }
     return data ?? [];
   }
+
+  /**
+   * Managers-only contributor ranking (decision #10/#11), ranked by REAL
+   * improvements produced. Returns every contributor with their college so the
+   * UI can toggle per-college vs combined all-JKKN. Manager-only (RPC-enforced).
+   */
+  static async getContributorRanking(): Promise<MbaGapContributor[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc(
+      'fn_mba_gap_contributor_ranking'
+    )) as { data: MbaGapContributor[] | null; error: any };
+    if (error) {
+      logger.error(MODULE, 'Error loading contributor ranking', error);
+      throw new Error(error.message || 'Failed to load the contributor ranking.');
+    }
+    return data ?? [];
+  }
 }
