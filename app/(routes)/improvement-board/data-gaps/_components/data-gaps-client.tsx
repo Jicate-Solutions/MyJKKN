@@ -540,6 +540,165 @@ function DataGapsBoard() {
                     )}
                   </div>
 
+                  {/* Manager tools: confirm type · owner · duplicates */}
+                  {(canAct || gap.status === 'accepted') && (
+                    <div className="space-y-2 border-t pt-2">
+                      {/* Confirm / change the AI Type A/B (only while actionable) */}
+                      {gap.gap_class && !gap.class_confirmed && canAct && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-muted-foreground">
+                            AI type — confirm or change:
+                          </span>
+                          <div className="w-56">
+                            <Select
+                              value={gap.gap_class}
+                              onValueChange={(v) =>
+                                handleConfirmClass(gap, v as DataGapClass)
+                              }
+                            >
+                              <SelectTrigger className="h-7 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="type_a_surface">
+                                  Data exists — surface it (quick win)
+                                </SelectItem>
+                                <SelectItem value="type_b_capture">
+                                  Not captured — build it
+                                </SelectItem>
+                                <SelectItem value="uncertain">
+                                  Needs a closer look
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7"
+                            disabled={isBusy}
+                            onClick={() => handleConfirmClass(gap, gap.gap_class!)}
+                          >
+                            Confirm
+                          </Button>
+                        </div>
+                      )}
+                      {gap.class_confirmed && (
+                        <p className="inline-flex items-center gap-1 text-xs text-emerald-700">
+                          <Check className="h-3.5 w-3.5" />
+                          Type confirmed
+                          {isQuickWin ? ' — fast-tracked as a quick win' : ''}
+                        </p>
+                      )}
+
+                      {/* Owner */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-muted-foreground inline-flex items-center gap-1">
+                          <UserRound className="h-3.5 w-3.5" />
+                          Owner:
+                        </span>
+                        {gap.owner_name ? (
+                          <span className="font-medium">{gap.owner_name}</span>
+                        ) : (
+                          <span className="text-muted-foreground italic">
+                            unassigned (shared board)
+                          </span>
+                        )}
+                        {!ownerEditing.has(gap.id) ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2"
+                              disabled={isBusy}
+                              onClick={() => toggleOwnerEditing(gap.id)}
+                            >
+                              {gap.owner_id ? 'Change' : 'Assign'}
+                            </Button>
+                            {gap.owner_id && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-muted-foreground h-6 px-2"
+                                disabled={isBusy}
+                                onClick={() => handleAssignOwner(gap, null)}
+                              >
+                                Clear
+                              </Button>
+                            )}
+                          </>
+                        ) : (
+                          <div className="flex w-full items-center gap-2 pt-1">
+                            <div className="w-72">
+                              <MemberPicker
+                                onSelect={(m) => handleAssignOwner(gap, m.id)}
+                                placeholder="Search staff by name or email…"
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7"
+                              onClick={() => toggleOwnerEditing(gap.id)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Duplicate suggestions (very-similar look-alikes) */}
+                      {canAct && (
+                        <div className="text-xs">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2"
+                            disabled={dups === 'loading'}
+                            onClick={() => handleFindDuplicates(gap)}
+                          >
+                            <Search className="mr-1 h-3.5 w-3.5" />
+                            Check for duplicates
+                          </Button>
+                          {dups === 'loading' && (
+                            <span className="text-muted-foreground ml-2">Checking…</span>
+                          )}
+                          {Array.isArray(dups) &&
+                            (dups.length === 0 ? (
+                              <span className="text-muted-foreground ml-2">
+                                No likely duplicates.
+                              </span>
+                            ) : (
+                              <div className="bg-muted/30 mt-1 space-y-1 rounded-md border p-2">
+                                <p className="text-muted-foreground">
+                                  Very similar gaps in this department:
+                                </p>
+                                {dups.map((d) => (
+                                  <div key={d.id} className="truncate">
+                                    {d.title}{' '}
+                                    <span className="text-muted-foreground">
+                                      · {Math.round(d.similarity * 100)}% match ·{' '}
+                                      {d.status}
+                                    </span>
+                                  </div>
+                                ))}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-1 h-7"
+                                  disabled={isBusy}
+                                  onClick={() => handleTriage(gap, 'duplicate')}
+                                >
+                                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                                  Mark THIS gap as a duplicate
+                                </Button>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Actions / resolution */}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     {isBusy && (
