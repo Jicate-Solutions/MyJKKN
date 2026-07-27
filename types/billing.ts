@@ -49,6 +49,19 @@ export interface BillingCategory {
    * and visible to Accounts — this is a learner-presentation gate only.
    */
   visible_to_learners: boolean;
+  /**
+   * true = a learner may hold at most ONE live bill for this category, ever.
+   *
+   * Enforced in Postgres by trg_billing_bills_once_per_learner, NOT in the
+   * service layer — bills reach billing_student_bills from ten paths (four in
+   * TypeScript, six SECURITY DEFINER RPCs plus the feesync cron), so an
+   * application-level guard would be bypassed by most of them.
+   *
+   * Distinct from `frequency`, which is descriptive metadata only and is
+   * already 'one-time' on nearly every category. Defaults false so enabling is
+   * always deliberate.
+   */
+  once_per_learner: boolean;
   collection_type: BillingCollectionType;
   created_at: string;
   updated_at: string;
@@ -68,6 +81,8 @@ export interface CreateBillingCategoryDto {
   is_active?: boolean;
   /** Defaults to true (visible) when omitted. */
   visible_to_learners?: boolean;
+  /** Defaults to false (unrestricted) when omitted. */
+  once_per_learner?: boolean;
   // Required so a fee collected for a government body is never silently booked
   // as management revenue — same reasoning as `kind` above.
   collection_type: BillingCollectionType;

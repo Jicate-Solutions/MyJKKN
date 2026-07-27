@@ -1,5 +1,10 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
+import {
+  describeOncePerLearnerError,
+  isOncePerLearnerViolation,
+  oncePerLearnerMessage
+} from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   StudentBill,
@@ -67,6 +72,15 @@ export class StudentBillService {
         `
         )
         .single();
+
+      // The once-per-learner guard fires in Postgres, so it arrives here as a
+      // plain error object with a custom SQLSTATE. Rethrow as a real Error
+      // carrying the readable text — callers toast `error.message`, and the raw
+      // Supabase object would surface as "[object Object]".
+      const duplicateMessage = describeOncePerLearnerError(error, {
+        withBillId: false
+      });
+      if (duplicateMessage) throw new Error(duplicateMessage);
 
       if (error) throw error;
 
@@ -1101,6 +1115,15 @@ export class StudentBillService {
     if (recurringBills.length > 0) {
       const insertQuery: any = this.supabase.from('billing_student_bills');
       const { error } = await insertQuery.insert(recurringBills);
+
+      // A once-per-learner category and a recurring bill are contradictory by
+      // definition — say so plainly rather than surfacing a raw SQLSTATE, since
+      // the fix is a configuration change, not a data fix.
+      if (isOncePerLearnerViolation(error)) {
+        throw new Error(
+          `${oncePerLearnerMessage(error, { withBillId: false })} Recurring bills cannot be used with a category restricted to one bill per learner.`
+        );
+      }
 
       if (error) throw error;
     }
