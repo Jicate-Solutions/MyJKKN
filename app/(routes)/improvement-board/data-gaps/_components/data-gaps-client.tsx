@@ -343,6 +343,14 @@ function DataGapsBoard() {
     [gaps]
   );
 
+  // Confirmed quick wins (a manager-confirmed type_a_surface) float to the top —
+  // the fast-track. Stable sort keeps the AI priority order within each group.
+  const sortedFiltered = useMemo(() => {
+    const rank = (g: MbaDataGap) =>
+      g.class_confirmed && g.gap_class === 'type_a_surface' ? 0 : 1;
+    return [...filtered].sort((a, b) => rank(a) - rank(b));
+  }, [filtered]);
+
   if (loading) return <LoadingState />;
 
   return (
