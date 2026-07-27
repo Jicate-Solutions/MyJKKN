@@ -6367,3 +6367,39 @@ CREATE TABLE IF NOT EXISTS public.id_card_agent_status (
 
 COMMENT ON TABLE public.id_card_agent_status IS
   'Singleton heartbeat (id=1): last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs. Updated via the service-role client; read by the print-queue UI bridge-status chip.';
+
+-- ---------------------------------------------------------------------------
+-- Payment security audit trail.
+-- Replaces the old (silently broken) use of user_activity_logs, whose user_id
+-- is NOT NULL FK -> profiles(id) while every payment event identifies the payer
+-- by learners_profiles.id — so every audit insert failed with 23503 and was
+-- swallowed. Payment events also originate from contexts with no user at all
+-- (Razorpay webhooks, the razorpay-late-auth cron), so this table deliberately
+-- carries NO foreign keys: an audit write must never be rejected.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.payment_audit_logs (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type        TEXT NOT NULL,
+  transaction_id    TEXT NOT NULL,
+  student_id        UUID,
+  institution_id    UUID,
+  expected_amount   NUMERIC,
+  actual_amount     NUMERIC,
+  client_status     TEXT,
+  server_status     TEXT,
+  description       TEXT,
+  ip_address        TEXT,
+  user_agent        TEXT,
+  metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS payment_audit_logs_transaction_id_idx ON public.payment_audit_logs(transaction_id);
+CREATE INDEX IF NOT EXISTS payment_audit_logs_created_at_idx ON public.payment_audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS payment_audit_logs_event_type_idx ON public.payment_audit_logs(event_type, created_at DESC);
+
+ALTER TABLE public.payment_audit_logs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.payment_audit_logs FROM anon, authenticated;
+
+COMMENT ON TABLE public.payment_audit_logs IS
+  'Payment security audit trail (verification, manipulation, replay, webhook, receipt). No FKs by design: an audit write must never fail.';
