@@ -122,10 +122,15 @@ export function AiJobTypeEditDialog({
 
   /** The prompt as it stands live right now, for change detection. */
   const livePrompt = jobType?.prompt_template ?? '';
-  /** Mirrors the RPC's whitespace-normalised comparison: JS .trim() is
-   *  all-whitespace, which is what the SQL side compares on too. */
+  /** Only a job type that ALREADY has a live prompt has a champion to
+   *  challenge. Giving one its first prompt goes live immediately, so the
+   *  proposal warnings must not claim otherwise. */
+  const hasLivePrompt = isEdit && livePrompt.trim() !== '';
+  /** Predicts the RPC's challenger branch. JS .trim() is all-whitespace, which
+   *  is what the SQL side normalises on too. Prediction only — the message
+   *  shown AFTER saving always comes from the RPC's own prompt_action. */
   const promptChanged =
-    isEdit &&
+    hasLivePrompt &&
     form.prompt_template.trim() !== livePrompt.trim() &&
     form.prompt_template.trim() !== '';
 
@@ -403,7 +408,7 @@ export function AiJobTypeEditDialog({
 
             {/* Standing rule, shown before anything is typed: editing this
                 prompt will NOT change what the job actually runs. */}
-            {isEdit && (
+            {hasLivePrompt && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>
