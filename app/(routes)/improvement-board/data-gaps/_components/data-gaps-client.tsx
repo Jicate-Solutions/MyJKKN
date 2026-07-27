@@ -37,16 +37,22 @@ import {
   ArrowUpRight,
   Clock,
   Undo2,
-  AlertTriangle
+  AlertTriangle,
+  Check,
+  Zap,
+  UserRound,
+  Search
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
+import { MemberPicker } from '@/components/cohort-core/member-picker';
 import {
   MbaDataGapService,
   type MbaDataGap,
   type DataGapStatus,
   type DataGapType,
-  type DataGapClass
+  type DataGapClass,
+  type DuplicateSuggestion
 } from '@/lib/services/mba-data-gap/mba-data-gap-service';
 
 /* -------------------------------------------------------------------------- */
