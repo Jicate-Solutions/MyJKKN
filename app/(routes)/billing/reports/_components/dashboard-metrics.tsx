@@ -14,7 +14,8 @@ import {
   Download,
   Building2,
   Landmark,
-  HelpCircle
+  HelpCircle,
+  GraduationCap
 } from 'lucide-react';
 import type { BillingDashboardMetrics } from '@/types/billing-schedule';
 import type { BillingCollectionSplit } from '@/types/billing-analytics';
@@ -69,6 +70,12 @@ export function DashboardMetrics({
       </Card>
     );
   }
+
+  // Defaulted rather than read inline: metrics can arrive from an older cached
+  // shape that predates year_wise_students, and .map() on undefined would blank
+  // the whole dashboard.
+  const yearWiseStudents = metrics.year_wise_students ?? [];
+  const totalStudents = metrics.total_students;
 
   return (
     <div className='space-y-6'>
@@ -200,6 +207,71 @@ export function DashboardMetrics({
           </CardContent>
         </Card>
       </div>
+
+      {/* Year-of-study split of the Total Students card above. Derived from
+          semester_order, so it reflects whichever institution / academic year
+          the filters are set to. */}
+      {yearWiseStudents.length > 0 && (
+        <div>
+          <h3 className='text-lg font-medium'>Students by Year of Study</h3>
+          <p className='text-sm text-muted-foreground mb-3'>
+            Splits the Total Students figure above by the selected institution
+            and academic year. Year is taken from each learner&apos;s semester;
+            amounts cover that year&apos;s bills in the selected date range.
+          </p>
+          <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'>
+            {yearWiseStudents.map((bucket) => (
+              <Card key={bucket.year ?? 'unassigned'}>
+                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                  <CardTitle className='text-sm font-medium'>
+                    {bucket.label}
+                  </CardTitle>
+                  <GraduationCap className='h-4 w-4 text-muted-foreground' />
+                </CardHeader>
+                <CardContent>
+                  <div className='text-2xl font-bold'>
+                    {bucket.student_count.toLocaleString()}
+                  </div>
+                  <p className='text-xs text-muted-foreground mt-1'>
+                    {bucket.student_count === 1 ? 'student' : 'students'}
+                    {totalStudents > 0 &&
+                      ` · ${formatPercentage(
+                        (bucket.student_count / totalStudents) * 100
+                      )} of total`}
+                  </p>
+
+                  <div className='mt-3 space-y-1.5 border-t pt-3'>
+                    <div className='flex items-center justify-between gap-2'>
+                      <span className='text-xs text-muted-foreground'>
+                        Billed
+                      </span>
+                      <span className='text-sm font-semibold text-blue-600'>
+                        {formatCurrency(bucket.amount_billed)}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between gap-2'>
+                      <span className='text-xs text-muted-foreground'>
+                        Collected
+                      </span>
+                      <span className='text-sm font-semibold text-green-600'>
+                        {formatCurrency(bucket.amount_collected)}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between gap-2'>
+                      <span className='text-xs text-muted-foreground'>
+                        Outstanding
+                      </span>
+                      <span className='text-sm font-semibold text-orange-600'>
+                        {formatCurrency(bucket.outstanding)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Collection ownership — who the collected cash actually belongs to. */}
       {split && (

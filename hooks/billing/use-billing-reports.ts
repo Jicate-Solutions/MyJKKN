@@ -19,7 +19,8 @@ import type {
 export function useBillingDashboardMetrics(
   institutionId?: string,
   dateFrom?: string,
-  dateTo?: string
+  dateTo?: string,
+  academicYearId?: string
 ) {
   const [metrics, setMetrics] = useState<BillingDashboardMetrics | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,7 +33,8 @@ export function useBillingDashboardMetrics(
       const data = await BillingReportService.getDashboardMetrics(
         institutionId,
         dateFrom,
-        dateTo
+        dateTo,
+        academicYearId
       );
       setMetrics(data);
     } catch (err) {
@@ -45,7 +47,7 @@ export function useBillingDashboardMetrics(
     } finally {
       setLoading(false);
     }
-  }, [institutionId, dateFrom, dateTo]);
+  }, [institutionId, dateFrom, dateTo, academicYearId]);
 
   useEffect(() => {
     fetchMetrics();

@@ -8,8 +8,18 @@ import type {
   RefundReport,
   InvoiceReport,
   BillingDashboardMetrics,
+  StudentYearBreakdown,
   ReportExportOptions
 } from '@/types/billing-schedule';
+
+/** '1st Year', '2nd Year', '3rd Year', '4th Year', … */
+function yearOfStudyLabel(year: number): string {
+  const suffix =
+    year % 100 >= 11 && year % 100 <= 13
+      ? 'th'
+      : { 1: 'st', 2: 'nd', 3: 'rd' }[year % 10] || 'th';
+  return `${year}${suffix} Year`;
+}
 
 export class BillingReportService {
   private static supabase = createClientSupabaseClient();
@@ -18,7 +28,8 @@ export class BillingReportService {
   static async getDashboardMetrics(
     institutionId?: string,
     dateFrom?: string,
-    dateTo?: string
+    dateTo?: string,
+    academicYearId?: string
   ): Promise<BillingDashboardMetrics> {
     try {
       // Build date filters
@@ -31,7 +42,7 @@ export class BillingReportService {
 
       // Get basic metrics
       const metricsPromises = [
-        this.getTotalStudents(institutionId),
+        this.getTotalStudents(institutionId, academicYearId),
         this.getTotalBills(institutionId, dateFilter.start, dateFilter.end),
         this.getTotalAmountBilled(
           institutionId,
@@ -51,7 +62,13 @@ export class BillingReportService {
           dateFilter.start,
           dateFilter.end
         ),
-        this.getInstitutionWiseSummary(institutionId)
+        this.getInstitutionWiseSummary(institutionId),
+        this.getStudentYearBreakdown(
+          institutionId,
+          academicYearId,
+          dateFilter.start,
+          dateFilter.end
+        )
       ];
 
       const [
@@ -63,7 +80,8 @@ export class BillingReportService {
         totalOverdue,
         recentTransactions,
         monthlyCollection,
-        institutionWiseSummary
+        institutionWiseSummary,
+        yearWiseStudents
       ] = await Promise.all(metricsPromises);
 
       const collectionRate =
@@ -73,6 +91,7 @@ export class BillingReportService {
 
       return {
         total_students: totalStudents,
+        year_wise_students: yearWiseStudents,
         total_bills: totalBills,
         total_amount_billed: totalAmountBilled,
         total_amount_collected: totalAmountCollected,
@@ -581,7 +600,8 @@ export class BillingReportService {
 
   // Helper methods for metrics
   private static async getTotalStudents(
-    institutionId?: string
+    institutionId?: string,
+    academicYearId?: string
   ): Promise<number> {
     let query = this.supabase
       .from('learners_profiles')
@@ -591,8 +611,272 @@ export class BillingReportService {
       query = query.eq('institution_id', institutionId);
     }
 
+    if (academicYearId) {
+      query = query.eq('academic_year_id', academicYearId);
+    }
+
     const { count } = await query;
     return count || 0;
+  }
+
+  /**
+   * Splits the Total Students figure into year-of-study buckets (1st Year,
+   * 2nd Year, …) for the dashboard cards.
+   *
+   * Year is derived from `semesters.semester_order` — year N covers orders
+   * 2N-1 and 2N — because `semester_name` is free text and cannot be bucketed.
+   * The counts are issued as `head: true` count queries against
+   * `learners_profiles`, one per year, rather than by pulling every learner
+   * row and grouping in JS: the row count for a large institution comfortably
+   * exceeds PostgREST's default page size, which would silently truncate the
+   * totals.
+   *
+   * Filters mirror getTotalStudents() exactly so the buckets always sum to the
+   * Total Students card rendered directly above them, and the money filters
+   * mirror getTotalAmountBilled() so the amounts reconcile with the Amount
+   * Billed card.
+   */
+  private static async getStudentYearBreakdown(
+    institutionId?: string,
+    academicYearId?: string,
+    dateFrom?: string,
+    dateTo?: string
+  ): Promise<StudentYearBreakdown[]> {
+    let semesterQuery = this.supabase
+      .from('semesters')
+      .select('id, semester_order')
+      .not('semester_order', 'is', null);
+
+    if (institutionId) {
+      semesterQuery = semesterQuery.eq('institution_id', institutionId);
+    }
+
+    const { data: semesters, error: semesterError } = await semesterQuery;
+    if (semesterError) throw semesterError;
+
+    const semesterIdsByYear = new Map<number, string[]>();
+    // Flat reverse index, used to bucket each bill by its learner's semester.
+    const yearBySemesterId = new Map<string, number>();
+    for (const semester of semesters || []) {
+      const order = Number(semester.semester_order);
+      if (!Number.isFinite(order) || order < 1) continue;
+      const year = Math.ceil(order / 2);
+      const bucket = semesterIdsByYear.get(year);
+      if (bucket) bucket.push(semester.id);
+      else semesterIdsByYear.set(year, [semester.id]);
+      yearBySemesterId.set(semester.id, year);
+    }
+
+    const years = Array.from(semesterIdsByYear.keys()).sort((a, b) => a - b);
+
+    const [totalStudents, amountsByYear, ...yearCounts] = await Promise.all([
+      this.getTotalStudents(institutionId, academicYearId),
+      this.getBillAmountsByYearOfStudy(
+        yearBySemesterId,
+        institutionId,
+        academicYearId,
+        dateFrom,
+        dateTo
+      ),
+      ...years.map((year) =>
+        this.countStudentsInSemesters(
+          semesterIdsByYear.get(year) as string[],
+          institutionId,
+          academicYearId
+        )
+      )
+    ]);
+
+    const breakdown: StudentYearBreakdown[] = years.map((year, index) => ({
+      year,
+      label: yearOfStudyLabel(year),
+      student_count: yearCounts[index],
+      amount_billed: amountsByYear.get(year)?.billed || 0,
+      amount_collected: amountsByYear.get(year)?.collected || 0,
+      outstanding: amountsByYear.get(year)?.outstanding || 0
+    }));
+
+    // Learners with no semester, or a semester carrying no semester_order —
+    // plus any bills belonging to them. Only surfaced when something actually
+    // falls here, so a cleanly-configured institution gets no empty card.
+    const unassignedStudents =
+      totalStudents - breakdown.reduce((sum, b) => sum + b.student_count, 0);
+    const unassignedAmounts = amountsByYear.get(null);
+    if (unassignedStudents > 0 || unassignedAmounts) {
+      breakdown.push({
+        year: null,
+        label: 'Year Not Set',
+        student_count: Math.max(0, unassignedStudents),
+        amount_billed: unassignedAmounts?.billed || 0,
+        amount_collected: unassignedAmounts?.collected || 0,
+        outstanding: unassignedAmounts?.outstanding || 0
+      });
+    }
+
+    return breakdown;
+  }
+
+  /**
+   * Billed / collected / outstanding totals per year of study.
+   *
+   * PostgREST cannot GROUP BY, so the bills are swept client-side and bucketed
+   * via each learner's semester. The sweep is paginated with .range(): a single
+   * unbounded select silently stops at the server's max-rows setting, which
+   * would under-report every figure without raising an error.
+   *
+   * Filters deliberately match getTotalAmountBilled() (institution + created_at
+   * window) plus the academic year, so with no academic year selected these
+   * amounts sum to the Amount Billed card above.
+   */
+  private static async getBillAmountsByYearOfStudy(
+    yearBySemesterId: Map<string, number>,
+    institutionId?: string,
+    academicYearId?: string,
+    dateFrom?: string,
+    dateTo?: string
+  ): Promise<Map<number | null, { billed: number; collected: number; outstanding: number }>> {
+    const OUTSTANDING_STATUSES = ['unpaid', 'partially_paid', 'overdue'];
+    const PAGE_SIZE = 1000;
+    // Backstop on total work. Pages beyond this are dropped rather than
+    // fetched; see the console warning below.
+    const MAX_PAGES = 40;
+
+    const buildQuery = () => {
+      let query = this.supabase
+        .from('billing_student_bills')
+        .select(
+          'final_amount, balance_amount, status, student:learners_profiles(semester_id)',
+          { count: 'exact' }
+        );
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      if (academicYearId) {
+        query = query.eq('academic_year_id', academicYearId);
+      }
+
+      if (dateFrom) {
+        query = query.gte('created_at', dateFrom);
+      }
+
+      if (dateTo) {
+        query = query.lte('created_at', dateTo);
+      }
+
+      return query;
+    };
+
+    // First page doubles as the count probe, so the remaining pages can be
+    // issued concurrently instead of discovering the end one round trip at a
+    // time — the serial version cost one full latency hop per 1000 bills.
+    const first = await buildQuery().range(0, PAGE_SIZE - 1);
+    if (first.error) throw first.error;
+
+    const totalRows = first.count ?? (first.data || []).length;
+    const pageCount = Math.min(Math.ceil(totalRows / PAGE_SIZE), MAX_PAGES);
+
+    if (Math.ceil(totalRows / PAGE_SIZE) > MAX_PAGES) {
+      console.warn(
+        `[BillingReportService] Year-of-study amounts cover the first ${
+          MAX_PAGES * PAGE_SIZE
+        } of ${totalRows} bills. Narrow the filters for exact figures.`
+      );
+    }
+
+    const remaining = await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, i) => {
+        const page = i + 1;
+        return buildQuery()
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return (data || []) as any[];
+          });
+      })
+    );
+
+    const totals = new Map<
+      number | null,
+      { billed: number; collected: number; outstanding: number }
+    >();
+
+    for (const rows of [(first.data || []) as any[], ...remaining]) {
+      for (const row of rows) {
+        // The embedded resource arrives as an object for a to-one relationship,
+        // but PostgREST returns an array shape in some versions — accept both.
+        const student = Array.isArray(row.student) ? row.student[0] : row.student;
+        const semesterId: string | null = student?.semester_id ?? null;
+        const year =
+          semesterId != null ? yearBySemesterId.get(semesterId) ?? null : null;
+
+        const billed = Number(row.final_amount) || 0;
+        const balance = Number(row.balance_amount) || 0;
+
+        const bucket = totals.get(year) ?? {
+          billed: 0,
+          collected: 0,
+          outstanding: 0
+        };
+        bucket.billed += billed;
+        // No paid_amount column on bills — what has been paid down is the
+        // billed figure less whatever balance is still carried.
+        bucket.collected += Math.max(0, billed - balance);
+        if (OUTSTANDING_STATUSES.includes(row.status)) {
+          bucket.outstanding += balance;
+        }
+        totals.set(year, bucket);
+      }
+    }
+
+    return totals;
+  }
+
+  /**
+   * Exact learner count for a set of semester ids.
+   *
+   * The id list is chunked because it is inlined into the PostgREST query
+   * string: with no institution selected the semesters table spans every
+   * institution, and a single `.in()` of that many UUIDs overruns the request
+   * URL. Chunks are disjoint (a semester belongs to one year), so the partial
+   * counts sum without double-counting.
+   */
+  private static async countStudentsInSemesters(
+    semesterIds: string[],
+    institutionId?: string,
+    academicYearId?: string
+  ): Promise<number> {
+    if (semesterIds.length === 0) return 0;
+
+    const CHUNK_SIZE = 150;
+    const chunks: string[][] = [];
+    for (let i = 0; i < semesterIds.length; i += CHUNK_SIZE) {
+      chunks.push(semesterIds.slice(i, i + CHUNK_SIZE));
+    }
+
+    const counts = await Promise.all(
+      chunks.map(async (chunk) => {
+        let query = this.supabase
+          .from('learners_profiles')
+          .select('id', { count: 'exact', head: true })
+          .in('semester_id', chunk);
+
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId);
+        }
+
+        if (academicYearId) {
+          query = query.eq('academic_year_id', academicYearId);
+        }
+
+        const { count, error } = await query;
+        if (error) throw error;
+        return count || 0;
+      })
+    );
+
+    return counts.reduce((sum, count) => sum + count, 0);
   }
 
   private static async getTotalBills(

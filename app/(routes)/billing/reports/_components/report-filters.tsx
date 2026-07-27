@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { X } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 import type { Institution } from '@/types/organizations';
 import type { BillingReportFilters } from '@/types/billing-schedule';
 
@@ -43,9 +44,17 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
     }
   };
 
+  // Academic years are institution-scoped — the list (and therefore the filter)
+  // only means anything once an institution is picked.
+  const { data: academicYearData } = useAcademicYears(filters.institution_id);
+  const academicYears = filters.institution_id
+    ? academicYearData?.data ?? []
+    : [];
+
   const handleClearFilters = () => {
     onFilterChange({
       institution_id: undefined,
+      academic_year_id: undefined,
       department_id: undefined,
       student_id: undefined,
       date_from: undefined,
@@ -69,15 +78,18 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
         </Button>
       </div>
 
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4'>
         {/* Institution */}
         <div className='space-y-2'>
           <Label htmlFor='institution'>Institution</Label>
           <Select
             value={filters.institution_id || '_all_'}
             onValueChange={(value) =>
+              // Clear the academic year alongside: the previous selection
+              // belongs to the previous institution and would filter to zero.
               onFilterChange({
-                institution_id: value === '_all_' ? undefined : value
+                institution_id: value === '_all_' ? undefined : value,
+                academic_year_id: undefined
               })
             }
           >
@@ -95,6 +107,38 @@ export function ReportFilters({ filters, onFilterChange }: ReportFiltersProps) {
               {institutions.map((institution) => (
                 <SelectItem key={institution.id} value={institution.id}>
                   {institution.name} ({institution.counselling_code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Academic Year */}
+        <div className='space-y-2'>
+          <Label htmlFor='academic_year'>Academic Year</Label>
+          <Select
+            value={filters.academic_year_id || '_all_'}
+            onValueChange={(value) =>
+              onFilterChange({
+                academic_year_id: value === '_all_' ? undefined : value
+              })
+            }
+            disabled={!filters.institution_id}
+          >
+            <SelectTrigger id='academic_year'>
+              <SelectValue
+                placeholder={
+                  filters.institution_id
+                    ? 'All academic years'
+                    : 'Select an institution first'
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='_all_'>All Academic Years</SelectItem>
+              {academicYears.map((year) => (
+                <SelectItem key={year.id} value={year.id}>
+                  {year.academic_year_name}
                 </SelectItem>
               ))}
             </SelectContent>

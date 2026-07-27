@@ -60,7 +60,8 @@ function BillingReportsPageInner() {
   } = useBillingDashboardMetrics(
     filters.institution_id,
     filters.date_from,
-    filters.date_to
+    filters.date_to,
+    filters.academic_year_id
   );
 
   // Management vs Government split — served by the analytics RPC rather than

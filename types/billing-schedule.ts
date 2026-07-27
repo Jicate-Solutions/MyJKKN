@@ -729,6 +729,9 @@ export interface TransactionSummary {
 
 export interface BillingReportFilters {
   institution_id?: string;
+  // Academic year (academic_years.id). Academic years are institution-scoped,
+  // so this is only meaningful once institution_id is set.
+  academic_year_id?: string;
   department_id?: string;
   student_id?: string;
   date_from?: string;
@@ -825,8 +828,32 @@ export interface InvoiceReport {
   billing_period_to?: string;
 }
 
+/**
+ * One "year of study" bucket for the dashboard cards — 1st Year, 2nd Year, …
+ *
+ * Derived from `semesters.semester_order`, the only ordinal the schema exposes
+ * for a learner's position in the programme (`semester_name` is free text:
+ * 'III', 'Sem 3' and 'Third' all occur). Year N covers orders 2N-1 and 2N.
+ * A `year` of null is the catch-all for learners whose semester is unset or
+ * whose semester has no `semester_order`, so the buckets always sum to
+ * `total_students` rather than silently dropping rows.
+ */
+export interface StudentYearBreakdown {
+  year: number | null;
+  label: string;
+  student_count: number;
+  /** Sum of bills.final_amount for this year's learners. */
+  amount_billed: number;
+  /** final_amount - balance_amount, i.e. what has actually been paid down. */
+  amount_collected: number;
+  /** balance_amount on bills still unpaid / partially paid / overdue. */
+  outstanding: number;
+}
+
 export interface BillingDashboardMetrics {
   total_students: number;
+  /** Per-year-of-study split of `total_students`, ascending by year. */
+  year_wise_students: StudentYearBreakdown[];
   total_bills: number;
   total_amount_billed: number;
   total_amount_collected: number;
