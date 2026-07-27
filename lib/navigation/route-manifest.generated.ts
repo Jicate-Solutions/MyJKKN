@@ -402,6 +402,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/accreditation/cac",
+        "label": "Cac",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/accreditation/coverage",
         "label": "Coverage",
         "iconName": "FileText",

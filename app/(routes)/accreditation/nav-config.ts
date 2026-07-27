@@ -1,12 +1,17 @@
 import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 
 /**
- * Accreditation — 12 logical module tabs (Compliance Unification Program).
+ * Accreditation — 13 logical module tabs (Compliance Unification Program).
  *
  * Mirrors the original AccreditationNav (see _components/accreditation-nav.tsx,
  * now deleted) but as data. All 10 accreditation bodies (NAAC, NIRF, NBA, QS,
  * DCI, PCI, INC, NCTE, AICTE, UGC) are peer entities — no grouping, flex-wrap
  * across viewport width.
+ *
+ * CAC is the 11th body chip and the odd one out: the other ten are outside
+ * regulators that rate JKKN, while the Cluster Academic Council is JKKN's own
+ * body. It is a peer in this row because the Director asked for it to sit
+ * "just like PCI or INC", not because it is a regulator.
  *
  * NAAC has nested `children` for its 5-tab SectionSubNav (previously rendered
  * by naac/layout.tsx — now folded in here). Other bodies rely on manifest
@@ -175,6 +180,17 @@ const config: ModuleNavConfig = {
       icon: 'Scale',
       href: '/accreditation/ugc',
       matchPaths: ['/accreditation/ugc'],
+    },
+    // CAC — a peer chip, and the only entry in this row that is not an outside
+    // regulator. The ten above judge JKKN; the Cluster Academic Council is
+    // JKKN's own body. Placed last so the ten regulators stay contiguous and
+    // the one that differs reads as separate without being demoted out of the
+    // row. Its page carries no scorecard for the same reason.
+    {
+      label: 'CAC',
+      icon: 'Network',
+      href: '/accreditation/cac',
+      matchPaths: ['/accreditation/cac'],
     },
   ],
 };
