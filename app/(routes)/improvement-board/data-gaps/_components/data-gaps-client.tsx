@@ -54,6 +54,7 @@ import {
   type DataGapClass,
   type DuplicateSuggestion
 } from '@/lib/services/mba-data-gap/mba-data-gap-service';
+import { ContributorScoreboard } from './contributor-scoreboard';
 
 /* -------------------------------------------------------------------------- */
 /* Display metadata                                                           */
@@ -373,6 +374,9 @@ function DataGapsBoard() {
           feasible or a duplicate.
         </p>
       </div>
+
+      {/* Managers-only contributor scoreboard (ranked by real improvements) */}
+      <ContributorScoreboard />
 
       {/* Summary + filter */}
       <div className="flex flex-wrap items-center justify-between gap-3">

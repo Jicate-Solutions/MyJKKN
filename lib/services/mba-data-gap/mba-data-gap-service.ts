@@ -115,6 +115,22 @@ export interface DataGapFilters {
 }
 
 /**
+ * One contributor row in the managers-only ranking (decision #10/#11), from
+ * fn_mba_gap_contributor_ranking: filed → accepted → produced an APPLIED
+ * improvement, with the contributor's college attached so the UI can toggle
+ * per-college vs combined all-JKKN. Server-ordered by produced_improvement.
+ */
+export interface MbaGapContributor {
+  associate_id: string;
+  associate_name: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  filed: number;
+  accepted: number;
+  produced_improvement: number;
+}
+
+/**
  * A very-similar look-alike gap returned by fn_mba_suggest_duplicate_gaps — a
  * suggestion for a manager to confirm, never an auto-merge. `similarity` is a
  * 0-1 trigram score (only >= 0.6 are returned).
@@ -273,6 +289,23 @@ export class MbaDataGapService {
     if (error) {
       logger.error(MODULE, 'Error loading data-gap track record', error);
       throw new Error(error.message || 'Failed to load your data-gap track record.');
+    }
+    return data ?? [];
+  }
+
+  /**
+   * Managers-only contributor ranking (decision #10/#11), ranked by REAL
+   * improvements produced. Returns every contributor with their college so the
+   * UI can toggle per-college vs combined all-JKKN. Manager-only (RPC-enforced).
+   */
+  static async getContributorRanking(): Promise<MbaGapContributor[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc(
+      'fn_mba_gap_contributor_ranking'
+    )) as { data: MbaGapContributor[] | null; error: any };
+    if (error) {
+      logger.error(MODULE, 'Error loading contributor ranking', error);
+      throw new Error(error.message || 'Failed to load the contributor ranking.');
     }
     return data ?? [];
   }
