@@ -109,6 +109,22 @@ export interface DataGapFilters {
 }
 
 /**
+ * One contributor row in the managers-only ranking (decision #10/#11), from
+ * fn_mba_gap_contributor_ranking: filed → accepted → produced an APPLIED
+ * improvement, with the contributor's college attached so the UI can toggle
+ * per-college vs combined all-JKKN. Server-ordered by produced_improvement.
+ */
+export interface MbaGapContributor {
+  associate_id: string;
+  associate_name: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  filed: number;
+  accepted: number;
+  produced_improvement: number;
+}
+
+/**
  * One Associate's data-gap track record (Phase 3 measurement moat), as returned
  * by fn_mba_gap_track_record: how many gaps they filed, how many were accepted,
  * and how many went on to produce an APPLIED improvement. For a non-manager the
