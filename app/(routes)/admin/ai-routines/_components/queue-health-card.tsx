@@ -44,7 +44,10 @@ type Queue = {
   depth: { pending: number; in_flight: number };
   last_hour: { arrived: number; done: number; errored: number };
   lanes: { lane: string; pending: number; oldest_mins: number }[];
-  workers: { runner: string; last_claim: string; mins_ago: number }[];
+  // Only genuine drainers appear here: fn_ai_queue_health filters out one-shot
+  // identities (a single claim, silent over an hour), which previously rendered
+  // as dead workers for 24h. `claims` is how many jobs it took in the window.
+  workers: { runner: string; last_claim: string; mins_ago: number; claims?: number }[];
   by_type: {
     job_type: string; pending: number; oldest: string;
     oldest_id: string; lane: string | null;

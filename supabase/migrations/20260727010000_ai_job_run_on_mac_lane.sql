@@ -145,17 +145,33 @@ BEGIN
       ) l
     ),
 
+    -- Workers = things that actually DRAIN, not every identity ever seen.
+    --
+    -- This list is built from distinct claimed_by strings, so before the HAVING
+    -- below a single ad-hoc run masqueraded as a dead worker for a full 24
+    -- hours. Measured 2026-07-27: 'mac-backup' had claimed exactly ONE job, once,
+    -- and had been rendering as a broken service ever since; 'mac-manual-verify-
+    -- 0717' was the same thing from 9 days earlier and only stopped showing
+    -- because it aged out. Two of the three "Mac workers" on the card were
+    -- ghosts, which is precisely the kind of dead signal this card exists to
+    -- kill rather than create.
+    --
+    -- A real worker either claims repeatedly or claimed just now. A one-shot
+    -- identity that has been silent for over an hour is neither.
     'workers', (
       SELECT coalesce(jsonb_agg(jsonb_build_object(
-               'runner', runner, 'last_claim', last_claim, 'mins_ago', mins_ago
+               'runner', runner, 'last_claim', last_claim,
+               'mins_ago', mins_ago, 'claims', claims
              ) ORDER BY last_claim DESC), '[]'::jsonb)
       FROM (
         SELECT claimed_by AS runner,
                max(claimed_at) AS last_claim,
+               count(*) AS claims,
                (EXTRACT(EPOCH FROM (now() - max(claimed_at))) / 60)::int AS mins_ago
         FROM public.ai_jobs
         WHERE claimed_by IS NOT NULL AND claimed_at > now() - interval '24 hours'
         GROUP BY claimed_by
+        HAVING count(*) > 1 OR max(claimed_at) > now() - interval '1 hour'
       ) w
     ),
 
