@@ -7,13 +7,20 @@
 // deep it is, whether it is growing or draining, who is draining it, and what
 // is failing.
 //
-// DELIBERATELY READ-ONLY. A "Requeue stale" button was designed and dropped:
-// fn_ai_requeue_stale is granted to service_role only and carries no caller
-// guard (it is cron-only by design), so exposing it would mean either a
-// service-role bypass in the route — moving authorization out of the database,
-// where every other control on this page keeps it — or a new wrapper RPC. And
-// it would be redundant: the sweep already reclaims stale jobs every cycle, so
-// a stuck job self-heals in ~5 minutes. The card says so instead.
+// ONE action, and only one: "Run on my Mac" moves the oldest pending job of a
+// type onto the 'mac' lane, where the local Mac drain (launchd agent
+// ai.jkkn.maxlane.aijobs) picks it up instead of the Windows box. It is safe
+// because fn_ai_claim already filters on lane, so this is routing, not a new
+// mechanism — and fn_ai_job_set_lane refuses to move work to a Mac that has not
+// claimed anything in 15 minutes, because a PENDING job on an unwatched lane
+// never goes stale and would sit there forever.
+//
+// "Requeue stale" is still deliberately ABSENT. fn_ai_requeue_stale is granted
+// to service_role only and carries no caller guard (cron-only by design), so
+// exposing it would mean a service-role bypass in the route — moving
+// authorization out of the database, where every other control on this page
+// keeps it. And it would be redundant: the sweep reclaims stale jobs every
+// cycle, so a stuck job self-heals in ~5 minutes. The card says so instead.
 //
 // Direction is shown as arrivals-vs-completions, deliberately together. Depth
 // alone invites a meaningless ETA: dividing 700 pending by 37/hour gives "19
@@ -26,12 +33,22 @@ import { Activity, AlertTriangle, Layers, RefreshCw, TrendingDown, TrendingUp } 
 
 const STUCK_HINT_MINUTES = 10;
 
+// A Mac runner that has not claimed within this window is treated as asleep and
+// the button is disabled. Mirrors the same 15-minute test inside
+// fn_ai_job_set_lane — the DB is the real gate; this only avoids offering a
+// control that would be refused.
+const MAC_ALIVE_MINUTES = 15;
+
 type Queue = {
   read_at: string;
   depth: { pending: number; in_flight: number };
   last_hour: { arrived: number; done: number; errored: number };
+  lanes: { lane: string; pending: number; oldest_mins: number }[];
   workers: { runner: string; last_claim: string; mins_ago: number }[];
-  by_type: { job_type: string; pending: number; oldest: string }[];
+  by_type: {
+    job_type: string; pending: number; oldest: string;
+    oldest_id: string; lane: string | null;
+  }[];
   stuck: { id: string; job_type: string; runner: string | null; mins: number }[];
   error_shapes: { sample: string; n: number; latest: string }[];
 };
@@ -57,6 +74,8 @@ export function QueueHealthCard() {
   const [q, setQ] = useState<Queue | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -72,6 +91,34 @@ export function QueueHealthCard() {
     }
   }, []);
 
+  // Move ONE job between lanes. The failure text is surfaced verbatim rather
+  // than flattened to "something went wrong": the RPC's refusals are the useful
+  // part ("no Mac runner has claimed in the last 15 minutes", "job is not
+  // pending"), and a silent no-op here would be exactly the dead control this
+  // card exists to expose.
+  const setLane = useCallback(async (jobId: string, lane: 'mac' | 'max') => {
+    setBusyId(jobId);
+    setNote(null);
+    try {
+      const resp = await fetch('/api/admin/ai-routines/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, lane }),
+      });
+      const json = await resp.json().catch(() => null);
+      if (resp.ok) {
+        setNote(`Sent ${json?.job?.job_type ?? 'job'} to the ${lane} lane.`);
+        await load();
+      } else {
+        setNote(json?.error ?? `Request failed (${resp.status})`);
+      }
+    } catch {
+      setNote('Request failed — could not reach the server.');
+    } finally {
+      setBusyId(null);
+    }
+  }, [load]);
+
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(), 60_000);
@@ -82,6 +129,17 @@ export function QueueHealthCard() {
   if (loading || !q) {
     return <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">Reading the job queue…</div>;
   }
+
+  // A Mac runner counts as alive only if it CLAIMED recently. Liveness by real
+  // claims, not a heartbeat row — heartbeats here have frozen while the lane ran.
+  const macAlive = (q.workers ?? []).some(
+    (w) => w.runner.startsWith('mac') && w.mins_ago <= MAC_ALIVE_MINUTES,
+  );
+  // The card can be deployed BEFORE its migration lands — that exact gap left
+  // this card rendering an empty div for nine hours on 2026-07-26. Until
+  // fn_ai_queue_health returns oldest_id, render no button at all rather than
+  // one that posts `undefined`.
+  const laneRoutingReady = (q.by_type ?? []).some((t) => typeof t.oldest_id === 'string');
 
   const { arrived, done, errored } = q.last_hour;
   const net = arrived - (done + errored);
@@ -175,11 +233,46 @@ export function QueueHealthCard() {
                         timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit',
                       })}
                     </td>
+                    {laneRoutingReady && (
+                      <td className="py-1 pl-3 text-right">
+                        {t.lane === 'mac' ? (
+                          <button
+                            type="button"
+                            onClick={() => void setLane(t.oldest_id, 'max')}
+                            disabled={busyId === t.oldest_id}
+                            className="rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted disabled:opacity-50"
+                            title="Hand this job back to the Windows box"
+                          >
+                            ↩ back to Windows
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void setLane(t.oldest_id, 'mac')}
+                            disabled={!macAlive || busyId === t.oldest_id}
+                            className="rounded border px-1.5 py-0.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                            title={macAlive
+                              ? 'Run the oldest job of this type on this Mac instead of the Windows box'
+                              : `No Mac runner has claimed in the last ${MAC_ALIVE_MINUTES} minutes — start the Mac drain first`}
+                          >
+                            {busyId === t.oldest_id ? 'sending…' : '▶ Run on my Mac'}
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {/* Per-lane depth: a job parked on the Mac lane must never be able to
+              hide. If the Mac sleeps, its pending count sits here in plain sight. */}
+          {(q.lanes ?? []).length > 1 && (
+            <p className="text-[11px] text-muted-foreground">
+              Lanes — {(q.lanes ?? []).map((l) => `${l.lane}: ${l.pending}`).join(' · ')}
+            </p>
+          )}
+          {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
         </div>
       )}
 
