@@ -39,8 +39,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $function$
 DECLARE
-  v_row       public.ai_jobs;
-  v_mac_mins  int;
+  v_row public.ai_jobs;
 BEGIN
   IF NOT COALESCE((SELECT (p.role = 'super_admin' OR p.is_super_admin = true)
                    FROM public.profiles p WHERE p.id = auth.uid()), false) THEN
@@ -51,23 +50,27 @@ BEGIN
     RAISE EXCEPTION 'fn_ai_job_set_lane: lane must be max or mac, got %', coalesce(p_lane, '(null)');
   END IF;
 
-  -- Refuse to feed a cold Mac. Liveness is measured by REAL claims, not a
-  -- heartbeat row: heartbeats have frozen while the lane still ran, and the
-  -- reverse. If nothing has been claimed by a mac runner recently, the agent is
-  -- down or the machine is asleep, and moving work there would strand it.
-  IF p_lane = 'mac' THEN
-    SELECT (EXTRACT(EPOCH FROM (now() - max(claimed_at))) / 60)::int
-      INTO v_mac_mins
-      FROM public.ai_jobs
-     WHERE claimed_by LIKE 'mac%';
-
-    IF v_mac_mins IS NULL OR v_mac_mins > 15 THEN
-      RAISE EXCEPTION
-        'fn_ai_job_set_lane: no Mac runner has claimed in the last 15 minutes (%), refusing to strand this job',
-        coalesce(v_mac_mins::text || 'm ago', 'never');
-    END IF;
-  END IF;
-
+  -- ⚠️ THERE IS DELIBERATELY NO "is the Mac alive?" PRECONDITION HERE.
+  --
+  -- The first version refused to move work to 'mac' unless a mac runner had
+  -- claimed within 15 minutes. That DEADLOCKS, and it was caught on the live UI
+  -- rather than in review: a mac runner only ever claims when there is already
+  -- work on lane='mac', and the only way work gets there is this function. So
+  -- once the Mac has been idle 15 minutes — observed at 43 minutes within an
+  -- hour of shipping — the button can never be used again. A guard written to
+  -- prevent stranding instead created a permanent lockout.
+  --
+  -- Heartbeats are not the answer either: the existing heartbeat rows
+  -- ('maxlane:chat-drain', 'maxlane:poller-heartbeat') have been frozen for 13
+  -- and 17 DAYS while the lane ran, which is the known defect behind the
+  -- max-lane restart alert. Gating a control on a dead signal is worse than not
+  -- gating it.
+  --
+  -- Instead, stranding is made VISIBLE and REVERSIBLE rather than prevented:
+  -- fn_ai_queue_health reports per-lane depth so a parked job cannot hide, and
+  -- fn_ai_mac_lane_return_all() puts everything back on the Windows lane in one
+  -- call. Worst case is a visible delay with a one-click undo, instead of an
+  -- un-usable button.
   UPDATE public.ai_jobs
      SET lane = p_lane
    WHERE id = p_job_id
@@ -87,7 +90,41 @@ REVOKE EXECUTE ON FUNCTION public.fn_ai_job_set_lane(uuid, text) FROM anon, PUBL
 GRANT  EXECUTE ON FUNCTION public.fn_ai_job_set_lane(uuid, text) TO authenticated;
 
 COMMENT ON FUNCTION public.fn_ai_job_set_lane(uuid, text) IS
-  'Super-admin only. Moves a PENDING ai_job between the max (Windows) and mac (local Mac agent) lanes. Refuses to move to mac when no mac runner has claimed in 15 minutes, so work is never stranded on an unwatched lane. Reversible with p_lane=max.';
+  'Super-admin only. Moves a PENDING ai_job between the max (Windows) and mac (local Mac agent) lanes. No liveness precondition by design — gating on "did the Mac claim recently" deadlocks, because the Mac only claims work this function puts there. Stranding is instead made visible (fn_ai_queue_health reports per-lane depth) and reversible (fn_ai_mac_lane_return_all).';
+
+
+-- ---------------------------------------------------------------------------
+-- The undo. One call puts every pending job on the mac lane back on the
+-- Windows lane — the escape hatch that makes the absent liveness check safe.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_ai_mac_lane_return_all()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE v_n int;
+BEGIN
+  IF NOT COALESCE((SELECT (p.role = 'super_admin' OR p.is_super_admin = true)
+                   FROM public.profiles p WHERE p.id = auth.uid()), false) THEN
+    RAISE EXCEPTION 'fn_ai_mac_lane_return_all: not authorized';
+  END IF;
+
+  -- PENDING only: a job the Mac has already claimed is mid-flight and moving it
+  -- would let both workers run it. Those self-heal via fn_ai_requeue_stale.
+  UPDATE public.ai_jobs SET lane = 'max'
+   WHERE lane = 'mac' AND status = 'pending';
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+
+  RETURN jsonb_build_object('returned', v_n);
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_ai_mac_lane_return_all() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_mac_lane_return_all() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_ai_mac_lane_return_all() IS
+  'Super-admin only. Returns every PENDING job on the mac lane to the max (Windows) lane. The undo for "Run on my Mac" when the Mac is asleep.';
 
 
 -- ---------------------------------------------------------------------------

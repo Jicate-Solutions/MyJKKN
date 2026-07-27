@@ -122,6 +122,32 @@ export function QueueHealthCard() {
     }
   }, [load]);
 
+  // The undo for "Run on my Mac". This exists so the move itself needs no
+  // liveness precondition — gating the move on "has the Mac claimed recently"
+  // deadlocks, because the Mac only ever claims work the move puts there.
+  const returnAll = useCallback(async () => {
+    setBusyId('return-all');
+    setNote(null);
+    try {
+      const resp = await fetch('/api/admin/ai-routines/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'return-all' }),
+      });
+      const json = await resp.json().catch(() => null);
+      if (resp.ok) {
+        setNote(`Returned ${json?.returned?.returned ?? 0} job(s) to the Windows lane.`);
+        await load();
+      } else {
+        setNote(json?.error ?? `Request failed (${resp.status})`);
+      }
+    } catch {
+      setNote('Request failed — could not reach the server.');
+    } finally {
+      setBusyId(null);
+    }
+  }, [load]);
+
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(), 60_000);
@@ -252,11 +278,15 @@ export function QueueHealthCard() {
                           <button
                             type="button"
                             onClick={() => void setLane(t.oldest_id, 'mac')}
-                            disabled={!macAlive || busyId === t.oldest_id}
+                            disabled={busyId === t.oldest_id}
                             className="rounded border px-1.5 py-0.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                            // NOT disabled when the Mac looks idle. Gating on
+                            // that deadlocks: the Mac only claims work this
+                            // button sends, so once it is quiet it could never
+                            // be woken. Warn instead, and keep the undo nearby.
                             title={macAlive
                               ? 'Run the oldest job of this type on this Mac instead of the Windows box'
-                              : `No Mac runner has claimed in the last ${MAC_ALIVE_MINUTES} minutes — start the Mac drain first`}
+                              : `No Mac runner has claimed for ${MAC_ALIVE_MINUTES}+ minutes — it may be asleep. The job will wait on the Mac lane until it wakes; use "return all" to hand it back.`}
                           >
                             {busyId === t.oldest_id ? 'sending…' : '▶ Run on my Mac'}
                           </button>
@@ -271,8 +301,19 @@ export function QueueHealthCard() {
           {/* Per-lane depth: a job parked on the Mac lane must never be able to
               hide. If the Mac sleeps, its pending count sits here in plain sight. */}
           {(q.lanes ?? []).length > 1 && (
-            <p className="text-[11px] text-muted-foreground">
-              Lanes — {(q.lanes ?? []).map((l) => `${l.lane}: ${l.pending}`).join(' · ')}
+            <p className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <span>Lanes — {(q.lanes ?? []).map((l) => `${l.lane}: ${l.pending}`).join(' · ')}</span>
+              {(q.lanes ?? []).some((l) => l.lane === 'mac' && l.pending > 0) && (
+                <button
+                  type="button"
+                  onClick={() => void returnAll()}
+                  disabled={busyId === 'return-all'}
+                  className="rounded border px-1.5 py-0.5 hover:bg-muted disabled:opacity-50"
+                  title="Hand every job waiting on the Mac lane back to the Windows box"
+                >
+                  {busyId === 'return-all' ? 'returning…' : '↩ return all to Windows'}
+                </button>
+              )}
             </p>
           )}
           {note && <p className="text-[11px] text-muted-foreground">{note}</p>}

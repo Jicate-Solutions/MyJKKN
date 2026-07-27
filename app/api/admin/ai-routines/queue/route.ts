@@ -35,11 +35,25 @@ export async function GET() {
 export async function POST(request: Request) {
   await connection();
 
-  let body: { jobId?: unknown; lane?: unknown };
+  let body: { jobId?: unknown; lane?: unknown; action?: unknown };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ ok: false, error: 'invalid JSON body' }, { status: 400 });
+  }
+
+  // The undo: put every pending job on the mac lane back on the Windows lane.
+  // This is what makes it safe to have NO "is the Mac awake?" precondition on
+  // the move itself — gating on that deadlocks, because the Mac only claims
+  // work the move puts there.
+  if (body.action === 'return-all') {
+    const sb = await createClient();
+    const { data, error } = await sb.rpc('fn_ai_mac_lane_return_all');
+    if (error) {
+      const status = error.message.includes('not authorized') ? 403 : 500;
+      return NextResponse.json({ ok: false, error: error.message }, { status });
+    }
+    return NextResponse.json({ ok: true, returned: data });
   }
 
   const jobId = typeof body.jobId === 'string' ? body.jobId : '';
