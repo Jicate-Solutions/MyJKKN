@@ -45,7 +45,7 @@ BEGIN
     g.filed_by                                                            AS associate_id,
     p.full_name                                                           AS associate_name,
     p.institution_id                                                      AS institution_id,
-    i.name                                                                AS institution_name,
+    i.name::text                                                          AS institution_name,
     COUNT(*)::int                                                         AS filed,
     COUNT(*) FILTER (WHERE g.status = 'accepted')::int                    AS accepted,
     COUNT(*) FILTER (WHERE g.gap_outcome = 'produced_applied_improvement')::int
