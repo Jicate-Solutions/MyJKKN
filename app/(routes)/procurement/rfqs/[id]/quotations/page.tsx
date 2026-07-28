@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildComparisonRows } from '@/lib/services/procurement/quotation-service';
 import { useRouter, useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -166,6 +166,10 @@ export default function RfqQuotationsPage() {
   const [aiFilled, setAiFilled] = useState<Record<string, AiMark>>({});
   const [aiFromScan, setAiFromScan] = useState(false);
   const [aiOutliers, setAiOutliers] = useState<Record<string, boolean>>({});
+  // Live mirror of `prices` for applyExtraction to consult. A ref (not a dep)
+  // deliberately: reading prices through the closure would either go stale or,
+  // if added to deps, restart the poll timer on every keystroke.
+  const pricesRef = useRef<Record<string, string>>({});
   // Which quotation PDFs are expanded inline (keyed by quotation id). Iframes are
   // only mounted for open entries so we don't load every vendor's PDF at once.
   const [openPdfs, setOpenPdfs] = useState<Record<string, boolean>>({});
@@ -320,12 +324,21 @@ export default function RfqQuotationsPage() {
       const marks: Record<string, AiMark> = {};
       const filledSpecs: Record<string, QuotedSpec> = {};
 
+      let keptTyped = 0;
       for (const line of lines) {
         const id = line?.rfq_item_id;
         const price = typeof line?.unit_price === 'number' ? line.unit_price : NaN;
         // A line the reader could not confidently price is skipped entirely
         // rather than written as 0 — a wrong price is worse than a blank one.
         if (!id || !Number.isFinite(price) || price <= 0) continue;
+        // The read is asynchronous, so the person may well have typed prices
+        // while waiting. A human-entered price ALWAYS wins over an AI-read one —
+        // silently replacing what someone typed is exactly the money error the
+        // AI-highlighting is meant to prevent.
+        if ((pricesRef.current[id] ?? '').trim() !== '') {
+          keptTyped += 1;
+          continue;
+        }
         filledPrices[id] = String(price);
         numericPrices[id] = price;
         marks[id] = line.uncertain ? 'uncertain' : 'ai';
@@ -339,7 +352,11 @@ export default function RfqQuotationsPage() {
 
       const matched = Object.keys(filledPrices).length;
       if (!matched) {
-        toast.error('No prices could be read from the PDF. Enter them manually or use the template.');
+        if (keptTyped) {
+          toast.info('Every price the AI read was already filled in — your typed prices were kept.');
+        } else {
+          toast.error('No prices could be read from the PDF. Enter them manually or use the template.');
+        }
         return;
       }
 
@@ -363,11 +380,17 @@ export default function RfqQuotationsPage() {
       const uncertainCount = Object.values(marks).filter((m) => m === 'uncertain').length;
       toast.success(
         `AI read ${matched} price${matched === 1 ? '' : 's'} — review before saving` +
-          (uncertainCount ? ` · ${uncertainCount} uncertain match${uncertainCount === 1 ? '' : 'es'}` : ''),
+          (uncertainCount ? ` · ${uncertainCount} uncertain match${uncertainCount === 1 ? '' : 'es'}` : '') +
+          (keptTyped ? ` · kept ${keptTyped} price${keptTyped === 1 ? '' : 's'} you typed` : ''),
       );
     },
     [],
   );
+
+  // Keep the ref in step with the state it mirrors.
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
 
   // Hand the vendor PDF to the ₹0 Max lane. This does NOT wait for the answer —
   // it starts the read and returns; the uploader is notified when it lands.
