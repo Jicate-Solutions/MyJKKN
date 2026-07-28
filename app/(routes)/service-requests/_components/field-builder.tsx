@@ -316,13 +316,13 @@ function FieldOptionsEditor({
             placeholder="Label"
             value={opt.label}
             onChange={(e) => updateOption(i, { label: e.target.value })}
-            className="h-8 text-sm"
+            className="h-8 text-sm min-w-0"
           />
           <Input
             placeholder="Value"
             value={opt.value}
             readOnly
-            className="h-8 text-sm bg-muted w-32"
+            className="h-8 text-sm bg-muted w-20 sm:w-32"
           />
           <Button
             type="button"

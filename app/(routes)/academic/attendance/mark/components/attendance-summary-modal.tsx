@@ -39,6 +39,8 @@ interface AttendanceSummaryModalProps {
   attendanceData: Record<string, 'Present' | 'Absent'>;
   contextData: any;
   courseName?: string;
+  // Practical periods carry no parent-slot section; the selected batch identifies the group
+  batchName?: string;
   periodName?: string;
   date?: string;
   startTime?: string;
@@ -58,6 +60,7 @@ export function AttendanceSummaryModal({
   attendanceData,
   contextData,
   courseName,
+  batchName,
   periodName,
   date,
   startTime,
@@ -148,12 +151,15 @@ export function AttendanceSummaryModal({
                   </div>
                 </div>
                 {/* Updated: 2025-10-08 - Support for multi-section display */}
+                {/* Updated: 2026-07-20 - Practical periods show the selected batch (parent slot has no sections) */}
                 <div className='flex items-center gap-2'>
                   <Building2 className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'h-4 w-4 text-green-600 dark:text-green-400' : 'h-4 w-4 text-indigo-600 dark:text-indigo-400'} />
                   <div>
-                    <p className='text-gray-600 dark:text-gray-400'>{contextData?.slot_sections && contextData.slot_sections.length > 1 ? label('Sections') : label('Section')}</p>
+                    <p className='text-gray-600 dark:text-gray-400'>{batchName ? 'Batch' : contextData?.slot_sections && contextData.slot_sections.length > 1 ? label('Sections') : label('Section')}</p>
                     <p className={contextData?.slot_sections && contextData.slot_sections.length > 1 ? 'font-semibold text-green-700 dark:text-green-300' : 'font-semibold'}>
-                      {contextData?.slot_sections && contextData.slot_sections.length > 0
+                      {batchName
+                        ? batchName
+                        : contextData?.slot_sections && contextData.slot_sections.length > 0
                         ? contextData.slot_sections.length === 1
                           ? contextData.slot_sections[0].section_name
                           : `${contextData.slot_sections.length} ${label('Sections')}: ${contextData.slot_sections.map((s: any) => s.section_name).join(', ')}`

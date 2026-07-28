@@ -3,9 +3,9 @@
 // =============================================================================
 // RCLTP VBB — vocabulary word list (Phase 4b SHELL)
 // =============================================================================
-// The 5,000-word Vocabulary Building Blocks list is EKSAQ-gated content. Until
+// The 5,000-word Vocabulary Building Blocks list is MyJKKN-gated content. Until
 // that content lands, getWords() returns an empty set and we show an HONEST
-// "word list coming soon (awaiting EKSAQ content)" shell — we NEVER invent
+// "word list coming soon (awaiting MyJKKN content)" shell — we NEVER invent
 // words, definitions, or scores. When real words exist, we list them simply
 // (word + optional definition/example). This is presentation only; the import
 // pipeline (RcltpVbbService.importWordList) is stubbed server-side.
@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import type { RcltpVbbWord } from '@/types/rcltp';
 
 export function VbbWordList({ words }: { words: RcltpVbbWord[] }) {
-  // Honest EKSAQ-gated empty state — the expected state until content lands.
+  // Honest MyJKKN-gated empty state — the expected state until content lands.
   if (words.length === 0) {
     return (
       <Card>
@@ -30,7 +30,7 @@ export function VbbWordList({ words }: { words: RcltpVbbWord[] }) {
               Vocabulary Building Blocks — word list coming soon
             </p>
             <p className='mx-auto max-w-md text-sm text-muted-foreground'>
-              Your vocabulary words are being prepared (awaiting EKSAQ content). Once the word
+              Your vocabulary words are being prepared (awaiting MyJKKN content). Once the word
               list is published, your weekly words and progress will appear here. We only ever
               show real words — never placeholders.
             </p>

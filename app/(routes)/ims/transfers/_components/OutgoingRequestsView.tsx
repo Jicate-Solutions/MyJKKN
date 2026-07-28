@@ -61,7 +61,7 @@ export function OutgoingRequestsView({ storeId, institutionId }: OutgoingRequest
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex-1">
           <TransferKpiCards cards={kpiCards} />
         </div>

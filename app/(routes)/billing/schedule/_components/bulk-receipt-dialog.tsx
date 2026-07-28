@@ -102,7 +102,7 @@ export function BulkReceiptDialog({
 }: BulkReceiptDialogProps) {
   const [step, setStep] = useState<Step>('meta');
   const [meta, setMeta] = useState({
-    payment_mode: 'cash' as 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque',
+    payment_mode: 'cash' as 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque' | 'combined',
     payment_paid_date: new Date().toISOString().split('T')[0],
     payer_mode: 'student' as 'student' | 'fixed',
     payer_name_fixed: '',
@@ -516,6 +516,7 @@ export function BulkReceiptDialog({
                         <SelectItem value='bank_transfer'>Bank Transfer</SelectItem>
                         <SelectItem value='dd'>Demand Draft</SelectItem>
                         <SelectItem value='cheque'>Cheque</SelectItem>
+                        <SelectItem value='combined'>Combined Payment</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1367,7 +1368,8 @@ function PreviewPanel({
     online: 'Online',
     bank_transfer: 'Bank Transfer',
     dd: 'Demand Draft',
-    cheque: 'Cheque'
+    cheque: 'Cheque',
+    combined: 'Combined Payment'
   };
 
   const canCommit = result.groups.length > 0;
@@ -1466,7 +1468,7 @@ function PreviewPanel({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className='max-h-72 overflow-y-auto rounded border'>
+            <div className='max-h-72 overflow-auto rounded border'>
               <table className='w-full text-sm'>
                 <thead className='text-xs text-muted-foreground sticky top-0 bg-background border-b'>
                   <tr>
@@ -1652,7 +1654,7 @@ function ResultPanel({
             <CardTitle className='text-base'>Receipts created</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className='max-h-64 overflow-y-auto'>
+            <div className='max-h-64 overflow-auto'>
               <table className='w-full text-sm'>
                 <thead className='text-xs text-muted-foreground sticky top-0 bg-background'>
                   <tr>

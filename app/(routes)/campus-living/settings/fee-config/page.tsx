@@ -63,14 +63,14 @@ function FeeConfigPageInner() {
               Hostel category fees (room / mess / amenities) for the selected hostel year
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm whitespace-nowrap">Hostel Year</Label>
             <Select
               value={effectiveYearId ?? ''}
               onValueChange={(v) => setSelectedYearId(v)}
               disabled={loadingYears || !hostelYears?.length}
             >
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
@@ -111,7 +111,7 @@ function FeeConfigPageInner() {
 
         {effectiveYearId ? (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="category">Category Fees</TabsTrigger>
               <TabsTrigger value="upgrade">Upgrade Fees</TabsTrigger>
               <TabsTrigger value="package">Package Fees</TabsTrigger>

@@ -7,8 +7,7 @@ import {
   guardInstitutionWrite,
   guardCompositionChairman,
   guardAcademicCouncilWrite,
-  hasBosPermission,
-  isBosReadAllObserver,
+  guardGoverningBodyWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/meetings ─────────────────────────────────────────────────────
@@ -21,10 +20,13 @@ export async function GET(request: NextRequest) {
     }
 
     const scope = await resolveBosBoardScope(user.id);
-    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
-    const hasView = await hasBosPermission(user.id, 'academic.bos-meetings.view');
-    const canReadAllBos = isBosReadAllObserver(scope, hasView);
-    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
+    // Meetings are deliberately EXCLUDED from the BoS read-all observer tier
+    // (policy 2026-07-23): only super-admin sees every institution and only the
+    // principal sees every board of their own institution. A board chairman or
+    // member — who necessarily holds academic.bos-meetings.view just to open
+    // the page — is scoped to their own compositions (byComposition below);
+    // a view-grant-only observer with no board membership gets an empty list.
+    const scopeFilter = compositionScopeFilter(scope);
 
     // No BoS access at all → return empty list without hitting the DB.
     if (scopeFilter.kind === 'none') {
@@ -89,7 +91,7 @@ export async function GET(request: NextRequest) {
     // Super-admin filters by institution_code (= counselling_code); the
     // resolver returns the full myjkkn_institution_ids set so CAS pairs are
     // queried as one logical unit.
-    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    const seeAll = scope.isSuperAdmin;
     if (seeAll) {
       const institutionCode = searchParams.get('institutionCode') ?? undefined;
       if (institutionCode) {
@@ -150,12 +152,13 @@ export async function GET(request: NextRequest) {
     if (compositionId) query = query.eq('composition_id', compositionId);
     if (academicYear) query = query.eq('academic_year', academicYear);
     if (status) query = query.eq('status', status);
-    // Academic Council meetings have their own list (/bos/academic-council).
-    // When a caller asks for a specific meetingType we honour it (that's how the
-    // AC list requests meetingType='academic_council'); otherwise we EXCLUDE AC
-    // meetings so the Board of Studies meetings list isn't polluted by them.
+    // Council-family meetings (Academic Council + Governing Body) have their own
+    // lists (/bos/academic-council, /bos/governing-body). When a caller asks for
+    // a specific meetingType we honour it (that's how those lists request their
+    // own type); otherwise we EXCLUDE both so the Board of Studies meetings list
+    // isn't polluted by them.
     if (meetingType) query = query.eq('meeting_type', meetingType);
-    else query = query.neq('meeting_type', 'academic_council');
+    else query = query.not('meeting_type', 'in', '(academic_council,governing_body)');
     if (search) query = query.ilike('meeting_title', `%${search}%`);
     if (memberCompositionIds) query = query.in('composition_id', memberCompositionIds);
 
@@ -223,16 +226,21 @@ export async function POST(request: NextRequest) {
     // board_type is denormalized onto the meeting (avoids a second query later).
     const { data: parentComp } = await supabase
       .from('bos_compositions')
-      .select('board_type, is_academic_council')
+      .select('board_type, is_academic_council, is_governing_body')
       .eq('id', body.composition_id)
       .maybeSingle();
     const isAcMeeting =
       (parentComp as { is_academic_council?: boolean } | null)?.is_academic_council === true;
+    const isGbMeeting =
+      (parentComp as { is_governing_body?: boolean } | null)?.is_governing_body === true;
+    // Academic Council + Governing Body are the two institution-level, board-less,
+    // principal-convened council bodies — handled identically by the engine.
+    const isCouncilMeeting = isAcMeeting || isGbMeeting;
     const parentBoardType =
       (parentComp as { board_type?: string | null } | null)?.board_type ?? null;
 
-    // A BoS meeting requires a board; an Academic Council meeting has none.
-    if (!isAcMeeting && !body.board_id) {
+    // A BoS meeting requires a board; a council (AC / GB) meeting has none.
+    if (!isCouncilMeeting && !body.board_id) {
       return NextResponse.json(
         { error: 'board_id is required for a Board of Studies meeting' },
         { status: 400 }
@@ -240,14 +248,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Institution backstop (CAS-aware) + convener gate. For a BoS meeting only
-    // the board chairman may schedule (principals are read-only). For an
-    // Academic Council meeting the PRINCIPAL is the convener — see
-    // guardAcademicCouncilWrite (the deliberate inverse of the chairman gate).
+    // the board chairman may schedule (principals are read-only). For a council
+    // meeting the PRINCIPAL is the convener — see guard{AcademicCouncil,GoverningBody}Write
+    // (the deliberate inverse of the chairman gate).
     const denyInst = guardInstitutionWrite(scope, body.institutions_id);
     if (denyInst) return NextResponse.json({ error: denyInst }, { status: 403 });
-    if (isAcMeeting) {
-      const denyAc = guardAcademicCouncilWrite(scope, body.institutions_id);
-      if (denyAc) return NextResponse.json({ error: denyAc }, { status: 403 });
+    if (isCouncilMeeting) {
+      const denyCouncil = isGbMeeting
+        ? guardGoverningBodyWrite(scope, body.institutions_id)
+        : guardAcademicCouncilWrite(scope, body.institutions_id);
+      if (denyCouncil) return NextResponse.json({ error: denyCouncil }, { status: 403 });
     } else {
       const denyComp = guardCompositionChairman(scope, body.composition_id);
       if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
@@ -311,7 +321,7 @@ export async function POST(request: NextRequest) {
     // Service-role lookup: bos_committees RLS is board-keyed and would deny
     // the principal convening an AC meeting.
     let committeeId: string | null = body.committee_id || null;
-    if (isAcMeeting) {
+    if (isCouncilMeeting) {
       const { data: acCommittee } = await createServiceRoleClient()
         .from('bos_committees')
         .select('id')
@@ -328,13 +338,19 @@ export async function POST(request: NextRequest) {
     // second query. For AC bodies it is 'academic_council'.
 
     // Normalize empty strings → null for optional date/time fields.
-    // For an AC meeting force board_id null and meeting_type 'academic_council'
-    // regardless of what the client sent, so the row is unambiguously an AC row.
+    // For a council meeting force board_id null and the council meeting_type
+    // (academic_council / governing_body) regardless of what the client sent, so
+    // the row is unambiguously a council row of the correct kind.
+    const councilMeetingType: BosMeetingType | undefined = isGbMeeting
+      ? 'governing_body'
+      : isAcMeeting
+        ? 'academic_council'
+        : undefined;
     const insertData = {
       ...body,
-      board_id: isAcMeeting ? null : body.board_id,
+      board_id: isCouncilMeeting ? null : body.board_id,
       committee_id: committeeId,
-      meeting_type: isAcMeeting ? ('academic_council' as BosMeetingType) : body.meeting_type,
+      meeting_type: councilMeetingType ?? body.meeting_type,
       meeting_number: meetingNumber,
       status: 'draft' as BosMeetingStatus,
       board_type: parentBoardType,

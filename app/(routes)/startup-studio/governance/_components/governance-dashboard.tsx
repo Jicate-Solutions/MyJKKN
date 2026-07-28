@@ -727,7 +727,7 @@ export function GovernanceDashboard() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="board">Board & Committees</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="readiness">Readiness</TabsTrigger>
@@ -803,11 +803,11 @@ export function GovernanceDashboard() {
 
         {/* Compliance Tab */}
         <TabsContent value="compliance">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Label className="text-sm">Category:</Label>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <Label className="text-sm shrink-0">Category:</Label>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-40 h-8">
+                <SelectTrigger className="w-full sm:w-40 h-8">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

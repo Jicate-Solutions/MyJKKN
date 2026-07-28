@@ -607,7 +607,7 @@ function FlowSettingsPageInner() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               Approval Workflow Settings
@@ -617,7 +617,7 @@ function FlowSettingsPageInner() {
             </p>
           </div>
           {isSuperAdmin && institutions && (
-            <div className="w-64">
+            <div className="w-full sm:w-64">
               <Select value={viewInstitutionId || 'all'} onValueChange={(v) => setViewInstitutionId(v === 'all' ? null : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Filter by Institution" />
@@ -637,7 +637,7 @@ function FlowSettingsPageInner() {
 
       {/* Tabs: Approval Workflows | Sub-Categories */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
+        <TabsList className="flex w-full max-w-md justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-2 sm:gap-0 sm:overflow-visible [&>button]:shrink-0 sm:[&>button]:shrink">
           <TabsTrigger value="workflows">Approval Workflows</TabsTrigger>
           <TabsTrigger value="sub-categories">Sub-Categories</TabsTrigger>
         </TabsList>

@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Results domain service (Phase B)
+ * MyJKKN RCLTP — Results domain service (Phase B)
  * ----------------------------------------------------------------------------
  * Tables: rcltp_assessment_results (§3.6), rcltp_student_journey (§3.8),
  *         rcltp_band_config (§3.7).
@@ -11,7 +11,7 @@
  *   - tenant scoping by institution_id (none of these are library tables, so no
  *     global-row .or(...is.null) trick)
  *   - READS + STAFF/ADMIN band-config writes go through the client (RLS allows)
- *   - STUDENT-affecting / formula-dependent logic is stubbed → awaiting EKSAQ
+ *   - STUDENT-affecting / formula-dependent logic is stubbed → awaiting MyJKKN
  *     (composite scoring + band placement, SLJ progression)
  */
 
@@ -27,11 +27,13 @@ import type {
   RcltpListResponse,
   CreateRcltpBandConfigDto,
   UpdateRcltpBandConfigDto,
+  RcltpSchoolDashboard,
 } from '@/types/rcltp';
 import {
   rcltpRange,
   rcltpMetadata,
-  rcltpAwaitingEksaqContent,
+  rcltpAwaitingValidationContent,
+  rcltpPostJson,
 } from './rcltp-helpers';
 
 export class RcltpResultsService {
@@ -85,6 +87,38 @@ export class RcltpResultsService {
       .maybeSingle();
     if (error) throw error;
     return (data ?? null) as RcltpAssessmentResult | null;
+  }
+
+  // -------------------------------------------------------------------------
+  // SCHOOL-HEAD DASHBOARD — read-only aggregate RPC (Phase 4e)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Aggregate school-head (principal) dashboard data via
+   * `fn_rcltp_school_dashboard(p_institution_id)`. Every array in the result
+   * is empty until MyJKKN scoring produces `rcltp_assessment_results` rows —
+   * the RPC always marks `provisional: true`. Callers MUST render the
+   * "Provisional — pending MyJKKN validation" banner whenever any array is
+   * non-empty (see PrincipalDashboard).
+   */
+  static async getSchoolDashboard(
+    institutionId: string
+  ): Promise<RcltpSchoolDashboard> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_rcltp_school_dashboard',
+      { p_institution_id: institutionId }
+    );
+    if (error) throw error;
+    return (
+      (data as RcltpSchoolDashboard) ?? {
+        provisional: true,
+        totals: { scoredSittings: 0, learners: 0 },
+        bandDistribution: [],
+        cycleProgress: [],
+        atRisk: [],
+        sectionComparison: [],
+      }
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -195,28 +229,40 @@ export class RcltpResultsService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — content/formula-dependent logic → awaiting EKSAQ
+  // DEFERRED — content/formula-dependent logic → awaiting MyJKKN
   // -------------------------------------------------------------------------
 
   /**
-   * Compute the composite per-sitting result (reading/comprehension/overall
-   * scores + band placement) and store it in rcltp_assessment_results. The
-   * composite-score formula and band cutoffs are EKSAQ content — deferred.
+   * PROVISIONAL scoring — run the composite engine for a sitting via the
+   * service-role route `POST /api/rcltp/assessments/:id/score`. Auto-grades Part B,
+   * combines with the teacher-entered Part A score, places bands from the tenant's
+   * (or provisional) cutoffs, upserts `rcltp_assessment_results`, and advances the
+   * learner journey server-side.
+   *
+   * ⚠️ Result bands/scores are PROVISIONAL — pending MyJKKN validation — and MUST be
+   * rendered with the "Provisional — pending MyJKKN validation" banner.
+   *
+   * @param readingScore teacher-entered Part A (read-aloud) score 0–100; omit for a
+   *   consent-driven Part-B-only sitting.
    */
   static async computeAndStoreResult(
-    _assessmentId: string
+    assessmentId: string,
+    readingScore?: number | null
   ): Promise<RcltpAssessmentResult> {
-    return rcltpAwaitingEksaqContent('composite scoring + band placement');
+    return rcltpPostJson<RcltpAssessmentResult>(
+      `/api/rcltp/assessments/${assessmentId}/score`,
+      readingScore != null ? { readingScore } : undefined
+    );
   }
 
   /**
    * Advance the learner's Student Learning Journey (current band per dimension
-   * + progression log) after a new result. Band progression rules are EKSAQ
+   * + progression log) after a new result. Band progression rules are MyJKKN
    * content — deferred.
    */
   static async updateStudentJourney(
     _learnerId: string
   ): Promise<RcltpStudentJourney> {
-    return rcltpAwaitingEksaqContent('band progression / SLJ update');
+    return rcltpAwaitingValidationContent('band progression / SLJ update');
   }
 }

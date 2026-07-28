@@ -524,7 +524,7 @@ function ApprovalsPageInner() {
         <TabsContent value={statusFilter} className="mt-6">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>
                     {statusFilter === 'pending' && 'Pending Approvals'}
@@ -541,7 +541,7 @@ function ApprovalsPageInner() {
 
             {/* Bulk Action Buttons - Only show for pending applications */}
             {statusFilter === 'pending' && Object.keys(rowSelection).filter(key => rowSelection[key]).length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground">
                   {Object.keys(rowSelection).filter(key => rowSelection[key]).length} selected
                 </span>

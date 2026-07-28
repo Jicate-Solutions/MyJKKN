@@ -62,7 +62,7 @@ export default function InductionLandingPage() {
               and who turns into a referral that joins.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="outline">
               <Link href="/events/induction/catalog"><Library className="h-4 w-4 mr-1" /> Session catalog</Link>
             </Button>

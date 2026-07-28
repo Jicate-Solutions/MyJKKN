@@ -146,7 +146,7 @@ export function DailyReportForm({ expoEvent }: DailyReportFormProps) {
       <div>
         <Link
           href={`/admission/marketing/expos/${expoEvent.id}`}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to {expoEvent.event_name}

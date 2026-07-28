@@ -12,6 +12,9 @@ function buildColumns(
   // MyJKKN institution UUIDs belonging to CAS (Arts & Science). A syllabus whose
   // institutions_id is in this set gets the flowing-paragraph unit layout in its PDF.
   casInstitutionIds?: Set<string>,
+  // MyJKKN institution UUIDs belonging to CET (Engineering). A syllabus whose
+  // institutions_id is in this set always renders the Engineering PDF format.
+  cetInstitutionIds?: Set<string>,
 ): ColumnDef<BosCourseSyllabus>[] {
   return [
     {
@@ -108,6 +111,7 @@ function buildColumns(
             syllabus={row.original}
             institutionName={institutionName}
             isCas={casInstitutionIds?.has(row.original.institutions_id) ?? false}
+            isCet={cetInstitutionIds?.has(row.original.institutions_id) ?? false}
           />
           <SyllabusDocxDownloadButton syllabus={row.original} institutionName={institutionName} />
           <SyllabusCloneButton syllabus={row.original} />
@@ -127,8 +131,9 @@ export const columns = buildColumns();
 export function createSyllabusColumns(
   institutionName?: string,
   casInstitutionIds?: Set<string>,
+  cetInstitutionIds?: Set<string>,
 ): ColumnDef<BosCourseSyllabus>[] {
-  return buildColumns(institutionName, casInstitutionIds);
+  return buildColumns(institutionName, casInstitutionIds, cetInstitutionIds);
 }
 
 export function getColumns({

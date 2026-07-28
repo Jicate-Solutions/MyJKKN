@@ -107,12 +107,12 @@ export function CareDashboardSection() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-col items-start gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-base flex items-center gap-2">
           <HeartHandshake className="h-4 w-4 text-rose-600" />
           Culture Audits
         </CardTitle>
-        <Button size="sm" variant="outline" asChild>
+        <Button size="sm" variant="outline" asChild className="shrink-0">
           <Link href="/audit/care/new">
             <Plus className="h-3.5 w-3.5 mr-1" />
             New CARRE audit

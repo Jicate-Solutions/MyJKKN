@@ -98,10 +98,49 @@ export interface BillingAgingBucketRow {
 /** Pending-fees breakdown by category kind (snapshot). */
 export interface BillingCategoryAnalytics {
   kind: string; // tuition | hostel | transport | exam | university_fee | application_fee | other
+  /** 'management' | 'government' — from billing_categories.collection_type. */
+  collection_type: string;
   total_billed: number;
   total_outstanding: number;
   paid_to_date: number; // billed − outstanding (snapshot basis)
+  /** Receipt-traced cash (billing_receipt_items). Differs from paid_to_date
+   *  wherever a receipt was never linked to a bill. */
+  collected_actual: number;
   bill_count: number;
+}
+
+/**
+ * Management vs Government collection split.
+ *
+ * Cash is attributed through billing_receipt_items → bills → categories, which
+ * is the only path that exists (receipts carry no category). Receipts with no
+ * line items cannot be attributed at all and land in `unallocated_*` — on
+ * current production data that is the LARGEST bucket, so it is always shown
+ * rather than folded into management.
+ *
+ * Invariant, for any filter:
+ *   management_collected + government_collected + unallocated_collected
+ *     === total_collected
+ *
+ * The `*_billed` / `*_outstanding` figures come off the bill instead, which is
+ * categorised almost everywhere — use those for "how much of what we charged
+ * belongs to government".
+ */
+export interface BillingCollectionSplit {
+  management_collected: number;
+  government_collected: number;
+  unallocated_collected: number;
+  management_refunds: number;
+  government_refunds: number;
+  unallocated_refunds: number;
+  management_net: number;
+  government_net: number;
+  unallocated_net: number;
+  total_collected: number;
+  management_billed: number;
+  government_billed: number;
+  management_outstanding: number;
+  government_outstanding: number;
 }
 
 /** One (day × institution) row of the daily accounts-activity breakdown. */

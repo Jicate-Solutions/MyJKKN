@@ -130,6 +130,16 @@ export class ConsultantService {
         }
       }
 
+      // Global status filter (primary table column — junction status only
+      // applies in the institution-scoped branch below)
+      if (status) {
+        if (Array.isArray(status)) {
+          query = query.in('status', status);
+        } else {
+          query = query.eq('status', status);
+        }
+      }
+
       if (city) {
         query = query.ilike('city', `%${sanitizeSearch(city)}%`);
       }
@@ -733,7 +743,8 @@ export class ConsultantService {
         `
         *,
         consultant:education_consultants(id, name, code),
-        lead:admission_leads(id, full_name, phone, email)
+        institution:institutions(id, name),
+        lead:admission_leads(id, full_name, phone, email, funnel_stage, program_id, program:programs!program_id(id, program_name), learner_profile:learners_profiles!learner_profile_id(id, lifecycle_status))
       `,
         { count: 'exact' }
       );
@@ -904,7 +915,9 @@ export class ConsultantService {
     }
 
     if (lead_id) {
-      query = query.eq('lead_id', lead_id);
+      // The lead FK on this table is `admission_id` -> admission_leads(id);
+      // filtering on `lead_id` raised 42703 (column does not exist).
+      query = query.eq('admission_id', lead_id);
     }
 
     if (status) {
@@ -998,16 +1011,37 @@ export class ConsultantService {
   ): Promise<ConsultantCommissionTransaction> {
     const supabase = createClientSupabaseClient();
 
+    const now = new Date().toISOString();
+
+    // Only real columns may be sent. `status_changed_at` / `status_changed_by` /
+    // `clawback_at` do not exist on this table — including them made PostgREST
+    // reject the entire request (PGRST204) so no status change ever persisted.
     const updateData: Record<string, unknown> = {
       status,
-      status_changed_at: new Date().toISOString(),
-      status_changed_by: changedBy,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
+
+    // Record who approved, on the table's real audit columns. A money approval
+    // that does not name an approver is not an approval — `approved_by` is a FK
+    // to profiles, so refuse rather than write the caller's 'system' fallback.
+    if (status === 'approved') {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(changedBy);
+      if (!isUuid) {
+        throw new Error(
+          'Cannot approve a commission without an identified approver. Please sign in again and retry.'
+        );
+      }
+      updateData.approved_by = changedBy;
+      updateData.approved_at = now;
+    }
 
     if (status === 'clawed_back' && reason) {
       updateData.clawback_reason = reason;
-      updateData.clawback_at = new Date().toISOString();
+    }
+
+    if (status === 'cancelled' && reason) {
+      updateData.rejection_reason = reason;
     }
 
     let query = (supabase as any)

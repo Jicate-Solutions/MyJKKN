@@ -248,7 +248,7 @@ function PartnersContent() {
               </Table>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
                   <div className="text-sm text-muted-foreground">
                     Showing {(currentPage - 1) * PAGE_SIZE + 1} to{' '}
                     {Math.min(currentPage * PAGE_SIZE, total)} of {total}

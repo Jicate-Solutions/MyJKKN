@@ -185,7 +185,7 @@ function RubricViewer({ row }: { row: ExamAuditProgramRow }) {
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-96 text-sm"
+        className="w-[calc(100vw-2rem)] max-w-[24rem] text-sm sm:w-96"
         onClick={(e) => e.stopPropagation()}
       >
         {!def ? (

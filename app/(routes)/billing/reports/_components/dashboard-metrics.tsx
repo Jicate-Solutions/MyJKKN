@@ -11,20 +11,29 @@ import {
   AlertCircle,
   Receipt,
   Percent,
-  Download
+  Download,
+  Building2,
+  Landmark,
+  HelpCircle
 } from 'lucide-react';
 import type { BillingDashboardMetrics } from '@/types/billing-schedule';
+import type { BillingCollectionSplit } from '@/types/billing-analytics';
 
 interface DashboardMetricsProps {
   metrics: BillingDashboardMetrics | null;
   loading: boolean;
   canExport: boolean;
+  /** Management / Government / Unallocated breakdown of the collected figure.
+   *  Undefined for users without billing.analytics.view — the section is then
+   *  simply not rendered. */
+  split?: BillingCollectionSplit;
 }
 
 export function DashboardMetrics({
   metrics,
   loading,
-  canExport
+  canExport,
+  split
 }: DashboardMetricsProps) {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -64,7 +73,7 @@ export function DashboardMetrics({
   return (
     <div className='space-y-6'>
       {/* Header with Export */}
-      <div className='flex justify-between items-center'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <h3 className='text-lg font-medium'>Dashboard Overview</h3>
         {canExport && (
           <Button variant='outline' size='sm'>
@@ -192,6 +201,59 @@ export function DashboardMetrics({
         </Card>
       </div>
 
+      {/* Collection ownership — who the collected cash actually belongs to. */}
+      {split && (
+        <div>
+          <h3 className='text-lg font-medium mb-3'>Collection by Ownership</h3>
+          <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+            <Card>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium'>Management</CardTitle>
+                <Building2 className='h-4 w-4 text-muted-foreground' />
+              </CardHeader>
+              <CardContent>
+                <div className='text-2xl font-bold text-green-600'>
+                  {formatCurrency(split.management_collected)}
+                </div>
+                <p className='text-xs text-muted-foreground mt-1'>
+                  {formatCurrency(split.management_net)} net of refunds
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium'>Government</CardTitle>
+                <Landmark className='h-4 w-4 text-muted-foreground' />
+              </CardHeader>
+              <CardContent>
+                <div className='text-2xl font-bold text-amber-600'>
+                  {formatCurrency(split.government_collected)}
+                </div>
+                <p className='text-xs text-muted-foreground mt-1'>
+                  collected on behalf of government
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium'>Unallocated</CardTitle>
+                <HelpCircle className='h-4 w-4 text-muted-foreground' />
+              </CardHeader>
+              <CardContent>
+                <div className='text-2xl font-bold text-muted-foreground'>
+                  {formatCurrency(split.unallocated_collected)}
+                </div>
+                <p className='text-xs text-muted-foreground mt-1'>
+                  receipts not linked to any bill
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
       {/* Recent Transactions */}
       {metrics.recent_transactions.receipts.length > 0 && (
         <Card>
@@ -209,19 +271,18 @@ export function DashboardMetrics({
                   >
                     <div className='flex items-center gap-3'>
                       <Receipt className='h-4 w-4 text-muted-foreground' />
-                      <div>
-                        <p className='font-medium'>{receipt.receipt_number}</p>
-                        <p className='text-sm text-muted-foreground'>
-                          {`${receipt.student?.first_name || 'Unknown'} ${receipt.student?.last_name || 'Student'}`}
-                        </p>
-                      </div>
+                      {/* The dashboard RPC's recent-receipts sub-select only
+                          emits id, receipt_number, receipt_date,
+                          payment_amount, payment_mode — no student name and
+                          no created_at, so neither is rendered here. */}
+                      <p className='font-medium'>{receipt.receipt_number}</p>
                     </div>
                     <div className='text-right'>
                       <p className='font-semibold text-green-600'>
                         {formatCurrency(receipt.payment_amount)}
                       </p>
                       <p className='text-xs text-muted-foreground'>
-                        {new Date(receipt.created_at).toLocaleDateString()}
+                        {new Date(receipt.receipt_date).toLocaleDateString()}
                       </p>
                     </div>
                   </div>

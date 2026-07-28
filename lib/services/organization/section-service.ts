@@ -155,12 +155,25 @@ export class SectionService {
 
   static async deleteSection(id: string): Promise<void> {
     try {
-      const { error } = await (this.supabase as any)
+      // .select() is required here so we can detect the case where an RLS
+      // delete policy silently matches 0 rows (no error, just an empty
+      // result) — without it a blocked delete looks identical to a
+      // successful one and the row reappears after refresh with no
+      // explanation, even though the UI reported success.
+      const { data, error } = await (this.supabase as any)
         .from('sections')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select('id');
 
       if (error) throw error;
+
+      const deletedRow = Array.isArray(data) ? data[0] : null;
+      if (!deletedRow) {
+        throw new Error(
+          'Section could not be deleted. You may not have permission to delete this section.'
+        );
+      }
     } catch (error) {
       console.error('Error deleting section:', error);
       throw error;

@@ -113,7 +113,7 @@ export interface HRPersonView {
   source: 'staff';
   // Stable id used for routing — always staff.id after consolidation
   id: string;
-  hr_organization_id: string;
+  hr_organization_id: string | null;
   organization_name: string | null;
   employment_type: HREmploymentType;
   employee_code: string | null;
@@ -124,9 +124,13 @@ export interface HRPersonView {
   designation_name: string | null;
   cadre_name: string | null;
   department_id: string | null;
+  department_name: string | null;
+  institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;
   staff_id?: string;
+  // Human-facing staff code (staff.staff_id), distinct from the routing id.
+  staff_code: string | null;
 }
 
 // === Filters ===
@@ -136,11 +140,13 @@ export interface HRPersonFilters {
   cadre_id?: string;
   designation_id?: string;
   department_id?: string;
+  institution_id?: string;
   is_active?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;
-  // include_staff removed — all employees now live in staff table after consolidation.
+  // When true, the service returns ALL matching rows (no pagination) for export.
+  exportAll?: boolean;
 }
 
 // === API response ===
@@ -152,6 +158,25 @@ export interface HRPersonListResponse {
     pageSize: number;
     totalPages: number;
   };
+}
+
+// === Detail view for /hr/employees/[id] — names resolved, read-only ===
+export interface HRPersonDetailView {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  staff_code: string | null;
+  institution_name: string | null;
+  department_name: string | null;
+  date_of_joining: string | null;
+  is_active: boolean;
+  hr_employee_code: string | null;
+  organization_name: string | null;
+  designation_name: string | null;
+  cadre_name: string | null;
+  reports_to_name: string | null;
 }
 
 // === Display labels ===
@@ -210,6 +235,16 @@ export type LeaveApplicationStatus =
   | 'escalated';
 
 export type LeaveDurationType = 'full' | 'first_half' | 'second_half' | 'hourly';
+
+/**
+ * Which Time Off tab a leave type is requested from.
+ *
+ * Declared here rather than in hr-leave-types.ts because that module already
+ * imports from this one; defining it there and importing back would make the
+ * two files circular. hr-leave-types.ts re-exports it, exactly as it does for
+ * LeaveDurationType.
+ */
+export type LeaveRequestCategory = 'leave' | 'short_time_off' | 'compensatory_off';
 
 export interface LeaveApprovalStep {
   step_order: number;
@@ -316,12 +351,37 @@ export interface HRLeaveBalance {
   updated_at: string;
 }
 
+/**
+ * A listed application with its type embedded.
+ *
+ * `hr_leave_types` is nullable by design: the embed is a LEFT join, so a row
+ * whose type the caller cannot read under RLS still appears (with no label)
+ * rather than vanishing from the user's own list.
+ */
+export interface HRLeaveApplicationWithType extends HRLeaveApplication {
+  hr_leave_types: {
+    leave_type_name: string;
+    leave_type_code: string;
+    request_category: LeaveRequestCategory;
+    color_code: string;
+  } | null;
+}
+
 export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   leave_type_name: string;
   leave_type_code: string;
   duration_type: LeaveDurationType;
   allow_half_day: boolean;
   allow_hourly: boolean;
+  /**
+   * Which Time Off tab this balance belongs to. Carried through from
+   * hr_leave_types so each tab can filter without a second round trip —
+   * the Leave tab must not offer Permission or Compensatory Off.
+   */
+  request_category: LeaveRequestCategory;
+  max_continuous_days: number | null;
+  min_advance_notice_days: number;
+  requires_documents: boolean;
 }
 
 export interface HRLeaveEncashment {
@@ -354,11 +414,20 @@ export interface HRLeaveBlackout {
   created_at: string;
 }
 
+/**
+ * Mirrors hr_leave_application_comments. Corrected 2026-07-21: this declared
+ * `author_id` / `body`, which are not columns on that table — the real names
+ * are `commenter_id` / `comment`. The service inserted the wrong names (every
+ * POST 42703'd) and the detail page read them back as `undefined`, so comments
+ * were broken in both directions.
+ */
 export interface HRLeaveApplicationComment {
   id: string;
   application_id: string;
-  author_id: string;
-  body: string;
+  hr_organization_id: string;
+  commenter_id: string;
+  comment: string;
+  parent_comment_id: string | null;
   created_at: string;
 }
 

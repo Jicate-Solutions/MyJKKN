@@ -260,7 +260,7 @@ export async function PATCH(
     // Get target user's original data for activity logging
     const { data: originalTargetUser } = await supabase
       .from('profiles')
-      .select('role, full_name, email, phone_number, institution_id, is_active')
+      .select('role, full_name, email, phone_number, institution_id, is_active, assigned_store_id')
       .eq('id', userId)
       .single();
 
@@ -294,6 +294,35 @@ export async function PATCH(
     if (body.gender !== undefined) updateData.gender = body.gender;
     if (body.is_active !== undefined) updateData.is_active = body.is_active;
     if (body.profile_complete !== undefined) updateData.profile_completed = body.profile_complete;
+
+    // IMS store allocation. Consumed by useImsStoreContext as priority-2 store
+    // resolution (ahead of the institution first-match fallback). Validated here
+    // because a dangling or inactive store would strand the user on Gate D.
+    if (body.assigned_store_id !== undefined) {
+      if (body.assigned_store_id === null || body.assigned_store_id === '') {
+        updateData.assigned_store_id = null; // explicit clear
+      } else {
+        const { data: store } = await supabaseAdmin
+          .from('ims_stores')
+          .select('id, is_active')
+          .eq('id', body.assigned_store_id)
+          .maybeSingle();
+
+        if (!store) {
+          return NextResponse.json(
+            { error: 'Assigned store not found' },
+            { status: 400 }
+          );
+        }
+        if (!store.is_active) {
+          return NextResponse.json(
+            { error: 'Cannot assign an inactive store' },
+            { status: 400 }
+          );
+        }
+        updateData.assigned_store_id = body.assigned_store_id;
+      }
+    }
 
     // Update the user profile - use admin client for cross-user updates
     const updateClient = user.id === userId ? supabase : supabaseAdmin;
@@ -399,6 +428,13 @@ export async function PATCH(
       changes.push('institution');
     if (originalTargetUser?.is_active !== body.is_active)
       changes.push('account_status');
+    // Guarded on !== undefined: unlike the comparisons above, an omitted
+    // assigned_store_id must not be read as a change to null.
+    if (
+      body.assigned_store_id !== undefined &&
+      originalTargetUser?.assigned_store_id !== body.assigned_store_id
+    )
+      changes.push('assigned_store');
     if (updatedRoleIds !== undefined) changes.push('roles');
 
     if (changes.length > 0) {

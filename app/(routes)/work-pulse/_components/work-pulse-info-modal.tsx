@@ -119,7 +119,7 @@ export function WorkPulseInfoModal() {
 
             {/* Flywheel Visual */}
             <div className="mt-4 p-3 rounded-lg bg-muted/50 text-center">
-              <div className="flex items-center justify-center gap-2 text-xs font-medium text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-medium text-muted-foreground">
                 <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 rounded text-blue-700 dark:text-blue-300">Report</span>
                 <ArrowRight className="h-3 w-3" />
                 <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900 rounded text-purple-700 dark:text-purple-300">Discover</span>

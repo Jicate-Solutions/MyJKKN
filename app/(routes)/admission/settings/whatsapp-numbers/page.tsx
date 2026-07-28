@@ -601,7 +601,7 @@ function WhatsAppNumbersContent() {
     <PermissionGuard module="admission" action="manage">
       <ContentLayout title="WhatsApp Numbers">
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -617,7 +617,7 @@ function WhatsAppNumbersContent() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <SyncFromMetaButton
                 institutionId={institutionId}
                 onDone={() => queryClient.invalidateQueries({ queryKey: ['wa-phone-numbers'] })}
@@ -634,7 +634,7 @@ function WhatsAppNumbersContent() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="business">Business Numbers</TabsTrigger>
               <TabsTrigger value="personal">Personal WhatsApp</TabsTrigger>
               <TabsTrigger value="templates">Message Templates</TabsTrigger>

@@ -182,7 +182,7 @@ export function PaymentAccountsManager() {
           {activeFilterCount > 0 ? ` · showing ${filtered.length} of ${accounts?.length ?? 0}` : ''}.
           Drafts and unconfigured institutions use the common (env) account until activated.
         </p>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           <Button variant={showFilters || activeFilterCount ? 'secondary' : 'outline'} onClick={() => setShowFilters((s) => !s)}>
             <Filter className='mr-1.5 h-4 w-4' /> Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
           </Button>

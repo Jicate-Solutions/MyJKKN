@@ -114,7 +114,7 @@ function ProjectDetailPageInner({
         <>
           {/* Header card */}
           <Card className="mt-6">
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <CardTitle className="text-xl">{project.title}</CardTitle>
@@ -139,7 +139,7 @@ function ProjectDetailPageInner({
                   <span>{project.percent_complete ?? 0}% complete</span>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)}>
+              <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4" />
                 Edit
               </Button>

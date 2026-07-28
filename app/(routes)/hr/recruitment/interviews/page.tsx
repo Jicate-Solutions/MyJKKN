@@ -111,14 +111,14 @@ export default function InterviewsListPage() {
 
       <div className="mt-6 space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Interviews</h1>
             <p className="text-sm text-muted-foreground">
               Schedule, track, and score candidate interviews
             </p>
           </div>
-          <Button onClick={() => setShowSchedule(true)}>
+          <Button className="shrink-0" onClick={() => setShowSchedule(true)}>
             <CalendarPlus className="mr-2 h-4 w-4" />
             Schedule Interview
           </Button>

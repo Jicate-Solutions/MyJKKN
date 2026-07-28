@@ -41,6 +41,9 @@ export async function GET(request: NextRequest) {
     const result = await LeaveService.listApplications(supabase, {
       hr_organization_id: url.searchParams.get('hr_organization_id') ?? undefined,
       employee_id: url.searchParams.get('employee_id') ?? undefined,
+      // useApprovalInbox has always sent this; the route dropped it on the
+      // floor, so the approver inbox was never scoped. See listApplications.
+      pending_approver_id: url.searchParams.get('pending_approver_id') ?? undefined,
       status: statuses.length > 0 ? statuses : undefined,
       start_from: url.searchParams.get('start_from') ?? undefined,
       start_to: url.searchParams.get('start_to') ?? undefined,
@@ -112,7 +115,7 @@ export async function POST(request: NextRequest) {
 
         // Resolve leave type name
         const { data: leaveType } = await serviceSupabase
-          .from('leave_types')
+          .from('hr_leave_types')
           .select('leave_type_name')
           .eq('id', created.leave_type_id)
           .maybeSingle();

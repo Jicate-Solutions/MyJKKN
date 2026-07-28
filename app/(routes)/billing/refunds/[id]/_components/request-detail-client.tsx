@@ -12,6 +12,7 @@ import {
   Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useRefundRequest } from '@/hooks/billing/use-refund-workflow';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
@@ -47,13 +48,19 @@ function getStatusBadge(status: RefundRequest['status']) {
 }
 
 export function RequestDetailClient({ id }: Props) {
-  const { user, isSuperAdmin } = useAuth();
+  // useAuth() exposes ONLY { profile, isLoading, error } — `user`/`isSuperAdmin`
+  // are NOT on it. Super-admin/permission verdicts come from usePermissions().
+  // (profiles.id === auth.uid(), so profile.id is the id stored in stage
+  // assignee_users; deriving myUserId from a non-existent useAuth().user left it
+  // undefined and silently collapsed every gate to "no access".)
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const { data: request, isLoading, isError, error } = useRefundRequest(id);
 
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [institutionName, setInstitutionName] = useState('');
 
-  const myUserId = user?.id;
+  const myUserId = profile?.id;
 
   // One fetch of my role ids for assignee matching (mirrors RPC gating below).
   useEffect(() => {

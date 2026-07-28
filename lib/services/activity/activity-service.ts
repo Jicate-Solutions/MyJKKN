@@ -48,6 +48,7 @@ export class ActivityService {
     resource_name,
     description,
     request,
+    ip_address,
     metadata = {},
     institution_id
   }: {
@@ -58,6 +59,7 @@ export class ActivityService {
     resource_name?: string;
     description: string;
     request?: Request;
+    ip_address?: string;
     metadata?: Record<string, any>;
     institution_id?: string;
   }): Promise<UserActivityLog> {
@@ -88,6 +90,13 @@ export class ActivityService {
 
         activityData.ip_address =
           forwarded?.split(',')[0] || realIp || clientIp || undefined;
+      }
+
+      // Fall back to an explicitly-supplied IP (e.g. resolved from next/headers
+      // by the server-side logActivity wrapper) when no request was passed. This
+      // is what gives update/create/approve/export logs an IP going forward.
+      if (!activityData.ip_address && ip_address) {
+        activityData.ip_address = ip_address;
       }
 
       return await this.createActivityLog(activityData);

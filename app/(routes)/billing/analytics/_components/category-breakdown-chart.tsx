@@ -18,9 +18,14 @@ export function CategoryBreakdownChart({
   data?: BillingCategoryAnalytics[];
   loading: boolean;
 }) {
+  // Rows arrive grouped by (kind × collection_type), so one kind can appear
+  // twice when some of its categories are government-collected. The row id must
+  // therefore include collection_type — `kind` alone duplicates React keys.
   const slices = (data ?? [])
     .map((d) => ({
+      id: `${d.kind}-${d.collection_type}`,
       kind: d.kind,
+      isGovernment: d.collection_type === 'government',
       label: CATEGORY_LABELS[d.kind] ?? d.kind,
       value: num(d.total_outstanding),
       bills: num(d.bill_count),
@@ -54,7 +59,7 @@ export function CategoryBreakdownChart({
                   paddingAngle={2}
                 >
                   {slices.map((s, i) => (
-                    <Cell key={s.kind} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    <Cell key={s.id} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value: number) => formatINRCompact(value)} />
@@ -63,7 +68,7 @@ export function CategoryBreakdownChart({
 
             <ul className='w-full space-y-1.5 text-sm'>
               {slices.map((s, i) => (
-                <li key={s.kind} className='flex items-center justify-between gap-2'>
+                <li key={s.id} className='flex items-center justify-between gap-2'>
                   <span className='flex min-w-0 items-center gap-2'>
                     <span
                       className='h-2.5 w-2.5 shrink-0 rounded-full'
@@ -72,6 +77,14 @@ export function CategoryBreakdownChart({
                       }}
                     />
                     <span className='truncate'>{s.label}</span>
+                    {s.isGovernment && (
+                      <span
+                        className='shrink-0 rounded border border-amber-500 px-1 text-[10px] leading-4 text-amber-700 dark:text-amber-400'
+                        title='Collected on behalf of a government body — not management revenue.'
+                      >
+                        Govt
+                      </span>
+                    )}
                   </span>
                   <span className='shrink-0 font-medium'>
                     {formatINRCompact(s.value)}

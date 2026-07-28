@@ -331,10 +331,10 @@ export default function CapabilityDetailPage({
           'border-l-[#ffde59]': currentStatus === 'mastered',
         })}>
           <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <StatusIcon className={cn('h-5 w-5', statusConfig.color)} />
-                <div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <StatusIcon className={cn('h-5 w-5 shrink-0', statusConfig.color)} />
+                <div className="min-w-0">
                   <p className="text-sm font-medium">{statusConfig.label}</p>
                   <p className="text-xs text-muted-foreground">{statusConfig.description}</p>
                 </div>
@@ -343,7 +343,7 @@ export default function CapabilityDetailPage({
               {/* Action button based on status */}
               {currentStatus === 'available' && (
                 <Button
-                  className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+                  className="shrink-0 bg-[#0b6d41] hover:bg-[#0b6d41]/90"
                   size="sm"
                   onClick={handleStartLearning}
                   disabled={startCapability.isPending}
@@ -359,7 +359,7 @@ export default function CapabilityDetailPage({
               {currentStatus === 'in_progress' && (
                 <Button
                   size="sm"
-                  className="bg-amber-500 hover:bg-amber-600"
+                  className="shrink-0 bg-amber-500 hover:bg-amber-600"
                   onClick={() => {
                     alert('Demonstration feature coming soon. For now, contact your Learning Facilitator to verify your capability.');
                   }}
@@ -369,7 +369,7 @@ export default function CapabilityDetailPage({
                 </Button>
               )}
               {(currentStatus === 'demonstrated' || currentStatus === 'mastered') && (
-                <div className="flex items-center gap-1 text-sm font-medium text-[#0b6d41]">
+                <div className="flex items-center gap-1 text-sm font-medium text-[#0b6d41] shrink-0">
                   <Award className="h-4 w-4" />
                   {learnerCap?.demonstration_score && `${learnerCap.demonstration_score}%`}
                 </div>
@@ -463,10 +463,10 @@ export default function CapabilityDetailPage({
               <div className="space-y-3">
                 {rubric.map((item, idx) => (
                   <div key={idx} className="p-3 bg-muted/30 rounded-lg">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-medium">{item.criterion}</span>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-medium min-w-0">{item.criterion}</span>
                       {item.weight && (
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs shrink-0">
                           {item.weight}%
                         </Badge>
                       )}
@@ -540,7 +540,7 @@ export default function CapabilityDetailPage({
         {(currentStatus === 'available' || currentStatus === 'in_progress') && (
           <div className="sticky bottom-4 z-10">
             <Card className="p-4 shadow-lg border-border/80 bg-background/95 backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="text-sm text-muted-foreground">
                   {currentStatus === 'available'
                     ? 'Ready to start developing this capability'

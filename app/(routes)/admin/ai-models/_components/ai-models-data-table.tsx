@@ -19,7 +19,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
-import { Pencil, RefreshCw, AlertTriangle, Zap, Play } from 'lucide-react';
+import {
+  Pencil,
+  RefreshCw,
+  AlertTriangle,
+  Zap,
+  Play,
+  Plus,
+  Settings2,
+  Trash2,
+  Power,
+  PowerOff,
+} from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +57,17 @@ import type { AIRoutine } from '@/lib/ai-routines/types';
 
 import { Switch } from '@/components/ui/switch';
 import { AiModelEditDialog } from './ai-model-edit-dialog';
+// UNIFICATION (2026-07-23): authoring (edit recipe/prompt + create job type)
+// folds into this one console behind an "Advanced" menu — reuses the AI Studio
+// edit dialog so no authoring capability is lost when the Studio tab retires.
+import { AiJobTypeEditDialog } from './ai-job-type-edit-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 // Shared Max-lane plumbing (button + status hook) — source of truth lives with
 // the AI Routines page; reused here so both pages queue via the same
 // max_lane_requests flow (POST /api/admin/ai-routines/max-run).
@@ -74,6 +96,23 @@ const ROUTINE_TYPE_LABELS: Record<AIRoutine['type'], string> = {
   interactive: 'On-demand',
   service: 'Service',
 };
+
+// UNIFICATION (2026-07-23): the unified console sections by registry LANE
+// (where a job runs + what it costs), not by category. Module-scope so the
+// grouping memo keeps stable references.
+const LANE_ORDER = ['max', 'api', 'either'] as const;
+const LANE_LABEL: Record<string, string> = {
+  max: 'Max lane · ₹0',
+  api: 'API lane · paid',
+  either: 'Either lane',
+  // Dedicated Max sub-lane: still the ₹0 subscription worker, but isolated so
+  // its runner cannot race the user-facing chat drain for claims.
+  'max-pdf': 'Max lane · ₹0 · PDF reader',
+};
+
+/** Max lane or any dedicated Max sub-lane ('max-pdf', …) — all ₹0. */
+const isMaxLaneValue = (lane?: string | null): boolean =>
+  lane === 'max' || (typeof lane === 'string' && lane.startsWith('max-'));
 
 // ---------------------------------------------------------------------------
 // Max-lane schedule rows (`maxlane:<routine-id>` in ai_routine_schedules) —
@@ -156,17 +195,6 @@ function LaneBadge({ f, routines, scheduleMap }: {
       </Badge>
     );
   }
-  if (f.config_json?.lane === 'api_policy') {
-    return (
-      <Badge
-        variant="outline"
-        className="mt-1 text-[11px] font-normal text-muted-foreground"
-        title="Serves learners or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
-      >
-        API only · policy
-      </Badge>
-    );
-  }
   return null;
 }
 
@@ -192,6 +220,14 @@ interface FeatureRow {
   // Config merge (2026-07-14): registry-sourced governance.
   lane?: string | null;
   runnable?: boolean;
+  // UNIFICATION (2026-07-23): false → this registry job has no model yet
+  // (provider/model_id are ''); render "Uses default model" + a "Set model" button.
+  model_set?: boolean;
+  // VISIBILITY (2026-07-25): the raw registry `enabled` gate. false → this job
+  // is dormant (the Max/API drain will not claim or enqueue it). The service
+  // read returns these rows so the Director can govern their model, but they
+  // MUST be marked so they aren't mistaken for live ones.
+  enabled?: boolean;
 }
 
 function formatInr(n: number): string {
@@ -212,6 +248,10 @@ export function AiModelsDataTable() {
   // job_type === feature_key; empty until loaded / on failure (→ no Run button).
   const [runningFeature, setRunningFeature] = useState<FeatureRow | null>(null);
   const [jobTypeMap, setJobTypeMap] = useState<Map<string, AiJobType>>(new Map());
+  // UNIFICATION (2026-07-23): authoring state — edit a job's recipe/prompt or
+  // create a brand-new job type (folds in the retired AI Studio tab's powers).
+  const [authoringJob, setAuthoringJob] = useState<AiJobType | null>(null);
+  const [creatingJob, setCreatingJob] = useState(false);
   // Latest Max-lane request per routine_id (drives queued/running/done state
   // on the Run-on-Max buttons). Same hook the AI Routines page uses.
   const { map: maxMap, refetch: refetchMax } = useMaxLaneRequests();
@@ -291,38 +331,106 @@ export function AiModelsDataTable() {
     loadFeatures();
   }, [loadFeatures]);
 
-  // Load the registry's job types once so runnable features can open an inline
-  // Run card. Best-effort — a failure just means no Run buttons render, never a
-  // broken page (matches the house style of the other config fetches here).
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/admin/ai-job-types', { cache: 'no-store' });
-        if (!res.ok) return;
-        const json = await res.json();
-        const list: AiJobType[] = Array.isArray(json?.jobTypes) ? json.jobTypes : [];
-        if (!cancelled) setJobTypeMap(new Map(list.map((jt) => [jt.job_type, jt])));
-      } catch {
-        // silent — no Run buttons on failure
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // Load the registry's job types so rows can open the Run card AND the
+  // "Advanced" recipe editor. Best-effort — a failure just means no Run/Advanced
+  // affordances render, never a broken page (matches the house style of the
+  // other config fetches here). Exposed as a callback so an authoring save can
+  // refresh the recipe map (UNIFICATION 2026-07-23).
+  const loadJobTypes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/ai-job-types', { cache: 'no-store' });
+      if (!res.ok) return;
+      const json = await res.json();
+      const list: AiJobType[] = Array.isArray(json?.jobTypes) ? json.jobTypes : [];
+      setJobTypeMap(new Map(list.map((jt) => [jt.job_type, jt])));
+    } catch {
+      // silent — no Run/Advanced affordances on failure
+    }
   }, []);
 
-  // Group by category for the table sectioning
+  useEffect(() => {
+    void loadJobTypes();
+  }, [loadJobTypes]);
+
+  // UNIFICATION (2026-07-23): enable/disable + delete a job type — ported from
+  // the retired AI Studio list so those management powers survive behind each
+  // row's Advanced menu. Writes go through the same ai-job-types admin API.
+  const [jobBusyKey, setJobBusyKey] = useState<string | null>(null);
+
+  const toggleJobEnabled = useCallback(
+    async (jobType: string, title: string, next: boolean) => {
+      setJobBusyKey(jobType);
+      try {
+        const res = await fetch(`/api/admin/ai-job-types/${encodeURIComponent(jobType)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload.error ?? `HTTP ${res.status}`);
+        }
+        toast.success(next ? `${title} enabled.` : `${title} disabled.`);
+        await loadJobTypes();
+        await loadFeatures();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not update.');
+      } finally {
+        setJobBusyKey(null);
+      }
+    },
+    [loadJobTypes, loadFeatures],
+  );
+
+  const handleDeleteJob = useCallback(
+    async (jobType: string, title: string) => {
+      if (!window.confirm(`Delete job type "${title}" (${jobType})? This can't be undone.`)) return;
+      setJobBusyKey(jobType);
+      try {
+        const res = await fetch(`/api/admin/ai-job-types/${encodeURIComponent(jobType)}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload.error ?? `HTTP ${res.status}`);
+        }
+        toast.success(`${title} deleted.`);
+        await loadJobTypes();
+        await loadFeatures();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not delete.');
+      } finally {
+        setJobBusyKey(null);
+      }
+    },
+    [loadJobTypes, loadFeatures],
+  );
+
+  // UNIFICATION (2026-07-23): section by registry LANE (Max / API / Either),
+  // not category — the Director governs by where a job runs and what it costs.
+  // Max first (the ₹0 lane), then API (paid), then the rest. Rows
+  // within a lane sort by category then display name for a stable read.
   const grouped = useMemo(() => {
     if (!features) return [];
     const map = new Map<string, FeatureRow[]>();
     for (const f of features) {
-      const cat = f.category ?? 'uncategorized';
-      const list = map.get(cat) ?? [];
+      const lane = f.lane || 'either';
+      const list = map.get(lane) ?? [];
       list.push(f);
-      map.set(cat, list);
+      map.set(lane, list);
     }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    for (const rows of map.values()) {
+      rows.sort(
+        (a, b) =>
+          (a.category ?? '').localeCompare(b.category ?? '') ||
+          a.display_name.localeCompare(b.display_name),
+      );
+    }
+    const rank = (l: string) => {
+      const i = LANE_ORDER.indexOf(l as (typeof LANE_ORDER)[number]);
+      return i === -1 ? LANE_ORDER.length : i;
+    };
+    return Array.from(map.entries()).sort((a, b) => rank(a[0]) - rank(b[0]));
   }, [features]);
 
   const totalMtdCost = useMemo(() => {
@@ -340,8 +448,11 @@ export function AiModelsDataTable() {
       <div className="flex items-center justify-between gap-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">
-            One row per AI-powered MyJKKN feature. Pick which provider and model run it,
-            set a monthly spend cap, and watch the cost. Every change is audited.
+            One row per AI job in the registry, grouped by the lane it runs on. Pick
+            its model, set a monthly spend cap, and watch the cost — every change is
+            audited. Use{' '}
+            <span className="font-medium text-foreground">Advanced</span> on a row to
+            edit its recipe/prompt or run it on demand.
           </p>
           <p className="flex items-center gap-1 text-xs text-muted-foreground">
             <Zap className="h-3.5 w-3.5" />
@@ -354,15 +465,18 @@ export function AiModelsDataTable() {
             from <span className="font-medium text-foreground">{totalMtdCalls.toLocaleString('en-IN')}</span> invocations
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={loadFeatures}
-          disabled={loading}
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={loadFeatures} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          {/* UNIFICATION: create a new job type — folds in the retired AI Studio
+              tab's "New job type" action. */}
+          <Button size="sm" onClick={() => setCreatingJob(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New job type
+          </Button>
+        </div>
       </div>
 
       {loading && !features ? (
@@ -378,10 +492,14 @@ export function AiModelsDataTable() {
         </div>
       ) : (
         <div className="space-y-6">
-          {grouped.map(([category, rows]) => (
-            <section key={category}>
-              <h3 className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-                {category}
+          {grouped.map(([lane, rows]) => (
+            <section key={lane}>
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
+                {isMaxLaneValue(lane) && <Zap className="h-3.5 w-3.5 text-[#0b6d41]" />}
+                <span className="uppercase">{LANE_LABEL[lane] ?? lane}</span>
+                <span className="text-xs font-normal normal-case text-muted-foreground/70">
+                  {rows.length} job{rows.length === 1 ? '' : 's'}
+                </span>
               </h3>
               <div className="rounded-md border">
                 <Table>
@@ -402,41 +520,68 @@ export function AiModelsDataTable() {
                         f.monthly_spend_cap_inr !== null &&
                         f.month_to_date_cost_inr > f.monthly_spend_cap_inr;
                       const lowSuccess = f.month_to_date_invocations > 0 && f.month_to_date_success_rate < 0.9;
+                      // VISIBILITY (2026-07-25): a dormant registry job (enabled=
+                      // false). The service read returns it so its model stays
+                      // governable, but it must be dimmed + badged so it isn't
+                      // mistaken for a live one on the shared console.
+                      const disabled = f.enabled === false;
                       return (
-                        <TableRow key={f.feature_key} className={overCap ? 'bg-destructive/5' : undefined}>
+                        <TableRow
+                          key={f.feature_key}
+                          className={
+                            [overCap ? 'bg-destructive/5' : '', disabled ? 'opacity-60' : '']
+                              .filter(Boolean)
+                              .join(' ') || undefined
+                          }
+                        >
                           <TableCell>
                             <div className="space-y-0.5">
-                              <div className="font-medium">{f.display_name}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{f.display_name}</span>
+                                {disabled && (
+                                  <Badge
+                                    variant="outline"
+                                    className="gap-1 border-amber-500/50 bg-amber-50 text-[11px] font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-400"
+                                    title="This job is disabled in the registry — the Max/API drain will not claim or enqueue it. Its model is still editable here."
+                                  >
+                                    <PowerOff className="h-3 w-3" />
+                                    Disabled
+                                  </Badge>
+                                )}
+                              </div>
                               {f.description && (
                                 <div className="text-xs text-muted-foreground">{f.description}</div>
                               )}
                               <div className="text-xs text-muted-foreground/70 font-mono">
                                 {f.feature_key}
                               </div>
-                              {/* Config merge: the registry's own lane (max/api/either) —
-                                  which lane this feature's model runs on per the
-                                  unified ai_job_types config. */}
-                              {f.lane && (
-                                <Badge
-                                  variant="outline"
-                                  className={`mt-1 gap-1 text-[10px] font-normal ${
-                                    f.lane === 'max'
-                                      ? 'border-[#0b6d41]/40 text-[#0b6d41]'
-                                      : 'text-muted-foreground'
-                                  }`}
-                                  title="Registry lane: where this feature's model runs — Max (₹0 subscription seat), API (paid), or Either."
-                                >
-                                  {f.lane === 'max' ? (
-                                    <>
-                                      <Zap className="h-3 w-3" /> Max lane
-                                    </>
-                                  ) : f.lane === 'api' ? (
-                                    'API lane'
-                                  ) : (
-                                    'Either lane'
-                                  )}
-                                </Badge>
-                              )}
+                              {(() => {
+                                const jt = jobTypeMap.get(f.feature_key);
+                                if (!jt) return null;
+                                return jt.loop_key ? (
+                                  <Link
+                                    href={`/admin/loops#loop-${jt.loop_key}`}
+                                    title={`This job serves the ${jt.loop_key} loop — click to see it in the Loop Control Tower`}
+                                  >
+                                    <Badge
+                                      variant="outline"
+                                      className="mt-1 font-mono text-[11px] font-normal text-[#0b6d41] hover:underline"
+                                    >
+                                      {jt.loop_key}
+                                    </Badge>
+                                  </Link>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="mt-1 text-[11px] font-normal text-muted-foreground"
+                                    title="Not yet claimed by any governance loop"
+                                  >
+                                    unclaimed
+                                  </Badge>
+                                );
+                              })()}
+                              {/* UNIFICATION: per-row lane badge removed — the
+                                  console now sections by lane, so it was redundant. */}
                               {!f.is_active && (
                                 <Badge variant="outline" className="mt-1">Inactive</Badge>
                               )}
@@ -448,19 +593,31 @@ export function AiModelsDataTable() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="space-y-0.5">
-                              <div className="text-sm">
-                                {getModelLabel(f.provider, f.model_id)}
-                              </div>
-                              <div className="text-xs text-muted-foreground font-mono">
-                                {f.provider} · {f.model_id}
-                              </div>
-                              {f.fallback_provider && f.fallback_model_id && (
-                                <div className="text-xs text-muted-foreground">
-                                  Fallback: {f.fallback_provider} · {f.fallback_model_id}
+                            {f.model_set === false || !f.model_id ? (
+                              // UNIFICATION: a registry job with no model pinned —
+                              // resolves to the built-in default. Governing it is a
+                              // PR-2 follow-up (the PATCH path needs a config row).
+                              <div className="space-y-0.5">
+                                <div className="text-sm text-muted-foreground">Uses default model</div>
+                                <div className="text-xs text-muted-foreground/70">
+                                  No model pinned in the registry
                                 </div>
-                              )}
-                            </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-0.5">
+                                <div className="text-sm">
+                                  {getModelLabel(f.provider, f.model_id)}
+                                </div>
+                                <div className="text-xs text-muted-foreground font-mono">
+                                  {f.provider} · {f.model_id}
+                                </div>
+                                {f.fallback_provider && f.fallback_model_id && (
+                                  <div className="text-xs text-muted-foreground">
+                                    Fallback: {f.fallback_provider} · {f.fallback_model_id}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell>
                             {(() => {
@@ -578,29 +735,105 @@ export function AiModelsDataTable() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center justify-end gap-1">
-                              {/* Config merge: runnable registry features get an
-                                  on-demand Run card (reuses the AI Studio runner).
-                                  Shown only when the registry says runnable AND we
-                                  have its job-type def loaded. */}
-                              {f.runnable && jobTypeMap.has(f.feature_key) && (
+                              {/* GOVERNANCE-FIRST: edit the model / spend cap inline.
+                                  A model-less registry job gets a "Set model" button
+                                  that governs it for the FIRST time — the PATCH now
+                                  upserts an ai_model_config row (UNIFICATION follow-up). */}
+                              {f.model_set === false ? (
                                 <Button
-                                  variant="ghost"
+                                  variant="outline"
                                   size="sm"
-                                  onClick={() => setRunningFeature(f)}
-                                  aria-label={`Run ${f.display_name}`}
-                                  title="Run this feature on demand"
+                                  className="h-7 gap-1 text-xs"
+                                  onClick={() => setEditingFeature(f)}
+                                  aria-label={`Set a model for ${f.display_name}`}
+                                  title="Pin a model for this job"
                                 >
-                                  <Play className="h-4 w-4" />
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Set model
                                 </Button>
+                              ) : (
+                                f.model_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setEditingFeature(f)}
+                                    aria-label={`Edit model for ${f.display_name}`}
+                                    title="Change model / spend cap"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                )
                               )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setEditingFeature(f)}
-                                aria-label={`Edit ${f.display_name}`}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
+                              {/* AUTHORING + RUN tuck behind Advanced so the default
+                                  row stays governance-focused (UNIFICATION 2026-07-23).
+                                  Reuses the AI Studio recipe editor + runner. */}
+                              {jobTypeMap.has(f.feature_key) && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      aria-label={`Advanced actions for ${f.display_name}`}
+                                      title="Advanced — edit recipe / run"
+                                    >
+                                      <Settings2 className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => {
+                                        const jt = jobTypeMap.get(f.feature_key);
+                                        if (jt) setAuthoringJob(jt);
+                                      }}
+                                    >
+                                      <Pencil className="mr-2 h-4 w-4" />
+                                      Edit recipe &amp; prompt
+                                    </DropdownMenuItem>
+                                    {f.runnable && (
+                                      <DropdownMenuItem onClick={() => setRunningFeature(f)}>
+                                        <Play className="mr-2 h-4 w-4" />
+                                        Run on demand
+                                      </DropdownMenuItem>
+                                    )}
+                                    {(() => {
+                                      const jt = jobTypeMap.get(f.feature_key);
+                                      if (!jt) return null;
+                                      return (
+                                        <DropdownMenuItem
+                                          disabled={jobBusyKey === f.feature_key}
+                                          onClick={() =>
+                                            void toggleJobEnabled(jt.job_type, jt.title, !jt.enabled)
+                                          }
+                                        >
+                                          {jt.enabled ? (
+                                            <>
+                                              <PowerOff className="mr-2 h-4 w-4" />
+                                              Disable job
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Power className="mr-2 h-4 w-4" />
+                                              Enable job
+                                            </>
+                                          )}
+                                        </DropdownMenuItem>
+                                      );
+                                    })()}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      disabled={jobBusyKey === f.feature_key}
+                                      onClick={() => {
+                                        const jt = jobTypeMap.get(f.feature_key);
+                                        if (jt) void handleDeleteJob(jt.job_type, jt.title);
+                                      }}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Delete job type
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -622,6 +855,33 @@ export function AiModelsDataTable() {
         feature={editingFeature}
         onSaved={() => {
           setEditingFeature(null);
+          loadFeatures();
+        }}
+      />
+
+      {/* UNIFICATION (2026-07-23): authoring dialogs — edit an existing job's
+          recipe/prompt, or create a brand-new job type. Reuses the AI Studio
+          edit dialog so its powers survive the tab merge. On save, refresh BOTH
+          the governance rows and the recipe map. */}
+      <AiJobTypeEditDialog
+        open={!!authoringJob}
+        onOpenChange={(open) => {
+          if (!open) setAuthoringJob(null);
+        }}
+        jobType={authoringJob}
+        onSaved={() => {
+          setAuthoringJob(null);
+          void loadJobTypes();
+          loadFeatures();
+        }}
+      />
+      <AiJobTypeEditDialog
+        open={creatingJob}
+        onOpenChange={setCreatingJob}
+        jobType={null}
+        onSaved={() => {
+          setCreatingJob(false);
+          void loadJobTypes();
           loadFeatures();
         }}
       />

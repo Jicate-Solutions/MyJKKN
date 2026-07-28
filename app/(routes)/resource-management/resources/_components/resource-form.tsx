@@ -1860,7 +1860,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
 
                 {/* Add Approvers Section */}
                 <div className='space-y-4 rounded-lg border p-4'>
-                  <div className='flex items-center justify-between'>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
                     <h4 className='font-medium text-sm'>Approvers List</h4>
                     <Button
                       type='button'
@@ -1897,7 +1897,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                         key={approver.id}
                         className='rounded-lg border p-4 space-y-3 bg-background'
                       >
-                        <div className='flex items-center justify-between'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
                           <div className='flex items-center gap-2'>
                             <Badge variant='outline'>
                               Level {approver.level}

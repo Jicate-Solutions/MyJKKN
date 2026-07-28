@@ -28,6 +28,8 @@ interface SearchParams {
   payment_mode?: string;
   receipt_date_from?: string;
   receipt_date_to?: string;
+  /** 'management' | 'government' — receipts containing at least one such line. */
+  collection_type?: string;
   sortBy?: string;
   sortDirection?: 'asc' | 'desc';
 }
@@ -83,9 +85,14 @@ async function ReceiptsContent({
       | 'bank_transfer'
       | 'dd'
       | 'cheque'
+      | 'combined'
       | undefined,
     receipt_date_from: params.receipt_date_from,
     receipt_date_to: params.receipt_date_to,
+    collection_type: params.collection_type as
+      | 'management'
+      | 'government'
+      | undefined,
     sortBy: params.sortBy || 'receipt_date',
     sortDirection: (params.sortDirection as 'asc' | 'desc') || 'desc'
   };

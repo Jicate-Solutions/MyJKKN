@@ -84,7 +84,7 @@ export function TaxonomyList() {
   return (
     <div className='space-y-4'>
       {isSuperAdmin && (
-        <div className='flex items-end gap-3'>
+        <div className='flex flex-wrap items-end gap-3'>
           <InstitutionPicker
             value={selectedInstitutionId}
             onChange={setSelectedInstitutionId}

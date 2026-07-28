@@ -153,8 +153,15 @@ export function useInstitutionContextByCode(
 // ── useAllInstitutionContexts ─────────────────────────────────────────────────
 // Returns all institutions for the super-admin institution picker.
 // Deduplicates by coe_id (CAS Aided + Self → one row).
+//
+// `opts.enabled` is an OR-extension for non-super-admins: BoS read-all
+// observers (holders of a bos-* view grant) may also fetch the full list —
+// the /api/institutions/resolve list mode authorizes them server-side.
+// Existing no-arg callers keep the super-admin-only behavior.
 
-export function useAllInstitutionContexts(): UseQueryResult<InstitutionContext[], Error> {
+export function useAllInstitutionContexts(
+  opts?: { enabled?: boolean }
+): UseQueryResult<InstitutionContext[], Error> {
   const { profile } = useAuth();
   const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
 
@@ -169,7 +176,7 @@ export function useAllInstitutionContexts(): UseQueryResult<InstitutionContext[]
       const json = await res.json();
       return json.data as InstitutionContext[];
     },
-    enabled: !!profile && isSuperAdmin,
+    enabled: !!profile && (isSuperAdmin || opts?.enabled === true),
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
 }

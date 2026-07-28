@@ -716,7 +716,11 @@ function AdminBugReportsContent() {
 
           {/* Tabs: Reports List + Reporter Analytics */}
           <Tabs defaultValue='reports'>
-            <TabsList>
+            {/* h-auto + flex-wrap: the three triggers total ~340px, wider than
+                the card at 320px, and TabsTrigger is whitespace-nowrap — so a
+                fixed-height row put "Groups" off the edge of the page. min-h-9
+                keeps the desktop height identical to the default h-9. */}
+            <TabsList className='h-auto min-h-9 flex-wrap'>
               <TabsTrigger value='reports' className='flex items-center gap-2'>
                 <Bug className='w-4 h-4' />
                 Reports List

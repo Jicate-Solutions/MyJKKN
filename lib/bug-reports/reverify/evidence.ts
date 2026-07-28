@@ -10,10 +10,15 @@
 //        confirm the account/role/institution scope still resolves under RLS.
 //        Catches "I lost access" regressions from the reporter's own vantage.
 //   2. error-signature recurrence — has the console error captured on this
-//        report reappeared on any report filed AFTER it?
+//        report reappeared on any report filed AFTER the fix went live?
 //   3. symptom recurrence — within this bug's duplicate cluster, how many
-//        members were filed after it, and how recently? (still arriving = not
-//        fixed; long quiet = likely fixed/worked-around).
+//        members were filed after the fix went live, and how recently? (still
+//        arriving = not fixed; quiet since the fix = likely fixed/worked-around).
+//
+// Both recurrence checks measure against the FIX BOUNDARY (when the fix
+// deployed), not each report's own filing date — see gatherEvidence's
+// `fixBoundaryIso`. Pre-fix reports are what the fix targets, never evidence it
+// failed.
 //
 // The `ReverifyProbe` registry is the extension point for per-surface
 // data-presence probes (v1.1): e.g. "does learner X now appear in Semester
@@ -192,8 +197,28 @@ export function errorSignature(consoleLogs: unknown): string | null {
  * Gather the evidence bundle. `admin` is a service-role client (used for the
  * recurrence queries, which read across reporters). The reachability probe uses
  * a fresh impersonated client scoped to the reporter.
+ *
+ * `fixBoundaryIso` is when the fix went live (the verify request time — a human
+ * only clicks Verify AFTER merge + deploy, so it is a guaranteed-post-deploy
+ * boundary). Recurrence is measured relative to it, NOT the report's own filing
+ * date: reports that predate the fix are the very reports the fix TARGETS — they
+ * are not evidence the fix failed. Without this, every member of a pre-fix
+ * duplicate wave counts as "still recurring", so a genuinely-fixed group's
+ * re-check reads "still broken". Omitted → falls back to the report date (the
+ * old behaviour) for callers that have no fix boundary.
  */
-export async function gatherEvidence(bug: ReverifyBug, admin: any): Promise<EvidenceBundle> {
+export async function gatherEvidence(
+  bug: ReverifyBug,
+  admin: any,
+  fixBoundaryIso?: string
+): Promise<EvidenceBundle> {
+  // The recurrence window starts at the later of (fix went live, report filed).
+  // For a post-deploy re-check this is the fix boundary; with no boundary it is
+  // the report date (unchanged v1 behaviour).
+  const since =
+    fixBoundaryIso && fixBoundaryIso > bug.created_at ? fixBoundaryIso : bug.created_at;
+  const sinceIsFixBoundary = since === fixBoundaryIso;
+
   // Fault-isolate each signal: a failure in one must not sink the others (the
   // cluster-recurrence signal is the most valuable and must survive on its own).
   const settle = async (p: Promise<any>, fallback: any) => {
@@ -201,8 +226,8 @@ export async function gatherEvidence(bug: ReverifyBug, admin: any): Promise<Evid
   };
   const [reach, errRec, symRec] = await Promise.all([
     settle(gatherReporterReachability(bug), { reachable: 'unknown', note: 'Reachability check errored.' }),
-    settle(gatherErrorRecurrence(bug, admin), 'Error-recurrence check unavailable.'),
-    settle(gatherSymptomRecurrence(bug, admin), 'Recurrence check unavailable.'),
+    settle(gatherErrorRecurrence(bug, admin, since, sinceIsFixBoundary), 'Error-recurrence check unavailable.'),
+    settle(gatherSymptomRecurrence(bug, admin, since, sinceIsFixBoundary), 'Recurrence check unavailable.'),
   ]);
 
   // v1: no registered data-presence probes → generic evidence only.
@@ -269,17 +294,24 @@ async function gatherReporterReachability(
   }
 }
 
-async function gatherErrorRecurrence(bug: ReverifyBug, admin: any): Promise<string> {
+async function gatherErrorRecurrence(
+  bug: ReverifyBug,
+  admin: any,
+  since: string,
+  sinceIsFixBoundary: boolean
+): Promise<string> {
   const sig = errorSignature(bug.console_logs);
   if (!sig) return 'This report captured no console error signature to look for.';
   // console_logs is jsonb (no implicit text cast for ILIKE), so fetch a bounded
   // window of newer same-module reports and scan their logs in JS for the
-  // signature. Same module keeps the window small and relevant.
+  // signature. Same module keeps the window small and relevant. `since` is the
+  // fix boundary on a post-deploy re-check — only errors AFTER the fix count.
+  const window = sinceIsFixBoundary ? 'since the fix was deployed' : 'filed since this one';
   const { data, error } = await admin
     .from('bug_reports')
     .select('display_id, console_logs')
     .eq('module_name', bug.module_name)
-    .gt('created_at', bug.created_at)
+    .gt('created_at', since)
     .order('created_at', { ascending: false })
     .limit(80);
   if (error) return `Could not check error recurrence: ${String(error.message).slice(0, 80)}`;
@@ -289,14 +321,22 @@ async function gatherErrorRecurrence(bug: ReverifyBug, admin: any): Promise<stri
     catch { return false; }
   });
   if (hits.length === 0) {
-    return `The error signature ("${sig}") has NOT reappeared on any '${bug.module_name}' report filed since this one — a positive signal.`;
+    return `The error signature ("${sig}") has NOT reappeared on any '${bug.module_name}' report ${window} — a positive signal.`;
   }
-  return `The same error signature ("${sig}") reappeared on ${hits.length} newer report(s), e.g. ${hits[0].display_id} — the failure is still occurring.`;
+  return `The same error signature ("${sig}") reappeared on ${hits.length} report(s) ${window}, e.g. ${hits[0].display_id} — the failure is still occurring.`;
 }
 
-async function gatherSymptomRecurrence(bug: ReverifyBug, admin: any): Promise<string> {
+async function gatherSymptomRecurrence(
+  bug: ReverifyBug,
+  admin: any,
+  since: string,
+  sinceIsFixBoundary: boolean
+): Promise<string> {
   // Find this bug's duplicate cluster, then measure how many members were filed
-  // after it and how recently. This is the strongest "is it still happening" signal.
+  // AFTER the fix boundary (`since`) — NOT after this report. On a post-deploy
+  // re-check the pre-fix wave is what the fix targets; counting it as recurrence
+  // is the false-"still broken" bug. This is the strongest "is it STILL
+  // happening (now that the fix is live)" signal.
   const { data: cluster } = await admin
     .from('bug_clusters')
     .select('member_ids, member_count')
@@ -315,7 +355,7 @@ async function gatherSymptomRecurrence(bug: ReverifyBug, admin: any): Promise<st
     return `Cluster of ${cluster.member_count} similar reports found, but member dates were unreadable.`;
   }
 
-  const newer = members.filter((m: any) => m.created_at > bug.created_at);
+  const newer = members.filter((m: any) => m.created_at > since);
   const newestAfter = newer.reduce(
     (max: string | null, m: any) => (!max || m.created_at > max ? m.created_at : max),
     null as string | null
@@ -325,10 +365,13 @@ async function gatherSymptomRecurrence(bug: ReverifyBug, admin: any): Promise<st
   ).length;
 
   if (newer.length === 0) {
-    return `This is the newest report in its cluster of ${cluster.member_count}. No similar report has arrived since — a positive signal it may be resolved or worked around.`;
+    return sinceIsFixBoundary
+      ? `No new report has arrived in this cluster of ${cluster.member_count} since the fix was deployed — a positive signal the fix landed (the earlier reports are the ones it targeted). Reporter confirmation is still the ground truth.`
+      : `This is the newest report in its cluster of ${cluster.member_count}. No similar report has arrived since — a positive signal it may be resolved or worked around.`;
   }
   const days = Math.floor((Date.now() - new Date(newestAfter!).getTime()) / 86_400_000);
-  return `Cluster of ${cluster.member_count} similar reports. ${newer.length} were filed AFTER this one (${openNewer} still open); the most recent was ${days} day(s) ago. ${
+  const frame = sinceIsFixBoundary ? 'AFTER the fix deployed' : 'AFTER this one';
+  return `Cluster of ${cluster.member_count} similar reports. ${newer.length} were filed ${frame} (${openNewer} still open); the most recent was ${days} day(s) ago. ${
     days <= 3 ? 'Still actively recurring.' : 'Recurrence appears to have stopped.'
   }`;
 }

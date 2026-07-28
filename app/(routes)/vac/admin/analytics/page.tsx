@@ -297,7 +297,7 @@ function AnalyticsDashboardInner() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="case-tracks">CASE Tracks</TabsTrigger>
             <TabsTrigger value="programmes">Programmes</TabsTrigger>
