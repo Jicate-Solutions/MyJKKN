@@ -17,7 +17,7 @@
 
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertCircle, Check, ShieldAlert, X } from 'lucide-react';
+import { AlertCircle, Check, ShieldAlert, UserCheck, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { TableCell } from '@/components/ui/table';
@@ -37,6 +37,7 @@ import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
 import { formatDays } from '../_components/format';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
+import { useMyLeaveApprovalQueue } from '@/hooks/hr/use-leave-approval-flows';
 import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
@@ -76,10 +77,27 @@ export default function LeaveApprovalsPage() {
     () => (data?.data ?? []) as HRLeaveApplicationWithType[],
     [data]
   );
+  // "Waiting on me" comes from hr_leave_my_approval_queue(), which applies the
+  // same three tests as trg_hla_approver_gate — pinned to me, a role I hold, or
+  // a placeholder role. Deriving it here from approval_chain instead would need
+  // custom_roles, which staff cannot read, so a role-routed step would drop out
+  // of its own approver's queue.
+  const { data: mineIds } = useMyLeaveApprovalQueue(ctx.hrOrgId || undefined);
+  const [mineOnly, setMineOnly] = useState(false);
+
   const rows = useMemo(() => {
-    if (period.preset === 'all') return all;
-    return all.filter((a) => a.start_date <= period.to && a.end_date >= period.from);
-  }, [all, period]);
+    let list = all;
+    if (period.preset !== 'all') {
+      list = list.filter((a) => a.start_date <= period.to && a.end_date >= period.from);
+    }
+    if (mineOnly && mineIds) list = list.filter((a) => mineIds.has(a.id));
+    return list;
+  }, [all, period, mineOnly, mineIds]);
+
+  const mineCount = useMemo(
+    () => (mineIds ? all.filter((a) => mineIds.has(a.id)).length : 0),
+    [all, mineIds]
+  );
 
   const onApprove = async (id: string) => {
     setError(null);
@@ -145,6 +163,25 @@ export default function LeaveApprovalsPage() {
           onRefresh={() => refetch()}
           isRefreshing={isFetching}
         />
+
+        {/* Off by default. Until a leave type has a flow naming real approvers,
+            every step carries the seeded placeholder role and "waiting on me"
+            equals the whole queue — defaulting it on would look broken. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={mineOnly ? 'default' : 'outline'}
+            onClick={() => setMineOnly((v) => !v)}
+          >
+            <UserCheck className="mr-2 h-4 w-4" />
+            Waiting on me{mineIds ? ` (${mineCount})` : ''}
+          </Button>
+          {mineOnly && (
+            <span className="text-xs text-muted-foreground">
+              Showing only requests whose current step you can decide.
+            </span>
+          )}
+        </div>
 
         {error && (
           <Alert variant="destructive">

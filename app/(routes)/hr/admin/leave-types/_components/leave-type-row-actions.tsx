@@ -11,7 +11,7 @@
 // table's refresh token. This component owns only the menu and the confirm.
 
 import { useState } from 'react';
-import { MoreHorizontal, Pencil, Archive, Users, Eye } from 'lucide-react';
+import { MoreHorizontal, Pencil, Archive, Users, Eye, GitBranch } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -39,6 +39,8 @@ interface LeaveTypeRowActionsProps {
   onView: (t: HRLeaveType) => void;
   onAssign: (t: HRLeaveType) => void;
   onEdit: (t: HRLeaveType) => void;
+  /** Opens the approval-chain editor for this type. */
+  onApprovalFlow: (t: HRLeaveType) => void;
   onArchive: (t: HRLeaveType) => Promise<void> | void;
 }
 
@@ -47,6 +49,7 @@ export function LeaveTypeRowActions({
   onView,
   onAssign,
   onEdit,
+  onApprovalFlow,
   onArchive,
 }: LeaveTypeRowActionsProps) {
   const [showArchiveAlert, setShowArchiveAlert] = useState(false);
@@ -85,6 +88,10 @@ export function LeaveTypeRowActions({
           <DropdownMenuItem onClick={() => onAssign(leaveType)}>
             <Users className="mr-2 h-4 w-4" />
             Who gets this
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onApprovalFlow(leaveType)}>
+            <GitBranch className="mr-2 h-4 w-4" />
+            Who approves this
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onEdit(leaveType)}>
             <Pencil className="mr-2 h-4 w-4" />

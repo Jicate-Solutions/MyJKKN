@@ -20,6 +20,7 @@ import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import { useDeleteHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
 import { LeaveTypeFormDialog } from './_components/leave-type-form-dialog';
 import { AssignmentManagerDialog } from './_components/assignment-manager-dialog';
+import { LeaveApprovalFlowDialog } from './_components/leave-approval-flow-dialog';
 import {
   LeaveTypeFilters,
   DEFAULT_LEAVE_TYPE_FILTERS,
@@ -42,6 +43,10 @@ export default function HRLeaveTypesPage() {
   // visibility; the next open overwrites the row.
   const [detailFor, setDetailFor] = useState<HRLeaveType | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  // Same open/row split as the detail modal above, for the same reason: the
+  // dialog needs a row to render while its exit transition plays.
+  const [flowFor, setFlowFor] = useState<HRLeaveType | null>(null);
+  const [flowOpen, setFlowOpen] = useState(false);
 
   // Tells the DataTable to re-run fetchDataFn after a mutation. See the prop's
   // doc comment on LeaveTypesDataTable for why invalidateQueries is not enough.
@@ -80,6 +85,11 @@ export default function HRLeaveTypesPage() {
   const handleView = useCallback((t: HRLeaveType) => {
     setDetailFor(t);
     setDetailOpen(true);
+  }, []);
+
+  const handleApprovalFlow = useCallback((t: HRLeaveType) => {
+    setFlowFor(t);
+    setFlowOpen(true);
   }, []);
 
   const handleArchive = useCallback(
@@ -133,6 +143,7 @@ export default function HRLeaveTypesPage() {
               onView={handleView}
               onEdit={handleEdit}
               onAssign={handleAssign}
+              onApprovalFlow={handleApprovalFlow}
               onArchive={handleArchive}
               refreshToken={refreshToken}
             />
@@ -161,6 +172,12 @@ export default function HRLeaveTypesPage() {
           onOpenChange={(v) => { if (!v) setAssignFor(null); }}
           leaveType={assignFor}
           institutionId={institutionId}
+        />
+
+        <LeaveApprovalFlowDialog
+          leaveType={flowFor}
+          open={flowOpen}
+          onOpenChange={setFlowOpen}
         />
       </ContentLayout>
     </PermissionGuard>
