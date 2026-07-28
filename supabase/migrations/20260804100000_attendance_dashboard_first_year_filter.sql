@@ -178,7 +178,14 @@ BEGIN
 END;
 $function$;
 
--- Re-establish the grants the DROP removed (matches the pre-migration ACL).
+-- Lock down execution (defense-in-depth; the fn also guards auth.uid() internally).
+-- The DROP removed all ACLs, but a fresh CREATE re-grants EXECUTE to PUBLIC
+-- (Postgres default) AND to anon (Supabase's ALTER DEFAULT PRIVILEGES), so REVOKE
+-- both explicitly before granting only the intended roles — matches the
+-- pre-migration ACL (authenticated + service_role) and the mandatory anon-lock rule.
+REVOKE EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(
+  date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean
+) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_attendance_dashboard_section_stats(
   date, uuid, uuid, uuid, uuid, uuid, uuid, uuid, boolean
 ) TO authenticated, service_role;
