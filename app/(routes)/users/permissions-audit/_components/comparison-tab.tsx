@@ -397,11 +397,11 @@ export function ComparisonTab() {
                           className={`grid grid-cols-[1fr_80px_80px] gap-2 items-center px-3 py-2 rounded border text-xs ${STATUS_STYLES[data.status]}`}
                         >
                           {/* Permission label */}
-                          <div>
+                          <div className='min-w-0'>
                             <div className='text-foreground/80 font-medium leading-snug'>
                               {labelForPermission(permKey)}
                             </div>
-                            <div className='text-muted-foreground font-mono text-[10px] mt-0.5'>
+                            <div className='text-muted-foreground font-mono text-[10px] mt-0.5 break-all'>
                               {permKey}
                             </div>
                           </div>

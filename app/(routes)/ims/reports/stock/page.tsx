@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -65,13 +66,17 @@ const formatCurrency = (value: number) =>
 export default function StockReportPage() {
   return (
     <ImsPageGuard module="ims.reports" action="view">
-      <StockReportPageInner />
+      <Suspense fallback={null}>
+        <StockReportPageInner />
+      </Suspense>
     </ImsPageGuard>
   );
 }
 
+const STOCK_TABS = ['levels', 'expiring', 'valuation'] as const;
+
 function StockReportPageInner() {
-  const [activeTab, setActiveTab] = useState('levels');
+  const [activeTab, setActiveTab] = useTabParam('levels', STOCK_TABS);
   const [expiryDays, setExpiryDays] = useState(60);
 
   const { isLoading: permissionsLoading } = usePermissions();
@@ -189,7 +194,7 @@ function StockReportPageInner() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='levels'>Stock Levels</TabsTrigger>
             <TabsTrigger value='expiring'>Expiring Items</TabsTrigger>
             <TabsTrigger value='valuation'>Valuation</TabsTrigger>
@@ -259,9 +264,9 @@ function StockReportPageInner() {
           <TabsContent value='expiring'>
             <Card>
               <CardHeader>
-                <div className='flex items-center justify-between'>
+                <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                   <CardTitle>Expiring Items</CardTitle>
-                  <div className='flex gap-2'>
+                  <div className='flex flex-wrap gap-2'>
                     {[30, 60, 90].map((days) => (
                       <Button
                         key={days}

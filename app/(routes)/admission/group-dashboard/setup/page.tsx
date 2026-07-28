@@ -15,8 +15,9 @@
  */
 
 import { Save, Info, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -42,12 +43,14 @@ export const navMeta = {
   invokedFrom: '/admission/group-dashboard',
 } as const;
 
-export default function CycleSetupPage() {
+const SETUP_TABS = ['revenue', 'cost'] as const;
+
+function CycleSetupPageInner() {
   const { data: rows, isLoading, error } = useArpsCycleSetup();
-  const [tab, setTab] = useState<'revenue' | 'cost'>('revenue');
+  const [tab, setTab] = useTabParam('revenue', SETUP_TABS);
 
   return (
-    <PermissionGuard permission="admission.group_dashboard.view">
+    <PermissionGuard module="admission.group_dashboard" action="view">
       <ContentLayout title="ARPS Cycle Setup">
         <Breadcrumb>
           <BreadcrumbList>
@@ -130,6 +133,14 @@ export default function CycleSetupPage() {
         </div>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+export default function CycleSetupPage() {
+  return (
+    <Suspense fallback={null}>
+      <CycleSetupPageInner />
+    </Suspense>
   );
 }
 

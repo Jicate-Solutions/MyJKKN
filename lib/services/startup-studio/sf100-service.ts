@@ -586,7 +586,10 @@ export class SF100Service extends BaseService {
     }
     if (status === 'removed') {
       updatePayload.removed_at = now;
-      updatePayload.removed_by = updatedBy || 'system';
+      // Same uuid bug as the stall path: removed_by is uuid REFERENCES profiles(id),
+      // so the 'system' string fallback made every actor-less removal throw. NULL is
+      // the correct "no profile behind this action" value.
+      updatePayload.removed_by = updatedBy || null;
     }
 
     const { error } = await this.supabase
@@ -1400,7 +1403,7 @@ export class SF100Service extends BaseService {
     const rosterIds = await this.resolveRosterEnrollmentIds(programId);
     let stallQuery = this.supabase
       .from('sf100_enrollments')
-      .select('id, status, last_check_in_at, enrolled_at, registration:event_registrations(team_name, owner_id)')
+      .select('id, status, last_check_in_at, enrolled_at, stall_grace_until, registration:event_registrations(team_name, owner_id)')
       .in('status', ['active', 'warning', 'probation']);
     stallQuery = rosterIds ? stallQuery.in('id', rosterIds) : stallQuery.eq('program_id', programId);
     const { data: enrollments, error } = await stallQuery;
@@ -1417,6 +1420,17 @@ export class SF100Service extends BaseService {
     };
 
     for (const enrollment of enrollments || []) {
+      // Admin grace window (spec §11C extension / §14D pause): while it is open this
+      // team is exempt from escalation. Used after a period when the team COULD NOT
+      // check in (e.g. the write-path outage fixed by PR #2030) so a platform fault
+      // is never charged to the team. Weekly reminders deliberately still fire.
+      if (
+        enrollment.stall_grace_until &&
+        new Date(enrollment.stall_grace_until).getTime() > now.getTime()
+      ) {
+        continue;
+      }
+
       const lastActivity = enrollment.last_check_in_at || enrollment.enrolled_at;
       const daysSinceCheckIn = Math.floor(
         (now.getTime() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
@@ -1454,7 +1468,12 @@ export class SF100Service extends BaseService {
           updatePayload.probation_sent_at = nowIso;
         } else if (newStatus === 'removed') {
           updatePayload.removed_at = nowIso;
-          updatePayload.removed_by = 'system';
+          // removed_by is uuid REFERENCES profiles(id) — the literal string 'system'
+          // is invalid uuid syntax, so the UPDATE threw and the row was skipped: teams
+          // silently stuck on probation forever, never removed, no stall_removal
+          // notification. A system action has no profile, so leave it NULL; the actor
+          // is recorded in status_reason below.
+          updatePayload.removed_by = null;
         }
 
         const { error: updateError } = await this.supabase
@@ -2604,9 +2623,12 @@ export class SF100Service extends BaseService {
     const { data: notification, error: insertErr } = await this.supabase
       .from('notifications')
       .insert({
-        type: 'startup_studio',
         title: params.title,
-        message: params.message,
+        body: params.message,
+        category: 'startup_studio',
+        kind: 'work_item',
+        created_by: params.userIds[0],
+        targeting: { type: 'user', user_ids: params.userIds },
         metadata: {
           source: 'startup_studio_notify',
           event_type: params.eventType,

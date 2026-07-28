@@ -411,37 +411,75 @@ export class HRMemoService {
     reason: string,
   ): Promise<boolean> {
     try {
-      // Find staff auth_user_id + supervisor
-      const { data: staffRow } = await this.supabase
+      // SCHEMA FIX 2026-07-21: this selected `auth_user_id, supervisor_id`.
+      // NEITHER column exists on `staff` — the auth link is `profile_id`, and
+      // there is no supervisor column at all. Every call raised 42703, the
+      // error was discarded, staffRow came back null and the method returned
+      // false, so HR memo notifications have never been delivered to anyone.
+      const { data: staffRow, error: staffError } = await this.supabase
         .from('staff')
-        .select('auth_user_id, supervisor_id, first_name, last_name')
+        .select('profile_id, first_name, last_name')
         .eq('id', staffId)
         .maybeSingle();
-      if (!staffRow?.auth_user_id) return false;
+      if (staffError) {
+        console.error('[memo-service] staff lookup failed', staffError);
+        return false;
+      }
+      if (!staffRow?.profile_id) return false;
 
-      const recipients: string[] = [staffRow.auth_user_id as string];
-      if (staffRow.supervisor_id) {
+      const recipients: string[] = [staffRow.profile_id as string];
+
+      // Supervisor copy. The reporting line lives on
+      // hr_staff_details.reports_to_staff_id, not on `staff`. It is populated
+      // for 0 of 543 rows today, so this branch is a no-op until the org chart
+      // is filled in — but it now points at the right column, so it starts
+      // working the moment that happens instead of silently 42703-ing.
+      const { data: detail } = await this.supabase
+        .from('hr_staff_details')
+        .select('reports_to_staff_id')
+        .eq('staff_id', staffId)
+        .maybeSingle();
+
+      if (detail?.reports_to_staff_id) {
         const { data: sup } = await this.supabase
           .from('staff')
-          .select('auth_user_id')
-          .eq('id', staffRow.supervisor_id)
+          .select('profile_id')
+          .eq('id', detail.reports_to_staff_id)
           .maybeSingle();
-        if (sup?.auth_user_id) recipients.push(sup.auth_user_id as string);
+        if (sup?.profile_id) recipients.push(sup.profile_id as string);
       }
 
       const title = 'HR memo issued';
       const body = reason.length > 240 ? reason.slice(0, 237) + '...' : reason;
 
-      // Insert notification rows — schema-agnostic with try/catch
-      await this.supabase.from('notifications').insert(
-        recipients.map((rid) => ({
-          recipient_id: rid,
+      // Write ONE notifications row (recipient_id does not exist on
+      // notifications), then link each recipient via user_notifications.
+      // This is an auto-issued cron path with no acting user, so created_by
+      // falls back to the first recipient (a valid profiles.id).
+      const { data: notifRow, error: notifErr } = await this.supabase
+        .from('notifications')
+        .insert({
           title,
           body,
           category: 'hr_memo',
+          created_by: recipients[0],
+          targeting: { type: 'user', user_ids: recipients },
           metadata: { staff_id: staffId },
-        })),
+        })
+        .select('id')
+        .single();
+      if (notifErr || !notifRow) {
+        console.error('[memo-service] notifications insert failed', notifErr);
+        return false;
+      }
+
+      const { error: linkErr } = await this.supabase.from('user_notifications').insert(
+        recipients.map((rid) => ({ notification_id: notifRow.id, user_id: rid })),
       );
+      if (linkErr) {
+        console.error('[memo-service] user_notifications insert failed', linkErr);
+        return false;
+      }
 
       return true;
     } catch {

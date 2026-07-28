@@ -1290,7 +1290,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         {/* Form Actions — Task 23 (P4.23). Cancel / Save Draft / Save & Publish.
             Save Draft skips the extended-schema check; Save & Publish runs it.
             Save & Publish only appears when has_extended_profile is on. */}
-        <div className='flex items-center justify-end gap-2 pt-4 border-t'>
+        <div className='flex flex-wrap items-center justify-end gap-2 pt-4 border-t'>
           <Button
             type='button'
             variant='ghost'

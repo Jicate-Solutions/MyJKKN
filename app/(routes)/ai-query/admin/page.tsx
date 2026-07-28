@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Card, CardContent } from '@/components/ui/card';
@@ -33,6 +33,9 @@ import {
   ToolCategory,
   ActionTier,
 } from '@/lib/config/ai-query-tools-config';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const AI_QUERY_ADMIN_TABS = ['categories', 'all', 'capability-gaps'] as const;
 
 function AccessDenied() {
   return (
@@ -69,7 +72,7 @@ function AIQueryToolsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedTier, setSelectedTier] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'categories' | 'all' | 'capability-gaps'>('categories');
+  const [viewMode, setViewMode] = useTabParam('categories', AI_QUERY_ADMIN_TABS);
 
   // Filter tools based on search and filters
   const filteredTools = AI_QUERY_TOOLS_REGISTRY.filter((tool) => {
@@ -225,7 +228,7 @@ function AIQueryToolsContent() {
 
         {/* View Mode Tabs */}
         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'categories' | 'all' | 'capability-gaps')}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="categories">By Category</TabsTrigger>
             <TabsTrigger value="all">All Tools</TabsTrigger>
             <TabsTrigger value="capability-gaps">Capability Gaps</TabsTrigger>
@@ -280,7 +283,10 @@ export default function AIQueryToolsPage() {
       fallback={<AccessDenied />}
       loading={<LoadingState />}
     >
-      <AIQueryToolsContent />
+      {/* Suspense boundary required: useTabParam() reads useSearchParams(). */}
+      <Suspense fallback={null}>
+        <AIQueryToolsContent />
+      </Suspense>
     </SuperAdminOnly>
   );
 }

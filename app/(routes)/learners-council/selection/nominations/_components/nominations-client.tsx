@@ -235,8 +235,8 @@ export function NominationsClient({
   return (
     <div className="space-y-6">
       {/* Back link + header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <Link
             href="/learners-council/selection"
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-2"
@@ -262,7 +262,7 @@ export function NominationsClient({
             </p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           {isNominationsOpen && (
             <Dialog open={nomOpen} onOpenChange={setNomOpen}>
               <DialogTrigger asChild>

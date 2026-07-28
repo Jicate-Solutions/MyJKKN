@@ -3,7 +3,8 @@
 // Admin page for managing referral reward configurations and viewing rewards
 
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -125,14 +126,16 @@ const rewardConfigSchema = z.object({
 
 type RewardConfigFormData = z.infer<typeof rewardConfigSchema>;
 
-export default function RewardsManagementPage() {
+const REWARDS_TABS = ['configs', 'rewards'] as const;
+
+function RewardsManagementPageInner() {
   const { profile, isLoading: isAuthLoading } = useAuth();
   const { institutions } = useUserInstitutionAccess();
   const institutionId = institutions[0]?.institution_id;
   const userId = profile?.id;
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'configs' | 'rewards'>('configs');
+  const [activeTab, setActiveTab] = useTabParam('configs', REWARDS_TABS);
 
   // Reward filters
   const [rewardSearchTerm, setRewardSearchTerm] = useState('');
@@ -435,7 +438,7 @@ export default function RewardsManagementPage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'configs' | 'rewards')}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="configs" className="gap-2">
               <Settings className="h-4 w-4" />
               Reward Configurations
@@ -1108,5 +1111,14 @@ export default function RewardsManagementPage() {
       </Dialog>
     </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+export default function RewardsManagementPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <RewardsManagementPageInner />
+    </Suspense>
   );
 }

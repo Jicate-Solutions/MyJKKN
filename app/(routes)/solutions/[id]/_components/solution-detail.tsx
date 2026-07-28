@@ -72,16 +72,49 @@ import {
   useDeliverablesByOrder,
   useCreateDeliverable,
 } from '@/hooks/solutions/use-content';
-import type { SolutionType, SolutionStatus, CommunicationType } from '@/lib/services/solutions/types';
+import { useTabParam } from '@/hooks/use-tab-param';
+import type {
+  SolutionType,
+  SolutionStatus,
+  CommunicationType,
+  Solution,
+  SolutionPhase,
+  TrainingProgram,
+  TrainingSession,
+  ContentOrder,
+  ContentDeliverable,
+} from '@/lib/services/solutions/types';
 
 interface SolutionDetailProps {
   solutionId: string;
 }
 
+// URL-synced tab order. Some tabs are solution-type-conditional, but they all
+// belong to the one main tab group, so every possible value is listed here so
+// the ?tab= param stays valid whichever solution type is being viewed.
+const SOLUTION_DETAIL_TABS = [
+  'overview',
+  'phases',
+  'sessions',
+  'deliverables',
+  'payments',
+  'communications',
+] as const;
+
+// apiClient unwraps list endpoints to the API's paginated envelope
+// ({ data: T[], metadata }) at runtime, although a few of these hooks are typed
+// as bare arrays. This shape lets the component's existing dual-shape reads
+// (`x?.data || x || []` guarded by Array.isArray) type-check without altering
+// any runtime behavior.
+type ListResult<T> = (T[] & { data?: T[] }) | undefined;
+
 const typeConfig: Record<SolutionType, { icon: React.ElementType; color: string; label: string }> = {
   software: { icon: Hammer, color: 'text-blue-600', label: 'Software Solution' },
   training: { icon: BookOpen, color: 'text-green-600', label: 'Training Program' },
   content: { icon: Video, color: 'text-purple-600', label: 'Content Production' },
+  consulting: { icon: ClipboardList, color: 'text-orange-600', label: 'Consulting' },
+  research: { icon: ScrollText, color: 'text-indigo-600', label: 'Research' },
+  audit: { icon: FileText, color: 'text-amber-600', label: 'Audit' },
 };
 
 const statusConfig: Record<SolutionStatus, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
@@ -128,21 +161,40 @@ function formatCurrency(amount: number | null | undefined): string {
 
 export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useTabParam('overview', SOLUTION_DETAIL_TABS);
 
-  // Real data hooks
-  const { data: solution, isLoading, error } = useSolution(solutionId);
-  const { data: phasesData } = useSolutionPhases(solutionId);
+  // Real data hooks. These solutions hooks resolve to `unknown` or (for a few) a
+  // bare-array generic, but at runtime apiClient unwraps list endpoints to the
+  // API's paginated envelope ({ data: T[], metadata }). Each result is mapped to
+  // the shape the component reads; the source types live in the shared hooks
+  // (outside this file's scope), so a local cast is the correct fix here.
+  const { data: solutionRaw, isLoading, error } = useSolution(solutionId);
+  const solution = solutionRaw as Solution | undefined;
+
+  const { data: phasesRaw } = useSolutionPhases(solutionId);
+  const phasesData = phasesRaw as ListResult<SolutionPhase>;
+
   const { data: payments } = usePaymentsBySolution(solutionId);
   const { data: communications } = useSolutionCommunications(solutionId);
-  const { data: mouData } = useMouBySolution(solutionId);
+
+  // Only `.status` (plus truthiness) is read from the MoU record below, and the
+  // existing UI compares against a 'signed' status that is not part of the
+  // MouStatus union — so status is kept as a plain string to preserve the
+  // current (unchanged) render.
+  const { data: mouRaw } = useMouBySolution(solutionId);
+  const mouData = mouRaw as { status?: string } | undefined;
 
   // Training hooks (only fetch when solution is training type)
-  const { data: trainingProgram } = useTrainingProgramBySolution(solutionId);
-  const { data: sessionsData } = useSessionsByProgram(trainingProgram?.id || '');
+  const { data: trainingProgramRaw } = useTrainingProgramBySolution(solutionId);
+  const trainingProgram = trainingProgramRaw as unknown as TrainingProgram | undefined;
+  const { data: sessionsRaw } = useSessionsByProgram(trainingProgram?.id || '');
+  const sessionsData = sessionsRaw as ListResult<TrainingSession>;
 
   // Content hooks (only fetch when solution is content type)
-  const { data: contentOrder } = useContentOrderBySolution(solutionId);
-  const { data: deliverablesData } = useDeliverablesByOrder(contentOrder?.id || '');
+  const { data: contentOrderRaw } = useContentOrderBySolution(solutionId);
+  const contentOrder = contentOrderRaw as ContentOrder | undefined;
+  const { data: deliverablesRaw } = useDeliverablesByOrder(contentOrder?.id || '');
+  const deliverablesData = deliverablesRaw as ListResult<ContentDeliverable>;
 
   // Mutation hooks
   const updateSolution = useUpdateSolution();
@@ -352,7 +404,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/solutions/list">
@@ -370,7 +422,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <Select value={solutionStatus} onValueChange={(v) => handleStatusChange(v as SolutionStatus)}>
             <SelectTrigger className="w-[140px]">
               <SelectValue />
@@ -398,8 +450,8 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
       </div>
 
       {/* Content Tabs */}
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {solutionType === 'software' && (
             <TabsTrigger value="phases">Phases ({phases.length})</TabsTrigger>

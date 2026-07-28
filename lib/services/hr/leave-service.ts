@@ -53,9 +53,22 @@ export class LeaveService {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // Embed the type so lists can show a name and be split across the Time Off
+    // tabs by request_category. LEFT join, not !inner: an inner join would drop
+    // any row whose type the caller cannot read under RLS, silently hiding
+    // their own applications rather than showing them with a blank label.
     let q = supabase
       .from('hr_leave_applications')
-      .select('*', { count: 'exact' })
+      .select(
+        `*,
+         hr_leave_types:leave_type_id (
+           leave_type_name,
+           leave_type_code,
+           request_category,
+           color_code
+         )`,
+        { count: 'exact' }
+      )
       .order('created_at', { ascending: false })
       .range(from, to);
 
@@ -67,6 +80,29 @@ export class LeaveService {
     }
     if (filters.start_from) q = q.gte('start_date', filters.start_from);
     if (filters.start_to) q = q.lte('start_date', filters.start_to);
+
+    // Approver inbox scoping. This filter was declared on the type and sent by
+    // useApprovalInbox but NEVER applied here, so /hr/leave/approve listed every
+    // pending application in the organisation with live Approve/Reject buttons
+    // rather than the caller's own queue.
+    //
+    // JSONB containment matches an application whose approval_chain names this
+    // approver in ANY step. It deliberately does not pin to current_step:
+    // PostgREST cannot index into a JSONB array by a sibling column's value, and
+    // an approver wants their whole queue anyway, not just steps that happen to
+    // be current right now.
+    //
+    // CAVEAT — until Phase 2 seeds flows with pinned approver_ids, every chain
+    // carries approver_user_id = null, so this filter matches NOTHING. That is
+    // why it is applied only when the caller explicitly asks for it: an inbox
+    // that silently returns empty is the exact failure mode this module already
+    // suffered from. Authorisation does NOT rest on this filter — RLS
+    // (hla_select) and assertCanDecide() are the enforcement points.
+    if (filters.pending_approver_id) {
+      q = q.contains('approval_chain', [
+        { approver_user_id: filters.pending_approver_id },
+      ]);
+    }
 
     const { data, count, error } = await q;
     if (error) throw error;
@@ -104,37 +140,72 @@ export class LeaveService {
     leaveTypeId: string,
     departmentId: string | null
   ): Promise<LeaveApprovalStep[]> {
-    // Most-specific wins (decision 16): prefer department-scoped over institution-scoped
+    // SCHEMA NOTE (fixed 2026-07-21). This previously queried
+    // hr_approval_flows for leave_type_id / scope_level / chain_order /
+    // approver_role / approver_scope. NONE of those five columns exist on that
+    // table — they belong to leave_approval_chains, which serves the
+    // institution holiday calendar. Almost certainly a copy-paste from the
+    // wrong engine. Every call would have raised PostgREST 42703 before
+    // reaching the insert, so this was a second hard block on leave submission
+    // sitting behind the RLS one.
+    //
+    // The real shape is one flow row per (organization, flow_for) carrying a
+    // JSONB `steps` array. `conditions` is a free-form JSONB matcher — the
+    // recruitment flows key it on role_category; leave keys it on
+    // leave_type_id, or leaves it empty for a catch-all.
     const { data: flows, error } = await supabase
       .from('hr_approval_flows')
-      .select('*')
+      .select('flow_name, conditions, steps, escalate_after_hours')
       .eq('hr_organization_id', hrOrgId)
-      .or(`leave_type_id.eq.${leaveTypeId},leave_type_id.is.null`)
-      .is('valid_until', null)
-      .order('scope_level', { ascending: false }) // 'department' > 'institution'
-      .order('chain_order', { ascending: true });
+      .eq('flow_for', 'leave_approval')
+      .eq('is_active', true)
+      .is('valid_until', null);
 
     if (error) throw error;
 
-    // Group flows by scope_level + pick the most-specific group for this employee
-    const departmentFlows = (flows ?? []).filter(
-      (f) => f.scope_level === 'department' && f.approver_scope === departmentId
-    );
-    const institutionFlows = (flows ?? []).filter((f) => f.scope_level === 'institution');
-    const chosen = departmentFlows.length > 0 ? departmentFlows : institutionFlows;
+    type FlowRow = {
+      flow_name: string | null;
+      conditions: Record<string, unknown> | null;
+      steps: Array<Record<string, unknown>> | null;
+      escalate_after_hours: number | null;
+    };
+    const candidates = (flows ?? []) as FlowRow[];
 
-    if (chosen.length === 0) {
+    // Most-specific wins: a flow naming this leave type beats the catch-all.
+    // departmentId is accepted for signature stability and future
+    // department-scoped flows; no seeded flow keys on it today.
+    const chosen =
+      candidates.find((f) => f.conditions?.leave_type_id === leaveTypeId) ??
+      candidates.find((f) => !f.conditions?.leave_type_id);
+
+    if (!chosen) {
       throw new Error(
-        'No approval flow configured for this leave type + organization. HR must configure at /hr/policies/hr_approval_flows first.'
+        'No leave approval flow is configured for your organization. Ask HR to add one before applying.'
       );
     }
 
-    return chosen.map((f) => ({
-      step_order: f.chain_order ?? 1,
-      approver_role: f.approver_role,
-      approver_user_id: null, // resolved at approve-time by role lookup
+    const steps = (chosen.steps ?? []).slice().sort(
+      (a, b) => Number(a.chain_order ?? 0) - Number(b.chain_order ?? 0)
+    );
+
+    if (steps.length === 0) {
+      throw new Error('The configured leave approval flow has no steps.');
+    }
+
+    // approver_user_id is carried through when the flow pins a specific person.
+    // Seeded flows leave it null, which assertCanDecide() treats as "any
+    // permitted approver" rather than a hard block — authorization rests on
+    // user_has_permission('hr.leave.approve') in RLS plus the self-approval
+    // check, per the permission-based routing decision (no org chart exists:
+    // reports_to_staff_id is 0/543 and head_of_department_id is 0/79).
+    return steps.map((s) => ({
+      step_order: Number(s.chain_order ?? 1),
+      approver_role: String(s.approver_role ?? 'hr_approver'),
+      approver_user_id: (s.approver_user_id as string | null) ?? null,
       status: 'pending' as const,
-      escalate_after_hours: f.escalate_after_hours ?? 48,
+      escalate_after_hours: Number(
+        s.escalate_after_hours ?? chosen.escalate_after_hours ?? 48
+      ),
     }));
   }
 
@@ -148,23 +219,27 @@ export class LeaveService {
       department_id?: string | null;
     }
   ) {
-    // 1. Fetch leave_type (unified catalog; scope='staff' for HR leave)
+    // 1. Fetch leave type from the HR catalog. The table is staff-only by
+    //    construction, so the old .eq('scope','staff') filter is gone.
     const { data: leaveType, error: ltErr } = await supabase
-      .from('leave_types')
+      .from('hr_leave_types')
       .select('*')
       .eq('id', payload.leave_type_id)
-      .eq('scope', 'staff')
       .maybeSingle();
     if (ltErr) throw ltErr;
     if (!leaveType) throw new Error('Leave type not found');
 
     // 2. Blackout check (decision 12)
-    const { data: blackouts } = await supabase
+    // `error` must be destructured and thrown. Discarding it makes a failed
+    // query indistinguishable from "no blackouts configured", which silently
+    // PERMITS leave inside a blackout window — a fail-open check.
+    const { data: blackouts, error: blackoutError } = await supabase
       .from('hr_leave_blackouts')
       .select('*')
       .eq('hr_organization_id', payload.hr_organization_id)
       .lte('start_date', payload.end_date)
       .gte('end_date', payload.start_date);
+    if (blackoutError) throw blackoutError;
 
     const blocked = (blackouts ?? []).find(
       (b) => b.leave_type_ids === null || b.leave_type_ids.includes(payload.leave_type_id)
@@ -212,19 +287,36 @@ export class LeaveService {
       payload.duration_type === 'first_half' || payload.duration_type === 'second_half' ? 0.5 :
       durationDays;
 
-    const { data: balance } = await supabase
+    // Two bugs previously stacked here and cancelled the over-draw check out
+    // entirely, silently:
+    //   1. `.eq('academic_year_id', payload.academic_year_id ?? '')` — the ''
+    //      is sent as a uuid and Postgres raises 22P02.
+    //   2. `error` was not destructured, so that 22P02 was swallowed, `balance`
+    //      came back undefined, and `if (balance)` skipped the whole check.
+    // Net effect once the module became reachable: employees could exceed
+    // their entitlement with no error at all. Null academic year now means
+    // `IS NULL`, not '', and the error is surfaced.
+    let balanceQuery = supabase
       .from('hr_leave_balances')
       .select('*')
       .eq('employee_id', payload.employee_id)
-      .eq('leave_type_id', payload.leave_type_id)
-      .eq('academic_year_id', payload.academic_year_id ?? '')
-      .maybeSingle();
+      .eq('leave_type_id', payload.leave_type_id);
+
+    balanceQuery = payload.academic_year_id
+      ? balanceQuery.eq('academic_year_id', payload.academic_year_id)
+      : balanceQuery.is('academic_year_id', null);
+
+    const { data: balance, error: balanceError } = await balanceQuery.maybeSingle();
+    if (balanceError) throw balanceError;
 
     if (balance) {
       const available = (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
       if (estimatedDays > available) {
+        // hr_leave_types has no `name` column — it is `leave_type_name`.
+        // Reading `.name` here previously made this message read
+        // "you have 3.0 undefined available".
         throw new Error(
-          `Insufficient balance. You have ${available.toFixed(1)} ${leaveType.name} available; requested ${estimatedDays}.`
+          `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
         );
       }
     }
@@ -260,6 +352,46 @@ export class LeaveService {
 
   // ----- Approve / Reject -----
 
+  /**
+   * Guard every approve/reject decision.
+   *
+   * Until 2026-07-21 neither method checked WHO was calling: the API route
+   * verified only that a session existed and passed `user.id` straight through
+   * as the approver. Combined with an RLS policy that let an applicant UPDATE
+   * their own row, any employee could POST to
+   * /api/hr/leave/applications/{own-id}/approve and approve their own leave.
+   * It was unreachable only because the tenancy gate locked everyone out — so
+   * the Phase 0b retrofit would have opened it.
+   *
+   * RLS now also refuses to let a non-approver land a row in approved/rejected
+   * (hla_update's WITH CHECK). This service check is the other half, and it
+   * catches the case RLS cannot: an HR manager who legitimately holds
+   * hr.leave.approve deciding on their OWN application.
+   */
+  private static async assertCanDecide(
+    supabase: SupabaseClient,
+    app: HRLeaveApplication,
+    approverId: string
+  ) {
+    const { data: myStaff, error } = await supabase
+      .from('staff')
+      .select('id')
+      .eq('profile_id', approverId);
+    if (error) throw error;
+
+    if ((myStaff ?? []).some((s) => s.id === app.employee_id)) {
+      throw new Error('You cannot decide on your own leave application.');
+    }
+
+    // Once flows pin concrete approvers, honour the assignment. Chains built
+    // before that carry approver_user_id = null, so this is a no-op for them
+    // rather than a hard block.
+    const step = app.approval_chain?.[app.current_step];
+    if (step?.approver_user_id && step.approver_user_id !== approverId) {
+      throw new Error('This approval step is assigned to a different approver.');
+    }
+  }
+
   static async approveApplication(
     supabase: SupabaseClient,
     applicationId: string,
@@ -271,6 +403,7 @@ export class LeaveService {
     if (!['pending', 'escalated'].includes(app.status)) {
       throw new Error(`Cannot approve application in status ${app.status}`);
     }
+    await this.assertCanDecide(supabase, app, approverId);
 
     const chain = [...app.approval_chain];
     const step = chain[app.current_step];
@@ -316,6 +449,7 @@ export class LeaveService {
     if (!['pending', 'escalated'].includes(app.status)) {
       throw new Error(`Cannot reject application in status ${app.status}`);
     }
+    await this.assertCanDecide(supabase, app, approverId);
 
     const chain = [...app.approval_chain];
     const step = chain[app.current_step];
@@ -435,15 +569,39 @@ export class LeaveService {
     return (data ?? []) as HRLeaveApplicationComment[];
   }
 
+  /**
+   * COLUMN DRIFT (fixed 2026-07-21). This inserted
+   * `{ application_id, author_id, body }`. The table has neither `author_id`
+   * nor `body` — the real columns are `commenter_id` and `comment` — and it
+   * additionally omitted the NOT NULL `hr_organization_id`. Every POST failed
+   * with 42703/PGRST204. It was never caught because no application had ever
+   * been created, so nobody could reach a detail page to comment on.
+   *
+   * hr_organization_id is read off the parent application rather than passed
+   * in: it must match the application's org for RLS to accept the row, and
+   * deriving it here removes the chance of a caller supplying a mismatched one.
+   */
   static async addComment(
     supabase: SupabaseClient,
     applicationId: string,
     authorId: string,
     body: string
   ) {
+    const { data: parent, error: parentError } = await supabase
+      .from('hr_leave_applications')
+      .select('hr_organization_id')
+      .eq('id', applicationId)
+      .single();
+    if (parentError) throw parentError;
+
     const { data, error } = await supabase
       .from('hr_leave_application_comments')
-      .insert({ application_id: applicationId, author_id: authorId, body })
+      .insert({
+        application_id: applicationId,
+        hr_organization_id: parent.hr_organization_id,
+        commenter_id: authorId,
+        comment: body,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -461,12 +619,16 @@ export class LeaveService {
       .from('hr_leave_balances')
       .select(`
         *,
-        leave_types:leave_type_id (
+        hr_leave_types:leave_type_id (
           leave_type_name,
           leave_type_code,
           duration_type,
           allow_half_day,
-          allow_hourly
+          allow_hourly,
+          request_category,
+          max_continuous_days,
+          min_advance_notice_days,
+          requires_documents
         )
       `)
       .eq('employee_id', employeeId)
@@ -474,13 +636,17 @@ export class LeaveService {
     if (error) throw error;
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      const lt = row.leave_types as {
+      const lt = row.hr_leave_types as {
         leave_type_name: string;
         leave_type_code: string;
         duration_type: string;
         allow_half_day: boolean;
         allow_hourly: boolean;
-      };
+        request_category: string;
+        max_continuous_days: number | null;
+        min_advance_notice_days: number;
+        requires_documents: boolean;
+      } | null;
       return {
         employee_id: row.employee_id as string,
         leave_type_id: row.leave_type_id as string,
@@ -491,11 +657,19 @@ export class LeaveService {
         carried_forward: Number(row.carried_forward),
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
+        // A null embed here means the caller cannot read hr_leave_types.
+        // That used to surface as a blank name in the UI rather than an
+        // error — see 20260722120000_fix_hr_leave_types_select_transitive_rls.
         leave_type_name: lt?.leave_type_name ?? '',
         leave_type_code: lt?.leave_type_code ?? '',
         duration_type: (lt?.duration_type ?? 'full') as HRLeaveBalanceWithType['duration_type'],
         allow_half_day: lt?.allow_half_day ?? false,
         allow_hourly: lt?.allow_hourly ?? false,
+        request_category:
+          (lt?.request_category ?? 'leave') as HRLeaveBalanceWithType['request_category'],
+        max_continuous_days: lt?.max_continuous_days ?? null,
+        min_advance_notice_days: lt?.min_advance_notice_days ?? 0,
+        requires_documents: lt?.requires_documents ?? false,
       };
     });
   }

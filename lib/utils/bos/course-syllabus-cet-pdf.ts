@@ -300,6 +300,56 @@ export function renderEngineeringSyllabusPDF(
 		y += LH + 3
 	}
 
+	// ── LIST OF EXPERIMENTS (practical/lab papers) ────────────────────────────
+	// Practical papers store a flat numbered topics[] instead of units[] (the
+	// course_content dual shape — see types/bos.ts). This renderer used to read
+	// only units[], silently dropping every lab paper's body. Rendered in the
+	// Anna University lab-syllabus style: bold heading, numbered experiment
+	// lines, then a right-aligned TOTAL periods line. Theory prints first, so a
+	// combined "Theory + Practical" course reads units → experiments.
+	if (data.practical_topics && data.practical_topics.length > 0) {
+		// Default ON when the flag is absent, so existing syllabi stay numbered.
+		const showNumbers = data.number_practical_topics !== false
+		ensure(12)
+		doc.setFont(FONT, 'bold'); doc.setFontSize(FS)
+		doc.text('LIST OF EXPERIMENTS :', LEFT, y, { baseline: 'top' }); y += 6
+		doc.setFont(FONT, 'normal')
+		for (const t of data.practical_topics) {
+			const title = sanitize(t.title || '').replace(/[:\s]+$/, '')
+			const subs = t.subtopics ?? []
+			if (!title && subs.length === 0) continue
+			if (subs.length > 0) {
+				// Heading topic (e.g. "MAJOR PRACTICALS") with numbered children
+				// rendered "1.1, 1.2, …" under the bold parent.
+				doc.setFont(FONT, 'bold')
+				paragraph(`${title}:`, LEFT, CONTENT_W)
+				doc.setFont(FONT, 'normal')
+				for (const st of subs) {
+					const line = showNumbers
+						? `${t.number}.${st.number} ${sanitize(st.title || '')}`
+						: sanitize(st.title || '')
+					paragraph(line, LEFT + 2, CONTENT_W - 8, { hangIndent: 6 })
+				}
+			} else {
+				const line = showNumbers ? `${t.number}. ${title}` : title
+				paragraph(line, LEFT, CONTENT_W - 6, { hangIndent: 6 })
+			}
+			y += 0.5 // breathing room between experiments
+		}
+		// TOTAL: 60 PERIODS — prefer the explicit theory+tut split, then the
+		// course total/contact hours; omit the line when nothing is known.
+		const totalPeriods = data.total_periods
+			? data.total_periods.theory + data.total_periods.tut
+			: (data.total_hours || data.contact_hours || 0)
+		if (totalPeriods > 0) {
+			ensure(LH + 2)
+			doc.setFont(FONT, 'bold'); doc.setFontSize(FS)
+			doc.text(`TOTAL: ${totalPeriods} PERIODS`, RIGHT, y, { baseline: 'top', align: 'right' })
+			y += LH
+		}
+		y += 3
+	}
+
 	// ── COURSE OUTCOMES ───────────────────────────────────────────────────────
 	if (data.clos && data.clos.length > 0) {
 		ensure(12)
@@ -353,17 +403,6 @@ export function renderEngineeringSyllabusPDF(
 			...poKeys.map(k => toNum(m.pos?.[k])),
 			...psoKeys.map(k => toNum(m.psos?.[k])),
 		])
-		// Averaged summary row (rounded), labelled "CO".
-		const avg = cols.map(k => {
-			const nums = data.po_mappings!
-				.map(m => toNum(m.pos?.[k] ?? m.psos?.[k]))
-				.filter(v => v !== '-')
-				.map(Number)
-			if (!nums.length) return '-'
-			return String(Math.round(nums.reduce((a, b) => a + b, 0) / nums.length))
-		})
-		body.push(['CO', ...avg])
-
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		autoTable(doc, {
 			head: head as any,

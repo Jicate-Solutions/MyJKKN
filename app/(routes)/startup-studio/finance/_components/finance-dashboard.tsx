@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Dialog,
   DialogContent,
@@ -572,7 +573,10 @@ function KpiCard({
 
 // ─── Main Dashboard ─────────────────────────────────────────────────────────
 
+const FINANCE_TABS = ['grants', 'budgets', 'revenue', 'audits'] as const;
+
 export function FinanceDashboard() {
+  const [activeTab, setActiveTab] = useTabParam('grants', FINANCE_TABS);
   const [fiscalYearFilter, setFiscalYearFilter] = useState<string>('');
 
   const { data: grantsRaw, isLoading: grantsLoading } = useGrants();
@@ -660,8 +664,8 @@ export function FinanceDashboard() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="grants" className="w-full">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="grants">Grants</TabsTrigger>
           <TabsTrigger value="budgets">Budgets</TabsTrigger>
           <TabsTrigger value="revenue">Revenue</TabsTrigger>
@@ -671,7 +675,7 @@ export function FinanceDashboard() {
         {/* Grants Tab */}
         <TabsContent value="grants">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-lg">Grants</CardTitle>
               <AddGrantDialog />
             </CardHeader>
@@ -733,14 +737,14 @@ export function FinanceDashboard() {
         {/* Budgets Tab */}
         <TabsContent value="budgets">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div className="flex items-center gap-4">
-                <CardTitle className="text-lg">Budgets</CardTitle>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex w-full items-center gap-4 sm:w-auto">
+                <CardTitle className="text-lg shrink-0">Budgets</CardTitle>
                 <Input
                   placeholder="Filter by fiscal year..."
                   value={fiscalYearFilter}
                   onChange={(e) => setFiscalYearFilter(e.target.value)}
-                  className="w-48 h-8"
+                  className="w-full sm:w-48 h-8"
                 />
               </div>
               <AddBudgetDialog />
@@ -790,7 +794,7 @@ export function FinanceDashboard() {
         {/* Revenue Tab */}
         <TabsContent value="revenue">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-lg">Revenue</CardTitle>
               <RecordRevenueDialog />
             </CardHeader>
@@ -856,7 +860,7 @@ export function FinanceDashboard() {
         {/* Audits Tab */}
         <TabsContent value="audits">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-lg">Audit Records</CardTitle>
               <AddAuditDialog />
             </CardHeader>

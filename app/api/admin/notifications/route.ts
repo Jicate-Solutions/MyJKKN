@@ -3,6 +3,22 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
+/**
+ * Make a user search term safe to embed inside a PostgREST `.or()` filter
+ * string. PostgREST parses that string structurally: a comma splits it into
+ * separate OR clauses and parentheses open sub-groups, so a raw term like
+ * `a,status.eq.deleted` would inject an extra filter. `%`/`_` are also LIKE
+ * wildcards. We strip the structural metacharacters (`, ( ) \`) and the LIKE
+ * wildcards, collapse whitespace, and cap length. Returns '' when nothing
+ * usable remains, so the caller can skip the filter entirely.
+ */
+function sanitizeSearch(raw: string): string {
+  return raw
+    .replace(/[,()\\%_*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
+}
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -43,9 +59,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      query = query.or(
-        `title.ilike.%${search}%,body.ilike.%${search}%,category.ilike.%${search}%`
-      );
+      const s = sanitizeSearch(search);
+      if (s) {
+        query = query.or(
+          `title.ilike.%${s}%,body.ilike.%${s}%,category.ilike.%${s}%`
+        );
+      }
     }
 
     const { data: notifications, error } = await query

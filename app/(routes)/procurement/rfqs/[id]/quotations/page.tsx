@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildComparisonRows } from '@/lib/services/procurement/quotation-service';
 import { useRouter, useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -49,6 +49,57 @@ interface QuotedSpec {
   other_specs: string;
 }
 const EMPTY_SPEC: QuotedSpec = { manufacturer: '', quality_grade: '', concentration: '', other_specs: '' };
+
+/** How the AI-read price for a line should be presented until a human confirms it. */
+type AiMark = 'ai' | 'uncertain';
+
+/** One line as returned by the ₹0 Max-lane PDF reader. */
+interface ExtractedLine {
+  rfq_item_id: string | null;
+  item_name?: string | null;
+  unit_price?: number | null;
+  uncertain?: boolean;
+  manufacturer?: string | null;
+  quality_grade?: string | null;
+  concentration?: string | null;
+  other_specs?: string | null;
+}
+interface ExtractResult {
+  from_scan?: boolean;
+  lines?: ExtractedLine[];
+  unmatched_note?: string | null;
+}
+
+// Poll cadence while the page is open. The uploader is ALSO notified when the
+// read finishes, so leaving the page loses nothing.
+const EXTRACT_POLL_MS = 4_000;
+// If the job is still unclaimed after this, the runner box is presumed offline
+// and we stop waiting rather than spin forever.
+const EXTRACT_UNCLAIMED_GIVE_UP_MS = 90_000;
+
+/**
+ * Flag prices that sit far outside the rest of the quotation.
+ *
+ * The classic AI-extraction failure is reading the invoice's *Total* row as one
+ * line's unit price — e.g. ₹45,000 among a set averaging ₹500. Comparing each
+ * price against the MEDIAN (not the mean) keeps one such wild value from
+ * dragging the baseline up and hiding itself. Needs at least 3 prices before a
+ * median means anything.
+ */
+function detectPriceOutliers(byItem: Record<string, number>): Record<string, boolean> {
+  const values = Object.values(byItem)
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+  if (values.length < 3) return {};
+  const median = values[Math.floor(values.length / 2)];
+  if (!median || median <= 0) return {};
+  const flagged: Record<string, boolean> = {};
+  for (const [id, v] of Object.entries(byItem)) {
+    if (!Number.isFinite(v) || v <= 0) continue;
+    if (v > median * 10 || v < median / 10) flagged[id] = true;
+  }
+  return flagged;
+}
 
 export default function RfqQuotationsPage() {
   const router = useRouter();
@@ -106,6 +157,19 @@ export default function RfqQuotationsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  // ── ₹0 Max-lane PDF read ──────────────────────────────────────────────────
+  // The read happens off-page: we enqueue, poll while the page is open, and the
+  // uploader is notified when it finishes.
+  const [extractJobId, setExtractJobId] = useState<string | null>(null);
+  // Which price fields the AI filled, and how confident it was. Cleared per
+  // field the moment a human edits it — that edit IS the confirmation.
+  const [aiFilled, setAiFilled] = useState<Record<string, AiMark>>({});
+  const [aiFromScan, setAiFromScan] = useState(false);
+  const [aiOutliers, setAiOutliers] = useState<Record<string, boolean>>({});
+  // Live mirror of `prices` for applyExtraction to consult. A ref (not a dep)
+  // deliberately: reading prices through the closure would either go stale or,
+  // if added to deps, restart the poll timer on every keystroke.
+  const pricesRef = useRef<Record<string, string>>({});
   // Which quotation PDFs are expanded inline (keyed by quotation id). Iframes are
   // only mounted for open entries so we don't load every vendor's PDF at once.
   const [openPdfs, setOpenPdfs] = useState<Record<string, boolean>>({});
@@ -132,6 +196,10 @@ export default function RfqQuotationsPage() {
     setQuantities({});
     setSpecs({});
     setFile(null);
+    setExtractJobId(null);
+    setAiFilled({});
+    setAiFromScan(false);
+    setAiOutliers({});
   };
 
   const handleAdd = async () => {
@@ -245,54 +313,168 @@ export default function RfqQuotationsPage() {
     }
   };
 
-  // Read prices from the attached vendor PDF via Claude, then fill the fields for review.
+  // Fill the form from a finished ₹0 Max-lane read. Nothing is auto-committed:
+  // every value lands in an editable field, visibly marked as AI-filled until a
+  // human touches it.
+  const applyExtraction = useCallback(
+    (result: ExtractResult | null | undefined) => {
+      const lines = Array.isArray(result?.lines) ? result!.lines! : [];
+      const filledPrices: Record<string, string> = {};
+      const numericPrices: Record<string, number> = {};
+      const marks: Record<string, AiMark> = {};
+      const filledSpecs: Record<string, QuotedSpec> = {};
+
+      let keptTyped = 0;
+      for (const line of lines) {
+        const id = line?.rfq_item_id;
+        const price = typeof line?.unit_price === 'number' ? line.unit_price : NaN;
+        // A line the reader could not confidently price is skipped entirely
+        // rather than written as 0 — a wrong price is worse than a blank one.
+        if (!id || !Number.isFinite(price) || price <= 0) continue;
+        // The read is asynchronous, so the person may well have typed prices
+        // while waiting. A human-entered price ALWAYS wins over an AI-read one —
+        // silently replacing what someone typed is exactly the money error the
+        // AI-highlighting is meant to prevent.
+        if ((pricesRef.current[id] ?? '').trim() !== '') {
+          keptTyped += 1;
+          continue;
+        }
+        filledPrices[id] = String(price);
+        numericPrices[id] = price;
+        marks[id] = line.uncertain ? 'uncertain' : 'ai';
+        filledSpecs[id] = {
+          manufacturer: line.manufacturer ?? '',
+          quality_grade: line.quality_grade ?? '',
+          concentration: line.concentration ?? '',
+          other_specs: line.other_specs ?? '',
+        };
+      }
+
+      const matched = Object.keys(filledPrices).length;
+      if (!matched) {
+        if (keptTyped) {
+          toast.info('Every price the AI read was already filled in — your typed prices were kept.');
+        } else {
+          toast.error('No prices could be read from the PDF. Enter them manually or use the template.');
+        }
+        return;
+      }
+
+      setPrices((prev) => ({ ...prev, ...filledPrices }));
+      setSpecs((prev) => {
+        const next = { ...prev };
+        for (const [id, s] of Object.entries(filledSpecs)) {
+          next[id] = {
+            manufacturer: s.manufacturer || next[id]?.manufacturer || '',
+            quality_grade: s.quality_grade || next[id]?.quality_grade || '',
+            concentration: s.concentration || next[id]?.concentration || '',
+            other_specs: s.other_specs || next[id]?.other_specs || '',
+          };
+        }
+        return next;
+      });
+      setAiFilled(marks);
+      setAiFromScan(!!result?.from_scan);
+      setAiOutliers(detectPriceOutliers(numericPrices));
+
+      const uncertainCount = Object.values(marks).filter((m) => m === 'uncertain').length;
+      toast.success(
+        `AI read ${matched} price${matched === 1 ? '' : 's'} — review before saving` +
+          (uncertainCount ? ` · ${uncertainCount} uncertain match${uncertainCount === 1 ? '' : 'es'}` : '') +
+          (keptTyped ? ` · kept ${keptTyped} price${keptTyped === 1 ? '' : 's'} you typed` : ''),
+      );
+    },
+    [],
+  );
+
+  // Keep the ref in step with the state it mirrors.
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
+
+  // Hand the vendor PDF to the ₹0 Max lane. This does NOT wait for the answer —
+  // it starts the read and returns; the uploader is notified when it lands.
   const handleExtractPdf = async () => {
     if (!file || !rfq) return;
     setExtracting(true);
     try {
       const fd = new FormData();
       fd.append('file', file);
+      fd.append('rfq_id', rfq.id);
       fd.append('items', JSON.stringify(rfq.items.map((it) => ({ id: it.id, item_name: it.item_name }))));
       const res = await fetch('/api/procurement/quotations/extract-pdf', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
-      const { prices: parsed, specs: parsedSpecs, matched, unmatched } = json as {
-        prices: Record<string, number>;
-        specs: Record<string, { manufacturer: string | null; quality_grade: string | null; concentration: string | null; other_specs: string | null }>;
-        matched: number;
-        unmatched: string[];
-      };
-      if (!matched) {
-        toast.error('No prices could be read from the PDF. Enter them manually or use the template.');
+
+      // Lane unavailable (switched off, no permission, cap reached, box offline)
+      // — the quotation is still completable by hand.
+      if (json.unavailable) {
+        toast.error(json.error || 'AI reading is unavailable — please enter the prices manually.');
         return;
       }
-      setPrices((prev) => {
-        const next = { ...prev };
-        for (const [id, price] of Object.entries(parsed)) next[id] = String(price);
-        return next;
-      });
-      setSpecs((prev) => {
-        const next = { ...prev };
-        for (const [id, s] of Object.entries(parsedSpecs || {})) {
-          next[id] = {
-            manufacturer: s.manufacturer ?? next[id]?.manufacturer ?? '',
-            quality_grade: s.quality_grade ?? next[id]?.quality_grade ?? '',
-            concentration: s.concentration ?? next[id]?.concentration ?? '',
-            other_specs: s.other_specs ?? next[id]?.other_specs ?? '',
-          };
-        }
-        return next;
-      });
-      toast.success(
-        `AI read ${matched} of ${rfq.items.length} price${matched === 1 ? '' : 's'} — review before saving` +
-          (unmatched.length ? ` · ${unmatched.length} line(s) unmatched` : '')
-      );
+      // This exact PDF was already read for this RFQ — reuse rather than re-read.
+      if (json.reused && json.result) {
+        applyExtraction(json.result as ExtractResult);
+        toast.info('Reused an earlier reading of this same PDF.');
+        return;
+      }
+      if (typeof json.job_id !== 'string') throw new Error('Could not start the AI reading.');
+
+      setExtractJobId(json.job_id);
+      toast.success("Reading the PDF in the background — you'll be notified when the prices are ready.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not read the PDF');
     } finally {
       setExtracting(false);
     }
   };
+
+  // Poll the read while this page stays open. Leaving is safe — the notification
+  // brings the uploader back, and the prices are re-fetched on the next attempt.
+  useEffect(() => {
+    if (!extractJobId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
+
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(
+          `/api/procurement/quotations/extract-pdf/status?job_id=${encodeURIComponent(extractJobId)}`,
+        );
+        const json = await res.json();
+        if (cancelled) return;
+
+        if (json.status === 'done') {
+          applyExtraction(json.result as ExtractResult);
+          setExtractJobId(null);
+          return;
+        }
+        if (json.status === 'error' || json.status === 'canceled' || json.status === 'not_found') {
+          toast.error('AI could not read the PDF — please enter the prices manually.');
+          setExtractJobId(null);
+          return;
+        }
+        // Never picked up: the runner box is presumed offline. Stop waiting and
+        // tell the truth rather than spinning indefinitely.
+        if (json.status === 'pending' && Date.now() - startedAt > EXTRACT_UNCLAIMED_GIVE_UP_MS) {
+          toast.error('AI reading is unavailable right now — please enter the prices manually.');
+          setExtractJobId(null);
+          return;
+        }
+      } catch {
+        // Transient network error — keep polling.
+      }
+      if (!cancelled) timer = setTimeout(tick, EXTRACT_POLL_MS);
+    };
+
+    timer = setTimeout(tick, EXTRACT_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [extractJobId, applyExtraction]);
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -323,7 +505,7 @@ export default function RfqQuotationsPage() {
   return (
     <ContentLayout title={`${rfq.rfq_number} — Quotations`}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => router.push(`/procurement/rfqs/${rfqId}`)}>
               <ArrowLeft className="h-4 w-4" />
@@ -334,7 +516,7 @@ export default function RfqQuotationsPage() {
             </div>
           </div>
           {canManage && (
-            <Button onClick={() => setAddOpen(true)}>
+            <Button className="shrink-0" onClick={() => setAddOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               Add Quotation
             </Button>
@@ -353,17 +535,17 @@ export default function RfqQuotationsPage() {
               <div className="space-y-2">
                 {quotations.map((q) => (
                   <div key={q.id} className="rounded-md border">
-                    <div className="flex items-center justify-between px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
-                        <p className="text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
+                        <p className="truncate text-xs text-muted-foreground">
                           {q.vendor_quote_number ? `Ref ${q.vendor_quote_number} · ` : ''}
                           Total ₹{Number(q.total_amount ?? 0).toLocaleString()}
                           {q.delivery_time_days ? ` · ${q.delivery_time_days}d delivery` : ''}
                           {q.payment_terms ? ` · ${q.payment_terms}` : ''}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2">
                         {q.document_file_id ? (
                           <Button variant="ghost" size="sm" onClick={() => togglePdf(q.id)}>
                             <FileText className="h-4 w-4 mr-1" />
@@ -695,38 +877,80 @@ export default function RfqQuotationsPage() {
                 or type prices below. A vendor PDF can be attached as reference under
                 “Quotation document”.
               </p>
+              {extractJobId && (
+                <p className="rounded-md border border-dashed px-2 py-1.5 text-[11px] text-muted-foreground">
+                  Reading the PDF in the background — you can close this page, we&apos;ll notify you
+                  when the prices are ready.
+                </p>
+              )}
+              {aiFromScan && (
+                <p className="rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  This came from a scanned image, not a digital PDF — please double-check every
+                  price before saving.
+                </p>
+              )}
               {rfq.items.map((it) => {
                 const entered = Number(prices[it.id] || 0);
                 const isNotQuoted = !!notQuoted[it.id];
                 const spec = specs[it.id] ?? EMPTY_SPEC;
+                const aiMark = aiFilled[it.id];
+                const isOutlier = !!aiOutliers[it.id];
+                // A human editing the field IS the confirmation — drop the mark.
+                const clearAiMark = () =>
+                  setAiFilled((p) => {
+                    if (!p[it.id]) return p;
+                    const next = { ...p };
+                    delete next[it.id];
+                    return next;
+                  });
                 const updateSpec = (field: keyof QuotedSpec, value: string) =>
                   setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
                 return (
                   <div key={it.id} className="space-y-1.5 border-b pb-2 last:border-b-0">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 text-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <div className="min-w-0 flex-1 text-sm">
                         {it.item_name}
                         <span className="text-muted-foreground">
                           {' '}
                           ({it.quantity} {it.unit_label || ''})
                         </span>
                       </div>
-                      <div className="w-36">
+                      <div className="w-full sm:w-36">
                         <Input
                           type="number"
                           min={0}
                           placeholder="Unit price"
                           disabled={isNotQuoted}
+                          className={
+                            aiMark && !isNotQuoted
+                              ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
+                              : undefined
+                          }
                           value={isNotQuoted ? '' : prices[it.id] ?? ''}
-                          onChange={(e) => setPrices((p) => ({ ...p, [it.id]: e.target.value }))}
+                          onChange={(e) => {
+                            setPrices((p) => ({ ...p, [it.id]: e.target.value }));
+                            clearAiMark();
+                          }}
                         />
+                        {aiMark && !isNotQuoted && (
+                          <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                            {aiMark === 'uncertain'
+                              ? 'AI guess — confirm this is the right item'
+                              : 'AI-filled — check before saving'}
+                          </p>
+                        )}
+                        {isOutlier && !isNotQuoted && (
+                          <p className="mt-0.5 text-[11px] font-medium text-destructive">
+                            Unusual price for this quotation — please verify
+                          </p>
+                        )}
                         {entered > 0 && !isNotQuoted && (
                           <p className="mt-0.5 text-right text-[11px] text-muted-foreground">
                             = ₹{(entered * it.quantity).toLocaleString()} total
                           </p>
                         )}
                       </div>
-                      <div className="w-24">
+                      <div className="w-full sm:w-24">
                         <Input
                           type="number"
                           min={0}

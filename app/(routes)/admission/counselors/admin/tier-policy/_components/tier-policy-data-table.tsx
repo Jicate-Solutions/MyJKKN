@@ -148,7 +148,7 @@ export function TierPolicyDataTable() {
         </p>
       </div>
 
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <div>
           <h2 className="text-lg font-semibold">Assignment Steps</h2>
           <p className="text-xs text-muted-foreground">

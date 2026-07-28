@@ -20,6 +20,13 @@ export interface ExamSession {
   id: string;
   session_name: string;
   academic_year?: string;
+  /** MyJKKN academic_years.id (UUID) — exposed by COE /api/v1/examination-sessions.
+   *  Used to gate QP entry by staff_plans for the same academic year. */
+  academic_year_id?: string;
+  /** COE exam window — used to resolve the academic year by date when the API
+   *  doesn't return academic_year_id. */
+  exam_start_date?: string;
+  exam_end_date?: string;
   start_date?: string;
   end_date?: string;
   is_active?: boolean;

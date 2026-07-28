@@ -117,7 +117,7 @@ function UpiAuditReportPageInner() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-wrap gap-2 items-end">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {(['today', 'week', 'month'] as DatePreset[]).map((p) => (
                   <Button
                     key={p}
@@ -137,19 +137,19 @@ function UpiAuditReportPageInner() {
                 </Button>
               </div>
               {preset === 'custom' && (
-                <div className="flex gap-2 items-center">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
                   <Input
                     type="date"
                     value={customFrom}
                     onChange={(e) => setCustomFrom(e.target.value)}
-                    className="w-40"
+                    className="w-full sm:w-40"
                   />
                   <span className="text-muted-foreground">to</span>
                   <Input
                     type="date"
                     value={customTo}
                     onChange={(e) => setCustomTo(e.target.value)}
-                    className="w-40"
+                    className="w-full sm:w-40"
                   />
                 </div>
               )}

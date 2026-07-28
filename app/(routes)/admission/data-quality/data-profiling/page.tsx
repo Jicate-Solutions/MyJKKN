@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -42,11 +42,14 @@ import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useDataProfilingMetrics, useFieldAnalysis, useDataIssues } from "@/hooks/admission/use-data-quality";
+
+const DATA_PROFILING_TABS = ["overview", "issues"] as const;
 
 function DataProfilingPageContent() {
   const [isRunning, setIsRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useTabParam("overview", DATA_PROFILING_TABS);
   const [isExporting, setIsExporting] = useState(false);
 
   const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useDataProfilingMetrics();
@@ -135,7 +138,7 @@ function DataProfilingPageContent() {
         </Breadcrumb>
       <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Database className="h-8 w-8 text-[#0b6d41]" />
@@ -145,7 +148,7 @@ function DataProfilingPageContent() {
             Analyze and monitor data quality across admission leads
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           {canExport && (
             <Button variant="outline" className="gap-2" onClick={handleExportReport} disabled={isExporting}>
               {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -198,7 +201,7 @@ function DataProfilingPageContent() {
 
       {/* Main Content Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview" className="gap-2">
             <FileBarChart className="h-4 w-4" />
             Field Analysis
@@ -351,7 +354,7 @@ function DataProfilingPageContent() {
       </Tabs>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
@@ -424,7 +427,9 @@ function DataProfilingPageContent() {
 export default function DataProfilingPage() {
   return (
     <AdmissionErrorBoundary>
-      <DataProfilingPageContent />
+      <Suspense fallback={null}>
+        <DataProfilingPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

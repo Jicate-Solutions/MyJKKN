@@ -175,11 +175,15 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 2. Snapshot BoS chairmen into the AC body ─────────────────────────────
-    // Source: active chairmen of active, non-AC compositions in this institution.
+    // Source: active chairmen of active, non-council compositions in this
+    // institution. Both is_academic_council AND is_governing_body must be false
+    // so a Governing Body is never mistaken for a subject-level Board of Studies
+    // (see 20260724120000_bos_governing_body.sql).
     const { data: bosComps } = await db
       .from('bos_compositions')
       .select('id')
       .eq('is_academic_council', false)
+      .eq('is_governing_body', false)
       .eq('is_active', true)
       .in('institutions_id', institutionIds);
     const bosCompIds = (bosComps ?? []).map((c: { id: string }) => c.id);

@@ -15,6 +15,7 @@
 
 import { useMemo } from 'react';
 
+import { useTabParam } from '@/hooks/use-tab-param';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -31,10 +32,13 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { usePremiumAllocationCounts } from '@/hooks/campus-living/use-premium-allocation';
 import { useHostelTiers } from '@/hooks/campus-living/use-hostel-tier-policy';
 
+const PREMIUM_DASHBOARD_TABS = ['revenue', 'heatmap', 'activity'] as const;
+
 export function PremiumDashboardTabs() {
+  const [activeTab, setActiveTab] = useTabParam('revenue', PREMIUM_DASHBOARD_TABS);
   return (
-    <Tabs defaultValue="revenue" className="space-y-4">
-      <TabsList>
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
         <TabsTrigger value="revenue">Revenue + Adoption</TabsTrigger>
         <TabsTrigger value="heatmap">Per-college Heatmap</TabsTrigger>
         <TabsTrigger value="activity">Activity Log</TabsTrigger>

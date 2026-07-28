@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, use, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, use, useEffect, useMemo, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -365,8 +366,11 @@ interface CompositionDetailPageProps {
   params: Promise<{ compositionId: string }>;
 }
 
-export default function CompositionDetailPage({ params }: CompositionDetailPageProps) {
+const COMPOSITION_DETAIL_TABS = ['members', 'programmes', 'outcomes'] as const;
+
+function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
   const { compositionId } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('members', COMPOSITION_DETAIL_TABS);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
   const boardScope = useBosBoardScope();
@@ -585,7 +589,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
       </Card>
 
       {/* ── Tabbed sections ─────────────────────────────────────────────── */}
-      <Tabs defaultValue='members'>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value='members'>
             Members
@@ -604,7 +608,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
         <TabsContent value='members'>
           <Card>
             <CardHeader className='pb-3'>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <CardTitle className='text-base'>
                   Members
                   <span className='ml-2 text-sm font-normal text-muted-foreground'>
@@ -612,7 +616,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
                   </span>
                 </CardTitle>
                 {canManage && (
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     <Button size='sm' variant='ghost' onClick={() => setAddCommitteeOpen(true)}>
                       <Plus className='mr-2 h-4 w-4' />
                       Add Committee
@@ -685,7 +689,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
               <div className='flex items-center gap-3'>
                 <span className='text-sm font-medium shrink-0'>Regulation</span>
                 <Select value={selectedRegulationId} onValueChange={setSelectedRegulationId}>
-                  <SelectTrigger className='w-[260px]'>
+                  <SelectTrigger className='w-full sm:w-[260px]'>
                     <SelectValue placeholder='Select regulation…' />
                   </SelectTrigger>
                   <SelectContent>
@@ -735,6 +739,7 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
           onClose={() => setAddDialogOpen(false)}
           compositionId={compositionId}
           institutionsId={composition.institutions_id}
+          academicYear={composition.academic_year}
           committees={committees.filter((c) => c.is_active)}
           memberTypes={memberTypeRows.filter((t) => t.is_active)}
           existingMembers={members.map((m) => ({
@@ -761,5 +766,14 @@ export default function CompositionDetailPage({ params }: CompositionDetailPageP
         />
       )}
     </div>
+  );
+}
+
+export default function CompositionDetailPage(props: CompositionDetailPageProps) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <CompositionDetailPageInner {...props} />
+    </Suspense>
   );
 }

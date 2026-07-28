@@ -211,7 +211,7 @@ export function SopRibbon(props: SopRibbonProps) {
   return (
     <div className='border rounded-md bg-background sticky top-0 z-10 shadow-sm'>
       <Tabs defaultValue='home' className='w-full'>
-        <TabsList className='h-auto rounded-none border-b w-full justify-start gap-0 bg-muted/40 px-2 py-0'>
+        <TabsList className='h-auto rounded-none border-b w-full max-w-full justify-start gap-0 bg-muted/40 px-2 py-0 overflow-x-auto [&>button]:shrink-0'>
           <TabsTrigger value='home'       className='rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none'>Home</TabsTrigger>
           <TabsTrigger value='insert'     className='rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none'>Insert</TabsTrigger>
           <TabsTrigger value='layout'     className='rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none'>Layout</TabsTrigger>

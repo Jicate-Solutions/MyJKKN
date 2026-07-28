@@ -19,7 +19,7 @@
 // Pattern source: app/(routes)/ai-pulse/admin/quiz/[cycle]/page.tsx
 // ============================================================================
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import Link from 'next/link';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -93,7 +93,9 @@ export default function LabEvaluationPage({ params }: LabCyclePageProps) {
         </Link>
       </div>
 
-      <LabEvaluationConsole cycleId={cycle} canSelectGold={canSelectGold} />
+      <Suspense fallback={null}>
+        <LabEvaluationConsole cycleId={cycle} canSelectGold={canSelectGold} />
+      </Suspense>
     </ContentLayout>
   );
 }

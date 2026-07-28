@@ -1,12 +1,15 @@
 'use client';
 
 // Sports Tournaments — edit dialog with full create-form parity: event fields
-// (name, scope, dates, registration window, venue, public/external toggles,
-// description) plus the division fields set at creation (sport, level, format,
-// category, age band). Divisions load via useTournament(id); when several
-// exist a picker chooses which one to edit. Entries/fixtures stay on the
-// detail page. The inner form is keyed by tournament id so it remounts with
-// fresh initial state per tournament (no setState-in-effect re-seeding).
+// (host institution, name, scope, dates, registration window, venue,
+// public/external toggles, description) plus the division fields set at
+// creation (sport, level, format, category, age band). Divisions load via
+// useTournament(id); when several exist a picker chooses which one to edit,
+// and when NONE exist the same fields seed the first division inline on save
+// (a create-form division can fail best-effort, leaving a division-less row).
+// Entries/fixtures stay on the detail page. The inner form is keyed by
+// tournament id so it remounts with fresh initial state per tournament (no
+// setState-in-effect re-seeding).
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -30,19 +33,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Event } from '@/types/events';
+import type { Event, ParticipantOrgType } from '@/types/events';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
 import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
 import type {
   TournamentDivision,
   TournamentScope,
   UpdateDivisionDto,
+  CreateDivisionDto,
 } from '@/types/tournament';
 import {
   useTournament,
   useUpdateTournament,
   useUpdateDivision,
+  useCreateDivision,
 } from '@/hooks/events/use-tournaments';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
@@ -192,12 +199,34 @@ function EditTournamentForm({
 }) {
   const update = useUpdateTournament();
   const updateDivision = useUpdateDivision();
+  const createDivision = useCreateDivision();
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   // Divisions aren't on the list row — fetch the full tournament for them.
   const { data: detail, isLoading: divisionsLoading } = useTournament(tournament.id);
   const divisions = detail?.divisions ?? [];
 
+  // Defaults for the first division when a tournament has none yet — mirror the
+  // create form so saving the edit modal seeds a valid division inline.
+  const newDivisionDefaults: TournamentDivision = {
+    id: '',
+    event_id: tournament.id,
+    sport: JKKN_SPORTS[0],
+    gender: 'open',
+    age_band: null,
+    format: 'knockout',
+    level: 'intra_college',
+    max_teams: null,
+    eligibility: {},
+    config: {},
+    sort_order: 0,
+    is_active: true,
+    created_at: '',
+    updated_at: '',
+  };
+
   const [form, setForm] = useState({
     name: tournament.name ?? '',
+    institution_id: tournament.institution_id ?? '',
     description: tournament.description ?? '',
     scope: (tournament.scope === 'all_jkkn' ? 'all_jkkn' : 'institution') as TournamentScope,
     start_date: toDateInput(tournament.start_date),
@@ -207,6 +236,12 @@ function EditTournamentForm({
     venue: tournament.venue ?? '',
     is_public: tournament.is_public ?? false,
     allow_external_registration: tournament.allow_external_registration ?? false,
+    participant_org_type: (tournament.participant_org_type === 'college'
+      ? 'college'
+      : 'school') as ParticipantOrgType,
+    // NAAC evidence tags — the writer for the events → evidence-spine
+    // emitter (naac_criteria text[] on events; empty array = untagged).
+    naac_criteria: tournament.naac_criteria ?? [],
   });
 
   // Which division is being edited + the touched-fields overlay for it.
@@ -225,15 +260,17 @@ function EditTournamentForm({
   const setDivisionConfig = (patch: Record<string, unknown>) =>
     setDivisionEdits((prev) => ({ ...prev, config: patch }));
 
-  const isPending = update.isPending || updateDivision.isPending;
+  const isPending =
+    update.isPending || updateDivision.isPending || createDivision.isPending;
 
   const submit = async () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.institution_id) return;
     try {
       await update.mutateAsync({
         id: tournament.id,
         dto: {
           name: form.name.trim(),
+          institution_id: form.institution_id,
           description: form.description || undefined,
           scope: form.scope,
           start_date: form.start_date || undefined,
@@ -243,6 +280,8 @@ function EditTournamentForm({
           venue: form.venue.trim() || undefined,
           is_public: form.is_public,
           allow_external_registration: form.allow_external_registration,
+          participant_org_type: form.participant_org_type,
+          naac_criteria: form.naac_criteria,
         },
       });
 
@@ -258,6 +297,19 @@ function EditTournamentForm({
               : {}),
           },
         });
+      } else if (divisions.length === 0) {
+        // No division exists yet — seed the first one inline (parity with the
+        // create form). Untouched fields fall back to the defaults shown.
+        const dto: CreateDivisionDto = {
+          sport: divisionEdits.sport || newDivisionDefaults.sport,
+          gender: divisionEdits.gender || 'open',
+          age_band: divisionEdits.age_band?.toString().trim() || undefined,
+          format: divisionEdits.format || 'knockout',
+          level: divisionEdits.level || 'intra_college',
+          config: divisionEdits.config ?? {},
+          sort_order: 0,
+        };
+        await createDivision.mutateAsync({ eventId: tournament.id, dto });
       }
 
       onSaved();
@@ -270,6 +322,32 @@ function EditTournamentForm({
   return (
     <>
       <div className="space-y-4 py-1">
+        <div className="space-y-1.5">
+          <Label htmlFor="t-institution">
+            Host Institution <span className="text-destructive">*</span>
+          </Label>
+          <Select value={form.institution_id} onValueChange={(v) => set('institution_id', v)}>
+            <SelectTrigger id="t-institution">
+              <SelectValue
+                placeholder={
+                  institutionsLoading ? 'Loading institutions…' : 'Select host institution'
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {institutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Registration fees for this tournament settle into this institution&apos;s payment
+            account.
+          </p>
+        </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="t-name">
             Tournament Name <span className="text-destructive">*</span>
@@ -288,6 +366,27 @@ function EditTournamentForm({
               <SelectItem value="all_jkkn">All JKKN (Inter-College / District+)</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Participants come from</Label>
+          <Select
+            value={form.participant_org_type}
+            onValueChange={(v) => set('participant_org_type', v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="school">Schools</SelectItem>
+              <SelectItem value="college">Colleges</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Sets what external entrants are asked on the public registration form:
+            Schools shows &ldquo;School / club&rdquo; with the school-directory picker;
+            Colleges shows &ldquo;College&rdquo; as free text.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -345,7 +444,9 @@ function EditTournamentForm({
         {/* Division fields (sport, level, format, category, age band) */}
         <div className="space-y-4 rounded-lg border p-4">
           <div className="flex items-center justify-between gap-3">
-            <Label className="text-sm font-semibold">Division</Label>
+            <Label className="text-sm font-semibold">
+              {!divisionsLoading && divisions.length === 0 ? 'Division (new)' : 'Division'}
+            </Label>
             {divisions.length > 1 && selectedDivision && (
               <Select
                 value={selectedDivision.id}
@@ -380,9 +481,17 @@ function EditTournamentForm({
               onEditConfig={setDivisionConfig}
             />
           ) : (
-            <p className="text-sm text-muted-foreground">
-              No divisions yet — add one from the tournament detail page.
-            </p>
+            <>
+              <p className="text-xs text-muted-foreground">
+                This tournament has no division yet — set these to create its first one on save.
+              </p>
+              <DivisionFields
+                division={newDivisionDefaults}
+                edits={divisionEdits}
+                onEdit={setDivision}
+                onEditConfig={setDivisionConfig}
+              />
+            </>
           )}
         </div>
 
@@ -416,6 +525,14 @@ function EditTournamentForm({
           </div>
         </div>
 
+        {/* NAAC evidence tags — writes events.naac_criteria; the evidence
+            emitter picks tagged events up once they complete. */}
+        <NaacCriteriaField
+          value={form.naac_criteria}
+          onChange={(next) => setForm((prev) => ({ ...prev, naac_criteria: next }))}
+          disabled={isPending}
+        />
+
         <div className="space-y-1.5">
           <Label htmlFor="t-desc">Description</Label>
           <Textarea
@@ -431,7 +548,10 @@ function EditTournamentForm({
         <Button variant="outline" onClick={onClose} disabled={isPending}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={isPending || !form.name.trim()}>
+        <Button
+          onClick={submit}
+          disabled={isPending || !form.name.trim() || !form.institution_id}
+        >
           {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Save Changes
         </Button>

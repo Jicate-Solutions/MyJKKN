@@ -2,7 +2,8 @@
 
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -75,7 +76,10 @@ function EditConsultantSkeleton() {
   );
 }
 
+const CONSULTANT_EDIT_TABS = ['basic', 'business', 'contract', 'bank'] as const;
+
 function EditConsultantForm() {
+  const [activeTab, setActiveTab] = useTabParam('basic', CONSULTANT_EDIT_TABS);
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -278,8 +282,8 @@ function EditConsultantForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="basic" className="flex items-center gap-2">
               <User className="h-4 w-4" />
               Basic Info
@@ -817,7 +821,9 @@ export default function EditConsultantPage() {
               </p>
             </div>
           </div>
-          <EditConsultantForm />
+          <Suspense fallback={null}>
+            <EditConsultantForm />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

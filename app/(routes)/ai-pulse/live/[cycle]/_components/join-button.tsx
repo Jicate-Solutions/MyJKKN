@@ -19,9 +19,18 @@
  * on-time gate for Thursday's session. UI-level gate only — consistent with
  * the service's existing auth.uid()-trust model.
  *
- * Disabled once the learner has already joined this cycle to prevent dup
- * "joined" rows. Re-clicking is unnecessary — the service already merges
- * on conflict.
+ * Once the learner has joined we DON'T dead-end them. The first Join click
+ * opens the meeting in a new tab — but on mobile that popup is often blocked,
+ * the Teams deep-link fails, or the learner loses the tab (network drop, phone
+ * call). Because joined_at is stamped the moment they click, the button
+ * previously flipped to a disabled "Joined this session" with no way back —
+ * the single largest AI Pulse bug cluster ("showing joined but not opening
+ * the meeting", "unable to rejoin once I left"). So the joined state now
+ * carries a PERSISTENT, always-clickable "Open meeting" link (a real anchor,
+ * not a one-shot window.open) whenever meet_url exists — re-openable and
+ * re-joinable as many times as needed. When meet_url is blank we surface an
+ * explicit "not published yet" state rather than a silent dead button
+ * (CLAUDE.md rule 27: no-op/blocked states must be explicit).
  */
 
 import { useState } from 'react';
@@ -47,6 +56,42 @@ function formatIstTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * Persistent "re-open the meeting" control for a learner who has already
+ * joined. Rendered as a real <a> (via Button asChild) rather than a
+ * programmatic window.open — anchors survive mobile popup blockers, support
+ * long-press / open-in-app / copy-link, and can be tapped repeatedly. This is
+ * the fix for the "joined but the meeting never opened / can't rejoin"
+ * cluster. When meetUrl is absent, an explicit notice replaces the link so the
+ * learner never faces a silent dead end.
+ */
+function OpenMeetingFallback({ meetUrl }: { meetUrl: string | null }) {
+  if (!meetUrl) {
+    return (
+      <span
+        className="text-xs text-muted-foreground"
+        data-testid="ai-pulse-meeting-unpublished"
+      >
+        Meeting link not published yet — your Champion hasn&apos;t set it. Your
+        join is recorded; check back shortly.
+      </span>
+    );
+  }
+  return (
+    <Button
+      asChild
+      variant="default"
+      className="gap-2"
+      data-testid="ai-pulse-open-meeting"
+    >
+      <a href={meetUrl} target="_blank" rel="noopener noreferrer">
+        <ExternalLink className="h-4 w-4" />
+        Open meeting (audio/video)
+      </a>
+    </Button>
+  );
 }
 
 export function JoinButton({
@@ -83,10 +128,13 @@ export function JoinButton({
 
   if (alreadyJoined) {
     return (
-      <Button variant="outline" disabled className="gap-2">
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-        Joined this session
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" disabled className="gap-2">
+          <CheckCircle2 className="h-4 w-4 text-green-600" />
+          Joined this session
+        </Button>
+        <OpenMeetingFallback meetUrl={meetUrl} />
+      </div>
     );
   }
 

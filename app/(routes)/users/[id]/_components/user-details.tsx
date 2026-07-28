@@ -124,7 +124,7 @@ export function UserDetails({ user }: UserDetailsProps) {
           <CardTitle>Personal Information</CardTitle>
         </CardHeader>
         <CardContent className='grid gap-4'>
-          <div className='grid grid-cols-2 gap-4'>
+          <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
             <div className='flex items-center gap-3'>
               <UserCircle2 className='h-4 w-4 text-muted-foreground' />
               <span>Gender: {user.gender || 'Not specified'}</span>
@@ -134,7 +134,7 @@ export function UserDetails({ user }: UserDetailsProps) {
               <span>Designation: {user.designation || 'Not specified'}</span>
             </div>
           </div>
-          <div className='grid grid-cols-2 gap-4'>
+          <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
             <div className='flex items-center gap-3'>
               <FileText className='h-4 w-4 text-muted-foreground' />
               <span>Bio: {user.bio || 'Not specified'}</span>

@@ -80,10 +80,10 @@ export default function AdminAssessmentsPage() {
         {/* Filter by Course */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <span className="text-sm font-medium text-muted-foreground">Filter by course:</span>
               <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-                <SelectTrigger className="w-[300px]">
+                <SelectTrigger className="w-full sm:w-[300px]">
                   <SelectValue placeholder="Select a course..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -100,7 +100,7 @@ export default function AdminAssessmentsPage() {
 
         {/* Assessments Table */}
         <Card>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             {!selectedCourseId ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <ClipboardList className="h-12 w-12 text-muted-foreground/40 mb-4" />

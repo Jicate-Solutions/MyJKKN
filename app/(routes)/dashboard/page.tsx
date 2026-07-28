@@ -31,11 +31,13 @@ import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-se
 import { getDashboardPersona, resolvePersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
+import { LiveAgencyCard } from '@/components/dashboard/live-agency-card';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
 import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
 import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
 import { DeptMomentumCard } from '@/components/dashboard/dept-momentum-card';
-import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
+import { HodZones } from '@/components/dashboard/hod-zones';
+import { WorkSignalsCard } from '@/components/work-signals/work-signals-card';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -145,9 +147,18 @@ async function LiveStudentHero() {
   return <StudentHeroStrip metrics={metrics} cluster={cluster} />;
 }
 
-// HOD hero strip: dept attendance / marking compliance / grievances / leave approvals (48 active HODs)
-function LiveHodHero() {
-  return <HodHeroStrip />;
+// HOD dashboard — job-shaped zones (redesign 2026-07-23, supersedes #2276).
+// Fetches the teaching side here (FacultyMetrics + private percentile); HodZones
+// fetches the department side client-side. Replaces the old LiveHodHero +
+// "Your teaching" + LiveFacultyHero trio and renders AI Agency exactly once.
+async function LiveHodZones() {
+  const [facultyMetrics, facultyCluster] = await Promise.all([
+    getFacultyMetrics(),
+    getClusterRankPrivate('faculty')
+  ]);
+  return (
+    <HodZones facultyMetrics={facultyMetrics} facultyCluster={facultyCluster} />
+  );
 }
 // Accounts hero strip: collection vs plan / overdue / recon gap / refunds (11 users)
 async function LiveAccountsHero() {
@@ -388,7 +399,10 @@ export default async function DashboardV2Page({
               {isDirector && <LiveHeroStrip />}
               {isCounselor && <LiveCounselorHero />}
               {isFaculty && <LiveFacultyHero />}
-              {isHod && <LiveHodHero />}
+              {/* HODs get the job-shaped zones: NEEDS YOU (act) + HOW YOU'RE
+                  DOING (one scored panel, department + own teaching merged, AI
+                  Agency once). My Pulse follows below as zone 3. */}
+              {isHod && <LiveHodZones />}
               {isPrincipal && <LivePrincipalHero />}
               {isAccounts && <LiveAccountsHero />}
               {isStudent && <LiveStudentHero />}
@@ -396,6 +410,45 @@ export default async function DashboardV2Page({
             </Suspense>
           </DashboardErrorBoundary>
         )}
+
+        {/* Work-signals spine (Phase 1): the facilitator's own canonical
+            work-signals, same engine + component as the My Pulse page. Faculty
+            and HODs (who also teach) see their evidenced work here on the
+            dashboard — self-scoped, presence-only, never ranked. */}
+        {showsWidget('hero') && (isFaculty || isHod) && (
+          <div className='mt-6'>
+            <WorkSignalsCard />
+          </div>
+        )}
+
+        {/* Personal AI Agency card (AI Agency Score, Part 5 · S2) — gives senior
+            staff (faculty / hod / principal / accounts) AND admin staff who
+            collapse to the 'limited' persona (staff / ceo / eao / coo / warden …)
+            a personal recognition card. Recognition/visibility only: no ranking,
+            no appraisal wording.
+
+            🛑 rule #27: this is its OWN showsWidget('ai_agency') block — it is
+            deliberately NOT nested under the 'hero' block above, because the
+            'limited' persona (the exact admin-staff population targeted here) has
+            NO 'hero' in its widget set. Nesting would make the card silently never
+            render for admin staff. The two gates are independent: the persona
+            gate (isFaculty || … || isLimited) prevents cross-scope surfaces, and
+            showsWidget('ai_agency') is the Director-controlled cosmetic trim.
+
+            Reuses the learn AgencyIndexCard unchanged; it renders an empty state
+            until the AI-Pulse → agency bridge policy is flipped — an absent score
+            is NOT a 0. Silent boundary: a non-essential recognition card must
+            never break the dashboard. */}
+        {(isFaculty || isHod || isPrincipal || isAccounts || isLimited) &&
+          showsWidget('ai_agency') && (
+            <DashboardErrorBoundary label='AI Agency' mode='silent'>
+              <div className='max-w-xl'>
+                <Suspense fallback={null}>
+                  <LiveAgencyCard />
+                </Suspense>
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
         {/* UDYOG application requirement — student self-service (BUG-004075, 4a).
             Client island; self-hides when the learner has no UDYOG obligation.

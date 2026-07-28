@@ -11,7 +11,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F3.
  */
 
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -26,17 +26,20 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ShieldAlert, Bug, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { RiskRegister } from '@/components/projects/risks/risk-register';
 import { IssueRegister } from '@/components/projects/risks/issue-register';
 
 type RaidTab = 'risks' | 'issues';
 
-export default function ProjectRaidPage() {
+const RAID_TABS = ['risks', 'issues'] as const;
+
+function ProjectRaidPageInner() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id ?? '';
 
   const { data: project, isLoading } = useProject(projectId);
-  const [tab, setTab] = useState<RaidTab>('risks');
+  const [tab, setTab] = useTabParam<RaidTab>('risks', RAID_TABS);
 
   const projectTitle = project?.title ?? 'Project';
 
@@ -108,5 +111,14 @@ export default function ProjectRaidPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ProjectRaidPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectRaidPageInner />
+    </Suspense>
   );
 }

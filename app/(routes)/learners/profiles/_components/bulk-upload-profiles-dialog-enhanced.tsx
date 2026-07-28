@@ -1335,7 +1335,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                 </AlertDescription>
               </Alert>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Selected Rows</CardTitle>

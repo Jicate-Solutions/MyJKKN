@@ -21,12 +21,22 @@ export default async function MyMemosPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login?next=/hr/memos/my');
 
-  // Resolve staff_id from auth_user_id
-  const { data: staffRow } = await supabase
+  // Resolve the staff row from the auth user. The link column is `profile_id`
+  // — `staff` has no `auth_user_id` and never did, so this query raised 42703
+  // on every load. The error was discarded, leaving staffRow null, so EVERY
+  // user saw the "we could not find a staff record" message below and this
+  // page has never once rendered a memo. Every sibling self-service page uses
+  // profile_id; this one drifted.
+  const { data: staffRow, error: staffError } = await supabase
     .from('staff')
     .select('id, first_name, last_name')
-    .eq('auth_user_id', user.id)
+    .eq('profile_id', user.id)
+    .eq('is_active', true)
     .maybeSingle();
+
+  if (staffError) {
+    console.error('[hr/memos/my] staff lookup failed', staffError);
+  }
 
   if (!staffRow) {
     return (

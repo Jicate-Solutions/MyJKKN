@@ -856,68 +856,32 @@ ORDER BY pl.pending_leads DESC NULLS LAST, i.name;
 -- SECTION: HR MODULE COMPATIBILITY VIEWS (Added: 2026-04-24)
 -- ================================================================================
 
--- ─── hr_leave_types (Compat VIEW) ─────────────────────────────────────────
--- Created: 2026-04-15 during HR Sprint 3 unification (PR #182)
--- Purpose: Backwards-compatibility shim over `leave_types` (filtered to scope='staff')
---          after the separate `hr_leave_types` table was unified into the canonical
---          `leave_types` catalog.
+-- ─── hr_leave_types (was: Compat VIEW; now a real table) ──────────────────
+-- Created as a VIEW: 2026-04-15 during HR Sprint 3 unification (PR #182), as a
+-- backwards-compat shim over `leave_types` (filtered to scope='staff').
 --
--- ⚠️  LOAD-BEARING — DO NOT DROP WITHOUT REFACTOR. Audit 2026-04-24 confirmed:
---   • 5 production DB objects still consume this VIEW directly:
---       – hr_policy_history(text,uuid,text,text)           — reads via EXECUTE format + table allowlist
---       – hr_policy_diff(text,uuid,uuid)                   — reads via EXECUTE format + table allowlist
---       – hr_policy_restore(text,uuid,uuid)                — reads via EXECUTE format + table allowlist
---       – hr_trig_populate_total_days()                    — trg_hla_populate_total_days on hr_leave_applications
---       – hr_trig_recompute_on_holiday_change()            — trg_institution_leaves_recompute on institution_leaves
---   • 9 FK references in types/supabase.ts (auto-regenerated, harmless).
---   • Zero direct query callers in application code (.ts/.tsx/.sql) — only 1 comment reference
---     in features/hr/policies/registry.ts acknowledging the unification.
---   • No RLS security drift: the VIEW has no own policies and inherits the 4 policies
---     (SELECT/INSERT/UPDATE/DELETE) on base `leave_types`, which enforce super_admin
---     OR institution_id = auth.uid()'s institution_id.
+-- SPLIT BACK OUT: 20260721120000_hr_leave_types_split.sql promoted
+-- `hr_leave_types` from this VIEW into its own real table and moved the 66
+-- staff leave-type rows into it, deleting them from `leave_types`. The
+-- previous "LOAD-BEARING — DO NOT DROP" warning above is stale: there is no
+-- VIEW left here to drop, and application code (Task 3, 2026-07-21) has been
+-- repointed at the real table.
 --
--- To retire this VIEW in the future, rewrite the 5 DB objects above to read
--- `leave_types WHERE scope='staff'` directly AND update/rename the column aliases
--- the VIEW exposes (leave_type_name→name, leave_type_code→code).
+-- The table exposes leave_type_name / leave_type_code where the old VIEW
+-- aliased them to name / code.
 --
--- Row counts (verified 2026-04-24 on prod):
---   leave_types (total):     73 rows
---   leave_types scope=staff: 66 rows
---   hr_leave_types (view):   66 rows  ← matches scope=staff filter
---
--- Column aliasing: The VIEW renames leave_type_name → name and leave_type_code → code.
--- Columns deliberately omitted from the VIEW surface: institution_id, scope,
--- color_code, requires_approval (these exist on base `leave_types` but weren't part
--- of the original hr_leave_types schema the VIEW is emulating).
-CREATE OR REPLACE VIEW hr_leave_types AS
-SELECT
-    leave_types.id,
-    leave_types.hr_organization_id,
-    leave_types.leave_type_name AS name,
-    leave_types.leave_type_code AS code,
-    leave_types.description,
-    leave_types.is_paid,
-    leave_types.is_active,
-    leave_types.display_order,
-    leave_types.valid_from,
-    leave_types.valid_until,
-    leave_types.superseded_by,
-    leave_types.created_at,
-    leave_types.updated_at,
-    leave_types.created_by,
-    leave_types.updated_by,
-    leave_types.skip_weekends,
-    leave_types.skip_holidays,
-    leave_types.requires_documents,
-    leave_types.document_required_after_days,
-    leave_types.min_advance_notice_days,
-    leave_types.max_continuous_days,
-    leave_types.default_entitled_days,
-    leave_types.allow_half_day,
-    leave_types.allow_hourly,
-    leave_types.duration_type
-FROM leave_types
-WHERE (leave_types.scope)::text = 'staff'::text;
+-- Three policy RPCs — hr_policy_history(text,uuid,text,text),
+-- hr_policy_diff(text,uuid,uuid), hr_policy_restore(text,uuid,uuid) — still
+-- carry the literal string 'hr_leave_types' in an EXECUTE format(...) table
+-- allowlist. Verified via pg_get_functiondef that all three are fully
+-- dynamic (EXECUTE format('... FROM %I t ...', p_table_name) / to_jsonb(t.*))
+-- and reference no hardcoded column name (no `name`, `code`, or
+-- `leave_type_name` anywhere in their bodies), so they operate correctly on
+-- the real table as-is — they would simply surface the real column names.
+-- No live path reaches them for this table anyway: features/hr/policies/
+-- registry.ts:48-53 removed 'hr_leave_types' from POLICY_TABLES on
+-- 2026-04-15, and nothing in features/hr/policies/ or lib/services/hr/
+-- policy-service.ts reads .name/.code off these RPCs' output.
 
 -- ================================================================================
 -- SECTION: CAMPUS LIVING VIEWS (Added: 2026-05-29)

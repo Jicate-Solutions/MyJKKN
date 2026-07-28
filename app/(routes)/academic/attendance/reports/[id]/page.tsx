@@ -293,6 +293,16 @@ export default function AttendanceReportDetailPage() {
     percentage: report.average_attendance
   };
 
+  // Updated: 2026-07-21 - Edit the period the user is actually viewing.
+  // Same bug class as BUG-003154 (fixed for "View Details" on 2026-06-19): one
+  // semester-level record holds several periods, so the Edit button's hardcoded
+  // period_details[0] sent EVERY edit into the first period's roster — a faculty
+  // who marked 6+ periods could never edit periods 2..n. No fallback to [0] here
+  // on purpose: silently editing the wrong class is worse than a disabled button.
+  const periodToEdit = report.period_details.find(
+    (p) => p.period_id === selectedPeriod
+  );
+
   return (
     <ContentLayout title='Attendance Report Details'>
       <Breadcrumb className='print:hidden'>
@@ -342,18 +352,24 @@ export default function AttendanceReportDetailPage() {
               <Button
                 variant='outline'
                 size='sm'
+                disabled={!periodToEdit}
+                title={
+                  periodToEdit
+                    ? `Edit attendance for ${periodToEdit.period_name || `Period ${periodToEdit.period_number}`}`
+                    : 'Select a period below to edit its attendance'
+                }
                 onClick={() => {
-                  const firstPeriod = report.period_details[0];
+                  if (!periodToEdit) return;
                   const params = new URLSearchParams({
                     timetableId: report.timetable_id,
                     sectionId: report.section_id,
                     date: report.attendance_date,
-                    periodId: firstPeriod.period_id,
+                    periodId: periodToEdit.period_id,
                   });
-                  if (firstPeriod.period_name) params.set('periodName', firstPeriod.period_name);
-                  if (firstPeriod.course_name) params.set('courseName', firstPeriod.course_name);
-                  if (firstPeriod.start_time) params.set('startTime', firstPeriod.start_time);
-                  if (firstPeriod.end_time) params.set('endTime', firstPeriod.end_time);
+                  if (periodToEdit.period_name) params.set('periodName', periodToEdit.period_name);
+                  if (periodToEdit.course_name) params.set('courseName', periodToEdit.course_name);
+                  if (periodToEdit.start_time) params.set('startTime', periodToEdit.start_time);
+                  if (periodToEdit.end_time) params.set('endTime', periodToEdit.end_time);
                   router.push(`/academic/attendance/mark?${params.toString()}`);
                 }}
               >

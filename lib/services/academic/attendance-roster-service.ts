@@ -25,6 +25,26 @@ export class AttendanceRosterService {
   // =====================
 
   /**
+   * A saved period slot carries students either directly (standard periods) or
+   * nested under subdivision groups (combined/subdivided periods save `students: []`
+   * at the top level and put the real rows in `groups[].students` — see mark/page.tsx).
+   * Checking only the top-level array made subdivided periods look permanently
+   * unmarked even though the record was saved.
+   */
+  private static periodHasAttendance(slotData: any): boolean {
+    if (!slotData) return false;
+    if (Array.isArray(slotData.students) && slotData.students.length > 0) {
+      return true;
+    }
+    if (Array.isArray(slotData.groups)) {
+      return slotData.groups.some(
+        (group: any) => Array.isArray(group?.students) && group.students.length > 0
+      );
+    }
+    return false;
+  }
+
+  /**
    * Check existing attendance for multiple periods at once
    */
   static async checkExistingAttendanceForPeriods(
@@ -146,7 +166,7 @@ export class AttendanceRosterService {
             // Even for multi-section records, we should only mark a period as complete
             // if THIS specific slot has attendance data
             const slotData = (data as any).attendance_data[period.timetable_slot_id];
-            if (slotData && slotData.students && slotData.students.length > 0) {
+            if (this.periodHasAttendance(slotData)) {
               isMarked = true;
             }
           }
@@ -240,11 +260,7 @@ export class AttendanceRosterService {
       if (period_id && (data as any).attendance_data) {
         // First check if period_id matches a slot key directly
         const periodData = (data as any).attendance_data[period_id];
-        if (
-          periodData &&
-          periodData.students &&
-          periodData.students.length > 0
-        ) {
+        if (this.periodHasAttendance(periodData)) {
           return {
             ...(data as any),
             marked_by: '', // Add missing required property
@@ -256,8 +272,7 @@ export class AttendanceRosterService {
         for (const [slotId, slotData] of Object.entries((data as any).attendance_data)) {
           if (
             (slotData as any).period_id === period_id &&
-            (slotData as any).students &&
-            (slotData as any).students.length > 0
+            this.periodHasAttendance(slotData)
           ) {
             return {
               ...(data as any),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -48,6 +48,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   Phone,
   Plus,
@@ -525,12 +526,23 @@ function SyncFromMetaButton({ institutionId, onDone }: { institutionId: string; 
 // Page Content
 // =============================================================================
 
+const WHATSAPP_NUMBERS_TABS = [
+  'business',
+  'personal',
+  'templates',
+  'template-manager',
+  'analytics',
+  'health',
+  'auto-triggers'
+] as const;
+
 function WhatsAppNumbersContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const isSuperAdmin = profile?.role === 'super_admin' || profile?.is_super_admin === true;
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useTabParam('business', WHATSAPP_NUMBERS_TABS);
   const [deleteTarget, setDeleteTarget] = useState<WAPhoneNumber | null>(null);
   const [selectedNumber, setSelectedNumber] = useState<WAPhoneNumber | null>(null);
 
@@ -589,7 +601,7 @@ function WhatsAppNumbersContent() {
     <PermissionGuard module="admission" action="manage">
       <ContentLayout title="WhatsApp Numbers">
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -605,7 +617,7 @@ function WhatsAppNumbersContent() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <SyncFromMetaButton
                 institutionId={institutionId}
                 onDone={() => queryClient.invalidateQueries({ queryKey: ['wa-phone-numbers'] })}
@@ -621,8 +633,8 @@ function WhatsAppNumbersContent() {
             </div>
           </div>
 
-          <Tabs defaultValue="business" className="w-full">
-            <TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="business">Business Numbers</TabsTrigger>
               <TabsTrigger value="personal">Personal WhatsApp</TabsTrigger>
               <TabsTrigger value="templates">Message Templates</TabsTrigger>
@@ -885,7 +897,11 @@ function WhatsAppNumbersContent() {
 }
 
 export default function WhatsAppNumbersPage() {
-  return <WhatsAppNumbersContent />;
+  return (
+    <Suspense fallback={null}>
+      <WhatsAppNumbersContent />
+    </Suspense>
+  );
 }
 
 // ----------------------------------------------------------------------------

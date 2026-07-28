@@ -54,6 +54,9 @@ import {
   saveRoutingRules,
   listRoutingResponses,
 } from '../actions';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const ROUTING_FORM_BUILDER_TABS = ['fields', 'rules', 'responses'] as const;
 
 // Local editable rule shape (UI keeps a stable client id for list keys).
 interface EditRule {
@@ -87,6 +90,9 @@ const DEST_TYPES: { value: RoutingDestinationType; label: string }[] = [
 ];
 
 export function RoutingFormBuilder({ form }: { form: RoutingFormWithRules }) {
+  // URL-synced main tab (deep-linkable / favoritable).
+  const [activeTab, setActiveTab] = useTabParam('fields', ROUTING_FORM_BUILDER_TABS);
+
   // ── form settings + fields ──
   const [title, setTitle] = useState(form.title);
   const [headline, setHeadline] = useState(form.headline ?? '');
@@ -333,7 +339,7 @@ export function RoutingFormBuilder({ form }: { form: RoutingFormWithRules }) {
   }, [testAnswers, nonDefaultRules, defaultRule]);
 
   return (
-    <Tabs defaultValue="fields" className="space-y-4">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <TabsList>
           <TabsTrigger value="fields">Fields</TabsTrigger>

@@ -16,6 +16,7 @@
 
 export const navMeta = { label: 'Premium Stay Dashboard', icon: 'LayoutGrid' } as const;
 
+import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { PremiumDashboardTabs } from './_components/premium-dashboard-tabs';
@@ -50,7 +51,9 @@ export default function PremiumStayDashboardPage() {
             seed land.
           </p>
         </div>
-        <PremiumDashboardTabs />
+        <Suspense fallback={null}>
+          <PremiumDashboardTabs />
+        </Suspense>
       </ContentLayout>
     </SuperAdminOnly>
   );

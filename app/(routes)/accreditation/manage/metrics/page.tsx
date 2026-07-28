@@ -240,7 +240,7 @@ export default function MetricsPage() {
         />
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-lg">Metrics Catalog</CardTitle>
                 <p className="text-sm text-muted-foreground">
@@ -248,7 +248,7 @@ export default function MetricsPage() {
                   Add local/supplementary metrics (e.g. JKKN-specific benchmarks) as needed.
                 </p>
               </div>
-              <div className="flex items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2">
                 <div className="w-40">
                   <Label className="text-xs">Filter body</Label>
                   <Select value={bodyFilter} onValueChange={setBodyFilter}>

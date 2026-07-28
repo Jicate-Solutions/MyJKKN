@@ -35,7 +35,7 @@ export function CancelBookingButton({ uid }: { uid: string }) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Button
         variant={confirming ? 'destructive' : 'outline'}
         size="sm"

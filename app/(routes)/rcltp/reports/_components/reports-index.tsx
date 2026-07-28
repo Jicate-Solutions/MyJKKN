@@ -9,9 +9,9 @@
 //   (iii) School-head dashboard
 //
 // CONTENT-SAFETY: each card describes WHAT the report will show and carries an
-// "Awaiting EKSAQ scoring + the 24-report catalog" note. ZERO fabricated scores,
+// "Awaiting MyJKKN scoring + the 24-report catalog" note. ZERO fabricated scores,
 // bands, percentages, rankings, or chart points appear anywhere. The full
-// 24-report catalog and the validated scoring formula are EKSAQ-gated and not
+// 24-report catalog and the validated scoring formula are MyJKKN-gated and not
 // delivered, so we never imply a result exists.
 // =============================================================================
 
@@ -83,7 +83,7 @@ export function ReportsIndex() {
                   aria-hidden='true'
                 />
                 <span>
-                  Awaiting EKSAQ scoring and the 24-report catalog. We only show
+                  Awaiting MyJKKN scoring and the 24-report catalog. We only show
                   validated results — never an estimated or placeholder score.
                 </span>
               </div>

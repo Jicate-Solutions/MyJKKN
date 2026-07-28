@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { Landmark, Layers, Loader2, Save } from 'lucide-react';
@@ -30,6 +31,8 @@ interface Regulation { id: string; title: string; regulation_year: string; regul
 // Keyed by institutionsId in the parent so switching institution remounts it
 // with fresh state (no stale-edit carryover).
 
+const MASTER_OUTCOMES_TABS = ['pos', 'psos'] as const;
+
 function MasterOutcomesEditor({
   institutionsId,
   regulationId,
@@ -42,6 +45,7 @@ function MasterOutcomesEditor({
 
   const [editPos, setEditPos] = useState<OutcomeInput[] | null>(null);
   const [editPsos, setEditPsos] = useState<OutcomeInput[] | null>(null);
+  const [activeTab, setActiveTab] = useTabParam('pos', MASTER_OUTCOMES_TABS);
 
   const canEdit = masterQuery.data?.can_edit ?? false;
 
@@ -100,8 +104,8 @@ function MasterOutcomesEditor({
   }
 
   return (
-    <Tabs defaultValue='pos'>
-      <TabsList className='mb-4'>
+    <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
         <TabsTrigger value='pos'>
           Programme Outcomes (POs)
           {serverPos.length > 0 && (

@@ -277,9 +277,9 @@ export default function HostelBlocksPage() {
                         <div
                           className={`h-full rounded-full transition-all ${
                             occupancyPercent >= 95 ? 'bg-red-500' :
-                            occupancyPercent >= 80 ? 'bg-green-500' :
+                            occupancyPercent >= 80 ? 'bg-amber-500' :
                             occupancyPercent >= 50 ? 'bg-blue-500' :
-                            'bg-amber-500'
+                            'bg-green-500'
                           }`}
                           style={{ width: `${occupancyPercent}%` }}
                         />

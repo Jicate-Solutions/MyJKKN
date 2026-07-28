@@ -29,7 +29,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember, isBosChairmanRow } from '@/types/bos';
+import { BosMeeting, BOS_MEETING_TYPE_LABELS, BosMember, isBosChairmanRow, isCouncilMeetingType } from '@/types/bos';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -552,11 +552,12 @@ export function MeetingForm({ meeting, isSubmitting, onSubmit, onCancel, isEditi
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {/* 'academic_council' is excluded — Academic Council
-                                meetings are scheduled from /bos/academic-council,
+                            {/* Council-family types are excluded — Academic
+                                Council and Governing Body meetings are scheduled
+                                from /bos/academic-council and /bos/governing-body,
                                 not this Board of Studies meeting form. */}
                             {Object.entries(BOS_MEETING_TYPE_LABELS)
-                              .filter(([value]) => value !== 'academic_council')
+                              .filter(([value]) => !isCouncilMeetingType(value))
                               .map(([value, label]) => (
                                 <SelectItem key={value} value={value}>
                                   {label}

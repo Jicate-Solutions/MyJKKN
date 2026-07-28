@@ -59,6 +59,40 @@ export interface SendEmailResult {
   error?: string;
 }
 
+/**
+ * Visible From: display name for a BoS-family send, keyed by meeting_type.
+ *
+ *   • BoS meetings        → smtpConfig.sender_name as configured
+ *     (e.g. "BOS - JKKN College of Arts & Science (Autonomous)")
+ *   • Governing Body      → rewrite leading "BOS" / "BoS" / "Board of Studies"
+ *     to "Governing Body" (e.g. "Governing Body - JKKN College…")
+ *   • Academic Council    → ac_sender_name when configured, otherwise the
+ *     same rewrite with "Academic Council"
+ */
+export function resolveBosSenderDisplayName(
+  meetingType: string | null | undefined,
+  cfg: Pick<BosSmtpConfig, 'sender_name' | 'ac_sender_name'>,
+): string {
+  if (meetingType === 'academic_council' && cfg.ac_sender_name?.trim()) {
+    return cfg.ac_sender_name.trim();
+  }
+
+  const label =
+    meetingType === 'governing_body'
+      ? 'Governing Body'
+      : meetingType === 'academic_council'
+        ? 'Academic Council'
+        : null;
+
+  if (!label) return cfg.sender_name;
+
+  const rewritten = cfg.sender_name.replace(
+    /^(BOS|BoS|Board of Studies)\s*[-–—]\s*/i,
+    `${label} - `,
+  );
+  return rewritten !== cfg.sender_name ? rewritten : `${label} - ${cfg.sender_name}`;
+}
+
 // ── SMTP config resolver ──────────────────────────────────────────────────────
 
 /**
@@ -94,6 +128,46 @@ export async function resolveBosSmtpConfig(
     return null;
   }
   return (data as BosSmtpConfig) ?? null;
+}
+
+// ── Board-level sender override ────────────────────────────────────────────────
+
+export interface BosBoardSender {
+  sender_email: string;
+  sender_name: string | null;
+}
+
+/**
+ * Resolve a per-board From override for (institutionsId, boardId). ECE and EEE
+ * can each send from their own address while sharing the institution's
+ * authenticated SMTP account. Returns null when no active override exists —
+ * the caller then falls back to the institution's smtp_configuration default
+ * (and, for Academic Council, its ac_sender_email).
+ *
+ * Never throws; a lookup failure degrades to null (institution default).
+ */
+export async function resolveBosBoardSender(
+  supabase: SupabaseClient,
+  institutionsId: string,
+  boardId: string | null | undefined,
+): Promise<BosBoardSender | null> {
+  if (!boardId) return null;
+
+  const { data, error } = await supabase
+    .from('bos_board_senders')
+    .select('sender_email, sender_name')
+    .eq('institutions_id', institutionsId)
+    .eq('board_id', boardId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[bos-email-sender] resolveBosBoardSender error:', error);
+    return null;
+  }
+  const row = data as BosBoardSender | null;
+  if (!row?.sender_email?.trim()) return null;
+  return row;
 }
 
 // ── Transporter cache ─────────────────────────────────────────────────────────

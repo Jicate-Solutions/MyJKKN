@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   LineChart,
   Line,
@@ -77,8 +78,11 @@ const STATUS_COLORS = {
   not_started: '#94a3b8',
 };
 
-export default function OKRAnalyticsPage() {
+const OKR_ANALYTICS_TABS = ['trends', 'departments', 'projections'] as const;
+
+function OKRAnalyticsPageInner() {
   const [selectedWeeks, setSelectedWeeks] = useState<string>('12');
+  const [activeTab, setActiveTab] = useTabParam('trends', OKR_ANALYTICS_TABS);
   const { profile } = useAuth();
   const { institutions } = useUserInstitutionAccess();
 
@@ -158,7 +162,7 @@ export default function OKRAnalyticsPage() {
         </div>
 
         {/* Tabs for different chart views */}
-        <Tabs defaultValue="trends" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="trends" className="gap-2">
               <TrendingUp className="h-4 w-4" />
@@ -561,6 +565,15 @@ export default function OKRAnalyticsPage() {
       </div>
       </OKRErrorBoundary>
     </ContentLayout>
+  );
+}
+
+export default function OKRAnalyticsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <OKRAnalyticsPageInner />
+    </Suspense>
   );
 }
 

@@ -47,9 +47,11 @@ import { logger } from '@/lib/utils/enhanced-logger';
 const EXTERNAL_BASE_TYPES: ReadonlySet<string> = new Set([
   'university_nominee',
   'subject_expert',
+  'academic_expert',
   'industry_expert',
   'alumni',
   'startup',
+  'student',
 ]);
 
 interface CatalogType {
