@@ -20,10 +20,13 @@
  * date ranges). Nothing fires unless a rule is `active` (all seeded inactive).
  */
 
+import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ActionConfig } from '@/types/notifications';
+import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
+import { zonedToUtc } from './native-slot-engine';
 
 const MODULE = 'meetings/triggers';
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
@@ -1604,4 +1607,621 @@ export async function listRecentTriggerEvents(
     ...e,
     college_name: nameById.get(e.institution_id) ?? '—'
   })) as TriggerEventRow[];
+}
+
+// ---------------------------------------------------------------------------
+// PR1c — book the meeting (with graceful degrade)
+// ---------------------------------------------------------------------------
+// Closes the loop PR1a/PR1b left open: an escalated breach sat at
+// status='meeting_pending' forever because nothing ever booked anything.
+//
+// This is a PARALLEL pass. It does not touch evaluate*/reconcile* — those run
+// LIVE for attendance + projects and only ever hand rows to this pass through
+// status='meeting_pending'.
+//
+// Decision #4 is the load-bearing one: only 21 of ~6,200 profiles have a Google
+// Calendar connected (19 active + 2 broken, measured 2026-07-28), and only 2 of
+// 11 Principals. So "nobody's calendar is connected" is the COMMON path, not the
+// edge case, and this pass is written degrade-first: when anyone in the meeting
+// has no healthy connection we do NOT force-book a time onto them — we leave the
+// event pending and send the one person who can unblock it a single "connect
+// your calendar" ask. The missing meeting is the adoption driver.
+
+/** Decision #3: a short accountability review, not an hour-long meeting. */
+const REVIEW_MEETING_MIN = 30;
+/** Decision #10: take the soonest slot that works — even a week or two out. */
+const BOOKING_HORIZON_DAYS = 14;
+/** Campus working window (Asia/Kolkata wall clock): 10:00 → 17:00. */
+const WORK_DAY_START_MIN = 10 * 60;
+const WORK_DAY_END_MIN = 17 * 60;
+/** Never book something starting inside the next two hours. */
+const BOOKING_MIN_NOTICE_MIN = 120;
+const CAMPUS_TZ = 'Asia/Kolkata';
+/** Where an un-connected participant goes to connect Google Calendar. */
+const CONNECT_CALENDAR_URL = '/meetings/availability';
+/** Free slots to try before giving up on a concurrent-booking race (23P01). */
+const SLOT_ATTEMPTS = 5;
+/** Bound the work of one cron pass. */
+const BOOKING_BATCH_LIMIT = 50;
+
+export interface BookingResult {
+  /** meeting_pending events with no booking yet, seen this run. */
+  pending_events: number;
+  /** folded meetings considered (decision #9: same people + same day = one). */
+  groups: number;
+  /** meetings actually booked. */
+  booked: number;
+  /** breach events closed by those bookings. */
+  events_booked: number;
+  /** people newly asked to connect their calendar (decision #4). */
+  calendar_nudges: number;
+  /** groups left pending because someone has no healthy calendar. */
+  skipped_no_connection: number;
+  /** groups left pending because no common free slot exists in the horizon. */
+  skipped_no_slot: number;
+  /** events with nobody to invite (no recipient, no judge). */
+  skipped_no_participants: number;
+  /** groups left pending because Google could not be read (fail closed). */
+  skipped_calendar_error: number;
+  errors: string[];
+}
+
+interface PendingEvent {
+  id: string;
+  institution_id: string | null;
+  metric_key: string;
+  observed_value: number | null;
+  threshold: number;
+  breach_date: string;
+  subject_type: string | null;
+  subject_label: string | null;
+  judge_profile_id: string | null;
+  notified_profile_ids: string[] | null;
+  calendar_nudged_profile_ids: string[] | null;
+  booking_error: string | null;
+}
+
+interface BookingGroup {
+  key: string;
+  breachDate: string;
+  events: PendingEvent[];
+  /** everyone invited: the judge (Director) + the notified owner(s) — decision #11. */
+  participantIds: string[];
+  /** whose calendar owns the event (the judge). */
+  hostId: string;
+  /** the person answering for the breach (the Principal / Accountable). */
+  attendeeId: string;
+  institutionId: string | null;
+}
+
+interface Interval {
+  start: number;
+  end: number;
+}
+
+function intervalsOverlap(a: Interval, b: Interval): boolean {
+  return a.start < b.end && b.start < a.end;
+}
+
+/**
+ * Every candidate 30-minute slot in the booking horizon, chronological:
+ * working hours in campus time, Sundays skipped, honouring the minimum notice.
+ * Asia/Kolkata has no DST but zonedToUtc is used anyway so the conversion stays
+ * correct if the campus timezone constant ever changes.
+ */
+function candidateSlots(now: Date): Interval[] {
+  const earliest = now.getTime() + BOOKING_MIN_NOTICE_MIN * 60_000;
+  const slots: Interval[] = [];
+  let day = todayIST(now);
+
+  for (let i = 0; i <= BOOKING_HORIZON_DAYS; i++) {
+    const [y, m, d] = day.split('-').map(Number);
+    // 0 = Sunday. Calendar-date weekday is timezone-independent here because the
+    // label itself is already the campus-local date.
+    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (weekday !== 0) {
+      for (
+        let min = WORK_DAY_START_MIN;
+        min + REVIEW_MEETING_MIN <= WORK_DAY_END_MIN;
+        min += REVIEW_MEETING_MIN
+      ) {
+        const start = zonedToUtc(y, m, d, min, CAMPUS_TZ).getTime();
+        if (start >= earliest) {
+          slots.push({ start, end: start + REVIEW_MEETING_MIN * 60_000 });
+        }
+      }
+    }
+    day = addDaysISO(day, 1);
+  }
+  return slots;
+}
+
+/** Stamp a non-fatal reason on every event in a group, without hourly churn. */
+async function recordBookingError(
+  db: SupabaseClient,
+  group: BookingGroup,
+  message: string
+): Promise<void> {
+  const stale = group.events.filter((e) => e.booking_error !== message);
+  if (stale.length === 0) return;
+  await db
+    .from('meeting_trigger_events')
+    .update({ booking_error: message })
+    .in(
+      'id',
+      stale.map((e) => e.id)
+    );
+}
+
+/**
+ * Decision #4 degrade path. Ask the un-connected participant(s) — once each, per
+ * event — to connect Google Calendar, and leave the breach at meeting_pending so
+ * the next run picks it up the moment they do. Returns how many people were
+ * newly asked (0 when everyone has already been asked: the pass is idempotent).
+ */
+async function nudgeToConnectCalendar(
+  db: SupabaseClient,
+  group: BookingGroup,
+  unconnected: string[],
+  adminIds: string[],
+  now: Date
+): Promise<number> {
+  const alreadyNudged = new Set<string>();
+  for (const ev of group.events) {
+    for (const p of ev.calendar_nudged_profile_ids ?? []) alreadyNudged.add(p);
+  }
+  const toNudge = unconnected.filter((p) => !alreadyNudged.has(p));
+  if (toNudge.length === 0) return 0;
+
+  const instName = group.institutionId
+    ? await getInstitutionName(db, group.institutionId)
+    : 'JKKN';
+  const subject = group.events[0]?.subject_label ?? instName;
+
+  await createBellNotification(db, {
+    recipientIds: toNudge,
+    createdBy: adminIds[0] ?? toNudge[0],
+    title: 'Connect your Google Calendar so this review meeting can be scheduled',
+    body:
+      `A short review meeting about ${subject} (${group.breachDate}) is waiting ` +
+      `to be scheduled, but your Google Calendar is not connected — so we cannot ` +
+      `see when you are free and will not put a time on your day without it. ` +
+      `Open Meetings → Availability and connect Google Calendar; the meeting is ` +
+      `then booked automatically at the soonest ${REVIEW_MEETING_MIN}-minute slot ` +
+      `everyone shares.`,
+    url: CONNECT_CALENDAR_URL,
+    category: 'meetings:calendar-connect-needed',
+    metadata: {
+      event_ids: group.events.map((e) => e.id),
+      institution_id: group.institutionId,
+      breach_date: group.breachDate,
+      unconnected_profile_ids: unconnected,
+      source: 'cron:meeting-trigger-reconcile'
+    }
+  });
+
+  const nextNudged = [...new Set([...alreadyNudged, ...unconnected])];
+  await db
+    .from('meeting_trigger_events')
+    .update({
+      calendar_nudge_sent_at: now.toISOString(),
+      calendar_nudged_profile_ids: nextNudged,
+      booking_error: 'waiting on a Google Calendar connection'
+    })
+    .in(
+      'id',
+      group.events.map((e) => e.id)
+    );
+
+  return toNudge.length;
+}
+
+/**
+ * Book the meetings the engine already decided are warranted.
+ *
+ * Runs after reconcileExplanations in the hourly cron. For every
+ * status='meeting_pending' event with no booking yet:
+ *   1. resolve who must be in the room — the notified owner(s) (Principal /
+ *      alert owner / Accountable) plus the judge (Director / super-admin);
+ *   2. fold same-day breaches for the same people into ONE meeting (#9);
+ *   3. if EVERY participant has a healthy Google connection, take the soonest
+ *      common free 30-minute working-hours slot inside 14 days (#3, #10, #11),
+ *      write the meeting_bookings row, add a Google event with a Meet link, and
+ *      flip the events to 'booked';
+ *   4. otherwise DO NOT book (#4) — nudge the un-connected participant(s) once
+ *      and leave the events pending.
+ *
+ * Never throws: every Google call is wrapped, and any failure leaves the event
+ * pending with a readable booking_error so the next run retries it. A Google
+ * outage must never crash the cron or lose a breach.
+ */
+export async function bookPendingMeetings(
+  opts: { now?: Date; client?: SupabaseClient; limit?: number } = {}
+): Promise<BookingResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const now = opts.now ?? new Date();
+  const result: BookingResult = {
+    pending_events: 0,
+    groups: 0,
+    booked: 0,
+    events_booked: 0,
+    calendar_nudges: 0,
+    skipped_no_connection: 0,
+    skipped_no_slot: 0,
+    skipped_no_participants: 0,
+    skipped_calendar_error: 0,
+    errors: []
+  };
+
+  const { data: events, error } = await db
+    .from('meeting_trigger_events')
+    .select(
+      'id, institution_id, metric_key, observed_value, threshold, breach_date, subject_type, subject_label, judge_profile_id, notified_profile_ids, calendar_nudged_profile_ids, booking_error'
+    )
+    .eq('status', 'meeting_pending')
+    .is('booking_id', null)
+    .order('breach_date', { ascending: true })
+    .limit(opts.limit ?? BOOKING_BATCH_LIMIT);
+
+  if (error) {
+    // 42703 = undefined_column: the deploy shipped this code before the PR1c
+    // migration was applied (MyJKKN deploys ship CODE, not migrations). Report
+    // it as a plain note, don't throw — the explanation valve above must keep
+    // running, and the very next run after the migration lands picks this up.
+    result.errors.push(
+      (error as any).code === '42703'
+        ? 'booking link migration (meeting_trigger_events.booking_id) not applied yet — nothing booked'
+        : `load pending events: ${error.message}`
+    );
+    return result;
+  }
+
+  const pending = (events ?? []) as unknown as PendingEvent[];
+  result.pending_events = pending.length;
+  // The state today: 0 events, all rules dormant. Clean no-op, no Google calls,
+  // no admin lookup, nothing written.
+  if (pending.length === 0) return result;
+
+  const adminIds = await getSuperAdminIds(db);
+
+  // --- 1 + 2. resolve participants, then fold same-day duplicates (#9) -------
+  const groups = new Map<string, BookingGroup>();
+  for (const ev of pending) {
+    try {
+      let notified = (ev.notified_profile_ids ?? []).filter(Boolean);
+      if (notified.length === 0 && ev.institution_id) {
+        notified = (await resolveRecipients(db, ev.institution_id)).recipientIds;
+      }
+
+      // Decision #11 is a two-sided meeting: the judge, plus whoever actually
+      // has to answer for the breach. Who that is differs by engine:
+      //  - project events store [accountable, ...informees] — the informees got
+      //    a heads-up bell, not a summons, so only the FIRST is in the room;
+      //  - attendance events asked every recipient to explain, so they all
+      //    belong — but capped, because the no-principal fallback fans out to
+      //    up to 5 super-admins and a 6-person review is neither intended by
+      //    #11 nor realistically schedulable.
+      const people = ev.subject_type ? notified.slice(0, 1) : notified.slice(0, 2);
+
+      // Project events carry their own judge; attendance events answer to the
+      // Director (first super-admin).
+      const judge = ev.judge_profile_id ?? adminIds[0] ?? null;
+      const participantIds = [
+        ...new Set([...(judge ? [judge] : []), ...people])
+      ].filter(Boolean) as string[];
+
+      if (participantIds.length === 0) {
+        result.skipped_no_participants++;
+        continue;
+      }
+
+      const hostId = judge ?? participantIds[0];
+      const attendeeId =
+        people.find((p) => p !== hostId) ?? people[0] ?? hostId;
+
+      // Same people + same breach day → one meeting, not one per breach.
+      const key = `${ev.breach_date}|${[...participantIds].sort().join(',')}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.events.push(ev);
+      } else {
+        groups.set(key, {
+          key,
+          breachDate: ev.breach_date,
+          events: [ev],
+          participantIds,
+          hostId,
+          attendeeId,
+          institutionId: ev.institution_id
+        });
+      }
+    } catch (e: any) {
+      result.errors.push(`event ${ev.id}: ${e?.message ?? String(e)}`);
+    }
+  }
+  result.groups = groups.size;
+
+  // --- 3 + 4. book, or degrade -----------------------------------------------
+  for (const group of groups.values()) {
+    try {
+      // Everyone's calendar must be connected AND healthy (decision #4).
+      const { data: conns } = await db
+        .from('meeting_host_google_connections')
+        .select('host_profile_id, google_email, status')
+        .in('host_profile_id', group.participantIds);
+
+      const connectedEmail = new Map<string, string>();
+      for (const c of (conns ?? []) as any[]) {
+        if (c?.status === 'active' && c.host_profile_id) {
+          connectedEmail.set(c.host_profile_id, c.google_email);
+        }
+      }
+      const unconnected = group.participantIds.filter(
+        (p) => !connectedEmail.has(p)
+      );
+
+      if (unconnected.length > 0) {
+        result.skipped_no_connection++;
+        result.calendar_nudges += await nudgeToConnectCalendar(
+          db,
+          group,
+          unconnected,
+          adminIds,
+          now
+        );
+        continue;
+      }
+
+      // --- availability: Google freeBusy, fail CLOSED on any read failure ----
+      const windowStartIso = new Date(
+        now.getTime() + BOOKING_MIN_NOTICE_MIN * 60_000
+      ).toISOString();
+      const windowEndIso = new Date(
+        now.getTime() + (BOOKING_HORIZON_DAYS + 1) * 86_400_000
+      ).toISOString();
+
+      const busy: Interval[] = [];
+      let calendarFailed = false;
+
+      for (const pid of group.participantIds) {
+        try {
+          const res = await GoogleCalendarService.busyForHost(
+            db,
+            pid,
+            windowStartIso,
+            windowEndIso
+          );
+          if (res.status === 'ok') {
+            for (const b of res.busy) {
+              const s = Date.parse(b.start);
+              const e = Date.parse(b.end);
+              if (Number.isFinite(s) && Number.isFinite(e)) {
+                busy.push({ start: s, end: e });
+              }
+            }
+          } else {
+            // 'failed' (Google error) or 'none' (connection vanished between the
+            // check above and now) — never guess at someone's availability.
+            calendarFailed = true;
+          }
+        } catch (e: any) {
+          calendarFailed = true;
+          result.errors.push(`freeBusy ${pid}: ${e?.message ?? String(e)}`);
+        }
+      }
+
+      if (calendarFailed) {
+        result.skipped_calendar_error++;
+        await recordBookingError(
+          db,
+          group,
+          'Google Calendar availability could not be read; will retry next run'
+        );
+        continue;
+      }
+
+      // Anything already on the JKKN side counts as busy too — a booking that
+      // never reached Google (or predates the connection) must still block.
+      const { data: existingBookings } = await db
+        .from('meeting_bookings')
+        .select('start_time, end_time')
+        .in('host_profile_id', group.participantIds)
+        .eq('status', 'confirmed')
+        .lt('start_time', windowEndIso)
+        .gt('end_time', windowStartIso);
+      for (const b of (existingBookings ?? []) as any[]) {
+        const s = Date.parse(b.start_time);
+        const e = Date.parse(b.end_time);
+        if (Number.isFinite(s) && Number.isFinite(e)) busy.push({ start: s, end: e });
+      }
+
+      const freeSlots = candidateSlots(now).filter(
+        (s) => !busy.some((b) => intervalsOverlap(s, b))
+      );
+      if (freeSlots.length === 0) {
+        result.skipped_no_slot++;
+        await recordBookingError(
+          db,
+          group,
+          `no common free ${REVIEW_MEETING_MIN}-minute slot in the next ${BOOKING_HORIZON_DAYS} days`
+        );
+        continue;
+      }
+
+      // --- identities for the booking row + the calendar invite -------------
+      const { data: profs } = await db
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', group.participantIds);
+      const profById = new Map(
+        ((profs ?? []) as any[]).map((p) => [p.id, p])
+      );
+      const emailOf = (id: string): string | null =>
+        profById.get(id)?.email ?? connectedEmail.get(id) ?? null;
+      const nameOf = (id: string): string =>
+        profById.get(id)?.full_name ?? 'JKKN';
+
+      const attendeeEmail = emailOf(group.attendeeId);
+      if (!attendeeEmail) {
+        result.errors.push(
+          `group ${group.key}: no email for attendee ${group.attendeeId}`
+        );
+        await recordBookingError(
+          db,
+          group,
+          'the person answering for this breach has no email on file'
+        );
+        continue;
+      }
+
+      const instName = group.institutionId
+        ? await getInstitutionName(db, group.institutionId)
+        : 'JKKN';
+      const label = group.events[0]?.subject_label ?? instName;
+
+      // --- insert the booking; the DB exclusion constraint arbitrates races --
+      let booking: { id: string; startIso: string; endIso: string } | null = null;
+      let lastErr = '';
+      for (const slot of freeSlots.slice(0, SLOT_ATTEMPTS)) {
+        const startIso = new Date(slot.start).toISOString();
+        const endIso = new Date(slot.end).toISOString();
+        const { data: inserted, error: insErr } = await (db as any)
+          .from('meeting_bookings')
+          .insert({
+            uid: crypto.randomBytes(16).toString('base64url'),
+            meeting_type_id: null,
+            host_profile_id: group.hostId,
+            institution_id: group.institutionId,
+            attendee_name: nameOf(group.attendeeId),
+            attendee_email: attendeeEmail,
+            attendee_profile_id: group.attendeeId,
+            answers: {
+              auto_booked_by: 'meeting-trigger-engine',
+              // Decision #9: every folded breach is referenced here, so the
+              // meeting can always be traced back to all of its causes.
+              trigger_event_ids: group.events.map((e) => e.id),
+              breach_date: group.breachDate,
+              participant_profile_ids: group.participantIds
+            },
+            start_time: startIso,
+            end_time: endIso,
+            status: 'confirmed',
+            source: 'trigger-engine'
+          })
+          .select('id')
+          .single();
+
+        if (!insErr && inserted) {
+          booking = { id: (inserted as any).id as string, startIso, endIso };
+          break;
+        }
+        lastErr = insErr?.message ?? 'unknown insert error';
+        // 23P01 = exclusion_violation: the host got booked in that range while
+        // we were computing. Anything else is not worth retrying.
+        if ((insErr as any)?.code !== '23P01') break;
+      }
+
+      if (!booking) {
+        result.errors.push(`group ${group.key}: booking insert failed — ${lastErr}`);
+        await recordBookingError(db, group, `booking insert failed: ${lastErr}`);
+        continue;
+      }
+
+      // --- Google event + Meet link (best effort; never undoes the booking) --
+      let meetUrl: string | null = null;
+      try {
+        const attendees = group.participantIds
+          .map((p) => ({ email: emailOf(p), displayName: nameOf(p) }))
+          .filter((a): a is { email: string; displayName: string } => !!a.email);
+
+        const created = await GoogleCalendarService.createEvent(db, group.hostId, {
+          summary: `Review meeting — ${label}`,
+          description:
+            `Auto-scheduled by the JKKN accountability engine because the ` +
+            `${group.breachDate} threshold breach was not resolved by an ` +
+            `explanation.\n\n` +
+            group.events
+              .map(
+                (e) =>
+                  `• ${e.metric_key}: observed ${e.observed_value ?? '—'} vs threshold ${e.threshold} on ${e.breach_date}`
+              )
+              .join('\n'),
+          startIso: booking.startIso,
+          endIso: booking.endIso,
+          timezone: CAMPUS_TZ,
+          attendees,
+          withMeet: true
+        });
+        if (created) {
+          meetUrl = created.meetUrl;
+          await db
+            .from('meeting_bookings')
+            .update({
+              google_event_id: created.eventId,
+              video_url: created.meetUrl
+            })
+            .eq('id', booking.id);
+        }
+      } catch (e: any) {
+        // The meeting exists in JKKN either way; only the calendar copy is lost.
+        logger.error(MODULE, 'Google event creation failed for auto-booking', e);
+        result.errors.push(
+          `google event for booking ${booking.id}: ${e?.message ?? String(e)}`
+        );
+      }
+
+      // --- close the breach events ------------------------------------------
+      const { error: upErr } = await db
+        .from('meeting_trigger_events')
+        .update({
+          status: 'booked',
+          booking_id: booking.id,
+          booking_error: null
+        })
+        .in(
+          'id',
+          group.events.map((e) => e.id)
+        );
+      if (upErr) {
+        result.errors.push(`mark booked ${group.key}: ${upErr.message}`);
+      }
+      result.booked++;
+      result.events_booked += group.events.length;
+
+      // --- tell the room ------------------------------------------------------
+      const whenLabel = new Date(booking.startIso).toLocaleString('en-IN', {
+        timeZone: CAMPUS_TZ,
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      });
+      await createBellNotification(db, {
+        recipientIds: group.participantIds,
+        createdBy: group.hostId,
+        title: `Review meeting scheduled — ${label}`,
+        body:
+          `A ${REVIEW_MEETING_MIN}-minute review meeting has been scheduled for ` +
+          `${whenLabel} (IST) — the first slot everyone was free.` +
+          (group.events.length > 1
+            ? ` It covers ${group.events.length} items from ${group.breachDate}.`
+            : '') +
+          (meetUrl ? ` Google Meet: ${meetUrl}` : '') +
+          ` It is on your Google Calendar; reply there if you need a different time.`,
+        url: '/meetings/inbox',
+        category: 'meetings:trigger-meeting-booked',
+        metadata: {
+          booking_id: booking.id,
+          event_ids: group.events.map((e) => e.id),
+          institution_id: group.institutionId,
+          breach_date: group.breachDate,
+          start_time: booking.startIso,
+          source: 'cron:meeting-trigger-reconcile'
+        }
+      });
+    } catch (e: any) {
+      result.errors.push(`group ${group.key}: ${e?.message ?? String(e)}`);
+      logger.error(MODULE, 'bookPendingMeetings group failed', e);
+    }
+  }
+
+  return result;
 }
