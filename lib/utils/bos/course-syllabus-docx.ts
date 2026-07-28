@@ -118,6 +118,9 @@ export interface CourseSyllabusDOCXData {
 	k_values?: Record<string, string>
 	units?: BosUnit[]
 	practical_topics?: BosPracticalTopic[]
+	/** Accepted for parity with the PDF data shape; the DOCX experiments section
+	 *  does not yet consume it. */
+	number_practical_topics?: boolean
 	instruction?: string
 	textbooks?: BosTextbook[]
 	references?: BosTextbook[]
@@ -312,7 +315,7 @@ function rowsCoursePart(data: CourseSyllabusDOCXData): TableRow[] {
 			children: [
 				tc([p(partLabel, { bold: true, alignment: AlignmentType.CENTER })], { valign: VerticalAlign.CENTER }),
 				tc(
-					[p(data.course_name.toUpperCase(), { bold: true, size: TITLE_SIZE, alignment: AlignmentType.CENTER })],
+					[p((data.course_name ?? '').toUpperCase(), { bold: true, size: TITLE_SIZE, alignment: AlignmentType.CENTER })],
 					{ columnSpan: 4, valign: VerticalAlign.CENTER },
 				),
 			],

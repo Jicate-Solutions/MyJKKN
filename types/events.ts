@@ -10,6 +10,13 @@ export type EventType = 'marathon' | 'cultural_fest' | 'seminar' | 'workshop' | 
 // Cross-institution levers (exist on the live `events` table; CHECK-constrained in DB).
 export type EventScope = 'chapter' | 'institution' | 'all_jkkn';
 export type EventVisibility = 'public' | 'all_jkkn' | 'institution' | 'invited';
+/**
+ * Which kind of organisation an EXTERNAL participant represents on the public
+ * tournament registration form. 'school' shows "School / club" backed by the
+ * school_master directory picker; 'college' shows "College" as free text.
+ * Defaults to 'school' in the DB so existing tournaments are unaffected.
+ */
+export type ParticipantOrgType = 'school' | 'college';
 
 export type EventStatus = 'draft' | 'planning' | 'preparation' | 'execution' | 'live' | 'post_event' | 'archived' | 'cancelled';
 
@@ -72,6 +79,8 @@ export interface Event {
   max_registrations: number | null;
   is_public: boolean;
   allow_external_registration: boolean;
+  /** Which kind of organisation EXTERNAL participants represent (see ParticipantOrgType). */
+  participant_org_type: ParticipantOrgType;
   is_active: boolean;
   previous_event_id: string | null;
   year: number | null;
@@ -87,6 +96,11 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  // NAAC evidence tags (events.naac_criteria text[] NOT NULL DEFAULT '{}',
+  // live since Phase 1A 20260417000001; GIN-indexed). Read by the events →
+  // quality-evidence-spine emitter (PR #2408); written by the NAAC criteria
+  // field on the tournament edit dialog (Wave 3, 2026-07-26).
+  naac_criteria: string[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -219,6 +233,7 @@ export interface CreateEventDto {
   max_registrations?: number;
   is_public?: boolean;
   allow_external_registration?: boolean;
+  participant_org_type?: ParticipantOrgType;
   config?: Record<string, unknown>;
   registration_config?: Record<string, unknown>;
   branding_config?: Record<string, unknown>;
@@ -231,6 +246,8 @@ export interface CreateEventDto {
   end_date?: string;
   registration_open_date?: string;
   registration_close_date?: string;
+  // NAAC evidence tags — see Event.naac_criteria.
+  naac_criteria?: string[];
 }
 
 export interface UpdateEventDto extends Partial<CreateEventDto> {

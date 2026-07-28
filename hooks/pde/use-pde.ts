@@ -68,6 +68,7 @@ export const pdeQueryKeys = {
   engagementSummary: (learnerId: string, courseId?: string) =>
     [...pdeQueryKeys.engagement(), 'summary', learnerId, courseId] as const,
   atRisk: (courseId?: string) => [...pdeQueryKeys.engagement(), 'at-risk', courseId] as const,
+  atRiskHistory: () => [...pdeQueryKeys.engagement(), 'at-risk', 'history'] as const,
   // Certificates
   certificates: () => [...pdeQueryKeys.all, 'certificates'] as const,
   certificate: (id: string) => [...pdeQueryKeys.certificates(), id] as const,
@@ -285,6 +286,20 @@ export function useAtRiskLearners(courseId?: string) {
     queryKey: pdeQueryKeys.atRisk(courseId),
     queryFn: () => PDEService.getAtRiskLearners(courseId),
     staleTime: 5 * 60 * 1000, // 5 min (expensive query)
+  });
+}
+
+/**
+ * Flag history recorded by /api/cron/pde-at-risk-flag. Kept separate from
+ * useAtRiskLearners so the live surface still renders if the log is empty
+ * (cron never ran, or a fresh deploy before the migration is applied).
+ */
+export function useAtRiskHistory() {
+  return useQuery({
+    queryKey: pdeQueryKeys.atRiskHistory(),
+    queryFn: () => PDEService.getAtRiskHistory(),
+    staleTime: 5 * 60 * 1000,
+    retry: false, // absent table/view before migration → fail quietly, not 3x
   });
 }
 

@@ -27,6 +27,7 @@ import {
 import {
   usePolls,
   useCreatePoll,
+  useActivatePoll,
   useVotePoll,
   useClosePoll,
   useUserVote
@@ -75,6 +76,7 @@ export function PollsClient({ initialPolls, userId, canCreate }: PollsClientProp
   const { data: pollsData, isLoading } = usePolls(filters);
   const createMutation = useCreatePoll();
   const closeMutation = useClosePoll();
+  const activateMutation = useActivatePoll();
 
   const polls = pollsData?.data || initialPolls;
 
@@ -113,6 +115,9 @@ export function PollsClient({ initialPolls, userId, canCreate }: PollsClientProp
           setFormOptions(['', '']);
           setFormStartsAt('');
           setFormEndsAt('');
+          // A new poll is a draft; the list defaults to "Active", so show drafts now
+          // otherwise the poll the member just made appears to vanish.
+          setStatusFilter('draft');
         }
       }
     );
@@ -288,6 +293,7 @@ export function PollsClient({ initialPolls, userId, canCreate }: PollsClientProp
               userId={userId}
               canCreate={canCreate}
               onClose={() => closeMutation.mutate(poll.id)}
+              onActivate={() => activateMutation.mutate(poll.id)}
             />
           ))}
         </div>
@@ -304,12 +310,14 @@ function PollCard({
   poll,
   userId,
   canCreate,
-  onClose
+  onClose,
+  onActivate
 }: {
   poll: LCPoll;
   userId: string;
   canCreate: boolean;
   onClose: () => void;
+  onActivate: () => void;
 }) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const voteMutation = useVotePoll();
@@ -346,6 +354,11 @@ function PollCard({
             </div>
             <CardTitle className="text-base">{poll.title}</CardTitle>
           </div>
+          {canCreate && poll.status === 'draft' && (
+            <Button size="sm" onClick={onActivate}>
+              Publish
+            </Button>
+          )}
           {canCreate && isActive && (
             <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground">
               Close

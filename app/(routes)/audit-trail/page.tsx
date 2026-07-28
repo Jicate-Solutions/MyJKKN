@@ -74,7 +74,7 @@ function AuditTrailPageInner() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className='flex items-center justify-between mb-6'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6'>
         <div>
           <h1 className='text-3xl font-bold flex items-center gap-2'>
             <FileText className='h-8 w-8' />
@@ -84,7 +84,7 @@ function AuditTrailPageInner() {
             Track all system activities and changes
           </p>
         </div>
-        <Button variant='outline' onClick={handleExport}>
+        <Button variant='outline' onClick={handleExport} className='shrink-0 self-start sm:self-auto'>
           <Download className='mr-2 h-4 w-4' />
           Export Logs
         </Button>

@@ -112,7 +112,7 @@ export default function GrievanceListPage() {
         ]}
       />
 
-      <div className="mb-4 flex items-center justify-between gap-2">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <ShieldAlert className="h-6 w-6 text-orange-500" />

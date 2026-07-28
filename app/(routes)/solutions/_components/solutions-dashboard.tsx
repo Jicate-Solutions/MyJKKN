@@ -70,7 +70,7 @@ export function SolutionsDashboard() {
 
       {/* Paradigm Shift Banner */}
       <Card className="border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
-        <CardContent className="flex items-center justify-between py-4">
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between py-4">
           <div className="flex items-center gap-3">
             <Sparkles className="h-6 w-6 text-green-600" />
             <div>
@@ -82,7 +82,7 @@ export function SolutionsDashboard() {
               </p>
             </div>
           </div>
-          <Button variant="outline" size="sm" asChild className="border-green-300 text-green-700 hover:bg-green-100">
+          <Button variant="outline" size="sm" asChild className="shrink-0 border-green-300 text-green-700 hover:bg-green-100">
             <Link href="/solutions/paradigm-shift">
               View Dashboard
               <ArrowRight className="ml-2 h-4 w-4" />

@@ -57,10 +57,10 @@ export function ImagesTab({ resource }: ImagesTabProps) {
   return (
     <div className='space-y-6'>
       {/* Primary Image */}
-      <Card className='w-[500px] h-[400px]'>
+      <Card className='w-full max-w-[500px] h-[400px]'>
         <CardContent className='p-6'>
           <h3 className='text-lg font-semibold mb-4'>Primary Image</h3>
-          <div className='relative aspect-video rounded-lg overflow-hidden bg-gray-100 border h-[300px] w-[400px]'>
+          <div className='relative aspect-video rounded-lg overflow-hidden bg-gray-100 border h-[300px] w-full max-w-[400px]'>
             <Image
               src={imageUrls[0]}
               alt={`${resource.name} - Primary`}
@@ -150,11 +150,12 @@ export function ImagesTab({ resource }: ImagesTabProps) {
       >
         <DialogContent className='max-w-4xl'>
           <DialogHeader>
-            <DialogTitle className='flex items-center justify-between'>
-              <span>{resource.name}</span>
+            <DialogTitle className='flex items-center justify-between gap-2'>
+              <span className='truncate'>{resource.name}</span>
               <Button
                 variant='ghost'
                 size='sm'
+                className='shrink-0'
                 onClick={() => setSelectedImage(null)}
               >
                 <X className='h-4 w-4' />

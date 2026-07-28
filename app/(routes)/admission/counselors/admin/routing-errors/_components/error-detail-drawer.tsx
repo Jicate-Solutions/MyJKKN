@@ -76,7 +76,7 @@ export function ErrorDetailDrawer({ error, onClose, onResolved }: Props) {
 
         {error && (
           <div className="mt-6 space-y-5">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <div className="text-xs text-muted-foreground">Occurred at</div>
                 <div className="font-mono">

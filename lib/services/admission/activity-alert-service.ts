@@ -3,6 +3,7 @@
 // Listens for lead activity events and sends instant notifications to counselors
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 // ============================================================================
 // TYPES
@@ -359,31 +360,32 @@ export class ActivityAlertService {
       ...(params.metadata as Record<string, string> || {}),
     });
 
-    // 5. Send notifications using the notification system
-    // Create notification records for each user
-    for (const userId of usersToNotify) {
-      try {
-        await (this.supabase as any)
-          .from('notifications')
-          .insert({
-            user_id: userId,
-            type: 'info',
-            category: 'admission',
-            priority: params.eventType === 'payment_initiated' ? 'high' : 'normal',
-            title: template.title,
-            message,
-            metadata: {
-              event_type: params.eventType,
-              lead_id: params.leadId,
-              ...params.metadata,
-            },
-            action_url: `/admission/leads/${params.leadId}`,
-            action_label: 'View Lead',
-            channels: rule.notification_channels,
-          });
-      } catch (err) {
-        console.error(`[activity-alert] Failed to send notification to ${userId}:`, err);
-      }
+    // 5. Send notifications via the shared fanout helper — writes ONE
+    //    notifications row (real columns) + a user_notifications link per
+    //    recipient. The previous inline insert used non-existent columns
+    //    (user_id/type/message/action_url/action_label/channels) and never
+    //    fanned out to user_notifications, so alerts never reached the bell.
+    try {
+      await fanoutNotification(this.supabase as any, {
+        title: template.title,
+        body: message,
+        userIds: usersToNotify,
+        createdBy: usersToNotify[0],
+        category: 'admission',
+        priority: params.eventType === 'payment_initiated' ? 'high' : 'normal',
+        url: `/admission/leads/${params.leadId}`,
+        targeting: { type: 'user', user_ids: usersToNotify },
+        metadata: {
+          event_type: params.eventType,
+          lead_id: params.leadId,
+          action_label: 'View Lead',
+          channels: rule.notification_channels,
+          ...params.metadata,
+        },
+        source: 'activity-alert',
+      });
+    } catch (err) {
+      console.error('[activity-alert] Failed to send notifications:', err);
     }
 
     // 6. Log to history

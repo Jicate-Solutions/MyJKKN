@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import type {
   IaPaperTemplate,
   IaQuestionPaper,
@@ -84,9 +85,44 @@ export class IaPaperService {
     return asArray<IaPaperTemplate>((await res.json()).data);
   }
 
-  /** Opens the COE-rendered PDF in a new tab. */
-  static openPaperPdf(id: string): void {
-    window.open(`/api/question-papers/${id}/pdf`, '_blank', 'noopener,noreferrer');
+  /**
+   * Downloads the COE-rendered PDF directly (no new tab).
+   *
+   * Fetches the bytes first so we can branch on the HTTP status: a plain
+   * `<a download>` can't see failures and would save the server's JSON error as a
+   * junk "pdf.json". Instead we verify the response is OK and actually a PDF, then
+   * blob-download it; on error we toast and download nothing. A loading toast
+   * covers the few seconds Chromium takes to render.
+   */
+  static async downloadPaperPdf(id: string): Promise<void> {
+    const toastId = toast.loading('Preparing PDF…');
+    try {
+      const res = await fetch(`/api/question-papers/${id}/pdf`, { cache: 'no-store' });
+      if (!res.ok) {
+        toast.error((await safeError(res)) ?? `PDF export failed (${res.status})`, { id: toastId });
+        return;
+      }
+      const blob = await res.blob();
+      // Guard against an error page slipping through with a 200.
+      if (blob.type && !blob.type.includes('pdf')) {
+        toast.error('PDF export failed', { id: toastId });
+        return;
+      }
+      const filename =
+        res.headers.get('content-disposition')?.match(/filename="?([^"]+)"?/)?.[1] ??
+        `question-paper-${id}.pdf`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Question paper downloaded', { id: toastId });
+    } catch {
+      toast.error('Failed to download PDF', { id: toastId });
+    }
   }
 }
 

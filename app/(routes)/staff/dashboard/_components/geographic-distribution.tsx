@@ -158,7 +158,7 @@ export function GeographicDistribution({
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
           <div>
             <CardTitle className='flex items-center gap-2'>
               <MapPin className='h-5 w-5' />
@@ -180,7 +180,7 @@ export function GeographicDistribution({
       </CardHeader>
       <CardContent>
         <Tabs defaultValue='states' className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='states'>States</TabsTrigger>
             <TabsTrigger value='districts'>Districts</TabsTrigger>
             <TabsTrigger value='top-regions'>Top Regions</TabsTrigger>

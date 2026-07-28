@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — shared service helpers (Phase B)
+ * MyJKKN RCLTP — shared service helpers (Phase B)
  * ----------------------------------------------------------------------------
  * Small, dependency-free utilities shared by every rcltp domain service so that
  * pagination shape and (critically) the two stub-error contracts stay IDENTICAL
@@ -47,7 +47,7 @@ export function rcltpMetadata(
  * Browser-only (uses a relative path resolved against the page origin; same-origin
  * cookies authenticate the call). POSTs JSON, unwraps the standard
  * `{ success, data }` envelope, and throws the server's message on failure
- * (including the honest "awaiting EKSAQ content" 501 from group-B gated routes).
+ * (including the honest "awaiting MyJKKN content" 501 from group-B gated routes).
  * Keeping this in one place means every rcltp service calls its route identically.
  */
 export async function rcltpPostJson<T>(path: string, body?: unknown): Promise<T> {
@@ -87,16 +87,16 @@ export function rcltpServerWriteRequired(route: string): never {
 }
 
 /**
- * Logic that depends on content or formulas EKSAQ has not yet supplied:
+ * Logic that depends on content or formulas MyJKKN has not yet supplied:
  * the composite scoring formula, band placement, the 24-report catalog, the
  * 5,000-word VBB list, seed passages, and passage AI generation. Stubbed so the
  * plumbing typechecks now and fails loudly (never silently) if called early.
  *
  * Returns `never` (always throws) so it is assignable to any declared return type.
  */
-export function rcltpAwaitingEksaqContent(what: string): never {
+export function rcltpAwaitingValidationContent(what: string): never {
   throw new Error(
-    `RCLTP: "${what}" is deferred — awaiting EKSAQ content/spec ` +
+    `RCLTP: "${what}" is deferred — awaiting MyJKKN content/spec ` +
       '(band cutoffs, composite-score formula, VBB wordlist, seed passages, or the 24-report catalog).'
   );
 }

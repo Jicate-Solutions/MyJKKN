@@ -19,7 +19,7 @@ interface ValidationBannerProps {
  *
  * CONTENT-SAFETY CONTRACT: This banner MUST be rendered on every surface that
  * displays draft or AI-generated passages / questions. It is the user-visible
- * signal that the content has NOT been validated by EKSAQ and MUST NOT be used
+ * signal that the content has NOT been validated by MyJKKN and MUST NOT be used
  * with students until an educator explicitly approves it.
  *
  * Never suppress or conditionally hide this banner when draft content is present.

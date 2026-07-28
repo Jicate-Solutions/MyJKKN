@@ -177,8 +177,17 @@ function NewIndentPageInner() {
           })),
         },
         userId: profile.id,
+        // Phase D: department-scoped requesters (lab assistants) must be
+        // approved by their HOD before the store admin sees the request.
+        // Reuses the same server-side scope the RLS policies enforce, so the
+        // routing rule can never drift from the data-access rule.
+        requiresHodApproval: isDeptLocked,
       });
-      toast.success('Indent request created successfully');
+      toast.success(
+        isDeptLocked
+          ? 'Indent submitted for HOD approval'
+          : 'Indent request created successfully'
+      );
       router.push('/ims/indents');
     } catch (error) {
       const errMsg = (error as any)?.message ?? 'Unknown error. Check console for details.';

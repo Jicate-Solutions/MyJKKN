@@ -176,7 +176,7 @@ export default function HostelAllocationRulesPage() {
         />
 
         <header className="mt-4 mb-6 flex items-center gap-3">
-          <Settings2 className="h-6 w-6 text-muted-foreground" />
+          <Settings2 className="h-6 w-6 shrink-0 text-muted-foreground" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               Hostel Allocation Rules

@@ -12,13 +12,14 @@ import { useVACCourses } from '@/hooks/vac/use-vac';
 import { CaseFormBuilder } from '../_components/CaseFormBuilder';
 import { JsonImportTab } from '../_components/JsonImportTab';
 import { ImportFromPmsTab } from '../_components/ImportFromPmsTab';
-import type { CreateClinicalCaseInput } from '@/types/pde';
+import type { CreateClinicalCaseInput, ImportedPmsImage } from '@/types/pde';
 
 const NEW_CASE_TABS = ['builder', 'json', 'pms'] as const;
 
 function NewClinicalCasePageInner() {
   const router = useRouter();
   const [imported, setImported] = useState<Partial<CreateClinicalCaseInput> | undefined>(undefined);
+  const [importedImages, setImportedImages] = useState<ImportedPmsImage[]>([]);
   // Bumped only when a JSON import is applied. The builder is force-mounted (so
   // its in-progress state survives plain tab switches), which means a changed
   // initialValue prop alone won't re-seed it — so we key the builder on this
@@ -39,8 +40,9 @@ function NewClinicalCasePageInner() {
     router.push(`/pde/faculty/cases/${res.data.id}/edit`);
   };
 
-  const handleImport = (parsed: Partial<CreateClinicalCaseInput>) => {
+  const handleImport = (parsed: Partial<CreateClinicalCaseInput>, images?: ImportedPmsImage[]) => {
     setImported(parsed);
+    setImportedImages(images ?? []);
     setImportSeq((n) => n + 1);
     setTab('builder');
   };
@@ -68,7 +70,7 @@ function NewClinicalCasePageInner() {
         </div>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="builder">Form Builder</TabsTrigger>
             <TabsTrigger value="json">Paste JSON</TabsTrigger>
             <TabsTrigger value="pms">Import from PMS</TabsTrigger>
@@ -85,6 +87,7 @@ function NewClinicalCasePageInner() {
             <CaseFormBuilder
               key={importSeq}
               initialValue={imported}
+              importedImages={importedImages}
               courseOptions={courseOptions}
               saving={create.isPending}
               saveLabel="Save as draft"

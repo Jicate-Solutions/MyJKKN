@@ -205,7 +205,7 @@ export default function EditLessonPage({
       </Breadcrumb>
 
       <div className="space-y-4 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
@@ -220,6 +220,7 @@ export default function EditLessonPage({
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             onClick={() => setShowPreview(!showPreview)}
           >
             {showPreview ? (

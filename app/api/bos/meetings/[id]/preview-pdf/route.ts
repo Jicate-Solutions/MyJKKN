@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
 import { generateBosCallLetterPdf } from '@/lib/pdf/bos-meeting-notice';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
+import { bosCallLetterFilename } from '@/types/bos';
 
 // Vercel runtime config — same reasoning as notify-members/route.ts. Puppeteer
 // needs the Node runtime and well beyond the default 10s budget for cold-start
@@ -51,7 +52,7 @@ export async function GET(
     const { data: meeting, error: meetingErr } = await supabase
       .from('bos_meetings')
       .select(
-        'id, composition_id, institutions_id, status, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
+        'id, composition_id, institutions_id, status, meeting_type, meeting_title, meeting_number, academic_year, scheduled_date, scheduled_time, venue, agenda_text, board_id, board_type'
       )
       .eq('id', meetingId)
       .single();
@@ -75,7 +76,7 @@ export async function GET(
     // tampered memberId from another composition can't be previewed.
     const { data: member, error: memberErr } = await supabase
       .from('bos_members')
-      .select('id, display_name, display_designation, display_department, display_institution, address, contact_no, member_type')
+      .select('id, display_name, email, display_designation, display_department, display_institution, address, contact_no, member_type, expert_id')
       .eq('composition_id', meeting.composition_id)
       .eq('id', memberId)
       .eq('is_active', true)
@@ -178,14 +179,18 @@ export async function GET(
         display_institution: member.display_institution ?? null,
         address: member.address ?? null,
         contact_no: member.contact_no ?? null,
+        email: (member as { email?: string | null }).email ?? null,
+        is_external: !!(member as { expert_id?: string | null }).expert_id,
       },
       boardName,
       boardType,
       header: instHeader,
     });
 
-    const safeName = member.display_name.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    const filename = `bos-call-letter-${safeName || 'member'}.pdf`;
+    const filename = bosCallLetterFilename(
+      (meeting as { meeting_type?: string | null }).meeting_type,
+      member.display_name,
+    );
 
     return new NextResponse(pdfBuffer as unknown as BodyInit, {
       status: 200,

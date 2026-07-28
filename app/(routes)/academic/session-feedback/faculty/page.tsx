@@ -7,7 +7,7 @@
 //  2) UNDERSTANDING (quality): anonymized aggregate signal (fn_scf_faculty_summary).
 // Spec: specs/session-feedback-faculty-completion-lane-2026-06-17.md (A — visibility).
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { format, subDays } from 'date-fns';
 import { BeatLoader } from 'react-spinners';
@@ -23,8 +23,7 @@ import {
   RotateCcw,
   BellRing,
   Lock,
-  Trophy,
-  Sparkles,
+  BookOpen,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -78,9 +77,15 @@ import { FollowupCell } from '../_components/followup-cell';
 import { AiSuggestionDialog } from '../_components/ai-suggestion-dialog';
 import { AiTaskButton } from '@/components/ai-tasks/ai-task-button';
 import { LivePulseSection } from '../_components/live-pulse-control';
+import { PreSessionMaterialsControl } from '../_components/pre-session-materials-control';
 import { MyLoopNotesCard } from '../_components/my-loop-notes-card';
 import { MyPulseCard } from '../_components/my-pulse-card';
-import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
+import { FreetextCarryCountsCard } from '../_components/freetext-carry-counts-card';
+import {
+  UnderstandingBand,
+  understandingLevel,
+  type UnderstandingLevel,
+} from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -432,94 +437,159 @@ function SessionStatusBadge({ status }: { status?: string | null }) {
   }
 }
 
-// ── Reward — "you're above 3.5, here's what's working" (PR-E) ─────────────────
-// Positive-reinforcement counterpart to "Topics to revisit". Driven ENTIRELY by the
-// already-loaded fn_scf_faculty_summary rows — no new RPC, no new table. Renders only
-// when the caller's weighted understanding average clears the reward threshold, so it
-// never withholds help from struggling faculty (that path always ships alongside).
-const REWARD_THRESHOLD = 3.5; // spec §5.1 — the chair's 3.5 "insights flow" number
-const REWARD_MIN_RESPONSES = 3; // don't celebrate on a single stray response (k>=3)
+// ── Understanding by course — honest per-course band summary (D2/D4, 2026-07-24) ──
+// Summary counterpart to "Topics to revisit". Driven ENTIRELY by the already-loaded
+// fn_scf_faculty_summary rows — no new RPC, no new table. Shows each course the
+// facilitator taught in the window as its OWN band (never a raw number — Director
+// 2026-07-06 Goodhart rule), weakest first. Honest-first (D2): it never praises over
+// zero Strong courses; it states the real picture + a concrete next step. Courses with
+// no qualifying feedback show "No feedback yet" rather than a fabricated band.
+const SCF_MIN_RESPONSES = 3; // module-wide k>=3 floor (pulse / notes / carry-forward all use 3)
 
-function FacultyRewardCard({ rows }: { rows: FacultySummaryRow[] }) {
-  const stats = useMemo(() => {
-    let respWithAvg = 0;
-    let weightedSum = 0;
-    let answeredSessions = 0; // sessions that actually got at least one response
-    let goodSessions = 0;
-    let cleanSessions = 0;
+type CourseRollup = {
+  code: string | null;
+  name: string | null;
+  totalSessions: number;
+  qualifyingSessions: number; // sessions with >= SCF_MIN_RESPONSES responses
+  respSum: number;
+  weightedSum: number;
+  lowSum: number;
+  avg: number | null; // internal only — NEVER rendered (bands-only rule)
+  level: UnderstandingLevel;
+  hasFeedback: boolean;
+};
+
+function PerCourseUnderstandingCard({ rows }: { rows: FacultySummaryRow[] }) {
+  const courses = useMemo<CourseRollup[]>(() => {
+    const map = new Map<string, Omit<CourseRollup, 'avg' | 'level' | 'hasFeedback'>>();
     for (const r of rows) {
-      // Empty sessions (no responses) must not dilute or inflate the "X of Y" counts —
-      // base BOTH the numerator and the denominator on sessions that got feedback. An
-      // unanswered session has no understanding signal, so it is neither "clean" nor
-      // "good"; it simply doesn't count here.
-      if (r.responses > 0) {
-        answeredSessions += 1;
-        if (r.low_understanding === 0) cleanSessions += 1;
-        // goodSessions is the "X" against the answeredSessions "Y". Gate it on the SAME
-        // responses>0 base so a zero-response session that happens to carry a non-null
-        // avg_understood can never push the numerator above the denominator (X > Y).
-        if (
-          r.avg_understood != null &&
-          !Number.isNaN(r.avg_understood) &&
-          r.avg_understood >= 4
-        ) {
-          goodSessions += 1;
+      const key = r.course_code ?? '__unspecified__';
+      const g =
+        map.get(key) ?? {
+          code: r.course_code,
+          name: r.course_name,
+          totalSessions: 0,
+          qualifyingSessions: 0,
+          respSum: 0,
+          weightedSum: 0,
+          lowSum: 0,
+        };
+      g.totalSessions += 1;
+      // D3: a session enters the understanding tally only at >= 3 responses. Below the
+      // floor there is no reliable signal — a lone "5" is not a Strong class, and a
+      // 0-response session is not "zero low understanding". Such sessions still appear
+      // in the coverage + detail tables; they simply don't earn a band here.
+      if (r.responses >= SCF_MIN_RESPONSES) {
+        g.qualifyingSessions += 1;
+        g.lowSum += r.low_understanding;
+        if (r.avg_understood != null && !Number.isNaN(r.avg_understood)) {
+          g.respSum += r.responses;
+          g.weightedSum += r.avg_understood * r.responses;
         }
       }
-      if (r.avg_understood != null && !Number.isNaN(r.avg_understood)) {
-        respWithAvg += r.responses;
-        weightedSum += r.avg_understood * r.responses;
-      }
+      map.set(key, g);
     }
-    const overallAvg = respWithAvg > 0 ? weightedSum / respWithAvg : null;
-    return {
-      overallAvg,
-      respWithAvg,
-      sessions: answeredSessions,
-      goodSessions,
-      cleanSessions,
-    };
+    const order: Record<UnderstandingLevel, number> = { low: 0, mixed: 1, strong: 2, none: 3 };
+    return Array.from(map.values())
+      .map((g): CourseRollup => {
+        const avg = g.respSum > 0 ? g.weightedSum / g.respSum : null;
+        return {
+          ...g,
+          avg,
+          level: avg != null ? understandingLevel(avg) : 'none',
+          hasFeedback: g.qualifyingSessions > 0,
+        };
+      })
+      // Weakest band first among courses with feedback (what needs attention rises to the
+      // top); courses with no qualifying feedback sink to the bottom.
+      .sort((a, b) => {
+        if (a.hasFeedback !== b.hasFeedback) return a.hasFeedback ? -1 : 1;
+        if (order[a.level] !== order[b.level]) return order[a.level] - order[b.level];
+        return (a.code ?? '').localeCompare(b.code ?? '');
+      });
   }, [rows]);
 
-  // Not enough signal, or below the reward bar → the "Topics to revisit" path
-  // (which always ships) covers this teacher instead. Render nothing here.
-  if (
-    stats.overallAvg == null ||
-    stats.respWithAvg < REWARD_MIN_RESPONSES ||
-    stats.overallAvg < REWARD_THRESHOLD
-  ) {
-    return null;
+  // No sessions at all in range → the tables below already say "nothing yet".
+  if (courses.length === 0) return null;
+
+  const withFeedback = courses.filter((c) => c.hasFeedback);
+  const strongCount = withFeedback.filter((c) => c.level === 'strong').length;
+  const weakest = withFeedback.length > 0 ? withFeedback[0] : null; // sorted weakest-first
+
+  // Honest-first headline (D2): never praise over zero Strong; always state the real
+  // picture + a concrete next step.
+  let headline: ReactNode;
+  if (withFeedback.length === 0) {
+    headline = (
+      <>
+        None of your courses have enough feedback yet — a course appears here once at
+        least <strong>3 learners</strong> have responded. Keep marking attendance so
+        learners get the feedback prompt.
+      </>
+    );
+  } else if (strongCount === 0) {
+    headline = (
+      <>
+        No course is reading <strong>Strong</strong> yet this month. Start with{' '}
+        <strong>{weakest?.name ?? weakest?.code ?? 'your lowest course'}</strong> — the
+        AI-suggested fix under <em>Topics to revisit</em> below is a good next step.
+      </>
+    );
+  } else {
+    const needs = withFeedback.length - strongCount;
+    headline = (
+      <>
+        <strong>{strongCount}</strong> of your <strong>{withFeedback.length}</strong>{' '}
+        {withFeedback.length === 1 ? 'course' : 'courses'} with feedback{' '}
+        {strongCount === 1 ? 'is' : 'are'} reading <strong>Strong</strong>
+        {needs > 0 ? (
+          <>
+            {' '}
+            · <strong>{needs}</strong> still {needs === 1 ? 'needs' : 'need'} a look.
+          </>
+        ) : (
+          <> — every course with feedback is Strong.</>
+        )}
+      </>
+    );
   }
 
   return (
-    <Card className="mb-6 border-amber-200 bg-gradient-to-br from-amber-50 to-green-50">
+    <Card className="mb-6">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Trophy className="h-5 w-5 text-amber-500" />
-          <CardTitle>Here&apos;s what&apos;s working in your classes</CardTitle>
+          <BookOpen className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+          <CardTitle>Understanding by course</CardTitle>
         </div>
-        <CardDescription>
-          You&apos;ve had a good run across the last 30 days — keep doing what
-          you&apos;re doing.
-        </CardDescription>
+        <CardDescription>{headline}</CardDescription>
       </CardHeader>
       <CardContent>
-        <ul className="space-y-2 text-sm">
-          <li className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-            <span>
-              <strong>{stats.goodSessions}</strong> of your{' '}
-              <strong>{stats.sessions}</strong> sessions scored{' '}
-              <strong>Good or Clear</strong> on understanding.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
-            <span>
-              <strong>{stats.cleanSessions}</strong> of your sessions had{' '}
-              <strong>zero</strong> learners reporting low understanding.
-            </span>
-          </li>
+        <ul className="divide-y rounded-md border">
+          {courses.map((c) => (
+            <li
+              key={c.code ?? '__unspecified__'}
+              className="flex items-center justify-between gap-3 px-3 py-2.5"
+            >
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">
+                  {c.code ?? 'Unspecified course'}
+                </span>
+                {c.name ? (
+                  <span className="truncate text-xs text-muted-foreground">{c.name}</span>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                {c.hasFeedback && c.lowSum > 0 ? (
+                  <span className="text-xs text-muted-foreground">{c.lowSum} low</span>
+                ) : null}
+                {c.hasFeedback ? (
+                  <UnderstandingBand avg={c.avg} />
+                ) : (
+                  <span className="text-xs text-muted-foreground">No feedback yet</span>
+                )}
+              </div>
+            </li>
+          ))}
         </ul>
       </CardContent>
     </Card>
@@ -533,6 +603,12 @@ function CompletionSection({ from, to }: { from: string; to: string }) {
   // default). When active, sessions with pending feedback are marked Incomplete.
   const hardActive = rows.some((r) => r.gate_mode === 'hard');
   const incompleteCount = rows.filter((r) => r.session_status === 'incomplete').length;
+  // B1 honesty (2026-07-24): "All your sessions are complete" was claimed whenever no
+  // session carried the hard-gate `incomplete` status — but Overdue/Open sessions
+  // (pending feedback, a DIFFERENT status) still have unconfirmed learners, so the
+  // banner contradicted the table. Count sessions that actually still have pending
+  // learners so we never claim completion while pending rows exist.
+  const pendingSessions = rows.filter((r) => r.pending_count > 0).length;
 
   return (
     <Card className="mb-6">
@@ -558,7 +634,11 @@ function CompletionSection({ from, to }: { from: string; to: string }) {
                 ? `${incompleteCount} of your sessions ${
                     incompleteCount === 1 ? 'is' : 'are'
                   } currently Incomplete — remind the pending learners.`
-                : 'All your sessions are complete.'}
+                : pendingSessions > 0
+                  ? `${pendingSessions} of your sessions still ${
+                      pendingSessions === 1 ? 'has' : 'have'
+                    } learners who haven't confirmed — remind them so those sessions can complete.`
+                  : 'All your sessions are complete.'}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -680,8 +760,11 @@ export default function FacultySessionInsightPage() {
       {/* Live — open an in-class pulse for today's classes (fuels the loop) */}
       <LivePulseSection from={from} to={to} />
 
-      {/* Reward — positive reinforcement when understanding clears the bar (PR-E) */}
-      <FacultyRewardCard rows={rows} />
+      {/* Pre-session materials — post a link ahead + objective opens trace (Rank 3a) */}
+      <PreSessionMaterialsControl from={from} to={to} />
+
+      {/* Summary — honest per-course understanding bands (D2/D4, 2026-07-24) */}
+      <PerCourseUnderstandingCard rows={rows} />
 
       {/* Action — your low-understanding topics + the lift + an AI suggested fix */}
       {/* Suspense required for useSearchParams() inside TopicsToRevisitSection (P2 deep-link). */}
@@ -696,6 +779,11 @@ export default function FacultySessionInsightPage() {
       {/* Evidence — the caller's OWN 8 work-signals in one place (the board's
           self-scoped mirror; no scores, no comparisons — anti-gaming doctrine) */}
       <MyPulseCard />
+
+      {/* Written follow-ups — anonymous counts of learners' free-text concerns
+          being re-asked in this facilitator's courses (>=3-learner floor;
+          renders nothing below it). Spec: scf-freetext-carryforward-2026-07-19 */}
+      <FreetextCarryCountsCard />
 
       {/* Coverage — who confirmed, who's pending */}
       <CompletionSection from={from} to={to} />
@@ -770,7 +858,15 @@ export default function FacultySessionInsightPage() {
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{r.responses}</TableCell>
                       <TableCell>
-                        <UnderstandingCell avg={r.avg_understood} />
+                        {/* D3: don't paint a band from a 1-2 response session — a lone
+                            "5" is not "Strong". Suppress below the k>=3 floor. */}
+                        {r.responses >= SCF_MIN_RESPONSES ? (
+                          <UnderstandingCell avg={r.avg_understood} />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Too few responses
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {r.low_understanding > 0 ? (

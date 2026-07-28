@@ -31,6 +31,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { WorkSignalsService } from '@/lib/services/work-signals-service';
+import { WeeklySuggestionCard } from '@/components/work-signals/weekly-suggestion-card';
 import type { WorkSignal, WorkSignalsResult } from '@/types/work-signals';
 
 type State = { loading: boolean; data: WorkSignalsResult | null };
@@ -189,6 +190,8 @@ export function WorkSignalsCard({
             )}
           </>
         )}
+        {/* Weekly AI suggestion + verdict — renders only when one exists. */}
+        <WeeklySuggestionCard />
       </CardContent>
     </Card>
   );

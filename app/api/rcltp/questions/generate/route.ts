@@ -1,15 +1,15 @@
 /**
  * POST /api/rcltp/questions/generate
- * RCLTP v2 Phase 3 (GROUP B — EKSAQ-content-gated body).
+ * RCLTP v2 Phase 3 (GROUP B — MyJKKN-content-gated body).
  * Auto-generate Part B comprehension questions from a passage (D6: AI-generate
  * + teacher review). Generated questions are meant to land source='ai_generated',
  * status='draft' for a teacher to approve.
  *
  * SCAFFOLDED NOW: auth, institution scoping, passage fetch, and the LLM CLIENT
  * WIRING — reusing the production pattern from app/api/work-pulse/analyze/route.ts
- * (`new Anthropic({ apiKey })`), NOT a new client. DEFERRED (EKSAQ content): the
- * passage→question PROMPT and the EKSAQ competency/band alignment guardrails — so
- * no pedagogy is fabricated. Returns an honest "awaiting EKSAQ content" 501.
+ * (`new Anthropic({ apiKey })`), NOT a new client. DEFERRED (MyJKKN content): the
+ * passage→question PROMPT and the MyJKKN competency/band alignment guardrails — so
+ * no pedagogy is fabricated. Returns an honest "awaiting MyJKKN content" 501.
  *
  * Gate: rcltp.assessment.manage (teachers/admins). Institution-scoped to the passage.
  * Body: { passage_id }
@@ -17,7 +17,8 @@
 
 export const dynamic = 'force-dynamic';
 
-import Anthropic from '@anthropic-ai/sdk';
+import { NextResponse } from 'next/server';
+import { generateQuestionsForPassage } from '@/lib/services/rcltp/question-generation-service';
 import { withAuth } from '@/lib/auth/with-auth';
 import {
   errorResponse,
@@ -30,7 +31,6 @@ import {
   readJson,
   actorMayActOnInstitution,
   isPlatformAdmin,
-  eksaqGatedResponse,
 } from '@/app/api/rcltp/_lib/route-helpers';
 
 interface GenerateBody {
@@ -58,19 +58,18 @@ export const POST = withAuth(
       : await isPlatformAdmin(auth);
     if (!allowed) return forbiddenResponse('You may not generate questions for this passage');
 
-    // LLM CLIENT WIRING (reuse work-pulse/analyze pattern; do NOT invent a new client).
-    const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-    if (!ANTHROPIC_KEY) {
-      return errorResponse('ANTHROPIC_API_KEY not configured', 503, 'LLM_UNCONFIGURED');
+    // Generate → answer-key double-check → write status='draft' rows. AI authors;
+    // a Senior Learner approves via the review console (nothing here auto-approves).
+    const result = await generateQuestionsForPassage(admin, passage.id);
+    if (!result.ok) {
+      const status =
+        result.reason === 'not_found' ? 404 : result.reason === 'no_key' ? 503 : 422;
+      return errorResponse(
+        result.error || `Could not generate questions (${result.reason ?? 'unknown'})`,
+        status
+      );
     }
-    const anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY });
-
-    // EKSAQ-gated: the passage→question prompt + competency/band guardrails are
-    // EKSAQ content. The client is wired and constructs on prod; the prompt is deferred.
-    return eksaqGatedResponse(
-      'AI comprehension-question generation prompt + EKSAQ competency/band guardrails',
-      { passage_id: passage.id, llm_client_ready: anthropic instanceof Anthropic }
-    );
+    return NextResponse.json({ success: true, count: result.count, passage_id: passage.id });
   },
   { requirePermission: 'rcltp.assessment.manage', allowApiKey: false }
 );

@@ -471,21 +471,21 @@ export function StaffList() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 [&_code]:break-all">
       <Card>
         <CardHeader>
           <CardTitle>Staff API</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
             <Input
               placeholder="Enter API key"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               type="password"
-              className="max-w-md"
+              className="w-full sm:max-w-md min-w-0"
             />
-            <Button onClick={fetchStaff} disabled={loading}>
+            <Button onClick={fetchStaff} disabled={loading} className="w-full sm:w-auto shrink-0">
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Fetch Staff
             </Button>
@@ -1184,7 +1184,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 Render a public-facing faculty list with photos, departments,
                 and bios.
               </p>
-              <code className='text-xs bg-muted p-2 rounded block'>
+              <code className='text-xs bg-muted p-2 rounded block break-all'>
                 GET /api-management/staff?role_type=faculty&has_extended_profile=true&is_active=true&all=true
               </code>
             </CardContent>
@@ -1197,7 +1197,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 Resolve approvers for a department-level workflow (e.g.
                 leave/OD).
               </p>
-              <code className='text-xs bg-muted p-2 rounded block'>
+              <code className='text-xs bg-muted p-2 rounded block break-all'>
                 GET /api-management/staff?role_key=hod&department_id=&lt;UUID&gt;&is_active=true
               </code>
             </CardContent>
@@ -1212,7 +1212,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 Run pagination with <code>limit=1</code> + read{' '}
                 <code>metadata.total</code> for a fast count.
               </p>
-              <code className='text-xs bg-muted p-2 rounded block'>
+              <code className='text-xs bg-muted p-2 rounded block break-all'>
                 GET /api-management/staff?institution_id=&lt;UUID&gt;&role_type=admin&limit=1
               </code>
             </CardContent>
@@ -1225,7 +1225,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 Combine <code>search</code> with <code>role_key</code> to
                 resolve "Mr X" within a role.
               </p>
-              <code className='text-xs bg-muted p-2 rounded block'>
+              <code className='text-xs bg-muted p-2 rounded block break-all'>
                 GET /api-management/staff?role_key=principal&search=raj&limit=10
               </code>
             </CardContent>
@@ -1241,7 +1241,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 <code>category.is_teaching</code> to identify teaching-only
                 staff.
               </p>
-              <code className='text-xs bg-muted p-2 rounded block'>
+              <code className='text-xs bg-muted p-2 rounded block break-all'>
                 GET /api-management/staff?category_id=&lt;UUID&gt;&is_active=true
               </code>
             </CardContent>
@@ -1253,7 +1253,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
               <p className='text-sm text-muted-foreground mb-2'>
                 Returns the 29 extended-profile columns plus category metadata.
               </p>
-              <code className='text-xs bg-muted p-2 rounded block'>
+              <code className='text-xs bg-muted p-2 rounded block break-all'>
                 GET /api-management/staff/&lt;UUID&gt;
               </code>
             </CardContent>
@@ -1396,7 +1396,8 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
         <Card>
           <CardContent className='pt-6 space-y-3'>
             <h4 className='font-semibold'>Error responses</h4>
-            <table className='w-full text-sm'>
+            <div className='overflow-x-auto'>
+            <table className='w-full min-w-[360px] text-sm'>
               <thead>
                 <tr className='border-b text-left'>
                   <th className='py-2 pr-4'>Status</th>
@@ -1437,6 +1438,7 @@ const fetchAllCounselors = async (apiKey, institutionId) => {
                 </tr>
               </tbody>
             </table>
+            </div>
             <p className='text-xs text-muted-foreground'>
               Error body shape on B2A:{' '}
               <code>{'{ "error": { "code": "...", "message": "..." } }'}</code>.

@@ -148,6 +148,38 @@ export function shouldExclude(url: string): boolean {
   return EXCLUDED_PATTERNS.some((pattern) => pattern.test(url));
 }
 
+/** A well-formed top-level module slug: `campus-living`, `okr`, `rcltp`. */
+const MODULE_SLUG_RE = /^[a-z][a-z0-9-]{0,39}$/;
+
+/**
+ * Derive a module from the first path segment of a PAGE url.
+ *
+ * WHY NO WHITELIST: `URL_MODULE_MAP` above names 12 top-level prefixes and
+ * `lib/navigation/modules.ts` names 41 — but `app/(routes)/` holds 61 real
+ * module directories. Both curated lists have drifted (okr, cdc, pde, rcltp,
+ * foundation, improvement-board … are in neither). Validating against either
+ * one would silently drop two-thirds of the platform and re-drift the moment
+ * module 62 lands. A slug-shape check instead means every module — including
+ * ones not yet built — is covered with zero upkeep.
+ *
+ * Trade-off accepted: a 404 renders inside `app/(routes)/layout.tsx`, so a
+ * mistyped `/asdfgh` can log one row under module `asdfgh`. Low volume, and it
+ * groups visibly in `module_usage_daily` rather than corrupting a real module.
+ *
+ * Returns null for API paths — those keep the explicit-map-only behaviour that
+ * `withUsageTracking` already depends on.
+ */
+export function mapPathToModuleFallback(pathname: string): string | null {
+  if (pathname.startsWith('/api/')) return null;
+
+  const segments = pathname.split('/').filter(Boolean);
+  // Root `/` is the Dashboard landing (MODULES lists it as slug '').
+  if (segments.length === 0) return 'dashboard';
+
+  const slug = segments[0].toLowerCase();
+  return MODULE_SLUG_RE.test(slug) ? slug : null;
+}
+
 /**
  * Map a request URL and method to a module and event type
  */
@@ -173,6 +205,13 @@ export function mapUrlToModule(
       matchedFeature = mapping.feature || null;
       break;
     }
+  }
+
+  // The explicit map wins so existing rows keep their fine-grained module
+  // ('academic/attendance'), then fall back to the top-level slug for the
+  // ~49 modules the map never covered. API paths get no fallback.
+  if (!matchedModule) {
+    matchedModule = mapPathToModuleFallback(pathname);
   }
 
   if (!matchedModule) {

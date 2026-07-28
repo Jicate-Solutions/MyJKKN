@@ -1,4 +1,5 @@
 // app/api/pde/cases/import-from-pms/route.ts
+// 2026-07-20 no-op touch: trigger a rebuild so the PMS_EXPORT_* env vars activate (env-only changes are skipped by the ignored-build-step).
 // ============================================================================
 // Server-to-server "casesheet → PDE teaching case" import.
 //
@@ -21,25 +22,35 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { enqueueJobsLane, awaitJobsLaneResults } from '@/lib/services/platform/ai-jobs-lane';
 import { buildAuthorPrompt, parseDraft, type PmsExport } from '@/lib/services/pde/case-author-draft';
-import type { CreateClinicalCaseInput } from '@/types/pde';
+import { requireCaseAuthor } from '@/lib/services/pde/require-case-author';
+import type { CreateClinicalCaseInput, ImportedPmsImage } from '@/types/pde';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function pmsConfig(): { base: string; token: string } | null {
+function pmsConfig(): { base: string; headers: Record<string, string> } | null {
   const base = (process.env.PMS_EXPORT_URL ?? '').replace(/\/+$/, '');
   const token = process.env.PMS_EXPORT_TOKEN ?? '';
   if (!base || token.length < 16) return null;
-  return { base, token };
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  // Cloudflare Access service token — Zero Trust wall in front of the PMS export
+  // path. When set, Cloudflare rejects requests without these headers before they
+  // reach the PMS host. Dormant (bearer-only) until BOTH env vars exist.
+  const cfId = process.env.PMS_CF_ACCESS_CLIENT_ID ?? '';
+  const cfSecret = process.env.PMS_CF_ACCESS_CLIENT_SECRET ?? '';
+  if (cfId && cfSecret) {
+    headers['CF-Access-Client-Id'] = cfId;
+    headers['CF-Access-Client-Secret'] = cfSecret;
+  }
+  return { base, headers };
 }
 
 // ─── GET — proxy the PMS condition search ───────────────────────────────────
 export async function GET(request: NextRequest) {
   await connection();
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized', hits: [] }, { status: 401 });
+  // Teaching staff only — this proxies de-identified patient records out of PMS.
+  const gate = await requireCaseAuthor(supabase);
+  if (!gate.ok) return NextResponse.json({ error: gate.error, hits: [] }, { status: gate.status });
 
   const q = (request.nextUrl.searchParams.get('q') ?? '').trim();
   if (q.length < 2) return NextResponse.json({ hits: [] });
@@ -49,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const res = await fetch(`${cfg.base}/api/pde-export/search?q=${encodeURIComponent(q)}`, {
-      headers: { Authorization: `Bearer ${cfg.token}` },
+      headers: cfg.headers,
       cache: 'no-store',
       signal: AbortSignal.timeout(12_000),
     });
@@ -66,10 +77,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   await connection();
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Teaching staff only — this pulls a de-identified patient record out of PMS
+  // and copies clinical imagery into the shared store.
+  const gate = await requireCaseAuthor(supabase);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
   let body: { casesheet_id?: unknown; course_id?: unknown };
   try {
@@ -88,7 +99,7 @@ export async function POST(request: NextRequest) {
   let exported: PmsExport;
   try {
     const res = await fetch(`${cfg.base}/api/pde-export/casesheet/${casesheetId}`, {
-      headers: { Authorization: `Bearer ${cfg.token}` },
+      headers: cfg.headers,
       cache: 'no-store',
       signal: AbortSignal.timeout(15_000),
     });
@@ -102,8 +113,47 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'That casesheet has too little clinical detail to build a case.' }, { status: 422 });
   }
 
-  // 2. Draft questions/weights/ground-truth on the ₹0 Max lane.
+  // 1b. Copy de-identified images (≤6) into the pde-clinical-images bucket as
+  //     CANDIDATES. The PMS side already strips all file metadata (sharp
+  //     re-encode + fail-closed marker assertion); burned-in pixel identifiers
+  //     can survive that, so the builder requires faculty to confirm each image
+  //     before it can be attached — nothing is auto-placed on the case here.
+  //     A failed image never fails the text import.
   const admin = createServiceRoleClient();
+  const images: ImportedPmsImage[] = [];
+  const candidates = Array.isArray(exported.images) ? exported.images.slice(0, 6) : [];
+  for (const im of candidates) {
+    if (!im || typeof im.image_id !== 'string' || !UUID_RE.test(im.image_id)) continue;
+    try {
+      const r = await fetch(`${cfg.base}/api/pde-export/casesheet/${casesheetId}/images/${im.image_id}`, {
+        headers: cfg.headers,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!r.ok) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      // The bridge re-encodes to JPEG ≤1920px; sniff the magic bytes anyway so a
+      // PMS-side error page or wrong payload can never land in the bucket.
+      if (buf.length < 1024 || buf.length > 10 * 1024 * 1024) continue;
+      if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) continue;
+      const path = `${casesheetId}/${im.image_id}.jpg`;
+      const up = await admin.storage
+        .from('pde-clinical-images')
+        .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
+      if (up.error) continue;
+      const pub = admin.storage.from('pde-clinical-images').getPublicUrl(path);
+      images.push({
+        url: pub.data.publicUrl,
+        kind: typeof im.kind === 'string' ? im.kind : 'clinical_photo',
+        taken_at: typeof im.taken_at === 'string' ? im.taken_at : undefined,
+        seq: Number.isFinite(im.seq) ? Number(im.seq) : images.length + 1,
+      });
+    } catch {
+      // skip this image — text import continues
+    }
+  }
+
+  // 2. Draft questions/weights/ground-truth on the ₹0 Max lane.
   const prompt = buildAuthorPrompt(exported);
   const enq = await enqueueJobsLane(admin, {
     jobType: 'pde.case_author',
@@ -138,5 +188,5 @@ export async function POST(request: NextRequest) {
     questions: draft.questions,
     pass_threshold: 60,
   };
-  return NextResponse.json({ data: assembled, sufficiency: exported.source?.sufficiency ?? 'ok' });
+  return NextResponse.json({ data: assembled, images, sufficiency: exported.source?.sufficiency ?? 'ok' });
 }

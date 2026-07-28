@@ -22,6 +22,7 @@ import {
   GitPullRequest,
   ExternalLink,
   CircleAlert,
+  Info,
   ScanSearch,
   MessageCircleQuestion,
   Send,
@@ -83,6 +84,26 @@ interface VerifyPerBug {
   error?: string;
 }
 
+/** Deployed-surface check (Mac runner bug-cluster-deployed-check.mjs): confirms
+ *  the fix's new user-facing wording actually renders on prod, on the exact
+ *  pages the reporters filed from. This is the ONE part of "did it work?" that
+ *  is confidently knowable for a copy/UX fix — the AI re-check is data-blind to
+ *  it and can only return "inconclusive". Claim A (the change is live) — decided
+ *  here; Claim C (reporters find it clear) stays reporter-confirmation ground
+ *  truth. */
+interface DeployedSurface {
+  checked_at: string;
+  // null when the check does not apply (see `applicable`).
+  all_live: boolean | null;
+  // false when the fix changed no user-facing wording, so there is nothing to
+  // look for on the deployed page. Absent on records written before this
+  // distinction existed — treat as applicable.
+  applicable?: boolean;
+  prs?: number[];
+  surfaces: { route: string; live: boolean; anchors_found: number; anchors_total: number }[];
+  claim?: string;
+}
+
 interface VerifyState {
   status: 'running' | 'done' | 'error';
   requested_at: string;
@@ -96,6 +117,7 @@ interface VerifyState {
     failed: number;
     pending: number;
   };
+  deployed_surface?: DeployedSurface;
   error?: string;
 }
 
@@ -131,7 +153,7 @@ export function BugGroupsTab() {
   const [actingOn, setActingOn] = useState<string | null>(null);
 
   const clustersKey = [...queryKeys.bugReports.all, 'clusters', statusFilter];
-  const { data: clusters, isLoading, refetch, isFetching } = useQuery<BugCluster[]>({
+  const { data: clusters, isLoading, refetch } = useQuery<BugCluster[]>({
     queryKey: clustersKey,
     queryFn: () => fetchClusters(statusFilter),
     staleTime: 60 * 1000,
@@ -226,7 +248,7 @@ export function BugGroupsTab() {
       toast.success(
         data.note === 'already_queued'
           ? 'A fix is already being prepared for this group.'
-          : 'Fix queued (AI Max, ₹0) — a draft PR will appear here for you to review and merge.'
+          : 'Fix queued (AI Max, ₹0) — the fix PR appears here for you to review and merge; it opens ready-for-review once its local checks pass.'
       );
       queryClient.invalidateQueries({ queryKey: [...queryKeys.bugReports.all, 'clusters'] });
     },
@@ -270,7 +292,11 @@ export function BugGroupsTab() {
               </Badge>
             )}
           </div>
-          <div className='flex items-center gap-2'>
+          {/* flex-wrap: the segmented status filter (~215px) plus "Scan now"
+              cannot both fit beside the title below ~400px, and Button carries
+              whitespace-nowrap with no shrink — so without wrapping the button
+              simply hangs off the card. */}
+          <div className='flex flex-wrap items-center gap-2'>
             <div className='flex rounded-md border overflow-hidden'>
               {(['proposed', 'confirmed', 'dismissed'] as const).map((s) => (
                 <button
@@ -309,7 +335,13 @@ export function BugGroupsTab() {
         <AutoResolveStrip />
       </CardHeader>
       <CardContent>
-        {isLoading || isFetching ? (
+        {/* Initial load ONLY (isLoading = no cached data yet). Never gate on
+            isFetching here: while a diagnosis is queued the query polls every
+            8s, and swapping the whole list for this spinner on every tick
+            collapsed the page height — scroll jumped to top and the tab
+            jittered for minutes after clicking Diagnose. Background refetches
+            keep the list mounted; React Query serves cached rows meanwhile. */}
+        {isLoading ? (
           <div className='flex items-center justify-center h-32'>
             <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
           </div>
@@ -340,7 +372,13 @@ export function BugGroupsTab() {
                     <p className='text-sm mt-2 line-clamp-2'>{cluster.sample_description}</p>
                   </div>
                   {cluster.status === 'proposed' && (
-                    <div className='flex items-center gap-2 shrink-0'>
+                    // No `shrink-0` here: the pair is ~235px of nowrap buttons,
+                    // wider than the card's content box below ~380px, and
+                    // shrink-0 pinned it at max-content so flex-wrap could
+                    // never trigger — the buttons hung 46px past the card
+                    // border at 320px. Shrinkable + wrapping stacks them only
+                    // when they genuinely don't fit; ≥414px is unchanged.
+                    <div className='flex flex-wrap items-center gap-2'>
                       <Button
                         size='sm'
                         onClick={() => {
@@ -391,12 +429,24 @@ export function BugGroupsTab() {
 
                 <Separator className='my-3' />
 
-                <div className='grid gap-1.5'>
+                {/* `grid-cols-1` is load-bearing, not decoration. A bare
+                    `grid` leaves the implicit column an `auto` track, and an
+                    `auto` track sizes to its items' MAX-content: the member
+                    row's `truncate` description sets white-space:nowrap, so
+                    its max-content is the whole 200-char string (~940px).
+                    The track grew to ~1209px inside an ~800px card and, with
+                    no overflow-x containment anywhere above, pushed the entire
+                    page ~330px past a 1280px viewport (~970px at 320px).
+                    grid-cols-1 compiles to repeat(1, minmax(0,1fr)) — the
+                    minmax(0,…) floor is what clamps the track to the card.
+                    `min-w-0` on the row is the same guard one level down
+                    (flex items default to min-width:auto). */}
+                <div className='grid grid-cols-1 gap-1.5'>
                   {(cluster.members ?? []).map((member, idx) => (
                     <Link
                       key={member.id}
                       href={`/admin/bug-reports/${member.id}`}
-                      className='flex items-center gap-2 text-xs rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors'
+                      className='flex min-w-0 items-center gap-2 text-xs rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors'
                     >
                       {idx === 0 ? (
                         <Crown className='w-3.5 h-3.5 text-amber-500 shrink-0' aria-label='canonical (oldest)' />
@@ -405,7 +455,16 @@ export function BugGroupsTab() {
                       )}
                       <span className='font-mono font-semibold shrink-0'>{member.display_id}</span>
                       <span className='text-muted-foreground truncate'>{member.description}</span>
-                      <span className='ml-auto text-muted-foreground shrink-0'>
+                      {/* Shrinkable + ellipsized rather than `shrink-0`: a
+                          26-char reporter name that refuses to shrink is
+                          itself an overflow source. Below `sm` it is dropped
+                          entirely (same responsive-label convention as
+                          BugStatusBadge on the Reports List tab) — at 390px
+                          the shrink budget clipped it to "M..", which costs
+                          the description room and tells the reader nothing.
+                          `max-w-[40%]` keeps a long name from crowding out
+                          the description on wider screens. */}
+                      <span className='ml-auto hidden max-w-[40%] truncate text-muted-foreground sm:block'>
                         {member.reporter_name ?? 'Unknown'}
                       </span>
                     </Link>
@@ -489,7 +548,9 @@ function FileList({ files }: { files: string[] }) {
 /**
  * "Fix this group" — shown only when the verdict says one fix resolves the whole
  * group. Queues a Mac-side write runner that applies the minimal fix and opens a
- * DRAFT PR. Never merges, never resolves, never emails — a human reviews the PR,
+ * PR — READY when its local Step-2.7 gates pass (so CI attests fully green on
+ * first push; Director policy 2026-07-20), draft only if a gate regressed.
+ * Never merges, never resolves, never emails — a human reviews the PR,
  * merges + deploys, then verifies + resolves.
  */
 function FixSection({
@@ -511,7 +572,8 @@ function FixSection({
         <Loader2 className='w-4 h-4 animate-spin text-blue-600 shrink-0' />
         <span className='text-xs text-blue-800 dark:text-blue-200'>
           Preparing a fix — writing the change in a scratch copy and running
-          checks (AI Max · ₹0). A draft PR will appear here to review.
+          checks (AI Max · ₹0). The PR appears here to review — ready-for-review
+          when its checks pass.
         </span>
       </div>
     );
@@ -523,7 +585,7 @@ function FixSection({
         <div className='flex flex-wrap items-center gap-2'>
           <GitPullRequest className='w-4 h-4 text-green-600 shrink-0' />
           <span className='text-sm font-medium text-green-900 dark:text-green-100'>
-            Draft fix ready for review
+            Fix PR ready for review
           </span>
           <a
             href={fix.pr_url}
@@ -597,8 +659,9 @@ function FixSection({
         Fix this group (AI Max, ₹0)
       </Button>
       <span className='text-[11px] text-muted-foreground'>
-        AI writes the one fix as a draft PR for you to review and merge. It never
-        merges or emails on its own.
+        AI writes the one fix as a PR for you to review and merge — it opens
+        ready-for-review when its local checks pass (draft only if a check
+        regressed). It never merges or emails on its own.
       </span>
     </div>
   );
@@ -1044,7 +1107,7 @@ function LoopStepper({
               rel='noopener noreferrer'
               className='inline-flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300 hover:underline'
             >
-              Draft PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
+              Fix PR #{fix.pr_number} <ExternalLink className='w-3 h-3' />
             </a>
             {fix.needs_migration && (
               <span className='text-[11px] text-amber-700 dark:text-amber-300'>
@@ -1126,6 +1189,63 @@ function LoopStepper({
         )}
         {s4 === 'done' && v && (
           <div className='mt-1'>
+            {/* Decisive, confidently-knowable signal for a copy/UX fix: is the new
+                wording actually live on prod for the reported pages? Rendered
+                ABOVE the AI re-check tally because it answers what the re-check
+                cannot — the re-check is data-blind to a wording change and so
+                reads "inconclusive"; this line says plainly whether the fix
+                shipped. Reporter confirmation of clarity is still the ground
+                truth (step 5). */}
+            {v.deployed_surface && (
+              <div
+                className={`mb-2 rounded-md border px-3 py-2 text-xs ${
+                  v.deployed_surface.applicable === false
+                    ? 'border-muted bg-muted/40 text-muted-foreground'
+                    : v.deployed_surface.all_live
+                      ? 'border-green-300 bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-100'
+                      : 'border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+                }`}
+              >
+                <div className='flex items-center gap-1.5 font-medium'>
+                  {v.deployed_surface.applicable === false ? (
+                    <Info className='w-3.5 h-3.5 shrink-0' />
+                  ) : v.deployed_surface.all_live ? (
+                    <Check className='w-3.5 h-3.5 shrink-0' />
+                  ) : (
+                    <CircleAlert className='w-3.5 h-3.5 shrink-0' />
+                  )}
+                  {v.deployed_surface.applicable === false
+                    ? 'Live-on-prod check does not apply here'
+                    : v.deployed_surface.all_live
+                      ? 'Fix verified live on prod'
+                      : 'Fix not fully live on prod'}
+                </div>
+                <p className='mt-0.5 text-[11px] opacity-90'>
+                  {v.deployed_surface.applicable === false
+                    ? 'This fix changed behaviour, not wording, so there is no new text to look for on the page. Whether it worked is answered by the re-check below and by the reporters themselves.'
+                    : v.deployed_surface.all_live
+                      ? 'The fix’s new wording renders on every reported page. What it changed is confirmed shipped; whether reporters now find it clear is the open question below.'
+                      : 'At least one reported page does not show the fix wording yet — the deploy may be incomplete.'}
+                </p>
+                <div className='mt-1 flex flex-wrap gap-1'>
+                  {v.deployed_surface.surfaces.map((s) => (
+                    // min-w-0 + break-all: a route carrying query params has no
+                    // break opportunity, so an unbreakable chip wider than the
+                    // card overflows it (flex-wrap only wraps BETWEEN chips).
+                    <span
+                      key={s.route}
+                      className={`inline-flex min-w-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono break-all ${
+                        s.live
+                          ? 'border-green-300 text-green-800 dark:text-green-200'
+                          : 'border-amber-300 text-amber-800 dark:text-amber-200'
+                      }`}
+                    >
+                      {s.live ? '✓' : '✗'} {s.route}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className='flex flex-wrap items-center gap-1.5'>
               <Badge variant='outline' className={VERIFY_CHIP_CLS.likely_fixed}>
                 {v.tally.likely_fixed} likely fixed
@@ -1168,8 +1288,9 @@ function LoopStepper({
               })}
             </div>
             <p className='text-[11px] text-muted-foreground mt-1'>
-              AI re-check — not reporter-confirmed. The reporters&apos; own
-              answers are the ground truth.
+              {v.deployed_surface?.all_live
+                ? 'For a wording fix the AI re-check is data-blind, so it reads “inconclusive” — that is expected, not a failure. Whether the fix shipped is answered above; the reporters’ own answers confirm it’s clearer.'
+                : 'AI re-check — not reporter-confirmed. The reporters’ own answers are the ground truth.'}
             </p>
           </div>
         )}
@@ -1264,7 +1385,7 @@ function LoopStepper({
 
       <p className='text-[11px] text-muted-foreground border-t border-border/60 mt-1 pt-1.5'>
         AI proposes and never acts alone — you own merge &amp; deploy, sending to
-        reporters, and resolve. AI runs cost ₹0 (Max plan).
+        reporters, and resolve. AI runs cost ₹0 (Max lane).
       </p>
     </div>
   );

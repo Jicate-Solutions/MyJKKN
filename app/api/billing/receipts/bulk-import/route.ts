@@ -266,13 +266,13 @@ export async function POST(request: NextRequest) {
           row: rowNumber,
           field: 'Payment Mode',
           message:
-            'Payment Mode is required. Pick one of: cash, online, bank_transfer, dd, cheque.'
+            'Payment Mode is required. Pick one of: cash, online, bank_transfer, dd, cheque, combined.'
         });
       } else if (!ALLOWED_PAYMENT_MODES.has(paymentModeRaw)) {
         rowErrors.push({
           row: rowNumber,
           field: 'Payment Mode',
-          message: `Payment Mode "${paymentModeRaw}" is not valid. Use one of: cash, online, bank_transfer, dd, cheque.`
+          message: `Payment Mode "${paymentModeRaw}" is not valid. Use one of: cash, online, bank_transfer, dd, cheque, combined.`
         });
       }
 

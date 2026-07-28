@@ -457,7 +457,7 @@ export function AdvancedBillingScheduleFilters({
   return (
     <div className='space-y-4'>
       {/* Filter Header with Collapse/Expand */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
         <div className='flex items-center gap-2'>
           <Filter className='h-4 w-4' />
           <span className='font-medium'>Advanced Filters</span>

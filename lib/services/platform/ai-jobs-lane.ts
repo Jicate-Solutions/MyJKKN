@@ -35,14 +35,25 @@ export type JobsLaneEnqueueResult =
  * in-flight guard (the SAME key the paid path passes to partitionInFlight), so a
  * candidate already queued/claimed/running is not re-enqueued — that returns
  * { ok:false, reason:'in_flight' }, which the caller treats as "already handled".
+ *
+ * `payloadExtra` (optional) is merged into the payload top-level for the drain to
+ * read directly — e.g. `{ _model_override: { provider, model_id } }` to pin the
+ * model a specific run uses (honored by fn_ai_claim). Omitting it leaves the
+ * payload byte-identical to before, so existing callers are unchanged.
  */
 export async function enqueueJobsLane(
   admin: Admin,
-  args: { jobType: string; prompt: string; context: Record<string, unknown>; dedupeKey: string },
+  args: {
+    jobType: string;
+    prompt: string;
+    context: Record<string, unknown>;
+    dedupeKey: string;
+    payloadExtra?: Record<string, unknown>;
+  },
 ): Promise<JobsLaneEnqueueResult> {
   const { data, error } = await admin.rpc('fn_ai_enqueue_system', {
     p_job_type: args.jobType,
-    p_payload: { prompt: args.prompt, _ctx: args.context },
+    p_payload: { prompt: args.prompt, _ctx: args.context, ...(args.payloadExtra ?? {}) },
     p_dedupe_key: args.dedupeKey,
   });
   if (error) return { ok: false, reason: 'error', error: error.message };
