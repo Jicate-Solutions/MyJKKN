@@ -235,7 +235,7 @@ export function HolidaysAdmin() {
               <TableRow key={e.id}>
                 <TableCell className="font-medium">{e.title}</TableCell>
                 <TableCell className="capitalize">{e.kind}</TableCell>
-                <TableCell>{moment(e.start_at).format('DD MMM YYYY')} – {moment(e.end_at).format('DD MMM YYYY')}</TableCell>
+                <TableCell>{moment.utc(e.start_at).format('DD MMM YYYY')} – {moment.utc(e.end_at).format('DD MMM YYYY')}</TableCell>
                 <TableCell>{scopeLabel(e)}</TableCell>
                 <TableCell>{e.kind === 'holiday' ? (e.blocks_attendance ? 'Yes' : 'No') : '—'}</TableCell>
                 {canManage && (
