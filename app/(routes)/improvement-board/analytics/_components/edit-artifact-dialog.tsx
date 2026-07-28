@@ -19,6 +19,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Plus, X } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow';
@@ -97,6 +98,12 @@ export function EditArtifactDialog({
   function updateRow(i: number, field: string, value: string) {
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
   }
+  function addRow() {
+    setRows((rs) => [...rs, {}]);
+  }
+  function removeRow(i: number) {
+    setRows((rs) => rs.filter((_, idx) => idx !== i));
+  }
 
   async function approve() {
     setSaving(true);
@@ -143,7 +150,10 @@ export function EditArtifactDialog({
 
         <div className="space-y-2">
           {rows.map((row, i) => (
-            <div key={i} className="grid gap-2 rounded-md border p-2 sm:grid-cols-2">
+            <div
+              key={i}
+              className="relative grid gap-2 rounded-md border p-2 pr-8 sm:grid-cols-2"
+            >
               {fields.map((f) => (
                 <div key={f.key}>
                   <Label className="text-muted-foreground text-xs">{f.label}</Label>
@@ -155,13 +165,25 @@ export function EditArtifactDialog({
                   />
                 </div>
               ))}
+              <button
+                type="button"
+                aria-label="Remove this row"
+                onClick={() => removeRow(i)}
+                className="text-muted-foreground hover:text-destructive absolute right-1.5 top-1.5"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           ))}
           {rows.length === 0 && (
             <p className="text-muted-foreground text-sm">
-              This draft has no items to edit. You can approve it as-is or request a new draft.
+              Nothing here yet — add the first item below, or approve as-is.
             </p>
           )}
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addRow}>
+            <Plus className="mr-1 h-3 w-3" />
+            Add row
+          </Button>
         </div>
 
         <DialogFooter>

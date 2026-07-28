@@ -11,9 +11,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Sparkles, Check, RefreshCw, Loader2, FileText, GitBranch, Network } from 'lucide-react';
+import {
+  Sparkles,
+  Check,
+  RefreshCw,
+  Loader2,
+  FileText,
+  GitBranch,
+  Network,
+  Eye,
+} from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EditArtifactDialog } from './edit-artifact-dialog';
+import { ViewPlaybookDialog, RequestChangesDialog } from './playbook-dialogs';
 
 // Kept inline so this panel builds standalone (the matching backend types live
 // in lib/services/mba-dept-artifacts, shipped in the drafting-engine PR).
@@ -122,31 +132,24 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     [areaId, byType],
   );
 
-  // Approve now happens inside the edit dialog (so edits are saved with it).
-  // This handles the two direct transitions: request changes, and reopen (which
-  // unlocks an approved artifact).
-  const review = useCallback(
-    async (type: ArtifactType, action: 'request_changes' | 'reopen') => {
-      setBusy((b) => ({ ...b, [type]: action === 'reopen' ? 'Reopening…' : 'Saving…' }));
+  // Cast: these RPCs are new and not yet in the generated DB types (codebase
+  // idiom, e.g. mba-rotation-tick). Anon-locked, granted to authenticated.
+  function rpcClient() {
+    return createClientSupabaseClient() as unknown as {
+      rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
+    };
+  }
+
+  // Reopen unlocks an approved artifact (approve happens inside the edit dialog;
+  // request-changes happens inside the note dialog).
+  const reopen = useCallback(
+    async (type: ArtifactType) => {
+      setBusy((b) => ({ ...b, [type]: 'Reopening…' }));
       try {
-        // Cast: these RPCs are new and not yet in the generated DB types
-        // (codebase idiom, e.g. mba-rotation-tick). Anon-locked, granted to
-        // authenticated, so the browser client may call them.
-        const supabase = createClientSupabaseClient() as unknown as {
-          rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
-        };
-        if (action === 'reopen') {
-          await supabase.rpc('fn_mba_dept_artifact_reopen', {
-            p_area_id: areaId,
-            p_artifact_type: type,
-          });
-        } else {
-          await supabase.rpc('fn_mba_dept_artifact_request_changes', {
-            p_area_id: areaId,
-            p_artifact_type: type,
-            p_review_notes: 'Manager requested changes.',
-          });
-        }
+        await rpcClient().rpc('fn_mba_dept_artifact_reopen', {
+          p_area_id: areaId,
+          p_artifact_type: type,
+        });
         await refetch();
       } finally {
         setBusy((b) => ({ ...b, [type]: undefined }));
@@ -155,8 +158,22 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     [areaId, refetch],
   );
 
-  // Which artifact type's Review & Approve dialog is open (null = none).
+  const requestChanges = useCallback(
+    async (type: ArtifactType, note: string) => {
+      await rpcClient().rpc('fn_mba_dept_artifact_request_changes', {
+        p_area_id: areaId,
+        p_artifact_type: type,
+        p_review_notes: note || 'Changes requested.',
+      });
+      await refetch();
+    },
+    [areaId, refetch],
+  );
+
+  // Which artifact type has a dialog open (null = none).
   const [editType, setEditType] = useState<ArtifactType | null>(null);
+  const [viewType, setViewType] = useState<ArtifactType | null>(null);
+  const [reqType, setReqType] = useState<ArtifactType | null>(null);
 
   return (
     <Card className="border-dashed">
@@ -193,6 +210,12 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                 >
                   {STATUS_LABEL[status] ?? status}
                 </Badge>
+              )}
+
+              {status === 'needs_changes' && art?.review_notes && (
+                <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+                  Changes requested: {art.review_notes}
+                </p>
               )}
 
               {art ? (
@@ -236,21 +259,32 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                       variant="outline"
                       className="h-7 text-xs"
                       disabled={Boolean(working)}
-                      onClick={() => review(type, 'request_changes')}
+                      onClick={() => setReqType(type)}
                     >
                       Request changes
                     </Button>
                   </>
                 )}
 
-                {/* Approved is locked — a manager must Reopen before re-drafting. */}
+                {/* Approved: anyone with access can View / download; managers can Reopen. */}
+                {art && status === 'approved' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setViewType(type)}
+                  >
+                    <Eye className="mr-1 h-3 w-3" />
+                    View / download
+                  </Button>
+                )}
                 {canManage && status === 'approved' && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 text-xs"
                     disabled={Boolean(working)}
-                    onClick={() => review(type, 'reopen')}
+                    onClick={() => reopen(type)}
                   >
                     {working === 'Reopening…' ? (
                       <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -286,6 +320,28 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
             setEditType(null);
             void refetch();
           }}
+        />
+      )}
+
+      {viewType && byType[viewType] && (
+        <ViewPlaybookDialog
+          areaLabel={areaLabel}
+          artifactType={viewType}
+          content={byType[viewType]!.content}
+          open={viewType !== null}
+          onOpenChange={(o) => {
+            if (!o) setViewType(null);
+          }}
+        />
+      )}
+
+      {reqType && (
+        <RequestChangesDialog
+          open={reqType !== null}
+          onOpenChange={(o) => {
+            if (!o) setReqType(null);
+          }}
+          onSubmit={(note) => requestChanges(reqType, note)}
         />
       )}
     </Card>
