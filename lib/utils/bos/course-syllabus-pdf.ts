@@ -15,6 +15,10 @@ import type {
 	BosCapstoneRubricData,
 	BosLlcConferenceData,
 } from '@/types/bos'
+// Engineering (Anna University / CET) courses render a separate borderless
+// layout — see the branch in renderCourseSyllabusPDF. Kept in its own module so
+// the Arts & Science renderer here is never touched by the engineering path.
+import { renderEngineeringSyllabusPDF } from './course-syllabus-cet-pdf'
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 const A4_W = 210
@@ -479,6 +483,53 @@ const BLOOMS_DEFAULT: Record<string, string> = {
 	K6: 'Create',
 }
 
+// ── Arts-&-Science (CAS) paragraph builder for a unit's content ───────────────
+// Collapses one unit's chapters into { heading, body } for the flowing-paragraph
+// layout. Reconciles the two shapes the importer produces:
+//   A) unit_title set + several chapters, each a bare topic (no subtopics)
+//   B) unit_title empty + ONE chapter whose title IS the heading + subtopics=topics
+// Topics are joined by " - "; a chapter's own sub-items join by ", ". Stray
+// trailing separators ("-", ",", ";") baked into imported text are stripped.
+function cleanUnitItem(s: string | undefined | null): string {
+	return sanitize(s || '').trim().replace(/[\s\-–—,;:]+$/, '').trim()
+}
+
+function buildParagraphUnit(unit: BosUnit): { heading: string; body: string } {
+	const unitTitle = cleanUnitItem(unit.unit_title)
+	const chaps = (unit.chapters ?? [])
+		.map(ch => ({
+			title: cleanUnitItem(ch.title),
+			subs: (ch.subtopics ?? []).map(s => cleanUnitItem(s.title)).filter(Boolean),
+		}))
+		.filter(c => c.title || c.subs.length > 0)
+
+	// One topic-string per chapter: a bare title, or "title sub, sub" when the
+	// chapter carries its own sub-items (sections join with ", ").
+	const chapterToTopic = (c: { title: string; subs: string[] }): string =>
+		c.subs.length > 0
+			? (c.title ? `${c.title} ${c.subs.join(', ')}` : c.subs.join(', '))
+			: c.title
+
+	let heading = ''
+	let topics: string[] = []
+
+	if (unitTitle) {
+		heading = unitTitle
+		topics = chaps.map(chapterToTopic).filter(Boolean)
+	} else if (chaps.length === 1 && chaps[0].subs.length > 0) {
+		// Shape B: the lone chapter title is the unit heading; its subs are the topics.
+		heading = chaps[0].title
+		topics = chaps[0].subs
+	} else {
+		// No unit_title and not the single-chapter shape — flatten chapter titles.
+		topics = chaps.map(chapterToTopic).filter(Boolean)
+	}
+
+	// Join topics, then normalise to exactly one trailing period.
+	const body = topics.length > 0 ? `${topics.join(' - ').replace(/[.\s]+$/, '')}.` : ''
+	return { heading, body }
+}
+
 // ── PO/PSO key extractor (exported so button components can reuse) ─────────────
 /**
  * Extracts ordered PO/PSO keys from a taxonomy pos/psos field.
@@ -503,12 +554,24 @@ export function extractPOKeys(
 // ── Public interface ──────────────────────────────────────────────────────────
 
 export interface CourseSyllabusPDFData {
+	/**
+	 * Document variant. 'engineering' renders the Anna University / CET-style
+	 * wording (Course Outcomes preamble "At the end of the course…", no
+	 * "The main objectives of this course are" line). 'default' (or unset)
+	 * keeps the Arts & Science wording that the live CAS syllabi already use.
+	 */
+	variant?: 'default' | 'engineering'
+
 	// Institution header
 	institution_name?: string
 	institution_address?: string
 	institution_accreditation?: string
 	logoImage?: string
 	rightLogoImage?: string
+	/** Extra centred banner lines (engineering CET variant only). */
+	banner_lines?: string[]
+	/** Website line for the engineering CET banner. */
+	institution_website?: string
 
 	// Course master
 	course_code: string
@@ -518,6 +581,19 @@ export interface CourseSyllabusPDFData {
 	total_hours?: number | null
 	contact_hours?: number | null
 	credits?: number | null
+	/**
+	 * Anna University L-T-P-C values for the engineering variant's header row.
+	 * Parsed from the syllabus `notes` ("LTPC: 3 1 0 4") because they are not
+	 * stored as structured columns. Only consumed by the CET renderer.
+	 */
+	ltpc?: { l?: string | number; t?: string | number; p?: string | number; c?: string | number }
+	/**
+	 * Total course periods "theory + tutorial" (e.g. 30 + 30) for the CET
+	 * variant's per-unit hour markers and the "TOTAL: N+M PERIODS" line. Used
+	 * only when the units don't already carry their own "6+6" markers; the
+	 * total is then distributed evenly across the units.
+	 */
+	total_periods?: { theory: number; tut: number }
 
 	// Syllabus content
 	objectives?: BosCourseObjective[]
@@ -526,12 +602,28 @@ export interface CourseSyllabusPDFData {
 	k_values?: Record<string, string>
 	units?: BosUnit[]
 	/**
+	 * How to render each unit's `chapters`:
+	 *   - 'stacked'  (default): unit_title as a bold heading, then each chapter on
+	 *     its own line ("Title: subs") — the engineering / Anna-Univ layout.
+	 *   - 'paragraph': the Arts-&-Science (CAS) layout — a single flowing paragraph
+	 *     "**HEADING:** topic - topic - topic." with topics joined by " - " and a
+	 *     chapter's sub-items joined by ", ". Reconciles the two ways units are
+	 *     imported (unit_title+chapters vs. empty unit_title+chapter-as-heading).
+	 */
+	unitLayout?: 'stacked' | 'paragraph'
+	/**
 	 * Numbered list of practical-paper topics — set instead of `units` for
 	 * practical/lab papers. Each topic is a heading (e.g. "MAJOR PRACTICALS")
 	 * and may optionally carry its own numbered sub-topics (rendered with
 	 * "1.1, 1.2, …" prefixes under the parent heading).
 	 */
 	practical_topics?: BosPracticalTopic[]
+	/**
+	 * Whether to print the inline experiment number ("1. …") on practical
+	 * headings/sub-topics. Defaults to ON (numbered) when undefined so existing
+	 * syllabi are unchanged; `false` drops the prefix (S.No column still numbers).
+	 */
+	number_practical_topics?: boolean
 	/** Instructions displayed after all course content (units/topics) */
 	instruction?: string
 	textbooks?: BosTextbook[]
@@ -576,6 +668,14 @@ export function renderCourseSyllabusPDF(
 	data: CourseSyllabusPDFData,
 	opts?: { startNewPage?: boolean },
 ): void {
+	// Engineering (Anna University / CET) courses render a completely different,
+	// borderless flowing layout. Kept in its own function so the Arts & Science
+	// (CAS) path below stays exactly as it was — never touched by the variant.
+	if (data.variant === 'engineering') {
+		renderEngineeringSyllabusPDF(doc, data, opts)
+		return
+	}
+
 	if (opts?.startNewPage) doc.addPage()
 	let y = MARGIN
 
@@ -611,7 +711,7 @@ export function renderCourseSyllabusPDF(
 	y = table(doc, y, [
 		[
 			bold(partLabel, { halign: 'center', cellWidth: LABEL_W }),
-			bold(data.course_name.toUpperCase(), { fontSize: 13, halign: 'center', cellWidth: TABLE_W - LABEL_W }),
+			bold((data.course_name ?? '').toUpperCase(), { fontSize: 13, halign: 'center', cellWidth: TABLE_W - LABEL_W }),
 		],
 	], {
 		0: { cellWidth: LABEL_W },
@@ -696,12 +796,22 @@ export function renderCourseSyllabusPDF(
 	}
 
 	// ── SECTION 5: Course Content ─────────────────────────────────────────────
-	// Practical-paper variant: when the syllabus is a lab/practical course, the
-	// form stores a flat numbered `topics` list instead of unit/chapter trees
-	// (see ContentEditor.toggleMode in components/bos/syllabus-form.tsx).
-	// Render it as an "S.No | List of Experiments" table. This branch wins over
-	// the units block — the two modes are mutually exclusive by construction.
+	// Render order is theory-first: for a combined "Theory + Practical" course
+	// the units block prints first, then the practical experiments below it.
+	// Both bodies are wrapped in deferred closures (each returns early when its
+	// data is absent) so a single-mode course still prints exactly one section,
+	// while a combined course prints both in reading order. The callers at the
+	// end of this section fix the order (renderTheoryUnits → renderPracticalTopics).
+
+	// Practical-paper variant: the form stores a flat numbered `topics` list
+	// instead of unit/chapter trees (see ContentEditor in
+	// components/bos/syllabus-form.tsx). Rendered as an "S.No | List of
+	// Experiments" table. The inline experiment number ("1. …") is printed only
+	// when numbering is enabled (default ON; see number_practical_topics).
+	const renderPracticalTopics = () => {
 	if (data.practical_topics && data.practical_topics.length > 0) {
+		// Default ON when the flag is absent, so existing syllabi stay numbered.
+		const showExperimentNumbers = data.number_practical_topics !== false
 		// Bordered table — one row per parent topic, with the bold heading +
 		// numbered sub-items stacked inside the content cell via the shared
 		// `_bosMixed` line mechanism (same machinery theory-mode unit content
@@ -744,7 +854,9 @@ export function renderCourseSyllabusPDF(
 				doc.setFont('times', 'normal')
 				doc.setFontSize(FONT_SIZE)
 				for (const st of t.subtopics!) {
-					const subText = `${st.number}. ${sanitize(st.title || '')}`
+					const subText = showExperimentNumbers
+						? `${st.number}. ${sanitize(st.title || '')}`
+						: sanitize(st.title || '')
 					const subWrapped = doc.splitTextToSize(subText, contentMaxTextW) as string[]
 					subWrapped.forEach(ln =>
 						allLines.push({ text: ln, prefixEnd: 0 }),
@@ -771,7 +883,12 @@ export function renderCourseSyllabusPDF(
 			0: { cellWidth: LABEL_W },
 			1: { cellWidth: contentColW },
 		})
-	} else if (data.units && data.units.length > 0) {
+	}
+	}
+	// Theory units — the unit/chapter layout (engineering & CAS). Wrapped so it
+	// can be invoked before the practical section for combined courses.
+	const renderTheoryUnits = () => {
+	if (data.units && data.units.length > 0) {
 	// One row per unit, two columns: the unit_id label (e.g. "I", "II") on the
 	// left, and all chapters merged into a single content cell on the right.
 	// Each chapter renders as one inline paragraph with a bold "Title:" prefix
@@ -789,6 +906,33 @@ export function renderCourseSyllabusPDF(
 		]
 
 		for (const unit of data.units) {
+			// CAS / Arts-&-Science layout: one flowing paragraph per unit —
+			// "**HEADING:** topic - topic - …." — instead of the stacked heading +
+			// per-chapter lines below. Reconciles both importer shapes (see
+			// buildParagraphUnit).
+			if (data.unitLayout === 'paragraph') {
+				const { heading, body } = buildParagraphUnit(unit)
+				const allLines: BosMixedLine[] = []
+				if (heading && body) {
+					allLines.push(...wrapBoldPrefixRest(doc, `${heading}: `, body, contentMaxTextW))
+				} else if (heading) {
+					allLines.push(...wrapBoldPrefixRest(doc, heading, '', contentMaxTextW))
+				} else if (body) {
+					doc.setFont('times', 'normal')
+					doc.setFontSize(FONT_SIZE)
+					const wrapped = doc.splitTextToSize(body, contentMaxTextW) as string[]
+					wrapped.forEach((l, idx) =>
+						allLines.push({ text: l, prefixEnd: 0, justify: idx < wrapped.length - 1 }),
+					)
+				}
+				if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
+				rows.push([
+					{ content: unit.unit_id, styles: { fontStyle: 'bold', halign: 'center', valign: 'top' } },
+					{ content: allLines.map(l => l.text).join('\n'), _bosMixed: { lines: allLines } },
+				])
+				continue
+			}
+
 			const unitTitle = sanitize(unit.unit_title || '').trim()
 
 			const chapterEntries = unit.chapters
@@ -867,6 +1011,12 @@ export function renderCourseSyllabusPDF(
 			1: { cellWidth: contentColW },
 		})
 	}
+	}
+
+	// Theory first, then practical — combined "Theory + Practical" courses print
+	// the units section above the "List of Experiments" section.
+	renderTheoryUnits()
+	renderPracticalTopics()
 
 	// ── SECTION 5.5: Instructions (after units/topics) ──────────────────────────
 	if (data.instruction && data.instruction.trim()) {
@@ -1109,6 +1259,17 @@ export function renderCourseSyllabusPDF(
 		return [[cell(sanitize(t), { halign: 'left' })]]
 	}
 
+	// v3.5 capstone gate: the Assessment Pattern, Capstone Rubric, and
+	// Learners Led Conference are the summative spec for the Capstone Project —
+	// they only make sense when a capstone project exists. Print ASSESSMENT
+	// PATTERN, CAPSTONE RUBRIC, and the LLC panel ONLY when capstone_project
+	// carries data (options or an intro note); a syllabus with no capstone
+	// project skips them all, even if their own JSONB columns happen to hold
+	// rows. Shared with the Capstone Project block below so the sections appear
+	// or disappear together.
+	const cp = data.capstone_project
+	const hasCapstoneProject = !!(cp && ((cp.options?.length ?? 0) > 0 || cp.intro_note?.trim()))
+
 	// Concept Applications (Formative Learning Activities)
 	const ca = data.concept_applications
 	if (ca && ((ca.activities?.length ?? 0) > 0 || ca.intro_note?.trim())) {
@@ -1152,7 +1313,7 @@ export function renderCourseSyllabusPDF(
 
 	// Assessment Pattern (Internal | External split + internal component rows)
 	const ap = data.assessment_pattern
-	if (ap && ((ap.components?.length ?? 0) > 0 || ap.internal_marks != null || ap.external_marks != null)) {
+	if (hasCapstoneProject && ap && ((ap.components?.length ?? 0) > 0 || ap.internal_marks != null || ap.external_marks != null)) {
 		sectionHeading('ASSESSMENT PATTERN:')
 		const comps = ap.components ?? []
 		const snoW = 16, marksW = 22
@@ -1189,9 +1350,10 @@ export function renderCourseSyllabusPDF(
 		}
 	}
 
-	// Capstone Project — choose ONE of FIVE (option cards)
-	const cp = data.capstone_project
-	if (cp && ((cp.options?.length ?? 0) > 0 || cp.intro_note?.trim())) {
+	// Capstone Project — choose ONE of FIVE (option cards). `cp` /
+	// `hasCapstoneProject` are computed once above and shared with the
+	// Assessment Pattern + Capstone Rubric gates.
+	if (hasCapstoneProject) {
 		sectionHeading('CAPSTONE PROJECT (CHOOSE ONE OF FIVE):')
 		if (cp.intro_note?.trim()) {
 			y = table(doc, y, paragraphRow(cp.intro_note), { 0: { cellWidth: TABLE_W } })
@@ -1228,7 +1390,7 @@ export function renderCourseSyllabusPDF(
 
 	// Capstone Rubric (criterion rows, common to all options)
 	const cr = data.capstone_rubric
-	if (cr && (cr.criteria?.length ?? 0) > 0) {
+	if (hasCapstoneProject && cr && (cr.criteria?.length ?? 0) > 0) {
 		const criteria = cr.criteria ?? []
 		sectionHeading(cr.note?.trim() ? `CAPSTONE RUBRIC (${sanitize(cr.note).trim()}):` : 'CAPSTONE RUBRIC:')
 		const marksW = 22
@@ -1248,7 +1410,7 @@ export function renderCourseSyllabusPDF(
 	// the source documents: a single inline header line (bold "LLC <title>"
 	// + regular "— <subtitle>") above the description paragraph.
 	const llc = data.llc_conference
-	if (llc && (llc.title?.trim() || llc.subtitle?.trim() || llc.description?.trim())) {
+	if (hasCapstoneProject && llc && (llc.title?.trim() || llc.subtitle?.trim() || llc.description?.trim())) {
 		if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 10 }
 		const rows: AnyCell[][] = []
 		const headerLines = wrapBoldPrefixRest(

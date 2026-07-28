@@ -142,8 +142,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
     if ('theory_hours' in updates && 'practical_hours' in updates) {
       const t = (updates.theory_hours as number | undefined) ?? 0;
+      const tut = (updates.tutorial_hours as number | undefined) ?? 0;
       const p = (updates.practical_hours as number | undefined) ?? 0;
-      updates.class_hours = t + p;
+      updates.class_hours = t + tut + p;
     }
 
     const updated = await client.put<unknown>(`/api/v1/courses/${id}`, updates);

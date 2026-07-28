@@ -121,7 +121,7 @@ export class HostelAttendanceService {
       const residentsQ = supabase
         .from('hostel_residents')
         .select(
-          'id, profile_id, id_proof_number, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email)'
+          'id, profile_id, id_proof_number, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email, institution_id, avatar_url)'
         )
         .eq('is_active', true)
         .limit(1000);
@@ -129,12 +129,22 @@ export class HostelAttendanceService {
       const allocQ = supabase
         .from('hostel_allocations')
         .select(
-          'learner_id, block_id, room_id, bed_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code), room:hostel_rooms!hostel_allocations_room_id_fkey(id, room_number, floor), bed:hostel_beds!hostel_allocations_bed_id_fkey(id, bed_number), learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email)'
+          'learner_id, block_id, room_id, bed_id, block:hostel_blocks!hostel_allocations_block_id_fkey(id, name, code), room:hostel_rooms!hostel_allocations_room_id_fkey(id, room_number, floor, category_id, category:hostel_categories(id, name, sort_order)), bed:hostel_beds!hostel_allocations_bed_id_fkey(id, bed_number), learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email, institution_id, avatar_url)'
         )
         .eq('status', 'active')
         .limit(1000);
 
-      const [residents, allocs] = await Promise.all([residentsQ, allocQ]);
+      // Real student photos live in learners_profiles.student_photo_url, NOT
+      // profiles.avatar_url (NULL for ~all students). learners_profiles SELECT
+      // RLS blocks block-scoped wardens from reading their own cross-college
+      // residents, so this goes through a SECURITY DEFINER RPC that self-authorizes
+      // on the caller's block/institution access and returns only the (public-bucket)
+      // photo URL. Failure is non-fatal — the roster still renders with initials.
+      const photosQ = supabase.rpc('get_markable_resident_photos', {
+        p_block_id: blockId ?? null,
+      });
+
+      const [residents, allocs, photos] = await Promise.all([residentsQ, allocQ, photosQ]);
       if (residents.error) {
         logger.error('campus-living/attendance', 'Failed to fetch markable residents', residents.error);
         throw residents.error;
@@ -143,14 +153,25 @@ export class HostelAttendanceService {
         logger.error('campus-living/attendance', 'Failed to fetch resident allocations', allocs.error);
         throw allocs.error;
       }
+      if (photos.error) {
+        // Non-fatal: log and fall back to initials rather than failing the roster.
+        logger.error('campus-living/attendance', 'Failed to fetch resident photos', photos.error);
+      }
+
+      const photoByProfile = new Map<string, string>(
+        ((photos.data ?? []) as Array<{ profile_id: string; student_photo_url: string }>).map(
+          (p) => [p.profile_id, p.student_photo_url]
+        )
+      );
 
       const allocRows = (allocs.data ?? []) as unknown as MarkableResidentAllocation[];
       const byLearner = new Map(allocRows.map((a) => [a.learner_id, a]));
       const merged: MarkableResident[] = ((residents.data ?? []) as unknown as Array<
-        Omit<MarkableResident, 'allocation'>
+        Omit<MarkableResident, 'allocation' | 'student_photo_url'>
       >).map((r) => ({
         ...r,
         allocation: byLearner.get(r.profile_id) ?? null,
+        student_photo_url: photoByProfile.get(r.profile_id) ?? null,
       }));
 
       // Allocated learners with no hostel_residents row (e.g. auto-allocated
@@ -165,6 +186,7 @@ export class HostelAttendanceService {
             id_proof_number: null,
             profile: a.learner ?? null,
             allocation: a,
+            student_photo_url: photoByProfile.get(a.learner_id) ?? null,
           });
         }
       }
@@ -172,11 +194,18 @@ export class HostelAttendanceService {
       const list = blockId
         ? merged.filter((m) => m.allocation?.block_id === blockId)
         : merged;
-      // Roll-call order: block, then room, then name; unallocated last.
+      // Roll-call order: block, then floor, then room number, then name;
+      // unallocated last. Floor must sort ahead of room number — room
+      // numbers alone don't reliably encode floor (e.g. reused "1", "2"
+      // per floor), which previously let rooms from different floors
+      // interleave instead of walking the block floor-by-floor.
       return list.sort((x, y) => {
         const bx = x.allocation?.block?.name ?? '￿';
         const by = y.allocation?.block?.name ?? '￿';
         if (bx !== by) return bx.localeCompare(by);
+        const fx = x.allocation?.room?.floor ?? Infinity;
+        const fy = y.allocation?.room?.floor ?? Infinity;
+        if (fx !== fy) return fx - fy;
         const rx = x.allocation?.room?.room_number ?? '￿';
         const ry = y.allocation?.room?.room_number ?? '￿';
         if (rx !== ry) return rx.localeCompare(ry, undefined, { numeric: true });
@@ -381,7 +410,7 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_attendance')
-        .upsert(payload, { onConflict: 'institution_id,learner_id,date' })
+        .upsert(payload, { onConflict: 'learner_id,date' })
         .select()
         .single();
 
@@ -402,7 +431,7 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_attendance')
-        .upsert(records, { onConflict: 'institution_id,learner_id,date' })
+        .upsert(records, { onConflict: 'learner_id,date' })
         .select();
 
       if (error) {

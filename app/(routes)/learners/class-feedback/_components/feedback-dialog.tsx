@@ -15,13 +15,19 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
-import { CheckCircle2, ShieldCheck, History } from 'lucide-react';
+import { CheckCircle2, EyeOff, ShieldCheck, History } from 'lucide-react';
 import {
   useChecklistConfig,
   useSubmitFeedback,
   useCarryforward,
 } from '@/hooks/use-session-feedback';
+import { SessionFeedbackService } from '@/lib/services/session-feedback-service';
 import type { PendingSession } from '@/types/session-feedback';
+import {
+  NOTEBOOKLM_FEATURES,
+  NBLM_NONE_KEY,
+} from '@/lib/session-feedback/notebooklm-features';
+import { ClarificationTouchpoint } from './clarification-touchpoint';
 
 const BRAND = '#0b6d41';
 
@@ -104,12 +110,21 @@ export function FeedbackDialog({
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [freeText, setFreeText] = useState('');
   const [cfChoice, setCfChoice] = useState<CarryforwardChoice | null>(null);
+  // Free-text follow-ups (2026-07-19): per-concern Yes/Partly/No, keyed by
+  // scf_freetext_carry id. Answering is optional — unanswered items simply
+  // re-appear at the next check-in for this course (Director decision 3).
+  const [concernAnswers, setConcernAnswers] = useState<Record<string, CarryforwardChoice>>({});
 
   // Attention check: shuffled options for THIS open (null = no check rolled),
   // whether it's been passed, and the last wrong tap (gentle inline feedback).
   const [attnOptions, setAttnOptions] = useState<string[] | null>(null);
   const [attnPassed, setAttnPassed] = useState(true);
   const [attnWrong, setAttnWrong] = useState<string | null>(null);
+
+  // Post-feedback confirmation moment (Lane C): after a successful submit the
+  // dialog swaps to a small "attendance confirmed" step carrying the
+  // clarification-request touchpoint, instead of closing immediately.
+  const [postSubmit, setPostSubmit] = useState(false);
 
   // Decoy pool via a latest-ref (skeptic review HIGH, 2026-07-09): the reset
   // effect below must fire ONLY on session identity. With pendingSessions in
@@ -131,6 +146,8 @@ export function FeedbackDialog({
       setChecklist({});
       setFreeText('');
       setCfChoice(null);
+      setConcernAnswers({});
+      setPostSubmit(false);
 
       // Roll the occasional attention check for this open. Re-rolls on every
       // open by design — deliberately stateless (no storage, no punishment).
@@ -153,7 +170,13 @@ export function FeedbackDialog({
     }
   }, [session]);
 
-  const items = useMemo(() => checklistConfig ?? [], [checklistConfig]);
+  // Rank 2 (2026-07-24): the saturated `notebooklm_used` yes/no is retired — hidden here
+  // client-side (so it disappears even before the deactivation migration applies) and
+  // replaced by the NotebookLM feature multi-select below. Historical rows keep the key.
+  const items = useMemo(
+    () => (checklistConfig ?? []).filter((i) => i.item_key !== 'notebooklm_used'),
+    [checklistConfig],
+  );
 
   // The carry-forward re-ask for THIS session: a prior same-course session the
   // learner flagged. Match by timetable_id + period_id + course_code.
@@ -170,21 +193,51 @@ export function FeedbackDialog({
   }, [carryforward, session]);
 
   // Map prior unmet checklist item_keys to their human labels (fall back to key).
+  // Drop `notebooklm_used` — it's retired (Rank 2). Until the deactivation migration
+  // applies, the carry-forward RPC may still return it as "unmet"; we never show it.
   const carryItemLabels = useMemo(() => {
     if (!carry) return [];
     const byKey = new Map(items.map((i) => [i.item_key, i.label]));
-    return carry.prior_unmet_items.map((k) => byKey.get(k) ?? k);
+    return carry.prior_unmet_items
+      .filter((k) => k !== 'notebooklm_used')
+      .map((k) => byKey.get(k) ?? k);
   }, [carry, items]);
 
   // The learner's OWN prior rating + when, for the personalised re-ask. (#2)
-  const priorWord = carry ? UNDERSTOOD_WORD[carry.prior_understood] ?? null : null;
+  const priorWord =
+    carry && carry.prior_understood !== null
+      ? (UNDERSTOOD_WORD[carry.prior_understood] ?? null)
+      : null;
   const priorDate = formatPriorDate(carry?.prior_session_date);
+  // A concerns-only carry row (decision 8: words carry even from a happy
+  // check-in) has NO checklist/rating side — the legacy intro must not render
+  // its "you said you were lost" fallback for it.
+  const hasChecklistCarry = Boolean(carry && carry.prior_session_date !== null);
+  const openConcerns = carry?.prior_concerns ?? [];
 
   const open = session !== null;
 
   const courseLabel =
     session?.course_name || session?.course_code || 'Class session';
   const periodLabel = session?.period_name || session?.start_time || null;
+
+  // NotebookLM feature multi-select (Rank 2). "None" and the features are mutually
+  // exclusive: ticking a feature clears "None"; ticking "None" clears every feature.
+  // All ride in the existing `checklist` state under reserved `nblm:*` keys.
+  function toggleNblmFeature(key: string, on: boolean) {
+    setChecklist((prev) => ({
+      ...prev,
+      [key]: on,
+      ...(on ? { [NBLM_NONE_KEY]: false } : {}),
+    }));
+  }
+  function toggleNblmNone(on: boolean) {
+    setChecklist((prev) => {
+      const next: Record<string, boolean> = { ...prev, [NBLM_NONE_KEY]: on };
+      if (on) for (const f of NOTEBOOKLM_FEATURES) next[f.key] = false;
+      return next;
+    });
+  }
 
   async function handleSubmit() {
     if (!session) return;
@@ -197,8 +250,19 @@ export function FeedbackDialog({
     // keeps the fn_scf_submit_feedback signature unchanged.
     const trimmed = freeText.trim();
     let payloadText: string | null = trimmed ? trimmed : null;
-    if (carry && cfChoice) {
-      const prefix = `[carry-forward: ${cfChoice}] `;
+    const prefixes: string[] = [];
+    if (carry && hasChecklistCarry && cfChoice) {
+      prefixes.push(`[carry-forward: ${cfChoice}]`);
+    }
+    // Free-text follow-up answers ride the same way (track-both: the marker
+    // keeps the corpus readable, fn_scf_answer_freetext_carry below stores the
+    // structured answer the counts card reads).
+    const answeredConcerns = (carry?.prior_concerns ?? []).filter((c) => concernAnswers[c.id]);
+    for (const c of answeredConcerns) {
+      prefixes.push(`[freetext-carry "${c.summary.slice(0, 40)}": ${concernAnswers[c.id]}]`);
+    }
+    if (prefixes.length > 0) {
+      const prefix = `${prefixes.join(' ')} `;
       payloadText = trimmed ? `${prefix}${trimmed}` : prefix.trim();
     }
     try {
@@ -211,8 +275,28 @@ export function FeedbackDialog({
         freeText: payloadText,
         source,
       });
+      // Structured answers + praise ack — best-effort AFTER the main submit
+      // (a failed stamp must never cost the learner their confirmation; the
+      // item simply re-appears next time).
+      const stamps: Array<Promise<void>> = answeredConcerns.map((c) =>
+        SessionFeedbackService.answerFreetextCarry(c.id, concernAnswers[c.id]),
+      );
+      if (carry?.prior_praise) {
+        stamps.push(SessionFeedbackService.answerFreetextCarry(carry.prior_praise.id, 'Seen'));
+      }
+      if (stamps.length > 0) {
+        void Promise.allSettled(stamps).then((results) => {
+          results.forEach((r) => {
+            if (r.status === 'rejected') {
+              console.warn('[class-feedback] follow-up stamp failed:', r.reason);
+            }
+          });
+        });
+      }
       toast.success('Thanks! Your attendance for this class is now confirmed.');
-      onOpenChange(false);
+      // Stay open on the confirmation step (Lane C): the one moment the learner
+      // can record "I asked for a re-explanation" + what happened. Done closes.
+      setPostSubmit(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not submit feedback.');
     }
@@ -239,10 +323,27 @@ export function FeedbackDialog({
             where the full form is taller than the viewport. The -mx-1/px-1
             pair keeps focus rings from being clipped by overflow. */}
         <div className="-mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
-        {/* Attention check gate — the form stays hidden until the correct tap.
-            Wrong taps only mark the option and invite another try; Cancel below
-            always works (no punishment). */}
-        {!attnPassed && attnOptions ? (
+        {/* Post-feedback confirmation moment (Lane C): attendance is confirmed;
+            the ONLY extra affordance is the clarification-request touchpoint. */}
+        {postSubmit && session ? (
+          <div className="space-y-4 py-2">
+            <p className="flex items-start gap-2 text-sm">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
+              <span>
+                <span className="font-medium">Feedback received</span> — your attendance for
+                this class is confirmed.
+              </span>
+            </p>
+            <ClarificationTouchpoint
+              attendanceDate={session.attendance_date}
+              timetableId={session.timetable_id}
+              periodId={session.period_id}
+            />
+          </div>
+        ) : !attnPassed && attnOptions ? (
+          /* Attention check gate — the form stays hidden until the correct tap.
+             Wrong taps only mark the option and invite another try; Cancel below
+             always works (no punishment). */
           <div className="space-y-3 py-2">
             <p className="text-sm font-medium">
               Quick check — which class are you giving feedback for?
@@ -287,55 +388,122 @@ export function FeedbackDialog({
           {/* Carry-forward re-ask: last time you took this course, you flagged X. */}
           {carry && (
             <div className="rounded-md border border-[#0b6d41]/30 bg-[#fbfbee]/60 dark:bg-muted/40 p-3 space-y-2.5">
-              <div className="flex items-start gap-2">
-                <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
-                <p className="text-sm leading-snug">
-                  Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
-                  {priorDate ? (
-                    <> on <span className="font-medium">{priorDate}</span></>
-                  ) : null}
-                  {priorWord ? (
-                    <>
-                      , you rated it{' '}
-                      <span className="font-medium">
-                        {carry.prior_understood}/5 · {priorWord}
-                      </span>
-                    </>
-                  ) : null}
-                  {carryItemLabels.length > 0 ? (
-                    <>
-                      {priorWord ? ' and flagged ' : ': you flagged '}
-                      <span className="font-medium">{carryItemLabels.join(', ')}</span>
-                    </>
-                  ) : !priorWord ? (
-                    <> you said you were lost</>
-                  ) : null}
-                  {' '}— clearer for you this time?
-                </p>
-              </div>
+              {hasChecklistCarry && (
+                <>
+                  <div className="flex items-start gap-2">
+                    <History className="mt-0.5 h-4 w-4 shrink-0" style={{ color: BRAND }} />
+                    <p className="text-sm leading-snug">
+                      Last <span className="font-medium">{carry.course_name || carry.course_code}</span>
+                      {priorDate ? (
+                        <> on <span className="font-medium">{priorDate}</span></>
+                      ) : null}
+                      {priorWord ? (
+                        <>
+                          , you rated it{' '}
+                          <span className="font-medium">
+                            {carry.prior_understood}/5 · {priorWord}
+                          </span>
+                        </>
+                      ) : null}
+                      {carryItemLabels.length > 0 ? (
+                        // The unmet labels are positively-phrased statements the
+                        // learner did NOT tick — say "missing" or the banner
+                        // reads backwards (Director-confirmed fix, 2026-07-19,
+                        // off a live screenshot of the inverted reading).
+                        <>
+                          {priorWord ? ' and flagged these as missing: ' : ': you flagged these as missing: '}
+                          <span className="font-medium">{carryItemLabels.join(', ')}</span>
+                        </>
+                      ) : !priorWord ? (
+                        <> you said you were lost</>
+                      ) : null}
+                      {' '}— clearer for you this time?
+                    </p>
+                  </div>
 
-              <div className="flex gap-2">
-                {CARRYFORWARD_CHOICES.map((choice) => {
-                  const selected = cfChoice === choice;
-                  return (
-                    <button
-                      key={choice}
-                      type="button"
-                      onClick={() => setCfChoice(choice)}
-                      aria-pressed={selected}
-                      className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
-                        selected
-                          ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
-                          : 'border-input bg-background hover:bg-muted'
-                      }`}
-                    >
-                      {choice}
-                    </button>
-                  );
-                })}
-              </div>
+                  <div className="flex gap-2">
+                    {CARRYFORWARD_CHOICES.map((choice) => {
+                      const selected = cfChoice === choice;
+                      return (
+                        <button
+                          key={choice}
+                          type="button"
+                          onClick={() => setCfChoice(choice)}
+                          aria-pressed={selected}
+                          className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
+                            selected
+                              ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
+                              : 'border-input bg-background hover:bg-muted'
+                          }`}
+                        >
+                          {choice}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Free-text follow-ups (2026-07-19): the learner's OWN prior words,
+                  AI-summarized, asked back privately — one 3-way answer each.
+                  Answering is optional; unanswered items return next check-in. */}
+              {openConcerns.map((concern) => (
+                <div key={concern.id} className="space-y-1.5">
+                  <p className="text-sm leading-snug">
+                    You mentioned: <span className="font-medium">&ldquo;{concern.summary}&rdquo;</span>
+                    {' '}— better this time?
+                  </p>
+                  <div className="flex gap-2">
+                    {CARRYFORWARD_CHOICES.map((choice) => {
+                      const selected = concernAnswers[concern.id] === choice;
+                      return (
+                        <button
+                          key={choice}
+                          type="button"
+                          onClick={() =>
+                            setConcernAnswers((prev) => ({ ...prev, [concern.id]: choice }))
+                          }
+                          aria-pressed={selected}
+                          className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 ${
+                            selected
+                              ? 'border-[#0b6d41] bg-[#0b6d41] text-white'
+                              : 'border-input bg-background hover:bg-muted'
+                          }`}
+                        >
+                          {choice}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {carry.prior_praise && (
+                <p className="text-sm leading-snug text-muted-foreground">
+                  Last time you said: <span className="font-medium">&ldquo;{carry.prior_praise.summary}&rdquo;</span>
+                  {' '}— glad that worked for you.
+                </p>
+              )}
             </div>
           )}
+
+          {/* Anonymity — say it where the fear bites, right before the rating.
+              (Director 2026-07-14: ratings cluster at 4; learners may fear
+              being identified.) TRUE by construction: Senior Learners read
+              aggregates via SECDEF fns only; raw rows are RLS'd to the learner
+              + platform admin; free-text reaches staff without names attached.
+              Terminology: "Senior Learners" is JKKN's term for the teaching
+              role — Director ruling 2026-07-14 ("Senior Learners everywhere"),
+              superseding the facilitators-in-writing encoding of Jun 29. */}
+          <p className="flex items-start gap-1.5 rounded-md px-2.5 py-2 text-xs"
+             style={{ backgroundColor: 'rgba(11,109,65,0.06)' }}>
+            <EyeOff className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: BRAND }} />
+            <span>
+              <span className="font-semibold">Anonymous to your Senior Learners.</span>{' '}
+              They see session totals only — never your name with your answer.
+              Answer honestly; that is what improves the sessions.
+            </span>
+          </p>
 
           {/* Understanding 1–5 */}
           <div className="space-y-2">
@@ -399,6 +567,50 @@ export function FeedbackDialog({
             </div>
           ) : null}
 
+          {/* NotebookLM materials used (Rank 2) — replaces the saturated yes/no.
+              Stored under reserved nblm:* checklist keys; never a config/unmet item. */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">
+              Which NotebookLM materials did you use this session?{' '}
+              <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+              {NOTEBOOKLM_FEATURES.map((f) => {
+                const checked = !!checklist[f.key];
+                return (
+                  <div key={f.key} className="flex items-start gap-2.5">
+                    <Checkbox
+                      id={`scf-${f.key}`}
+                      checked={checked}
+                      onCheckedChange={(v) => toggleNblmFeature(f.key, v === true)}
+                      className="mt-0.5"
+                    />
+                    <Label
+                      htmlFor={`scf-${f.key}`}
+                      className="cursor-pointer text-sm font-normal leading-snug"
+                    >
+                      {f.label}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-start gap-2.5 border-t pt-2.5">
+              <Checkbox
+                id="scf-nblm-none"
+                checked={!!checklist[NBLM_NONE_KEY]}
+                onCheckedChange={(v) => toggleNblmNone(v === true)}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="scf-nblm-none"
+                className="cursor-pointer text-sm font-normal leading-snug text-muted-foreground"
+              >
+                No NotebookLM this session
+              </Label>
+            </div>
+          </div>
+
           {/* Free text */}
           <div className="space-y-2">
             <Label htmlFor="scf-free-text" className="text-sm font-medium">
@@ -423,29 +635,41 @@ export function FeedbackDialog({
         </div>
 
         <DialogFooter className="shrink-0 gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={submit.isPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submit.isPending || !attnPassed}
-            className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
-          >
-            {submit.isPending ? (
-              <BeatLoader color="#ffffff" size={8} />
-            ) : (
-              <>
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                Confirm & submit
-              </>
-            )}
-          </Button>
+          {postSubmit ? (
+            <Button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+            >
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={submit.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={submit.isPending || !attnPassed}
+                className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+              >
+                {submit.isPending ? (
+                  <BeatLoader color="#ffffff" size={8} />
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                    Confirm & submit
+                  </>
+                )}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

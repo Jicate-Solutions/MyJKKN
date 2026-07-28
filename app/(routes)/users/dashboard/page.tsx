@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Card,
@@ -81,8 +82,16 @@ const CHART_COLORS = [
   '#6366f1'
 ];
 
-export default function UserDashboardPage() {
-  const [activeTab, setActiveTab] = useState('overview');
+const USER_DASHBOARD_TABS = [
+  'overview',
+  'analytics',
+  'roles',
+  'institutions',
+  'activity',
+] as const;
+
+function UserDashboardInner() {
+  const [activeTab, setActiveTab] = useTabParam('overview', USER_DASHBOARD_TABS);
   const [showFilters, setShowFilters] = useState(false);
 
   const {
@@ -206,7 +215,7 @@ export default function UserDashboardPage() {
             </p>
           </div>
 
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2'>
             <Button
               variant='outline'
               size='sm'
@@ -377,7 +386,7 @@ export default function UserDashboardPage() {
               onValueChange={setActiveTab}
               className='space-y-6'
             >
-              <TabsList className='grid w-full grid-cols-5'>
+              <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-5 sm:gap-0 sm:overflow-visible'>
                 <TabsTrigger value='overview'>Overview</TabsTrigger>
                 <TabsTrigger value='analytics'>Analytics</TabsTrigger>
                 <TabsTrigger value='roles'>Roles</TabsTrigger>
@@ -974,5 +983,14 @@ export default function UserDashboardPage() {
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function UserDashboardPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <UserDashboardInner />
+    </Suspense>
   );
 }

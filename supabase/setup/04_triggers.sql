@@ -147,6 +147,12 @@ CREATE TRIGGER trigger_refund_flow_configs_updated_at BEFORE UPDATE ON billing_r
 CREATE TRIGGER trigger_refund_requests_updated_at BEFORE UPDATE ON billing_refund_requests
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
+-- Global XOR institution-specific scope exclusivity backstop (2026-07-14,
+-- refund_flow_scope_exclusivity). See fn_enforce_refund_flow_scope_exclusivity
+-- in 02_functions.sql.
+CREATE TRIGGER trigger_refund_flow_scope_exclusivity BEFORE INSERT OR UPDATE ON billing_refund_flow_configs
+    FOR EACH ROW EXECUTE FUNCTION fn_enforce_refund_flow_scope_exclusivity();
+
 -- ================================================================================
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
 -- ================================================================================
@@ -968,6 +974,24 @@ CREATE TRIGGER trg_validate_learner_admission_year_scope
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_learner_admission_year_scope();
 
+-- =====================================================
+-- admission_years single-current enforcement — Added 2026-07-25
+-- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
+-- Calls admission_years_enforce_single_current() (02_functions.sql), which
+-- demotes the institution's previous is_current row and clears is_current on
+-- any cohort being deactivated. Runs BEFORE the partial unique index
+-- admission_years_one_current_per_institution is evaluated, so promoting a
+-- cohort is a single toggle instead of a 23505 the client has to work around.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_admission_years_single_current
+  ON public.admission_years;
+
+CREATE TRIGGER trg_admission_years_single_current
+  BEFORE INSERT OR UPDATE OF is_current, is_active
+  ON public.admission_years
+  FOR EACH ROW
+  EXECUTE FUNCTION public.admission_years_enforce_single_current();
+
 -- =====================================================================
 -- Updated: 2026-04-24 - Auto-assign counselor on admission_leads INSERT
 -- Pairs with fn_auto_assign_counselor() in 02_functions.sql.
@@ -1520,3 +1544,45 @@ CREATE TRIGGER trg_events_guard_privileged_fields
   BEFORE UPDATE ON public.events
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_event_privileged_fields();
+
+-- ── Tournament registration form event_id sync (2026-07-14,
+--    event_registration_form_event_id_sync_triggers,
+--    event_registration_form_sync_triggers_unconditional) ──
+-- Corrects the denormalized event_id from the parent chain before RLS
+-- WITH CHECK evaluation. Function bodies live in 02_functions.sql
+-- (sync_event_registration_form_section_event_id / _field_event_id).
+-- Fires on EVERY insert/update (not just OF form_id / OF section_id) — a bare
+-- UPDATE ... SET event_id = X touching neither FK column must still be
+-- corrected, otherwise it bypasses the sync entirely.
+
+DROP TRIGGER IF EXISTS trg_sync_event_registration_form_section_event_id ON public.event_registration_form_sections;
+CREATE TRIGGER trg_sync_event_registration_form_section_event_id
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_sections
+  FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_section_event_id();
+
+DROP TRIGGER IF EXISTS trg_sync_event_registration_form_field_event_id ON public.event_registration_form_fields;
+CREATE TRIGGER trg_sync_event_registration_form_field_event_id
+  BEFORE INSERT OR UPDATE ON public.event_registration_form_fields
+  FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_field_event_id();
+
+-- Bill Coverage (2026-07-25): stamp academic_year_id on every new bill.
+DROP TRIGGER IF EXISTS trg_billing_bill_default_academic_year
+  ON public.billing_student_bills;
+
+CREATE TRIGGER trg_billing_bill_default_academic_year
+BEFORE INSERT ON public.billing_student_bills
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
+
+-- Default "Freshers" semester + section A (2026-07-27): every new program gets
+-- one semester and one section so downstream modules always have a valid target.
+-- Function body (and the reasoning behind semester_order = 0 /
+-- initial_semester = false) lives in 02_functions.sql.
+-- AFTER INSERT only -- a program whose hierarchy is completed by a later UPDATE
+-- is not retro-seeded.
+DROP TRIGGER IF EXISTS programs_seed_freshers ON public.programs;
+
+CREATE TRIGGER programs_seed_freshers
+  AFTER INSERT ON public.programs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.seed_freshers_semester_for_program();

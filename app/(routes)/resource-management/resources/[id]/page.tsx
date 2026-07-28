@@ -418,7 +418,7 @@ export default function ResourceDetailsPage({
 
         {/* Tabs */}
         <Tabs defaultValue='overview' className='space-y-6'>
-          <TabsList className='w-full grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 h-auto gap-2 bg-muted/50 p-1'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 md:grid-cols-7 sm:h-auto sm:gap-2 bg-muted/50 p-1 sm:overflow-visible'>
             <TabsTrigger
               value='overview'
               className='flex items-center gap-2 data-[state=active]:bg-background'

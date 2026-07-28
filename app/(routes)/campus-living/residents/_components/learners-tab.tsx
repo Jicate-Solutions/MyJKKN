@@ -271,6 +271,9 @@ export function LearnersTab() {
             enableDateFilter: false,
             enableExport: true,
             enableRowSelection: false,
+            // Export the whole residents dataset by default (not just the visible
+            // page); "Export Current Page" stays available as a secondary option.
+            exportAllPagesByDefault: true,
           }}
         />
       </div>

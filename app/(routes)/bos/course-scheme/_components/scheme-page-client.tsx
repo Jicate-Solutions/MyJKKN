@@ -28,6 +28,10 @@ export function SchemePageClient() {
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
   const canEdit = isSuperAdmin || canAccess('academic.bos-scheme', 'edit');
+  // Read-all observer tier: ANY holder of the module's view grant may browse
+  // every institution read-only (see isBosReadAllObserver server-side). Drives
+  // the InstitutionPicker below, which used to render for super-admins only.
+  const canBrowseInstitutions = isSuperAdmin || canAccess('academic.bos-scheme', 'view');
 
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const [institutionCode, setInstitutionCode] = useState('');
@@ -37,7 +41,10 @@ export function SchemePageClient() {
   const [editMode, setEditMode] = useState(false);
   const [addDialogSemester, setAddDialogSemester] = useState('');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [downloadingSyllabi, setDownloadingSyllabi] = useState(false);
+  // Which syllabi download is in flight: 'all' for the header button, or a
+  // semester_code for a per-semester button. null when idle. Lets a single
+  // handler drive many buttons while only the clicked one shows its spinner.
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   // Layer 2 (immediate): set institutionId from userProfile.institution_id so
   // the page renders right away without waiting for /api/institutions/resolve.
@@ -55,6 +62,16 @@ export function SchemePageClient() {
   // Layer 2 when COE returns rich data; no-op otherwise.
   useEffect(() => {
     if (isSuperAdmin || !institutionCtx) return;
+    // Observer picked a DIFFERENT institution via the picker — don't clobber
+    // that choice with the user's own-institution context. Only enrich while
+    // the selection is (a CAS sibling of) their own institution.
+    if (
+      institutionId &&
+      institutionId !== institutionCtx.myjkkn_id &&
+      !institutionCtx.myjkkn_institution_ids.includes(institutionId)
+    ) {
+      return;
+    }
     setInstitutionCode(institutionCtx.institution_code);
     setInstitutionName(institutionCtx.display_name || institutionCtx.name);
     setMyjkknInstitutionIds(institutionCtx.myjkkn_institution_ids);
@@ -185,24 +202,33 @@ export function SchemePageClient() {
             internal_max_mark: m.course.internal_max_mark ?? 0,
             external_max_mark: m.course.external_max_mark ?? 0,
             total_max_mark: m.course.total_max_mark ?? 0,
+            // Drives "count the group once" in the semester totals — without
+            // this the PDF would sum every elective option (see the report's
+            // totals row) while the on-screen table collapses them.
+            group_order: m.group_order,
           };
         }),
       })),
     });
   };
 
-  // Combined syllabi PDF — one document containing the full syllabus for every
-  // course in the on-screen scheme, grouped by semester, ordered by the same
-  // course_order rule used in mappingsBySemester. Each course's syllabus starts
-  // on a fresh page (renderCourseSyllabusPDF handles the addPage when
-  // `startNewPage: true`). Mirrors the per-row PDF download on /bos/syllabus
-  // (see SyllabusPdfDownloadButton in row-actions.tsx) but composed into one
-  // shared jsPDF doc instead of N separate files.
-  const handleDownloadSyllabi = async () => {
-    if (!filters || allSemesters.length === 0 || downloadingSyllabi) return;
+  // Per-course syllabi ZIP — builds one standalone PDF per course (named
+  // `course_code_course_name.pdf`) and bundles them into a single .zip that the
+  // browser downloads. `targetSemesters` scopes which semesters are included:
+  // the header button passes every semester ('all'), while each semester table
+  // passes just its own code so the ZIP holds only that semester's courses.
+  // `key` drives the per-button spinner (see downloadingKey state).
+  //
+  // Each course renders into its OWN fresh jsPDF doc (startNewPage: false),
+  // unlike the previous single-merged-document approach — that's what lets us
+  // emit separate files. Shared per-run setup (syllabi fetch, taxonomy, logos)
+  // still happens once. Mirrors the per-row PDF on /bos/syllabus (see
+  // SyllabusPdfDownloadButton in row-actions.tsx).
+  const handleDownloadSyllabi = async (targetSemesters: string[], key: string) => {
+    if (!filters || targetSemesters.length === 0 || downloadingKey) return;
 
-    setDownloadingSyllabi(true);
-    const tid = toast.loading('Generating syllabi PDF…');
+    setDownloadingKey(key);
+    const tid = toast.loading('Generating syllabi ZIP…');
     try {
       // Resolve regulation_id (uuid) from the regulation_code that the filter holds.
       // The syllabus + taxonomy APIs key by id, not code.
@@ -266,17 +292,41 @@ export function SchemePageClient() {
         toBase64(header.rightLogoImage).catch(() => undefined),
       ]);
 
-      // Compose all syllabi into one document. We walk the same semester →
-      // course iteration order used by the on-screen tables and the scheme PDF
-      // so the printed output mirrors what the user sees.
-      const doc = new jsPDF('portrait', 'mm', 'a4');
-      let renderedCount = 0;
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
 
-      for (const semCode of allSemesters) {
+      // Sanitizes a component of the "code_name.pdf" filename: strips characters
+      // that are illegal/awkward on Windows & in zip entries, collapses runs of
+      // whitespace to single underscores, and caps length so paths stay sane.
+      const safe = (s: string) =>
+        (s ?? '')
+          .replace(/[^\w\s-]/g, '')
+          .replace(/\s+/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_|_$/g, '')
+          .slice(0, 80);
+
+      // Guards against two courses producing an identical filename inside the
+      // zip (jszip would silently overwrite) by suffixing _2, _3, … on collision.
+      const usedNames = new Set<string>();
+      const uniqueName = (base: string) => {
+        let name = `${base}.pdf`;
+        let n = 2;
+        while (usedNames.has(name)) name = `${base}_${n++}.pdf`;
+        usedNames.add(name);
+        return name;
+      };
+
+      let renderedCount = 0;
+      // Scheme courses that have no authored syllabus yet — reported to the user
+      // so a missing PDF reads as "not authored" rather than a download bug.
+      const skippedCodes: string[] = [];
+
+      for (const semCode of targetSemesters) {
         const courses = mappingsBySemester.get(semCode) ?? [];
         for (const m of courses) {
           const syllabus = syllabusByCourseCode.get(m.course.course_code);
-          if (!syllabus) continue;
+          if (!syllabus) { skippedCodes.push(m.course.course_code); continue; }
 
           // The on-screen semester table already exposes course_type_code from
           // the COE join, so we don't need an extra courses-master round-trip
@@ -291,6 +341,8 @@ export function SchemePageClient() {
           const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
           const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
+          // Fresh single-course document — this is the unit we add to the zip.
+          const doc = new jsPDF('portrait', 'mm', 'a4');
           renderCourseSyllabusPDF(
             doc,
             {
@@ -320,10 +372,14 @@ export function SchemePageClient() {
               po_keys: poKeys,
               pso_keys: psoKeys,
             },
-            // First syllabus draws on page 1 of the fresh doc; every subsequent
-            // course gets its own page so two syllabi never share a page.
-            { startNewPage: renderedCount > 0 },
+            // Single-course doc: draw on the doc's existing first page.
+            { startNewPage: false },
           );
+
+          // Filename: `course_code_course_name.pdf` — use the raw syllabus
+          // course_name (not the part-prefixed display name) per the request.
+          const fileBase = `${safe(syllabus.course_code)}_${safe(syllabus.course_name)}`;
+          zip.file(uniqueName(fileBase), doc.output('arraybuffer'));
           renderedCount += 1;
         }
       }
@@ -333,14 +389,33 @@ export function SchemePageClient() {
         return;
       }
 
-      const safe = (s: string) => s.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 40);
-      const fileName = `Syllabi_${safe(filters.program_code)}_${filters.regulation_code}_${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
-      toast.success(`Downloaded ${renderedCount} ${renderedCount === 1 ? 'syllabus' : 'syllabi'}`, { id: tid });
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const semTag = key === 'all' ? '' : `_Sem${safe(key)}`;
+      const zipName = `Syllabi_${safe(filters.program_code)}_${filters.regulation_code}${semTag}_${new Date().toISOString().split('T')[0]}.zip`;
+
+      // Trigger the download via a transient anchor — no extra dependency needed.
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = zipName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      if (skippedCodes.length > 0) {
+        toast.success(
+          `Downloaded ${renderedCount} ${renderedCount === 1 ? 'syllabus' : 'syllabi'} as ZIP. ` +
+            `No syllabus authored yet for: ${skippedCodes.join(', ')}`,
+          { id: tid, duration: 8000 },
+        );
+      } else {
+        toast.success(`Downloaded ${renderedCount} ${renderedCount === 1 ? 'syllabus' : 'syllabi'} as ZIP`, { id: tid });
+      }
     } catch (e) {
-      toast.error((e as Error).message || 'Failed to generate syllabi PDF', { id: tid });
+      toast.error((e as Error).message || 'Failed to generate syllabi ZIP', { id: tid });
     } finally {
-      setDownloadingSyllabi(false);
+      setDownloadingKey(null);
     }
   };
 
@@ -348,10 +423,13 @@ export function SchemePageClient() {
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-3 flex-wrap'>
         <div className='flex gap-3 flex-wrap items-end'>
-          {isSuperAdmin && (
+          {canBrowseInstitutions && (
             <InstitutionPicker
               value={institutionId}
               showAllOption={isSuperAdmin}
+              // View-grant observers browse all institutions read-only; their
+              // own institution stays preselected via the profile seed above.
+              allowAllInstitutions={!isSuperAdmin}
               onChange={(id) => {
                 setInstitutionId(id);
                 setFilters(null);
@@ -370,7 +448,7 @@ export function SchemePageClient() {
             />
           )}
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           {filters && !isLoading && allSemesters.length > 0 && (
             <Button variant='outline' size='sm' onClick={handleDownloadReport}>
               <FileDown className='mr-2 h-4 w-4' />
@@ -381,10 +459,10 @@ export function SchemePageClient() {
             <Button
               variant='outline'
               size='sm'
-              onClick={handleDownloadSyllabi}
-              disabled={downloadingSyllabi}
+              onClick={() => handleDownloadSyllabi(allSemesters, 'all')}
+              disabled={downloadingKey !== null}
             >
-              {downloadingSyllabi
+              {downloadingKey === 'all'
                 ? <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                 : <BookOpen className='mr-2 h-4 w-4' />}
               Download Syllabi
@@ -426,6 +504,9 @@ export function SchemePageClient() {
           mappings={mappingsBySemester.get(semCode) ?? []}
           editMode={editMode}
           onAddToSemester={(sem) => { setAddDialogSemester(sem); setAddDialogOpen(true); }}
+          onDownloadSyllabi={() => handleDownloadSyllabi([semCode], semCode)}
+          downloading={downloadingKey === semCode}
+          downloadDisabled={downloadingKey !== null}
         />
       ))}
 

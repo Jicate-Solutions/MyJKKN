@@ -27,6 +27,7 @@ import {
 import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
+import { ClusterLens } from './_components/cluster-lens';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -36,6 +37,10 @@ import type {
   LoopRegistryRow,
   LoopEdgeRow,
   LoopAuditRow,
+  LoopConflictRow,
+  ClusterInstitutionOption,
+  ClusterPreset,
+  ClusterSignal,
 } from './_components/types';
 
 async function cnt(query: unknown): Promise<number | null> {
@@ -148,13 +153,171 @@ async function loadScfEffectiveness(
   }
 }
 
+// Mean measured outcome_lift for SCF suggestions whose outcome landed in the
+// window. A count query can't average, so this pulls the lift values and means
+// them in JS (same swallow-to-hollow philosophy as cnt()). n=0 → mean null so
+// the strip cell renders hollow, not a fake 0.00.
+async function loadScfLift(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  sinceIso: string,
+): Promise<{ n: number | null; mean: number | null }> {
+  try {
+    const { data, error } = await admin
+      .from('scf_ai_suggestions')
+      .select('outcome_lift')
+      .eq('domain', 'session_feedback')
+      .gte('outcome_measured_at', sinceIso)
+      .not('outcome_lift', 'is', null);
+    if (error) return { n: null, mean: null };
+    const vals = (data ?? [])
+      .map((r) => Number(r.outcome_lift))
+      .filter((v) => Number.isFinite(v));
+    if (vals.length === 0) return { n: 0, mean: null };
+    return { n: vals.length, mean: vals.reduce((a, b) => a + b, 0) / vals.length };
+  } catch {
+    return { n: null, mean: null };
+  }
+}
+
+// ── Cluster lens (C4) — the CAC's horizontal slice ──────────────────────────
+// Aggregates the tower's signals across a hand-picked set of institutions and
+// compares each against the SAME aggregate one window earlier (the cluster's
+// OWN baseline — clusters are never ranked against each other). Reuses the
+// tower's existing tables verbatim, just institution-filtered; no new API
+// surface, no new tables. Window is fixed at 14d (matches the tower's since14
+// idiom); the baseline is the adjacent prior 14d.
+const CLUSTER_WINDOW_DAYS = 14;
+
+async function loadClusterSignals(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  instIds: string[],
+): Promise<ClusterSignal[]> {
+  const winMs = CLUSTER_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const curFrom = new Date(Date.now() - winMs).toISOString();
+  const prevFrom = new Date(Date.now() - 2 * winMs).toISOString();
+
+  // Each signal is the SAME tower read, twice: current [curFrom, now) and the
+  // cluster's own prior window [prevFrom, curFrom). Every leg swallows to null
+  // via cnt() — a failed read renders hollow, never zero.
+  const [
+    ratingsCur,
+    ratingsPrev,
+    spineCur,
+    spinePrev,
+    scfMeasuredCur,
+    scfMeasuredPrev,
+    indTipsCur,
+    indTipsPrev,
+    messCur,
+    messPrev,
+    refCur,
+    refPrev,
+  ] = await Promise.all([
+    cnt(admin.from('session_feedback').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('created_at', curFrom)),
+    cnt(admin.from('session_feedback').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('created_at', prevFrom).lt('created_at', curFrom)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('created_at', curFrom)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('created_at', prevFrom).lt('created_at', curFrom)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').in('institution_id', instIds).gte('outcome_measured_at', curFrom)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').in('institution_id', instIds).gte('outcome_measured_at', prevFrom).lt('outcome_measured_at', curFrom)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('generated_at', curFrom)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('generated_at', prevFrom).lt('generated_at', curFrom)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('created_at', curFrom)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).in('institution_id', instIds).gte('created_at', prevFrom).lt('created_at', curFrom)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).in('institution_id', instIds).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', curFrom)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).in('institution_id', instIds).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', prevFrom).lt('created_at', curFrom)),
+  ]);
+
+  // Classes coached — deduplicated to DISTINCT (course, faculty) per window,
+  // same honesty rule as loadScfEffectiveness (raw row counts inflate when one
+  // course's window regenerates). One pull spanning both windows, split in JS
+  // by timestamp (Date compare, not string compare — pg's "+00:00" suffix
+  // breaks lexicographic ISO comparison against a "Z"-suffixed literal).
+  let coachedCur: number | null = null;
+  let coachedPrev: number | null = null;
+  try {
+    const { data, error } = await admin
+      .from('scf_ai_suggestions')
+      .select('course_code, faculty_email, generated_at')
+      .eq('domain', 'session_feedback')
+      .in('institution_id', instIds)
+      .gte('generated_at', prevFrom);
+    if (!error) {
+      const curFromMs = new Date(curFrom).getTime();
+      const cur = new Set<string>();
+      const prev = new Set<string>();
+      for (const r of data ?? []) {
+        const key = `${r.course_code}|${r.faculty_email ?? ''}`;
+        if (new Date(r.generated_at as string).getTime() >= curFromMs) cur.add(key);
+        else prev.add(key);
+      }
+      coachedCur = cur.size;
+      coachedPrev = prev.size;
+    }
+  } catch {
+    /* hollow, not zero */
+  }
+
+  return [
+    {
+      key: 'ratings',
+      label: 'Learner session ratings',
+      plain: 'Post-class understanding ratings received across the cluster — the fuel the SCF teaching loop runs on.',
+      current: ratingsCur,
+      baseline: ratingsPrev,
+    },
+    {
+      key: 'coached',
+      label: 'Classes coached (distinct)',
+      plain: 'Distinct (course, Senior Learner) sessions that received an AI coaching tip — deduplicated, same honesty rule as the Tower.',
+      current: coachedCur,
+      baseline: coachedPrev,
+    },
+    {
+      key: 'measured',
+      label: 'Coaching outcomes measured',
+      plain: 'Tips whose class was re-taught and re-rated in the window — the Measure gate actually closing inside this cluster.',
+      current: scfMeasuredCur,
+      baseline: scfMeasuredPrev,
+    },
+    {
+      key: 'spine',
+      label: 'Feedback items into the spine',
+      plain: 'Items landing in the feedback spine from every adapter (session, mess, parent, IG) for these institutions.',
+      current: spineCur,
+      baseline: spinePrev,
+    },
+    {
+      key: 'induction-tips',
+      label: 'Induction effectiveness tips',
+      plain: 'Per-session induction improvement tips generated for the cluster’s events — seasonal, quiet outside induction windows.',
+      current: indTipsCur,
+      baseline: indTipsPrev,
+    },
+    {
+      key: 'mess',
+      label: 'Mess menu proposals',
+      plain: 'Menu recommendations proposed for the cluster’s tiers by the campus-living loop.',
+      current: messCur,
+      baseline: messPrev,
+    },
+    {
+      key: 'referrals',
+      label: 'Referral leads',
+      plain: 'Admission leads referred by learners into these institutions — the referral→desk loop’s intake.',
+      current: refCur,
+      baseline: refPrev,
+    },
+  ];
+}
+
 export default async function LoopControlTowerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string }>;
+  searchParams: Promise<{ view?: string; inst?: string }>;
 }) {
-  const { view: viewParam } = await searchParams;
-  const view = viewParam === 'wiring' ? 'wiring' : 'tower';
+  const { view: viewParam, inst: instParam } = await searchParams;
+  const view =
+    viewParam === 'wiring' ? 'wiring' : viewParam === 'cluster' ? 'cluster' : 'tower';
 
   const { profile } = await getEnhancedUserProfile();
   // Canonical super-admin definition (matches hooks/use-permissions.ts and the
@@ -757,16 +920,30 @@ export default async function LoopControlTowerPage({
   // Feeds the Tower's per-loop chips + the Wiring view. New prod tables — a
   // missing/lagging migration must never break this page, so every leg falls
   // back to an empty array (same swallow-to-empty philosophy as cnt() above).
-  const [registry, edges, audits] = await Promise.all([
-    admin
-      .from('loop_registry')
-      .select('loop_key,name,stack_tier,loop_class,gates,description')
-      .eq('is_active', true)
-      // PromiseLike has no .catch — rejection handler is .then's 2nd arg.
-      .then(
-        (r) => (r.data ?? []) as LoopRegistryRow[],
-        () => [] as LoopRegistryRow[]
-      ),
+  const [registry, edges, audits, conflicts] = await Promise.all([
+    // Charter-aware read with a pre-charter fallback: the five charter-leg
+    // columns (outcome_metric … remeasure_window) land in a SIBLING migration,
+    // and enumerating a column that doesn't exist yet errors the WHOLE select —
+    // which would swallow the registry to empty and blank every ring chip.
+    // Try charter-aware first; on error retry with the pre-charter list, so
+    // the page renders identically before and after that migration applies
+    // (missing legs read as undefined → the honesty badge treats them as NULL,
+    // i.e. Meter).
+    (async (): Promise<LoopRegistryRow[]> => {
+      const cols =
+        'loop_key,name,stack_tier,loop_class,gates,description,owner_email,counter_metric';
+      try {
+        const r = await admin
+          .from('loop_registry')
+          .select(`${cols},outcome_metric,baseline_window,intervention,verdict_owner,remeasure_window`)
+          .eq('is_active', true);
+        if (!r.error) return (r.data ?? []) as LoopRegistryRow[];
+        const f = await admin.from('loop_registry').select(cols).eq('is_active', true);
+        return (f.data ?? []) as LoopRegistryRow[];
+      } catch {
+        return [] as LoopRegistryRow[];
+      }
+    })(),
     admin
       .from('loop_edges')
       .select('from_key,to_key,what_flows,note,is_draft')
@@ -787,6 +964,14 @@ export default async function LoopControlTowerPage({
         (r) => (r.data ?? []) as LoopAuditRow[],
         () => [] as LoopAuditRow[]
       ),
+    admin
+      .from('loop_conflicts')
+      .select('conflict_key, title, loops, description, arbiter_email, status, ruling')
+      .eq('status', 'open')
+      .then(
+        (r) => (r.data ?? []) as LoopConflictRow[],
+        () => [] as LoopConflictRow[]
+      ),
   ]);
 
   // Latest audit per loop — audits arrive newest-first, so the first row seen
@@ -794,6 +979,15 @@ export default async function LoopControlTowerPage({
   const latestAuditByKey = new Map<string, LoopAuditRow>();
   for (const a of audits) {
     if (!latestAuditByKey.has(a.loop_key)) latestAuditByKey.set(a.loop_key, a);
+  }
+
+  // Latest SIM-layer audit per loop — the weekly known-delta regress cron
+  // (Sundays 07:53 IST) writes layer='sim' rows. Tracked separately from
+  // latestAuditByKey because a newer walk/full audit for the same loop must
+  // not hide the sim row the charter badge's "verified" leg depends on.
+  const latestSimByKey = new Map<string, LoopAuditRow>();
+  for (const a of audits) {
+    if (a.layer === 'sim' && !latestSimByKey.has(a.loop_key)) latestSimByKey.set(a.loop_key, a);
   }
 
   const asOf = new Date().toISOString().slice(0, 10);
@@ -886,11 +1080,242 @@ export default async function LoopControlTowerPage({
   const sumOrNull = (...vs: (number | null)[]): number | null =>
     vs.some((v) => v === null) ? null : vs.reduce((a, b) => (a as number) + (b as number), 0);
 
+  // ── Ring-2 extra lanes + 30-day management strip (2026-07-13) ─────────────
+  // Two new EXECUTION-ring lanes: the dispatcher's TRUE run log (ai_routine_run_log,
+  // new this deploy) and the typed async job queue (ai_jobs). Plus the 30-day
+  // closure counts that power the strip — same loops as the product ring, wider
+  // window. Every leg swallows to null (cnt) so a missing table renders hollow.
+  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [
+    dispatcherRuns7d,
+    dispatcherRunsToday,
+    jobsDone7d,
+    jobsError7d,
+    jobsTotal7d,
+    scfGen30d,
+    scfMeasured30d,
+    indGen30d,
+    indMeasured30d,
+    playbookGen30d,
+    playbookMeasured30d,
+    messGen30d,
+    messMeasured30d,
+    pulseGen30d,
+    pulseMeasured30d,
+    pdeSub30d,
+    pdeScored30d,
+    spineIn30d,
+    spineClassified30d,
+    refLeads30d,
+    refRouted30d,
+  ] = await Promise.all([
+    cnt(admin.from('ai_routine_run_log').select('*', { count: 'exact', head: true }).gte('fired_at', since7)),
+    cnt(admin.from('ai_routine_run_log').select('*', { count: 'exact', head: true }).gte('fired_at', istDayStartUtc)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('requested_at', since7)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('requested_at', since7)),
+    cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).gte('requested_at', since7)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('generated_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'session_feedback').gte('outcome_measured_at', since30)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('generated_at', since30)),
+    cnt(admin.from('induction_session_effectiveness').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('generated_at', since30)),
+    cnt(admin.from('scf_ai_suggestions').select('*', { count: 'exact', head: true }).eq('domain', 'induction').gte('outcome_measured_at', since30)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('mess_menu_recommendations').select('*', { count: 'exact', head: true }).gte('measured_at', since30)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('ai_pulse_cycle_outcomes').select('*', { count: 'exact', head: true }).gte('outcome_measured_at', since30)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('submitted_at', since30)),
+    cnt(admin.from('pde_demonstrations').select('*', { count: 'exact', head: true }).gte('scored_at', since30)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('created_at', since30)),
+    cnt(admin.from('feedback_events').select('*', { count: 'exact', head: true }).gte('ai_processed_at', since30)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).gte('created_at', since30)),
+    cnt(admin.from('admission_leads').select('*', { count: 'exact', head: true }).eq('source', 'referral').not('referred_by_id', 'is', null).not('assigned_counselor_id', 'is', null).gte('created_at', since30)),
+  ]);
+  const scfLift30d = await loadScfLift(admin, since30);
+
+  // 30-day closure map for the strip. `verb` = what "closed" means for each
+  // loop. `measureLoop` marks the loops whose closure is a baseline-measured
+  // outcome (Cell A's sum) vs. intake/routing/human-score (in the constraint
+  // scan but out of Cell A).
+  const strip30d: Record<
+    string,
+    { name: string; verb: string; num: number | null; den: number | null; measureLoop: boolean }
+  > = {
+    scf: { name: 'Session-feedback teaching', verb: 'measured', num: scfMeasured30d, den: scfGen30d, measureLoop: true },
+    'induction-session': { name: 'Induction session-effect.', verb: 'measured', num: indMeasured30d, den: indGen30d, measureLoop: true },
+    'induction-playbook': { name: 'Induction playbook', verb: 'measured', num: playbookMeasured30d, den: playbookGen30d, measureLoop: true },
+    mess: { name: 'Mess menu', verb: 'measured', num: messMeasured30d, den: messGen30d, measureLoop: true },
+    'ai-pulse': { name: 'AI Pulse', verb: 'measured', num: pulseMeasured30d, den: pulseGen30d, measureLoop: true },
+    'pde-quest': { name: 'PDE demonstrations', verb: 'scored', num: pdeScored30d, den: pdeSub30d, measureLoop: false },
+    'feedback-spine': { name: 'Feedback spine', verb: 'classified', num: spineClassified30d, den: spineIn30d, measureLoop: false },
+    'referral-desk': { name: 'Induction referral desk', verb: 'routed', num: refRouted30d, den: refLeads30d, measureLoop: false },
+  };
+
+  // Cell A — cycles closed 30d = measured closures across the MEASURE loops
+  // only (spine intake / referral routing / PDE human-score are excluded).
+  const cyclesClosed30d = sumOrNull(
+    strip30d.scf.num,
+    strip30d['induction-session'].num,
+    strip30d['induction-playbook'].num,
+    strip30d.mess.num,
+    strip30d['ai-pulse'].num,
+  );
+
+  // Cell D — the current constraint (Theory of Constraints, one item). Primary
+  // signal: the worst closure rate (num/den) among loops with fuel this window.
+  // On a tie, OR when no loop has fuel at all, fall back to the most fuel-starved
+  // line (lowest den) — mirroring the documented reality that the loop system is
+  // fuel-starved, not code-starved. Always names exactly one thing when any
+  // closure data exists; hollow only if every loop's counts failed to read.
+  // (Note: closure is a same-window ratio — a fresh generation may not have had
+  // time to measure, so a low rate can reflect measurement lag as well as a
+  // stuck Measure gate. Flip the tie-break to highest-den if the Director would
+  // rather surface the largest blocked flow than the most-starved line.)
+  const constraint = ((): { label: string; detail: string } | null => {
+    const entries = Object.values(strip30d).filter(
+      (e): e is { name: string; verb: string; num: number; den: number; measureLoop: boolean } =>
+        e.num !== null && e.den !== null,
+    );
+    if (entries.length === 0) return null;
+    const rated = entries.filter((e) => e.den > 0).map((e) => ({ ...e, rate: e.num / e.den }));
+    if (rated.length > 0) {
+      const worst = Math.min(...rated.map((r) => r.rate));
+      const c = rated.filter((r) => r.rate === worst).sort((a, b) => a.den - b.den)[0]!;
+      const pct = c.rate < 0.1 ? (c.rate * 100).toFixed(1) : String(Math.round(c.rate * 100));
+      return { label: c.name, detail: `${c.num} of ${c.den} ${c.verb} · ${pct}% closure (30d)` };
+    }
+    const c = entries.sort((a, b) => a.den - b.den)[0]!;
+    return { label: c.name, detail: '0 opened in 30d — starved of fuel' };
+  })();
+
   // Dispatcher lane: ai_routine_schedules keeps ONLY last_fired_at per routine
   // (no run-history table), so these are routines-whose-latest-fire-is-in-window,
   // not run counts — the component says so on the ring. Empty map = the read
   // failed above → hollow, not zero.
   const sched = [...schedById.values()];
+
+  // Cell C — mission-pillar coverage from the mission_pillars config table
+  // (edited on /admin/loops/pillars). Weighted: covered = 1, partial = 0.5,
+  // everything else = 0, over ACTIVE pillars only. Table may not exist yet
+  // (migration pending apply) → null, which renders the cell hollow rather
+  // than a fake 0%.
+  const pillars = await (async () => {
+    try {
+      const { data, error } = await admin
+        .from('mission_pillars')
+        .select('coverage_status')
+        .eq('is_active', true);
+      // Missing relation (migration not applied yet) or permission error →
+      // hollow, never a fake 0%. Same swallow-to-null contract as cnt().
+      if (error || !data) return null;
+      const total = data.length;
+      if (total === 0) return { score: 0, total: 0, pct: 0 };
+      const score = data.reduce(
+        (acc: number, r: { coverage_status: string }) =>
+          acc +
+          (r.coverage_status === 'covered'
+            ? 1
+            : r.coverage_status === 'partial'
+              ? 0.5
+              : 0),
+        0
+      );
+      return { score, total, pct: Math.round((score / total) * 100) };
+    } catch {
+      // Any unexpected throw must not 500 the super-admin page — render hollow.
+      return null;
+    }
+  })();
+
+  // ── "Engine health today" strip (Director-approved 2026-07-18) ─────────────
+  // Four IST-today reads for the one-line health answer at the top of Ring 2.
+  // Same swallow-to-null contract as every tower stat: a failed read renders
+  // the strip amber-unreadable, never a fake green. The stuck rule (non-
+  // terminal past 30 min) is IDENTICAL to the ai-tasks-sweep outage pager so
+  // the strip and the pager can never tell two different stories.
+  const thirtyMinAgoIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const [engineJobsDoneToday, engineJobsStuck, engineErrorsToday, enginePaidCallsToday] =
+    await Promise.all([
+      cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'done').gte('completed_at', istDayStartUtc)),
+      cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).not('status', 'in', '(done,error,canceled,cancelled,failed,delivered)').lt('requested_at', thirtyMinAgoIso)),
+      cnt(admin.from('ai_jobs').select('*', { count: 'exact', head: true }).eq('status', 'error').gte('completed_at', istDayStartUtc)),
+      cnt(admin.from('ai_model_usage').select('*', { count: 'exact', head: true }).not('provider', 'in', '(claude_code,groq)').gte('invoked_at', istDayStartUtc)),
+    ]);
+
+  // Failure/spend detail only when the count went amber — names for the plain-
+  // language sentence. Best-effort: a throw here leaves the count doing the
+  // alerting on its own.
+  const engineErrorTypes: string[] = [];
+  if ((engineErrorsToday ?? 0) > 0) {
+    try {
+      const { data } = await admin
+        .from('ai_jobs')
+        .select('job_type')
+        .eq('status', 'error')
+        .gte('completed_at', istDayStartUtc)
+        .limit(20);
+      for (const r of (data ?? []) as { job_type: string }[]) {
+        if (!engineErrorTypes.includes(r.job_type)) engineErrorTypes.push(r.job_type);
+      }
+    } catch {
+      /* count already renders amber */
+    }
+  }
+  let enginePaidInrToday: number | null = enginePaidCallsToday === 0 ? 0 : null;
+  if ((enginePaidCallsToday ?? 0) > 0) {
+    try {
+      const { data } = await admin
+        .from('ai_model_usage')
+        .select('cost_inr')
+        .not('provider', 'in', '(claude_code,groq)')
+        .gte('invoked_at', istDayStartUtc)
+        .limit(1000);
+      enginePaidInrToday = ((data ?? []) as { cost_inr: number | null }[]).reduce(
+        (a, r) => a + (r.cost_inr ?? 0),
+        0,
+      );
+    } catch {
+      /* count already renders amber */
+    }
+  }
+
+  // Loops due · ran — from the dispatcher timetable already loaded above.
+  // "Due" = enabled, weekday matches today (IST), and the slot passed 10+ min
+  // ago (grace so a routine due this minute can't false-alarm mid-dispatch).
+  // Weekly loops (curriculum=Sun, playbook+escalation=Mon) only count on their
+  // day, so a quiet weekday can't look broken. induction-session-effectiveness
+  // rides a static vercel cron (not dispatcher-managed) — its health surfaces
+  // through the queue/failure cells instead.
+  const LOOP_GENERATOR_ROUTINES = [
+    'scf-generate-suggestions',
+    'scf-learner-notes',
+    'curriculum-lesson-spine-generate',
+    'induction-generate-playbook',
+    'session-feedback-escalation',
+  ];
+  const istNowMs = Date.now() + 19_800_000;
+  const istWeekday = new Date(istNowMs).getUTCDay();
+  const istMinuteOfDay = new Date(istNowMs).getUTCHours() * 60 + new Date(istNowMs).getUTCMinutes();
+  let engineLoopsDue: number | null = null;
+  let engineLoopsRan: number | null = null;
+  const engineLoopsMissed: string[] = [];
+  if (schedById.size > 0) {
+    engineLoopsDue = 0;
+    engineLoopsRan = 0;
+    for (const rid of LOOP_GENERATOR_ROUTINES) {
+      const sRow = schedById.get(rid);
+      if (!sRow || !sRow.enabled) continue;
+      const days = sRow.days_of_week;
+      const dueToday =
+        (!days || days.length === 0 || days.includes(istWeekday)) &&
+        sRow.minute_of_day + 10 <= istMinuteOfDay;
+      if (!dueToday) continue;
+      engineLoopsDue += 1;
+      if (sRow.last_fired_at && sRow.last_fired_at >= istDayStartUtc) engineLoopsRan += 1;
+      else engineLoopsMissed.push(rid);
+    }
+  }
+
   const towerStats: LoopTowerStats = {
     maxCalls7d,
     maxCallsToday,
@@ -958,7 +1383,126 @@ export default async function LoopControlTowerPage({
     })(),
     decisionsLogged7d,
     decisionsGraded7d,
+    // ring 2 — extra instrumented lanes (2026-07-13)
+    dispatcherRuns7d,
+    dispatcherRunsToday,
+    jobsDone7d,
+    jobsError7d,
+    jobsTotal7d,
+    // ring 2 — "engine health today" one-line strip (2026-07-18)
+    engineToday: {
+      loopsDue: engineLoopsDue,
+      loopsRan: engineLoopsRan,
+      loopsMissed: engineLoopsMissed,
+      jobsDoneToday: engineJobsDoneToday,
+      jobsStuck: engineJobsStuck,
+      errorsToday: engineErrorsToday,
+      errorTypes: engineErrorTypes,
+      paidCallsToday: enginePaidCallsToday,
+      paidInrToday: enginePaidInrToday,
+    },
+    // management strip (30d executive summary)
+    strip: {
+      cyclesClosed30d,
+      scfLiftMean30d: scfLift30d.mean,
+      scfLiftN30d: scfLift30d.n,
+      pillars,
+      constraint,
+    },
   };
+
+  // ── Cluster lens data (C4) — loaded only when the Cluster view is open ─────
+  // Phase 1: the member set is manual and lives in ?inst= (comma-separated
+  // institution ids, validated against the live institutions list — junk ids
+  // are dropped). Presets read accreditation_committees committee_type=
+  // 'cluster' rows; that type value only lands with the sibling C1 PR, so the
+  // filter matches zero rows today and the picker degrades to no presets.
+  let clusterInstitutions: ClusterInstitutionOption[] = [];
+  let clusterPresets: ClusterPreset[] = [];
+  let clusterSelected: string[] = [];
+  let clusterSignals: ClusterSignal[] | null = null;
+  if (view === 'cluster') {
+    const [instRows, presetRows, presetResolutionRows] = await Promise.all([
+      admin
+        .from('institutions')
+        .select('id, name, display_name')
+        .eq('is_active', true)
+        .order('name')
+        // PromiseLike has no .catch — rejection handler is .then's 2nd arg.
+        .then(
+          (r) => (r.data ?? []) as ClusterInstitutionOption[],
+          () => [] as ClusterInstitutionOption[]
+        ),
+      admin
+        .from('accreditation_committees')
+        .select('id, committee_name, metadata')
+        .eq('committee_type', 'cluster')
+        .eq('is_active', true)
+        .then(
+          (r) => (r.data ?? []) as { id: string; committee_name: string; metadata: unknown }[],
+          () => [] as { id: string; committee_name: string; metadata: unknown }[]
+        ),
+      // Preset roster source (b): the institutions a cluster committee's
+      // resolutions actually touch — affected_institution_ids is the C7
+      // sibling's column, so until that migration applies this select errors
+      // and swallows to empty. Real data, no committee-level roster invented.
+      admin
+        .from('accreditation_committee_resolutions')
+        .select('affected_institution_ids, committee:accreditation_committees!inner(id, committee_type, is_active)')
+        .eq('committee.committee_type', 'cluster')
+        .eq('committee.is_active', true)
+        .then(
+          (r) => (r.data ?? []) as { affected_institution_ids: unknown; committee: unknown }[],
+          () => [] as { affected_institution_ids: unknown; committee: unknown }[]
+        ),
+    ]);
+    clusterInstitutions = instRows;
+    const validIds = new Set(instRows.map((i) => i.id));
+    // Union each cluster committee's resolution-touched institutions. The
+    // embed is to-one via committee_id but normalize array-or-object anyway
+    // (house rule: embedded JSON may arrive in either shape).
+    const derivedByCommittee = new Map<string, Set<string>>();
+    for (const row of presetResolutionRows) {
+      const cRaw = row.committee;
+      const c = (Array.isArray(cRaw) ? cRaw[0] : cRaw) as { id?: string } | undefined;
+      if (!c?.id) continue;
+      const ids = Array.isArray(row.affected_institution_ids) ? row.affected_institution_ids : [];
+      let set = derivedByCommittee.get(c.id);
+      if (!set) {
+        set = new Set();
+        derivedByCommittee.set(c.id, set);
+      }
+      for (const v of ids) if (typeof v === 'string' && validIds.has(v)) set.add(v);
+    }
+    // A committee preset's members come from (a) a curated metadata roster
+    // ('institution_ids' — C1's convention; no writer exists yet) when one is
+    // present, else (b) the resolution-derived set above. Presets resolving to
+    // zero live institutions are dropped, not guessed at.
+    clusterPresets = presetRows
+      .map((p) => {
+        const meta = (p.metadata ?? {}) as Record<string, unknown>;
+        const raw = meta.institution_ids ?? meta.member_institution_ids;
+        const curated = Array.isArray(raw)
+          ? [...new Set(raw.filter((v): v is string => typeof v === 'string' && validIds.has(v)))]
+          : [];
+        const ids = curated.length > 0 ? curated : [...(derivedByCommittee.get(p.id) ?? [])];
+        return { id: p.id, name: p.committee_name, institutionIds: ids };
+      })
+      .filter((p) => p.institutionIds.length > 0);
+    // Dedupe as well as validate — a hand-edited URL like "a,a" must not
+    // double-count an institution or wedge the picker's dirty check.
+    clusterSelected = [
+      ...new Set(
+        (instParam ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((id) => validIds.has(id)),
+      ),
+    ];
+    if (clusterSelected.length > 0) {
+      clusterSignals = await loadClusterSignals(admin, clusterSelected);
+    }
+  }
 
   const pillCls = (active: boolean) =>
     `rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
@@ -976,14 +1520,35 @@ export default async function LoopControlTowerPage({
         <Link href="/admin/loops?view=wiring" className={pillCls(view === 'wiring')}>
           Wiring
         </Link>
+        <Link
+          // Keep the applied member set in the pill so re-clicking it (or
+          // refreshing) never drops a CAC's selection.
+          href={
+            clusterSelected.length > 0
+              ? `/admin/loops?view=cluster&inst=${clusterSelected.join(',')}`
+              : '/admin/loops?view=cluster'
+          }
+          className={pillCls(view === 'cluster')}
+        >
+          Cluster
+        </Link>
       </div>
 
       {view === 'wiring' ? (
-        <LoopWiring registry={registry} edges={edges} audits={audits} />
+        <LoopWiring registry={registry} edges={edges} audits={audits} conflicts={conflicts} />
+      ) : view === 'cluster' ? (
+        <ClusterLens
+          institutions={clusterInstitutions}
+          presets={clusterPresets}
+          selectedIds={clusterSelected}
+          signals={clusterSignals}
+          windowDays={CLUSTER_WINDOW_DAYS}
+          asOf={asOf}
+        />
       ) : (
         <>
           <div className="mb-6">
-            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} />
+            <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
         </>

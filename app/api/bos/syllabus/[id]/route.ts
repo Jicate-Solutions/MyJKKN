@@ -1,11 +1,12 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
-  resolveBosAccess,
   resolveBosBoardScope,
   guardInstitutionWrite,
   guardSyllabusEdit,
   readableInstitutionIds,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
 
@@ -42,12 +43,26 @@ export async function GET(
       );
     }
 
-    // Step 2: Resolve institution scope
-    const scope = await resolveBosAccess(user.id);
+    // Step 2: Resolve board-membership scope.
+    // Policy (2026-07-23, reverses 2026-07-16): the read-all observer tier IS
+    // applied — any holder of academic.bos-syllabus.view may read any syllabus,
+    // VIEW ONLY (PUT/DELETE below keep their own guards). Board-scoping now
+    // only applies to users who reach this route WITHOUT the view grant.
+    const scope = await resolveBosBoardScope(user.id);
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const seeAll = scope.isSuperAdmin || isBosReadAllObserver(scope, hasView);
+    const boardIds = Array.from(scope.boardsOf);
+    if (!seeAll && boardIds.length === 0) {
+      return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
+    }
 
-    // Step 3: Fetch syllabus
+    // Step 3: Fetch syllabus. Read via service-role, with the institution +
+    // board_id filters below AS the authorization (route-level board-scoping,
+    // matching PUT/DELETE) — avoids depending on the bos_course_syllabi SELECT
+    // RLS policy, which errors for board members.
     console.log('[GET /api/bos/syllabus/[id]] About to query with id:', id);
-    let query = supabase
+    const readDb = createServiceRoleClient();
+    let query = readDb
       .from('bos_course_syllabi')
       .select('*')
       .eq('id', id);
@@ -56,7 +71,8 @@ export async function GET(
     // profile.institution_id points to one of two MyJKKN UUIDs (Aided or
     // Self) but syllabi may be stored under the sibling UUID â€” so we filter
     // by the full allInstitutionIds list, never a single UUID.
-    const allowedIds = readableInstitutionIds(scope);
+    // seeAll (super-admin or view-grant observer) lifts the institution filter.
+    const allowedIds = readableInstitutionIds(scope, seeAll);
     if (allowedIds !== null) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });
@@ -64,6 +80,11 @@ export async function GET(
       query = allowedIds.length === 1
         ? query.eq('institutions_id', allowedIds[0])
         : query.in('institutions_id', allowedIds);
+    }
+
+    // Board scope: non-super-admin may only read syllabi of boards they sit on.
+    if (!seeAll) {
+      query = query.in('board_id', boardIds);
     }
 
     const { data, error } = await query.maybeSingle();
@@ -198,6 +219,10 @@ export async function PUT(
         course_name: body.course_name,
         course_credits: body.course_credits,
         stream: body.stream,
+        // NAAC-2024 coverage tags (metrics 1.4 / 1.6). undefined keys are
+        // dropped by supabase-js, so requests that omit them leave the row as-is.
+        is_skill_based: body.is_skill_based,
+        is_iks: body.is_iks,
         course_objectives: body.course_objectives,
         course_learning_outcomes: body.course_learning_outcomes,
         course_content: body.course_content,
@@ -291,24 +316,21 @@ export async function DELETE(
       );
     }
 
-    // Step 4: Institution backstop + creator/chairman gate
-    const institutionDeny = guardInstitutionWrite(scope, existingSyllabus.institutions_id);
-    if (institutionDeny) {
-      return NextResponse.json({ error: institutionDeny }, { status: 403 });
+    // Step 4: Delete is restricted to SUPER-ADMIN ONLY (policy 2026-07-16). The
+    // syllabus creator and board chairman may edit/clone but NOT delete.
+    if (!scope.isSuperAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden: only a super admin can delete a syllabus' },
+        { status: 403 }
+      );
     }
-    const editDeny = guardSyllabusEdit(
-      scope,
-      { board_id: existingSyllabus.board_id, created_by: existingSyllabus.created_by },
-      user.id,
-    );
-    if (editDeny) return NextResponse.json({ error: editDeny }, { status: 403 });
 
-    // Step 5: Soft delete (archive). Use .select() so we can detect RLS
-    // returning zero rows (which Supabase doesn't surface as an error). The
-    // bos_course_syllabi_update RLS policy gates by 'academic.bos-syllabus.edit'
-    // permission + creator/chairman check, so a user with only the 'delete'
-    // permission would silently update 0 rows here.
-    const { data: updatedRows, error: deleteError } = await supabase
+    // Step 5: Soft delete (archive). Authorization is fully enforced above
+    // (super-admin only), so write via service-role — the bos_course_syllabi_update
+    // RLS policy gates on the edit permission + creator/chairman, which a
+    // super-admin may not satisfy; matches the PUT route's service-role precedent.
+    const writeDb = createServiceRoleClient();
+    const { data: updatedRows, error: deleteError } = await writeDb
       .from('bos_course_syllabi')
       .update({
         is_archived: true,
@@ -333,11 +355,8 @@ export async function DELETE(
 
     if (!updatedRows || updatedRows.length === 0) {
       return NextResponse.json(
-        {
-          error:
-            'Delete blocked by row-level security. You need the academic.bos-syllabus.edit permission (the soft-delete is implemented as an UPDATE) and must be the syllabus creator or the board chairman.',
-        },
-        { status: 403 }
+        { error: 'Syllabus not found' },
+        { status: 404 }
       );
     }
 

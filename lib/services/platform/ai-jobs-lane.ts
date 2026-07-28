@@ -35,14 +35,25 @@ export type JobsLaneEnqueueResult =
  * in-flight guard (the SAME key the paid path passes to partitionInFlight), so a
  * candidate already queued/claimed/running is not re-enqueued — that returns
  * { ok:false, reason:'in_flight' }, which the caller treats as "already handled".
+ *
+ * `payloadExtra` (optional) is merged into the payload top-level for the drain to
+ * read directly — e.g. `{ _model_override: { provider, model_id } }` to pin the
+ * model a specific run uses (honored by fn_ai_claim). Omitting it leaves the
+ * payload byte-identical to before, so existing callers are unchanged.
  */
 export async function enqueueJobsLane(
   admin: Admin,
-  args: { jobType: string; prompt: string; context: Record<string, unknown>; dedupeKey: string },
+  args: {
+    jobType: string;
+    prompt: string;
+    context: Record<string, unknown>;
+    dedupeKey: string;
+    payloadExtra?: Record<string, unknown>;
+  },
 ): Promise<JobsLaneEnqueueResult> {
   const { data, error } = await admin.rpc('fn_ai_enqueue_system', {
     p_job_type: args.jobType,
-    p_payload: { prompt: args.prompt, _ctx: args.context },
+    p_payload: { prompt: args.prompt, _ctx: args.context, ...(args.payloadExtra ?? {}) },
     p_dedupe_key: args.dedupeKey,
   });
   if (error) return { ok: false, reason: 'error', error: error.message };
@@ -64,6 +75,9 @@ export interface CollectedJobsLaneItem {
    * the drain produced no usable text (parse then skips, candidate re-qualifies).
    */
   message: Anthropic.Message | null;
+  /** The ai_jobs.job_type — lets a multi-type collector (e.g. scf judge vs
+   *  generate) dispatch each item to the right parse/record path. */
+  jobType: string;
 }
 
 /**
@@ -117,11 +131,51 @@ export async function collectJobsLane(
     if (error) console.error('[ai-jobs-lane] collect claim failed:', error.message);
     return [];
   }
-  return (data as Array<{ id: string; payload: Record<string, unknown> | null; result: unknown }>).map(
+  return (data as Array<{ id: string; job_type: string; payload: Record<string, unknown> | null; result: unknown }>).map(
     (row) => {
       const ctx = ((row.payload?._ctx as Record<string, unknown>) ?? {}) as Record<string, unknown>;
       const text = extractJobResultText(row.result);
-      return { jobId: row.id, context: ctx, message: text ? textToMessage(text) : null };
+      return { jobId: row.id, jobType: row.job_type, context: ctx, message: text ? textToMessage(text) : null };
     },
   );
+}
+
+/**
+ * Bounded poll for specific enqueued jobs (by id) — for a SYNCHRONOUS caller that
+ * must have the results within one request (e.g. an aggregate-then-apply weekly
+ * digest). Returns a Map jobId→text for jobs that completed with usable text;
+ * jobs that error, are still pending at the deadline, or produced no text are
+ * ABSENT, so the caller falls back (e.g. to a template — graceful degradation).
+ * Reads ai_jobs directly (service-role); the requester is the seat owner, not
+ * auth.uid, so fn_ai_job_status (auth-scoped) does not apply. Keep deadlineMs
+ * comfortably below the route's maxDuration.
+ */
+export async function awaitJobsLaneResults(
+  admin: Admin,
+  jobIds: string[],
+  opts: { deadlineMs?: number; intervalMs?: number } = {},
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (jobIds.length === 0) return out;
+  const interval = opts.intervalMs ?? 2_500;
+  const deadline = Date.now() + (opts.deadlineMs ?? 200_000);
+  const pending = new Set(jobIds);
+  while (pending.size > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, interval));
+    const { data, error } = await admin
+      .from('ai_jobs')
+      .select('id, status, result')
+      .in('id', [...pending]);
+    if (error || !Array.isArray(data)) continue;
+    for (const row of data as Array<{ id: string; status: string; result: unknown }>) {
+      if (row.status === 'done') {
+        const text = extractJobResultText(row.result);
+        if (text) out.set(row.id, text);
+        pending.delete(row.id);
+      } else if (row.status === 'error' || row.status === 'canceled') {
+        pending.delete(row.id); // absent from the map → caller falls back
+      }
+    }
+  }
+  return out;
 }

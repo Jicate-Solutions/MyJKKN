@@ -40,6 +40,7 @@ import {
   useInterviews,
 } from '@/hooks/hr/use-recruitment';
 import { useCompleteInterview, useMarkNoShow } from '@/hooks/hr/use-recruitment-interviews';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
 import { AlumniSignalLine } from '../../../_components/alumni-signal-line';
 import { StepInterviewDialog } from './step-interview-dialog';
@@ -305,16 +306,27 @@ function CandidateRow({
 
   return (
     <div className="p-4 space-y-2">
-      <div className="flex items-start gap-3">
-        {/* Avatar */}
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
-          {initials(row.name)}
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        {/* Avatar + identity stay together; actions drop below on mobile */}
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {/* Avatar */}
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold">
+            {initials(row.name)}
+          </div>
 
-        {/* Identity + profile */}
-        <div className="min-w-0 flex-1 space-y-1">
+          {/* Identity + profile */}
+          <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">{row.name}</span>
+            {candidate ? (
+              <Link
+                href={`/hr/recruitment/candidates/${candidate.id}`}
+                className="text-sm font-semibold text-foreground hover:text-primary hover:underline"
+              >
+                {row.name}
+              </Link>
+            ) : (
+              <span className="text-sm font-semibold text-foreground">{row.name}</span>
+            )}
             <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${meta.badge}`}>
               {meta.label}
             </Badge>
@@ -389,9 +401,10 @@ function CandidateRow({
               Screening note: &ldquo;{app.review_notes}&rdquo;
             </p>
           )}
+          </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions — full width on mobile, fixed column on sm+ */}
         <RowActions row={row} userId={userId} stepInterview={stepInterview} />
       </div>
     </div>
@@ -457,10 +470,15 @@ function ApprovalChainCascade({
             <span
               key={`${candidate.id}-step-${idx}`}
               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] ${cls}`}
-              title={`Step ${idx + 1}: ${step.approver_role} — ${step.status}`}
+              title={
+                step.overridden
+                  ? `Step ${idx + 1}: ${step.approver_role} — ${step.status} (overridden; originally for ${step.intended_approver_role ?? step.approver_role})`
+                  : `Step ${idx + 1}: ${step.approver_role} — ${step.status}`
+              }
             >
               <Icon className={`h-3 w-3 ${isCurrent ? 'animate-spin' : ''}`} />
               {step.approver_role}
+              {step.overridden && <span className="ml-0.5 opacity-70">⚑</span>}
             </span>
           );
         })}
@@ -513,6 +531,23 @@ function RowActions({
   const chain = candidate?.approval_chain ?? [];
   const chainConfigured = chain.length > 0;
   const currentStep = candidate ? chain[candidate.current_step] : undefined;
+  // Override detection (mirrors the server gate in RecruitmentService.approveCandidate):
+  // the current step is "mine" if pinned to me, or role-only and I hold that role_key.
+  const { permissions, isSuperAdmin, userRoles } = usePermissions();
+  const myRoleKeys = useMemo(
+    () => new Set((userRoles ?? []).map((r) => (r.role_key ?? '').toLowerCase())),
+    [userRoles],
+  );
+  const isMyStep =
+    !!currentStep &&
+    (currentStep.approver_user_id
+      ? currentStep.approver_user_id === userId
+      : !!currentStep.approver_role &&
+        myRoleKeys.has(currentStep.approver_role.toLowerCase()));
+  const canOverrideStep =
+    isSuperAdmin || permissions['hr.recruitment.approve.override'] === true;
+  // True when the actor is acting on someone else's step via override.
+  const isOverrideAction = isPendingApproval && !isMyStep && canOverrideStep;
   // Legacy chains have no step_type — the last step acts as final.
   const isFinalStep =
     !!candidate &&
@@ -520,19 +555,15 @@ function RowActions({
       (currentStep?.step_type === undefined && candidate.current_step === chain.length - 1));
   const decisionLabel = isFinalStep ? 'Final Approve' : 'Mark Reviewed';
 
-  // Interview gate mirrors the server: interview_required steps need a
-  // COMPLETED sitting before the decision unlocks.
+  // Interview is OPTIONAL (2026-07-16): interview_required only drives the
+  // optional "Schedule Interview" / "Record Outcome" affordances below — it no
+  // longer blocks approval. The only hard gate left is a configured chain.
   const needsInterview = isPendingApproval && currentStep?.interview_required === true;
   const interviewCompleted = stepInterview?.status === 'completed';
   const interviewLive = stepInterview?.status === 'scheduled';
-  const decisionBlocked =
-    !chainConfigured || (needsInterview && !interviewCompleted);
+  const decisionBlocked = !chainConfigured;
   const decisionBlockedReason = !chainConfigured
     ? 'Approval chain not configured — backfill first'
-    : needsInterview && !stepInterview
-    ? 'Schedule and complete the interview first'
-    : needsInterview && !interviewCompleted
-    ? 'Record the interview outcome first'
     : undefined;
 
   // ---- Onboarding stage (finally approved → checklist → staff) ----
@@ -619,6 +650,10 @@ function RowActions({
 
   const handleApprove = async () => {
     if (!candidate) return;
+    if (isOverrideAction && !approveComment.trim()) {
+      toast.error("A comment is required to override another approver's step.");
+      return;
+    }
     try {
       await approve.mutateAsync({ id: candidate.id, comment: approveComment.trim() || undefined });
       toast.success('Candidate approved');
@@ -652,7 +687,7 @@ function RowActions({
   };
 
   return (
-    <div className="flex flex-col items-stretch gap-1 shrink-0 min-w-[110px]">
+    <div className="flex flex-col items-stretch gap-1 shrink-0 w-full sm:w-auto sm:min-w-[130px]">
       {/* Screening stage */}
       {canShortlist && (
         <Button
@@ -738,7 +773,7 @@ function RowActions({
           <Button
             size="sm"
             className="w-full"
-            variant={needsInterview && !interviewCompleted ? 'outline' : 'default'}
+            variant="default"
             disabled={decisionBlocked}
             title={decisionBlockedReason}
             onClick={() => setApproveOpen(true)}
@@ -869,34 +904,51 @@ function RowActions({
         </DialogContent>
       </Dialog>
 
-      {/* Review / final-approve dialog */}
+      {/* Review / final-approve / override dialog */}
       <Dialog open={approveOpen} onOpenChange={(o) => { if (!o) setApproveOpen(false); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isFinalStep ? 'Final Approval' : 'Mark as Reviewed'}</DialogTitle>
+            <DialogTitle>
+              {isOverrideAction
+                ? 'Override Approval'
+                : isFinalStep ? 'Final Approval' : 'Mark as Reviewed'}
+            </DialogTitle>
             <DialogDescription>
-              {isFinalStep
+              {isOverrideAction
+                ? `You are acting on the step for ${currentStep?.approver_role ?? 'another approver'} on behalf of ${row.name}'s chain. This is recorded as an override.`
+                : isFinalStep
                 ? `Grants the final approval for ${row.name} — the candidate can then be onboarded to Staff.`
                 : `Records your review of ${row.name} and forwards the candidacy to the next approver.`}
             </DialogDescription>
           </DialogHeader>
           <div>
             <Label htmlFor={`approve-comment-${row.key}`}>
-              {isFinalStep ? 'Comment (optional)' : 'Review notes (optional)'}
+              {isOverrideAction
+                ? 'Reason for override (required)'
+                : isFinalStep ? 'Comment (optional)' : 'Review notes (optional)'}
             </Label>
             <Textarea
               id={`approve-comment-${row.key}`}
               value={approveComment}
               onChange={(e) => setApproveComment(e.target.value)}
               rows={2}
-              placeholder={isFinalStep ? 'Final remarks…' : 'Any notes for the next approver…'}
+              placeholder={
+                isOverrideAction
+                  ? 'Explain why you are approving on their behalf…'
+                  : isFinalStep ? 'Final remarks…' : 'Any notes for the next approver…'
+              }
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setApproveOpen(false)}>Cancel</Button>
-            <Button disabled={approve.isPending} onClick={handleApprove}>
+            <Button
+              disabled={approve.isPending || (isOverrideAction && !approveComment.trim())}
+              onClick={handleApprove}
+            >
               {approve.isPending
                 ? 'Saving…'
+                : isOverrideAction
+                ? 'Confirm Override'
                 : isFinalStep ? 'Confirm Final Approval' : 'Confirm Review'}
             </Button>
           </DialogFooter>

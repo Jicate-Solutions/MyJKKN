@@ -72,7 +72,7 @@ function PodiumCard({ entry, position }: { entry: LeaderboardEntry; position: 1 
 
   return (
     <Card className={cn('text-center relative', isFirst && 'md:-mt-4')}>
-      <CardContent className={cn('p-6 bg-gradient-to-b rounded-lg', positionConfig.bgGradient)}>
+      <CardContent className={cn('p-3 sm:p-6 bg-gradient-to-b rounded-lg', positionConfig.bgGradient)}>
         <PosIcon className={cn('h-6 w-6 mx-auto mb-2', positionConfig.color)} />
         <Avatar className={cn('mx-auto mb-3', positionConfig.size)}>
           <AvatarFallback className={cn('text-lg bg-primary/10 text-primary', isFirst && 'text-xl')}>
@@ -89,7 +89,7 @@ function PodiumCard({ entry, position }: { entry: LeaderboardEntry; position: 1 
           {entry.total_points.toLocaleString()}
         </p>
         <p className="text-xs text-muted-foreground">points</p>
-        <div className="flex justify-center gap-4 mt-3 text-xs text-muted-foreground">
+        <div className="flex flex-wrap justify-center gap-2 sm:gap-4 mt-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Target className="h-3 w-3" />
             {entry.quests_completed}
@@ -181,13 +181,15 @@ export default function LeaderboardPage() {
           <>
             {/* Podium */}
             {top3.length >= 1 && (
-              <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
-                <div className="md:mt-4">
-                  <PodiumCard entry={top3[1]} position={2} />
-                </div>
-                <PodiumCard entry={top3[0]} position={1} />
-                <div className="md:mt-4">
-                  <PodiumCard entry={top3[2]} position={3} />
+              <div className="overflow-x-auto pb-1">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 max-w-2xl mx-auto min-w-[24rem]">
+                  <div className="md:mt-4">
+                    <PodiumCard entry={top3[1]} position={2} />
+                  </div>
+                  <PodiumCard entry={top3[0]} position={1} />
+                  <div className="md:mt-4">
+                    <PodiumCard entry={top3[2]} position={3} />
+                  </div>
                 </div>
               </div>
             )}
@@ -197,9 +199,9 @@ export default function LeaderboardPage() {
               <Card className="bg-primary/5 border-primary/20">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
-                    <span className="text-xl font-bold text-primary w-10 text-center">#{myRank}</span>
-                    <span className="font-medium flex-1">{user?.full_name}</span>
-                    <span className="font-bold">{entries[myIdx]?.total_points?.toLocaleString() || 0} pts</span>
+                    <span className="text-xl font-bold text-primary w-10 text-center shrink-0">#{myRank}</span>
+                    <span className="font-medium flex-1 min-w-0 truncate">{user?.full_name}</span>
+                    <span className="font-bold shrink-0">{entries[myIdx]?.total_points?.toLocaleString() || 0} pts</span>
                   </div>
                 </CardContent>
               </Card>

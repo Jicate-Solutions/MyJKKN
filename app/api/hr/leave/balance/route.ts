@@ -43,6 +43,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Reading someone else's entitlements requires hr.leave.approve. Without
+    // this, employee_id is attacker-controlled and the only check is "is
+    // anyone logged in" — an IDOR: change one query param, read a colleague's
+    // leave balance. (RLS hlb_select now also enforces this, but the route
+    // must not depend on the database to catch its own missing authorisation.)
+    const { data: myStaff } = await supabase
+      .from('staff')
+      .select('id')
+      .eq('profile_id', user.id);
+    const isSelf = (myStaff ?? []).some((s) => s.id === employee_id);
+
+    if (!isSelf) {
+      const { data: canApprove } = await supabase.rpc('user_has_permission', {
+        permission_name: 'hr.leave.approve',
+      });
+      if (!canApprove) {
+        return NextResponse.json(
+          { error: 'Insufficient permission to read another employee\'s balance' },
+          { status: 403 }
+        );
+      }
+    }
+
     const balances = await LeaveService.getBalance(supabase, employee_id, academic_year_id);
     return NextResponse.json({ data: balances });
   } catch (err) {

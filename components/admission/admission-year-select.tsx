@@ -19,7 +19,7 @@
 // place to fix UX copy or add the inline "+ Create new admission year"
 // affordance later.
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -57,11 +57,36 @@ export interface AdmissionYearSelectProps {
   placeholderNoInstitution?: string;
   /**
    * When true and no value is selected yet, auto-fill with the institution's
-   * CURRENT admission year (the option whose `year === current calendar year`,
-   * else the latest = first option, since options are ordered by year DESC).
+   * CURRENT admission year. Resolution order (see resolveCurrentAdmissionYear):
+   *   1. the row flagged `is_current` in Settings → Admission Years
+   *   2. `year === current calendar year`
+   *   3. the latest option (index 0 — the hook orders by year DESC)
    * Pre-filled but still user-editable; never overrides an existing choice.
    */
   autoSelectCurrent?: boolean;
+  /** Render the required asterisk on the label. */
+  required?: boolean;
+  /** Validation message; also puts the destructive border on the trigger. */
+  error?: string;
+}
+
+/**
+ * The institution's current cohort.
+ *
+ * Steps 2 and 3 are fallbacks for institutions whose Admission Year module has
+ * not designated a current cohort yet (every row was backfilled on 2026-07-25,
+ * so this only applies to institutions onboarded afterwards). They preserve the
+ * pre-flag behaviour rather than leaving the field blank.
+ */
+export function resolveCurrentAdmissionYear(
+  options: AdmissionYearOption[]
+): AdmissionYearOption | undefined {
+  if (options.length === 0) return undefined;
+  return (
+    options.find((y) => y.is_current) ??
+    options.find((y) => y.year === new Date().getFullYear()) ??
+    options[0]
+  );
 }
 
 export function AdmissionYearSelect({
@@ -74,18 +99,28 @@ export function AdmissionYearSelect({
   className,
   placeholderNoInstitution = 'Select institution first',
   autoSelectCurrent = false,
+  required = false,
+  error,
 }: AdmissionYearSelectProps) {
   const { admissionYears, loading } = useAdmissionYears(institutionId);
+
+  // Callers pass an inline arrow, so `onChange` has a new identity every render.
+  // Holding it in a ref keeps it out of the effect deps — otherwise the effect
+  // re-runs on every render and only the `if (value)` guard stops a loop.
+  // Synced in its own effect (not during render) to satisfy react-hooks/refs;
+  // it is declared first, so it lands before the auto-select effect below runs.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
 
   useEffect(() => {
     if (!autoSelectCurrent) return;
     if (loading) return;
     if (value) return; // don't override an existing/user choice
-    if (!admissionYears.length) return;
-    const cy = new Date().getFullYear();
-    const current = admissionYears.find((y) => y.year === cy) ?? admissionYears[0]; // [0] = latest (desc)
-    if (current) onChange(current.id);
-  }, [autoSelectCurrent, loading, value, admissionYears, onChange]);
+    const current = resolveCurrentAdmissionYear(admissionYears);
+    if (current) onChangeRef.current(current.id, current);
+  }, [autoSelectCurrent, loading, value, admissionYears]);
 
   const placeholder = !institutionId
     ? placeholderNoInstitution
@@ -104,13 +139,18 @@ export function AdmissionYearSelect({
 
   return (
     <div className={className ? `space-y-2 ${className}` : 'space-y-2'}>
-      {label !== null && <Label htmlFor={id}>{label}</Label>}
+      {label !== null && (
+        <Label htmlFor={id}>
+          {label}
+          {required && <span className="text-destructive"> *</span>}
+        </Label>
+      )}
       <Select
         value={value || ''}
         onValueChange={handleValueChange}
         disabled={disabled || loading || !institutionId}
       >
-        <SelectTrigger id={id}>
+        <SelectTrigger id={id} className={error ? 'border-destructive' : ''}>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -127,11 +167,17 @@ export function AdmissionYearSelect({
                 <span className="ml-2 text-xs text-muted-foreground">
                   ({y.year})
                 </span>
+                {y.is_current && (
+                  <span className="ml-2 text-xs font-medium text-primary">
+                    Current
+                  </span>
+                )}
               </SelectItem>
             ))
           )}
         </SelectContent>
       </Select>
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }

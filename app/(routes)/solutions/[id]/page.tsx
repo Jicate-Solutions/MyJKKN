@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -24,7 +24,9 @@ export default function SolutionDetailPage({ params }: SolutionDetailPageProps) 
         ]}
       />
       <div className="mt-4">
-        <SolutionDetail solutionId={id} />
+        <Suspense fallback={null}>
+          <SolutionDetail solutionId={id} />
+        </Suspense>
       </div>
     </ContentLayout>
   );

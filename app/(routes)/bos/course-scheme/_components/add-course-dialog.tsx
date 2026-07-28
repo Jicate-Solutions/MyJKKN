@@ -2,21 +2,21 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { useAddMapping, type SchemeFilters } from '@/hooks/bos/use-bos-course-scheme';
 import { useBosCourses } from '@/hooks/bos/use-bos-courses';
 import { COURSE_GROUP_VALUES } from '@/lib/services/bos/courses-schemas';
-import type { BosCourseMaster, BosCourseMappingDetailed } from '@/types/bos-courses';
+import type { BosCourseMaster, BosCourseMappingDetailed, CourseGroup } from '@/types/bos-courses';
 
 // "UBA-1" → "Semester 1", "UPH-5" → "Semester 5"
 function semesterLabel(code: string): string {
@@ -35,10 +35,14 @@ interface Props {
 export function AddCourseDialog({ open, onOpenChange, semester, filters, institutionCode }: Props) {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<BosCourseMaster | null>(null);
-  const [courseGroup, setCourseGroup] = useState('');
+  // COE check constraint course_mapping_course_group_check — must be one of
+  // COURSE_GROUP_VALUES ('General', 'Elective - I', …). Never a bare number.
+  const [courseGroup, setCourseGroup] = useState<CourseGroup>('General');
   const [courseOrder, setCourseOrder] = useState('');
+  // Numeric banding key shown in the scheme table "Group" column. Elective
+  // options that share a group_order count once in semester totals.
+  const [groupOrder, setGroupOrder] = useState('');
   const addMapping = useAddMapping();
-  const qc = useQueryClient();
 
   const { data: coursesData } = useBosCourses(
     open && search.length >= 2
@@ -50,13 +54,55 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
   const reset = () => {
     setSearch('');
     setSelected(null);
-    setCourseGroup('');
+    setCourseGroup('General');
     setCourseOrder('');
+    setGroupOrder('');
   };
 
   const handleSubmit = async () => {
     if (!selected) { toast.error('Select a course first'); return; }
+    const orderNum = courseOrder ? Number(courseOrder) : undefined;
+    const groupOrderNum = groupOrder ? Number(groupOrder) : undefined;
+
+    const optimistic: BosCourseMappingDetailed = {
+      id: `__opt_${Date.now()}`,
+      institutions_id: '',
+      program_id: null,
+      course_id: selected.id ?? '',
+      batch_id: null,
+      institution_code: institutionCode,
+      program_code: filters.program_code,
+      course_code: selected.course_code,
+      batch_code: filters.batch_code ?? null,
+      course_group: courseGroup,
+      semester_code: semester,
+      course_order: orderNum ?? null,
+      group_order: groupOrderNum ?? orderNum ?? null,
+      regulation_code: filters.regulation_code,
+      is_active: true,
+      mapping_status: 'Active',
+      created_at: new Date().toISOString(),
+      course: {
+        course_code:        selected.course_code,
+        course_name:        selected.course_name ?? selected.course_title ?? '',
+        course_category:    selected.course_category,
+        course_type:        selected.course_type,
+        course_part_master: selected.course_part_master,
+        credit:             selected.credit,
+        exam_duration:      selected.exam_duration,
+        theory_hours:       selected.theory_hours,
+        tutorial_hours:     selected.tutorial_hours ?? 0,
+        practical_hours:    selected.practical_hours,
+        internal_max_mark:  selected.internal_max_mark,
+        external_max_mark:  selected.external_max_mark,
+        total_max_mark:     selected.total_max_mark,
+      },
+    };
+
     try {
+      // Cache write happens in useAddMapping.onSuccess against the user-scoped
+      // query key — the previous dialog write used a key without userId and
+      // never hit the live scheme query, so the table waited on refetch.
       await addMapping.mutateAsync({
         institution_code: institutionCode,
         program_code: filters.program_code,
@@ -64,49 +110,12 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
         regulation_code: filters.regulation_code,
         batch_code: filters.batch_code,
         semester_code: semester,
-        course_group: courseGroup && courseGroup !== 'none' ? courseGroup : undefined,
-        course_order: courseOrder ? Number(courseOrder) : undefined,
+        course_group: courseGroup,
+        course_order: orderNum,
+        group_order: groupOrderNum ?? orderNum,
+        _filters: filters,
+        _optimistic: optimistic,
       });
-
-      // Immediately reflect in the table — optimistic entry uses selected course data.
-      // The background refetch (triggered by invalidateQueries in useAddMapping.onSuccess)
-      // will replace this with the server-confirmed row.
-      const optimistic: BosCourseMappingDetailed = {
-        id: `__opt_${Date.now()}`,
-        institutions_id: '',
-        program_id: null,
-        course_id: selected.id ?? '',
-        batch_id: null,
-        institution_code: institutionCode,
-        program_code: filters.program_code,
-        course_code: selected.course_code,
-        batch_code: filters.batch_code ?? null,
-        course_group: (courseGroup && courseGroup !== 'none' ? courseGroup : null) as BosCourseMappingDetailed['course_group'],
-        semester_code: semester,
-        course_order: courseOrder ? Number(courseOrder) : null,
-        regulation_code: filters.regulation_code,
-        is_active: true,
-        mapping_status: 'Active',
-        created_at: new Date().toISOString(),
-        course: {
-          course_code:        selected.course_code,
-          course_name:        selected.course_name ?? selected.course_title ?? '',
-          course_category:    selected.course_category,
-          course_type:        selected.course_type,
-          course_part_master: selected.course_part_master,
-          credit:             selected.credit,
-          exam_duration:      selected.exam_duration,
-          theory_hours:       selected.theory_hours,
-          practical_hours:    selected.practical_hours,
-          internal_max_mark:  selected.internal_max_mark,
-          external_max_mark:  selected.external_max_mark,
-          total_max_mark:     selected.total_max_mark,
-        },
-      };
-      qc.setQueryData<{ data: BosCourseMappingDetailed[] }>(
-        ['bos', 'course-mapping', filters],
-        (old) => old ? { ...old, data: [...old.data, optimistic] } : old,
-      );
 
       toast.success(`${selected.course_code} added to ${semesterLabel(semester)}`);
       onOpenChange(false);
@@ -118,7 +127,7 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
-      <DialogContent className='sm:max-w-lg'>
+      <DialogContent className='sm:max-w-lg' aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             Add Course
@@ -126,6 +135,9 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
               {semesterLabel(semester)}
             </Badge>
           </DialogTitle>
+          <DialogDescription className='sr-only'>
+            Search and add a course to {semesterLabel(semester)}.
+          </DialogDescription>
         </DialogHeader>
 
         <div className='space-y-4 py-2'>
@@ -163,19 +175,24 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
             )}
           </div>
 
+          <div className='space-y-1'>
+            <Label className='text-xs'>Course Group</Label>
+            <Select
+              value={courseGroup}
+              onValueChange={(v) => setCourseGroup(v as CourseGroup)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COURSE_GROUP_VALUES.map((g) => (
+                  <SelectItem key={g} value={g}>{g}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className='grid grid-cols-2 gap-3'>
-            <div className='space-y-1'>
-              <Label className='text-xs'>Course Group (optional)</Label>
-              <Select value={courseGroup} onValueChange={setCourseGroup}>
-                <SelectTrigger><SelectValue placeholder='—' /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='none'>—</SelectItem>
-                  {COURSE_GROUP_VALUES.map((g) => (
-                    <SelectItem key={g} value={g}>{g}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className='space-y-1'>
               <Label className='text-xs'>Order (optional)</Label>
               <Input
@@ -184,6 +201,18 @@ export function AddCourseDialog({ open, onOpenChange, semester, filters, institu
                 onChange={(e) => setCourseOrder(e.target.value)}
                 placeholder='1'
               />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-xs'>Group (optional)</Label>
+              <Input
+                type='number' min={0}
+                value={groupOrder}
+                onChange={(e) => setGroupOrder(e.target.value)}
+                placeholder='Same as Order'
+              />
+              <p className='text-[10px] text-muted-foreground'>
+                Shared number bands electives as “choose one”
+              </p>
             </div>
           </div>
         </div>

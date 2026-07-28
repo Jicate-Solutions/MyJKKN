@@ -359,39 +359,62 @@ export class RecruitmentService {
     // toggle + /hr/admin/recruitment-approvals-scope page were removed.
     //   - step pinned to a user → only that user
     //   - role step            → holders of that role_key
-    //   - super-admin          → always allowed
+    //   - super-admin          → always allowed (implicit)
+    //   - override key holder   → allowed as an OVERRIDE (2026-07-16):
+    //     hr.recruitment.approve.override (hr_head / hr_admin / coo). Acting
+    //     on another approver's step requires a comment and preserves the
+    //     original routing in the chain (see stamping below).
     // ---------------------------------------------------------------------
+    let isOverride = false;
     {
       const chainForCheck = candidate.approval_chain ?? [];
       const stepForCheck = chainForCheck[candidate.current_step];
       if (stepForCheck?.status === 'pending') {
         const pinnedUserId = stepForCheck.approver_user_id ?? null;
-        let authorized = pinnedUserId === approverId;
+        let ownStep = pinnedUserId === approverId;
 
-        if (!authorized && !pinnedUserId) {
+        if (!ownStep && !pinnedUserId) {
           const expectedRole = (stepForCheck.approver_role ?? '').toLowerCase();
           const { data: roleRows } = await supabase
             .from('user_roles')
             .select('custom_roles!inner(role_key)')
             .eq('user_id', approverId);
-          const userRoles = (
+          const roleKeys = (
             (roleRows ?? []) as unknown as Array<{ custom_roles?: { role_key?: string } }>
           )
             .map((r) => r.custom_roles?.role_key?.toLowerCase())
             .filter((k): k is string => !!k);
-          authorized = !!expectedRole && userRoles.includes(expectedRole);
+          ownStep = !!expectedRole && roleKeys.includes(expectedRole);
         }
 
+        let authorized = ownStep;
         if (!authorized) {
+          // Override path: super-admin (implicit) OR holders of the
+          // hr.recruitment.approve.override key. Both RPCs resolve against
+          // auth.uid(), which equals approverId in the approve route.
           const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
-          authorized = !!isSuperAdmin;
+          const { data: hasOverride } = await supabase.rpc('user_has_permission', {
+            permission_name: 'hr.recruitment.approve.override',
+          });
+          authorized = !!isSuperAdmin || !!hasOverride;
+          isOverride = authorized;
         }
+
         if (!authorized) {
           throw new Error(
             stepForCheck.approver_user_id
               ? 'This step is assigned to a specific approver and can only be actioned by them.'
               : `Only users with role '${stepForCheck.approver_role}' can action this step. ` +
                 'Adjust the chain at /hr/admin/recruitment-approval-flows if routing is wrong.'
+          );
+        }
+
+        // Override must carry a reason so the audit trail explains why someone
+        // acted on another approver's step.
+        if (isOverride && !(comment && comment.trim())) {
+          throw new Error(
+            "A comment is required when overriding another approver's step. " +
+            'Please explain why you are approving on their behalf.'
           );
         }
       }
@@ -413,35 +436,29 @@ export class RecruitmentService {
       throw new Error('Approval chain exhausted — no pending step found');
     }
 
-    // Interview gate (dynamic flows, 2026-07-06): a step flagged
-    // interview_required cannot be marked reviewed / finally approved until
-    // its linked interview sitting is completed.
-    if (step.interview_required) {
-      if (!step.interview_id) {
-        throw new Error(
-          'This step requires an interview. Schedule the interview and record ' +
-          'its outcome before marking this step as reviewed.'
-        );
-      }
-      const { data: sitting, error: sittingErr } = await supabase
-        .from('hr_recruitment_interviews')
-        .select('id, status')
-        .eq('id', step.interview_id)
-        .maybeSingle();
-      if (sittingErr) throw sittingErr;
-      if (!sitting || sitting.status !== 'completed') {
-        throw new Error(
-          `The interview for this step is not completed yet ` +
-          `(status: ${sitting?.status ?? 'not found'}). Record its outcome first.`
-        );
-      }
-    }
+    // Interview is OPTIONAL (2026-07-16): an approver may schedule/record an
+    // interview for their step, but it never blocks approval. `interview_required`
+    // now only drives the optional "Schedule Interview" affordance in the UI —
+    // it is not a hard gate. (Previously it blocked approval until a completed
+    // sitting existed; the user made interviews optional for all approvers.)
 
+    const nowIso = new Date().toISOString();
     step.status = 'approved';
-    step.decided_at = new Date().toISOString();
+    step.decided_at = nowIso;
     step.decided_by = approverId;
     step.comment = comment ?? null;
-    step.approver_user_id = approverId;
+    if (isOverride) {
+      // Record the override; DO NOT clobber approver_user_id — that would
+      // erase who the step was originally routed to. decided_by already
+      // records who really acted.
+      step.overridden = true;
+      step.overridden_by = approverId;
+      step.overridden_at = nowIso;
+      step.intended_approver_user_id = step.approver_user_id ?? null;
+      step.intended_approver_role = step.approver_role ?? null;
+    } else {
+      step.approver_user_id = approverId;
+    }
 
     const nextStep = candidate.current_step + 1;
     const isFinal = nextStep >= chain.length;
@@ -502,6 +519,30 @@ export class RecruitmentService {
       .eq('id', id)
       .select()
       .single();
+    if (error) throw error;
+    return data as HRRecruitmentCandidate;
+  }
+
+  // ----- Edit a decided step's review comment -----
+
+  /**
+   * Edit the review comment on an already-decided approval step. Delegates to
+   * the SECURITY DEFINER RPC fn_update_recruitment_step_comment, which
+   * self-authorizes (author / super-admin / hr.recruitment.approve.override)
+   * and bypasses the candidate UPDATE RLS — the author may be an approver role
+   * (e.g. hod) that can approve but not edit the candidate row.
+   */
+  static async updateStepComment(
+    supabase: SupabaseClient,
+    candidateId: string,
+    stepIndex: number,
+    comment: string
+  ): Promise<HRRecruitmentCandidate> {
+    const { data, error } = await supabase.rpc('fn_update_recruitment_step_comment', {
+      p_candidate_id: candidateId,
+      p_step_index: stepIndex,
+      p_comment: comment,
+    });
     if (error) throw error;
     return data as HRRecruitmentCandidate;
   }
@@ -1158,7 +1199,8 @@ export class RecruitmentService {
   /**
    * Schedule (or reschedule) the interview for the candidate's CURRENT chain
    * step and stamp its id onto that step. Only the step's approver (pinned
-   * user, role holder, or super-admin) may schedule.
+   * user, role holder, super-admin, or hr.recruitment.approve.override holder)
+   * may schedule.
    */
   static async scheduleStepInterview(
     supabase: SupabaseClient,
@@ -1182,7 +1224,10 @@ export class RecruitmentService {
     const step = chain[candidate.current_step];
     if (!step) throw new Error('No pending approval step found.');
 
-    // Authorization: pinned user, role holder, or super-admin.
+    // Authorization: pinned user, role holder, super-admin, or override-key
+    // holder (hr_head / hr_admin / coo). The override mirrors approveCandidate —
+    // someone allowed to act on any approver's step may also schedule that
+    // step's interview. Both RPCs resolve against auth.uid() = callerId.
     const pinned = step.approver_user_id ?? null;
     let authorized = pinned ? pinned === callerId : false;
     if (!authorized && !pinned) {
@@ -1197,7 +1242,10 @@ export class RecruitmentService {
     }
     if (!authorized) {
       const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
-      authorized = !!isSuperAdmin;
+      const { data: hasOverride } = await supabase.rpc('user_has_permission', {
+        permission_name: 'hr.recruitment.approve.override',
+      });
+      authorized = !!isSuperAdmin || !!hasOverride;
     }
     if (!authorized) {
       throw new Error('Only the current step’s approver can schedule this interview.');

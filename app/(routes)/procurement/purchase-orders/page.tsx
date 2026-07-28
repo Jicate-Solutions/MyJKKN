@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { formatDateDMY } from '@/lib/utils/date-format';
 import { PO_STATUS_CONFIG, type PoStatus, type PurchaseOrderFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,12 +29,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Eye, Search } from 'lucide-react';
+import { Eye, Search, Settings2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
 export default function PurchaseOrdersPage() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canManageFormats = isSuperAdmin || canAccess('procurement', 'po_create');
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
@@ -52,11 +56,23 @@ export default function PurchaseOrdersPage() {
   return (
     <ContentLayout title="Purchase Orders">
       <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Purchase Orders</h2>
-          <p className="text-muted-foreground">
-            Generated per awarded vendor. Approve, then send to the vendor.
-          </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Purchase Orders</h2>
+            <p className="text-muted-foreground">
+              Generated per awarded vendor. Approve, then send to the vendor.
+            </p>
+          </div>
+          {canManageFormats && (
+            <Button
+              variant="outline"
+              className="shrink-0"
+              onClick={() => router.push('/procurement/purchase-orders/formats')}
+            >
+              <Settings2 className="mr-2 h-4 w-4" />
+              Manage Formats
+            </Button>
+          )}
         </div>
 
         <Card>
@@ -121,7 +137,7 @@ export default function PurchaseOrdersPage() {
                   {pos.map((po) => (
                     <TableRow key={po.id}>
                       <TableCell className="font-medium">{po.po_number}</TableCell>
-                      <TableCell>{new Date(po.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDateDMY(po.created_at)}</TableCell>
                       <TableCell>{po.supplier?.name || '-'}</TableCell>
                       <TableCell>{po.item_count ?? '-'}</TableCell>
                       <TableCell className="text-right">

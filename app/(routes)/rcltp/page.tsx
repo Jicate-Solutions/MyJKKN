@@ -45,6 +45,13 @@ interface LaneCard {
   phase?: string;
   /** If true, only render this card when the user has this permission */
   requiredPermission?: string;
+  /**
+   * If true, the destination page is super-admin only (e.g. it uses the
+   * <SuperAdminOnly> guard). Non-super-admins see the card locked, even if
+   * they hold `requiredPermission`. Prevents advertising a lane as
+   * "Available" that the page itself will then refuse.
+   */
+  superAdminOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +78,9 @@ const ALL_LANES: LaneCard[] = [
     icon: Settings2,
     available: true,
     requiredPermission: 'rcltp.config.manage',
+    // The policies page uses <SuperAdminOnly> (writes platform_policies rows),
+    // so only super-admins may actually open it. Gate the card to match.
+    superAdminOnly: true,
   },
   {
     id: 'teacher',
@@ -86,7 +96,7 @@ const ALL_LANES: LaneCard[] = [
     id: 'principal',
     title: 'Principal Dashboard',
     description:
-      'School-wide RCLTP analytics — cohort band distribution, cycle progress, and at-risk learner alerts. (Populates once EKSAQ scoring is enabled.)',
+      'School-wide RCLTP analytics — cohort band distribution, cycle progress, and at-risk learner alerts. (Populates once MyJKKN scoring is enabled.)',
     href: '/rcltp/principal',
     icon: LayoutDashboard,
     available: true,
@@ -106,7 +116,7 @@ const ALL_LANES: LaneCard[] = [
     id: 'reports',
     title: 'Reports & Dashboards',
     description:
-      'Per-persona report shells — student/parent score report, teacher analytics, school-head dashboard. (Awaiting EKSAQ scoring + report catalog.)',
+      'Per-persona report shells — learner/parent score report, Senior Learner analytics, school-head dashboard. (Awaiting MyJKKN scoring + report catalog.)',
     href: '/rcltp/reports',
     icon: FileBarChart,
     available: true,
@@ -126,7 +136,7 @@ const ALL_LANES: LaneCard[] = [
     id: 'bands',
     title: 'Band Cutoffs',
     description:
-      'Configure provisional band score cutoffs per dimension. Provisional — pending EKSAQ validation; drives no live scoring yet.',
+      'Configure provisional band score cutoffs per dimension. Provisional — pending MyJKKN validation; drives no live scoring yet.',
     href: '/rcltp/admin/bands',
     icon: SlidersHorizontal,
     available: true,
@@ -233,12 +243,12 @@ export default function RcltpHubPage() {
       : ALL_LANES;
 
   return (
-    <ContentLayout title='EKSAQ RCLTP'>
+    <ContentLayout title='MyJKKN RCLTP'>
       <div className='space-y-6'>
         {/* Header */}
         <div>
           <h1 className='text-2xl font-bold tracking-tight text-foreground'>
-            EKSAQ Reading Assessment
+            MyJKKN Reading Assessment
           </h1>
           <p className='mt-1 text-sm text-muted-foreground max-w-2xl'>
             RCLTP (Reading Comprehension Learning &amp; Teaching Proficiency) — a
@@ -256,11 +266,14 @@ export default function RcltpHubPage() {
               if (!lane.available) {
                 return <PlaceholderCard key={lane.id} lane={lane} />;
               }
-              // Available lane — show only if user has permission; else show locked
-              const hasAccess =
-                isSuperAdmin ||
-                !lane.requiredPermission ||
-                can(lane.requiredPermission);
+              // Available lane — show only if user has permission; else show locked.
+              // superAdminOnly lanes require super-admin regardless of requiredPermission
+              // (the destination page enforces the same, e.g. via <SuperAdminOnly>).
+              const hasAccess = lane.superAdminOnly
+                ? isSuperAdmin
+                : isSuperAdmin ||
+                  !lane.requiredPermission ||
+                  can(lane.requiredPermission);
 
               return hasAccess ? (
                 <AvailableCard key={lane.id} lane={lane} />
@@ -276,8 +289,8 @@ export default function RcltpHubPage() {
 
         {/* Module note */}
         <p className='text-xs text-muted-foreground border-t pt-4'>
-          EKSAQ RCLTP v1 is English-only. Additional languages are supported via the
-          language column on passages — no schema change required. Contact your EKSAQ
+          MyJKKN RCLTP v1 is English-only. Additional languages are supported via the
+          language column on passages — no schema change required. Contact your MyJKKN
           administrator to enable multi-language content.
         </p>
       </div>

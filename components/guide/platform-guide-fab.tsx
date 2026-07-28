@@ -76,6 +76,13 @@ const HIDDEN_PREFIXES: readonly string[] = [
   "/data-deletion",
   "/book",
   "/m",
+  // Remaining app/(public) pages — outsider-facing (employer verify links,
+  // booking embeds, polls, routing forms), so the signed-in Help FAB stays off.
+  "/proof",
+  "/employers",
+  "/embed",
+  "/poll",
+  "/r",
 ];
 
 function isHiddenRoute(pathname: string): boolean {
@@ -181,7 +188,7 @@ export function PlatformGuideFab({
         }}
         aria-label={remaining > 0 ? `Help — ${remaining} setup steps left` : "Help"}
         className={cx(
-          "group fixed bottom-36 left-4 right-auto z-40 lg:bottom-4 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
+          "group fixed bottom-[6.875rem] left-4 right-auto z-40 lg:bottom-4 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
           "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         )}
       >

@@ -25,7 +25,8 @@
 // JS, no fetches here.
 // ============================================================================
 
-import type { LoopRegistryRow, LoopAuditRow, GateState } from './types';
+import Link from 'next/link';
+import type { LoopRegistryRow, LoopAuditRow, LoopConflictRow, GateState } from './types';
 import { isBadVerdict, isVerifiedVerdict } from '@/lib/ai-routines/loop-governance';
 
 /** One loop's 7-day closure: `den` iterations opened in the window, `num`
@@ -53,8 +54,8 @@ export interface LoopTowerStats {
   routinesEnabled: number | null;
   routinesTotal: number | null;
   /** Routines whose LATEST fire falls in the 7d window. ai_routine_schedules
-   *  keeps only last_fired_at per routine — there is no run-history table, so
-   *  a true 7-day RUN count for the dispatcher lane is not derivable. */
+   *  keeps only last_fired_at per routine — for true per-run counts see
+   *  dispatcherRuns7d below (ai_routine_run_log, logging since 2026-07-13). */
   routinesFired7d: number | null;
   routinesFiredToday: number | null;
   // ring 3 — TASK loop (shared 7d window only)
@@ -76,13 +77,58 @@ export interface LoopTowerStats {
   // seam 5↔6 — decisions flowing between system and oversight
   decisionsLogged7d: number | null;
   decisionsGraded7d: number | null;
+  // ── ring 2 — EXECUTION engine, extra instrumented lanes (2026-07-13) ───────
+  // Dispatcher lane TRUE run counts from ai_routine_run_log (logging began
+  // 2026-07-13 — sparse until it accumulates; rendered "since 13 Jul", never as
+  // broken). Distinct from routinesFired*, which only reflect last_fired_at.
+  dispatcherRuns7d: number | null;
+  dispatcherRunsToday: number | null;
+  // Typed async job queue (ai_jobs, #1998) — a distinct table from the raw Max
+  // request log (max_lane_requests). It currently dispatches only max-lane jobs,
+  // so it OVERLAPS the Max lane today (disclosed in the ring blurb).
+  jobsDone7d: number | null;
+  jobsError7d: number | null;
+  jobsTotal7d: number | null;
+  // ── "Engine health today" strip (Director-approved 2026-07-18) ─────────────
+  // ONE derived line answering "is the machine side healthy right now?" — all
+  // IST-today, all from live tables. null legs = that read failed → the strip
+  // renders amber-unreadable, never a fake green. loopsMissed / errorTypes feed
+  // the plain-language amber sentence (read by every super-admin, not only
+  // engineers — copy stays jargon-free).
+  engineToday: {
+    loopsDue: number | null;
+    loopsRan: number | null;
+    loopsMissed: string[];
+    jobsDoneToday: number | null;
+    jobsStuck: number | null;
+    errorsToday: number | null;
+    errorTypes: string[];
+    paidCallsToday: number | null;
+    paidInrToday: number | null;
+  } | null;
+  // ── Management strip — 30-day executive summary at the top of the tower ────
+  // Every field is hollow-not-fabricated: null renders as an explicit no-data
+  // cell, never a healthy-looking number. See the page for how each is derived
+  // and which loops are in/out of each aggregate.
+  strip: {
+    /** Cell A — measured closures (30d) across the MEASURE loops only. */
+    cyclesClosed30d: number | null;
+    /** Cell B — mean outcome_lift of SCF suggestions measured in 30d. */
+    scfLiftMean30d: number | null;
+    scfLiftN30d: number | null;
+    /** Cell C — mission-pillar coverage: (covered + 0.5·partial) / active total.
+     *  null when the mission_pillars table is absent/unreadable → cell hollow. */
+    pillars: { score: number; total: number; pct: number } | null;
+    /** Cell D — the single computed constraint (or null → hollow). */
+    constraint: { label: string; detail: string } | null;
+  };
 }
 
 // ── Ring membership (ratified key lists — NOT loop_registry.stack_tier,
 // which predates the correction and still parks the judge loops at tier 3).
 // Unknown/new registry keys default into PRODUCT, the ring for standing
 // improvement programs. ─────────────────────────────────────────────────────
-const SYSTEM_KEYS = new Set(['metaloop', 'iqac-meeting', 'institutional-audit', 'decisions']);
+const SYSTEM_KEYS = new Set(['metaloop', 'iqac-meeting', 'institutional-audit', 'decisions', 'carre-audit']);
 const OVERSIGHT_KEYS = new Set(['director']);
 
 const n = (v: number | null) => (v === null ? '—' : String(v));
@@ -91,10 +137,14 @@ function Chip({
   label,
   value,
   tone = 'default',
+  href,
 }: {
   label: string;
   value: string;
   tone?: 'default' | 'good' | 'bad' | 'warn';
+  /** Deep-link to the page where this count's underlying records live — the
+   *  chip becomes clickable evidence, not just a number (Director, 18 Jul). */
+  href?: string;
 }) {
   // A null count renders as an explicitly hollow chip ("no data", dashed) —
   // never as a healthy-looking number (thesis rule).
@@ -107,14 +157,13 @@ function Chip({
         : tone === 'warn'
           ? 'border-amber-400/60 bg-amber-50/60 text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-400'
           : 'border-border bg-background text-muted-foreground';
-  return (
-    <span
-      className={`inline-flex items-baseline gap-1.5 rounded-lg border px-2.5 py-1 text-xs shadow-sm ${
-        hollow
-          ? 'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70'
-          : toneCls
-      }`}
-    >
+  const cls = `inline-flex items-baseline gap-1.5 rounded-lg border px-2.5 py-1 text-xs shadow-sm ${
+    hollow
+      ? 'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70'
+      : toneCls
+  }`;
+  const inner = (
+    <>
       {label}
       <b
         className={`font-mono text-sm font-semibold tabular-nums ${
@@ -123,8 +172,23 @@ function Chip({
       >
         {hollow ? 'no data' : value}
       </b>
-    </span>
+    </>
   );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        title={`Open the records behind "${label}"`}
+        className={`${cls} transition-colors hover:border-foreground/40 hover:shadow focus-visible:outline-2 focus-visible:outline-offset-2`}
+      >
+        {inner}
+        <span aria-hidden='true' className='self-center text-[9px] opacity-50'>
+          ↗
+        </span>
+      </Link>
+    );
+  }
+  return <span className={cls}>{inner}</span>;
 }
 
 function fmtAuditDate(iso: string): string {
@@ -150,6 +214,67 @@ const CLASS_TINT: Record<string, string> = {
   infrastructure: 'border-border bg-muted/40',
 };
 
+// ── Charter honesty badge (Director-adopted rule, 2026-07-26) ────────────────
+// A registry row earns the word "loop" only when all FIVE charter legs are
+// written — outcome metric, baseline window, intervention, verdict owner,
+// re-measure window — each recorded only with a receipt that it actually runs.
+// Any NULL/missing leg means the row is honestly a METER: it measures
+// something, but nothing provably closes. Receipt behind the rule: the mess
+// loop self-reported gates all-on while it had measured 0, ever. "Verified"
+// additionally requires the weekly known-delta regress to have measure-verified
+// the loop within the last 14 days. Derived per row from data — no loop names
+// hardcoded. This is an ADDITIONAL layer beside loop_class/gates, not a
+// replacement.
+const CHARTER_LEGS = [
+  { key: 'outcome_metric', missing: 'No outcome metric recorded' },
+  { key: 'baseline_window', missing: 'No baseline window recorded' },
+  { key: 'intervention', missing: 'No intervention recorded' },
+  { key: 'verdict_owner', missing: 'No verdict owner recorded' },
+  { key: 'remeasure_window', missing: 'No re-measure window recorded' },
+] as const;
+const CHARTER_VERIFIED_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+function CharterBadge({ row, simAudit }: { row: LoopRegistryRow; simAudit?: LoopAuditRow }) {
+  const missing = CHARTER_LEGS.filter(({ key }) => {
+    const v = row[key];
+    // Undefined (column not migrated yet) reads exactly like NULL — Meter.
+    return typeof v !== 'string' || v.trim() === '';
+  }).map((l) => l.missing);
+  const base =
+    'self-start rounded border px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-wider';
+  if (missing.length > 0) {
+    return (
+      <span
+        title={`Honestly a meter, not a loop — ${missing.join(' · ')}. A charter leg is written only with a receipt that it actually runs.`}
+        className={`${base} border-border bg-muted/60 text-muted-foreground`}
+      >
+        meter
+      </span>
+    );
+  }
+  const verified =
+    simAudit?.verdict === 'measure-verified' &&
+    Date.now() - new Date(simAudit.audited_at).getTime() <= CHARTER_VERIFIED_WINDOW_MS;
+  if (verified) {
+    return (
+      <span
+        title='All five charter legs receipted AND the weekly regress measure-verified this loop within the last 14 days.'
+        className={`${base} border-emerald-400/60 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/20 dark:text-emerald-300`}
+      >
+        loop · verified
+      </span>
+    );
+  }
+  return (
+    <span
+      title='All five charter legs receipted — awaiting a measure-verified weekly regress within 14 days to earn “verified”.'
+      className={`${base} border-emerald-500/50 bg-transparent text-emerald-700 dark:text-emerald-400`}
+    >
+      loop · chartered
+    </span>
+  );
+}
+
 function GateMiniDot({ g }: { g: GateState }) {
   const cls =
     g === 'on'
@@ -163,10 +288,15 @@ function GateMiniDot({ g }: { g: GateState }) {
 function RegistryChip({
   row,
   audit,
+  simAudit,
   closure,
 }: {
   row: LoopRegistryRow;
   audit?: LoopAuditRow;
+  /** Latest SIM-layer audit for this loop (may be older than `audit`) — the
+   *  charter badge's "verified" leg needs the sim row even when a newer
+   *  walk/full audit exists for the same loop. */
+  simAudit?: LoopAuditRow;
   /** PRODUCT-ring chips only: the loop's 7d closure, or the literal
    *  'not-instrumented' when no closure counter is derivable from existing
    *  tables. Omitted entirely for SYSTEM/OVERSIGHT chips. */
@@ -177,15 +307,29 @@ function RegistryChip({
   return (
     <a
       href={`#loop-${row.loop_key}`}
-      title={row.description ?? row.name}
+      title={`${row.description ?? row.name} · owner: ${row.owner_email ?? 'unowned'}`}
       className={`flex min-w-[152px] flex-col gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] leading-tight shadow-sm transition-colors hover:brightness-95 dark:hover:brightness-125 ${tint}`}
     >
       <span className='font-semibold text-foreground'>{name}</span>
+      <CharterBadge row={row} simAudit={simAudit} />
       <span className='flex items-center gap-1'>
         <GateMiniDot g={row.gates.g} />
         <GateMiniDot g={row.gates.a} />
         <GateMiniDot g={row.gates.m} />
         <GateMiniDot g={row.gates.f} />
+        {row.counter_metric ? (
+          <span
+            title={'PAIRED · ' + row.counter_metric}
+            className='ml-1 h-1.5 w-1.5 flex-none rounded-full border border-emerald-500 bg-emerald-500'
+            aria-hidden='true'
+          />
+        ) : (
+          <span
+            title='UNPAIRED — no counter-metric named yet'
+            className='ml-1 h-1.5 w-1.5 flex-none rounded-full border border-amber-500 bg-transparent'
+            aria-hidden='true'
+          />
+        )}
       </span>
       {closure !== undefined &&
         (closure === 'not-instrumented' ? (
@@ -212,6 +356,17 @@ function RegistryChip({
             {closure.label} 7d: {closure.num}/{closure.den}
           </span>
         ))}
+      {row.counter_metric && (
+        // "A metric never travels alone" — the paired counter-metric rides
+        // visibly beside the headline metric, not only inside the pairing
+        // dot's hover title (#2395 added the dot; this adds the words).
+        <span
+          title={`Counter-metric — watched so optimizing the headline number can't silently break this: ${row.counter_metric}`}
+          className='truncate font-mono text-[9.5px] text-muted-foreground/80'
+        >
+          counter: {row.counter_metric}
+        </span>
+      )}
       {audit &&
         // Failures FIRST — a failure string that mentions "verified" must
         // never render as healthy (review r2; isVerifiedVerdict is also
@@ -365,6 +520,99 @@ function Ring({ num, name, exit, tone, kind = 'loop', blurb, chips, children }: 
   );
 }
 
+// ── Engine health today ──────────────────────────────────────────────────────
+// The one-line answer to "is the machine side healthy right now?" (Director-
+// approved 2026-07-18, mockup artifact 3c6b7b76). Green ONLY when every cell
+// reads clean; any failed read renders amber-unreadable — "couldn't read" must
+// never look like "healthy". Deliberately says nothing about the HUMAN side of
+// the loops (verdicts, approvals) — that story belongs to the management strip.
+function EngineHealthStrip({ e }: { e: LoopTowerStats['engineToday'] }) {
+  const unreadable =
+    !e ||
+    e.loopsDue === null ||
+    e.jobsDoneToday === null ||
+    e.jobsStuck === null ||
+    e.errorsToday === null ||
+    e.paidCallsToday === null;
+  const missedLoops = !!e && e.loopsDue !== null && (e.loopsRan ?? 0) < e.loopsDue;
+  const stuck = (e?.jobsStuck ?? 0) > 0;
+  const failed = (e?.errorsToday ?? 0) > 0;
+  const paid = (e?.paidCallsToday ?? 0) > 0;
+  const healthy = !unreadable && !missedLoops && !stuck && !failed && !paid;
+
+  // The amber sentence: name every failing item in plain words, worst first.
+  const problems: string[] = [];
+  if (unreadable) problems.push("couldn't read part of today's health — showing amber, never a fake green");
+  if (stuck)
+    problems.push(
+      `${e?.jobsStuck} job${e?.jobsStuck === 1 ? '' : 's'} waiting >30 min — the campus runner may have stopped (super-admins are paged automatically)`,
+    );
+  if (missedLoops) problems.push(`did not run: ${(e?.loopsMissed ?? []).join(', ') || 'a scheduled loop'}`);
+  if (failed)
+    problems.push(
+      `failed today: ${e?.errorTypes.length ? e.errorTypes.join(', ') : `${e?.errorsToday} job(s)`}`,
+    );
+  if (paid)
+    problems.push(
+      `₹${(e?.paidInrToday ?? 0).toFixed(2)} spent on the paid lane (${e?.paidCallsToday} call${e?.paidCallsToday === 1 ? '' : 's'}) — the free lane should be ₹0`,
+    );
+
+  const n2 = (v: number | null | undefined) => (v === null || v === undefined ? '—' : String(v));
+  // Each cell deep-links to the page where its underlying records live
+  // (Director, 18 Jul): the number is evidence, so clicking opens the evidence.
+  const cell = (label: string, value: string, bad: boolean, href: string) => (
+    <Link
+      href={href}
+      title={`Open the records behind "${label}"`}
+      className='flex items-center gap-1.5 rounded font-mono text-[11px] transition-opacity hover:opacity-75 focus-visible:outline-2 focus-visible:outline-offset-2'
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${bad ? 'bg-amber-500' : 'bg-emerald-500'}`} aria-hidden='true' />
+      <span className='text-muted-foreground underline decoration-dotted decoration-muted-foreground/40 underline-offset-2'>{label}</span>
+      <b className={bad ? 'font-bold text-amber-700 dark:text-amber-400' : 'font-bold text-foreground'}>{value}</b>
+    </Link>
+  );
+
+  return (
+    <div
+      className={`rounded-lg border-[1.5px] px-3 py-2 ${
+        healthy
+          ? 'border-emerald-400/70 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/30'
+          : 'border-amber-400/70 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30'
+      }`}
+      role={healthy ? 'status' : 'alert'}
+      aria-label={`engine health today: ${healthy ? 'healthy' : 'needs attention'}`}
+    >
+      <div className='flex flex-wrap items-center gap-x-4 gap-y-1'>
+        <span
+          className={`font-mono text-[10px] font-bold uppercase tracking-widest ${
+            healthy ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-400'
+          }`}
+        >
+          engine today · {unreadable ? 'unreadable' : healthy ? 'healthy' : 'attention'}
+        </span>
+        {cell('loops due · ran', `${n2(e?.loopsDue)} / ${n2(e?.loopsRan)}`, missedLoops, '/admin/ai-routines')}
+        {cell('work finished · waiting', `${n2(e?.jobsDoneToday)} / ${n2(e?.jobsStuck)}`, stuck, '/admin/ai-models')}
+        {cell('failures today', n2(e?.errorsToday), failed, '/admin/ai-models')}
+        {cell(
+          'money spent today',
+          e?.paidCallsToday === null || e?.paidCallsToday === undefined
+            ? '—'
+            : paid
+              ? `₹${(e?.paidInrToday ?? 0).toFixed(2)}`
+              : '₹0',
+          paid,
+          '/admin/ai-models',
+        )}
+      </div>
+      {problems.length > 0 && (
+        <p className='mt-1 font-mono text-[10.5px] leading-snug text-amber-700 dark:text-amber-400'>
+          ⚠ {problems.join(' · ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // Data-derived SCF measured record — replaces the old hardcoded "its first
 // measured lifts landed 8 Jul (both positive)" claim, which went stale the
 // moment a third (negative) outcome was measured.
@@ -378,10 +626,184 @@ function scfRecordSentence(s: LoopTowerStats): string {
   } (${pos} up · ${neg} down).`;
 }
 
+// ── Management strip ─────────────────────────────────────────────────────────
+// A four-cell executive summary that sits ABOVE the tower rings. It answers the
+// four questions a Director asks at a glance: are cycles closing, is the effect
+// real, are we covering the mission, and what is the single thing most limiting
+// the system now. Each cell renders an explicit hollow state when its data is
+// missing — a blank/absent metric is shown as "no data", never as a healthy
+// number (same thesis rule as the rings). The lift cell goes RED, unsmoothed,
+// when the measured effect is negative — bad news is not rounded away.
+function StripCell({
+  label,
+  value,
+  sub,
+  tone = 'default',
+  hollow = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub: React.ReactNode;
+  tone?: 'default' | 'good' | 'bad';
+  hollow?: boolean;
+}) {
+  const boxCls = hollow
+    ? 'border-dashed border-muted-foreground/40 bg-transparent'
+    : tone === 'bad'
+      ? 'border-red-400/70 bg-red-50/70 dark:border-red-800/60 dark:bg-red-950/30'
+      : tone === 'good'
+        ? 'border-emerald-400/50 bg-emerald-50/60 dark:border-emerald-800/50 dark:bg-emerald-950/20'
+        : 'border-border bg-muted/30';
+  const valCls = hollow
+    ? 'font-normal italic text-muted-foreground/60'
+    : tone === 'bad'
+      ? 'text-red-700 dark:text-red-400'
+      : 'text-foreground';
+  return (
+    <div className={`flex flex-col gap-0.5 rounded-xl border px-3 py-2.5 ${boxCls}`}>
+      <span className='font-mono text-[10px] uppercase tracking-wider text-muted-foreground'>
+        {label}
+      </span>
+      <span className={`font-mono text-lg font-semibold leading-tight tabular-nums ${valCls}`}>
+        {value}
+      </span>
+      <span className='text-[11px] leading-tight text-muted-foreground'>{sub}</span>
+    </div>
+  );
+}
+
+function ManagementStrip({ s }: { s: LoopTowerStats }) {
+  const st = s.strip;
+  // Cell B — hollow when nothing was measured (n = 0 or read failed); red when
+  // the mean effect is negative (ratified: no smoothing).
+  const liftHollow =
+    st.scfLiftN30d === null || st.scfLiftN30d === 0 || st.scfLiftMean30d === null;
+  const liftNeg = !liftHollow && (st.scfLiftMean30d as number) < 0;
+  const fmtLift = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
+  const cyclesHollow = st.cyclesClosed30d === null;
+  return (
+    <div
+      className='mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4'
+      aria-label='Management strip — 30-day loop-system summary'
+    >
+      <StripCell
+        label='Cycles closed · 30d'
+        value={cyclesHollow ? 'no data' : st.cyclesClosed30d}
+        hollow={cyclesHollow}
+        tone={!cyclesHollow && (st.cyclesClosed30d as number) > 0 ? 'good' : 'default'}
+        sub='measured closures — in: SCF, induction (session + playbook), mess, AI Pulse. Out: spine (intake), referral desk (routing), PDE (human-scored).'
+      />
+      <StripCell
+        label='Measured lift · checked'
+        value={liftHollow ? 'no data' : fmtLift(st.scfLiftMean30d as number)}
+        hollow={liftHollow}
+        tone={liftNeg ? 'bad' : 'default'}
+        sub={
+          liftHollow
+            ? 'SCF only — no outcomes measured in the last 30 days'
+            : `mean outcome lift · SCF only, n=${st.scfLiftN30d}${
+                liftNeg ? ' · negative, shown red (no smoothing)' : ''
+              }`
+        }
+      />
+      <StripCell
+        label='Mission pillars covered'
+        value={
+          st.pillars && st.pillars.total > 0
+            ? `${
+                Number.isInteger(st.pillars.score)
+                  ? st.pillars.score
+                  : st.pillars.score.toFixed(1)
+              } of ${st.pillars.total} pillars · ${st.pillars.pct}%`
+            : 'no pillars configured'
+        }
+        hollow={!st.pillars || st.pillars.total === 0}
+        sub={
+          st.pillars && st.pillars.total > 0 ? (
+            <>
+              weighted coverage (covered = 1 · partial = ½) across active pillars —{' '}
+              <Link
+                href='/admin/loops/pillars'
+                className='underline underline-offset-2'
+              >
+                edit the pillar map →
+              </Link>
+            </>
+          ) : (
+            <>
+              the mission-pillar map has no active rows —{' '}
+              <Link
+                href='/admin/loops/pillars'
+                className='underline underline-offset-2'
+              >
+                configure pillars →
+              </Link>
+            </>
+          )
+        }
+      />
+      <StripCell
+        label='Current constraint'
+        value={st.constraint ? st.constraint.label : 'no closure data'}
+        hollow={!st.constraint}
+        sub={
+          st.constraint
+            ? st.constraint.detail
+            : 'no loop has a derivable closure counter in the last 30 days'
+        }
+      />
+    </div>
+  );
+}
+
+// ── Open conflicts strip ─────────────────────────────────────────────────────
+// One amber card per OPEN loop_conflicts row — cross-loop conflicts awaiting an
+// arbiter's ruling. Renders nothing when no conflict is open; a resolved
+// conflict leaves the page rather than lingering as decoration.
+function OpenConflictsStrip({ conflicts }: { conflicts: LoopConflictRow[] }) {
+  if (conflicts.length === 0) return null;
+  return (
+    <div className='mb-4' aria-label='Open conflicts — loops pulling against each other'>
+      <h3 className='mb-1.5 text-sm font-semibold'>Open conflicts — loops pulling against each other</h3>
+      <div className='flex flex-col gap-2'>
+        {conflicts.map((c) => (
+          <div
+            key={c.conflict_key}
+            className='rounded-lg border border-amber-400/70 bg-amber-50/60 px-3.5 py-2.5 dark:border-amber-700/60 dark:bg-amber-950/30'
+          >
+            <div className='flex flex-wrap items-center gap-1.5'>
+              <span className='text-[13px] font-bold text-amber-900 dark:text-amber-200'>{c.title}</span>
+              {c.loops.map((k) => (
+                <span
+                  key={k}
+                  className='rounded border border-amber-500/40 bg-amber-100/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/40 dark:text-amber-300'
+                >
+                  {k}
+                </span>
+              ))}
+            </div>
+            <p className='mt-1 line-clamp-2 text-[12px] leading-snug text-amber-800/90 dark:text-amber-300/90'>
+              {c.description}
+            </p>
+            <p className='mt-1 flex flex-wrap items-center gap-2 font-mono text-[10.5px] text-amber-700 dark:text-amber-400'>
+              arbiter: {c.arbiter_email}
+              <span className='rounded-full border border-amber-500/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider'>
+                {c.status}
+              </span>
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function LoopTower({
   stats,
   registry,
   latestAuditByKey,
+  latestSimByKey,
+  conflicts,
 }: {
   stats: LoopTowerStats;
   /** Active loop_registry rows — optional so this component still renders
@@ -389,6 +811,11 @@ export function LoopTower({
    *  banner shows instead of chips). */
   registry?: LoopRegistryRow[];
   latestAuditByKey?: Map<string, LoopAuditRow>;
+  /** Latest SIM-layer audit per loop — feeds the charter badge's "verified"
+   *  leg (a newer walk/full audit must not hide the weekly regress's sim row). */
+  latestSimByKey?: Map<string, LoopAuditRow>;
+  /** OPEN loop_conflicts rows — optional; absent/empty renders nothing. */
+  conflicts?: LoopConflictRow[];
 }) {
   const s = stats;
   const reg = registry ?? [];
@@ -405,8 +832,18 @@ export function LoopTower({
         ? 0
         : Math.round((s.maxlaneError7d / (s.maxlaneDone7d + s.maxlaneError7d)) * 100);
 
+  // Cadence honesty for the known-delta regress: it runs WEEKLY (Sundays
+  // 07:53 IST), so a 6-day-old date is healthy silence, not decay — but the
+  // chip used to show only the date, so healthy weekly silence read as dead.
+  // Past ~8 days (one cadence + grace) the silence becomes an amber "overdue"
+  // instead of staying silently stale.
+  const regressOverdue =
+    s.latestRegress !== null &&
+    Date.now() - new Date(s.latestRegress.auditedAt).getTime() > 8 * 24 * 60 * 60 * 1000;
+
   return (
     <section aria-label='Loop tower — four loops riding a two-ring engine, live'>
+      <ManagementStrip s={s} />
       <div className='mb-2'>
         <h2 className='text-base font-semibold'>The Loop Tower — four loops riding a two-ring engine</h2>
         <p className='text-[13px] text-muted-foreground'>
@@ -421,6 +858,8 @@ export function LoopTower({
         )}
       </div>
 
+      <OpenConflictsStrip conflicts={conflicts ?? []} />
+
       <Ring
         num='6 · Oversight'
         name='The Director'
@@ -431,7 +870,12 @@ export function LoopTower({
           oversightChips.length > 0 ? (
             <>
               {oversightChips.map((r) => (
-                <RegistryChip key={r.loop_key} row={r} audit={latestAuditByKey?.get(r.loop_key)} />
+                <RegistryChip
+                  key={r.loop_key}
+                  row={r}
+                  audit={latestAuditByKey?.get(r.loop_key)}
+                  simAudit={latestSimByKey?.get(r.loop_key)}
+                />
               ))}
             </>
           ) : undefined
@@ -455,17 +899,21 @@ export function LoopTower({
               <Chip label='registry (active loops)' value={n(s.registryActive)} />
               <Chip label='audits written 7d' value={n(s.audits7d)} />
               {s.latestRegress === null ? (
-                <Chip label='latest regress' value='—' />
+                <Chip label='latest regress · weekly, Sundays' value='—' />
               ) : (
                 <Chip
-                  label='latest regress'
-                  value={`${s.latestRegress.verdict ?? 'null'} · ${fmtAuditDate(s.latestRegress.auditedAt)}`}
+                  label='latest regress · weekly, Sundays'
+                  value={`${s.latestRegress.verdict ?? 'null'} · ${fmtAuditDate(s.latestRegress.auditedAt)}${
+                    regressOverdue ? ' · overdue' : ''
+                  }`}
                   tone={
                     isBadVerdict(s.latestRegress.verdict)
                       ? 'bad'
-                      : isVerifiedVerdict(s.latestRegress.verdict)
-                        ? 'good'
-                        : 'warn'
+                      : regressOverdue
+                        ? 'warn'
+                        : isVerifiedVerdict(s.latestRegress.verdict)
+                          ? 'good'
+                          : 'warn'
                   }
                 />
               )}
@@ -485,7 +933,12 @@ export function LoopTower({
           {systemChips.length > 0 && (
             <div className='mb-3 flex flex-wrap gap-1.5'>
               {systemChips.map((r) => (
-                <RegistryChip key={r.loop_key} row={r} audit={latestAuditByKey?.get(r.loop_key)} />
+                <RegistryChip
+                  key={r.loop_key}
+                  row={r}
+                  audit={latestAuditByKey?.get(r.loop_key)}
+                  simAudit={latestSimByKey?.get(r.loop_key)}
+                />
               ))}
             </div>
           )}
@@ -518,6 +971,7 @@ export function LoopTower({
                     key={r.loop_key}
                     row={r}
                     audit={latestAuditByKey?.get(r.loop_key)}
+                    simAudit={latestSimByKey?.get(r.loop_key)}
                     closure={s.productClosure7d[r.loop_key] ?? 'not-instrumented'}
                   />
                 ))}
@@ -545,8 +999,12 @@ export function LoopTower({
               }
             >
               <Seam
-                label='runs per closed iteration'
-                uninstrumented="no run-history table; the dispatcher keeps only each routine's latest fire"
+                label='dispatcher runs per closed iteration (7d)'
+                num={s.dispatcherRuns7d}
+                den={s.iterationsClosed7d}
+                numUnit='runs'
+                denUnit='closed'
+                note='dispatcher-logged runs only (ai_routine_run_log, since 13 Jul) — Max-lane and static-cron runs not in the log yet'
               />
               <Ring
                 num='2 · Execution'
@@ -554,32 +1012,47 @@ export function LoopTower({
                 exit='run completes'
                 tone='slate'
                 kind='engine'
-                blurb="Iteration without gates — the loops ride it; it decides nothing. Three lanes share the window: the Max night lane (fully counted), the editable dispatcher (ai_routine_schedules records only each routine's LATEST fire — there is no run-history table, so true 7-day run counts are not derivable; the chips below count routines-that-fired, not runs), and static vercel crons (not instrumented at all)."
+                blurb="Iteration without gates — the loops ride it; it decides nothing. Four lanes share the window: the Max night lane (max_lane_requests, fully counted); the typed async job queue (ai_jobs — currently dispatches only max-lane jobs, so it overlaps the Max lane today); the editable dispatcher, now writing a true run log (ai_routine_run_log — logging since 13 Jul, sparse until it accumulates; the older 'routines fired' chips still count routines-whose-latest-fire-is-in-window, not runs); and static vercel crons (still not instrumented)."
                 chips={
                   <>
+                    {/* Full-width first row of the chips container — the
+                        "engine health today" strip renders above the pills. */}
+                    <div className='w-full'>
+                      <EngineHealthStrip e={s.engineToday} />
+                    </div>
                     <Chip
-                      label='Max-lane runs 7d / today'
+                      label='Max-lane runs 7d / today' href='/admin/ai-models'
                       value={`${n(s.maxlaneDone7d)} / ${n(s.maxlaneDoneToday)}`}
                     />
                     <Chip
-                      label='Max-lane errors 7d / today'
+                      label='Max-lane errors 7d / today' href='/admin/ai-models'
                       value={`${n(s.maxlaneError7d)} / ${n(s.maxlaneErrorToday)}`}
                       tone={(s.maxlaneError7d ?? 0) > 0 ? 'warn' : 'default'}
                     />
                     <Chip
-                      label='Max-lane error rate 7d'
+                      label='Max-lane error rate 7d' href='/admin/ai-models'
                       value={errRate7d === null ? '—' : `${errRate7d}%`}
                       tone={errRate7d !== null && errRate7d > 0 ? 'warn' : 'default'}
                     />
                     <Chip
-                      label='routines fired within 7d'
+                      label='async jobs 7d (done / err)' href='/admin/ai-models'
+                      value={`${n(s.jobsDone7d)} / ${n(s.jobsError7d)}`}
+                      tone={(s.jobsError7d ?? 0) > 0 ? 'warn' : 'default'}
+                    />
+                    <Chip
+                      label='dispatcher runs logged 7d / today · since 13 Jul'
+                      href='/admin/ai-routines'
+                      value={`${n(s.dispatcherRuns7d)} / ${n(s.dispatcherRunsToday)}`}
+                    />
+                    <Chip
+                      label='routines fired within 7d' href='/admin/ai-routines'
                       value={
                         s.routinesFired7d === null
                           ? '—'
                           : `${s.routinesFired7d} of ${n(s.routinesTotal)}`
                       }
                     />
-                    <Chip label='routines fired today' value={n(s.routinesFiredToday)} />
+                    <Chip label='routines fired today' href='/admin/ai-routines' value={n(s.routinesFiredToday)} />
                   </>
                 }
               >
@@ -597,15 +1070,15 @@ export function LoopTower({
                   exit='stop token'
                   tone='stone'
                   kind='engine'
-                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max subscription lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
+                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
                   chips={
                     <>
                       <Chip
-                        label='Max calls 7d / today'
+                        label='Max calls 7d / today' href='/admin/ai-models'
                         value={`${n(s.maxCalls7d)} / ${n(s.maxCallsToday)}`}
                       />
                       <Chip
-                        label='API calls 7d / today'
+                        label='API calls 7d / today' href='/admin/ai-models'
                         value={`${n(s.apiCalls7d)} / ${n(s.apiCallsToday)}`}
                       />
                     </>

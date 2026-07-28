@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,8 +23,9 @@ import {
   Link2,
   Shield,
   Settings,
+  Star,
 } from 'lucide-react';
-import { useCreateApprovalChain, useUpdateApprovalChain } from '@/hooks/learners-council/use-lc-od';
+import { useCreateApprovalChain, useUpdateApprovalChain, useSetFallbackChain } from '@/hooks/learners-council/use-lc-od';
 import type {
   LCODApprovalChain,
   ODApprovalStep,
@@ -31,10 +33,17 @@ import type {
   CreateODApprovalChainDto,
 } from '@/types/learners-council';
 
+interface InstitutionOption {
+  id: string;
+  name: string;
+}
+
 interface ApprovalChainsClientProps {
-  initialChains: LCODApprovalChain[];
+  initialChains: (LCODApprovalChain & { institution?: InstitutionOption | null })[];
   userId: string;
-  institutionId: string;
+  /** LC office bearer or super admin. Mirrors the lc_od_chains_* RLS policies. */
+  canManage: boolean;
+  institutions: InstitutionOption[];
 }
 
 const approverRoles = [
@@ -181,21 +190,22 @@ function StepEditor({
 
 function CreateChainForm({
   userId,
-  institutionId,
+  institutions,
   onSuccess,
 }: {
   userId: string;
-  institutionId: string;
+  institutions: InstitutionOption[];
   onSuccess: () => void;
 }) {
   const createChain = useCreateApprovalChain();
   const [name, setName] = useState('');
+  const [institutionId, setInstitutionId] = useState('');
   const [scope, setScope] = useState<EventScope>('campus');
   const [steps, setSteps] = useState<ODApprovalStep[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || steps.length === 0) return;
+    if (!name || !institutionId || steps.length === 0) return;
 
     const validSteps = steps.filter((s) => s.approver_role);
     if (validSteps.length === 0) return;
@@ -227,6 +237,23 @@ function CreateChainForm({
             required
           />
         </div>
+        {/* Office bearers are LC-wide, so the college a chain belongs to is an explicit
+            choice rather than the creator's own institution. */}
+        <div className="space-y-2">
+          <Label htmlFor="chain-institution">College *</Label>
+          <Select value={institutionId} onValueChange={setInstitutionId}>
+            <SelectTrigger id="chain-institution">
+              <SelectValue placeholder="Select college" />
+            </SelectTrigger>
+            <SelectContent>
+              {institutions.map((inst) => (
+                <SelectItem key={inst.id} value={inst.id}>
+                  {inst.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="space-y-2">
           <Label htmlFor="chain-scope">Event Scope *</Label>
           <Select value={scope} onValueChange={(v) => setScope(v as EventScope)}>
@@ -249,7 +276,10 @@ function CreateChainForm({
       <Separator />
 
       <div className="flex justify-end">
-        <Button type="submit" disabled={createChain.isPending || steps.length === 0}>
+        <Button
+          type="submit"
+          disabled={createChain.isPending || steps.length === 0 || !institutionId}
+        >
           {createChain.isPending ? 'Creating...' : 'Create Chain'}
         </Button>
       </div>
@@ -260,39 +290,50 @@ function CreateChainForm({
 export function ApprovalChainsClient({
   initialChains,
   userId,
-  institutionId,
+  canManage,
+  institutions,
 }: ApprovalChainsClientProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [chains, setChains] = useState(initialChains);
+  const chains = initialChains;
+  const toggleChain = useUpdateApprovalChain();
+  const setFallback = useSetFallbackChain();
+  // The list is server-rendered, so refresh the route after a write rather than relying
+  // on React Query cache invalidation (which this list does not read from).
+  const router = useRouter();
 
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">Approval Chains</h1>
           <p className="text-sm text-muted-foreground">
-            Configure OD approval workflows for your institution
+            OD approval workflows across every college of the Council
           </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              New Chain
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Approval Chain</DialogTitle>
-            </DialogHeader>
-            <CreateChainForm
-              userId={userId}
-              institutionId={institutionId}
-              onSuccess={() => setDialogOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
+        {canManage && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="shrink-0">
+                <Plus className="h-4 w-4 mr-2" />
+                New Chain
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create Approval Chain</DialogTitle>
+              </DialogHeader>
+              <CreateChainForm
+                userId={userId}
+                institutions={institutions}
+                onSuccess={() => {
+                  setDialogOpen(false);
+                  router.refresh();
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Info Banner */}
@@ -302,8 +343,13 @@ export function ApprovalChainsClient({
           <div className="text-sm">
             <p className="font-medium text-blue-900">How Approval Chains Work</p>
             <p className="text-blue-700 mt-0.5">
-              When a learner submits an OD request, it follows the approval chain assigned to their institution.
-              Each step must be completed before moving to the next. The chain is matched by event scope.
+              When a learner submits an OD request, the chain is chosen by the event&apos;s scope
+              (campus / inter-campus / institution-wide). Each step must be completed before the
+              next. If no chain matches the scope &mdash; or the request has no event &mdash; the
+              college&apos;s <span className="font-medium">Default</span> chain is used.
+              {canManage
+                ? ' Give each college one Default chain so a request is never left with nowhere to go.'
+                : ' Only LC office bearers can create or change a chain.'}
             </p>
           </div>
         </CardContent>
@@ -315,7 +361,11 @@ export function ApprovalChainsClient({
           <CardContent className="py-12 text-center text-muted-foreground">
             <Link2 className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p className="font-medium">No approval chains configured</p>
-            <p className="text-sm mt-1">Create a chain to define the OD approval workflow.</p>
+            <p className="text-sm mt-1">
+              {canManage
+                ? 'Create a chain to define the OD approval workflow.'
+                : 'An LC office bearer needs to create one before OD requests can be submitted.'}
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -324,16 +374,57 @@ export function ApprovalChainsClient({
             const steps = (chain.steps || []) as ODApprovalStep[];
 
             return (
-              <Card key={chain.id}>
+              <Card key={chain.id} className={chain.is_active ? undefined : 'opacity-60'}>
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base">{chain.name}</CardTitle>
-                    <Badge variant={chain.is_active ? 'default' : 'outline'}>
-                      {chain.is_active ? 'Active' : 'Inactive'}
-                    </Badge>
+                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                      {chain.is_fallback && (
+                        <Badge variant="secondary" className="gap-1">
+                          <Star className="h-3 w-3" />
+                          Default
+                        </Badge>
+                      )}
+                      <Badge variant={chain.is_active ? 'default' : 'outline'}>
+                        {chain.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                      {canManage && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={toggleChain.isPending}
+                          onClick={() =>
+                            toggleChain.mutate(
+                              {
+                                id: chain.id,
+                                data: { is_active: !chain.is_active } as any,
+                              },
+                              { onSuccess: () => router.refresh() }
+                            )
+                          }
+                        >
+                          {chain.is_active ? 'Deactivate' : 'Activate'}
+                        </Button>
+                      )}
+                      {canManage && chain.is_active && !chain.is_fallback && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={setFallback.isPending}
+                          onClick={() =>
+                            setFallback.mutate(chain.id, { onSuccess: () => router.refresh() })
+                          }
+                        >
+                          Set as default
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <CardDescription>
-                    Scope: {scopeOptions.find((s) => s.value === chain.event_scope)?.label || chain.event_scope}
+                    {/* The list spans every college, so the owning college has to be on the card. */}
+                    {chain.institution?.name || 'Unknown college'}
+                    {' · '}
+                    {scopeOptions.find((s) => s.value === chain.event_scope)?.label || chain.event_scope}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

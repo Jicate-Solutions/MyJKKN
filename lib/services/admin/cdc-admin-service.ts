@@ -38,6 +38,37 @@ export const ALLOWED_MASTER_TABLES: CdcMasterTable[] = [
   'cdc_exam_syllabus_topics', // 2026-07-04 govt-job-readiness (PR-4 / Option B)
 ];
 
+// Master tables whose schema has a NOT NULL, UNIQUE `config_key` with no default
+// or generating trigger. The generic add/edit form (master-table-page.tsx) only
+// collects display_name/description, so on INSERT we must derive config_key from
+// the display name — otherwise every "Add" fails with a not-null violation.
+// cdc_recruiters is intentionally ABSENT: it has no config_key column (bespoke
+// company schema handled by its own admin page), so we must not inject one.
+const CONFIG_KEY_TABLES: ReadonlySet<string> = new Set([
+  'cdc_drive_types',
+  'cdc_offer_types',
+  'cdc_training_types',
+  'cdc_workshop_types',
+  'cdc_industry_sectors',
+  'cdc_internship_types',
+  'cdc_mentor_categories',
+  'cdc_mentorship_categories',
+  'cdc_expertise_areas',
+]);
+
+/** Derive a snake_case config_key slug from a display name (e.g. "On-Campus
+ *  Drive" -> "on_campus_drive"). Uniqueness is enforced by the table's UNIQUE
+ *  constraint; a collision surfaces as a clear error to the caller. */
+function slugifyConfigKey(input: string): string {
+  const slug = input
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '_') // non-alphanumeric runs -> underscore
+    .replace(/^_+|_+$/g, '') // trim leading/trailing underscores
+    .slice(0, 60);
+  return slug || 'item';
+}
+
 // CDC cron job names as seeded in Sprint 1.
 export const CDC_CRON_JOBS = [
   'cdc-coordinator-escalation',
@@ -142,9 +173,23 @@ export async function insertMasterRow(
   table: CdcMasterTable,
   payload: Record<string, unknown>
 ): Promise<{ data: any; error: Error | null }> {
+  const insertPayload: Record<string, unknown> = { ...payload, is_active: true };
+
+  // Derive config_key for typed master tables when the caller didn't supply one.
+  // These columns are NOT NULL + UNIQUE with no default/trigger, and the generic
+  // form never collects config_key — so without this, every "Add" fails.
+  if (
+    CONFIG_KEY_TABLES.has(table) &&
+    !insertPayload.config_key &&
+    typeof insertPayload.display_name === 'string' &&
+    insertPayload.display_name.trim()
+  ) {
+    insertPayload.config_key = slugifyConfigKey(insertPayload.display_name as string);
+  }
+
   const { data, error } = await supabase
     .from(table)
-    .insert({ ...payload, is_active: true })
+    .insert(insertPayload)
     .select()
     .single();
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { Suspense, use, useEffect, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -115,8 +116,11 @@ type ActivityRow = {
   time: string;
 };
 
-export default function BlockDetailPage({ params }: { params: Promise<{ id: string }> }) {
+const BLOCK_DETAIL_TABS = ['overview', 'floors', 'wardens', 'activity'] as const;
+
+function BlockDetailPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('overview', BLOCK_DETAIL_TABS);
   const { profile } = useAuth();
   const { data: blockData, isLoading } = useHostelBlock(id);
   const block = blockData as any;
@@ -406,7 +410,7 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
           </Card>
         </div>
 
-        <Tabs defaultValue="overview" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="floors">Floors & Rooms</TabsTrigger>
@@ -930,5 +934,14 @@ export default function BlockDetailPage({ params }: { params: Promise<{ id: stri
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function BlockDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <BlockDetailPageInner params={params} />
+    </Suspense>
   );
 }

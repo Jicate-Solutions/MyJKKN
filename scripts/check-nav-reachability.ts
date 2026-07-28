@@ -75,6 +75,10 @@ const NAV_EXCLUDE = new Set<string>([
   '/admin/whatsapp-byow/secret-rotation',
   '/system',
 
+  // Internal design tool — the Element Gallery (Phase 1). Not a permissioned
+  // module; reached by direct URL / a link we add later, so it has no chip surface.
+  '/design-gallery',
+
   // Module root landings — redirect-to-first-child pages
   '/academic',
   '/admin',
@@ -359,6 +363,12 @@ const NAV_EXCLUDE = new Set<string>([
   '/schools-portal/dashboard',
   '/schools-portal/update-contact',
 
+  // SF100 external Mentor/Investor portal — external (no-JKKN-account) persona
+  // reached via a coordinator-shared 6-digit code, NOT the staff sidebar. Same
+  // isolated dual-auth shape as the parent/schools portals.
+  '/external',
+  '/external/login',
+
   // 2026-06-10 admin-cluster relocation — consultants. Super-admin policy
   // pages relocated from /admin/consultants/* ("one module = one URL
   // prefix"). Under /admin they were chip-reachable only via manifest
@@ -400,6 +410,20 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
   '/audit/care/coverage',
+  //  - /audit/care/voice          : sealed participant scoring door (learner-
+  //    gated by fn_carre_participant_context/score server-side). Unlisted by
+  //    design — the Director opens a cycle's lane deliberately and shares the
+  //    link; a sealed lane is not advertised platform-wide.
+  '/audit/care/voice',
+  //  - /audit/care/predict        : predict-then-see calibration mirror for
+  //    team members (fn_carre_predict_* gate server-side). Unlisted like the
+  //    voice door — shared per cycle with the team being audited.
+  '/audit/care/predict',
+
+  // Intentionally unlisted (Director decision 2026-07-24): the open Compliance &
+  // Tracking Board is reached by a shared direct link, deliberately NOT on any nav
+  // or chip surface. Open to all logged-in users; staff/faculty can write.
+  '/tracker',
 
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']

@@ -79,7 +79,7 @@ export function SessionsList() {
                 key={session.id}
                 className="flex items-center justify-between p-4 rounded-lg border"
               >
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <p className="font-medium">
                       {session.title || `Session ${session.session_number}`}
@@ -89,7 +89,7 @@ export function SessionsList() {
                   <p className="text-sm text-muted-foreground">
                     {programSolution?.title || 'Training Program'}
                   </p>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-muted-foreground">
                     {session.session_date && (
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
@@ -117,7 +117,7 @@ export function SessionsList() {
                     )}
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <div className="flex items-center gap-2 mb-2">
                     <Badge variant="secondary">
                       <Users className="mr-1 h-3 w-3" />

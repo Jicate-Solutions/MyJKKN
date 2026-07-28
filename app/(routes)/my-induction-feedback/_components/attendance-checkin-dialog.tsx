@@ -143,7 +143,7 @@ export function AttendanceCheckinDialog({
           })}
         </div>
 
-        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+        <DialogFooter className="flex-row flex-wrap items-center justify-between gap-2 sm:justify-between">
           <span className="text-xs text-muted-foreground tabular-nums">
             {presentCount} present · {absentCount} absent
           </span>

@@ -15,6 +15,16 @@ export interface InstitutionPdfHeader {
 	institution_address: string
 	institution_accreditation: string
 	rightLogoImage: string
+	/** Left-side logo override (PNG path under /public). Defaults to /logo.png. */
+	logoImage?: string
+	/**
+	 * Extra centred lines rendered under the institution name on the engineering
+	 * CET syllabus banner (autonomous status, managing trust, approvals, NAAC).
+	 * Consumed only by the CET renderer; other PDFs ignore it.
+	 */
+	banner_lines?: string[]
+	/** Website line for the engineering CET banner (e.g. "www.engg.jkkn.in"). */
+	website?: string
 	/** Officials block rendered below the institutional banner on BoS PDFs. */
 	officials?: InstitutionPdfOfficials
 	/**
@@ -37,11 +47,23 @@ const HEADERS: Array<{ match: RegExp; header: InstitutionPdfHeader }> = [
 	{
 		match: /engineering|technology/i,
 		header: {
-			institution_name: 'J.K.K.NATARAJA COLLEGE OF ENGINEERING & TECHNOLOGY',
-			institution_address: DEFAULT_ADDRESS,
+			institution_name: 'J K K NATARAJA COLLEGE OF ENGINEERING AND TECHNOLOGY',
+			institution_address:
+				'Natarajapuram, NH-544, Komarapalayam - 638 183, Namakkal Dt., Tamil Nadu.',
 			institution_accreditation:
-				'(Approved by AICTE, New Delhi & Affiliated to Anna University, Chennai)',
-			rightLogoImage: '/jkkn_logo.png',
+				'(Approved by AICTE - New Delhi and Affiliated to Anna University - Chennai)',
+			banner_lines: [
+				'(AN AUTONOMOUS INSTITUTION)',
+				'(MANAGED BY J.K.K.RANGAMMAL CHARITABLE TRUST)',
+				'(Approved by AICTE - New Delhi and Affiliated to Anna University - Chennai)',
+				'Accredited by NAAC',
+			],
+			website: 'https://engg.jkkn.ac.in/',
+			// Green "JKKN College of Engineering & Technology" mark. Save the PNG
+			// at this path (see public/logo/engg/); until then the banner renders
+			// text-only (addImage failures are caught).
+			logoImage: '/logo/engg/jkkn_engg_logo.png',
+			rightLogoImage: '/logo/engg/jkkn_engg_logo.png',
 		},
 	},
 	{

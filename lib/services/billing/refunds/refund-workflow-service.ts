@@ -5,10 +5,30 @@ import type {
   EligibleRefundBill, RefundAttachment
 } from '@/types/billing-refund-workflow';
 
+// Thrown by saveConfig() when activating this config would leave more than
+// one active flow governing the same requests. Two rules can trigger it:
+// same scope already has a different active flow (uq_refund_flow_global_active /
+// uq_refund_flow_institution_active allow only one), or Global vs
+// institution-specific are mutually exclusive (a Global flow and ANY active
+// institution-specific flow can't coexist — deactivating a Global flow can
+// mean several institution-specific flows must go, and vice versa). The UI
+// catches this to list every flow that would be deactivated and ask for
+// confirmation instead of surfacing the raw constraint violation.
+export class RefundFlowActiveConflictError extends Error {
+  constructor(public conflicts: Array<{ id: string; name: string }>) {
+    super(
+      conflicts.length === 1
+        ? `"${conflicts[0].name}" is already active and covers this scope.`
+        : `${conflicts.length} flows are already active and would need to be deactivated.`
+    );
+    this.name = 'RefundFlowActiveConflictError';
+  }
+}
+
 const REQUEST_SELECT = `
   *,
   student:learners_profiles(id, first_name, last_name, roll_number, lifecycle_status),
-  bills:billing_refund_request_bills(*, bill:billing_student_bills(id, bill_description, bill_amount, status)),
+  bills:billing_refund_request_bills(*, bill:billing_student_bills(id, bill_description, bill_amount:final_amount, status)),
   actions:billing_refund_request_actions(*, actor:profiles(id, full_name))
 `;
 
@@ -23,12 +43,36 @@ export class RefundWorkflowService {
     return data ?? [];
   }
 
-  static async saveConfig(cfg: Partial<RefundFlowConfig>): Promise<RefundFlowConfig> {
-    const table = (this.supabase as any).from('billing_refund_flow_configs');
-    const { data, error } = cfg.id
-      ? await table.update(cfg).eq('id', cfg.id).select().single()
-      : await table.insert(cfg).select().single();
-    if (error) throw new Error(getErrorMessage(error));
+  static async saveConfig(
+    cfg: Partial<RefundFlowConfig>,
+    opts: { replaceActive?: boolean } = {}
+  ): Promise<RefundFlowConfig> {
+    const { data, error } = await (this.supabase as any).rpc('fn_save_refund_flow_config', {
+      p_id: cfg.id ?? null,
+      p_institution_id: cfg.institution_id ?? null,
+      p_name: cfg.name,
+      p_initiator_roles: cfg.initiator_roles ?? [],
+      p_initiator_users: cfg.initiator_users ?? [],
+      p_stages: cfg.stages ?? [],
+      p_disburser_roles: cfg.disburser_roles ?? [],
+      p_disburser_users: cfg.disburser_users ?? [],
+      p_is_active: cfg.is_active ?? true,
+      p_replace_active: opts.replaceActive ?? false
+    });
+    if (error) {
+      const message = getErrorMessage(error);
+      const conflict = /^active_flow_exists\|(.*)$/.exec(message);
+      if (conflict) {
+        try {
+          const parsed = JSON.parse(conflict[1]) as Array<{ id: string; name: string }>;
+          throw new RefundFlowActiveConflictError(parsed);
+        } catch (parseError) {
+          if (parseError instanceof RefundFlowActiveConflictError) throw parseError;
+          // Fell through from a malformed payload — surface the raw message rather than hide it.
+        }
+      }
+      throw new Error(message);
+    }
     return data;
   }
 

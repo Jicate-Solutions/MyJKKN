@@ -63,3 +63,48 @@ export function useMarkPOSent() {
 export function useCancelPO() {
   return usePoTransition(({ id }) => ProcurementPurchaseOrderService.cancel(id));
 }
+
+export function useUpdatePoDocumentFields() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: Parameters<typeof ProcurementPurchaseOrderService.updateDocumentFields>[1];
+    }) => ProcurementPurchaseOrderService.updateDocumentFields(id, patch),
+    onSuccess: (_r, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', id] });
+    },
+  });
+}
+
+export function useUpdatePoItemExtraFields() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      extraFields,
+    }: {
+      poId: string;
+      itemId: string;
+      extraFields: Record<string, string | number>;
+    }) => ProcurementPurchaseOrderService.updateItemExtraFields(itemId, extraFields),
+    onSuccess: (_r, { poId }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', poId] });
+    },
+  });
+}
+
+export function useUpdatePoItemPrice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ poId, itemId, unitPrice }: { poId: string; itemId: string; unitPrice: number }) =>
+      ProcurementPurchaseOrderService.updateItemPrice(poId, itemId, unitPrice),
+    onSuccess: (_r, { poId }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', poId] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
+    },
+  });
+}

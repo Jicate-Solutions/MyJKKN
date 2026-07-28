@@ -107,7 +107,7 @@ export default function ProjectsPage() {
 
       <div className="mt-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             {PROJECT_TABS.map((tab) => {
               const Icon = tab.icon;
               return (

@@ -28,6 +28,12 @@ export const COURSE_TYPE_VALUES = [
   'Non Major Elective Practical','Non Major Elective',
   'Practical','Professional Competency Skill','Project',
   'Skill Enhancement Practical','Skill Enhancement',
+  // AICTE / Anna University engineering categories (used by CET and other
+  // engineering institutions). These are the canonical Type strings the
+  // bos-curriculum-pdf-to-import skill writes, so keeping them here lets the
+  // manual New Course form offer them and lets Zod accept imported rows.
+  'Engineering Science Courses','Professional Core Courses','Programme Elective',
+  'Open Elective Courses','Employability Enhancement Courses',
 ] as const;
 
 export const COURSE_GROUP_VALUES = [
@@ -41,6 +47,17 @@ export const COURSE_LEVEL_VALUES = [
   'I','II','III','IV','V','VI','VII','VIII','IX','X',
   'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX',
 ] as const;
+
+/**
+ * Institutions that don't use the TN arts-college Part I–V / Roman-numeral
+ * Level tiers (e.g., engineering). For these, the course form, import
+ * template, and list table skip the Part & Level fields entirely.
+ */
+const PART_LEVEL_EXEMPT_CODES = new Set(['CET']);
+
+export function institutionSkipsPartLevel(institutionCode?: string | null): boolean {
+  return PART_LEVEL_EXEMPT_CODES.has((institutionCode ?? '').trim().toUpperCase());
+}
 
 /** Manual form schema — exactly the 13 fields per design Section 2. */
 export const courseFormSchema = z.object({
@@ -62,10 +79,18 @@ export const courseFormSchema = z.object({
   exam_duration:     z.coerce.number().int().min(0).max(8),
   credit:            z.coerce.number().min(0).max(10),
   theory_hours:      z.coerce.number().int().min(0).max(40),
+  // Optional — most courses have no tutorial component, so blank defaults to 0
+  // rather than forcing the user to type it. Kept alongside theory/practical to
+  // form the L-T-P weekly-hours triple.
+  tutorial_hours:    z.coerce.number().int().min(0).max(40).optional().default(0),
   practical_hours:   z.coerce.number().int().min(0).max(40),
-  internal_max_mark: z.coerce.number().int().min(0).max(100),
-  external_max_mark: z.coerce.number().int().min(0).max(100),
-  total_max_mark:    z.coerce.number().int().min(0).max(200),
+  // No upper cap on the mark fields — the max total varies by subject (e.g. a
+  // 40+60 course, a 50+50 course, or scales beyond 100). Only the floor (>= 0)
+  // and integer-ness are enforced; the "total = internal + external" identity is
+  // recomputed server-side.
+  internal_max_mark: z.coerce.number().int().min(0),
+  external_max_mark: z.coerce.number().int().min(0),
+  total_max_mark:    z.coerce.number().int().min(0),
 });
 
 export type CourseFormInput = z.infer<typeof courseFormSchema>;
@@ -115,8 +140,9 @@ export function toCoeCreatePayload(
     credits: form.credit,
     exam_duration: form.exam_duration,
     theory_hours: form.theory_hours,
+    tutorial_hours: form.tutorial_hours ?? 0,
     practical_hours: form.practical_hours,
-    class_hours: form.theory_hours + form.practical_hours,
+    class_hours: form.theory_hours + (form.tutorial_hours ?? 0) + form.practical_hours,
     internal_max_mark: form.internal_max_mark,
     external_max_mark: form.external_max_mark,
     total_max_mark: form.internal_max_mark + form.external_max_mark,
@@ -133,3 +159,7 @@ export function toCoeCreatePayload(
 export const importRowSchema = courseFormSchema.extend({
   __row: z.number().int().min(1),
 });
+
+/** Client-side pre-upload validation of parsed Excel rows — board_id is
+ *  picked in the import dialog (not typed in Excel), so it's omitted here. */
+export const importRowClientSchema = courseFormSchema.omit({ board_id: true });

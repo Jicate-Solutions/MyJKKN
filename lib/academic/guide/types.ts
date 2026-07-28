@@ -29,7 +29,8 @@ export type GuidePersona =
   | "faculty"
   | "hod"
   | "learner"
-  | "principal";
+  | "principal"
+  | "registrar";
 
 export const GUIDE_PERSONAS: readonly GuidePersona[] = [
   "coordinator",
@@ -37,6 +38,7 @@ export const GUIDE_PERSONAS: readonly GuidePersona[] = [
   "hod",
   "learner",
   "principal",
+  "registrar",
 ] as const;
 
 /* ────────────────────────────────────────────────────────────────────────

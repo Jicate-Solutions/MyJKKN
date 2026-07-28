@@ -27,12 +27,25 @@ export async function GET(req: NextRequest) {
 
     const db = createServiceRoleClient();
     const accountIds = await familyAccountIds(db, scope);
-    const { data: rows } = await db
-      .from('pp_notifications_log')
-      .select('id, title, body, category, action_url, is_read, created_at')
-      .in('parent_account_id', accountIds)
-      .order('created_at', { ascending: false })
-      .limit(100);
+    // The list is a capped page (100 most recent). The unread badge is a GLOBAL
+    // figure across ALL of the family's notifications, so it must NOT be derived
+    // from this page. `data.filter((n) => !n.isRead).length` topped out at 100
+    // and understated any real backlog — and once the bell's "9+" cap was
+    // removed it would have shown a false-exact number. It is now a real COUNT
+    // over the same parent-account + is_read=false filter as the list.
+    const [{ data: rows }, { count: unreadCount }] = await Promise.all([
+      db
+        .from('pp_notifications_log')
+        .select('id, title, body, category, action_url, is_read, created_at')
+        .in('parent_account_id', accountIds)
+        .order('created_at', { ascending: false })
+        .limit(100),
+      db
+        .from('pp_notifications_log')
+        .select('id', { count: 'exact', head: true })
+        .in('parent_account_id', accountIds)
+        .eq('is_read', false),
+    ]);
 
     const data: ParentNotification[] = (rows ?? []).map((r) => ({
       id: r.id,
@@ -43,7 +56,7 @@ export async function GET(req: NextRequest) {
       isRead: !!r.is_read,
       createdAt: r.created_at,
     }));
-    const unread = data.filter((n) => !n.isRead).length;
+    const unread = unreadCount ?? 0;
     return NextResponse.json({ data, unread });
   } catch (err) {
     return parentErrorResponse(err);

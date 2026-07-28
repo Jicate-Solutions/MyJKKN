@@ -1,28 +1,22 @@
 // app/(routes)/audit/cycles/[id]/page.tsx
-// Cycle detail: header, phase controls, KPI strip, quick links to sub-pages.
-// Sub-pages (findings, parameters, attestations) owned by Agent 3 / Agent 4.
+// Cycle workspace: the auditor's home base for one cycle. Action bar (AuditHeader)
+// on top, then a phase spine (where am I / what's next) and three workspace cards
+// that link to the real sub-pages (parameter sheet, findings, attestations).
+//
+// The old Overview/Findings/Parameters/Attestations shadcn Tabs only ever rendered
+// Overview — the other tabs showed a button that navigated away (a misleading
+// double-click). That is replaced here by the redesigned Cycle-workspace surface.
 
 'use client';
 
-import { useMemo, useState } from 'react';
-import { use } from 'react';
+import { use, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,11 +36,15 @@ import {
   Archive,
   Trash2,
   AlertCircle,
-  Inbox,
   RefreshCw,
-  FileText,
   Layers,
+  AlertTriangle,
   Signature,
+  ArrowRight,
+  Info,
+  CalendarDays,
+  UserCircle2,
+  Sparkles,
 } from 'lucide-react';
 import {
   useAuditCycle,
@@ -56,8 +54,20 @@ import {
   useFindingsByCycle,
   useSystemParameters,
 } from '@/hooks/audit';
+import { useAttestationsByCycle } from '@/hooks/audit/use-audit-attestations';
 import { AuditHeader } from '../../_components/audit-header';
-import { CycleProgressStats } from '../../_components/cycle-progress-stats';
+import { CyclePhaseBadge } from '../../_components/cycle-phase-badge';
+import {
+  SectionEyebrow,
+  PhaseStepper,
+  StatusPill,
+  CoverageMeter,
+  tally,
+} from '../../_components/redesign/kit';
+import {
+  buildParamStatusResolver,
+  isOpenFinding,
+} from '../../_components/redesign/param-status';
 import type { AuditCyclePhase } from '@/lib/types/audit';
 
 interface PageProps {
@@ -105,23 +115,38 @@ const PHASE_FLOW: Array<{
   },
 ];
 
+// Where the phase sits in the 4-step spine (mirrors the kit's PhaseStepper grouping:
+// rectification + peer-visit both live in step 3, "Review & sign-off").
+const PHASE_STEP: Record<AuditCyclePhase, { num: number; label: string }> = {
+  draft: { num: 1, label: 'Draft' },
+  'in-progress': { num: 2, label: 'In progress' },
+  rectification: { num: 3, label: 'Review & sign-off' },
+  'peer-visit': { num: 3, label: 'Review & sign-off' },
+  closed: { num: 4, label: 'Sealed' },
+};
+
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function AuditCycleDetailPage({ params }: PageProps) {
   const { id } = use(params);
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<
-    'overview' | 'findings' | 'parameters' | 'attestations'
-  >('overview');
-
-  const {
-    data: cycle,
-    isLoading,
-    error,
-    refetch,
-  } = useAuditCycle(id);
+  const { data: cycle, isLoading, error, refetch } = useAuditCycle(id);
 
   const { data: rollup } = useAttestationRollup(id);
-  const { data: findings, isLoading: findingsLoading } = useFindingsByCycle(id);
+  const { data: findings } = useFindingsByCycle(id);
+  const { data: attestations } = useAttestationsByCycle(id);
   const { data: systemParams } = useSystemParameters();
 
   const transition = useTransitionCyclePhase();
@@ -132,14 +157,70 @@ export default function AuditCycleDetailPage({ params }: PageProps) {
     return PHASE_FLOW.find((step) => step.from === cycle.phase) ?? null;
   }, [cycle]);
 
-  const findingsOpen = useMemo(
-    () => (findings ?? []).filter((f) => f.status !== 'closed').length,
-    [findings],
-  );
-  const findingsClosed = useMemo(
-    () => (findings ?? []).filter((f) => f.status === 'closed').length,
-    [findings],
-  );
+  // Parameter codes for this cycle: frozen snapshot if present, else the live catalog.
+  const paramCodes = useMemo(() => {
+    const snap = cycle?.parameter_catalog_snapshot as
+      | { parameters?: Array<{ code?: string }> }
+      | null
+      | undefined;
+    const fromSnap = Array.isArray(snap?.parameters)
+      ? snap!.parameters
+      : Array.isArray(snap as unknown)
+        ? (snap as unknown as Array<{ code?: string }>)
+        : null;
+    const source =
+      fromSnap && fromSnap.length ? fromSnap : (systemParams ?? []);
+    return source
+      .map((p) => p?.code)
+      .filter((c): c is string => Boolean(c));
+  }, [cycle?.parameter_catalog_snapshot, systemParams]);
+
+  // Live per-parameter status (worst-case across institutions; cleared only when
+  // fully signed) — the single source of truth shared with the parameter sheet.
+  const paramStatuses = useMemo(() => {
+    const resolve = buildParamStatusResolver(
+      findings ?? [],
+      attestations ?? [],
+      cycle?.institution_ids ?? [],
+    );
+    return paramCodes.map(resolve);
+  }, [findings, attestations, cycle?.institution_ids, paramCodes]);
+
+  const t = useMemo(() => tally(paramStatuses), [paramStatuses]);
+  const totalParameters = paramCodes.length;
+  const clearedCount = t.cleared;
+  const findingParams = t.p1 + t.p2;
+  const toGo = Math.max(0, totalParameters - clearedCount - findingParams);
+
+  // Open findings by severity (for the Findings card pills).
+  const { openFindings, highOpen, mediumOpen } = useMemo(() => {
+    const open = (findings ?? []).filter(isOpenFinding);
+    return {
+      openFindings: open.length,
+      highOpen: open.filter((f) => f.severity === 'red').length,
+      mediumOpen: open.filter((f) => f.severity === 'yellow').length,
+    };
+  }, [findings]);
+
+  // Signed parameters: fully attested across in-scope institutions (or ≥1 signed
+  // when the cycle has no institution denominator). Mirrors the resolver's signing rule.
+  const signedCount = useMemo(() => {
+    const inScope = (cycle?.institution_ids ?? []).filter(Boolean);
+    const signedInstByCode = new Map<string, Set<string>>();
+    for (const a of attestations ?? []) {
+      if (!a.attested_at) continue;
+      const set = signedInstByCode.get(a.parameter_code) ?? new Set<string>();
+      set.add(a.institution_id);
+      signedInstByCode.set(a.parameter_code, set);
+    }
+    let n = 0;
+    for (const code of paramCodes) {
+      const s = signedInstByCode.get(code);
+      if (!s || s.size === 0) continue;
+      if (inScope.length > 0 ? inScope.every((iid) => s.has(iid)) : true) n++;
+    }
+    return n;
+  }, [attestations, paramCodes, cycle?.institution_ids]);
 
   async function handleTransition() {
     if (!cycle || !nextTransition) return;
@@ -161,10 +242,8 @@ export default function AuditCycleDetailPage({ params }: PageProps) {
     }
   }
 
-  const totalParameters = cycle?.parameter_catalog_snapshot
-    ? ((cycle.parameter_catalog_snapshot as { parameters?: unknown[] }).parameters
-        ?.length ?? systemParams?.length ?? 0)
-    : systemParams?.length ?? 0;
+  const step = cycle ? PHASE_STEP[cycle.phase] : null;
+  const isSealed = cycle?.phase === 'closed';
 
   return (
     <ContentLayout title={cycle?.name ?? 'Audit Cycle'}>
@@ -264,170 +343,259 @@ export default function AuditCycleDetailPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* KPI strip */}
-        <CycleProgressStats
-          totalParameters={totalParameters}
-          compliant={rollup?.compliant ?? 0}
-          partial={rollup?.partial ?? 0}
-          nonCompliant={rollup?.non_compliant ?? 0}
-          findingsOpen={findingsOpen}
-          findingsClosed={findingsClosed}
-          isLoading={isLoading || findingsLoading}
-        />
+        {/* Redesigned cycle workspace */}
+        {isLoading && !cycle ? (
+          <div className="space-y-4">
+            <Skeleton className="h-40 w-full" />
+            <div className="grid gap-4 md:grid-cols-3">
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-44 w-full" />
+              <Skeleton className="h-44 w-full" />
+            </div>
+          </div>
+        ) : cycle ? (
+          <>
+            {/* Phase spine */}
+            <Card>
+              <CardContent className="space-y-5 py-5">
+                <div className="space-y-2">
+                  <SectionEyebrow>Cycle workspace</SectionEyebrow>
+                  <h2 className="text-xl font-semibold tracking-tight">
+                    {cycle.name}
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CyclePhaseBadge phase={cycle.phase} />
+                    <MetaChip icon={CalendarDays}>
+                      {formatDate(cycle.start_date)} – {formatDate(cycle.end_date)}
+                    </MetaChip>
+                    <MetaChip icon={UserCircle2}>
+                      Lead · {cycle.lead_auditor_id.slice(0, 8)}
+                    </MetaChip>
+                  </div>
+                </div>
 
-        {/* Tabs / sub-page nav. Overview renders inline; other tabs deep-link to sub-pages. */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Cycle workspace</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Drill into findings, parameter sheets, and attestations for this
-              cycle.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <Tabs
-              value={activeTab}
-              onValueChange={(v) => setActiveTab(v as typeof activeTab)}
-            >
-              <TabsList>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="findings">Findings</TabsTrigger>
-                <TabsTrigger value="parameters">Parameters</TabsTrigger>
-                <TabsTrigger value="attestations">Attestations</TabsTrigger>
-              </TabsList>
-            </Tabs>
+                <PhaseStepper phase={cycle.phase} />
 
-            {activeTab === 'overview' && (
-              <OverviewTab
-                cycle={cycle}
-                isLoading={isLoading}
-                nextTransition={nextTransition}
-              />
-            )}
-            {activeTab === 'findings' && (
-              <div className="pt-4 space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {findingsOpen} open · {findingsClosed} closed
+                <div className="flex items-start gap-3 rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100">
+                  <Info className="mt-0.5 h-[18px] w-[18px] flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <div>
+                    {isSealed ? (
+                      <p>
+                        <strong>You are at step {step?.num} — {step?.label}.</strong>{' '}
+                        This cycle is sealed and archived. Its attestations and
+                        findings are now an immutable record.
+                      </p>
+                    ) : (
+                      <p>
+                        <strong>You are at step {step?.num} — {step?.label}.</strong>{' '}
+                        {nextTransition ? (
+                          <>
+                            Next: <strong>{nextTransition.label}</strong>.{' '}
+                            {nextTransition.description} The cycle can be sealed once
+                            every parameter is signed.
+                          </>
+                        ) : (
+                          'Work each parameter, log findings where the standard isn’t met, then move to review.'
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Workspace cards */}
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {/* Parameter sheet */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/parameters`}
+                icon={Layers}
+                iconClass="bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                title="Parameter sheet"
+                blurb={
+                  totalParameters > 0
+                    ? `${totalParameters} parameters${cycle.parameter_catalog_snapshot ? ' (frozen snapshot)' : ''}. Work them lane by lane.`
+                    : 'Parameters are captured when the cycle starts.'
+                }
+              >
+                <CoverageMeter t={t} />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {clearedCount}
+                  </span>{' '}
+                  cleared ·{' '}
+                  <span className="font-medium text-foreground">
+                    {findingParams}
+                  </span>{' '}
+                  finding{findingParams === 1 ? '' : 's'} ·{' '}
+                  <span className="font-medium text-foreground">{toGo}</span> to go
                 </p>
-                <Link href={`/audit/cycles/${id}/findings`}>
-                  <Button size="sm" variant="outline">
-                    <FileText className="mr-2 h-4 w-4" />
-                    Open findings workspace
-                  </Button>
-                </Link>
-              </div>
-            )}
-            {activeTab === 'parameters' && (
-              <div className="pt-4 space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {totalParameters} parameters
-                  {cycle?.parameter_catalog_snapshot ? ' (frozen snapshot)' : ''}
+              </WorkspaceCard>
+
+              {/* Findings */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/findings`}
+                icon={AlertTriangle}
+                iconClass="bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
+                title="Findings"
+                blurb={
+                  openFindings > 0
+                    ? 'Each finding is a ticket: a parameter, what fell short, an owner and an SLA.'
+                    : 'No open findings. Log one where a parameter’s evidence falls short.'
+                }
+              >
+                {openFindings > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {highOpen > 0 && (
+                      <StatusPill status="p1" label={`${highOpen} high`} />
+                    )}
+                    {mediumOpen > 0 && (
+                      <StatusPill status="p2" label={`${mediumOpen} medium`} />
+                    )}
+                    {highOpen === 0 && mediumOpen === 0 && (
+                      <StatusPill
+                        status="observation"
+                        label={`${openFindings} open`}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <StatusPill status="cleared" label="All clear" />
+                )}
+              </WorkspaceCard>
+
+              {/* Attestations */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/attestations`}
+                icon={Signature}
+                iconClass="bg-muted text-muted-foreground"
+                title="Attestations"
+                blurb="Sign each parameter as compliant, partial or non-compliant."
+              >
+                <CoverageMeter
+                  t={{
+                    cleared: signedCount,
+                    p1: 0,
+                    p2: 0,
+                    observation: 0,
+                    todo: Math.max(0, totalParameters - signedCount),
+                  }}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{signedCount}</span>{' '}
+                  of {totalParameters} signed
+                  {rollup && rollup.total > 0 && (
+                    <>
+                      {' · '}
+                      {rollup.compliant} compliant · {rollup.partial} partial ·{' '}
+                      {rollup.non_compliant} non-compliant
+                    </>
+                  )}
                 </p>
-                <Link href={`/audit/cycles/${id}/parameters`}>
-                  <Button size="sm" variant="outline">
-                    <Layers className="mr-2 h-4 w-4" />
-                    Open parameters workspace
-                  </Button>
-                </Link>
-              </div>
-            )}
-            {activeTab === 'attestations' && (
-              <div className="pt-4 space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {rollup?.total ?? 0} attestations ·{' '}
-                  {rollup?.compliant ?? 0} compliant ·{' '}
-                  {rollup?.partial ?? 0} partial ·{' '}
-                  {rollup?.non_compliant ?? 0} non-compliant
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {isSealed
+                    ? 'Sealed and archived.'
+                    : `Sealing unlocks at ${totalParameters} / ${totalParameters}.`}
                 </p>
-                <Link href={`/audit/cycles/${id}/attestations`}>
-                  <Button size="sm" variant="outline">
-                    <Signature className="mr-2 h-4 w-4" />
-                    Open attestations workspace
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              </WorkspaceCard>
+
+              {/* Report card — gate ③ */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/report-card`}
+                icon={ClipboardCheck}
+                iconClass="bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                title="Report card"
+                blurb="How each parameter scored this cycle, and how the gap moved since last time."
+              >
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    Verdicts, deltas &amp; recurrence
+                  </span>{' '}
+                  — the audit measuring itself.
+                </p>
+              </WorkspaceCard>
+
+              {/* Adapt — gate ④ */}
+              <WorkspaceCard
+                href={`/audit/cycles/${id}/adapt`}
+                icon={Sparkles}
+                iconClass="bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                title="Adapt"
+                blurb="What the audit learned this cycle — escalate what keeps failing, automate what you find by hand."
+              >
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    Recommendations &amp; apply
+                  </span>{' '}
+                  — the audit sharpening itself.
+                </p>
+              </WorkspaceCard>
+            </div>
+          </>
+        ) : (
+          <Card>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              Cycle not found.
+            </CardContent>
+          </Card>
+        )}
       </div>
     </ContentLayout>
   );
 }
 
-function OverviewTab({
-  cycle,
-  isLoading,
-  nextTransition,
-}: {
-  cycle: ReturnType<typeof useAuditCycle>['data'];
-  isLoading: boolean;
-  nextTransition: (typeof PHASE_FLOW)[number] | null;
-}) {
-  if (isLoading) {
-    return (
-      <div className="pt-4 space-y-3">
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-16 w-full" />
-      </div>
-    );
-  }
-  if (!cycle) {
-    return (
-      <div className="pt-4 flex flex-col items-center py-8 text-center text-xs text-muted-foreground">
-        <Inbox className="h-6 w-6 mb-2" />
-        <p>Cycle not found.</p>
-      </div>
-    );
-  }
+// ---------------------------------------------------------------------------
+// Local presentational pieces
+// ---------------------------------------------------------------------------
 
+function MetaChip({
+  icon: Icon,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="pt-4 space-y-4">
-      <div className="rounded-md border bg-muted/40 p-4 text-sm space-y-2">
-        <div className="flex items-start gap-3">
-          <ClipboardCheck className="h-5 w-5 text-primary flex-shrink-0" />
-          <div>
-            <p className="font-medium">
-              Current phase:{' '}
-              <span className="font-semibold">{cycle.phase}</span>
-            </p>
-            {nextTransition ? (
-              <p className="text-xs text-muted-foreground mt-1">
-                <strong>Next: {nextTransition.label}.</strong>{' '}
-                {nextTransition.description}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-1">
-                This cycle is in its terminal phase ({cycle.phase}). No further
-                transitions are available.
-              </p>
-            )}
-          </div>
+    <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+      <Icon className="h-3 w-3" />
+      {children}
+    </span>
+  );
+}
+
+function WorkspaceCard({
+  href,
+  icon: Icon,
+  iconClass,
+  title,
+  blurb,
+  children,
+}: {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconClass: string;
+  title: string;
+  blurb: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex flex-col rounded-xl border bg-card p-5 transition hover:border-emerald-300 hover:shadow-sm dark:hover:border-emerald-800"
+    >
+      <div className="mb-3 flex items-start justify-between">
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconClass}`}
+        >
+          <Icon className="h-[18px] w-[18px]" />
         </div>
+        <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-md border p-3 text-sm">
-          <div className="text-xs text-muted-foreground">Cosigner roles</div>
-          <div className="font-medium mt-1">
-            {cycle.cosigner_roles.length > 0
-              ? cycle.cosigner_roles.join(' · ').toUpperCase()
-              : '—'}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            NAAC/NBA-mapped attestations require all listed roles to co-sign.
-          </p>
-        </div>
-        <div className="rounded-md border p-3 text-sm">
-          <div className="text-xs text-muted-foreground">Institution scope</div>
-          <div className="font-medium mt-1">
-            {cycle.institution_ids === null || cycle.institution_ids.length === 0
-              ? 'All institutions (lead auditor scope)'
-              : `${cycle.institution_ids.length} institution(s)`}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Discovery queries and attestations are scoped to these institutions.
-          </p>
-        </div>
-      </div>
-    </div>
+      <h3 className="text-base font-semibold">{title}</h3>
+      <p className="mt-1.5 mb-4 text-[13px] leading-snug text-muted-foreground">
+        {blurb}
+      </p>
+      <div className="mt-auto">{children}</div>
+    </Link>
   );
 }

@@ -336,12 +336,6 @@ export function StudentBillsTable({
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                <DropdownMenuItem asChild>
-                  <Link href={`/billing/schedule/${bill.id}`}>
-                    <Eye className='mr-2 h-4 w-4' />
-                    View Details
-                  </Link>
-                </DropdownMenuItem>
                 {canEditBills && (
                   <DropdownMenuItem asChild>
                     <Link href={`/billing/schedule/${bill.id}/edit`}>
@@ -534,12 +528,6 @@ export function StudentBillsTable({
           </DropdownMenuTrigger>
           <DropdownMenuContent align='end'>
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem asChild>
-              <Link href={`/billing/schedule/${bill.id}`}>
-                <Eye className='mr-2 h-4 w-4' />
-                View Details
-              </Link>
-            </DropdownMenuItem>
             {canEditBills && (
               <DropdownMenuItem asChild>
                 <Link href={`/billing/schedule/${bill.id}/edit`}>

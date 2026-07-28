@@ -12,6 +12,10 @@ export const bosCommitteeKeys = {
     [...bosCommitteeKeys.all, 'institutions', csv] as const,
   byComposition: (compositionId: string) =>
     [...bosCommitteeKeys.all, 'composition', compositionId] as const,
+  // Unassigned "template" committees (composition_id IS NULL) for an institution
+  // — the pool the composition detail page's Add Committee picker draws from.
+  templates: (csv: string) =>
+    [...bosCommitteeKeys.all, 'template', csv] as const,
 };
 
 async function parseError(res: Response, fallback: string): Promise<never> {
@@ -32,7 +36,7 @@ const committeeSort = (a: BosCommittee, b: BosCommittee) =>
 
 /** Does the row belong in the list cached under this query key? */
 function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean {
-  const scope = key[1]; // 'institutions' | 'composition'
+  const scope = key[1]; // 'institutions' | 'composition' | 'template'
   const scopeValue = key[2];
   const isActive = key[3];
   if (typeof isActive === 'boolean' && isActive !== row.is_active) {
@@ -41,6 +45,22 @@ function rowMatchesListKey(key: readonly unknown[], row: BosCommittee): boolean 
   if (scope === 'composition') {
     // Key shape: ['bos-committees', 'composition', <compositionId>, <isActive|'all'>]
     return typeof scopeValue !== 'string' || row.composition_id === scopeValue;
+  }
+  if (scope === 'template') {
+    // Key shape: ['bos-committees', 'template', <csv>, <isActive|'all'>]
+    // The template pool is UNASSIGNED committees only. Adding a template to a
+    // composition COPIES it (a fresh row carrying composition_id), so the
+    // master row stays here and remains reusable by every other composition;
+    // the copy is rejected from this list by the composition_id check below.
+    if (row.composition_id != null) return false;
+    if (
+      typeof scopeValue === 'string' &&
+      scopeValue !== '' &&
+      !scopeValue.split(',').includes(row.institutions_id)
+    ) {
+      return false;
+    }
+    return true;
   }
   // Key shape: ['bos-committees', 'institutions', <csv>, <isActive|'all'>]
   if (
@@ -129,6 +149,65 @@ export function useBosCommitteesByComposition(
     enabled: options?.enabled ?? (compositionId != null && compositionId !== ''),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
+}
+
+/**
+ * Unassigned "template" committees (composition_id IS NULL) for one logical
+ * institution — the pool the composition detail page's Add Committee picker
+ * offers. Pass the CAS-expanded csv (composition's institution siblings).
+ * Defaults to active-only since you rarely attach an inactive committee.
+ */
+export function useBosCommitteeTemplates(
+  institutionsIdsCsv: string | null | undefined,
+  options?: { isActive?: boolean; enabled?: boolean }
+) {
+  const isActive = options?.isActive ?? true;
+  return useQuery<BosCommittee[], Error>({
+    queryKey: [...bosCommitteeKeys.templates(institutionsIdsCsv ?? ''), isActive],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('scope', 'template');
+      if (institutionsIdsCsv) params.set('institutionsIds', institutionsIdsCsv);
+      params.set('isActive', String(isActive));
+      const res = await fetch(`/api/bos/committees?${params.toString()}`);
+      if (!res.ok) await parseError(res, 'Failed to fetch committees');
+      const json = await res.json();
+      return json.data ?? [];
+    },
+    enabled: options?.enabled ?? (institutionsIdsCsv != null && institutionsIdsCsv !== ''),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
+ * Copy a master (template) committee into a composition. The master row is left
+ * untouched — a NEW row carrying composition_id is created from its fields — so
+ * the same master committee stays reusable across every composition. (This
+ * replaces an earlier "attach" flow that re-parented the master row and thereby
+ * drained the pool: once used, a committee could never be added again.)
+ *
+ * Reuses useCreateBosCommittee — POST /api/bos/committees already accepts
+ * composition_id, so a copy is just a create seeded from the template.
+ */
+export function useCopyBosCommitteeToComposition() {
+  const create = useCreateBosCommittee();
+  return {
+    isPending: create.isPending,
+    /** Copy `template` into `compositionId`, anchored to `institutionsId`. */
+    copy: (
+      template: BosCommittee,
+      compositionId: string,
+      institutionsId: string
+    ): Promise<BosCommittee> =>
+      create.mutateAsync({
+        institutions_id: institutionsId,
+        composition_id: compositionId,
+        name: template.name,
+        short_code: template.short_code ?? null,
+        sort_order: template.sort_order,
+        is_active: true,
+      }),
+  };
 }
 
 export function useCreateBosCommittee() {

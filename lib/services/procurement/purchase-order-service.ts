@@ -9,6 +9,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ProcurementQuotationService } from './quotation-service';
 import type {
   ProcurementPurchaseOrder,
+  ProcurementPurchaseOrderItem,
   PoWithItems,
   PurchaseOrderFilters,
 } from '@/types/procurement';
@@ -78,7 +79,8 @@ export class ProcurementPurchaseOrderService {
           `*,
            supplier:ims_suppliers(id,name,code,email,gstin),
            created_by_profile:profiles!created_by(full_name),
-           approved_by_profile:profiles!approved_by(full_name)`
+           approved_by_profile:profiles!approved_by(full_name),
+           po_format:procurement_po_formats(*)`
         )
         .eq('id', id)
         .single();
@@ -154,6 +156,13 @@ export class ProcurementPurchaseOrderService {
         const subtotal = lines.reduce((s, l) => s + l.line_total, 0);
         const poNumber = await this.generatePoNumber(rfq.institution_id);
 
+        // Pre-select the vendor's default PO document format, if one is set.
+        const { data: supplier } = await this.supabase
+          .from('ims_suppliers')
+          .select('default_po_format_id')
+          .eq('id', q.supplier_id)
+          .single();
+
         const { data: po, error: poErr } = await this.supabase
           .from('procurement_purchase_orders')
           .insert({
@@ -168,6 +177,7 @@ export class ProcurementPurchaseOrderService {
             tax_amount: 0,
             total_amount: subtotal,
             payment_terms: q.payment_terms ?? null,
+            po_format_id: supplier?.default_po_format_id ?? null,
             created_by: userId,
           })
           .select()
@@ -234,6 +244,115 @@ export class ProcurementPurchaseOrderService {
       .single();
     if (error) throw error;
     return data as ProcurementPurchaseOrder;
+  }
+
+  /** Updates the document-format selection, free-entry field values and classification tags for a PO. */
+  static async updateDocumentFields(
+    id: string,
+    patch: {
+      po_format_id?: string | null;
+      header_field_values?: Record<string, string>;
+      footer_field_values?: Record<string, string>;
+      terms_and_conditions?: string | null;
+      /** Library-resource tag — tagged POs auto-emit NAAC 3.1.1 evidence once approved (DB trigger, Wave 2D). */
+      is_library_resource?: boolean;
+    }
+  ): Promise<ProcurementPurchaseOrder> {
+    try {
+      const { data, error } = await this.supabase
+        .from('procurement_purchase_orders')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as ProcurementPurchaseOrder;
+    } catch (error) {
+      console.error('[ProcurementPurchaseOrderService] updateDocumentFields:', error);
+      throw error;
+    }
+  }
+
+  /** Merges the given keys into a PO item's extra_fields (HSN, GST%, MRP, ISBN, ...). */
+  static async updateItemExtraFields(
+    itemId: string,
+    extraFields: Record<string, string | number>
+  ): Promise<ProcurementPurchaseOrderItem> {
+    try {
+      const { data: existing, error: fetchErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .select('extra_fields')
+        .eq('id', itemId)
+        .single();
+      if (fetchErr) throw fetchErr;
+
+      const merged = { ...(existing?.extra_fields ?? {}), ...extraFields };
+      const { data, error } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .update({ extra_fields: merged })
+        .eq('id', itemId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as ProcurementPurchaseOrderItem;
+    } catch (error) {
+      console.error('[ProcurementPurchaseOrderService] updateItemExtraFields:', error);
+      throw error;
+    }
+  }
+
+  /** Corrects a line item's unit_price on a Draft PO; recomputes line_total and PO totals. */
+  static async updateItemPrice(
+    poId: string,
+    itemId: string,
+    unitPrice: number
+  ): Promise<ProcurementPurchaseOrderItem> {
+    try {
+      const { data: po, error: poErr } = await this.supabase
+        .from('procurement_purchase_orders')
+        .select('status, tax_amount')
+        .eq('id', poId)
+        .single();
+      if (poErr) throw poErr;
+      if (po.status !== 'draft') throw new Error('Only Draft purchase orders can be edited.');
+
+      const { data: item, error: itemErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .select('ordered_quantity')
+        .eq('id', itemId)
+        .single();
+      if (itemErr) throw itemErr;
+
+      const lineTotal = Number(item.ordered_quantity) * unitPrice;
+      const { data: updated, error: updErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .update({ unit_price: unitPrice, line_total: lineTotal })
+        .eq('id', itemId)
+        .select()
+        .single();
+      if (updErr) throw updErr;
+
+      const { data: allItems, error: allErr } = await this.supabase
+        .from('procurement_purchase_order_items')
+        .select('line_total')
+        .eq('po_id', poId);
+      if (allErr) throw allErr;
+
+      const subtotal = (allItems || []).reduce((s: number, l: any) => s + Number(l.line_total), 0);
+      await this.supabase
+        .from('procurement_purchase_orders')
+        .update({
+          subtotal,
+          total_amount: subtotal + Number(po.tax_amount || 0),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', poId);
+
+      return updated as ProcurementPurchaseOrderItem;
+    } catch (error) {
+      console.error('[ProcurementPurchaseOrderService] updateItemPrice:', error);
+      throw error;
+    }
   }
 
   private static async transition(

@@ -23,6 +23,7 @@ export interface ImportSummaryCounts {
   objectives?: number;
   clos?: number;
   units?: number;
+  practical_topics?: number;
   textbooks?: number;
   references?: number;
   web_resources?: number;
@@ -41,6 +42,7 @@ const SECTION_LABELS: Array<[keyof ImportSummaryCounts, string]> = [
   ['objectives', 'Objectives'],
   ['clos', 'COs'],
   ['units', 'Units'],
+  ['practical_topics', 'Practical Topics'],
   ['textbooks', 'Textbooks'],
   ['references', 'References'],
   ['web_resources', 'Web Resources'],

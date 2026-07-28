@@ -10,6 +10,7 @@ import type {
   PurchaseRequestWithItems,
   PurchaseRequestFilters,
   CreatePurchaseRequestDto,
+  PurchaseRequestType,
 } from '@/types/procurement';
 
 export class ProcurementPurchaseRequestService {
@@ -99,9 +100,13 @@ export class ProcurementPurchaseRequestService {
   }
 
   /**
-   * Create a PR (header + items) in 'draft'. For new-item requests, every line
-   * MUST carry a reason (PRD step 1 mandatory field) — enforced here because the
-   * rule is conditional on the header's request_type.
+   * Create a PR (header + items) in 'draft'. Each line independently is either a
+   * restock (domain_item_id set) or a new item (domain_item_id null) — a single PR
+   * can freely mix both, e.g. several Chemicals lines where some are catalogued and
+   * some aren't. New-item lines MUST carry a reason (PRD step 1 mandatory field),
+   * checked per line rather than gated by a request-wide type. The header
+   * request_type is a derived summary ('restock' | 'new_item' | 'mixed'), not
+   * something the caller chooses.
    */
   static async createPurchaseRequest(
     data: CreatePurchaseRequestDto,
@@ -111,14 +116,17 @@ export class ProcurementPurchaseRequestService {
       if (!data.items?.length) {
         throw new Error('A purchase request must have at least one item.');
       }
-      if (data.request_type === 'new_item') {
-        const missing = data.items.find((i) => !i.reason?.trim());
-        if (missing) {
-          throw new Error(
-            `New-item requests require a reason for every item (missing on "${missing.item_name}").`
-          );
-        }
+      const missingReason = data.items.find((i) => !i.domain_item_id && !i.reason?.trim());
+      if (missingReason) {
+        throw new Error(
+          `New-item lines require a reason (missing on "${missingReason.item_name}").`
+        );
       }
+
+      const hasRestock = data.items.some((i) => !!i.domain_item_id);
+      const hasNewItem = data.items.some((i) => !i.domain_item_id);
+      const requestType: PurchaseRequestType =
+        hasRestock && hasNewItem ? 'mixed' : hasNewItem ? 'new_item' : 'restock';
 
       const requestNumber = await this.generateRequestNumber(data.institution_id);
 
@@ -129,7 +137,7 @@ export class ProcurementPurchaseRequestService {
           store_id: data.store_id ?? null,
           request_number: requestNumber,
           domain: data.domain ?? 'ims',
-          request_type: data.request_type,
+          request_type: requestType,
           status: 'draft',
           requested_by: userId,
           notes: data.notes ?? null,
@@ -194,6 +202,76 @@ export class ProcurementPurchaseRequestService {
       approved_at: new Date().toISOString(),
       rejection_reason: reason,
     });
+  }
+
+  /**
+   * submitted -> approved, with optional quantity corrections. Persists any changed
+   * required_quantity values first (recording original_quantity/quantity_modified_by/at
+   * per item, plus a human-readable diff appended to `notes`), then approves via the
+   * normal guarded transition.
+   */
+  static async approveWithModifications(
+    id: string,
+    userId: string,
+    itemUpdates: { itemId: string; required_quantity: number }[]
+  ): Promise<ProcurementPurchaseRequest> {
+    try {
+      if (itemUpdates.length > 0) {
+        const { data: currentItems, error: itemsErr } = await this.supabase
+          .from('procurement_purchase_request_items')
+          .select('id, item_name, unit_label, required_quantity')
+          .in('id', itemUpdates.map((u) => u.itemId))
+          .eq('request_id', id);
+        if (itemsErr) throw itemsErr;
+
+        const changes: string[] = [];
+        for (const u of itemUpdates) {
+          if (!(u.required_quantity > 0)) throw new Error('Quantity must be greater than 0.');
+          const before = currentItems?.find((i: any) => i.id === u.itemId);
+          const isChanged = !!before && Number(before.required_quantity) !== u.required_quantity;
+          if (isChanged) {
+            changes.push(
+              `${before.item_name} ${before.required_quantity}${before.unit_label || ''} → ${u.required_quantity}${before.unit_label || ''}`
+            );
+          }
+          const update: Record<string, unknown> = { required_quantity: u.required_quantity };
+          if (isChanged) {
+            update.original_quantity = before.required_quantity;
+            update.quantity_modified_by = userId;
+            update.quantity_modified_at = new Date().toISOString();
+          }
+          const { error } = await this.supabase
+            .from('procurement_purchase_request_items')
+            .update(update)
+            .eq('id', u.itemId)
+            .eq('request_id', id);
+          if (error) throw error;
+        }
+
+        if (changes.length > 0) {
+          const { data: pr } = await this.supabase
+            .from('procurement_purchase_requests')
+            .select('notes')
+            .eq('id', id)
+            .single();
+          const note = `Qty modified at approval: ${changes.join('; ')}`;
+          await this.supabase
+            .from('procurement_purchase_requests')
+            .update({ notes: pr?.notes ? `${pr.notes}\n${note}` : note })
+            .eq('id', id);
+        }
+      }
+
+      return this.transition(id, 'submitted', {
+        status: 'approved',
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+        rejection_reason: null,
+      });
+    } catch (error) {
+      console.error('[ProcurementPurchaseRequestService] approveWithModifications:', error);
+      throw error;
+    }
   }
 
   static async cancelPurchaseRequest(id: string): Promise<ProcurementPurchaseRequest> {

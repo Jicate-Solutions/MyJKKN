@@ -39,6 +39,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
@@ -46,6 +47,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import {
   useRefundFlowConfigs, useSaveRefundFlowConfig, useDeleteRefundFlowConfig,
 } from '@/hooks/billing/use-refund-workflow';
+import { RefundFlowActiveConflictError } from '@/lib/services/billing/refunds/refund-workflow-service';
 import type { RefundFlowConfig, RefundFlowStage } from '@/types/billing-refund-workflow';
 
 const GLOBAL_LABEL = 'Global Default';
@@ -159,6 +161,27 @@ export function FlowConfigsClient() {
 
   const [editorTarget, setEditorTarget] = useState<RefundFlowConfig | 'new' | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RefundFlowConfig | null>(null);
+  // Set when a save/activate collides with one or more currently-active flows
+  // — either the same scope (uq_refund_flow_global_active /
+  // uq_refund_flow_institution_active allow only one) or the opposing
+  // scope-mode (Global and institution-specific flows are mutually
+  // exclusive). Confirming re-saves with replaceActive so every listed flow
+  // is deactivated and this one takes its place, atomically, via the RPC.
+  const [conflict, setConflict] = useState<{
+    cfg: Partial<RefundFlowConfig>; conflicts: Array<{ id: string; name: string }>; onReplaced?: () => void;
+  } | null>(null);
+
+  async function attemptSave(cfg: Partial<RefundFlowConfig>, replaceActive = false, onSaved?: () => void) {
+    try {
+      await saveConfig.mutateAsync({ cfg, replaceActive });
+      setConflict(null);
+      onSaved?.();
+    } catch (e) {
+      if (e instanceof RefundFlowActiveConflictError) {
+        setConflict({ cfg, conflicts: e.conflicts, onReplaced: onSaved });
+      }
+    }
+  }
 
   const instNameById = useMemo(
     () => new Map(institutions.map((i) => [i.id, i.name] as const)),
@@ -181,7 +204,7 @@ export function FlowConfigsClient() {
   );
 
   function handleToggleActive(cfg: RefundFlowConfig) {
-    saveConfig.mutate({ ...cfg, is_active: !cfg.is_active });
+    attemptSave({ ...cfg, is_active: !cfg.is_active });
   }
 
   function handleDelete() {
@@ -278,15 +301,47 @@ export function FlowConfigsClient() {
       {editorTarget && (
         <FlowEditorDialog
           target={editorTarget}
+          configs={configs ?? []}
           institutions={institutions}
           roleOptions={roleOptions}
           profiles={profiles ?? []}
           rolesByUser={rolesByUser}
           isSaving={saveConfig.isPending}
           onClose={() => setEditorTarget(null)}
-          onSave={(cfg) => saveConfig.mutate(cfg, { onSuccess: () => setEditorTarget(null) })}
+          onSave={(cfg) => attemptSave(cfg, false, () => setEditorTarget(null))}
         />
       )}
+
+      <AlertDialog open={!!conflict} onOpenChange={(o) => { if (!o) setConflict(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {conflict && conflict.conflicts.length > 1 ? 'Replace the active flows?' : 'Replace the active flow?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Only one flow can be active per scope, and a Global flow and institution-specific
+              flows can’t both be active at once. Saving will deactivate the flow
+              {conflict && conflict.conflicts.length > 1 ? 's' : ''} below and make this one
+              active instead. Refund requests already in progress keep their frozen approval
+              chain and are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {conflict && conflict.conflicts.length > 0 && (
+            <ul className='list-disc space-y-1 rounded-md bg-muted px-6 py-2 text-sm'>
+              {conflict.conflicts.map((c) => <li key={c.id}>{c.name}</li>)}
+            </ul>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saveConfig.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saveConfig.isPending}
+              onClick={() => conflict && attemptSave(conflict.cfg, true, conflict.onReplaced)}
+            >
+              {saveConfig.isPending ? 'Replacing…' : 'Replace'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
         <AlertDialogContent>
@@ -317,9 +372,10 @@ export function FlowConfigsClient() {
 // ---- Editor dialog -----------------------------------------------------------------
 
 function FlowEditorDialog({
-  target, institutions, roleOptions, profiles, rolesByUser, isSaving, onClose, onSave,
+  target, configs, institutions, roleOptions, profiles, rolesByUser, isSaving, onClose, onSave,
 }: {
   target: RefundFlowConfig | 'new';
+  configs: RefundFlowConfig[];
   institutions: Array<{ id: string; name: string }>;
   roleOptions: RoleOption[];
   profiles: ProfileOption[];
@@ -332,6 +388,22 @@ function FlowEditorDialog({
 
   const [name, setName] = useState(existing?.name ?? '');
   const [institutionId, setInstitutionId] = useState<string | null>(existing?.institution_id ?? null);
+  // This flow will save as active (is_active isn't user-editable here — new
+  // flows are always active, edits keep whatever they already were), so warn
+  // up front, before Save, about every flow that would need deactivating:
+  // same scope (uq_refund_flow_global_active / uq_refund_flow_institution_active
+  // allow only one) OR the opposing scope-mode (a Global flow and any
+  // institution-specific flow can't both be active). Mirrors the
+  // server-side check in fn_save_refund_flow_config.
+  const willBeActive = existing?.is_active ?? true;
+  const scopeConflicts = useMemo(
+    () => (willBeActive
+      ? configs.filter((c) => c.is_active && c.id !== existing?.id
+          && (c.institution_id === institutionId || (institutionId === null) !== (c.institution_id === null)))
+      : []),
+    [configs, institutionId, existing, willBeActive],
+  );
+  const scopeLabel = institutionId ? (institutions.find((i) => i.id === institutionId)?.name ?? 'this institution') : GLOBAL_LABEL;
   const [initiatorRoles, setInitiatorRoles] = useState<string[]>(existing?.initiator_roles ?? []);
   const [initiatorUsers, setInitiatorUsers] = useState<string[]>(existing?.initiator_users ?? []);
   const [stages, setStages] = useState<RefundFlowStage[]>(
@@ -425,6 +497,29 @@ function FlowEditorDialog({
               </Select>
             </div>
           </div>
+
+          {scopeConflicts.length > 0 && (
+            <Alert className='border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300'>
+              <AlertTriangle className='h-4 w-4' />
+              <AlertDescription>
+                {scopeConflicts.length === 1 ? (
+                  <>
+                    <strong>“{scopeConflicts[0].name}”</strong> is already active
+                    {scopeConflicts[0].institution_id === institutionId
+                      ? <> for {scopeLabel}</>
+                      : <> — a Global flow and institution-specific flows can’t both be active</>}
+                    . Saving here will ask you to confirm replacing it.
+                  </>
+                ) : (
+                  <>
+                    <strong>{scopeConflicts.length} flows</strong> are already active and would need to be
+                    deactivated first (a Global flow and institution-specific flows can’t both be
+                    active). Saving here will ask you to confirm.
+                  </>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
 
           <Card>
             <CardHeader className='pb-2'>

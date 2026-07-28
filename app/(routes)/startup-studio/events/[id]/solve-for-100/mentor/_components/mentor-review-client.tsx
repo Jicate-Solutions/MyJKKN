@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CheckCircle2, AlertTriangle, Clock, TrendingUp, Users, Loader2 } from 'lucide-react'
+import { useTabParam } from '@/hooks/use-tab-param'
 import type { Solve100WeeklyCheckin } from '@/types/startup-studio'
 
 interface Props {
@@ -126,7 +127,10 @@ function ReviewCard({ checkin, eventId }: { checkin: Solve100WeeklyCheckin; even
   )
 }
 
+const MENTOR_REVIEW_TABS = ['unreviewed', 'alerts', 'teams'] as const
+
 export function MentorReviewClient({ eventId, eventStartDate }: Props) {
+  const [activeTab, setActiveTab] = useTabParam('unreviewed', MENTOR_REVIEW_TABS)
   const { data: unreviewed, isLoading: unreviewedLoading } = useUnreviewedCheckins(eventId)
   const { data: teams, isLoading: teamsLoading } = useSolve100TeamOverviews(eventId)
 
@@ -147,8 +151,8 @@ export function MentorReviewClient({ eventId, eventStartDate }: Props) {
   })
 
   return (
-    <Tabs defaultValue="unreviewed" className="space-y-4">
-      <TabsList>
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
         <TabsTrigger value="unreviewed" className="gap-1.5">
           <Clock className="h-3.5 w-3.5" />
           Needs Review

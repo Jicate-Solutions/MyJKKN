@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
+import { QueueHealthCard } from './queue-health-card';
 import {
   Bot,
   Clock,
@@ -22,6 +23,7 @@ import {
   ShieldAlert,
   CalendarClock,
   PauseCircle,
+  History,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -135,6 +137,36 @@ function WindowsEngineHeartbeat({ initial }: { initial?: ScheduleRow }) {
 
 type RunState = { ok: boolean; summary: string } | undefined;
 
+/** One row of the rolling 7-day run log (fn_ai_routine_run_history). */
+type RunLogRow = { routine_id: string; lane: string; fired_at: string; status: string | null };
+
+/** Group run-log rows by IST calendar day, newest day first, each day's runs newest first. */
+function groupByIstDay(rows: RunLogRow[]): { day: string; runs: RunLogRow[] }[] {
+  const fmtDay = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+    });
+  const out: { day: string; runs: RunLogRow[] }[] = [];
+  for (const row of rows) {
+    const day = fmtDay(row.fired_at);
+    const bucket = out.find((b) => b.day === day);
+    if (bucket) bucket.runs.push(row);
+    else out.push({ day, runs: [row] });
+  }
+  return out;
+}
+
+const fmtIstTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
 function summarize(result: unknown): string {
   if (result == null) return 'done';
   if (typeof result === 'string') return result.slice(0, 240);
@@ -188,8 +220,31 @@ function RoutineRow({
   const [editingMax, setEditingMax] = useState(false);
   const [running, setRunning] = useState(false);
   const [last, setLast] = useState<RunState>(undefined);
+  const [histOpen, setHistOpen] = useState(false);
+  const [hist, setHist] = useState<RunLogRow[] | null>(null);
+  const [histLoading, setHistLoading] = useState(false);
 
   const runnable = r.type === 'cron' && r.safeToManualTrigger;
+
+  async function toggleHistory() {
+    const next = !histOpen;
+    setHistOpen(next);
+    if (next && hist === null) {
+      setHistLoading(true);
+      try {
+        const resp = await fetch(
+          `/api/admin/ai-routines/history?routineId=${encodeURIComponent(r.id)}`,
+          { cache: 'no-store' },
+        );
+        const data = await resp.json();
+        setHist(data.ok ? (data.runs as RunLogRow[]) : []);
+      } catch {
+        setHist([]);
+      } finally {
+        setHistLoading(false);
+      }
+    }
+  }
 
   async function runNow() {
     setRunning(true);
@@ -308,7 +363,63 @@ function RoutineRow({
               {schedule?.last_status ? (
                 <span className="text-muted-foreground/70">last run: {schedule.last_status}</span>
               ) : null}
+              <button
+                type="button"
+                onClick={toggleHistory}
+                className="flex items-center gap-1 hover:text-foreground"
+              >
+                <History className={`h-3.5 w-3.5 transition-transform ${histOpen ? 'text-foreground' : ''}`} />
+                {histOpen ? 'Hide 7-day history' : '7-day history'}
+              </button>
             </div>
+
+            {histOpen ? (
+              <div className="mt-1 rounded-md border bg-muted/30 p-2.5 text-xs">
+                {histLoading ? (
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> loading run history…
+                  </span>
+                ) : !hist || hist.length === 0 ? (
+                  <span className="text-muted-foreground">
+                    No runs recorded in the last 7 days. (History began when this feature went live —
+                    a fresh routine simply hasn&apos;t fired yet.)
+                  </span>
+                ) : (
+                  <div className="space-y-2">
+                    {groupByIstDay(hist).map((day) => (
+                      <div key={day.day}>
+                        <div className="mb-1 font-medium text-foreground">
+                          {day.day}
+                          <span className="ml-1.5 font-normal text-muted-foreground/70">
+                            {day.runs.length} {day.runs.length === 1 ? 'run' : 'runs'}
+                          </span>
+                        </div>
+                        <ul className="space-y-0.5">
+                          {day.runs.map((run, i) => (
+                            <li key={`${run.fired_at}-${i}`} className="flex items-center gap-2">
+                              <span className="tabular-nums text-muted-foreground">{fmtIstTime(run.fired_at)}</span>
+                              <Badge
+                                variant="outline"
+                                className={`h-4 px-1.5 text-[10px] font-normal ${
+                                  run.lane === 'max'
+                                    ? 'border-violet-300 text-violet-600 dark:text-violet-400'
+                                    : 'border-sky-300 text-sky-600 dark:text-sky-400'
+                                }`}
+                              >
+                                {run.lane === 'max' ? 'Max lane' : 'cloud'}
+                              </Badge>
+                              <span className="min-w-0 truncate text-muted-foreground/80">
+                                {run.status ?? '—'}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -417,6 +528,9 @@ export function AiRoutinesControl() {
         {/* Liveness of the Windows Max-lane box — render only once schedules have
             loaded, so a slow fetch doesn't flash the "not found" warning. */}
         {!loading && <WindowsEngineHeartbeat initial={map.get(HEARTBEAT_ROW_ID)} />}
+        {/* The banner above says the engine is alive; this says what it is FACING.
+            Together they answer "is work moving?" — neither does alone. */}
+        <QueueHealthCard />
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 p-4">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5" style={{ color: BRAND }} />

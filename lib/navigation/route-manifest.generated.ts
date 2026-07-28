@@ -109,6 +109,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/internal-marks/exam-audit",
+            "label": "Exam Audit",
+            "iconName": "Star",
+            "children": []
+          },
+          {
             "path": "/academic/internal-marks/monitor",
             "label": "IA Monitor",
             "iconName": "Star",
@@ -256,6 +262,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/question-papers",
+        "label": "Question Papers",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/academic/regulations",
         "label": "Regulations",
         "iconName": "Scale",
@@ -283,6 +295,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/academic/session-feedback/faculty",
             "label": "Faculty",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/academic/session-feedback/note-review",
+            "label": "Learner Note Review",
+            "iconName": "ClipboardCheck",
             "children": []
           },
           {
@@ -384,6 +402,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/accreditation/cac",
+        "label": "Cac",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/accreditation/coverage",
         "label": "Coverage",
         "iconName": "FileText",
@@ -407,6 +431,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/accreditation/manage/collaborations",
+            "label": "Collaborations",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/accreditation/manage/grievance-categories",
             "label": "Grievance Categories",
             "iconName": "FileText",
@@ -415,6 +445,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/accreditation/manage/metrics",
             "label": "Metrics",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/accreditation/manage/utility-readings",
+            "label": "Utility Readings",
             "iconName": "FileText",
             "children": []
           }
@@ -451,6 +487,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
+            "path": "/accreditation/naac/narratives",
+            "label": "Narratives",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/accreditation/naac/narratives/owners",
+                "label": "Owners",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
+          },
+          {
             "path": "/accreditation/naac/surveys",
             "label": "Surveys",
             "iconName": "FileText",
@@ -464,6 +513,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/accreditation/naac/surveys/consent",
                 "label": "Consent",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/accreditation/naac/surveys/stakeholders",
+                "label": "Stakeholders",
                 "iconName": "FileText",
                 "children": []
               }
@@ -552,6 +607,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/id-cards",
+        "label": "Id Cards",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/admin/id-cards/batch-print",
+            "label": "Batch ID-Card Print",
+            "iconName": "Printer",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/policy",
+            "label": "ID Card Policy",
+            "iconName": "CreditCard",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/print-queue",
+            "label": "ID Card Print Queue",
+            "iconName": "Printer",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/template",
+            "label": "ID Card Template",
+            "iconName": "Layout",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/admin/landing-pages",
         "label": "Landing Pages",
         "iconName": "FileText",
@@ -567,7 +653,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/loops",
         "label": "Loop Control Tower",
         "iconName": "Repeat",
-        "children": []
+        "children": [
+          {
+            "path": "/admin/loops/pillars",
+            "label": "Mission Pillars",
+            "iconName": "Landmark",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/admin/lti",
@@ -607,6 +700,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/proof-disputes",
+        "label": "Proof Disputes",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/admin/reset-driver-passwords",
         "label": "Reset Driver Passwords",
         "iconName": "FileText",
@@ -622,6 +721,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/saml",
         "label": "Saml",
         "iconName": "KeyRound",
+        "children": []
+      },
+      {
+        "path": "/admin/teaching-cohorts",
+        "label": "Teaching Cohorts",
+        "iconName": "Layers",
         "children": []
       },
       {
@@ -705,9 +810,27 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/import",
+            "label": "Import",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payouts",
+            "label": "Payouts",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/referral-rates",
+            "label": "Referral Rates",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -1540,8 +1663,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/ai-pulse/leaderboard",
+        "label": "Leaderboard",
+        "iconName": "Trophy",
+        "children": []
+      },
+      {
         "path": "/ai-pulse/my-pulse",
-        "label": "My Pulse",
+        "label": "My AI Pulse",
         "iconName": "FileText",
         "children": []
       },
@@ -1653,8 +1782,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/audit/care/predict",
+            "label": "Predict",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/audit/care/score",
             "label": "Score",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
+            "path": "/audit/care/voice",
+            "label": "Voice",
             "iconName": "ClipboardCheck",
             "children": []
           }
@@ -1773,6 +1914,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/billing/coverage",
+        "label": "Coverage",
+        "iconName": "Wallet",
+        "children": []
       },
       {
         "path": "/billing/discounts",
@@ -1976,6 +2123,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/bos/governing-body",
+        "label": "Governing Body",
+        "iconName": "Building2",
+        "children": [
+          {
+            "path": "/bos/governing-body/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/bos/meetings",
         "label": "Meetings",
         "iconName": "FileText",
@@ -1991,6 +2151,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/bos/member-types",
         "label": "Member Types",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/bos/po-pso",
+        "label": "Po Pso",
         "iconName": "FileText",
         "children": []
       },
@@ -3119,6 +3285,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/ceo-rounds",
+    "label": "Ceo Rounds",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/consultant-portal",
     "label": "Consultant Portal",
     "iconName": "FileText",
@@ -3168,6 +3340,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/design-gallery",
+    "label": "Design Gallery",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/events",
@@ -3447,6 +3625,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               }
             ]
+          },
+          {
+            "path": "/hr/admin/leave-balances",
+            "label": "Leave Balances",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/admin/leave-types",
+            "label": "Leave Types",
+            "iconName": "CalendarOff",
+            "children": []
           },
           {
             "path": "/hr/admin/memos",
@@ -3885,6 +4075,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/admin/sanctioned-posts",
+            "label": "Sanctioned Posts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/admin/shift-templates",
             "label": "Shift Templates",
             "iconName": "FileText",
@@ -3922,6 +4118,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Attendance",
         "iconName": "CheckSquare",
         "children": [
+          {
+            "path": "/hr/attendance/import",
+            "label": "Import",
+            "iconName": "CheckSquare",
+            "children": []
+          },
           {
             "path": "/hr/attendance/regularize",
             "label": "Regularize",
@@ -3972,14 +4174,7 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/hr/employees",
         "label": "Employees",
         "iconName": "Users",
-        "children": [
-          {
-            "path": "/hr/employees/new",
-            "label": "New",
-            "iconName": "Plus",
-            "children": []
-          }
-        ]
+        "children": []
       },
       {
         "path": "/hr/fdp",
@@ -4018,6 +4213,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/approvals",
+            "label": "Approvals",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/approve",
             "label": "Approve",
             "iconName": "CalendarOff",
@@ -4036,6 +4237,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/compensatory-off",
+            "label": "Compensatory Off",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
             "iconName": "CalendarOff",
@@ -4044,6 +4251,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/leave/my-applications",
             "label": "My Applications",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/requests",
+            "label": "Requests",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/short-time-off",
+            "label": "Short Time Off",
             "iconName": "CalendarOff",
             "children": []
           }
@@ -4202,6 +4421,62 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/improvement-board",
+    "label": "Improvement Board",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/improvement-board/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/data-gaps",
+        "label": "Data Gaps",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/leaderboard",
+        "label": "Leaderboard",
+        "iconName": "Trophy",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/postings",
+        "label": "Postings",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/rotation",
+        "label": "Rotation",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/improvement-board/rotation/config",
+            "label": "Config",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/improvement-board/rotation/teams",
+            "label": "Teams",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  {
     "path": "/ims",
     "label": "Ims",
     "iconName": "FileText",
@@ -4223,6 +4498,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Indents",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/ims/indents/hod-approvals",
+            "label": "Hod Approvals",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/ims/indents/new",
             "label": "New",
@@ -5021,6 +5302,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": []
   },
   {
+    "path": "/my-proof",
+    "label": "My Proof",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/notifications",
     "label": "Notifications",
     "iconName": "Bell",
@@ -5653,7 +5940,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/procurement/purchase-orders",
         "label": "Purchase Orders",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/procurement/purchase-orders/formats",
+            "label": "Formats",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/procurement/purchase-orders/formats/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/procurement/requests",
@@ -5795,6 +6096,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/rcltp/teacher/recordings",
             "label": "Recording Review",
             "iconName": "Mic",
+            "children": []
+          },
+          {
+            "path": "/rcltp/teacher/remedial-plans",
+            "label": "RCLTP Remedial Plans",
+            "iconName": "FileText",
             "children": []
           }
         ]
@@ -6508,6 +6815,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       }
     ]
+  },
+  {
+    "path": "/tracker",
+    "label": "Tracker",
+    "iconName": "FileText",
+    "children": []
   },
   {
     "path": "/users",

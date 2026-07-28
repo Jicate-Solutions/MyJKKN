@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/dialog';
 import { SyllabusForm } from '@/components/bos/syllabus-form';
 import { DataTable } from '@/components/data-table/data-table';
+import type { DataFetchParams, DataFetchResult } from '@/components/data-table/data-table';
+import type { ExportableData } from '@/components/data-table/utils/export-utils';
 import { BosSyllabusService } from '@/lib/services/bos/bos-syllabus-service';
 import { createSyllabusColumns } from '@/app/(routes)/bos/syllabus/_components/columns';
 import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
@@ -218,9 +220,21 @@ export function SyllabusTab({
 
   return (
     <>
+      {/* DataTable's generic constrains rows to ExportableData (a flat
+          Record<string, primitive>). BosCourseSyllabus is a nested interface,
+          so TS clamps TData to ExportableData and the BosCourseSyllabus-typed
+          columns/fetchData no longer line up. The values are genuinely typed
+          for BosCourseSyllabus rows (and unchanged at runtime — casts erase),
+          so we bridge to the clamped ExportableData shape. This is the same
+          latent mismatch the main /bos/syllabus list carries; here it surfaces
+          because this file is type-checked in isolation. */}
       <DataTable
-        fetchDataFn={fetchData}
-        getColumns={() => columns}
+        fetchDataFn={
+          fetchData as unknown as (
+            params: DataFetchParams,
+          ) => Promise<DataFetchResult<ExportableData>>
+        }
+        getColumns={() => columns as unknown as ColumnDef<ExportableData>[]}
         idField='id'
         refetchKey={refetchKey}
         config={{

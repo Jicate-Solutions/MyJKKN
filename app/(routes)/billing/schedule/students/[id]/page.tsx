@@ -706,7 +706,7 @@ export default function StudentBillingDetailPage() {
             <Tabs defaultValue={initialTab} className='w-full'>
               {/* Tab Header with Filter */}
               <div className='flex flex-col gap-4 p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
                   <TabsTrigger value='bills' className='text-xs sm:text-sm'>
                     Bills
                   </TabsTrigger>

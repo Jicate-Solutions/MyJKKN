@@ -42,6 +42,7 @@ import {
 } from '@/lib/services/audit/carre-scoring-service';
 import type { CarreRpcDenial } from '@/lib/services/audit/carre-audit-service';
 import { CARRE_AUDITABLE_MODULES } from '@/lib/constants/carre-auditable-modules';
+import { SectionEyebrow } from '../../_components/redesign/kit';
 
 /**
  * navMeta — invoked via the "New CARRE audit" button on the audit dashboard's
@@ -154,17 +155,31 @@ function NewCarreAuditForm() {
       />
 
       <div className="space-y-6 max-w-2xl">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            <HeartHandshake className="h-5 w-5" />
+          </div>
+          <div className="space-y-1">
+            <SectionEyebrow>Culture audit · New CARRE cycle</SectionEyebrow>
+            <h1 className="text-2xl font-semibold tracking-tight">Open a CARRE audit</h1>
+            <p className="text-sm text-muted-foreground">
+              One initiative, one audience — five dimensions of Clarity, Appreciation,
+              Recognition, Respect and Empowerment.
+            </p>
+          </div>
+        </div>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <HeartHandshake className="h-4 w-4 text-rose-600" />
-              Open a CARRE audit
+              Audit details
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950">
+            <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-xs dark:border-sky-900 dark:bg-sky-950">
               <p className="flex items-start gap-2">
-                <Info className="h-4 w-4 flex-shrink-0 text-blue-600" />
+                <Info className="h-4 w-4 flex-shrink-0 text-sky-600 dark:text-sky-400" />
                 <span>
                   <strong>Define the unit of audit: one initiative, one audience.</strong>{' '}
                   You will score 25 items (Clarity · Appreciation · Recognition ·

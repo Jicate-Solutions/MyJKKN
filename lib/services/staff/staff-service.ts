@@ -456,9 +456,33 @@ export class StaffService {
       // Delete the staff record
       // The database trigger (trg_delete_staff_profile) will automatically delete
       // the corresponding profile from the profiles table
-      const { error } = await (this.supabase as any).from('staff').delete().eq('id', id);
+      //
+      // .select() is required here so we can detect the case where the RLS
+      // "staff_delete_scope_aware" policy silently matches 0 rows (no error,
+      // just an empty result) — without it a blocked delete looks identical
+      // to a successful one and the UI reports false success.
+      const { data, error } = await (this.supabase as any)
+        .from('staff')
+        .delete()
+        .eq('id', id)
+        .select('id');
 
-      if (error) throw error;
+      const deletedRow = Array.isArray(data) ? data[0] : null;
+
+      // RLS-blocked deletes surface either as an explicit error or as a
+      // silent 0-row result — fall back to the admin-bypass API route (same
+      // pattern as updateStaff) so the caller gets a real permission error
+      // instead of a misleading success toast.
+      if (error || !deletedRow) {
+        console.log('[staff-service] Direct delete blocked, attempting API route...');
+
+        const response = await fetch(`/api/staff/${id}`, { method: 'DELETE' });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to delete staff member');
+        }
+      }
 
       console.log(`✓ Staff ${id} deleted successfully. Profile auto-deleted by trigger.`);
     } catch (error) {
@@ -644,14 +668,14 @@ export class StaffService {
       }
 
       // Faculty users can only view their own staff record
-      if (userProfile?.role === 'faculty' && userProfile.email) {
+      if (userProfile?.role === 'faculty' && userProfile.id) {
         console.log(
-          '[staff-service] Applied faculty self-only filter for:',
-          userProfile.email
+          '[staff-service] Applied self-only record filter for profile:',
+          userProfile.id
         );
         return await this.getStaffForFacultyUser(
           effectiveFilters,
-          userProfile.email
+          userProfile.id
         );
       }
 
@@ -680,10 +704,13 @@ export class StaffService {
     }
   }
 
-  // Faculty users see only their own staff record matched by institution_email
+  // Faculty users see only their own staff record, matched by profile_id
+  // (auth.uid()) — not institution_email, which can silently diverge from
+  // the user's auth login email and hide their own row. Mirrors the
+  // own_records scope in app/api/staff/route.ts.
   private static async getStaffForFacultyUser(
     filters: StaffFilters,
-    userEmail: string
+    profileId: string
   ): Promise<StaffListResponse> {
     try {
       const startTime = performance.now();
@@ -710,7 +737,7 @@ export class StaffService {
       );
 
       // Filter to only the faculty user's own record
-      query = query.eq('institution_email', userEmail);
+      query = query.eq('profile_id', profileId);
 
       const { data: staff, error, count } = await query;
 

@@ -136,10 +136,10 @@ export function DeliverableDetail({ id }: { id: string }) {
       {/* Header card */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <DivisionIcon className="h-6 w-6 text-muted-foreground" />
-              <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <DivisionIcon className="h-6 w-6 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
                 <CardTitle className="text-xl">{deliverable.title}</CardTitle>
                 {deliverable.order && (
                   <p className="text-sm text-muted-foreground mt-1">
@@ -149,7 +149,7 @@ export function DeliverableDetail({ id }: { id: string }) {
                 )}
               </div>
             </div>
-            <Badge className={status.color}>
+            <Badge className={`${status.color} shrink-0`}>
               <StatusIcon className="h-3 w-3 mr-1" />
               {status.label}
             </Badge>
@@ -232,7 +232,7 @@ export function DeliverableDetail({ id }: { id: string }) {
           </CardHeader>
           <CardContent className="space-y-4">
             {!showRejectForm ? (
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button
                   onClick={handleApprove}
                   disabled={isActioning}

@@ -35,6 +35,22 @@ export async function getReceipts(
 
   const supabase = await createClient();
 
+  // Ownership filter. billing_receipts has no category of its own, so this walks
+  // receipt_items -> bill -> category via chained !inner embeds, making it
+  // "receipts containing AT LEAST ONE line of this ownership" — one payment can
+  // settle both, so a mixed receipt appears under either option. Only added when
+  // the filter is on, so the default list keeps its existing (cheaper) shape.
+  // Verified against PostgREST: the nested dotted filter path resolves and
+  // count=exact is NOT inflated by the join.
+  const ownershipEmbed = filters.collection_type
+    ? `,
+      collection_lines:billing_receipt_items!inner(
+        bill:billing_student_bills!inner(
+          category:billing_categories!inner(collection_type)
+        )
+      )`
+    : '';
+
   let query = supabase.from('billing_receipts').select(
     `
       *,
@@ -54,12 +70,19 @@ export async function getReceipts(
         id,
         refund_amount,
         approval_status
-      )
+      )${ownershipEmbed}
     `,
     { count: 'exact' }
   );
 
   // Apply filters
+  if (filters.collection_type) {
+    query = query.eq(
+      'collection_lines.bill.category.collection_type',
+      filters.collection_type
+    );
+  }
+
   if (filters.search) {
     query = query.or(
       `receipt_number.ilike.%${filters.search}%,payer_name.ilike.%${filters.search}%`
@@ -116,7 +139,12 @@ export async function getReceipts(
   }
 
   return {
-    data: (data as BillingReceipt[]) || [],
+    // Double cast: supabase-js parses the select string at COMPILE time, so the
+    // conditional ownership embed above makes it a dynamic string it cannot
+    // parse — it infers ParserError rather than a row type. The query itself is
+    // valid (verified against the live REST API); only the static inference is
+    // defeated.
+    data: (data as unknown as BillingReceipt[]) || [],
     metadata: {
       total: count || 0,
       page,

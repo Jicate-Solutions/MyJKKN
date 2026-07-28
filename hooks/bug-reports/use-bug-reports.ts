@@ -16,7 +16,8 @@ import {
   BugReportParticipant,
   BugReportFilters,
   BugReporterStats,
-  BugReporterStatsFilters
+  BugReporterStatsFilters,
+  BugClusterMembership
 } from '@/types/bugs';
 
 // --- API Fetching Functions ---
@@ -81,15 +82,22 @@ const fetchMyBugReports = async () => {
 
 const updateBugReportStatus = async ({
   reportId,
-  status
+  status,
+  duplicateOf
 }: {
   reportId: string;
   status: BugReportStatus;
+  /** Required when status === 'duplicate': id of the canonical bug. */
+  duplicateOf?: string;
 }) => {
   const response = await fetch(`/api/bug-reports/${reportId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status })
+    body: JSON.stringify(
+      status === 'duplicate' && duplicateOf
+        ? { status, duplicate_of: duplicateOf }
+        : { status }
+    )
   });
   if (!response.ok) {
     // Surface the server's actual reason (e.g. the 403 admin-role gate) —
@@ -177,6 +185,55 @@ const reopenBugReport = async (reportId: string) => {
     throw new Error(error.error || 'Failed to reopen bug report');
   }
   return response.json();
+};
+
+export interface BugDuplicateEntry {
+  id: string;
+  display_id: string;
+  description: string;
+  status: BugReportStatus;
+  created_at: string;
+  reporter_name: string | null;
+  resolved_at?: string | null;
+}
+
+export interface BugDuplicateCandidate extends BugDuplicateEntry {
+  module_name: string | null;
+  sub_module_name: string | null;
+  duplicate_count: number | null;
+}
+
+const fetchBugDuplicates = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/duplicates`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch duplicates');
+  }
+  const json = await response.json();
+  return (json.data ?? []) as BugDuplicateEntry[];
+};
+
+const fetchDuplicateCandidates = async (reportId: string, q: string) => {
+  const params = new URLSearchParams({ mode: 'candidates' });
+  if (q) params.set('q', q);
+  const response = await fetch(
+    `/api/bug-reports/${reportId}/duplicates?${params.toString()}`
+  );
+  if (!response.ok) {
+    throw new Error('Failed to fetch canonical candidates');
+  }
+  const json = await response.json();
+  return (json.data ?? []) as BugDuplicateCandidate[];
+};
+
+/** Reverse lookup: the AI-detected group(s) this report belongs to. */
+const fetchBugClusterMembership = async (reportId: string) => {
+  const response = await fetch(`/api/bug-reports/${reportId}/cluster`);
+  if (!response.ok) {
+    throw new Error('Failed to look up the report group');
+  }
+  const json = await response.json();
+  // data is null (not an error) when the report is in no group — the common case.
+  return (json.data ?? []) as BugClusterMembership[];
 };
 
 const fetchBugReportMessages = async (reportId: string) => {
@@ -472,6 +529,50 @@ export const useReopenBugReport = () => {
   });
 };
 
+/** Reports parked as duplicates of this bug (admin detail page). */
+export const useBugDuplicates = (reportId: string, enabled = true) => {
+  return useQuery<BugDuplicateEntry[]>({
+    queryKey: [...queryKeys.bugReports.detail(reportId), 'duplicates'],
+    queryFn: () => fetchBugDuplicates(reportId),
+    enabled: !!reportId && enabled,
+    staleTime: 60 * 1000
+  });
+};
+
+/**
+ * The AI-detected group(s) this report belongs to. Cheap reverse lookup that
+ * tells an admin standing on one report that its defect is already diagnosed —
+ * or already fixed — as part of a group.
+ */
+export const useBugClusterMembership = (reportId: string, enabled = true) => {
+  return useQuery<BugClusterMembership[]>({
+    queryKey: [...queryKeys.bugReports.detail(reportId), 'cluster'],
+    queryFn: () => fetchBugClusterMembership(reportId),
+    enabled: !!reportId && enabled,
+    staleTime: 60 * 1000
+  });
+};
+
+/** Canonical candidates for the mark-as-duplicate dialog. */
+export const useDuplicateCandidates = (
+  reportId: string | null,
+  q: string,
+  enabled = true
+) => {
+  return useQuery<BugDuplicateCandidate[]>({
+    queryKey: [
+      ...queryKeys.bugReports.all,
+      'duplicate-candidates',
+      reportId,
+      q
+    ],
+    queryFn: () => fetchDuplicateCandidates(reportId as string, q),
+    enabled: !!reportId && enabled,
+    staleTime: 30 * 1000,
+    placeholderData: keepPreviousData
+  });
+};
+
 export const useBugLeaderboard = (
   period: 'overall' | 'week' | 'month' = 'overall'
 ) => {
@@ -492,6 +593,7 @@ export interface BugReportStats {
   newReports: number;
   seen: number;
   wontFix: number;
+  duplicates: number;
   resolutionRate: string;
   recentReports: number;
   previousReports: number;

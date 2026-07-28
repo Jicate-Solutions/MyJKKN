@@ -194,13 +194,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Course belongs to another institution' }, { status: 403 });
     }
 
-    // 1. Create lesson with case_scenario JSONB
+    // 1. Create lesson with case_scenario JSONB.
+    // hour was hardcoded to 1, which violates vac_lessons_course_id_hour_key the
+    // moment a course already has ANY lesson (every prod course does — the MATLAB
+    // rollout seeded 30, BDS-CR-101 has the OLP seed). Pick the next free hour.
+    const { data: maxRow } = await (supabase as any)
+      .from('vac_lessons')
+      .select('hour')
+      .eq('course_id', input.course_id)
+      .order('hour', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextHour = (maxRow?.hour ?? 0) + 1;
     const { data: lesson, error: lessonErr } = await (supabase as any)
       .from('vac_lessons')
       .insert({
         course_id: input.course_id,
         week: 1,
-        hour: 1,
+        hour: nextHour,
         title: input.title,
         duration_minutes: input.time_limit_minutes || 30,
         is_published: false,

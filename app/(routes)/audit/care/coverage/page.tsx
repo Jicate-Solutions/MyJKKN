@@ -35,7 +35,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  LayoutGrid,
   Plus,
   ArrowRight,
   RefreshCw,
@@ -44,6 +43,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SectionEyebrow, KpiTile } from '../../_components/redesign/kit';
 import { useCarreCoverage, useCarreAutoSignals } from '@/hooks/audit';
 import { CARRE_AUDITABLE_MODULES } from '@/lib/constants/carre-auditable-modules';
 import {
@@ -157,29 +157,39 @@ function AutoSignalCell({ signal }: { signal: CarreModuleAutoSignalRow | null })
 }
 
 function StatusBadge({ status }: { status: ModuleStatus }) {
-  const map: Record<ModuleStatus, { label: string; cls: string }> = {
+  const map: Record<ModuleStatus, { label: string; cls: string; dot: string }> = {
     current: {
       label: 'Current',
       cls: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+      dot: 'bg-emerald-500',
     },
     'out-of-date': {
       label: 'Needs re-check',
       cls: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
+      dot: 'bg-amber-500',
     },
     frozen: {
       label: 'Scale-up frozen',
       cls: 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200',
+      dot: 'bg-red-500',
     },
     'never-checked': {
       label: 'Not yet checked',
-      cls: 'border-muted-foreground/25 bg-muted text-muted-foreground',
+      cls: 'border-border bg-muted/40 text-muted-foreground',
+      dot: 'bg-muted-foreground/50',
     },
   };
-  const { label, cls } = map[status];
+  const { label, cls, dot } = map[status];
   return (
-    <Badge variant="outline" className={cn('text-[10px]', cls)}>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-medium',
+        cls,
+      )}
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full', dot)} />
       {label}
-    </Badge>
+    </span>
   );
 }
 
@@ -259,76 +269,71 @@ export default function CarreCoveragePage() {
       />
 
       <div className="space-y-6">
-        {/* Header card */}
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <LayoutGrid className="h-5 w-5 text-primary" />
-                  CARRE Coverage Map
-                </CardTitle>
-                <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-                  Every module a learner or staff member directly experiences,
-                  with the status of its most-recent CARRE engagement audit.
-                  Modules are never graded here — each status comes from a real
-                  audit scored by its owner. An audit older than 90 days is shown
-                  as <strong>needs re-check</strong>; a module whose operative
-                  verdict is a dignity failure is <strong>frozen</strong>.
-                </p>
-                <p className="text-xs text-muted-foreground mt-2 max-w-2xl">
-                  The <strong>Auto-signal</strong> column is a separate,
-                  machine-derived read of live participant data — tagged{' '}
-                  <span className="text-violet-700 dark:text-violet-300">auto</span>,
-                  shown only where the data honestly supports it, and{' '}
-                  <strong>never mixed into the human audit score</strong>. Respect
-                  is never auto-scored.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Link href="/audit/cycles">
-                  <Button size="sm" variant="ghost">
-                    All audits
-                  </Button>
-                </Link>
-                <Link href="/audit/care/new">
-                  <Button size="sm">
-                    <Plus className="mr-2 h-4 w-4" />
-                    New CARRE audit
-                  </Button>
-                </Link>
-              </div>
+        {/* Header — eyebrow + heading + actions */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-1">
+              <SectionEyebrow>Culture audit · CARRE coverage</SectionEyebrow>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Every people-facing module, one coverage map
+              </h1>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <Badge variant="outline">
-                Checked:{' '}
-                <span className="ml-1 font-bold">
-                  {tally.N} of {tally.M}
-                </span>
-              </Badge>
-              <Badge
-                variant="outline"
-                className={cn(
-                  tally.overdue > 0 &&
-                    'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
-                )}
-              >
-                Overdue: <span className="ml-1 font-bold">{tally.overdue}</span>
-              </Badge>
-              <Badge
-                variant="outline"
-                className={cn(
-                  tally.frozen > 0 &&
-                    'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200',
-                )}
-              >
-                Frozen: <span className="ml-1 font-bold">{tally.frozen}</span>
-              </Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/audit/cycles">
+                <Button size="sm" variant="ghost">
+                  All audits
+                </Button>
+              </Link>
+              <Link href="/audit/care/new">
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New CARRE audit
+                </Button>
+              </Link>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Every module a learner or staff member directly experiences, with the
+            status of its most-recent CARRE engagement audit. Modules are never
+            graded here — each status comes from a real audit scored by its owner.
+            An audit older than 90 days shows as <strong>needs re-check</strong>; a
+            module whose operative verdict is a dignity failure is{' '}
+            <strong>frozen</strong>. The <strong>Auto-signal</strong> column is a
+            separate, machine-derived read of live participant data — tagged{' '}
+            <span className="text-violet-700 dark:text-violet-300">auto</span>, shown
+            only where the data honestly supports it, and{' '}
+            <strong>never mixed into the human audit score</strong>. Respect is
+            never auto-scored.
+          </p>
+        </div>
+
+        {/* Coverage KPIs */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiTile
+            label="Modules checked"
+            value={tally.N}
+            suffix={`/ ${tally.M}`}
+            sub="have a real CARRE audit on record"
+          />
+          <KpiTile
+            label="Not yet checked"
+            value={Math.max(tally.M - tally.N, 0)}
+            tone="neutral"
+            sub="no engagement audit yet"
+          />
+          <KpiTile
+            label="Needs re-check"
+            value={tally.overdue}
+            tone={tally.overdue > 0 ? 'warn' : 'neutral'}
+            sub="audit older than 90 days"
+          />
+          <KpiTile
+            label="Scale-up frozen"
+            value={tally.frozen}
+            tone={tally.frozen > 0 ? 'crit' : 'neutral'}
+            sub="Respect override in force"
+          />
+        </div>
 
         {/* Frozen banner */}
         {frozenRows.length > 0 && (
@@ -354,7 +359,9 @@ export default function CarreCoveragePage() {
         )}
 
         {/* Coverage table */}
-        <Card>
+        <div className="space-y-3">
+          <SectionEyebrow>Modules · most-recent audit</SectionEyebrow>
+          <Card>
           <CardContent className="p-0">
             {isLoading ? (
               <div className="space-y-2 p-6">
@@ -378,7 +385,7 @@ export default function CarreCoveragePage() {
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     <TableHead>Module</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Score</TableHead>
@@ -481,15 +488,18 @@ export default function CarreCoveragePage() {
               </Table>
             )}
           </CardContent>
-        </Card>
+          </Card>
+        </div>
 
         {/* Unassigned checks — CARE/CARRE audits with no module tag. */}
         {unassigned.length > 0 && (
+          <div className="space-y-3">
+          <SectionEyebrow>Unassigned checks</SectionEyebrow>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Inbox className="h-4 w-4 text-muted-foreground" />
-                Unassigned checks
+                Not tagged to a module
                 <Badge variant="secondary" className="text-[10px]">
                   {unassigned.length}
                 </Badge>
@@ -529,6 +539,7 @@ export default function CarreCoveragePage() {
               </Table>
             </CardContent>
           </Card>
+          </div>
         )}
       </div>
     </ContentLayout>

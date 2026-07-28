@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — VBB (vocabulary) domain service (Phase B)
+ * MyJKKN RCLTP — VBB (vocabulary) domain service (Phase B)
  * ----------------------------------------------------------------------------
  * Tables: rcltp_vbb_words (§3.11 — content library, institution_id NULL = global),
  *         rcltp_vbb_progress (§3.12 — per-student progress, institution-scoped).
@@ -11,7 +11,7 @@
  *   - library table (vbb_words) ALSO surfaces global rows (institution_id IS NULL)
  *   - READS + STAFF/ADMIN writes go through the client (RLS allows them — §6.2)
  *   - STUDENT-affecting writes are stubs → server-side route (migration §6.12)
- *   - content-dependent logic is stubbed → awaiting EKSAQ
+ *   - content-dependent logic is stubbed → awaiting MyJKKN
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -29,7 +29,7 @@ import {
   rcltpRange,
   rcltpMetadata,
   rcltpPostJson,
-  rcltpAwaitingEksaqContent,
+  rcltpAwaitingValidationContent,
 } from './rcltp-helpers';
 
 export class RcltpVbbService {
@@ -179,11 +179,11 @@ export class RcltpVbbService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — content import → awaiting EKSAQ
+  // DEFERRED — content import → awaiting MyJKKN
   // -------------------------------------------------------------------------
 
-  /** Bulk import the VBB 5,000-word vocabulary list. Awaiting EKSAQ wordlist content. */
+  /** Bulk import the VBB 5,000-word vocabulary list. Awaiting MyJKKN wordlist content. */
   static async importWordList(_payload?: unknown): Promise<void> {
-    return rcltpAwaitingEksaqContent('VBB 5,000-word list import');
+    return rcltpAwaitingValidationContent('VBB 5,000-word list import');
   }
 }

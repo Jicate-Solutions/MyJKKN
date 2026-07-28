@@ -171,6 +171,29 @@ export function useRejectCandidate() {
   });
 }
 
+export function useUpdateStepComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, stepIndex, comment }: { id: string; stepIndex: number; comment: string }) => {
+      const res = await fetch(`${BASE}/candidates/${id}/step-comment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step_index: stepIndex, comment }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Update comment failed');
+      }
+      return ((await res.json()).data) as HRRecruitmentCandidate;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+    },
+  });
+}
+
 export function useWithdrawCandidate() {
   const qc = useQueryClient();
   return useMutation({
@@ -294,7 +317,7 @@ export function useCounterPackage() {
     }: {
       candidateId: string;
       packageId: string;
-      proposed_monthly_salary: number;
+      proposed_monthly_salary?: number | null;
       proposed_monthly_salary_breakdown?: Record<string, number> | null;
       notes?: string | null;
       hr_organization_id?: string | null;

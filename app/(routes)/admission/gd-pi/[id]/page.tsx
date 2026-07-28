@@ -1,8 +1,9 @@
 'use client';
 
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -42,9 +43,12 @@ const CANDIDATE_STATUS_ICON: Record<string, React.ReactNode> = {
   disqualified: <XCircle className="h-3.5 w-3.5 text-red-700" />,
 };
 
+const GDPI_SESSION_TABS = ['candidates', 'evaluators', 'criteria'] as const;
+
 function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const [activeTab, setActiveTab] = useTabParam('candidates', GDPI_SESSION_TABS);
   const { session, isLoading, isError } = useGDPISessionDetail(id);
   const { markAttendance, updateSession, publishResults } = useGDPIMutations();
   const { canAccess } = usePermissions();
@@ -117,7 +121,7 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
             </BreadcrumbList>
           </Breadcrumb>
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Button variant="ghost" size="sm" onClick={() => router.push('/admission/gd-pi')}>
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
@@ -200,8 +204,8 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="candidates">
-            <TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="candidates">
                 Candidates ({session.candidates?.length || 0})
               </TabsTrigger>
@@ -397,7 +401,9 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
 export default function GDPISessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <AdmissionErrorBoundary>
-      <SessionDetailContent params={params} />
+      <Suspense fallback={null}>
+        <SessionDetailContent params={params} />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

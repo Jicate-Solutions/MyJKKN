@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useTabParam } from '@/hooks/use-tab-param';
 import {
   CalendarDays,
   MapPin,
@@ -149,13 +150,15 @@ function EventGrid({ events, emptyMessage }: { events: LCEvent[]; emptyMessage: 
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {events.map((event: any) => (
         <EventCard key={event.id} event={event} />
       ))}
     </div>
   );
 }
+
+const EVENT_LIST_TABS = ['upcoming', 'past', 'my'] as const;
 
 export function EventListClient({
   initialUpcoming,
@@ -167,6 +170,7 @@ export function EventListClient({
   userId,
 }: EventListClientProps) {
   const [scopeFilter, setScopeFilter] = useState<string>('all');
+  const [activeTab, setActiveTab] = useTabParam('upcoming', EVENT_LIST_TABS);
 
   const filterByScope = (events: LCEvent[]) => {
     if (scopeFilter === 'all') return events;
@@ -176,7 +180,7 @@ export function EventListClient({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Events</h1>
           <p className="text-sm text-muted-foreground">
@@ -208,8 +212,8 @@ export function EventListClient({
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="upcoming" className="w-full">
-        <TabsList className="w-full md:w-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="w-full max-w-full justify-start overflow-x-auto md:w-auto md:justify-center [&>button]:shrink-0">
           <TabsTrigger value="upcoming" className="flex items-center gap-2">
             <CalendarCheck className="h-4 w-4" />
             Upcoming

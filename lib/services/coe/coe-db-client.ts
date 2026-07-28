@@ -253,6 +253,7 @@ export async function getCoeCurrentTerm(
 export interface CoeInstitutionBridgeRow {
   id: string;
   institution_code: string;
+  name?: string | null;
   myjkkn_institution_ids: string[];
 }
 
@@ -267,11 +268,12 @@ export async function getAllCoeInstitutions(): Promise<CoeInstitutionBridgeRow[]
   const coe = createCoeDbClient();
   const { data, error } = await coe
     .from('institutions')
-    .select('id, institution_code, myjkkn_institution_ids');
+    .select('id, institution_code, name, myjkkn_institution_ids');
   if (error) throw new Error(`COE institutions list read failed: ${error.message}`);
   return (data ?? []).map((r) => ({
     id: r.id as string,
     institution_code: r.institution_code as string,
+    name: (r.name as string | null) ?? null,
     myjkkn_institution_ids: (r.myjkkn_institution_ids as string[] | null) ?? [],
   }));
 }
@@ -331,6 +333,41 @@ export async function getCoeFinalSummary(
   const { data, error } = await q;
   if (error) throw new Error(`COE final_marks_summary_view read failed: ${error.message}`);
   return (data ?? []) as CoeFinalCourseSummary[];
+}
+
+/**
+ * The ENTIRE final-marks summary view (every institution × session × course),
+ * paged explicitly — the COE PostgREST caps a response at ~1000 rows and the
+ * view holds 1,415+ rows (2026-07-26), so an unpaged read silently truncates.
+ * Used by the nightly COE pass-percentage mirror cron, which aggregates
+ * per-course rows up to institution × session pass percentages. Ordering is
+ * pinned so paging is stable.
+ */
+export async function getCoeFinalSummaryAll(): Promise<CoeFinalCourseSummary[]> {
+  const coe = createCoeDbClient();
+  const pageSize = 1000;
+  const out: CoeFinalCourseSummary[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('final_marks_summary_view')
+      .select(
+        'institution_code, institution_name, session_code, session_name, ' +
+          'program_code, program_name, course_code, course_name, ' +
+          'total_students, published_count, passed_count, failed_count, ' +
+          'avg_internal_percentage, avg_external_percentage, pass_percentage',
+      )
+      .order('institution_code', { ascending: true })
+      .order('session_code', { ascending: true })
+      .order('course_code', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE final_marks_summary_view read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeFinalCourseSummary[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
 }
 
 /** Per-session registration/scheduling statistics for one COE institution. */

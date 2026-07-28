@@ -144,4 +144,40 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       'Auth: CRON_SECRET Bearer only (dispatcher and the AI Routines manual trigger both send the header; secrets never sit in URLs). Complements the live red states on /admin/loops (page computes stale/errored at render); this cron is the half that reaches you when nobody is looking at the page.',
   },
+  {
+    id: 'capgap-scan',
+    name: 'Capability-Gap Scan (mines AI-query refusals into gap clusters)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 03:51 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/capgap-scan',
+    callsClaude: false,
+    whatItDoes:
+      "The detection pass of the capability-gap loop. It reads the AI-query chat log (ai_jobs, job_type='ai_query.chat'), finds where the model REFUSED or said it lacked a tool/data to answer, clusters those refusals by topic, auto-proposes a gap-class, and records each cluster in capability_gaps for a human to triage. This is the loop's own sensor: it turns the questions the assistant could not answer into a reviewable list of missing capabilities, then a later cycle MEASURES whether a shipped fix actually made those refusals stop.",
+    configKnobs:
+      'Refusal-phrase set + clustering live in fn_capgap_scan (rules-based SQL, no model call). Schedule (day/time) editable on /admin/ai-routines; the scan itself is idempotent so cadence only affects freshness.',
+    sideEffects:
+      'DB: upserts public.capability_gaps rows (one per detected cluster) via fn_capgap_scan. Read-only against ai_jobs. No emails/WhatsApp; no human messaging; no model calls.',
+    safeToManualTrigger: true,
+    notes:
+      "Auth: CRON_SECRET via Authorization: Bearer OR ?secret= (the dispatcher sends the header; secrets never sit in URLs). fn_capgap_scan is service-role-safe (auth.uid() IS NULL gate). Dispatcher-managed: NOT in vercel.json — its direct vercel cron was removed so the ai-routine-dispatcher is the single clock (no double-fire). Idempotent — safe to re-fire; clusters already recorded are updated, not duplicated. Pure rule-based detection; the loop's fix + measure stages are the human-gated half.",
+  },
+  {
+    id: 'loop-adherence',
+    name: 'Loop Adherence Alerts (missed mentor check-ins + quiet referral desk)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 09:41 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/loop-adherence-alerts',
+    callsClaude: false,
+    whatItDoes:
+      'Two sweeps over induction loops that GENERATE work but had no escalation when the humans stopped doing it — the watchdog watches whether the crons fire, this watches whether the work gets worked. SWEEP A: active+trained induction mentors whose most recent monthly check-in beat is unmarked AND who have >= 2 consecutive most-recent missed beats (one miss = life, two = a pattern); correctly dark until the first beat comes due 2026-08-15. SWEEP B: any referral desk (admission_leads assigned_counselor_id lane owning source=referral leads) with >= 1 OPEN lead and zero activity for 7+ days — the desk lane the counselor-facing wire misses. One high-priority notification to super admins on any finding; silent when both sweeps are clean.',
+    configKnobs:
+      'MENTOR_LAPSE_ALARM (2 consecutive beats) and DESK_QUIET_DAYS (7) in the route; CLOSED_STAGES denylist defines a resolved referral lead. Schedule editable on /admin/ai-routines with no deploy. Watches active+trained mentors only (untrained mentors cannot mark attendance, so flagging them would blame a training gap, not adherence).',
+    sideEffects:
+      'On findings: one high-priority notification fanned out to super admins, deduplicated per IST day per finding-set fingerprint (a still-quiet desk re-pages the next day; read-only otherwise; no model calls). CADENCE: daily-until-fixed (Director-ratified 2026-07-13).',
+    safeToManualTrigger: true,
+    notes:
+      'Auth: CRON_SECRET Bearer only (dispatcher and the AI Routines manual trigger both send the header; secrets never sit in URLs). Escalation target of the loop_edges mentor-checkins→decisions and referral-desk→decisions edges (both seeded 2026-07-13). The super-admin lookup failing FAILS the run (mirrors the watchdog r4 fix) rather than fanning out to nobody.',
+  },
 ];

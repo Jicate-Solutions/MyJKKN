@@ -90,18 +90,33 @@ async function createNotification(
 ): Promise<number> {
   if (userIds.length === 0) return 0;
 
-  const { data: notification } = await supabase
+  // Live notifications schema: body/created_by/targeting/kind are NOT NULL —
+  // there is NO type/message column. The first ship used {type, message}, so
+  // every insert silently no-opped (the error was never read). Same bug class
+  // as the bug-reports feedback nudge fixed in #2168.
+  // created_by = the anchor recipient, matching the per-user server-side
+  // convention (friday-reflection, ai-pulse-weekly-digest crons).
+  const { data: notification, error: notifError } = await supabase
     .from('notifications')
     .insert({
-      type: 'learn_pde',
       title,
-      message,
+      body: message,
+      url: (metadata.action_url as string | undefined) ?? null,
+      created_by: userIds[0],
+      targeting: { user_ids: userIds },
+      priority: 'normal',
+      category: 'learn_pde',
+      // work_item keeps these off the /notifications/admin announcement surface
+      kind: 'work_item',
       metadata: { source: 'learn_pde_notify', ...metadata },
     })
     .select('id')
     .single();
 
-  if (!notification) return 0;
+  if (notifError || !notification) {
+    console.error('[learn/notify] notifications insert failed:', notifError?.message);
+    return 0;
+  }
 
   const links = userIds.map((uid) => ({
     notification_id: notification.id,

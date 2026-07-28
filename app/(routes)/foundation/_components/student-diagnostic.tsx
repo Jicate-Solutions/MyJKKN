@@ -86,7 +86,7 @@ export function StudentDiagnostic({
             Exam
           </span>
           <Select value={activeExam.id} onValueChange={setExamId}>
-            <SelectTrigger className="w-64">
+            <SelectTrigger className="w-full sm:w-64">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

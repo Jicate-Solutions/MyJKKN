@@ -373,11 +373,11 @@ function WorklistContent() {
 
       {/* Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5" /> Visit worklist
           </CardTitle>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button
               variant="ghost"
               size="icon"

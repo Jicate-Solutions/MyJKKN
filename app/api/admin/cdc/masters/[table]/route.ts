@@ -22,21 +22,13 @@ async function requireCdcAdmin() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false as const, status: 401 };
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, is_super_admin')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile) return { ok: false as const, status: 403 };
-
-  const allowed =
-    profile.is_super_admin ||
-    profile.role === 'super_admin' ||
-    profile.role === 'cdc_head' ||
-    profile.role === 'administrator';
-
-  if (!allowed) return { ok: false as const, status: 403 };
+  // Single source of truth — mirrors the RLS write policy on every master table
+  // (is_cdc_head_or_super: super-admin OR a cdc_head role via profiles.role OR a
+  // multi-role assignment). Replaces the previous hardcoded legacy-role list,
+  // which missed multi-role cdc_head assignments and allowed 'administrator'
+  // through the API even though RLS denies it (producing a confusing 500).
+  const { data: allowed, error } = await supabase.rpc('is_cdc_head_or_super');
+  if (error || allowed !== true) return { ok: false as const, status: 403 };
   return { ok: true as const, userId: user.id };
 }
 

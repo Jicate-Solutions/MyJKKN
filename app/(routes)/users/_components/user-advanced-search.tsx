@@ -244,7 +244,7 @@ export function UserAdvancedSearch({
 
       {/* Search Actions Row */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Search Button */}
           <Button
             onClick={handleSearch}
@@ -396,7 +396,7 @@ export function UserAdvancedSearch({
 
       {/* Active Search Indicator */}
       {hasActiveSearch && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
           <span className="font-medium">Active searches:</span>
           {fullNameQuery && <Badge variant="secondary" className="h-5">Name: {fullNameQuery}</Badge>}
           {emailQuery && <Badge variant="secondary" className="h-5">Email: {emailQuery}</Badge>}

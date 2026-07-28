@@ -11,10 +11,16 @@ import {
   BadgePercent,
   Undo2,
   FileText,
+  Building2,
+  Landmark,
+  HelpCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { formatINRCompact, formatCurrency, num } from './_utils';
-import type { BillingAnalyticsOverview } from '@/types/billing-analytics';
+import type {
+  BillingAnalyticsOverview,
+  BillingCollectionSplit,
+} from '@/types/billing-analytics';
 
 interface KpiCardProps {
   label: string;
@@ -54,9 +60,12 @@ function KpiCard({ label, value, sub, icon: Icon, tone = 'default', title }: Kpi
 export function KpiCards({
   data,
   loading,
+  split,
 }: {
   data?: BillingAnalyticsOverview;
   loading: boolean;
+  /** Management / Government / Unallocated breakdown of the Collected figure. */
+  split?: BillingCollectionSplit;
 }) {
   if (loading && !data) {
     return (
@@ -143,6 +152,35 @@ export function KpiCards({
           title={formatCurrency(num(data.total_refunds))}
         />
       </div>
+
+      {split && (
+        <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
+          <KpiCard
+            label='Management Collection'
+            value={formatINRCompact(split.management_collected)}
+            sub={`${formatINRCompact(split.management_net)} net of refunds`}
+            icon={Building2}
+            tone='success'
+            title={formatCurrency(num(split.management_collected))}
+          />
+          <KpiCard
+            label='Government Collection'
+            value={formatINRCompact(split.government_collected)}
+            sub='collected on behalf of government'
+            icon={Landmark}
+            tone='warning'
+            title={formatCurrency(num(split.government_collected))}
+          />
+          <KpiCard
+            label='Unallocated'
+            value={formatINRCompact(split.unallocated_collected)}
+            sub='receipts not linked to any bill'
+            icon={HelpCircle}
+            tone='default'
+            title={formatCurrency(num(split.unallocated_collected))}
+          />
+        </div>
+      )}
     </div>
   );
 }

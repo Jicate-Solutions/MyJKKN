@@ -15,6 +15,7 @@ import {
 } from '@/hooks/procurement/use-grns';
 import { validateLineForVerify } from '@/lib/services/procurement/three-way-match';
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
+import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 
 // Match-badge accent by GRN_MATCH_CONFIG.color.
 const MATCH_COLOR: Record<string, string> = {
@@ -162,7 +163,7 @@ export default function GrnDetailPage() {
             <div>
               <p className="text-muted-foreground">Invoice date</p>
               <p className="font-medium">
-                {grn.invoice_date ? new Date(grn.invoice_date).toLocaleDateString() : '—'}
+                {formatDateDMY(grn.invoice_date)}
               </p>
             </div>
             <div>
@@ -299,7 +300,7 @@ export default function GrnDetailPage() {
                             {it.batch_number || '—'}
                             {it.expiry_date && (
                               <span className="block text-muted-foreground">
-                                exp {new Date(it.expiry_date).toLocaleDateString()}
+                                exp {formatDateDMY(it.expiry_date)}
                               </span>
                             )}
                           </>
@@ -372,7 +373,7 @@ export default function GrnDetailPage() {
         {grn.verified_at && (
           <p className="text-sm text-muted-foreground">
             Verified by {grn.verified_by_profile?.full_name || 'user'} on{' '}
-            {new Date(grn.verified_at).toLocaleString()}.
+            {formatDateTimeDMY(grn.verified_at)}.
           </p>
         )}
       </div>

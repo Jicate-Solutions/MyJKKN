@@ -209,13 +209,13 @@ export default function FacultyDemonstrationsPage() {
         <Card className="bg-[#fbfbee]/30 dark:bg-card">
           <CardContent className="p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <span className="text-sm font-medium text-muted-foreground">Category:</span>
                 <Select
                   value={categoryFilter}
                   onValueChange={(v) => setCategoryFilter(v as 'all' | PDECategoryKey)}
                 >
-                  <SelectTrigger className="w-[240px]">
+                  <SelectTrigger className="w-full sm:w-[240px]">
                     <SelectValue placeholder="All Categories" />
                   </SelectTrigger>
                   <SelectContent>
@@ -228,10 +228,10 @@ export default function FacultyDemonstrationsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <span className="text-sm font-medium text-muted-foreground">Status:</span>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[200px]">
+                  <SelectTrigger className="w-full sm:w-[200px]">
                     <SelectValue placeholder="All Statuses" />
                   </SelectTrigger>
                   <SelectContent>

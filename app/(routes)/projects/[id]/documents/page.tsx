@@ -13,7 +13,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F7.
  */
 
-import { useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -28,18 +28,21 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Gavel, Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { DocumentList } from '@/components/projects/documents/document-list';
 import { UploadDialog } from '@/components/projects/documents/upload-dialog';
 import { DecisionLog } from '@/components/projects/documents/decision-log';
 
 type DocsTab = 'documents' | 'decisions';
 
-export default function ProjectDocumentsPage() {
+const DOCS_TABS = ['documents', 'decisions'] as const;
+
+function ProjectDocumentsPageInner() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id ?? '';
 
   const { data: project, isLoading } = useProject(projectId);
-  const [tab, setTab] = useState<DocsTab>('documents');
+  const [tab, setTab] = useTabParam<DocsTab>('documents', DOCS_TABS);
 
   const projectTitle = project?.title ?? 'Project';
 
@@ -117,5 +120,14 @@ export default function ProjectDocumentsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function ProjectDocumentsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectDocumentsPageInner />
+    </Suspense>
   );
 }

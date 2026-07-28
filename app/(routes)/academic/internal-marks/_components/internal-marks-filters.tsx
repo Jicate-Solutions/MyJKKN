@@ -284,7 +284,7 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
             <SelectTrigger>
               <SelectValue placeholder={isLoadingSettings ? 'Loading...' : 'Select Assessment'} />
             </SelectTrigger>
-            <SelectContent className='max-w-[450px]'>
+            <SelectContent className='max-w-[calc(100vw-2rem)] sm:max-w-[450px]'>
               {(ciaSettings ?? []).flatMap((s) =>
                 s.cia_rounds.map((r) => {
                   const status = getEntryWindowStatus(r);
@@ -406,7 +406,7 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
                 <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className='w-[450px] p-0' align='start'>
+            <PopoverContent className='w-[calc(100vw-2rem)] max-w-[450px] p-0 sm:w-[450px]' align='start'>
               <Command>
                 <CommandInput placeholder='Search by code or name...' />
                 <CommandList>

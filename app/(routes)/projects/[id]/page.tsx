@@ -11,7 +11,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md (F1, F13).
  */
 
-import { use, useState } from 'react';
+import { Suspense, use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Pencil } from 'lucide-react';
 
@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { useProject } from '@/hooks/projects/use-projects';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { BoardView } from '@/components/projects/board/board-view';
 import { ProjectFormDialog } from '../_components/project-form-dialog';
 import { ProjectDetailNav } from './_components/project-detail-nav';
@@ -49,13 +50,16 @@ function formatDate(value: string | null): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export default function ProjectDetailPage({
+const PROJECT_DETAIL_TABS = ['tasks', 'overview'] as const;
+
+function ProjectDetailPageInner({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
   const { data: project, isLoading, isError, error } = useProject(id);
+  const [activeTab, setActiveTab] = useTabParam('tasks', PROJECT_DETAIL_TABS);
   const [editOpen, setEditOpen] = useState(false);
 
   return (
@@ -110,7 +114,7 @@ export default function ProjectDetailPage({
         <>
           {/* Header card */}
           <Card className="mt-6">
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <CardTitle className="text-xl">{project.title}</CardTitle>
@@ -135,7 +139,7 @@ export default function ProjectDetailPage({
                   <span>{project.percent_complete ?? 0}% complete</span>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)}>
+              <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4" />
                 Edit
               </Button>
@@ -152,7 +156,7 @@ export default function ProjectDetailPage({
 
           {/* Tabs */}
           <div className="mt-6">
-            <Tabs defaultValue="tasks">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList>
                 <TabsTrigger value="tasks">Tasks</TabsTrigger>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -202,5 +206,16 @@ export default function ProjectDetailPage({
         </>
       )}
     </ContentLayout>
+  );
+}
+
+export default function ProjectDetailPage(props: {
+  params: Promise<{ id: string }>;
+}) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ProjectDetailPageInner {...props} />
+    </Suspense>
   );
 }

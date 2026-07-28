@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { BosExpertFilters, CreateBosExpertDto } from '@/types/bos';
-import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import { resolveBosAccess, resolveBosBoardScope, guardInstitutionWrite, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/experts ─────────────────────────────────────────────────────
 // Returns a paginated, filtered list of external experts for the institution.
@@ -14,7 +14,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // Read-only observer: a role holding academic.bos-experts.view but on no
+    // board (not a principal, member of nothing) may read all institutions'
+    // experts. VIEW ONLY — POST still goes through guardInstitutionWrite.
+    const hasView = await hasBosPermission(user.id, 'academic.bos-experts.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
 
     // 2. Parse query params
     const { searchParams } = new URL(request.url);
@@ -28,7 +34,7 @@ export async function GET(request: NextRequest) {
     const filters: BosExpertFilters = {
       institutionsId: allInstitutions
         ? undefined
-        : scope.isSuperAdmin
+        : seeAll
           ? (searchParams.get('institutionsId') ?? undefined)
           : (scope.institutionsId ?? undefined),
       category: searchParams.get('category') as BosExpertFilters['category'] ?? undefined,
@@ -47,7 +53,17 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // 3. Query MyJKKN database
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    // A principal convening a council (Academic Council / Governing Body) uses the
+    // cross-institution "Add Member" expert picker (allInstitutions=true). External
+    // experts are intentionally shareable and this is read-only, but the board-keyed
+    // RLS (bos_experts_select evaluates role_has_institution_access per row) blocks a
+    // principal from that whole-directory read — so serve it via service-role too.
+    const readDb =
+      canReadAllBos || (scope.isPrincipal && allInstitutions)
+        ? createServiceRoleClient()
+        : supabase;
+    let query = readDb
       .from('bos_external_experts')
       .select('*', { count: 'exact' });
 

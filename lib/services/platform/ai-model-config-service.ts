@@ -114,36 +114,81 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
     // Use service-role client so this works from server routes regardless of
     // user session. RLS blocks anonymous reads; service-role bypasses.
     const supabase = createServiceRoleClient();
-    const { data, error } = await supabase
-      .from('ai_model_config')
+
+    // ── CONFIG MERGE (2026-07-14) ──────────────────────────────────────────
+    // The ai_job_types registry (#1998) is the SOURCE OF TRUTH for model
+    // governance. Resolve from it FIRST, keying on model_id presence — on the
+    // registry `enabled` is the generic-drain runnable flag, NOT a model-active
+    // flag, so it must NEVER gate model resolution (a config-carrier feature
+    // that runs via its own cron/route is enabled=false but still has a live
+    // model here). ai_model_config remains the FALLBACK source while the
+    // cutover bakes; it is also the only holder of config_json — which no
+    // resolution consumer currently reads, so registry rows resolve it null.
+    let resolved: ResolvedModel | null = null;
+
+    const { data: reg, error: regError } = await supabase
+      .from('ai_job_types')
       .select(
-        'feature_key, provider, model_id, config_json, fallback_provider, fallback_model_id, monthly_spend_cap_inr, is_active',
+        'job_type, provider, model_id, fallback_provider, fallback_model_id, monthly_spend_cap_inr',
       )
-      .eq('feature_key', featureKey)
-      .eq('is_active', true)
+      .eq('job_type', featureKey)
+      .not('model_id', 'is', null)
       .maybeSingle();
 
-    if (error) {
-      console.error('[ai-model-config] getModelForFeature read error:', error);
-      return getHardcodedFallback(featureKey);
-    }
-
-    if (!data) {
-      console.warn(
-        `[ai-model-config] No row for feature_key=${featureKey}, using hardcoded fallback`,
+    if (regError) {
+      // Don't hard-fail on a registry read hiccup — fall through to the legacy
+      // ai_model_config read below so resolution keeps working.
+      console.error(
+        `[ai-model-config] ${featureKey}: registry read error (falling back to ai_model_config):`,
+        regError.message,
       );
-      return getHardcodedFallback(featureKey);
+    } else if (reg && reg.provider && reg.model_id) {
+      resolved = {
+        feature_key: featureKey,
+        provider: reg.provider,
+        model_id: reg.model_id,
+        config_json: null,
+        fallback_provider: reg.fallback_provider,
+        fallback_model_id: reg.fallback_model_id,
+        monthly_spend_cap_inr: reg.monthly_spend_cap_inr,
+      };
     }
 
-    const resolved: ResolvedModel = {
-      feature_key: data.feature_key,
-      provider: data.provider,
-      model_id: data.model_id,
-      config_json: (data.config_json as Record<string, unknown> | null) ?? null,
-      fallback_provider: data.fallback_provider,
-      fallback_model_id: data.fallback_model_id,
-      monthly_spend_cap_inr: data.monthly_spend_cap_inr,
-    };
+    // FALLBACK: legacy ai_model_config (pre-merge source; still authoritative
+    // for config_json and for any feature not yet carrying a model in the
+    // registry).
+    if (!resolved) {
+      const { data, error } = await supabase
+        .from('ai_model_config')
+        .select(
+          'feature_key, provider, model_id, config_json, fallback_provider, fallback_model_id, monthly_spend_cap_inr, is_active',
+        )
+        .eq('feature_key', featureKey)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[ai-model-config] getModelForFeature read error:', error);
+        return getHardcodedFallback(featureKey);
+      }
+
+      if (!data) {
+        console.warn(
+          `[ai-model-config] No registry or ai_model_config row for feature_key=${featureKey}, using hardcoded fallback`,
+        );
+        return getHardcodedFallback(featureKey);
+      }
+
+      resolved = {
+        feature_key: data.feature_key,
+        provider: data.provider,
+        model_id: data.model_id,
+        config_json: (data.config_json as Record<string, unknown> | null) ?? null,
+        fallback_provider: data.fallback_provider,
+        fallback_model_id: data.fallback_model_id,
+        monthly_spend_cap_inr: data.monthly_spend_cap_inr,
+      };
+    }
 
     // Spend-cap ENFORCEMENT (Director decision 2026-07-11: the cap box is
     // real, not decorative). When month-to-date spend has crossed the row's
@@ -287,14 +332,26 @@ function getHardcodedFallback(featureKey: string): ResolvedModel {
     'induction.generate_playbook': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'induction.session_effectiveness': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'cdc.career_guidance': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
-    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
-    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'claude-sonnet-4-20250514'),
-    'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
-    'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5-20251001'),
-    // rcltp generate route is EKSAQ-gated scaffold (no model in code yet) —
+    // 2026-07-25 — was the dated snapshot 'claude-sonnet-4-20250514', which
+    // pins an ageing model the moment Supabase is unreachable. Swapped for
+    // the always-latest Sonnet family alias (see ai-providers.ts — 'sonnet'
+    // and 'opus' are the ONLY Claude family aliases this codebase resolves).
+    'ai_query.natural_language': fallback(featureKey, 'anthropic', 'sonnet'),
+    'work_pulse.analyze': fallback(featureKey, 'anthropic', 'sonnet'),
+    // 2026-07-25 — de-dated from 'claude-haiku-4-5-20251001'. ai-providers.ts
+    // documents that id as "dated alias of claude-haiku-4-5" with identical
+    // pricing (₹0.085/₹0.425 per 1K tokens on both) — same tier, no upgrade,
+    // just dropping the snapshot date.
+    'work_pulse.translate': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    'attention_bar.assistant': fallback(featureKey, 'anthropic', 'claude-haiku-4-5'),
+    // rcltp generate route is MyJKKN-gated scaffold (no model in code yet) —
     // forward-default to the platform workhorse.
     'rcltp.question_generation': fallback(featureKey, 'anthropic', 'claude-sonnet-4-6'),
     'admission.ai_service': fallback(featureKey, 'anthropic', 'claude-sonnet-4-5'),
+    // Deliberately LEFT dated (not de-dated): 'claude-3-5-haiku-20241022' has
+    // no undated sibling id in ai-providers.ts — 3.5 vs 4.5 is a genuine
+    // version bump, not a snapshot-of-the-same-model de-dating, so touching
+    // this would be an unrequested model upgrade. Out of scope for this fix.
     'admission.agentic_query': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     'admission.ai_response': fallback(featureKey, 'anthropic', 'claude-3-5-haiku-20241022'),
     // Procurement PDF extraction (2026-07-11) — mirrors the pre-adoption hardcode

@@ -57,6 +57,12 @@ export async function POST(
     const fee = Number((division?.config as any)?.entry_fee ?? reg?.payment_amount ?? 0) || 0;
     if (fee <= 0) return NextResponse.json({ error: 'This division has no entry fee' }, { status: 400 });
 
+    const { data: hostEvent } = await (svc as any)
+      .from('events')
+      .select('institution_id')
+      .eq('id', eventId)
+      .single();
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const res = await EventPaymentService.initiatePayment({
       registrationId: entry.registration_id,
@@ -67,9 +73,17 @@ export async function POST(
       payerPhone: reg?.participant_phone || '',
       returnUrl: `${appUrl}/events/tournament/${eventId}`,
       callbackUrl: `${appUrl}/api/events/tournament/${eventId}/payment/callback`,
+      institutionIdOverride: hostEvent?.institution_id ?? null,
+      feeHead: 'tuition',
     });
 
-    return NextResponse.json({ payment_url: res.payment_url, transaction_id: res.transaction_id });
+    return NextResponse.json({
+      transaction_id: res.transaction_id,
+      razorpay_order_id: res.razorpay_order_id ?? null,
+      razorpay_key_id: res.razorpay_key_id ?? null,
+      amount_paise: res.amount_paise ?? null,
+      customer: res.customer ?? null,
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to create payment link' },

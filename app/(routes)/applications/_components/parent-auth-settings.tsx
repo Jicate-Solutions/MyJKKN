@@ -117,9 +117,9 @@ export function ParentAuthSettings({
   return (
     <Card className="border-primary/20">
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
+            <Shield className="h-5 w-5 text-primary shrink-0" />
             <CardTitle>Parent App Authentication</CardTitle>
           </div>
           <FormField
@@ -275,8 +275,8 @@ export function ParentAuthSettings({
             name="allowed_redirect_uris"
             render={({ field }) => (
               <FormItem>
-                <div className="flex items-center justify-between mb-1">
-                  <div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-1">
+                  <div className="min-w-0">
                     <FormLabel>Allowed Redirect URIs</FormLabel>
                     <FormDescription>
                       Allowed callback URLs after authentication
@@ -286,6 +286,7 @@ export function ParentAuthSettings({
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="shrink-0"
                     onClick={() =>
                       field.onChange([...(field.value || []), ''])
                     }
@@ -356,7 +357,7 @@ export function ParentAuthSettings({
                 <FormDescription>
                   Select the permissions this app can access
                 </FormDescription>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {availableScopes.map((scope) => (
                     <div
                       key={scope.value}
@@ -400,7 +401,7 @@ export function ParentAuthSettings({
           </Alert>
 
           {/* Rate Limiting */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FormField
               control={form.control}
               name="rate_limit_requests"

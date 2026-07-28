@@ -56,6 +56,25 @@ export function useApprovePurchaseRequest() {
   });
 }
 
+export function useApproveWithModifications() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      userId,
+      itemUpdates,
+    }: {
+      id: string;
+      userId: string;
+      itemUpdates: { itemId: string; required_quantity: number }[];
+    }) => ProcurementPurchaseRequestService.approveWithModifications(id, userId, itemUpdates),
+    onSuccess: (_r, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', id] });
+    },
+  });
+}
+
 export function useRejectPurchaseRequest() {
   const queryClient = useQueryClient();
   return useMutation({

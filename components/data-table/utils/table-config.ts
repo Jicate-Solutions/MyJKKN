@@ -59,6 +59,14 @@ export interface TableConfig {
   // When false: Export only includes visible columns (hidden columns always excluded)
   // Note: Hidden columns are ALWAYS excluded regardless of this setting
   allowExportNewColumns: boolean;
+
+  // When true, the Export button's PRIMARY action exports every page (all rows
+  // matching the current filters) instead of just the visible page — for tables
+  // where "export = the whole dataset" is the expected behaviour. "Export
+  // Current Page" stays available as a secondary option. Requires all-pages
+  // support (getAllItems() pages through fetchDataFn). Defaults false, so no
+  // existing table's behaviour changes.
+  exportAllPagesByDefault?: boolean;
 }
 
 // Default configuration
@@ -79,7 +87,8 @@ const defaultConfig: TableConfig = {
   size: 'default', // Default size for buttons and inputs
   columnResizingTableId: undefined, // No table ID by default
   searchPlaceholder: undefined, // No custom search placeholder by default
-  allowExportNewColumns: true // Allow new columns from transform function by default
+  allowExportNewColumns: true, // Allow new columns from transform function by default
+  exportAllPagesByDefault: false // Export defaults to the visible page (unchanged)
 };
 
 /**

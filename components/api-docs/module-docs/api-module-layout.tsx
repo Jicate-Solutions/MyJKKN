@@ -51,7 +51,7 @@ export function ApiModuleLayout({ config, children }: ApiModuleLayoutProps) {
   }, [config.endpoints, searchTerm, selectedCategory]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 [&_code]:break-all">
       {/* Module Header */}
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-4 flex-col sm:flex-row">
@@ -75,7 +75,7 @@ export function ApiModuleLayout({ config, children }: ApiModuleLayoutProps) {
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-sm">
               <span className="font-medium">Base URL:</span>
-              <code className="flex-1 bg-background px-3 py-1.5 rounded border font-mono">
+              <code className="flex-1 min-w-0 bg-background px-3 py-1.5 rounded border font-mono">
                 {config.baseUrl}
               </code>
             </div>
@@ -211,11 +211,11 @@ export function ApiModuleLayout({ config, children }: ApiModuleLayoutProps) {
                       <Badge variant="outline" className="font-mono text-xs">
                         {endpoint.method}
                       </Badge>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium group-hover:text-primary transition-colors">
                           {endpoint.title}
                         </div>
-                        <div className="text-xs text-muted-foreground font-mono">
+                        <div className="text-xs text-muted-foreground font-mono break-all">
                           {endpoint.path}
                         </div>
                       </div>

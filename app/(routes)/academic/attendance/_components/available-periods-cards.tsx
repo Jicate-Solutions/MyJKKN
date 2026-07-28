@@ -235,8 +235,16 @@ export function AvailablePeriodsCards({
       // One semester-level student_attendance record can hold several periods; without this
       // the report page always defaulted to the first period, so "View Details" on (e.g.)
       // Oral Medicine showed the first period's class (Oral Surgery) instead. [BUG-003154]
+      // Updated: 2026-07-21 - Send timetable_slot_id, NOT period.id. FIX 3 shipped the wrong
+      // identifier: period.id is the periods-TABLE row id (attendance-service.ts sets
+      // `id: slot.period_id`), whereas student_attendance.attendance_data is keyed by slot_id
+      // (mark page writes `[periodId]` where periodId === timetable_slot_id). Verified against
+      // prod: zero attendance_data keys match a periods.id. So ?period= never resolved and the
+      // report silently fell back to period_details[0] — leaving BUG-003154 live, and making
+      // every "Edit Attendance" target the first period. timetable_slot_id also carries the
+      // `_group_N` suffix for subdivided slots, matching how the keys are actually stored.
       router.push(
-        `/academic/attendance/reports/${recordId}?period=${encodeURIComponent(period.id)}`
+        `/academic/attendance/reports/${recordId}?period=${encodeURIComponent(period.timetable_slot_id)}`
       );
       return;
     } else {

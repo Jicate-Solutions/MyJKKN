@@ -57,6 +57,31 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
     [institutions, scopedInstitutionsId]
   );
 
+  // All MyJKKN UUIDs (Aided + Self) belonging to CAS (Arts & Science). Detected
+  // via the COE institution_code = MyJKKN counselling_code bridge ('CAS'). A
+  // syllabus in this set renders its unit content as a flowing paragraph in the PDF.
+  const casInstitutionIds = useMemo(
+    () => new Set(
+      institutions
+        .filter((i) => (i.institution_code ?? '').toUpperCase() === 'CAS')
+        .flatMap((i) => i.myjkkn_institution_ids)
+    ),
+    [institutions]
+  );
+
+  // All MyJKKN UUIDs belonging to CET (College of Engineering & Technology),
+  // via the same COE institution_code = MyJKKN counselling_code bridge. Every
+  // syllabus hosted under CET renders the Engineering (Anna University) PDF
+  // format — course_code/stream heuristics alone miss codes like "CP25C22".
+  const cetInstitutionIds = useMemo(
+    () => new Set(
+      institutions
+        .filter((i) => (i.institution_code ?? '').toUpperCase() === 'CET')
+        .flatMap((i) => i.myjkkn_institution_ids)
+    ),
+    [institutions]
+  );
+
   // Board membership IS the authorization here — see the same comment in
   // syllabus-actions.tsx. We intentionally don't gate on canAccess('create')
   // because role-permission grants drift out of sync with composition
@@ -158,7 +183,7 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => createSyllabusColumns(institutionName)}
+        getColumns={() => createSyllabusColumns(institutionName, casInstitutionIds, cetInstitutionIds)}
         exportConfig={{
           entityName: 'syllabi',
           columnMapping: {},

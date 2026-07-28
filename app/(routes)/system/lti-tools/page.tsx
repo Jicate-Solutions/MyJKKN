@@ -69,29 +69,29 @@ export default function LtiToolsPage() {
           MyJKKN LTI Endpoints
         </h3>
         <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
               GET
             </span>
-            <code className="text-primary">
+            <code className="text-primary break-all">
               https://jkkn.ai/api/lti/jwks
             </code>
             <span className="text-gray-500">- Public key (JWKS)</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
               POST
             </span>
-            <code className="text-primary">
+            <code className="text-primary break-all">
               https://jkkn.ai/api/lti/auth
             </code>
             <span className="text-gray-500">- OIDC login init</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
               POST
             </span>
-            <code className="text-primary">
+            <code className="text-primary break-all">
               https://jkkn.ai/api/lti/launch
             </code>
             <span className="text-gray-500">- Launch endpoint</span>

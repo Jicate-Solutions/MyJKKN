@@ -36,9 +36,15 @@ interface Props {
    * the mismatch risk between them.
    */
   lockedBoardId?: string;
+  /**
+   * Hide the Part & Level fields — institutions that don't use the TN
+   * arts-college tiers (see institutionSkipsPartLevel, e.g. CET). Both schema
+   * fields are optional, so submitting without them stays valid.
+   */
+  hidePartLevel?: boolean;
 }
 
-export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save', lockedBoardId }: Props) {
+export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save', lockedBoardId, hidePartLevel }: Props) {
   // Live course_type list from COE — falls back to the bundled list while loading
   // or on outage so the form is never blocked.
   const courseTypesQ = useCourseTypeOptions();
@@ -76,6 +82,7 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       exam_duration: 3,
       credit: 3,
       theory_hours: 0,
+      tutorial_hours: 0,
       practical_hours: 0,
       internal_max_mark: 25,
       external_max_mark: 75,
@@ -109,7 +116,7 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
   }, [internal, external]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6 max-w-3xl'>
+    <form onSubmit={form.handleSubmit(onSubmit)} className='w-full space-y-6'>
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Identity</legend>
         {!lockedBoardId && (
@@ -167,29 +174,31 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
         </div>
         <div className='grid grid-cols-2 gap-3'>
           <SelectField name='course_category' form={form} label='Category' options={COURSE_CATEGORY_VALUES} required />
-          <Field label='Part' error={form.formState.errors.course_part_master?.message}>
-            <Controller
-              name='course_part_master'
-              control={form.control}
-              render={({ field }) => (
-                <SearchableSelect
-                  value={(field.value as string) ?? ''}
-                  onValueChange={(v) =>
-                    // Empty value means "cleared" — PG courses carry no Part,
-                    // so we keep the field undefined rather than sending ''.
-                    field.onChange(v === '' ? undefined : v)
-                  }
-                  options={COURSE_PART_VALUES.map((v) => ({ value: v, label: v }))}
-                  placeholder='(none) — leave blank for PG'
-                  searchPlaceholder='Search part…'
-                  emptyMessage='No matching part'
-                  className='w-full justify-between'
-                />
-              )}
-            />
-          </Field>
+          {!hidePartLevel && (
+            <Field label='Part' error={form.formState.errors.course_part_master?.message}>
+              <Controller
+                name='course_part_master'
+                control={form.control}
+                render={({ field }) => (
+                  <SearchableSelect
+                    value={(field.value as string) ?? ''}
+                    onValueChange={(v) =>
+                      // Empty value means "cleared" — PG courses carry no Part,
+                      // so we keep the field undefined rather than sending ''.
+                      field.onChange(v === '' ? undefined : v)
+                    }
+                    options={COURSE_PART_VALUES.map((v) => ({ value: v, label: v }))}
+                    placeholder='(none) — leave blank for PG'
+                    searchPlaceholder='Search part…'
+                    emptyMessage='No matching part'
+                    className='w-full justify-between'
+                  />
+                )}
+              />
+            </Field>
+          )}
         </div>
-        <div className='grid grid-cols-[2fr_1fr] gap-3'>
+        <div className={hidePartLevel ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-[2fr_1fr] gap-3'}>
           <Field label='Type' error={form.formState.errors.course_type?.message}>
             <Controller
               name='course_type'
@@ -212,34 +221,36 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
               )}
             />
           </Field>
-          <Field label='Level' error={form.formState.errors.course_level?.message}>
-            <Controller
-              name='course_level'
-              control={form.control}
-              render={({ field }) => (
-                <SearchableSelect
-                  value={(field.value as string) ?? ''}
-                  onValueChange={(v) =>
-                    // Empty string means "cleared" — keep the field truly empty
-                    // so the optional Zod check stays happy and we don't send
-                    // an empty string to COE.
-                    field.onChange(v === '' ? undefined : v)
-                  }
-                  options={COURSE_LEVEL_VALUES.map((v) => ({ value: v, label: v }))}
-                  placeholder='Select level'
-                  searchPlaceholder='Search level…'
-                  emptyMessage='No matching level'
-                  className='w-full justify-between'
-                />
-              )}
-            />
-          </Field>
+          {!hidePartLevel && (
+            <Field label='Level' error={form.formState.errors.course_level?.message}>
+              <Controller
+                name='course_level'
+                control={form.control}
+                render={({ field }) => (
+                  <SearchableSelect
+                    value={(field.value as string) ?? ''}
+                    onValueChange={(v) =>
+                      // Empty string means "cleared" — keep the field truly empty
+                      // so the optional Zod check stays happy and we don't send
+                      // an empty string to COE.
+                      field.onChange(v === '' ? undefined : v)
+                    }
+                    options={COURSE_LEVEL_VALUES.map((v) => ({ value: v, label: v }))}
+                    placeholder='Select level'
+                    searchPlaceholder='Search level…'
+                    emptyMessage='No matching level'
+                    className='w-full justify-between'
+                  />
+                )}
+              />
+            </Field>
+          )}
         </div>
       </fieldset>
 
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Workload</legend>
-        <div className='grid grid-cols-4 gap-3'>
+        <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5'>
           <Field label='Exam (Hrs)' required error={form.formState.errors.exam_duration?.message}>
             <Input type='number' min={0} max={8} {...form.register('exam_duration', { valueAsNumber: true })} />
           </Field>
@@ -248,6 +259,11 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
           </Field>
           <Field label='Theory Hours' required error={form.formState.errors.theory_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('theory_hours', { valueAsNumber: true })} />
+          </Field>
+          {/* Tutorial Hours — optional (default 0); not every course has a
+              tutorial component, so it carries no `required` flag. */}
+          <Field label='Tutorial Hours' error={form.formState.errors.tutorial_hours?.message}>
+            <Input type='number' min={0} max={40} {...form.register('tutorial_hours', { valueAsNumber: true })} />
           </Field>
           <Field label='Practical Hours' required error={form.formState.errors.practical_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('practical_hours', { valueAsNumber: true })} />
@@ -258,11 +274,13 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Max Marks</legend>
         <div className='grid grid-cols-3 gap-3'>
+          {/* No max cap — the total (internal + external) varies by subject, so
+              allow any non-negative value rather than fixing it at 100. */}
           <Field label='Internal (CIA)' required error={form.formState.errors.internal_max_mark?.message}>
-            <Input type='number' min={0} max={100} {...form.register('internal_max_mark', { valueAsNumber: true })} />
+            <Input type='number' min={0} {...form.register('internal_max_mark', { valueAsNumber: true })} />
           </Field>
           <Field label='External (ESE)' required error={form.formState.errors.external_max_mark?.message}>
-            <Input type='number' min={0} max={100} {...form.register('external_max_mark', { valueAsNumber: true })} />
+            <Input type='number' min={0} {...form.register('external_max_mark', { valueAsNumber: true })} />
           </Field>
           <Field label='Total (auto)'>
             <Input disabled type='number' {...form.register('total_max_mark', { valueAsNumber: true })} />

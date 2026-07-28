@@ -195,7 +195,7 @@ export default function LeaveOndutyReportsPage() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               Leave/OnDuty Reports & Analytics
@@ -204,7 +204,7 @@ export default function LeaveOndutyReportsPage() {
               View trends and statistics for leave/onduty applications
             </p>
           </div>
-          <Button onClick={handleExport} variant="outline">
+          <Button onClick={handleExport} variant="outline" className="shrink-0">
             <FileDown className="h-4 w-4 mr-2" />
             Export
           </Button>

@@ -19,7 +19,7 @@ import { EmptyState } from '@/components/empty-state';
 import { useLeaveBalance, useMyEncashments, useRequestEncashment } from '@/hooks/hr/use-leave';
 import { useCurrentEmployee } from '@/hooks/hr/use-regularization';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
-import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useAcademicYears, useCurrentAcademicYear } from '@/hooks/use-academic-years';
 
 export default function EncashmentPage() {
   // Auto-resolve the employee from the logged-in user (same pattern as Apply —
@@ -35,14 +35,18 @@ export default function EncashmentPage() {
   // until the institution scope is resolved — an unscoped fetch returns years
   // across ALL institutions.
   const { data: academicYearsResp, isLoading: yearsFetching } = useAcademicYears(institutionId);
-  const yearsLoading = yearsFetching || mappingsLoading;
+  // Default selection is the year that CONTAINS today, not the
+  // lexically-highest active name — the dropdown itself still lists all
+  // active years via useAcademicYears above.
+  const { data: currentYear, isLoading: currentYearFetching } = useCurrentAcademicYear(institutionId);
+  const yearsLoading = yearsFetching || currentYearFetching || mappingsLoading;
   const academicYears = useMemo(
     () => (institutionId ? academicYearsResp?.data ?? [] : []),
     [academicYearsResp, institutionId],
   );
 
   const [selectedYearId, setSelectedYearId] = useState('');
-  const academicYearId = selectedYearId || academicYears[0]?.id || '';
+  const academicYearId = selectedYearId || currentYear?.id || '';
 
   // Leave types come from the employee's balances (same source as Apply) so the
   // dropdown shows how many days are actually available to encash.

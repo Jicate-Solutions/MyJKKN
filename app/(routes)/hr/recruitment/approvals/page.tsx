@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { useApprovalsJobOverview, useCandidates } from '@/hooks/hr/use-recruitment';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useAuth } from '@/hooks/use-auth';
+import { MyPendingCandidates } from './_components/my-pending-candidates';
 import {
   JOB_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -70,6 +72,8 @@ function RecruitmentApprovalsInner() {
   }, [searchParams]);
 
   const { data: rows, isLoading, error } = useApprovalsJobOverview();
+  const { profile } = useAuth();
+  const userId = profile?.id;
   const { institutions } = useInstitutionsWithAccess();
   const institutionNameById = useMemo(
     () => new Map(institutions.map((i) => [i.id, i.name] as const)),
@@ -85,8 +89,9 @@ function RecruitmentApprovalsInner() {
     (c) => !(c.role_specific_details as Record<string, unknown> | null)?.job_id,
   );
 
-  // Client-side search + view filter, then a decision-first sort:
-  // jobs needing YOUR action float up, then live approval load, then fresh inflow.
+  // The 'all' view is job-first: every job, decision-first sorted (jobs needing
+  // action float up). The 'mine' view renders candidate-level rows instead (see
+  // MyPendingCandidates), so this job list only feeds 'all'.
   const visible = useMemo(() => {
     const all = rows ?? [];
     const q = search.trim().toLowerCase();
@@ -96,13 +101,12 @@ function RecruitmentApprovalsInner() {
           (r.job.job_code ?? '').toLowerCase().includes(q) ||
           (institutionNameById.get(r.job.institution_id ?? '') ?? '').toLowerCase().includes(q))
       : all;
-    const scoped = viewMode === 'mine' ? searched.filter((r) => r.awaiting_me > 0) : searched;
-    return [...scoped].sort((a, b) =>
+    return [...searched].sort((a, b) =>
       b.awaiting_me - a.awaiting_me ||
       b.in_approval - a.in_approval ||
       b.applications_pending - a.applications_pending ||
       new Date(b.job.created_at).getTime() - new Date(a.job.created_at).getTime());
-  }, [rows, search, viewMode, institutionNameById]);
+  }, [rows, search, institutionNameById]);
 
   // Stat strip totals (whole dataset, not the filtered view — they answer
   // "how much is in the system", the list answers "what should I look at").
@@ -191,79 +195,70 @@ function RecruitmentApprovalsInner() {
           </div>
         </div>
 
-        {/* Fetch error */}
-        {!isLoading && error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{(error as Error).message}</AlertDescription>
-          </Alert>
+        {/* MINE — candidate-level list with inline approve/reject */}
+        {viewMode === 'mine' && (
+          <MyPendingCandidates userId={userId} search={search} />
         )}
 
-        {/* Skeleton rows */}
-        {isLoading && (
-          <Card>
-            <CardContent className="p-0 divide-y divide-border">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="flex items-center gap-3 p-4">
-                  <div className="h-10 w-10 rounded-lg bg-muted/60 animate-pulse shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 w-56 rounded bg-muted/60 animate-pulse" />
-                    <div className="h-3 w-72 rounded bg-muted/40 animate-pulse" />
-                  </div>
-                  <div className="h-8 w-16 rounded bg-muted/40 animate-pulse" />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
+        {/* ALL — job-first list */}
+        {viewMode === 'all' && (
+          <>
+            {/* Fetch error */}
+            {!isLoading && error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{(error as Error).message}</AlertDescription>
+              </Alert>
+            )}
 
-        {/* Empty states */}
-        {!isLoading && !error && visible.length === 0 && (
-          <Card>
-            <CardContent className="py-12 flex flex-col items-center gap-2 text-center">
-              <Inbox className="h-8 w-8 text-muted-foreground/60" />
-              {viewMode === 'mine' ? (
-                <>
-                  <p className="text-sm font-medium">Nothing awaiting your action</p>
-                  <p className="text-xs text-muted-foreground max-w-sm">
-                    No candidate is currently routed to you for approval. Switch to
-                    &ldquo;All pending&rdquo; to browse every job&rsquo;s pipeline.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('all')}
-                    className="mt-1 text-xs text-primary hover:underline cursor-pointer"
-                  >
-                    View all pending
-                  </button>
-                </>
-              ) : (
-                <>
+            {/* Skeleton rows */}
+            {isLoading && (
+              <Card>
+                <CardContent className="p-0 divide-y divide-border">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="flex items-center gap-3 p-4">
+                      <div className="h-10 w-10 rounded-lg bg-muted/60 animate-pulse shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-56 rounded bg-muted/60 animate-pulse" />
+                        <div className="h-3 w-72 rounded bg-muted/40 animate-pulse" />
+                      </div>
+                      <div className="h-8 w-16 rounded bg-muted/40 animate-pulse" />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Empty state */}
+            {!isLoading && !error && visible.length === 0 && (
+              <Card>
+                <CardContent className="py-12 flex flex-col items-center gap-2 text-center">
+                  <Inbox className="h-8 w-8 text-muted-foreground/60" />
                   <p className="text-sm font-medium">No jobs found</p>
                   <p className="text-xs text-muted-foreground max-w-sm">
                     {search
                       ? 'No job matches your search.'
                       : 'Jobs appear here once created under Recruitment → Jobs.'}
                   </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                </CardContent>
+              </Card>
+            )}
 
-        {/* Job rows */}
-        {!isLoading && !error && visible.length > 0 && (
-          <Card>
-            <CardContent className="p-0 divide-y divide-border">
-              {visible.map((r) => (
-                <JobRow
-                  key={r.job.id}
-                  row={r}
-                  institutionName={institutionNameById.get(r.job.institution_id ?? '')}
-                />
-              ))}
-            </CardContent>
-          </Card>
+            {/* Job rows */}
+            {!isLoading && !error && visible.length > 0 && (
+              <Card>
+                <CardContent className="p-0 divide-y divide-border">
+                  {visible.map((r) => (
+                    <JobRow
+                      key={r.job.id}
+                      row={r}
+                      institutionName={institutionNameById.get(r.job.institution_id ?? '')}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
 
         {/* Legacy rescue card — pending candidates with no job link */}

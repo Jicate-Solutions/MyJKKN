@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosAccess,
   resolveBosBoardScope,
-  compositionScopeFilter,
   applyInstitutionScope,
   guardInstitutionWrite,
   resolveCoeInstitutionId,
   readableCounsellingCodes,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
@@ -59,13 +60,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Step 2: Resolve institution + board-membership scope.
-    // Syllabi have board_id but no composition_id, so members are filtered by
-    // boardsOf (the union of board_ids across their active compositions).
+    // Step 2: Resolve board-membership scope.
+    // Policy (2026-07-23, reverses 2026-07-16): the read-all observer tier IS
+    // applied — any holder of academic.bos-syllabus.view reads every board's
+    // syllabi across ALL institutions, VIEW ONLY (edit stays gated by
+    // guardSyllabusEdit on the mutating routes). Board-scoping now only
+    // applies to users who reach this route WITHOUT the view grant.
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const seeAll = scope.isSuperAdmin || isBosReadAllObserver(scope, hasView);
+    const boardIds = Array.from(scope.boardsOf);
 
-    if (scopeFilter.kind === 'none') {
+    if (!seeAll && boardIds.length === 0) {
       return NextResponse.json({
         data: [],
         metadata: { total: 0, page: 1, limit: 50, totalPages: 0 },
@@ -90,9 +96,11 @@ export async function GET(request: NextRequest) {
     // Step 4: Apply institution scope.
     // Super-admin with no institutionsId = "All institutions" cross-institution view — allowed.
     // Non-admin without an institution association = still rejected (403).
-    const scopedInstitutionsId = applyInstitutionScope(scope, institutionsId);
+    // Observer reads across all institutions, so an unscoped request is fine —
+    // treat like super-admin for the "no institution" allowance.
+    const scopedInstitutionsId = seeAll ? (institutionsId ?? null) : applyInstitutionScope(scope, institutionsId);
 
-    if (!scopedInstitutionsId && !scope.isSuperAdmin) {
+    if (!scopedInstitutionsId && !seeAll) {
       return NextResponse.json(
         {
           error: 'Your account is not associated with an institution. Contact your administrator to assign an institution to your profile.'
@@ -110,46 +118,74 @@ export async function GET(request: NextRequest) {
     //  - super-admin scoped to a specific institution: that institution's code.
     //  - super-admin with no institution: no filter (all institutions).
     let filterCode: string | null = null;
-    if (!scope.isSuperAdmin) {
+    if (!seeAll) {
       const codes = await readableCounsellingCodes(scope);
       filterCode = codes && codes.length > 0 ? codes[0] : null;
     } else if (scopedInstitutionsId) {
       filterCode = await counsellingCodeFor(supabase, scopedInstitutionsId);
     }
 
-    let query = supabase
+    // Read via service-role, with the institution (counselling_code) + board_id
+    // filters below AS the authorization — the route enforces board-scoping
+    // explicitly (matching the PUT/DELETE + meetings/TA-DA precedent), so we
+    // don't depend on the bos_course_syllabi SELECT RLS policy (which errors for
+    // board members whose role can't read the tables its USING clause subqueries).
+    const readDb = createServiceRoleClient();
+    let query = readDb
       .from('bos_course_syllabi')
       .select('*', { count: 'exact' });
 
     if (filterCode) {
       query = query.eq('counselling_code', filterCode);
-    } else if (!scope.isSuperAdmin) {
+    } else if (!seeAll) {
       // Non-admin whose code didn't resolve — never run unfiltered; fall back to
       // the single institution UUID so we still scope (and don't leak).
       query = query.eq('institutions_id', scopedInstitutionsId!);
     }
-    // super-admin with no filterCode → "All institutions" (no institution filter)
+    // super-admin / read-all observer with no filterCode → "All institutions" (no institution filter)
 
-    // Board-membership scope (after the institution filter).
-    //  - 'all'           : super-admin — no extra filter
-    //  - 'byInstitution' : principal — institution filter above is sufficient
-    //  - 'byComposition' : member/chairman — restrict by board_id ∈ boardsOf.
-    //                      (Schema has board_id, no composition_id; we use the
-    //                      board set derived during scope resolution.)
-    if (scopeFilter.kind === 'byComposition') {
-      const boardIds = Array.from(scope.boardsOf);
-      if (boardIds.length === 0) {
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        } as BosSyllabusListResponse);
-      }
+    // Board-scoped visibility for EVERYONE except super-admin — members,
+    // chairman AND principals see only the boards they sit on. boardIds was
+    // resolved (and the empty case returned early) in Step 2.
+    if (!seeAll) {
       query = query.in('board_id', boardIds);
+    }
+
+    // Resolve the regulation filter to a CAS-sibling-aware set.
+    // A CAS college has TWO institution rows (Aided + Self-Financed), each with
+    // its OWN regulation row that shares the same regulation_code (e.g. two
+    // "R-2024" rows). Syllabi may be authored under either sibling, so filtering
+    // by the single passed regulation_id silently drops the other sibling's
+    // syllabi (the exact bug behind "only one course downloads"). We expand the
+    // filter to every active regulation_id sharing the code; the counselling_code
+    // filter above still scopes results to the caller's institution(s).
+    //
+    // For a NON-CAS institution a code maps to exactly one regulation row, so
+    // this resolves to [regulationId] and behaves identically to a plain .eq().
+    let regulationIdsFilter: string[] | null = null;
+    if (regulationId) {
+      const { data: regRow } = await supabase
+        .from('regulations')
+        .select('regulation_code')
+        .eq('id', regulationId)
+        .maybeSingle();
+      const code = regRow?.regulation_code as string | undefined;
+      if (code) {
+        const { data: siblingRegs } = await supabase
+          .from('regulations')
+          .select('id')
+          .eq('regulation_code', code)
+          .eq('is_active', true);
+        const ids = (siblingRegs ?? []).map((r) => r.id as string);
+        regulationIdsFilter = ids.length > 0 ? ids : [regulationId];
+      } else {
+        regulationIdsFilter = [regulationId];
+      }
     }
 
     // Apply filters
     if (boardId) query = query.eq('board_id', boardId);
-    if (regulationId) query = query.eq('regulation_id', regulationId);
+    if (regulationIdsFilter) query = query.in('regulation_id', regulationIdsFilter);
     if (courseCode) query = query.eq('course_code', courseCode);
     if (stream) query = query.eq('stream', stream);
     if (isLatest) query = query.eq('is_latest', true);

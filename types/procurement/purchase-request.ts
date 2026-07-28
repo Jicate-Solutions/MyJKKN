@@ -1,7 +1,7 @@
 // types/procurement/purchase-request.ts
 import type { ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 
-export type PurchaseRequestType = 'restock' | 'new_item';
+export type PurchaseRequestType = 'restock' | 'new_item' | 'mixed';
 
 export type PurchaseRequestStatus =
   | 'draft'
@@ -46,6 +46,10 @@ export interface ProcurementPurchaseRequestItem {
   current_stock: number | null;
   reorder_level: number | null;
   estimated_cost: number | null;
+  /** Snapshot of required_quantity before an approver's "Modify & Approve" edit — null if never modified. */
+  original_quantity: number | null;
+  quantity_modified_by: string | null;
+  quantity_modified_at: string | null;
   created_at: string;
 }
 
@@ -70,8 +74,8 @@ export interface CreatePurchaseRequestDto {
   institution_id: string;
   store_id?: string | null;
   domain?: ProcurementDomain; // defaults to 'ims'
-  request_type: PurchaseRequestType;
   notes?: string | null;
+  /** Per item: domain_item_id set = restock, null = new item — request_type is derived from these, not client-supplied. */
   items: CreatePurchaseRequestItemDto[];
 }
 

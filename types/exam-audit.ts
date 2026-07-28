@@ -17,6 +17,26 @@ export type ExamAuditVerdict =
   | 'operator_bulk'      // operator accounts and/or one-day dump — "some other data"
   | 'missing';           // registered for the exam but NO CIA rows at all
 
+/** One round of a rubric as the viewer displays it. */
+export interface ExamAuditRubricRoundDef {
+  round: number;
+  round_name: string | null;
+  entry_from: string | null;
+  entry_to: string | null;
+  components: Array<{ name: string; max_marks: number }>;
+  total_max: number;
+}
+
+/** What the rubric SAYS — the assessment pattern itself, not the verdicts
+ *  against it. Configured by the exam cell in COE (cia_entry_settings). */
+export interface ExamAuditRubricDefinition {
+  setting_names: string[];
+  rounds: ExamAuditRubricRoundDef[];
+  /** True when the whole rubric carries zero max marks — exists on paper,
+   *  grades nothing. */
+  is_empty: boolean;
+}
+
 export interface ExamAuditProgramRow {
   program_code: string;
   program_name: string | null;
@@ -44,7 +64,14 @@ export interface ExamAuditProgramRow {
   rubric_rounds_configured: number | null;
   /** % of CIA rows entered inside their round's configured entry window. */
   on_window_pct: number | null;
+  /** The round NUMBERS the rubric configures (e.g. [1,2]) — lets consumers say
+   *  which round never happened, not just how many. */
+  rubric_rounds: number[];
   rubric_setting_names: string[];
+  /** The rubric's actual definition (rounds, entry windows, components with
+   *  max marks) — what the rubric viewer shows. null = no rubric covers this
+   *  program for this session. */
+  rubric_definition: ExamAuditRubricDefinition | null;
   /** Eligibility risk among registered students, from JKKN day-one attendance. */
   att_below_75: number;
   att_below_65: number;
@@ -82,6 +109,98 @@ export interface ExamAuditOverviewResponse {
     cia_rows: number;
     missing_programs: number;
     operator_bulk_programs: number;
+  };
+}
+
+// ── Program drill-down (2026-07-14) ─────────────────────────────────────────
+// Director: "1 AND 2 — carry everything, drop nothing." Behind every audit
+// count sits a person: these are the per-student rows the Registrar walks the
+// department with. Served ONLY behind academic.internal_marks.exam_audit.view.
+
+/** Eligibility bucket from JKKN day-one attendance. Attendance gates who may
+ *  SIT the exam — it never decides the internal marks. */
+export type ExamAuditAttendanceBucket = 'ok' | 'below_75' | 'below_65' | 'no_record';
+
+/** One registered student inside a program drill-down. */
+export interface ExamAuditStudentDetailRow {
+  student_id: string;
+  student_name: string | null;
+  register_no: string | null;
+  /** Courses this student is registered for in the session. */
+  registered_courses: number;
+  /** CIA provenance for this student within the program/session. */
+  cia_rows: number;
+  cia_courses: number;
+  rounds_used: number[];
+  faculty_stamped_pct: number | null;
+  verified_pct: number | null;
+  avg_internal_pct: number | null;
+  /** JKKN continuous attendance over the audit window (null = no record). */
+  att_present: number | null;
+  att_total: number | null;
+  att_pct: number | null;
+  att_bucket: ExamAuditAttendanceBucket;
+}
+
+export interface ExamAuditProgramDetailResponse {
+  institution: { id: string; name: string | null };
+  session: ExamAuditSessionRef;
+  window: { from: string; to: string };
+  thresholds: { eligibility: number; condonation: number };
+  /** The same verdict row the overview table shows for this program. */
+  program: ExamAuditProgramRow;
+  students: ExamAuditStudentDetailRow[];
+}
+
+// ── Rubric-coverage evidence pack (2026-07-14) ───────────────────────────────
+// The one-page document the Registrar/Director hands to the exam cell. Every
+// number is derived from the SAME computeExamAuditPrograms output the page and
+// the weekly alert use — the pack can never disagree with the page.
+
+export interface ExamAuditEvidenceProgramRef {
+  program_code: string;
+  program_name: string | null;
+  registered_students: number;
+  /** Human-readable finding ("rubric configures rounds 1, 2 — round 2 never entered"). */
+  detail: string;
+}
+
+export interface ExamAuditEvidenceCollege {
+  institution_code: string;
+  name: string | null;
+  /** The exam session the college was graded on (auto-detected current term). */
+  session_code: string | null;
+  session_reason: 'ongoing_or_next' | 'most_recent_past' | null;
+  exam_start_date: string | null;
+  exam_end_date: string | null;
+  /** True = sessions exist but the graded term has zero exam registrations. */
+  no_registrations: boolean;
+  registered_students: number;
+  programs_total: number;
+  /** Programs with no finding in any list below. */
+  programs_ok: number;
+  /** Registered students with/without any JKKN attendance record in the window. */
+  attendance: { with_record: number; no_record: number } | null;
+  findings: {
+    no_rubric: ExamAuditEvidenceProgramRef[];
+    rubric_empty: ExamAuditEvidenceProgramRef[];
+    rubric_zero_entries: ExamAuditEvidenceProgramRef[];
+    rounds_missing: ExamAuditEvidenceProgramRef[];
+    operator_bulk: ExamAuditEvidenceProgramRef[];
+  };
+}
+
+export interface ExamAuditEvidencePack {
+  generated_at: string;
+  /** Scope note — which colleges the generating user could see. */
+  scope: string;
+  /** Colleges bridged to COE but with NO examination sessions at all. */
+  colleges_no_sessions: Array<{ institution_code: string; name: string | null }>;
+  colleges: ExamAuditEvidenceCollege[];
+  totals: {
+    colleges_reviewed: number;
+    colleges_no_sessions: number;
+    programs_flagged: number;
   };
 }
 
