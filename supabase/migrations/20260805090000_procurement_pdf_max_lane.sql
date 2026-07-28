@@ -22,7 +22,14 @@
 -- manually" (the Director-chosen fallback). Go-live = a one-line enabled flip,
 -- no deploy.
 --
--- TIER-1 ADDITIVE / IDEMPOTENT / DROPS-NOTHING. No functions, no RPC.
+-- ADDITIVE / IDEMPOTENT / DROPS-NOTHING for the bucket, policies and config.
+--
+-- CONTAINS ONE SECDEF REPLACE: fn_ai_job_type_upsert (section 4). It is a
+-- CREATE OR REPLACE of the LIVE production body with a single vocabulary entry
+-- added — required, because that RPC silently coerces an unknown lane back to
+-- 'max' and would otherwise undo section 3 the first time anyone saves the job
+-- type from /admin/ai-models. Re-read its live md5 before applying (see the
+-- section header) and regenerate rather than apply blind if it has moved.
 -- ============================================================================
 
 BEGIN;
@@ -177,6 +184,148 @@ UPDATE public.ai_job_types
        expected_seconds = 45,
        updated_at  = now()
  WHERE job_type = 'procurement.invoice_extract';
+
+
+-- ── 4. Teach fn_ai_job_type_upsert about the sub-lane ───────────────────────
+-- WITHOUT THIS THE WHOLE LANE SPLIT IS UNDONE BY A UI SAVE.
+--
+-- fn_ai_job_type_upsert (the RPC behind /admin/ai-models → job-type edit, via
+-- POST /api/admin/ai-job-types) carries its OWN vocabulary gate, independent of
+-- the CHECK constraint widened above:
+--
+--     IF v_lane NOT IN ('max', 'api', 'either') THEN
+--       v_lane := 'max';          -- SILENT coercion, no error raised
+--     END IF;
+--
+-- So after this migration sets lane='max-pdf', the next person who opens the
+-- procurement job type and presses Save would have it quietly rewritten to
+-- lane='max' while interactive stays true — re-arming the exact collision this
+-- migration exists to prevent (the PDF runner claiming live ai_query.chat
+-- questions, unrecoverable because fn_ai_requeue_stale skips interactive types).
+-- No error would surface; the admin would simply have saved the form.
+--
+-- The body below is the LIVE production definition (md5
+-- babe2215d3222add0c70a9790f9c5fc9, read from pg_get_functiondef at authoring
+-- time — NOT a repo copy, which risks silently reverting unrelated changes).
+-- The ONLY edits are the added 'max-pdf' vocabulary entry and its comment.
+-- Re-read the live md5 before applying: if it has changed, someone amended this
+-- function since, and this body must be regenerated rather than applied blind.
+
+CREATE OR REPLACE FUNCTION public.fn_ai_job_type_upsert(p_def jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+ SET statement_timeout TO '10s'
+AS $function$
+DECLARE
+  v_job_type      text := nullif(trim(p_def->>'job_type'), '');
+  v_title         text := nullif(trim(p_def->>'title'), '');
+  v_lane          text := coalesce(p_def->>'lane', 'max');
+  v_output_target text := coalesce(p_def->>'output_target', 'job.result');
+  v_allow_rule    text := coalesce(p_def->>'allow_rule', 'seat_owner');
+  v_tool_set      text := coalesce(nullif(trim(p_def->>'tool_set'), ''), 'all');
+  v_input_schema  jsonb;
+  v_expected      int;
+  v_max_inflight  int;
+  v_row           public.ai_job_types%ROWTYPE;
+BEGIN
+  IF NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'FORBIDDEN: super_admin required';
+  END IF;
+
+  -- job_type must be a safe key (lowercase, digits, underscore, dot)
+  IF v_job_type IS NULL OR v_job_type !~ '^[a-z0-9_.]+$' THEN
+    RAISE EXCEPTION 'job_type must match ^[a-z0-9_.]+$ (got %)', coalesce(v_job_type, '<null>');
+  END IF;
+  IF v_title IS NULL THEN
+    RAISE EXCEPTION 'title is required';
+  END IF;
+
+  -- Coerce to CHECK-constraint vocab; anything unrecognised → safe default.
+  -- 'max-pdf' (2026-07-28): a dedicated Max sub-lane. It MUST be listed here —
+  -- without it this coercion silently rewrites lane back to 'max', which for an
+  -- interactive job type re-arms the ai_query.chat claim collision.
+  IF v_lane NOT IN ('max', 'api', 'either', 'max-pdf') THEN
+    v_lane := 'max';
+  END IF;
+  IF NOT (v_output_target IN ('job.result', 'inbox') OR v_output_target LIKE 'table:%') THEN
+    v_output_target := 'job.result';
+  END IF;
+  IF NOT (v_allow_rule IN ('seat_owner', 'authenticated') OR v_allow_rule LIKE 'permission:%') THEN
+    v_allow_rule := 'seat_owner';
+  END IF;
+
+  -- input_schema must be a JSON array; otherwise empty.
+  v_input_schema := CASE
+    WHEN jsonb_typeof(p_def->'input_schema') = 'array' THEN p_def->'input_schema'
+    ELSE '[]'::jsonb
+  END;
+
+  -- expected_seconds / max_inflight: tolerate strings, clamp sane.
+  BEGIN
+    v_expected := nullif(p_def->>'expected_seconds', '')::int;
+  EXCEPTION WHEN others THEN v_expected := NULL;
+  END;
+  IF v_expected IS NOT NULL AND v_expected < 0 THEN
+    v_expected := NULL;
+  END IF;
+  BEGIN
+    v_max_inflight := coalesce(nullif(p_def->>'max_inflight', '')::int, 3);
+  EXCEPTION WHEN others THEN v_max_inflight := 3;
+  END;
+  IF v_max_inflight < 1 THEN
+    v_max_inflight := 1;
+  END IF;
+
+  INSERT INTO public.ai_job_types (
+    job_type, title, description, prompt_template, tool_set, output_target,
+    interactive, lane, allow_rule, max_inflight, schedulable, enabled,
+    input_schema, expected_seconds, updated_at
+  ) VALUES (
+    v_job_type,
+    v_title,
+    nullif(trim(p_def->>'description'), ''),
+    nullif(trim(p_def->>'prompt_template'), ''),
+    v_tool_set,
+    v_output_target,
+    coalesce((p_def->>'interactive')::boolean, false),
+    v_lane,
+    v_allow_rule,
+    v_max_inflight,
+    coalesce((p_def->>'schedulable')::boolean, false),
+    coalesce((p_def->>'enabled')::boolean, true),
+    v_input_schema,
+    v_expected,
+    now()
+  )
+  ON CONFLICT (job_type) DO UPDATE SET
+    title            = EXCLUDED.title,
+    description      = EXCLUDED.description,
+    prompt_template  = EXCLUDED.prompt_template,
+    tool_set         = EXCLUDED.tool_set,
+    output_target    = EXCLUDED.output_target,
+    interactive      = EXCLUDED.interactive,
+    lane             = EXCLUDED.lane,
+    allow_rule       = EXCLUDED.allow_rule,
+    max_inflight     = EXCLUDED.max_inflight,
+    schedulable      = EXCLUDED.schedulable,
+    enabled          = EXCLUDED.enabled,
+    input_schema     = EXCLUDED.input_schema,
+    expected_seconds = EXCLUDED.expected_seconds,
+    updated_at       = now()
+  RETURNING * INTO v_row;
+
+  RETURN jsonb_build_object('ok', true, 'job_type', v_row.job_type, 'row', to_jsonb(v_row));
+END;
+$function$;
+
+-- Preserve the exact grant set this function had before the replace
+-- (service_role, authenticated, postgres). The explicit anon revoke is the
+-- house rule: Supabase's default privileges grant EXECUTE on new functions to
+-- anon, and CREATE OR REPLACE can re-apply them.
+REVOKE EXECUTE ON FUNCTION public.fn_ai_job_type_upsert(jsonb) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_job_type_upsert(jsonb) TO authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';
 
