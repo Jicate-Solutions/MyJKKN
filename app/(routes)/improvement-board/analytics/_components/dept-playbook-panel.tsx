@@ -24,6 +24,7 @@ import {
   AlertCircle,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EditArtifactDialog } from './edit-artifact-dialog';
 import {
@@ -90,7 +91,9 @@ function isStale(iso: string | null | undefined): boolean {
 export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const [byType, setByType] = useState<Partial<Record<ArtifactType, MbaDeptArtifact>>>({});
   const [busy, setBusy] = useState<Partial<Record<ArtifactType, string>>>({});
-  const [failed, setFailed] = useState<Partial<Record<ArtifactType, boolean>>>({});
+  // A string holds a specific server-supplied reason; `true` is the generic
+  // "AI couldn't draft" fallback; absent/undefined means no failure.
+  const [failed, setFailed] = useState<Partial<Record<ArtifactType, string | boolean>>>({});
 
   const refetch = useCallback(async () => {
     try {
@@ -112,7 +115,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const draft = useCallback(
     async (type: ArtifactType) => {
       const before = byType[type]?.version ?? 0;
-      setFailed((f) => ({ ...f, [type]: false }));
+      setFailed((f) => ({ ...f, [type]: undefined }));
       setBusy((b) => ({ ...b, [type]: 'Drafting…' }));
       let landed = false;
       try {
@@ -121,7 +124,13 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ area_id: areaId, artifact_type: type }),
         });
-        if (!res.ok) return; // landed stays false -> failure shown below
+        if (!res.ok) {
+          // Surface the server's specific reason when it sent one, instead of
+          // only the generic banner below.
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          if (j.error) setFailed((f) => ({ ...f, [type]: j.error }));
+          return; // landed stays false -> failure shown below
+        }
         // Poll the collect route until the draft lands (Mac seat drains in ~seconds).
         for (let i = 0; i < 15; i++) {
           await new Promise((r) => setTimeout(r, 4000));
@@ -144,7 +153,8 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
       } finally {
         setBusy((b) => ({ ...b, [type]: undefined }));
         // The AI couldn't produce a usable draft in time — offer a retry.
-        if (!landed) setFailed((f) => ({ ...f, [type]: true }));
+        // Keep any specific server reason already captured above.
+        if (!landed) setFailed((f) => ({ ...f, [type]: f[type] ?? true }));
       }
     },
     [areaId, byType],
@@ -164,10 +174,14 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     async (type: ArtifactType) => {
       setBusy((b) => ({ ...b, [type]: 'Reopening…' }));
       try {
-        await rpcClient().rpc('fn_mba_dept_artifact_reopen', {
+        const { error } = await rpcClient().rpc('fn_mba_dept_artifact_reopen', {
           p_area_id: areaId,
           p_artifact_type: type,
         });
+        if (error) {
+          toast.error(`Couldn't reopen — ${errMsg(error) || 'please try again.'}`);
+          return;
+        }
         await refetch();
       } finally {
         setBusy((b) => ({ ...b, [type]: undefined }));
@@ -178,11 +192,17 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
 
   const requestChanges = useCallback(
     async (type: ArtifactType, note: string) => {
-      await rpcClient().rpc('fn_mba_dept_artifact_request_changes', {
+      const { error } = await rpcClient().rpc('fn_mba_dept_artifact_request_changes', {
         p_area_id: areaId,
         p_artifact_type: type,
         p_review_notes: note || 'Changes requested.',
       });
+      if (error) {
+        // Toast + re-throw so the note dialog stays open (it closes on resolve)
+        // and the manager can retry without retyping.
+        toast.error(`Couldn't request changes — ${errMsg(error) || 'please try again.'}`);
+        throw error instanceof Error ? error : new Error('request_changes_failed');
+      }
       await refetch();
     },
     [areaId, refetch],
@@ -199,10 +219,15 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
 
   const deleteArtifact = useCallback(
     async (type: ArtifactType) => {
-      await rpcClient().rpc('fn_mba_dept_artifact_delete', {
+      const { error } = await rpcClient().rpc('fn_mba_dept_artifact_delete', {
         p_area_id: areaId,
         p_artifact_type: type,
       });
+      if (error) {
+        // Keep the confirm dialog open (delType stays set) so it's retryable.
+        toast.error(`Couldn't delete — ${errMsg(error) || 'please try again.'}`);
+        return;
+      }
       setDelType(null);
       await refetch();
     },
@@ -293,7 +318,9 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               {failed[type] && !working && (
                 <p className="mb-2 flex items-start gap-1 rounded bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
                   <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                  The AI couldn&apos;t produce a draft this time. Please try again.
+                  {typeof failed[type] === 'string'
+                    ? failed[type]
+                    : "The AI couldn't produce a draft this time. Please try again."}
                 </p>
               )}
 
@@ -477,6 +504,12 @@ function asArray(v: unknown): Record<string, unknown>[] {
 }
 function str(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : String(v);
+}
+function errMsg(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) {
+    return str((e as { message?: unknown }).message);
+  }
+  return str(e);
 }
 
 function ArtifactPreview({
