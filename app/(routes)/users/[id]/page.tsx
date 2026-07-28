@@ -131,14 +131,14 @@ export default function UserDetailsPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex justify-between items-start'>
-          <div>
+        <div className='flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start'>
+          <div className='min-w-0'>
             <h1 className='text-2xl font-bold py-1'>{user.full_name}</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
+            <p className='text-sm sm:text-base text-muted-foreground break-words'>
               {user.email}
             </p>
           </div>
-          <div className='flex gap-2'>
+          <div className='flex shrink-0 gap-2'>
             <Button asChild>
               <Link href={`/users/${user.id}/edit`}>
                 <Edit className='mr-2 h-4 w-4' />

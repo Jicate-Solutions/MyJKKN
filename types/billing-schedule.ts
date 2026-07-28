@@ -1,6 +1,8 @@
 // Billing Schedule Types
 // This file contains all TypeScript interfaces for the billing schedule management system
 
+import type { BillingCollectionType } from './billing';
+
 // Enums and Union Types
 export type BillStatus =
   | 'paid'
@@ -10,7 +12,7 @@ export type BillStatus =
   | 'overdue'
   | 'refunded'
   | 'superseded';
-export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque';
+export type PaymentMode = 'cash' | 'online' | 'bank_transfer' | 'dd' | 'cheque' | 'combined';
 export type RecurrencePattern = 'monthly' | 'quarterly' | 'yearly';
 export type DiscountCategory =
   | 'merit_scholarship'
@@ -156,6 +158,9 @@ export interface StudentBillFilters {
   student_id?: string;
   institution_id?: string;
   item_category_id?: string;
+  // Ownership of the fee — resolved to the matching billing_categories ids and
+  // applied as item_category_id IN (...). Uncategorised bills are excluded when set.
+  collection_type?: BillingCollectionType;
   status?: BillStatus;
   // learners_profiles.lifecycle_status — filters bills by the learner's
   // lifecycle state (routes the query through the !inner learner join).
@@ -276,6 +281,12 @@ export interface ReceiptFilters {
   search?: string;
   student_id?: string;
   institution_id?: string;
+  /**
+   * Matches receipts containing AT LEAST ONE line of this ownership. A single
+   * payment can settle both management and government bills, so this is
+   * inclusive — a mixed receipt appears under both filters.
+   */
+  collection_type?: BillingCollectionType;
   payment_mode?: PaymentMode;
   receipt_date_from?: string;
   receipt_date_to?: string;
@@ -553,16 +564,23 @@ export interface InvoiceListResponse {
   };
 }
 
-// Accommodation-type filter options. The `value` is an `accommodation_types.code`
-// (identical across every institution's catalog), so the dropdown works without
-// first picking an institution. The service layer resolves the code to that
-// institution's actual `accommodation_type_id`(s) at query time.
+// Accommodation-type filter options. The `value` is an `accommodation_types.code`.
+// That table is GLOBAL (single row per code since 20260610100000), not per
+// institution, so the dropdown works without first picking an institution.
+// Billing Schedule resolves the code to ids in the service layer; the billing
+// REPORTS filters resolve it in SQL instead — billing_report_student_cohort
+// LEFT JOINs accommodation_types and compares on code.
 export const ACCOMMODATION_TYPE_OPTIONS = [
   { value: 'hostel', label: 'Hostel' },
   { value: 'dayscholar', label: 'Day Scholar' },
   { value: 'pg', label: 'Paying Guest' },
   { value: 'not_applicable', label: 'Not Applicable' }
 ] as const;
+
+/** The four valid accommodation_types.code values, derived so a typo like
+ *  'day_scholar' fails to compile instead of silently matching nothing. */
+export type AccommodationCode =
+  (typeof ACCOMMODATION_TYPE_OPTIONS)[number]['value'];
 
 // Learner lifecycle-status filter options for the billing schedule list.
 // Scoped to the states a learner can be in once bills exist (the 'account'
@@ -716,9 +734,33 @@ export interface TransactionSummary {
   total_refunds: number;
 }
 
+export type ReportSchemeKey =
+  | 'first_graduate'
+  | 'pmss'
+  | 'scholarship_7_5'
+  | 'other';
+
+export const REPORT_SCHEME_OPTIONS: { value: ReportSchemeKey; label: string }[] = [
+  { value: 'first_graduate', label: 'First Graduate' },
+  { value: 'pmss', label: 'PMSS' },
+  { value: 'scholarship_7_5', label: '7.5% Scholarship' },
+  { value: 'other', label: 'Others / Not Applicable' },
+];
+
 export interface BillingReportFilters {
   institution_id?: string;
+  /** Academic year id, or the ACADEMIC_YEAR_UNSPECIFIED sentinel for bills with no year. */
+  academic_year_id?: string;
+  degree_id?: string;
   department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  item_category_id?: string;
+  /** Empty or absent means no scheme restriction. */
+  schemes?: ReportSchemeKey[];
+  /** accommodation_types.code values. Empty or absent means no restriction. */
+  accommodation_codes?: AccommodationCode[];
   student_id?: string;
   date_from?: string;
   date_to?: string;

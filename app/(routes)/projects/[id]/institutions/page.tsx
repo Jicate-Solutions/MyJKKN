@@ -92,7 +92,7 @@ export default function ProjectInstitutionsPage() {
 
       <div className="mt-6 space-y-6">
         {/* Header row: scope badge + action */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex items-center gap-3">
             <Building2 className="h-5 w-5 text-muted-foreground" />
             <span className="text-sm text-muted-foreground">Scope:</span>
@@ -101,6 +101,7 @@ export default function ProjectInstitutionsPage() {
 
           <Button
             size="sm"
+            className="shrink-0 self-start sm:self-auto"
             onClick={() => setAddOpen(true)}
             disabled={!projectId}
           >

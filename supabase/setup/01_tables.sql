@@ -824,19 +824,35 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 
 -- Billing Categories (flat, dynamic)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into a single flat table.
+-- Updated: 2026-04-28 - Dropped institution_id; categories are now GLOBAL across all institutions
+--                       (uniqueness is on category_name alone).
+-- Updated: 2026-06-22 - Added `kind` (fee head) — drives Razorpay account routing.
+-- Updated: 2026-08-01 - Added visible_to_learners + collection_type.
 CREATE TABLE IF NOT EXISTS public.billing_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
     category_name VARCHAR(150) NOT NULL,
     amount NUMERIC(15,2),
     frequency VARCHAR(20) NOT NULL,
+    -- Fee head. payment-gateway-service matches this against razorpay_accounts.fee_head,
+    -- so every category sharing a kind settles into the same institution MID.
+    kind billing_category_kind NOT NULL DEFAULT 'other',
     description TEXT,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    -- FALSE = bills/receipt lines in this category are hidden from /learners/my-bills
+    -- and the parent portal. Management side is unaffected (still billable + payable).
+    visible_to_learners BOOLEAN NOT NULL DEFAULT true,
+    -- 'government' = collected on behalf of a government body; excluded from
+    -- management collection totals on the billing dashboards.
+    collection_type TEXT NOT NULL DEFAULT 'management',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
     updated_by UUID,
-    CONSTRAINT uq_billing_categories_name_per_institution UNIQUE (institution_id, category_name)
+    CONSTRAINT uq_billing_categories_name UNIQUE (category_name),
+    CONSTRAINT chk_billing_categories_frequency
+        CHECK (frequency IN ('monthly', 'quarterly', 'yearly', 'one-time')),
+    CONSTRAINT billing_categories_collection_type_chk
+        CHECK (collection_type IN ('management', 'government'))
 );
 
 -- Billing Student Bills
@@ -903,7 +919,8 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts (
     receipt_date DATE NOT NULL,
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    payment_mode VARCHAR(20) NOT NULL,
+    payment_mode VARCHAR(20) NOT NULL
+        CHECK (payment_mode IN ('cash', 'online', 'bank_transfer', 'dd', 'cheque', 'combined')),
     payment_reference_number VARCHAR(100),
     payment_amount NUMERIC(15,2) NOT NULL,
     payment_paid_date DATE NOT NULL,
@@ -2145,6 +2162,7 @@ ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 -- SECTION: ADMISSION SETTINGS - ADMISSION YEARS
 -- Added: 2026-04-21 - Per-program admission year tracking
 -- Updated: 2026-06-05 - Institution-wide admission year (program scope dropped); one row per (institution, year)
+-- Updated: 2026-07-25 - is_current flag (migration 20260725_admission_years_is_current_flag.sql)
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS public.admission_years (
@@ -2153,6 +2171,13 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
     admission_year_name VARCHAR(150) NOT NULL,
     year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
     is_active BOOLEAN NOT NULL DEFAULT true,
+    -- Added 2026-07-25. The cohort new leads/enquiries default to — exactly one
+    -- per institution. Distinct from is_active, which only controls dropdown
+    -- visibility and stays true for historical cohorts (every one of the 47 rows
+    -- was is_active=true, including 2002-2003) so legacy imports still resolve
+    -- them. Enforced by admission_years_one_current_per_institution (below) plus
+    -- trg_admission_years_single_current (04_triggers.sql).
+    is_current BOOLEAN NOT NULL DEFAULT false,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -2161,6 +2186,9 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
 
 CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);
 CREATE INDEX IF NOT EXISTS idx_admission_years_name ON admission_years(admission_year_name);
+CREATE UNIQUE INDEX IF NOT EXISTS admission_years_one_current_per_institution
+    ON public.admission_years (institution_id)
+    WHERE is_current;
 
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
@@ -4150,8 +4178,8 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidate_packages (
   candidate_id            uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
   hr_organization_id      uuid,                                           -- mirrors parent for org-level queries
   proposed_by             uuid NOT NULL REFERENCES public.profiles(id),
-  proposed_ctc_amount     numeric NOT NULL,                               -- the CTC being proposed
-  proposed_ctc_breakdown  jsonb,                                          -- optional: basic/HRA/DA/PF structure
+  proposed_monthly_salary           numeric,                              -- the monthly salary being proposed (optional — may be decided later)
+  proposed_monthly_salary_breakdown jsonb,                                -- optional: basic/HRA/DA/PF structure
   currency                text NOT NULL DEFAULT 'INR',
   is_counter_offer        boolean NOT NULL DEFAULT false,                 -- true if Director counter to HR's proposal
   parent_package_id       uuid REFERENCES public.hr_recruitment_candidate_packages(id), -- for negotiation chain
@@ -4726,6 +4754,68 @@ CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_recommendation
   ON public.hr_recruitment_scorecards(recommendation);
 
 -- END HR Recruitment Phase 3 tables
+
+-- =====================================================================
+-- 20260721120000_hr_leave_types_split.sql — HR Leave Types (staff catalog)
+-- Was a compat VIEW over leave_types (scope='staff'); split back out into
+-- its own real table so HR-only fields (carry-forward, encashment, accrual,
+-- eligibility) don't leak onto the shared academic/learner leave catalog.
+-- NOTE: references public.hr_organizations(id), which is not itself mirrored
+-- into this file — a fresh install from supabase/setup/ needs that table
+-- created first (pre-existing gap, not introduced by this table).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_leave_types (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id        uuid NOT NULL REFERENCES public.hr_organizations(id) ON DELETE CASCADE,
+  leave_type_code           varchar NOT NULL,
+  leave_type_name           varchar NOT NULL,
+  description               text,
+  color_code                varchar NOT NULL DEFAULT '#6B7280',
+  display_order             integer NOT NULL DEFAULT 0,
+  is_active                 boolean NOT NULL DEFAULT true,
+
+  duration_type             varchar NOT NULL DEFAULT 'full'
+                              CHECK (duration_type IN ('full','first_half','second_half','hourly')),
+  allow_half_day            boolean NOT NULL DEFAULT false,
+  allow_hourly              boolean NOT NULL DEFAULT false,
+
+  skip_weekends             boolean NOT NULL DEFAULT true,
+  skip_holidays             boolean NOT NULL DEFAULT true,
+
+  requires_approval         boolean NOT NULL DEFAULT true,
+  is_paid                   boolean NOT NULL DEFAULT true,
+  min_advance_notice_days   integer NOT NULL DEFAULT 0,
+  max_continuous_days       integer,
+  requires_documents        boolean NOT NULL DEFAULT false,
+  document_required_after_days integer,
+  default_entitled_days     numeric NOT NULL DEFAULT 0,
+
+  valid_from                timestamptz NOT NULL DEFAULT now(),
+  valid_until               timestamptz,
+  superseded_by             uuid REFERENCES public.hr_leave_types(id),
+
+  -- HR-specific (design D3)
+  allow_carry_forward       boolean NOT NULL DEFAULT false,
+  max_carry_forward_days    numeric,
+  is_encashable             boolean NOT NULL DEFAULT false,
+  max_encashable_days       numeric,
+  accrual_type              varchar NOT NULL DEFAULT 'none'
+                              CHECK (accrual_type IN ('none','annual','monthly')),
+  accrual_rate              numeric NOT NULL DEFAULT 0,
+  applicable_gender         varchar NOT NULL DEFAULT 'all'
+                              CHECK (applicable_gender IN ('all','male','female')),
+  applicable_cadre_ids      uuid[],
+
+  created_by                uuid,
+  updated_by                uuid,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_leave_types_org_code_unique UNIQUE (hr_organization_id, leave_type_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hlt_org_active ON public.hr_leave_types(hr_organization_id, is_active);
 
 -- Updated: 2026-04-18 - Call Notes dialog enrichment
 -- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
@@ -6263,3 +6353,53 @@ CREATE TABLE IF NOT EXISTS public.bug_clusters (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat (migration
+-- 20260724045622_id_card_agent_status.sql). Singleton row (id=1) recording the
+-- last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs
+-- with a valid agent token; read by the print-queue UI "Print bridge online /
+-- silent" chip. Written via the service-role client only.
+CREATE TABLE IF NOT EXISTS public.id_card_agent_status (
+  id           SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  last_poll_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.id_card_agent_status IS
+  'Singleton heartbeat (id=1): last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs. Updated via the service-role client; read by the print-queue UI bridge-status chip.';
+
+-- ---------------------------------------------------------------------------
+-- Payment security audit trail.
+-- Replaces the old (silently broken) use of user_activity_logs, whose user_id
+-- is NOT NULL FK -> profiles(id) while every payment event identifies the payer
+-- by learners_profiles.id — so every audit insert failed with 23503 and was
+-- swallowed. Payment events also originate from contexts with no user at all
+-- (Razorpay webhooks, the razorpay-late-auth cron), so this table deliberately
+-- carries NO foreign keys: an audit write must never be rejected.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.payment_audit_logs (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type        TEXT NOT NULL,
+  transaction_id    TEXT NOT NULL,
+  student_id        UUID,
+  institution_id    UUID,
+  expected_amount   NUMERIC,
+  actual_amount     NUMERIC,
+  client_status     TEXT,
+  server_status     TEXT,
+  description       TEXT,
+  ip_address        TEXT,
+  user_agent        TEXT,
+  metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS payment_audit_logs_transaction_id_idx ON public.payment_audit_logs(transaction_id);
+CREATE INDEX IF NOT EXISTS payment_audit_logs_created_at_idx ON public.payment_audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS payment_audit_logs_event_type_idx ON public.payment_audit_logs(event_type, created_at DESC);
+
+ALTER TABLE public.payment_audit_logs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.payment_audit_logs FROM anon, authenticated;
+
+COMMENT ON TABLE public.payment_audit_logs IS
+  'Payment security audit trail (verification, manipulation, replay, webhook, receipt). No FKs by design: an audit write must never fail.';

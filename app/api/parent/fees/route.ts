@@ -6,6 +6,10 @@ import {
   parentErrorResponse,
 } from '@/lib/utils/parent-access';
 import { admissionNumber, fullName, type MatchedLearner } from '@/lib/utils/parent-identifier';
+import {
+  getLearnerHiddenCategoryIds,
+  isBillLearnerVisible,
+} from '@/lib/utils/billing/learner-visibility';
 import type { FeeBill, FeeReceipt, FeesResponse } from '@/types/parent-portal';
 
 export const runtime = 'nodejs';
@@ -50,6 +54,11 @@ export async function GET(req: NextRequest) {
         .order('payment_paid_date', { ascending: false }),
     ]);
 
+    // Categories flagged hidden from learners. This route runs on the SERVICE
+    // ROLE client, so the student RLS policies do not apply here — this filter
+    // is the only thing keeping a hidden fee off the parent portal.
+    const hiddenCategoryIds = await getLearnerHiddenCategoryIds(db);
+
     // Resolve category names.
     const categoryIds = [
       ...new Set((billRows ?? []).map((b) => b.item_category_id).filter(Boolean)),
@@ -63,8 +72,9 @@ export async function GET(req: NextRequest) {
       for (const c of cats ?? []) categoryNames.set(c.id, c.category_name);
     }
 
-    // Outstanding only: positive remaining balance.
+    // Outstanding only: positive remaining balance, learner-visible categories only.
     const bills: FeeBill[] = (billRows ?? [])
+      .filter((b) => isBillLearnerVisible(b.item_category_id, hiddenCategoryIds))
       .map((b) => {
         const balance = b.balance_amount ?? b.final_amount ?? b.total_amount;
         return {

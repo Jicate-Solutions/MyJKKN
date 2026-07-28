@@ -242,8 +242,8 @@ function NewGDPISessionContent() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {criteria.map((criterion, index) => (
-                  <div key={index} className="flex items-end gap-3">
-                    <div className="flex-1 space-y-1">
+                  <div key={index} className="flex flex-wrap items-end gap-3">
+                    <div className="w-full space-y-1 sm:w-auto sm:flex-1">
                       <Label className="text-xs text-muted-foreground">Criterion Name</Label>
                       <Input
                         value={criterion.name}

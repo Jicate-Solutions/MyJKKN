@@ -30,7 +30,7 @@ export default function HREmployeeDetailPage() {
   const { data, isLoading, error } = useHREmployee(id);
 
   return (
-    <ContentLayout title="HR — Employee Detail">
+    <ContentLayout title="HR Directory — Employee">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -57,9 +57,9 @@ export default function HREmployeeDetailPage() {
           <>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>{data.first_name} {data.last_name ?? ''}</span>
-                  <Badge variant="outline">{data.hr_employee_code ?? data.staff_code ?? 'Staff'}</Badge>
+                <CardTitle className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">{data.first_name} {data.last_name ?? ''}</span>
+                  <Badge variant="outline" className="shrink-0">{data.hr_employee_code ?? data.staff_code ?? 'Staff'}</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">

@@ -7,7 +7,7 @@
 // Shared by /learners/class-feedback and /learners/my-attendance.
 // Spec: specs/faculty-feedback-exam-link-2026-07-05.md
 
-import { ShieldCheck, AlertTriangle, TrendingUp, Info } from 'lucide-react';
+import { ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useMyConfirmedAttendance, useFeedbackWindowHours } from '@/hooks/use-session-feedback';
 
@@ -27,9 +27,42 @@ export function MyConfirmedAttendanceCard() {
   const { data: configWindowHours } = useFeedbackWindowHours();
   const CONFIRM_WINDOW_HOURS = configWindowHours ?? DEFAULT_WINDOW_HOURS;
 
-  // Fail-safe: never render a broken/misleading card. Hidden while loading, on error,
-  // when the caller is not a learner (null), or when enforcement is off entirely.
-  if (isLoading || isError || !data) return null;
+  // Loading and error states must be visible — silently returning null here made
+  // the whole attendance section disappear with zero explanation whenever a learner
+  // opened the page before the RPC resolved, or it errored transiently
+  // (BUG-004845/004846/004849/004855 — the card "self-heals" on reload, which is
+  // exactly the symptom of a swallowed loading/error state, not a data problem).
+  if (isLoading) {
+    return (
+      <Card className="border-border">
+        <CardContent className="flex items-center gap-3 py-4">
+          <div className="h-5 w-5 shrink-0 animate-pulse rounded-full bg-muted" />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="border-amber-200 bg-amber-50">
+        <CardContent className="flex items-start gap-3 py-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="text-sm">
+            <p className="font-medium">Couldn&apos;t load your attendance right now.</p>
+            <p className="text-muted-foreground">Please refresh the page in a moment.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Fail-safe: hidden when the caller is not a learner (null) or has no in-scope
+  // marks, or when enforcement is off entirely — these are intentional, not errors.
+  if (!data) return null;
   if (data.gate_mode === 'off') return null;
 
   const {
@@ -79,9 +112,14 @@ export function MyConfirmedAttendanceCard() {
   const atRisk = confirmed_pct < pass_line;
   const close = !atRisk && confirmed_pct < pass_line + 5;
 
-  const accent = atRisk ? '#dc2626' : close ? '#d97706' : BRAND;
-  const bg = atRisk ? 'bg-red-50 border-red-200' : close ? 'bg-amber-50 border-amber-200' : 'border-[#0b6d41]/25 bg-[#0b6d41]/5';
-  const Icon = atRisk ? AlertTriangle : close ? Info : ShieldCheck;
+  // Never true-red/AlertTriangle here — this is advisory-only and never blocks or
+  // mutates attendance (see file header), but red+triangle reads as a hard error to
+  // learners regardless of copy. Prior copy-only fixes (BUG-004638 etc.) didn't stop
+  // the misreading, so atRisk uses orange+TrendingDown (still the most urgent band,
+  // still visually distinct from "close") instead of red+AlertTriangle.
+  const accent = atRisk ? '#c2410c' : close ? '#d97706' : BRAND;
+  const bg = atRisk ? 'bg-orange-50 border-orange-200' : close ? 'bg-amber-50 border-amber-200' : 'border-[#0b6d41]/25 bg-[#0b6d41]/5';
+  const Icon = atRisk ? TrendingDown : close ? Info : ShieldCheck;
   // Headlines always name the number as FEEDBACK confirmation, never bare
   // "attendance" — a learner who attended 100% must not read the smaller
   // feedback-confirmation % as their attendance (root cause of the BUG-004638

@@ -187,7 +187,7 @@ export function StallsSection({ expoEventId, defaultInstitutionId }: StallsSecti
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Store className="h-5 w-5" />
@@ -205,7 +205,7 @@ export function StallsSection({ expoEventId, defaultInstitutionId }: StallsSecti
               </p>
             )}
           </div>
-          <Button size="sm" onClick={openCreate}>
+          <Button size="sm" className="shrink-0" onClick={openCreate}>
             <Plus className="h-4 w-4 mr-2" />
             Add Stall
           </Button>

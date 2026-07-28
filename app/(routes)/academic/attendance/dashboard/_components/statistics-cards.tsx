@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import {
   Users,
   UserCheck,
@@ -27,7 +28,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAttendanceStats } from '@/hooks/academic/use-attendance-dashboard';
 import { cn } from '@/lib/utils';
-import type { DashboardFilterState } from './dashboard-filters';
+import { toHierarchyFilter, type DashboardFilterState } from './dashboard-filters';
 import { EnhancedDetailedBreakdown } from './enhanced-detailed-breakdown';
 import { ConfirmationSplitCards } from './confirmation-split-cards';
 
@@ -117,12 +118,18 @@ export function StatisticsCards({
     filters?.institutionId ||
     (canViewAllInstitutions ? undefined : userInstitutionId);
 
+  // Memoised because this object goes into a React Query key. `filters` is page
+  // state that is only replaced when a filter actually changes, so its identity
+  // is a sound dependency.
+  const hierarchy = useMemo(() => toHierarchyFilter(filters), [filters]);
+
   const { stats, isLoading, error, refetch } = useAttendanceStats(
     queryInstitutionId,
     canViewAllInstitutions,
     selectedDate,
     refreshTrigger,
-    filters?.academicYearId
+    filters?.academicYearId,
+    hierarchy
   );
 
   // Calculate aggregate stats across all institutions/selected institution

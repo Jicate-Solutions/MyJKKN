@@ -456,9 +456,33 @@ export class StaffService {
       // Delete the staff record
       // The database trigger (trg_delete_staff_profile) will automatically delete
       // the corresponding profile from the profiles table
-      const { error } = await (this.supabase as any).from('staff').delete().eq('id', id);
+      //
+      // .select() is required here so we can detect the case where the RLS
+      // "staff_delete_scope_aware" policy silently matches 0 rows (no error,
+      // just an empty result) — without it a blocked delete looks identical
+      // to a successful one and the UI reports false success.
+      const { data, error } = await (this.supabase as any)
+        .from('staff')
+        .delete()
+        .eq('id', id)
+        .select('id');
 
-      if (error) throw error;
+      const deletedRow = Array.isArray(data) ? data[0] : null;
+
+      // RLS-blocked deletes surface either as an explicit error or as a
+      // silent 0-row result — fall back to the admin-bypass API route (same
+      // pattern as updateStaff) so the caller gets a real permission error
+      // instead of a misleading success toast.
+      if (error || !deletedRow) {
+        console.log('[staff-service] Direct delete blocked, attempting API route...');
+
+        const response = await fetch(`/api/staff/${id}`, { method: 'DELETE' });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to delete staff member');
+        }
+      }
 
       console.log(`✓ Staff ${id} deleted successfully. Profile auto-deleted by trigger.`);
     } catch (error) {

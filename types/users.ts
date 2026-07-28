@@ -181,6 +181,8 @@ export type UpdateUserRequest = Partial<CreateUserRequest> & {
   bio?: string | null;
   gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
   department_id?: string | null;
+  // IMS store allocation — profiles.assigned_store_id. Null clears the assignment.
+  assigned_store_id?: string | null;
   // Multi-role support
   role_ids?: string[];              // Array of role IDs to assign
   primary_role_id?: string;         // Which role_id should be primary

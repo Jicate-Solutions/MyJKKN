@@ -317,7 +317,7 @@ export function useCounterPackage() {
     }: {
       candidateId: string;
       packageId: string;
-      proposed_monthly_salary: number;
+      proposed_monthly_salary?: number | null;
       proposed_monthly_salary_breakdown?: Record<string, number> | null;
       notes?: string | null;
       hr_organization_id?: string | null;

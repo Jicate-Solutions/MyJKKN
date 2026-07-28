@@ -253,6 +253,21 @@ export function TranscriptDocument({ data }: { data: TranscriptData }) {
           }
           body { background: #fff; }
         }
+        @media screen and (max-width: 639px) {
+          .pde-transcript .summary-band {
+            grid-template-columns: repeat(2, 1fr);
+          }
+          .pde-transcript .learner-block .row {
+            flex-direction: column;
+            gap: 2px;
+          }
+          .pde-transcript .learner-block .label {
+            min-width: 0;
+          }
+          .pde-transcript .category-block {
+            overflow-x: auto;
+          }
+        }
       `}</style>
 
       <div className="pde-transcript">

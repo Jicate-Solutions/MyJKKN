@@ -63,7 +63,7 @@ export function CalendarToolbar({ label, view, views, onNavigate, onView }: Tool
         >
           Today
         </Button>
-        <span className="ml-1 truncate text-base font-semibold sm:text-lg">{label}</span>
+        <span className="ml-1 min-w-0 truncate text-base font-semibold sm:text-lg">{label}</span>
       </div>
 
       {/* View switcher — segmented control */}

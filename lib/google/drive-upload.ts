@@ -275,6 +275,52 @@ export async function uploadRefundAttachment(
   };
 }
 
+export interface RoomConditionPhotoUploadOptions {
+  blockName: string;
+  roomNumber: string;
+  file: File;
+}
+
+export interface RoomConditionPhotoUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a room condition-check photo to
+ *   <ROOT> / Campus Living / Room Condition Photos / <Block> / <Room>
+ * No anyone:reader permission — access is gated by hostel_room_condition_photos
+ * RLS plus the authenticated image proxy route, not public link-sharing.
+ * blockName/roomNumber (not an institution name) key the folder path since a
+ * block can serve multiple institutions via hostel_block_institutions.
+ */
+export async function uploadRoomConditionPhoto(
+  opts: RoomConditionPhotoUploadOptions
+): Promise<RoomConditionPhotoUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, [
+    'Campus Living', 'Room Condition Photos', opts.blockName, opts.roomNumber,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'photo').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
 export interface ProcurementInvoiceUploadOptions {
   institutionName: string;
   poNumber: string;

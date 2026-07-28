@@ -41,14 +41,12 @@ export async function POST(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
-    if (!body.proposed_monthly_salary) {
-      return NextResponse.json({ error: 'proposed_monthly_salary is required' }, { status: 400 });
-    }
 
     const created = await RecruitmentPackageService.counterOffer(supabase, packageId, {
       candidate_id: id,
       proposed_by: user.id,
-      proposed_monthly_salary: body.proposed_monthly_salary,
+      // Optional — the service normalises blank/null to NULL and validates a supplied figure.
+      proposed_monthly_salary: body.proposed_monthly_salary ?? null,
       proposed_monthly_salary_breakdown: body.proposed_monthly_salary_breakdown ?? null,
       currency: body.currency ?? 'INR',
       hr_organization_id: body.hr_organization_id ?? null,

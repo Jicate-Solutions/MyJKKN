@@ -170,12 +170,12 @@ export default function ApprovalsAdminPage() {
     <AdminPermissionGuard adminRoles={ADMIN_ROLES}>
       <ContentLayout title="Program Approvals">
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-primary" />
+              <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
               <h1 className="text-xl font-semibold">Institution Program Approvals</h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
                 <FileUp className="mr-1 h-4 w-4" /> Import from Excel
               </Button>

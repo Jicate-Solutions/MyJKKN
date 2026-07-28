@@ -56,6 +56,11 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   fp_revision_plans: 'Foundation Programme',
   exam_definitions: 'Foundation Programme',
   exam_topic_map: 'Foundation Programme',
+  // Teaching-enterprise participant layer (2026-07-27): the cohort config table
+  // that replaced the hardcoded MBA enrolment predicate. Mapped explicitly
+  // rather than via a `teaching_` prefix so the generic word can't swallow
+  // unrelated future tables. Same module as improvement_* (improvement.* perms).
+  teaching_enterprise_cohorts: 'Improvement Board',
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
@@ -93,6 +98,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
+  ['improvement_', 'Improvement Board'], // MBA teaching-enterprise: improvement_ideas/areas/idea_activity
   ['cdc_', 'CDC'],
   // Internship Module — operational substrate for cycles, sites, preceptors,
   // vehicles, assignments, logbook, evaluations, attendance, incidents,

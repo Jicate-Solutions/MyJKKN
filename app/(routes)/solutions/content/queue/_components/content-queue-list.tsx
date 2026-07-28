@@ -119,8 +119,8 @@ export function ContentQueueList() {
               >
                 <div className="flex items-center gap-4 flex-1">
                   <Icon className="h-5 w-5 text-muted-foreground" />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
                       <p className="font-medium">{item.title}</p>
                       <Badge className={status.color}>{status.label}</Badge>
                       {item.revision_count > 0 && (

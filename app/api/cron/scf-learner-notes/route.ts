@@ -79,6 +79,7 @@ async function readGenerationLane(
 const BATCH_CAP_CEILING = 50; // serverless ceiling; excess deferred to next run / Max lane
 const REGEN_DAYS = 7; // skip a learner+course noted within this many days (weekly regen)
 const RECENT_WITHIN_DAYS = 30; // only note learners whose latest sliding class is this recent
+const DRAFT_EXPIRY_DAYS = 14; // an unreviewed draft retires after this — a stale note reads as strange
 // Return CLEANLY before the dispatcher's 120s AbortSignal (ai-routine-dispatcher
 // fires each routine with signal: AbortSignal.timeout(120_000)). Sequential Claude
 // calls (~3-8s each) blew past 120s → the dispatcher aborted the connection and
@@ -345,6 +346,17 @@ export async function GET(request: NextRequest) {
     model: string,
     wkOf: string,
   ): Promise<boolean> => {
+    // A note whose signal copy is empty cannot be verified: the judge compares the
+    // note against nothing, finds every date/name "unsupported", and holds a note
+    // that is in fact accurate. Refuse to write one — skipping a learner for the
+    // week is recoverable, an unverifiable note in the queue is not.
+    const ratings = Array.isArray(f.ratings) ? f.ratings.map(Number) : [];
+    if (ratings.length === 0) {
+      console.error(
+        `[cron/scf-learner-notes] BLANK SIGNAL — refusing to persist an unverifiable note for ${f.learner_id}/${f.course_code} (week ${wkOf}); the source payload carried no ratings`,
+      );
+      return false;
+    }
     const { error: insErr } = await admin.from('scf_learner_notes').upsert(
       {
         learner_id: f.learner_id,
@@ -360,7 +372,7 @@ export async function GET(request: NextRequest) {
         // safety judge can VERIFY faithfulness instead of false-flagging these real
         // records as invented. Same shape the judge's formatSignal() reads.
         source_signal: {
-          ratings: Array.isArray(f.ratings) ? f.ratings.map(Number) : [],
+          ratings,
           rated_on: Array.isArray(f.rated_on) ? f.rated_on.map(String) : [],
           unmet_items: Array.isArray(f.unmet_items) ? f.unmet_items.map(String) : [],
           faculty_name: f.faculty_name ?? null,
@@ -490,10 +502,24 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Retire drafts no human reviewed inside the timeliness window. A support note
+  // that arrives weeks after the classes it describes reads as strange, so an
+  // unreviewed draft retires rather than queueing indefinitely. Best-effort: a
+  // failure here must never fail the generation run.
+  let expired = 0;
+  {
+    const { data, error } = await admin.rpc('fn_scf_expire_stale_note_drafts', {
+      p_days: DRAFT_EXPIRY_DAYS,
+    });
+    if (error) console.error('[cron/scf-learner-notes] draft expiry failed:', error.message);
+    else if (typeof data === 'number') expired = data;
+  }
+
   return NextResponse.json({
     ok: true,
     generation_lane: lane,
     week_of: weekOf,
+    expired,
     candidates: allCandidates.length,
     eligible: targets.length, // after the weekly regen guard
     capped: cappedCount,

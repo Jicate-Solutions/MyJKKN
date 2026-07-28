@@ -85,7 +85,9 @@ export function BillingScheduleFilters({
   useEffect(() => {
     async function loadCategories() {
       try {
-        const data = await BillingCategoryService.getBillingCategories();
+        // Explicit high limit — getBillingCategories() defaults to limit 10 and
+        // would silently truncate this dropdown to the first 10 of ~22.
+        const data = await BillingCategoryService.getBillingCategories({ limit: 200 });
         setCategories(data.data); // Note: service returns { data, metadata }
       } catch (error) {
         console.error('Error loading categories:', error);
@@ -221,6 +223,7 @@ export function BillingScheduleFilters({
     searchParams.status ||
     searchParams.lifecycle_status ||
     searchParams.item_category_id ||
+    searchParams.collection_type ||
     searchParams.is_recurring ||
     searchParams.amount_from ||
     searchParams.amount_to ||
@@ -236,8 +239,25 @@ export function BillingScheduleFilters({
 
   return (
     <div className='space-y-4'>
-      <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+      {/* Reset sits in its own right-aligned row so the filter grid below can
+          wrap freely at every breakpoint instead of being pinned into a single
+          fixed-width flex row — the cause of the desktop horizontal overflow. */}
+      {hasActiveFilters && (
+        <div className='flex justify-end'>
+          <Button
+            variant='ghost'
+            onClick={onClearFilters}
+            className='h-8 px-2 lg:px-3'
+          >
+            Reset
+            <RotateCcw className='ml-2 h-4 w-4' />
+          </Button>
+        </div>
+      )}
+
+      {/* All filters live in one responsive grid: 1 column on mobile, scaling
+          to 4 on xl. Cells wrap onto new rows, so nothing overflows sideways. */}
+      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
           {hasMultiInstitutionAccess && (
             <Select
               value={searchParams.institution_id || 'all'}
@@ -254,7 +274,7 @@ export function BillingScheduleFilters({
                 });
               }}
             >
-              <SelectTrigger className='w-full sm:w-[200px]'>
+              <SelectTrigger className='w-full'>
                 <SelectValue placeholder='Select institution' />
               </SelectTrigger>
               <SelectContent className='max-h-60 overflow-y-auto'>
@@ -282,7 +302,7 @@ export function BillingScheduleFilters({
             }}
             disabled={!searchParams.institution_id}
           >
-            <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectTrigger className='w-full'>
               <SelectValue placeholder='Select degree' />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
@@ -308,7 +328,7 @@ export function BillingScheduleFilters({
             }}
             disabled={!searchParams.degree_id}
           >
-            <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectTrigger className='w-full'>
               <SelectValue placeholder='Select department' />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
@@ -333,7 +353,7 @@ export function BillingScheduleFilters({
             }}
             disabled={!searchParams.department_id}
           >
-            <SelectTrigger className='w-full sm:w-[180px]'>
+            <SelectTrigger className='w-full'>
               <SelectValue placeholder='Select program' />
             </SelectTrigger>
             <SelectContent className='max-h-60 overflow-y-auto'>
@@ -345,16 +365,7 @@ export function BillingScheduleFilters({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        {hasActiveFilters && (
-          <Button variant='ghost' onClick={onClearFilters} className='h-8 px-2 lg:px-3'>
-            Reset
-            <RotateCcw className='ml-2 h-4 w-4' />
-          </Button>
-        )}
-      </div>
-
-      <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
+        {/* Attribute filters continue in the same responsive grid. */}
         <Select
           value={searchParams.semester_id || 'all'}
           onValueChange={(value) => {
@@ -366,7 +377,7 @@ export function BillingScheduleFilters({
           }}
           disabled={!searchParams.program_id}
         >
-          <SelectTrigger className='w-full sm:w-[180px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Select semester' />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -389,7 +400,7 @@ export function BillingScheduleFilters({
           }
           disabled={!searchParams.semester_id}
         >
-          <SelectTrigger className='w-full sm:w-[180px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Select section' />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -409,7 +420,7 @@ export function BillingScheduleFilters({
           }}
           disabled={!searchParams.institution_id}
         >
-          <SelectTrigger className='w-full sm:w-[180px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Select academic year' />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -433,7 +444,7 @@ export function BillingScheduleFilters({
           }
           disabled={loadingInstitutions}
         >
-          <SelectTrigger className='w-full sm:w-[200px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Select category' />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -446,13 +457,30 @@ export function BillingScheduleFilters({
           </SelectContent>
         </Select>
 
+        {/* Ownership of the fee — lets Accounts pull a government-only ledger. */}
+        <Select
+          value={searchParams.collection_type || 'all'}
+          onValueChange={(value) =>
+            onFilterChange('collection_type', value === 'all' ? undefined : value)
+          }
+        >
+          <SelectTrigger className='w-full'>
+            <SelectValue placeholder='Collection' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Collections</SelectItem>
+            <SelectItem value='management'>Management</SelectItem>
+            <SelectItem value='government'>Government</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Select
           value={searchParams.status || 'all'}
           onValueChange={(value) =>
             onFilterChange('status', value === 'all' ? undefined : value)
           }
         >
-          <SelectTrigger className='w-full sm:w-[140px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Filter by status' />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -475,7 +503,7 @@ export function BillingScheduleFilters({
             )
           }
         >
-          <SelectTrigger className='w-full sm:w-[160px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Learner status' />
           </SelectTrigger>
           <SelectContent className='max-h-60 overflow-y-auto'>
@@ -497,7 +525,7 @@ export function BillingScheduleFilters({
             )
           }
         >
-          <SelectTrigger className='w-full sm:w-[140px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Filter by type' />
           </SelectTrigger>
           <SelectContent>
@@ -516,7 +544,7 @@ export function BillingScheduleFilters({
             )
           }
         >
-          <SelectTrigger className='w-full sm:w-[180px]'>
+          <SelectTrigger className='w-full'>
             <SelectValue placeholder='Accommodation type' />
           </SelectTrigger>
           <SelectContent>

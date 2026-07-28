@@ -36,6 +36,15 @@ export interface PaymentTransaction {
   created_at: string;
   updated_at: string;
   completed_at?: string;
+  // Provider columns (present on the table since the Razorpay migration).
+  // Optional so existing HDFC-shaped constructions still typecheck.
+  provider?: 'hdfc_smartgateway' | 'razorpay';
+  razorpay_order_id?: string | null;
+  razorpay_payment_id?: string | null;
+  razorpay_account_id?: string | null;
+  amount_paise?: number | null;
+  captured_at?: string | null;
+  processed_at?: string | null;
 }
 
 export interface PaymentTransactionItem {

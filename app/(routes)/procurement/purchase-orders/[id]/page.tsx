@@ -212,7 +212,7 @@ export default function PurchaseOrderDetailPage() {
   return (
     <ContentLayout title={po.po_number}>
       <div className="space-y-6 max-w-4xl">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -228,11 +228,11 @@ export default function PurchaseOrderDetailPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {canCreate ? (
-              <div className="flex flex-col items-end gap-1">
+              <div className="flex w-full flex-col items-end gap-1 sm:w-auto">
                 <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
-                  <SelectTrigger className="w-[220px]">
+                  <SelectTrigger className="w-full sm:w-[220px]">
                     <SelectValue placeholder="Document format" />
                   </SelectTrigger>
                   <SelectContent>
@@ -327,6 +327,31 @@ export default function PurchaseOrderDetailPage() {
             </Button>
           )}
         </div>
+
+        {/* Accreditation classification — tagged POs auto-emit NAAC library
+            purchase-bill evidence once approved (DB trigger, Wave 2D). */}
+        {canCreate ? (
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="is-library-resource"
+              checked={!!po.is_library_resource}
+              onCheckedChange={(c) =>
+                run(
+                  () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
+                  c
+                    ? 'Tagged as library resource — counts as accreditation evidence once approved'
+                    : 'Library-resource tag removed'
+                )
+              }
+            />
+            <Label htmlFor="is-library-resource" className="text-sm cursor-pointer">
+              Library resource purchase{' '}
+              <span className="text-muted-foreground">(accreditation evidence)</span>
+            </Label>
+          </div>
+        ) : po.is_library_resource ? (
+          <Badge variant="secondary">Library resource</Badge>
+        ) : null}
 
         {po.status === 'rejected' && po.rejection_reason && (
           <Card className="border-destructive/40">

@@ -211,7 +211,7 @@ function ReceiptField({ label, value }: { label: string; value: string }) {
   return (
     <div className='space-y-0.5'>
       <div className='text-xs text-muted-foreground'>{label}</div>
-      <div className='font-medium'>{value}</div>
+      <div className='font-medium break-words'>{value}</div>
     </div>
   );
 }

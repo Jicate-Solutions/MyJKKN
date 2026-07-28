@@ -95,7 +95,7 @@ export function ApplicationDetailsDialog({
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col">
-        <DialogHeader className="px-6 py-4 border-b flex flex-row items-center justify-between space-y-0 bg-muted/20">
+        <DialogHeader className="px-6 py-4 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 bg-muted/20">
           <div className="space-y-1">
             <DialogTitle className="text-xl font-semibold flex items-center gap-2">
               Application Details
@@ -107,7 +107,7 @@ export function ApplicationDetailsDialog({
               Applied on {format(new Date(application.application_date), 'MMMM dd, yyyy')}
             </DialogDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={cn("capitalize font-normal border", getCategoryColor(application.category))}>
               {application.category === 'leave' ? 'Leave Application' : 'On-Duty Application'}
             </Badge>

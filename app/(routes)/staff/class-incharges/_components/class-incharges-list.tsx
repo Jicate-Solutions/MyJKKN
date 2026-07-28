@@ -139,7 +139,7 @@ export function ClassInchargesList({ filters, onPageChange, onPageSizeChange }: 
     <>
       {/* Bulk Action Bar — visible when ≥1 row is selected */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between px-1 py-2 mb-2 rounded-lg border bg-muted/40">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 py-2 mb-2 rounded-lg border bg-muted/40">
           <span className="text-sm text-muted-foreground">
             {selectedIds.size} section{selectedIds.size !== 1 ? 's' : ''} selected
           </span>

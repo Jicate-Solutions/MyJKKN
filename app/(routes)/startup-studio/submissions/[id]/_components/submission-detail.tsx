@@ -329,7 +329,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
             </CardHeader>
             <CardContent>
               {/* Tier badge + total score */}
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex flex-wrap items-center gap-3 mb-4">
                 <span className={`px-3 py-1 rounded-full text-sm font-bold ${getTierColor(scoring.tier.level)}`}>
                   Level {scoring.tier.level}: {scoring.tier.label}
                 </span>
@@ -521,7 +521,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
                     </span>
                   </AlertDescription>
                 </Alert>
-                <div className="grid grid-cols-5 gap-3 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                   <div className="text-center">
                     <p className="text-muted-foreground text-xs">Real Problem</p>
                     <p className="font-semibold text-lg">{existingUserScore.real_problem ?? '-'}</p>

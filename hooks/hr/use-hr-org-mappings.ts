@@ -40,11 +40,24 @@ export function useHrOrgMappings() {
     () => new Map((query.data ?? []).map((m) => [m.hr_organization_id, m.institution_id])),
     [query.data],
   );
+  /**
+   * Display name for an hr_organization_id.
+   *
+   * hr_organizations.name is maintained identical to institutions.name for
+   * every mapped org, so this doubles as the institution label — HR-scoped
+   * tables key on hr_organization_id and would otherwise need a second join
+   * just to render a name.
+   */
+  const orgNameById = useMemo(
+    () => new Map((query.data ?? []).map((m) => [m.hr_organization_id, m.organization_name])),
+    [query.data],
+  );
 
   return {
     mappings: query.data ?? [],
     orgIdByInstitution,
     institutionIdByOrg,
+    orgNameById,
     isLoading: query.isLoading,
     error: query.error,
   };
