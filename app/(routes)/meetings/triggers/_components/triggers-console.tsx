@@ -157,7 +157,7 @@ export function TriggersConsole({
         { cache: 'no-store' }
       );
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? 'Could not load staff');
+      if (!res.ok) throw new Error(json?.error ?? 'Could not load team members');
       setStaffOptions((prev) => ({
         ...prev,
         [institutionId]: Array.isArray(json.options) ? json.options : []
@@ -169,7 +169,7 @@ export function TriggersConsole({
         delete next[institutionId];
         return next;
       });
-      toast.error(e?.message ?? 'Could not load staff');
+      toast.error(e?.message ?? 'Could not load team members');
     }
   }, []);
 
@@ -445,7 +445,7 @@ export function TriggersConsole({
                             {showStub && (
                               <option value={current}>
                                 {isLoading
-                                  ? 'Loading staff…'
+                                  ? 'Loading team members…'
                                   : 'Currently assigned'}
                               </option>
                             )}
