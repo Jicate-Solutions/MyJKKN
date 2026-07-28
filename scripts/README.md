@@ -159,6 +159,11 @@ security-critical files we ship. Two behaviours cover it:
 - **Each file is judged in isolation, not as a net of history.** Running it over
   an old migration whose column a later migration dropped correctly reports
   MISSING. Run it on the migrations in the PR being deployed.
+- **Pass the migration files as separate arguments, not concatenated into one
+  temp file.** The script already reports per file. Concatenating a PR whose
+  first migration adds a column and whose second drops it makes the added column
+  look absent, which is a false GAP. (`/deploy-myjkkn` Step 1.6 currently
+  concatenates — worth changing there.)
 - **Data-only migrations** (`INSERT`/`UPDATE`/`DELETE`) declare no schema, so they
   exit `3`. That is deliberate — verify the rows by hand.
 - Exit `3` is non-zero on purpose. A gate that cannot fail is not a gate.
