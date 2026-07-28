@@ -1,0 +1,296 @@
+'use client';
+
+// Department Playbook panel — three AI-drafted artifacts (organogram / SOP /
+// workflow) per department, each drafted on the ₹0 Max lane and approved by a
+// human manager. Self-contained: it reads /api/mba/dept-artifacts, triggers a
+// draft + polls the collect route, and (for managers) calls the approve /
+// request-changes RPCs directly. Dropped into each area section of the analytics
+// dashboard; harmless when nothing is drafted yet (shows a "Draft with AI" cta).
+
+import { useCallback, useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Sparkles, Check, RefreshCw, Loader2, FileText, GitBranch, Network } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+// Kept inline so this panel builds standalone (the matching backend types live
+// in lib/services/mba-dept-artifacts, shipped in the drafting-engine PR).
+const ARTIFACT_TYPES = ['organogram', 'sop', 'workflow'] as const;
+type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+const ARTIFACT_LABEL: Record<ArtifactType, string> = {
+  organogram: 'Organogram',
+  sop: 'Standard Operating Procedure',
+  workflow: 'Workflow',
+};
+interface MbaDeptArtifact {
+  id: string;
+  area_id: string;
+  artifact_type: ArtifactType;
+  content: Record<string, unknown>;
+  status: 'ai_drafted' | 'approved' | 'needs_changes';
+  version: number;
+  ai_model: string | null;
+  ai_drafted_at: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  updated_at: string | null;
+}
+
+interface Props {
+  areaId: string;
+  areaLabel: string;
+  canManage: boolean;
+}
+
+const TYPE_ICON: Record<ArtifactType, typeof FileText> = {
+  organogram: Network,
+  sop: FileText,
+  workflow: GitBranch,
+};
+
+const STATUS_STYLE: Record<string, string> = {
+  ai_drafted: 'border-blue-200 bg-blue-50 text-blue-700',
+  approved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  needs_changes: 'border-amber-200 bg-amber-50 text-amber-700',
+};
+const STATUS_LABEL: Record<string, string> = {
+  ai_drafted: 'AI draft — awaiting review',
+  approved: 'Approved',
+  needs_changes: 'Changes requested',
+};
+
+export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
+  const [byType, setByType] = useState<Partial<Record<ArtifactType, MbaDeptArtifact>>>({});
+  const [busy, setBusy] = useState<Partial<Record<ArtifactType, string>>>({});
+
+  const refetch = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/mba/dept-artifacts?area_id=${encodeURIComponent(areaId)}`);
+      if (!res.ok) return;
+      const json = (await res.json()) as { artifacts: MbaDeptArtifact[] };
+      const map: Partial<Record<ArtifactType, MbaDeptArtifact>> = {};
+      for (const a of json.artifacts ?? []) map[a.artifact_type] = a;
+      setByType(map);
+    } catch {
+      /* keep last state */
+    }
+  }, [areaId]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  const draft = useCallback(
+    async (type: ArtifactType) => {
+      const before = byType[type]?.version ?? 0;
+      setBusy((b) => ({ ...b, [type]: 'Drafting…' }));
+      try {
+        const res = await fetch('/api/mba/dept-artifacts/draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ area_id: areaId, artifact_type: type }),
+        });
+        if (!res.ok) {
+          setBusy((b) => ({ ...b, [type]: undefined }));
+          return;
+        }
+        // Poll the collect route until the draft lands (Mac seat drains in ~seconds).
+        for (let i = 0; i < 15; i++) {
+          await new Promise((r) => setTimeout(r, 4000));
+          await fetch('/api/mba/dept-artifacts/collect', { method: 'POST' }).catch(() => {});
+          const res2 = await fetch(
+            `/api/mba/dept-artifacts?area_id=${encodeURIComponent(areaId)}`,
+          );
+          if (res2.ok) {
+            const json = (await res2.json()) as { artifacts: MbaDeptArtifact[] };
+            const found = (json.artifacts ?? []).find((a) => a.artifact_type === type);
+            if (found && found.version > before) {
+              const map: Partial<Record<ArtifactType, MbaDeptArtifact>> = {};
+              for (const a of json.artifacts ?? []) map[a.artifact_type] = a;
+              setByType(map);
+              break;
+            }
+          }
+        }
+      } finally {
+        setBusy((b) => ({ ...b, [type]: undefined }));
+      }
+    },
+    [areaId, byType],
+  );
+
+  const review = useCallback(
+    async (type: ArtifactType, action: 'approve' | 'request_changes') => {
+      setBusy((b) => ({ ...b, [type]: action === 'approve' ? 'Approving…' : 'Saving…' }));
+      try {
+        // Cast to any: these RPCs are new and not yet in the generated DB types
+        // (codebase idiom, e.g. mba-rotation-tick). They are anon-locked and
+        // granted to authenticated, so the browser client may call them.
+        const supabase = createClientSupabaseClient() as unknown as {
+          rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
+        };
+        if (action === 'approve') {
+          await supabase.rpc('fn_mba_dept_artifact_approve', {
+            p_area_id: areaId,
+            p_artifact_type: type,
+            p_content: null,
+            p_review_notes: null,
+          });
+        } else {
+          await supabase.rpc('fn_mba_dept_artifact_request_changes', {
+            p_area_id: areaId,
+            p_artifact_type: type,
+            p_review_notes: 'Manager requested changes.',
+          });
+        }
+        await refetch();
+      } finally {
+        setBusy((b) => ({ ...b, [type]: undefined }));
+      }
+    },
+    [areaId, refetch],
+  );
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-violet-500" />
+          <h3 className="text-sm font-semibold">Department Playbook</h3>
+          <Badge variant="outline" className="text-xs">
+            AI draft · human approves
+          </Badge>
+        </div>
+        <p className="text-muted-foreground text-xs">
+          AI proposes a starter organogram, SOP and workflow for {areaLabel}. A
+          manager reviews and completes each before it becomes official.
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-3 pt-0 md:grid-cols-3">
+        {ARTIFACT_TYPES.map((type) => {
+          const art = byType[type];
+          const Icon = TYPE_ICON[type];
+          const status = art?.status;
+          const working = busy[type];
+          return (
+            <div key={type} className="flex flex-col rounded-md border p-3">
+              <div className="mb-2 flex items-center gap-1.5">
+                <Icon className="text-muted-foreground h-4 w-4" />
+                <span className="text-sm font-medium">{ARTIFACT_LABEL[type]}</span>
+              </div>
+
+              {status && (
+                <Badge
+                  variant="outline"
+                  className={`mb-2 w-fit text-[11px] ${STATUS_STYLE[status] ?? ''}`}
+                >
+                  {STATUS_LABEL[status] ?? status}
+                </Badge>
+              )}
+
+              {art ? (
+                <ArtifactPreview type={type} content={art.content} />
+              ) : (
+                <p className="text-muted-foreground mb-3 text-xs">Not drafted yet.</p>
+              )}
+
+              <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={Boolean(working)}
+                  onClick={() => draft(type)}
+                >
+                  {working === 'Drafting…' ? (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                  )}
+                  {art ? 'Re-draft' : 'Draft with AI'}
+                </Button>
+
+                {canManage && art && status !== 'approved' && (
+                  <>
+                    <Button
+                      size="sm"
+                      className="h-7 bg-emerald-600 text-xs hover:bg-emerald-700"
+                      disabled={Boolean(working)}
+                      onClick={() => review(type, 'approve')}
+                    >
+                      <Check className="mr-1 h-3 w-3" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      disabled={Boolean(working)}
+                      onClick={() => review(type, 'request_changes')}
+                    >
+                      Request changes
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Per-type content preview — defensive: unknown shapes fall back to nothing.  */
+/* -------------------------------------------------------------------------- */
+
+function asArray(v: unknown): Record<string, unknown>[] {
+  return Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+}
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : v == null ? '' : String(v);
+}
+
+function ArtifactPreview({
+  type,
+  content,
+}: {
+  type: ArtifactType;
+  content: Record<string, unknown>;
+}) {
+  const note = str(content.note);
+  const proposed = content.proposed === true;
+
+  let rows: string[] = [];
+  if (type === 'organogram') {
+    rows = asArray(content.roles).map((r) =>
+      `${str(r.title)}${r.reports_to ? ` → ${str(r.reports_to)}` : ''}`.trim(),
+    );
+  } else if (type === 'sop') {
+    rows = asArray(content.steps).map((s) => `${str(s.n)}. ${str(s.title)}`.trim());
+  } else {
+    rows = asArray(content.stages).map((s) => `${str(s.n)}. ${str(s.name)}`.trim());
+  }
+  rows = rows.filter(Boolean).slice(0, 5);
+
+  return (
+    <div className="mb-3 space-y-1">
+      {proposed && (
+        <p className="text-[11px] font-medium text-violet-600">Proposed — not yet official</p>
+      )}
+      {note && <p className="text-muted-foreground line-clamp-2 text-xs">{note}</p>}
+      {rows.length > 0 && (
+        <ul className="text-muted-foreground list-inside space-y-0.5 text-[11px]">
+          {rows.map((r, i) => (
+            <li key={i} className="truncate">
+              • {r}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
