@@ -135,6 +135,21 @@ anyone but the uploader.
 and **could not give it back**: `fn_ai_requeue_stale` explicitly skips
 interactive job types, so the row sits in `claimed` forever.
 
+**A CHECK constraint alone is NOT enough.** `fn_ai_job_type_upsert` — the RPC
+behind `/admin/ai-models` → job-type edit — carries its own vocabulary gate and
+**silently coerces** an unrecognised lane:
+
+```sql
+IF v_lane NOT IN ('max', 'api', 'either') THEN
+  v_lane := 'max';        -- no error raised
+END IF;
+```
+
+So the first person to open the procurement job type and press **Save** would
+have `lane` quietly rewritten to `'max'` while `interactive` stayed true —
+re-arming the exact collision. The migration therefore also replaces that
+function (live body + one vocabulary entry, section 4).
+
 Consequences captured in the migration:
 - `ai_job_types_lane_chk` widened (widen-only) to admit `'max-pdf'` — the CHECK
   previously allowed only `max|api|either`, so the first dry-run failed outright.
