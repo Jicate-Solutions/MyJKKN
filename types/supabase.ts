@@ -39079,8 +39079,9 @@ export type Database = {
           department_id: string | null
           end_date: string | null
           hr_employee_id: string | null
-          hr_organization_id: string
+          hr_organization_id: string | null
           id: string
+          improvement_area_id: string | null
           is_current: boolean
           notes: string | null
           role_category: string | null
@@ -39095,8 +39096,9 @@ export type Database = {
           department_id?: string | null
           end_date?: string | null
           hr_employee_id?: string | null
-          hr_organization_id: string
+          hr_organization_id?: string | null
           id?: string
+          improvement_area_id?: string | null
           is_current?: boolean
           notes?: string | null
           role_category?: string | null
@@ -39111,8 +39113,9 @@ export type Database = {
           department_id?: string | null
           end_date?: string | null
           hr_employee_id?: string | null
-          hr_organization_id?: string
+          hr_organization_id?: string | null
           id?: string
+          improvement_area_id?: string | null
           is_current?: boolean
           notes?: string | null
           role_category?: string | null
@@ -39141,6 +39144,13 @@ export type Database = {
             columns: ["hr_organization_id"]
             isOneToOne: false
             referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_additional_roles_improvement_area_id_fkey"
+            columns: ["improvement_area_id"]
+            isOneToOne: false
+            referencedRelation: "improvement_areas"
             referencedColumns: ["id"]
           },
           {
