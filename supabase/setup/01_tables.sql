@@ -844,6 +844,14 @@ CREATE TABLE IF NOT EXISTS public.billing_categories (
     -- 'government' = collected on behalf of a government body; excluded from
     -- management collection totals on the billing dashboards.
     collection_type TEXT NOT NULL DEFAULT 'management',
+    -- TRUE = a learner may hold at most ONE live bill in this category, ever.
+    -- Enforced by trg_billing_bills_once_per_learner (04_triggers.sql), not in
+    -- application code: bills are written from ten paths, six of them RPCs.
+    -- Deliberately NOT the existing `frequency` column, which is already
+    -- 'one-time' on 22 of 23 categories and has never been enforced — flipping
+    -- that to a rule would block Transport Fee's legitimate Term 2 instalment
+    -- for 1,011 learners. Defaults false so enabling is always deliberate.
+    once_per_learner BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,

@@ -12048,6 +12048,7 @@ export type Database = {
           id: string
           is_active: boolean
           kind: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner: boolean
           updated_at: string | null
           updated_by: string | null
           visible_to_learners: boolean
@@ -12063,6 +12064,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner?: boolean
           updated_at?: string | null
           updated_by?: string | null
           visible_to_learners?: boolean
@@ -12078,6 +12080,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner?: boolean
           updated_at?: string | null
           updated_by?: string | null
           visible_to_learners?: boolean

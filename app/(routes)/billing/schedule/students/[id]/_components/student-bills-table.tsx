@@ -59,6 +59,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { toast } from 'react-hot-toast';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import type { StudentBill } from '@/types/billing-schedule';
+import { isBillableBill } from '@/lib/billing/bill-status';
 import { Card } from '@/components/ui/card';
 
 interface StudentBillsTableProps {
@@ -114,10 +115,18 @@ export function StudentBillsTable({
   }, [filteredBills]);
 
   // Total / paid / outstanding + an aggregate badge for one year's bills.
+  //
+  // `billed` must exclude BOTH void statuses. It previously excluded only
+  // `superseded`, which produced two wrong numbers from one mistake: a
+  // cancelled bill inflated `total`, and because `paid` is derived as
+  // `total - outstanding` while a cancelled bill contributes nothing to
+  // `outstanding`, the difference was reported as money received. A learner
+  // with a ₹70,000 paid bill and a ₹35,000 cancelled one showed
+  // "Total ₹1,05,000 · Paid ₹1,05,000".
   const summarizeGroup = (groupBills: StudentBill[]) => {
-    const billed = groupBills.filter((b) => b.status !== 'superseded');
+    const billed = groupBills.filter(isBillableBill);
     const total = billed.reduce((s, b) => s + b.final_amount, 0);
-    const outstanding = groupBills.reduce(
+    const outstanding = billed.reduce(
       (s, b) =>
         s +
         (['unpaid', 'partially_paid', 'overdue'].includes(b.status)
@@ -128,9 +137,10 @@ export function StudentBillsTable({
       0
     );
     const paid = Math.max(0, total - outstanding);
-    const allSettled =
-      billed.length > 0 &&
-      billed.every((b) => b.status === 'paid' || b.status === 'cancelled');
+    // Void bills are already filtered out of `billed`, so settlement is simply
+    // "every remaining bill is paid" — listing 'cancelled' here as well was
+    // what let an all-cancelled year still render a green PAID badge.
+    const allSettled = billed.length > 0 && billed.every((b) => b.status === 'paid');
     const label = allSettled ? 'PAID' : paid > 0 ? 'PARTIAL' : 'UNPAID';
     return { total, paid, outstanding, label };
   };

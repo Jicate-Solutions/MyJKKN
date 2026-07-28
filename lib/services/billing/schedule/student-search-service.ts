@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { isBillableBill } from '@/lib/billing/bill-status';
 import type {
   StudentForBilling,
   StudentForBillingListResponse,
@@ -428,7 +429,10 @@ export class StudentSearchService {
       if (invoicesError) throw invoicesError;
 
       // Calculate summary
-      const totalBills = bills?.length || 0;
+      // Count only bills the learner actually owes. A raw `bills.length`
+      // counted cancelled and superseded rows too, so a learner with one live
+      // bill and one cancelled bill was reported as having 2 bills.
+      const totalBills = (bills as any[])?.filter(isBillableBill).length || 0;
 
       // Calculate total paid amount from receipts
       const totalReceiptAmount =
