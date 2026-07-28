@@ -5,13 +5,21 @@
 // PR4 — interactive client for the Auto-Meeting Triggers console.
 //   • Rules table: per college, current rate vs editable threshold + on/off +
 //     cooldown/weekly-cap, saved via PATCH /api/meetings/triggers/rules.
+//   • Missing-attendance table also sets the per-college alert owner, options
+//     from GET /api/meetings/triggers/staff-options?institution_id=…
 //   • Events list: recent breaches; skip/meet on actionable ones via
 //     POST /api/meetings/triggers/decision, then refresh.
+//
+// Copy honesty: the engine NEVER writes a meeting_bookings row (grep the
+// service — 0 hits; the decision route's own comment says "PR1c books it" and
+// PR1c was never built). So all blurbs say "escalated … for a review meeting",
+// never "a meeting is booked/scheduled". Don't reintroduce the booking wording
+// until something actually books.
 //
 // Hooks-order safety: all hooks declared unconditionally at the top before any
 // early return (feedback memory: hooks_order_runtime_crash_passes_ci).
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Save, Check, X } from 'lucide-react';
 
@@ -54,7 +62,7 @@ const PROJECT_METRIC: Record<
 > = {
   task_overdue: {
     name: 'Overdue tasks',
-    fires: 'a task is overdue by at least this many days (Accountable explains, else a meeting is booked)',
+    fires: 'a task is overdue by at least this many days (Accountable explains, else it goes to their reporting head)',
     thresholdLabel: 'days'
   },
   project_at_risk: {
@@ -67,6 +75,21 @@ const PROJECT_METRIC: Record<
 function ruleDisplayName(r: { metric_key: string; college_name: string }): string {
   return PROJECT_METRIC[r.metric_key]?.name ?? r.college_name;
 }
+
+/**
+ * The rules the server sends already carry `alert_owner_staff_id` (the service
+ * selects it), but the exported `TriggerRuleWithRate` type does not declare it.
+ * Widen it here rather than in the shared service file.
+ */
+type RuleRow = TriggerRuleWithRate & { alert_owner_staff_id?: string | null };
+
+type StaffOption = { value: string; label: string };
+
+/** Shared classes for the native <select> used by the alert-owner picker. */
+const SELECT_CLS =
+  'h-8 w-full min-w-[10rem] max-w-[16rem] rounded-md border border-input bg-background px-2 text-xs ' +
+  'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ' +
+  'focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
 
 /** Metric-appropriate detail line for a breach event. */
 function eventDetail(ev: {
@@ -93,10 +116,15 @@ export function TriggersConsole({
   initialRules: TriggerRuleWithRate[];
   initialEvents: TriggerEventRow[];
 }) {
-  const [rules, setRules] = useState<TriggerRuleWithRate[]>(initialRules);
+  const [rules, setRules] = useState<RuleRow[]>(initialRules);
   const [events, setEvents] = useState<TriggerEventRow[]>(initialEvents);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  // institution_id → staff options, filled lazily the first time a row's picker
+  // is focused/hovered. `null` while that institution's fetch is in flight.
+  const [staffOptions, setStaffOptions] = useState<
+    Record<string, StaffOption[] | null>
+  >({});
 
   const attendanceRules = rules.filter((r) => r.metric_key === ATTENDANCE_METRIC);
   const missingDataRules = rules.filter(
@@ -107,11 +135,45 @@ export function TriggersConsole({
       r.metric_key !== ATTENDANCE_METRIC && r.metric_key !== MISSING_DATA_METRIC
   );
 
-  function patchLocal(id: string, patch: Partial<TriggerRuleWithRate>) {
+  function patchLocal(id: string, patch: Partial<RuleRow>) {
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  async function saveRule(rule: TriggerRuleWithRate) {
+  /** Load a college's staff list once, on first focus/hover of its picker. */
+  const ensureStaffOptions = useCallback(async (institutionId: string | null) => {
+    if (!institutionId) return;
+    let shouldFetch = false;
+    setStaffOptions((prev) => {
+      if (institutionId in prev) return prev;
+      shouldFetch = true;
+      return { ...prev, [institutionId]: null };
+    });
+    if (!shouldFetch) return;
+    try {
+      const res = await fetch(
+        `/api/meetings/triggers/staff-options?institution_id=${encodeURIComponent(
+          institutionId
+        )}`,
+        { cache: 'no-store' }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? 'Could not load team members');
+      setStaffOptions((prev) => ({
+        ...prev,
+        [institutionId]: Array.isArray(json.options) ? json.options : []
+      }));
+    } catch (e: any) {
+      // Drop the placeholder so a retry (next focus) can fetch again.
+      setStaffOptions((prev) => {
+        const next = { ...prev };
+        delete next[institutionId];
+        return next;
+      });
+      toast.error(e?.message ?? 'Could not load team members');
+    }
+  }, []);
+
+  async function saveRule(rule: RuleRow) {
     setSavingId(rule.id);
     try {
       const res = await fetch('/api/meetings/triggers/rules', {
@@ -122,7 +184,12 @@ export function TriggersConsole({
           threshold: Number(rule.threshold),
           active: rule.active,
           cooldown_days: Number(rule.cooldown_days),
-          weekly_cap: Number(rule.weekly_cap)
+          weekly_cap: Number(rule.weekly_cap),
+          // Send back exactly what we hold so an untouched owner round-trips
+          // unchanged; omit the key entirely when the row never carried one.
+          ...(rule.alert_owner_staff_id !== undefined
+            ? { alert_owner_staff_id: rule.alert_owner_staff_id }
+            : {})
         })
       });
       const json = await res.json();
@@ -178,8 +245,10 @@ export function TriggersConsole({
           <CardTitle className="text-base">College thresholds</CardTitle>
           <p className="text-xs text-muted-foreground">
             A rule fires when a college&apos;s daily attendance drops below its
-            threshold. Rules stay off until you switch them on. &quot;Now&quot;
-            is the last 7 days (latest day in brackets).
+            threshold. The Principal is asked to explain within 24h, and you
+            decide below whether to let it go or hold a review meeting. Rules
+            stay off until you switch them on. &quot;Now&quot; is the last 7 days
+            (latest day in brackets).
           </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -276,6 +345,7 @@ export function TriggersConsole({
                         variant="outline"
                         onClick={() => saveRule(r)}
                         disabled={savingId === r.id}
+                        aria-label={`Save ${r.college_name}`}
                       >
                         {savingId === r.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -304,9 +374,9 @@ export function TriggersConsole({
               <strong>no attendance recorded — or far less than usual</strong>{' '}
               (below the % of that college&apos;s normal day set here) — on a day
               that isn&apos;t a Sunday or an approved holiday. The Principal is
-              asked to explain within 24h, otherwise a short review meeting is
-              booked. Capped to once a week. Rules stay off until you switch them
-              on.
+              asked to explain within 24h, otherwise it is escalated to the
+              Director for a review meeting. Capped to once a week. Rules stay
+              off until you switch them on.
             </p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -317,6 +387,7 @@ export function TriggersConsole({
                   <TableHead className="w-28 text-right">
                     Gap if below %
                   </TableHead>
+                  <TableHead className="w-56">Alert owner</TableHead>
                   <TableHead className="w-20 text-right">Cooldown</TableHead>
                   <TableHead className="w-20 text-right">Weekly cap</TableHead>
                   <TableHead className="w-20 text-center">Active</TableHead>
@@ -345,6 +416,47 @@ export function TriggersConsole({
                         />
                         <span className="text-xs text-muted-foreground">%</span>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const instId = r.institution_id;
+                        const loaded = instId ? staffOptions[instId] : undefined;
+                        const current = r.alert_owner_staff_id ?? '';
+                        const isLoading = instId != null && loaded === null;
+                        // Keep the saved owner selectable before the list loads.
+                        const showStub =
+                          current !== '' &&
+                          !(loaded ?? []).some((o) => o.value === current);
+                        return (
+                          <select
+                            className={SELECT_CLS}
+                            aria-label={`Alert owner for ${r.college_name}`}
+                            value={current}
+                            disabled={!instId}
+                            onFocus={() => ensureStaffOptions(instId)}
+                            onPointerEnter={() => ensureStaffOptions(instId)}
+                            onChange={(e) =>
+                              patchLocal(r.id, {
+                                alert_owner_staff_id: e.target.value || null
+                              })
+                            }
+                          >
+                            <option value="">(Principal / default)</option>
+                            {showStub && (
+                              <option value={current}>
+                                {isLoading
+                                  ? 'Loading team members…'
+                                  : 'Currently assigned'}
+                              </option>
+                            )}
+                            {(loaded ?? []).map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <Input
@@ -385,6 +497,7 @@ export function TriggersConsole({
                         variant="outline"
                         onClick={() => saveRule(r)}
                         disabled={savingId === r.id}
+                        aria-label={`Save ${r.college_name}`}
                       >
                         {savingId === r.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -397,6 +510,13 @@ export function TriggersConsole({
                 ))}
               </TableBody>
             </Table>
+            <p className="mt-3 text-xs text-muted-foreground">
+              <strong>Alert owner</strong>{' '}
+              is only used when a college has no Principal on record — the alert
+              then goes to that one person instead of to every super-admin.
+              Leave it on &quot;(Principal / default)&quot; when the college has
+              a Principal. Remember to press Save on the row.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -408,9 +528,9 @@ export function TriggersConsole({
             <CardTitle className="text-base">Project accountability</CardTitle>
             <p className="text-xs text-muted-foreground">
               These watch every project. On a breach, the task&apos;s Accountable
-              person (RACI) is asked to explain within 24h, and a short meeting
-              with their reporting head is booked otherwise. Rules stay off until
-              you switch them on.
+              person (RACI) is asked to explain within 24h, otherwise it is
+              escalated to their reporting head for a review meeting. Rules stay
+              off until you switch them on.
             </p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -488,6 +608,7 @@ export function TriggersConsole({
                           variant="outline"
                           onClick={() => saveRule(r)}
                           disabled={savingId === r.id}
+                          aria-label={`Save ${meta?.name ?? r.metric_key}`}
                         >
                           {savingId === r.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />

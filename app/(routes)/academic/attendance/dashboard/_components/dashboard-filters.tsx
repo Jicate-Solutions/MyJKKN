@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -250,6 +251,10 @@ export interface DashboardFilterState {
   programId?: string;
   semesterId?: string;
   sectionId?: string;
+  // Cross-cutting (NOT a hierarchy level): show only first-year learners — those
+  // admitted in the institution's current intake. Independent of degree/dept/etc.,
+  // so it is deliberately excluded from HIERARCHY_ORDER's cascade clearing.
+  firstYearOnly?: boolean;
 }
 
 /**
@@ -284,7 +289,8 @@ export function toHierarchyFilter(
     departmentId: filters?.departmentId,
     programId: filters?.programId,
     semesterId: filters?.semesterId,
-    sectionId: filters?.sectionId
+    sectionId: filters?.sectionId,
+    firstYearOnly: filters?.firstYearOnly
   };
 }
 
@@ -387,7 +393,10 @@ export function DashboardFilters({
       if (key === 'institutionId') {
         newFilters.academicYearId = undefined;
         HIERARCHY_ORDER.forEach((level) => {
-          newFilters[level] = undefined;
+          // cast: `level` widens to keyof DashboardFilterState, whose value
+          // union is now heterogeneous (a boolean field exists), so a bare
+          // computed-key write of `undefined` types the target as `never`.
+          (newFilters as Record<string, unknown>)[level] = undefined;
         });
       }
 
@@ -396,7 +405,10 @@ export function DashboardFilters({
       const changedLevel = HIERARCHY_ORDER.indexOf(key);
       if (changedLevel !== -1) {
         HIERARCHY_ORDER.slice(changedLevel + 1).forEach((level) => {
-          newFilters[level] = undefined;
+          // cast: `level` widens to keyof DashboardFilterState, whose value
+          // union is now heterogeneous (a boolean field exists), so a bare
+          // computed-key write of `undefined` types the target as `never`.
+          (newFilters as Record<string, unknown>)[level] = undefined;
         });
       }
 
@@ -662,12 +674,34 @@ export function DashboardFilters({
             </Button>
 
             {effectiveInstitutionId ? (
-              <HierarchyFilterFields
-                filters={filters}
-                institutionId={effectiveInstitutionId}
-                expanded={isHierarchyOpen}
-                onChange={updateFilter}
-              />
+              <>
+                <HierarchyFilterFields
+                  filters={filters}
+                  institutionId={effectiveInstitutionId}
+                  expanded={isHierarchyOpen}
+                  onChange={updateFilter}
+                />
+                {isHierarchyOpen && (
+                  <div className='flex items-center gap-2 px-3 pb-3'>
+                    <Switch
+                      id='first-year-only'
+                      checked={!!filters.firstYearOnly}
+                      onCheckedChange={(checked) =>
+                        updateFilter('firstYearOnly', checked)
+                      }
+                    />
+                    <Label
+                      htmlFor='first-year-only'
+                      className='cursor-pointer text-sm font-normal'
+                    >
+                      First-year learners only
+                      <span className='ml-1 text-xs text-muted-foreground'>
+                        (admitted in the current intake — works per institution)
+                      </span>
+                    </Label>
+                  </div>
+                )}
+              </>
             ) : (
               isHierarchyOpen && (
                 <p className='px-3 pb-3 text-sm text-muted-foreground'>
