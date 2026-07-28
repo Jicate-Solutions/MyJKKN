@@ -94,6 +94,10 @@ export default function MarkAttendancePage() {
       setSelectedFloor('all');
       setSelectedCategory('all');
     } else if (selectedBlock !== 'all' && !myBlockIds.includes(selectedBlock)) {
+      // Previously reverted silently — the operator would pick a block outside
+      // their access and just watch the selection snap back with no
+      // explanation, reading as "the dropdown won't let me choose anything."
+      toast.warning("You don't have access to that block — showing your assigned block instead.");
       setSelectedBlock(myBlockIds[0]);
       setSelectedFloor('all');
       setSelectedCategory('all');
