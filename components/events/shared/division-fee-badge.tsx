@@ -1,16 +1,19 @@
 'use client';
 
-// Entry-fee badge for one division, shown on the tournament detail page.
+// Entry-fee badge for one division, shown in the Event Logistics
+// "Registrations" tab.
 //
 // Fees are NOT a registration-form field — they live on the division
 // (config.entry_fee) because each division prices independently (Cricket ₹500,
 // Chess free). Once a division's fee is above 0, the public self-registration
 // form turns itself into a Razorpay checkout; nothing else has to be wired.
 //
-// Added 2026-07: the fee was previously only visible/editable from the
-// tournaments LIST -> Edit dialog, so the page organizers actually work on
-// showed no pricing at all (the removed Add Entry dialog used to be the only
-// place on this page that surfaced it).
+// History: first surfaced on the tournaments LIST -> Edit dialog only, so the
+// page organizers actually work on showed no pricing. Then added to the division
+// cards on the tournament detail page. Moved here 2026-07-28 and lifted out of
+// the tournament route into shared/, because pricing belongs with the
+// registration view and a shared board must not import a route-local component.
+// The division cards now carry fixtures only.
 
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
