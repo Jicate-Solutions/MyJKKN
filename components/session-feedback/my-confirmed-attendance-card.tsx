@@ -9,12 +9,19 @@
 
 import { ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { useMyConfirmedAttendance, useFeedbackWindowHours } from '@/hooks/use-session-feedback';
+import {
+  useMyConfirmedAttendance,
+  useFeedbackWindowHours,
+  usePendingSessions,
+} from '@/hooks/use-session-feedback';
 
 const BRAND = '#0b6d41';
 // Two-sided 48h window — the hours come from the shared session_feedback.window_hours
 // config lever (copy hint only; the server fns enforce). Fallback until the read resolves.
 const DEFAULT_WINDOW_HOURS = 48;
+// Same lookback both host pages already pass, so this shares their React Query
+// cache entry (scfQueryKeys.pending(30)) instead of firing a second request.
+const PENDING_LOOKBACK_DAYS = 30;
 
 function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -25,6 +32,15 @@ function fmtDate(iso: string): string {
 export function MyConfirmedAttendanceCard() {
   const { data, isLoading, isError } = useMyConfirmedAttendance();
   const { data: configWindowHours } = useFeedbackWindowHours();
+  // What the learner can ACTUALLY act on right now. fn_scf_pending_for_learner is
+  // window-filtered — it lists only sessions still inside the window — matching
+  // fn_scf_submit_feedback, which hard-rejects anything later. Read before the
+  // early returns below so the hook order stays unconditional.
+  const {
+    data: pendingSessions,
+    isLoading: pendingLoading,
+    isError: pendingError,
+  } = usePendingSessions(PENDING_LOOKBACK_DAYS);
   const CONFIRM_WINDOW_HOURS = configWindowHours ?? DEFAULT_WINDOW_HOURS;
 
   // Loading and error states must be visible — silently returning null here made
@@ -130,8 +146,30 @@ export function MyConfirmedAttendanceCard() {
     : close
       ? `${confirmed_pct}% of your classes are confirmed with feedback — just above the ${pass_line}% line.`
       : `${confirmed_pct}% of your classes are confirmed with feedback — above the ${pass_line}% line.`;
+  // The at-risk band used to end with "Give feedback on each class to raise it back
+  // above {pass_line}%" — an instruction the learner cannot carry out. confirmed_pct
+  // is computed over EVERY Present+Absent mark since enforcement_start, but a class
+  // can only be confirmed within CONFIRM_WINDOW_HOURS of it (fn_scf_submit_feedback
+  // rejects later submissions; fn_scf_pending_for_learner stops listing them), so the
+  // deficit already in the number is closed for good and the learner's actionable list
+  // is usually 0–1 sessions. Learners followed the instruction, found nothing to open,
+  // and reported "I can't send my feedback" (BUG-005254 / 005313 / 005314 / 005315 /
+  // 005316). Name the real actionable set instead — and when it is empty, say so and
+  // why, rather than sending them hunting. pendingCount stays null until the pending
+  // read resolves so a loading state is never rendered as "nothing is open".
+  const pendingCount =
+    !pendingLoading && !pendingError && Array.isArray(pendingSessions)
+      ? pendingSessions.length
+      : null;
+  const actionLine =
+    pendingCount === null
+      ? `Give feedback within ${CONFIRM_WINDOW_HOURS} hours of each new class — that's the only window in which a class can be confirmed, so this % climbs from here.`
+      : pendingCount > 0
+        ? `${pendingCount} ${pendingCount === 1 ? 'session is' : 'sessions are'} still open for feedback right now — give ${pendingCount === 1 ? 'it' : 'those'}, then keep going within ${CONFIRM_WINDOW_HOURS} hours of each new class.`
+        : `Nothing is open for feedback right now — a class can only be confirmed within ${CONFIRM_WINDOW_HOURS} hours of it, so earlier sessions can't be made up and this isn't something you've missed a chance to fix. Give feedback within ${CONFIRM_WINDOW_HOURS} hours of each new class and this % climbs from here.`;
+
   const sub = atRisk
-    ? `Your attendance is ${official_pct}% and that's fine — you're never counted absent for missing feedback. What's below the line is feedback: only ${confirmed_pct}% of your attended classes have feedback given within ${CONFIRM_WINDOW_HOURS} hours. Give feedback on each class to raise it back above ${pass_line}%.`
+    ? `Your attendance is ${official_pct}% and that's fine — you're never counted absent for missing feedback. What's below the line is feedback: only ${confirmed_pct}% of your attended sessions have feedback given within ${CONFIRM_WINDOW_HOURS} hours. ${actionLine}`
     : close
       ? `Your attendance is ${official_pct}%. To keep your confirmed-with-feedback % above the ${pass_line}% line, give feedback within ${CONFIRM_WINDOW_HOURS} hours of every class.`
       : `Your attendance is ${official_pct}% and ${confirmed_pct}% of those classes are confirmed with feedback. Keep it up.`;
