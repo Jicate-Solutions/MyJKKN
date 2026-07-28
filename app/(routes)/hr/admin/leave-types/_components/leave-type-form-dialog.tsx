@@ -15,7 +15,8 @@ import {
   REQUEST_CATEGORY_LABELS, REQUEST_CATEGORY_HINTS,
   STO_LIMIT_MODE_LABELS, STO_LIMIT_MODE_HINTS,
   STO_LIMIT_PERIOD_LABELS, STO_LIMIT_PERIOD_HINT,
-  type StoLimitMode, type StoLimitPeriod,
+  LIMIT_PERIOD_LABELS,
+  type StoLimitMode, type StoLimitPeriod, type LeaveLimitPeriod,
 } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
@@ -42,6 +43,10 @@ const EMPTY = {
   leave_type_code: '', leave_type_name: '', description: '',
   color_code: '#6B7280', display_order: 0, is_active: true,
   request_category: 'leave' as LeaveRequestCategory,
+  // 'none' rather than '' because Radix Select cannot hold an empty value.
+  // Mapped to a NULL leave_limit_period on submit.
+  leave_limit_period: 'none' as LeaveLimitPeriod | 'none',
+  leave_max_days_per_period: '' as number | '',
   sto_limit_mode: 'none' as StoLimitMode,
   sto_limit_period: 'month' as StoLimitPeriod,
   sto_max_requests: '' as string | number,
@@ -82,6 +87,8 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
         sto_total_minutes: leaveType.sto_total_minutes ?? '',
         sto_min_minutes: leaveType.sto_min_minutes ?? '',
         sto_max_minutes: leaveType.sto_max_minutes ?? '',
+        leave_limit_period: leaveType.leave_limit_period ?? 'none',
+        leave_max_days_per_period: leaveType.leave_max_days_per_period ?? '',
       });
     } else {
       setForm({ ...EMPTY });
@@ -115,6 +122,18 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
         );
         return;
       }
+    }
+
+    // hr_leave_types_leave_cap_pair rejects a period without its cap, for the
+    // same reason as the Short Time Off guard above: a period with no maximum is
+    // a rule that never fires.
+    if (
+      form.request_category === 'leave' &&
+      form.leave_limit_period !== 'none' &&
+      !(Number(form.leave_max_days_per_period) > 0)
+    ) {
+      toast.error('Enter the maximum days allowed per period.');
+      return;
     }
 
     // Edit-mode seeds `form` from the full row (see useEffect above), so at
@@ -153,6 +172,17 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
         form.sto_limit_mode === 'none' ? null : nullable(form.sto_min_minutes),
       sto_max_minutes:
         form.sto_limit_mode === 'none' ? null : nullable(form.sto_max_minutes),
+      // Both or neither, per hr_leave_types_leave_cap_pair. Cleared outright for
+      // the other categories so switching a type to Short Time Off cannot leave
+      // a day cap behind that nothing reads but the constraint still checks.
+      leave_limit_period:
+        form.request_category === 'leave' && form.leave_limit_period !== 'none'
+          ? form.leave_limit_period
+          : null,
+      leave_max_days_per_period:
+        form.request_category === 'leave' && form.leave_limit_period !== 'none'
+          ? nullable(form.leave_max_days_per_period)
+          : null,
       document_required_after_days: nullable(form.document_required_after_days),
       max_carry_forward_days: nullable(form.max_carry_forward_days),
       max_encashable_days: nullable(form.max_encashable_days),
@@ -243,6 +273,54 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
               </p>
             </div>
           </section>
+
+          {form.request_category === 'leave' && (
+            <section className="space-y-3 rounded-md border border-primary/25 bg-primary/[0.03] p-3">
+              <div>
+                <h3 className="text-sm font-semibold">Per-period cap</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Throttles how much of the annual entitlement may be taken at once —
+                  &ldquo;12 days a year, but no more than 2 in any one month&rdquo;. This sits
+                  alongside the entitlement, it does not replace it.
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <Label>Cap period</Label>
+                  <Select value={form.leave_limit_period}
+                    onValueChange={(v) => set('leave_limit_period', v as LeaveLimitPeriod | 'none')}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No per-period cap</SelectItem>
+                      {Object.entries(LIMIT_PERIOD_LABELS).map(([v, l]) => (
+                        <SelectItem key={v} value={v}>{l}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {form.leave_limit_period !== 'none' && (
+                  <div>
+                    <Label htmlFor="leaveMaxDays">
+                      Maximum days per period <span className="text-destructive">*</span>
+                    </Label>
+                    <Input id="leaveMaxDays" type="number" min={0.5} step={0.5} className="mt-1"
+                      value={form.leave_max_days_per_period}
+                      onChange={(e) => set('leave_max_days_per_period', e.target.value as unknown as number)} />
+                  </div>
+                )}
+              </div>
+
+              {form.leave_limit_period !== 'none' && (
+                <p className="text-xs text-muted-foreground">
+                  {STO_LIMIT_PERIOD_HINT} A request is counted wholly against the period
+                  containing its start date. Keep &ldquo;max days at a time&rdquo; below at or
+                  under this cap, or long requests can never be approved.
+                </p>
+              )}
+            </section>
+          )}
 
           {form.request_category === 'short_time_off' && (
             <section className="space-y-3 rounded-md border border-primary/25 bg-primary/[0.03] p-3">
