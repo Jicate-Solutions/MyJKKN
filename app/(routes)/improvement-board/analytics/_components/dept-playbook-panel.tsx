@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Check, RefreshCw, Loader2, FileText, GitBranch, Network } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { EditArtifactDialog } from './edit-artifact-dialog';
 
 // Kept inline so this panel builds standalone (the matching backend types live
 // in lib/services/mba-dept-artifacts, shipped in the drafting-engine PR).
@@ -121,22 +122,23 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     [areaId, byType],
   );
 
+  // Approve now happens inside the edit dialog (so edits are saved with it).
+  // This handles the two direct transitions: request changes, and reopen (which
+  // unlocks an approved artifact).
   const review = useCallback(
-    async (type: ArtifactType, action: 'approve' | 'request_changes') => {
-      setBusy((b) => ({ ...b, [type]: action === 'approve' ? 'Approving…' : 'Saving…' }));
+    async (type: ArtifactType, action: 'request_changes' | 'reopen') => {
+      setBusy((b) => ({ ...b, [type]: action === 'reopen' ? 'Reopening…' : 'Saving…' }));
       try {
-        // Cast to any: these RPCs are new and not yet in the generated DB types
-        // (codebase idiom, e.g. mba-rotation-tick). They are anon-locked and
-        // granted to authenticated, so the browser client may call them.
+        // Cast: these RPCs are new and not yet in the generated DB types
+        // (codebase idiom, e.g. mba-rotation-tick). Anon-locked, granted to
+        // authenticated, so the browser client may call them.
         const supabase = createClientSupabaseClient() as unknown as {
           rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
         };
-        if (action === 'approve') {
-          await supabase.rpc('fn_mba_dept_artifact_approve', {
+        if (action === 'reopen') {
+          await supabase.rpc('fn_mba_dept_artifact_reopen', {
             p_area_id: areaId,
             p_artifact_type: type,
-            p_content: null,
-            p_review_notes: null,
           });
         } else {
           await supabase.rpc('fn_mba_dept_artifact_request_changes', {
@@ -152,6 +154,9 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     },
     [areaId, refetch],
   );
+
+  // Which artifact type's Review & Approve dialog is open (null = none).
+  const [editType, setEditType] = useState<ArtifactType | null>(null);
 
   return (
     <Card className="border-dashed">
@@ -197,20 +202,23 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               )}
 
               <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  disabled={Boolean(working)}
-                  onClick={() => draft(type)}
-                >
-                  {working === 'Drafting…' ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-1 h-3 w-3" />
-                  )}
-                  {art ? 'Re-draft' : 'Draft with AI'}
-                </Button>
+                {/* Drafting is manager-only and blocked on approved (locked). */}
+                {canManage && status !== 'approved' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={Boolean(working)}
+                    onClick={() => draft(type)}
+                  >
+                    {working === 'Drafting…' ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1 h-3 w-3" />
+                    )}
+                    {art ? 'Re-draft' : 'Draft with AI'}
+                  </Button>
+                )}
 
                 {canManage && art && status !== 'approved' && (
                   <>
@@ -218,10 +226,10 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                       size="sm"
                       className="h-7 bg-emerald-600 text-xs hover:bg-emerald-700"
                       disabled={Boolean(working)}
-                      onClick={() => review(type, 'approve')}
+                      onClick={() => setEditType(type)}
                     >
                       <Check className="mr-1 h-3 w-3" />
-                      Approve
+                      Review &amp; approve
                     </Button>
                     <Button
                       size="sm"
@@ -234,11 +242,52 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                     </Button>
                   </>
                 )}
+
+                {/* Approved is locked — a manager must Reopen before re-drafting. */}
+                {canManage && status === 'approved' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={Boolean(working)}
+                    onClick={() => review(type, 'reopen')}
+                  >
+                    {working === 'Reopening…' ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1 h-3 w-3" />
+                    )}
+                    Reopen to edit
+                  </Button>
+                )}
+
+                {!canManage && !art && (
+                  <p className="text-muted-foreground text-[11px]">
+                    A manager can draft this.
+                  </p>
+                )}
               </div>
             </div>
           );
         })}
       </CardContent>
+
+      {editType && byType[editType] && (
+        <EditArtifactDialog
+          areaId={areaId}
+          areaLabel={areaLabel}
+          artifactType={editType}
+          content={byType[editType]!.content}
+          open={editType !== null}
+          onOpenChange={(o) => {
+            if (!o) setEditType(null);
+          }}
+          onApproved={() => {
+            setEditType(null);
+            void refetch();
+          }}
+        />
+      )}
     </Card>
   );
 }
