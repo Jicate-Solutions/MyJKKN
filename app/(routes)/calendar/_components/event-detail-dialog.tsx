@@ -84,7 +84,12 @@ export function EventDetailDialog({ item, onClose }: EventDetailDialogProps) {
                       </Badge>
                     )}
                     {status && (
-                      <Badge variant="outline" className="capitalize">{status}</Badge>
+                      <Badge
+                        variant={status.toLowerCase() === 'cancelled' ? 'destructive' : 'outline'}
+                        className="capitalize"
+                      >
+                        {status}
+                      </Badge>
                     )}
                   </div>
                 </div>

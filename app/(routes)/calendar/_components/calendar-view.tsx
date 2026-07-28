@@ -44,6 +44,7 @@ interface RBCEvent {
   end: Date;
   allDay: boolean;
   color: string;
+  cancelled: boolean;
   resource: CalendarItem;
 }
 
@@ -118,19 +119,25 @@ export function CalendarView() {
       items
         .filter((it) => activeFeeds.length === 0 || activeFeeds.includes(feedKeyFor(it)))
         .map((it) => {
-          const title =
+          const base =
             it.kind === 'leave'
               ? `${it.person_name ?? 'Someone'} · On Leave`
               : it.institution_name
               ? `${it.title} · ${it.institution_name}`
               : it.title;
+          // Cancelled meetings stay on the grid instead of vanishing, so the
+          // word rides in the title as well as the styling: strike-through is
+          // invisible to a screen reader, and the Agenda list renders plain
+          // rows where a colour shift alone reads as noise.
+          const cancelled = isCancelled(it);
           return {
             id: it.item_id,
-            title,
+            title: cancelled ? `Cancelled · ${base}` : base,
             start: it.all_day ? allDayLocalDate(it.start_at, 'start') : new Date(it.start_at),
             end: it.all_day ? allDayLocalDate(it.end_at, 'end') : new Date(it.end_at),
             allDay: it.all_day,
             color: it.color_code || '#6b7280',
+            cancelled,
             resource: it,
           };
         }),
@@ -147,7 +154,16 @@ export function CalendarView() {
 
   const eventStyleGetter = useCallback(
     (event: RBCEvent) => ({
-      style: { backgroundColor: event.color, color: '#fff', border: 'none', borderRadius: '6px' },
+      style: event.cancelled
+        ? {
+            backgroundColor: '#9ca3af',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            textDecoration: 'line-through',
+            opacity: 0.75,
+          }
+        : { backgroundColor: event.color, color: '#fff', border: 'none', borderRadius: '6px' },
     }),
     []
   );
@@ -297,6 +313,18 @@ function allDayLocalDate(iso: string, edge: 'start' | 'end'): Date {
   return edge === 'end'
     ? new Date(m.year(), m.month(), m.date(), 23, 59, 59, 999)
     : new Date(m.year(), m.month(), m.date());
+}
+
+/**
+ * The resolver carries the booking's own status in `meta.status`. Until now the
+ * calendar never saw a cancelled booking — the SQL filtered them out — so this
+ * only ever fires for meeting feeds. It is written against `meta` rather than a
+ * feed check so any future source that reports a cancelled status gets the same
+ * treatment for free.
+ */
+function isCancelled(it: CalendarItem): boolean {
+  const status = it.meta?.status;
+  return typeof status === 'string' && status.toLowerCase() === 'cancelled';
 }
 
 function feedKeyFor(it: CalendarItem): string {
