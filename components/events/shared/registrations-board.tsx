@@ -11,15 +11,19 @@
 
 import { useMemo, useState } from 'react';
 import {
+  CheckCircle2,
   ClipboardList,
+  CreditCard,
   Download,
   Eye,
   IndianRupee,
   Loader2,
   UserCheck,
   Users,
+  XCircle,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -38,6 +42,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DataTable, type PermissionColumnDef } from '@/components/ui/data-table';
 import { useEventRegistrations } from '@/hooks/events/shared/use-event-registrations';
+import {
+  useGeneratePaymentLink,
+  useMarkEntryPaid,
+  useWithdrawEntry,
+} from '@/hooks/events/use-tournament-registrations';
+import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
+import { DivisionFeeBadge } from '@/components/events/shared/division-fee-badge';
+import { useTournament } from '@/hooks/events/use-tournaments';
 import { ExportService } from '@/lib/services/export-service';
 import type { EventRegistrationRow } from '@/lib/services/events/shared/event-registrations-service';
 
@@ -105,6 +117,43 @@ export function RegistrationsBoard({
 
   const rows = useMemo(() => data ?? [], [data]);
   const isTournament = eventType === 'sports_tournament';
+
+  // Organizer actions. These moved here from the tournament detail page's
+  // division cards, which listed the same people purely to hang these three
+  // buttons off. They act on tournament_entries.id, so they only appear when the
+  // registration resolved to an entry row.
+  const markPaid = useMarkEntryPaid(eventId);
+  const withdraw = useWithdrawEntry(eventId);
+  const payLink = useGeneratePaymentLink(eventId);
+  const [rzp, setRzp] = useState<{
+    orderId: string;
+    keyId: string;
+    amountPaise: number;
+    customer: { name?: string; email?: string; phone?: string };
+  } | null>(null);
+
+  const canAct = canManage && isTournament;
+
+  // Divisions carry the entry fee (config.entry_fee), so pricing lives here now
+  // rather than on the division cards. Passing '' for non-tournaments keeps the
+  // query disabled; on a tournament this hits the SAME cache key the detail page
+  // already populated, so it costs no extra request.
+  const { data: tournament } = useTournament(isTournament ? eventId : '');
+  const divisions = useMemo(() => tournament?.divisions ?? [], [tournament?.divisions]);
+
+  const runPaymentLink = async (entryId: string) => {
+    const res = await payLink.mutateAsync(entryId);
+    if (res.razorpay_order_id && res.razorpay_key_id) {
+      setRzp({
+        orderId: res.razorpay_order_id,
+        keyId: res.razorpay_key_id,
+        amountPaise: res.amount_paise ?? 0,
+        customer: res.customer ?? {},
+      });
+    } else {
+      toast.error('No payment link returned');
+    }
+  };
 
   // Computed from rows already in hand — deliberately no second round trip.
   const stats = useMemo(
@@ -201,22 +250,70 @@ export function RegistrationsBoard({
         id: 'actions',
         header: '',
         enableSorting: false,
-        cell: ({ row }) => (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs"
-            onClick={() => setDetail(row.original)}
-          >
-            <Eye className="mr-1 h-3.5 w-3.5" />
-            View
-          </Button>
-        ),
+        cell: ({ row }) => {
+          const r = row.original;
+          const showEntryActions = canAct && !!r.entry_id;
+          const unpaid = r.payment_status === 'pending' || r.payment_status === 'failed';
+          return (
+            <div className="flex items-center justify-end gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setDetail(r)}
+              >
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                View
+              </Button>
+              {showEntryActions && unpaid && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    title="Generate online payment link"
+                    disabled={payLink.isPending}
+                    onClick={() => runPaymentLink(r.entry_id!)}
+                  >
+                    <CreditCard className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    title="Mark paid (offline)"
+                    disabled={markPaid.isPending}
+                    onClick={() =>
+                      markPaid.mutateAsync({ entryId: r.entry_id! }).then(() => refetch())
+                    }
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              )}
+              {showEntryActions && r.entry_status !== 'withdrawn' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  title="Withdraw entry"
+                  disabled={withdraw.isPending}
+                  onClick={() => withdraw.mutateAsync(r.entry_id!).then(() => refetch())}
+                >
+                  <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              )}
+            </div>
+          );
+        },
       }
     );
 
     return base;
-  }, [isTournament]);
+    // runPaymentLink is recreated each render but only closes over stable
+    // mutation objects; the pending flags below are what must retrigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTournament, canAct, markPaid.isPending, withdraw.isPending, payLink.isPending]);
 
   const globalFilterFn = (row: any, _columnId: string, filterValue: string) => {
     const q = filterValue.toLowerCase();
@@ -306,6 +403,24 @@ export function RegistrationsBoard({
     </DropdownMenu>
   ) : undefined;
 
+  // Hosted checkout takes over the view, exactly as it did on the tournament
+  // detail page before these actions moved here — the gateway needs a full
+  // handover, not a panel inside a tab.
+  if (rzp) {
+    return (
+      <EventRazorpayHostedRedirect
+        eventId={eventId}
+        razorpayKeyId={rzp.keyId}
+        razorpayOrderId={rzp.orderId}
+        amountPaise={rzp.amountPaise}
+        currency="INR"
+        customer={rzp.customer}
+        description="Tournament entry fee"
+        cancelPath={`/events/tournament/${eventId}`}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -317,6 +432,30 @@ export function RegistrationsBoard({
           Everyone who has registered for this event, with their form answers.
         </p>
       </div>
+
+      {isTournament && divisions.length > 0 && (
+        <div className="rounded-lg border p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Entry fees
+          </p>
+          <div className="space-y-2">
+            {divisions.map((d) => (
+              <div key={d.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm">
+                  {[d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+                <DivisionFeeBadge division={d} eventId={eventId} canManage={canManage} />
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Each division prices independently. Above ₹0, the public registration form
+            collects it online automatically.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard icon={Users} label="Total" value={stats.total} />

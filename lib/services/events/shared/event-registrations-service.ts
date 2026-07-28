@@ -49,6 +49,14 @@ export interface EventRegistrationRow {
   division_label: string | null;
   entry_name: string | null;
   entry_type: string | null;
+  /**
+   * tournament_entries.id — the handle the organizer actions (withdraw, mark
+   * paid, payment link) act on. Those mutations target the ENTRY, not the
+   * registration, so the board cannot offer them without this.
+   */
+  entry_id: string | null;
+  /** tournament_entries.status — 'withdrawn' entries cannot be withdrawn again. */
+  entry_status: string | null;
   custom_answers: CustomAnswer[];
 }
 
@@ -144,10 +152,21 @@ interface RegistrationRaw {
 }
 
 interface EntryRaw {
+  id: string;
   registration_id: string | null;
   entry_name: string | null;
   entry_type: string | null;
+  status: string | null;
   division_id: string | null;
+}
+
+/** What fetchEntryInfo resolves per registration id. */
+interface EntryInfo {
+  entry_id: string;
+  entry_status: string | null;
+  division_label: string | null;
+  entry_name: string | null;
+  entry_type: string | null;
 }
 
 interface DivisionRaw {
@@ -220,17 +239,12 @@ export class EventRegistrationsService {
   }
 
   /** Division + entry type per registration. Tournaments only. */
-  private static async fetchEntryInfo(
-    eventId: string
-  ): Promise<Map<string, { division_label: string | null; entry_name: string | null; entry_type: string | null }>> {
-    const out = new Map<
-      string,
-      { division_label: string | null; entry_name: string | null; entry_type: string | null }
-    >();
+  private static async fetchEntryInfo(eventId: string): Promise<Map<string, EntryInfo>> {
+    const out = new Map<string, EntryInfo>();
 
     const { data: entries, error: entriesError } = await (this.supabase as any)
       .from('tournament_entries')
-      .select('registration_id, entry_name, entry_type, division_id')
+      .select('id, registration_id, entry_name, entry_type, status, division_id')
       .eq('event_id', eventId);
 
     if (entriesError) {
@@ -253,6 +267,8 @@ export class EventRegistrationsService {
     for (const e of (entries ?? []) as EntryRaw[]) {
       if (!e.registration_id) continue;
       out.set(e.registration_id, {
+        entry_id: e.id,
+        entry_status: e.status,
         division_label: e.division_id ? divisionLabel.get(e.division_id) ?? null : null,
         entry_name: e.entry_name,
         entry_type: e.entry_type,
@@ -293,7 +309,7 @@ export class EventRegistrationsService {
       const entryInfo =
         eventType === 'sports_tournament'
           ? await this.fetchEntryInfo(eventId)
-          : new Map<string, { division_label: string | null; entry_name: string | null; entry_type: string | null }>();
+          : new Map<string, EntryInfo>();
 
       return rows.map((r) => {
         const entry = entryInfo.get(r.id);
@@ -314,6 +330,8 @@ export class EventRegistrationsService {
           division_label: entry?.division_label ?? null,
           entry_name: entry?.entry_name ?? null,
           entry_type: entry?.entry_type ?? null,
+          entry_id: entry?.entry_id ?? null,
+          entry_status: entry?.entry_status ?? null,
           custom_answers: mapCustomAnswers(r.custom_fields, fieldDefs),
         };
       });
