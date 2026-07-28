@@ -10,7 +10,7 @@
 //       (cycle_no, window_start/end, status proposed→confirmed).
 //
 // SAFETY: this surface only creates/schedules sittings and lists status — it never
-// renders a score or band (those are EKSAQ-gated and shown honestly elsewhere).
+// renders a score or band (those are MyJKKN-gated and shown honestly elsewhere).
 // Only status='approved' passages are offered, mirroring the student serve path.
 // =============================================================================
 
@@ -603,7 +603,7 @@ function ScheduleDialog({
             </Select>
           </div>
 
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
             <div>
               <Label htmlFor='w-start'>Window start</Label>
               <Input
@@ -703,7 +703,7 @@ export function AssessmentsConsole() {
           </p>
         </div>
         <Select value={instFilter} onValueChange={setInstFilter}>
-          <SelectTrigger className='w-64'>
+          <SelectTrigger className='w-full sm:w-64'>
             <SelectValue placeholder='Select school' />
           </SelectTrigger>
           <SelectContent>
@@ -852,13 +852,13 @@ export function AssessmentsConsole() {
         )}
       </section>
 
-      {/* EKSAQ-honest note */}
+      {/* MyJKKN-honest note */}
       <Card className='border-dashed'>
         <CardHeader>
           <CardTitle className='text-sm'>Scoring &amp; reports</CardTitle>
           <CardDescription>
             Reading bands and detailed reports appear only after a sitting is
-            validated. Auto voice-scoring is pending (EKSAQ), so no score or band
+            validated. Auto voice-scoring is pending (MyJKKN), so no score or band
             is shown here — only the assessment’s lifecycle status.
           </CardDescription>
         </CardHeader>

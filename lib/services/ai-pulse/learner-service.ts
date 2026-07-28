@@ -200,6 +200,66 @@ export class AiPulseLearnerService {
   }
 
   /**
+   * List recent AI Pulse cycles (newest first) — backs the learner "week
+   * switcher" on My AI Pulse. Read-only browse of any past cycle.
+   *
+   * Only surfaces cycles the learner actually has a Domain Starter in.
+   * fn_ai_pulse_switchable_cycles mirrors the read-fn's kill-switch gate and
+   * topic-join, so an "empty week" (no prompt for THIS learner) never appears
+   * in the switcher — previously the switcher listed every ai_pulse cycle, so
+   * a learner could browse back into weeks with nothing to show.
+   */
+  static async listCyclesServer(limit = 12): Promise<AiPulseCycle[]> {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const { data, error } = await (supabase as any).rpc(
+        'fn_ai_pulse_switchable_cycles',
+        { p_limit: limit }
+      );
+      if (error) {
+        console.error('[ai-pulse/learner] listCyclesServer failed:', error);
+        return [];
+      }
+      return ((data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+        id: r.cycle_id as string,
+        name: r.name as string,
+        start_date: (r.start_date as string | null) ?? null,
+        end_date: (r.end_date as string | null) ?? null,
+        status: (r.status as string | null) ?? null,
+        config: null,
+      })) as AiPulseCycle[];
+    } catch (e) {
+      console.error('[ai-pulse/learner] listCyclesServer threw:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch a single AI Pulse cycle by id — backs the `?cycle=<id>` deep-link
+   * the week switcher navigates to. Returns null if the id is not an ai_pulse
+   * cycle (guards against a hand-typed / stale param).
+   */
+  static async getCycleByIdServer(id: string): Promise<AiPulseCycle | null> {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('startup_events')
+        .select('id, name, start_date, end_date, status, config')
+        .eq('id', id)
+        .filter('config->>kind', 'eq', 'ai_pulse')
+        .maybeSingle();
+      if (error) {
+        console.error('[ai-pulse/learner] getCycleByIdServer failed:', error);
+        return null;
+      }
+      return (data as AiPulseCycle) ?? null;
+    } catch (e) {
+      console.error('[ai-pulse/learner] getCycleByIdServer threw:', e);
+      return null;
+    }
+  }
+
+  /**
    * Find the learner's team for a given AI Pulse cycle.
    * Joins `event_team_members` → `event_registrations` filtered by event_id.
    */

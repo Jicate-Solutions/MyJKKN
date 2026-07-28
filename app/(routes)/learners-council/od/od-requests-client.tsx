@@ -337,14 +337,14 @@ export function ODRequestsClient({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">My OD Requests</h1>
           <p className="text-sm text-muted-foreground">
             Create and track On-Duty requests
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"

@@ -30,7 +30,12 @@ import {
 export interface MemberDirectoryHit {
   /** Source-row id (staff.id / learners_profiles.id). */
   id: string;
-  /** Value to store in event_committees.member_ids — staff profile_id when linked. */
+  /**
+   * The person's AUTH UID (profiles.id) when they have a login, else the source-row id.
+   * This is what gets stored in event_committees.member_ids / lead_id,
+   * events.config->'incharges'[].member_id and event_volunteer_checkins.member_id —
+   * all of which are compared against auth.uid() by RLS and the fn_is_event_* helpers.
+   */
   member_id: string;
   name: string;
   email: string | null;
@@ -103,7 +108,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       let query = (svc as any)
         .from('learners_profiles')
         .select(
-          'id, first_name, last_name, register_number, college_email, department:departments(department_name), program:programs(program_name), institution:institutions(name)'
+          'id, profile_id, first_name, last_name, register_number, college_email, department:departments(department_name), program:programs(program_name), institution:institutions(name)'
         )
         // Current students only — same rule as tournament participants.
         .eq('lifecycle_status', 'active');
@@ -123,7 +128,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       results = ((data ?? []) as any[]).map((l) => ({
         id: l.id,
-        member_id: l.id,
+        // MUST be the auth uid, not learners_profiles.id — every per-event gate
+        // (fn_is_event_incharge, fn_is_event_committee_member, fn_has_any_tournament_role,
+        // useTournamentAccess) compares this to auth.uid(). Storing the learner row id
+        // made student in-charges/committee members silently unauthorized: the checks
+        // returned false, so the module stayed invisible with no error anywhere.
+        // Mirrors the staff branch above (s.profile_id ?? s.id). The ?? fallback keeps
+        // learners with no login link (202 of 4,179 active) selectable as roster names.
+        member_id: l.profile_id ?? l.id,
         name: `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim(),
         email: l.college_email ?? null,
         subtitle: [l.register_number, l.program?.program_name, l.department?.department_name]

@@ -115,7 +115,7 @@ function ProgramEligibilityPageInner() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-              <TabsList>
+              <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
                 <TabsTrigger value='category'>Category Eligibility</TabsTrigger>
                 <TabsTrigger value='rooms'>Physical Rooms</TabsTrigger>
               </TabsList>
@@ -138,7 +138,7 @@ function ProgramEligibilityPageInner() {
                       onChange={setFilters}
                     />
                   </div>
-                  <div className='flex justify-end gap-2'>
+                  <div className='flex flex-wrap justify-end gap-2'>
                     <SyncCategoriesButton />
                     <Button onClick={() => setAddOpen(true)}>
                       <Plus className='h-4 w-4 mr-2' /> Add Rule

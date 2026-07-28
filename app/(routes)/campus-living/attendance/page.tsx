@@ -83,7 +83,7 @@ export default function AttendanceDashboardPage() {
               Today: {new Date(stats.date).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/campus-living/attendance/history">
                 <Calendar className="mr-2 h-4 w-4" />
@@ -167,14 +167,15 @@ export default function AttendanceDashboardPage() {
 
         {/* Block-wise Attendance */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="min-w-0">
               <CardTitle className="text-base">Block-wise Attendance</CardTitle>
               <CardDescription>Today&apos;s attendance by hostel block</CardDescription>
             </div>
             <Button
               variant="outline"
               size="sm"
+              className="shrink-0"
               onClick={() =>
                 toast.info('Attendance export ships next.', {
                   description: 'Block-wise CSV export will be available once the export endpoint is live.',
@@ -195,9 +196,9 @@ export default function AttendanceDashboardPage() {
               {(stats.blocks ?? []).map((block: any) => {
                 const rate = block.total > 0 ? Math.round((block.present / block.total) * 100) : 0;
                 return (
-                  <div key={block.id} className="flex items-center gap-4 p-4 border rounded-lg">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                  <div key={block.id} className="flex flex-col gap-3 p-4 border rounded-lg sm:flex-row sm:items-center sm:gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         <Building2 className="h-4 w-4 text-muted-foreground" />
                         <span className="font-medium">{block.name}</span>
                         <Badge variant="outline" className="text-xs">{block.code}</Badge>
@@ -212,7 +213,7 @@ export default function AttendanceDashboardPage() {
                         />
                       </div>
                     </div>
-                    <div className="flex gap-4 text-center text-sm">
+                    <div className="flex flex-wrap gap-4 text-center text-sm sm:shrink-0">
                       <div>
                         <p className="font-semibold text-green-600">{block.present}</p>
                         <p className="text-xs text-muted-foreground">Present</p>

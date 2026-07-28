@@ -121,6 +121,13 @@ export function useAllocationBatchActions() {
     },
     [invalidate]
   );
+  const removeAllocations = useCallback(
+    async (batchId: string, allocationIds: string[]) => {
+      await AllocationBatchService.removeAllocations(batchId, allocationIds);
+      await invalidate();
+    },
+    [invalidate]
+  );
 
-  return { generate, approve, reject, reset };
+  return { generate, approve, reject, reset, removeAllocations };
 }

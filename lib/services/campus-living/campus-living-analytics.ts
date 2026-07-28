@@ -20,7 +20,7 @@ export class CampusLivingAnalytics {
 
       let blockQuery = supabase
         .from('hostel_blocks')
-        .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
+        .select('id, name, code, hostel_type, total_rooms, status')
         .eq('status', 'active');
       if (blockIdFilter !== null) {
         if (blockIdFilter.length === 0) {
@@ -37,15 +37,37 @@ export class CampusLivingAnalytics {
       }
 
       const blockData = blocks ?? [];
-      const totalCapacity = blockData.reduce((s, b) => s + (b.total_capacity ?? 0), 0);
-      const totalOccupancy = blockData.reduce((s, b) => s + (b.current_occupancy ?? 0), 0);
+
+      // The stored hostel_blocks counters (total_capacity / current_occupancy)
+      // drift — nothing maintains them — so derive capacity/occupancy LIVE
+      // from hostel_rooms + v_hostel_room_occupancy, same as the Blocks page
+      // and the dashboard overview.
+      const blockIds = blockData.map((b) => b.id);
+      const capByBlock = new Map<string, number>();
+      const occByBlock = new Map<string, number>();
+      if (blockIds.length > 0) {
+        const [roomsRes, occRes] = await Promise.all([
+          supabase.from('hostel_rooms').select('block_id, capacity').in('block_id', blockIds),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (supabase as any).from('v_hostel_room_occupancy').select('block_id, active_residents').in('block_id', blockIds),
+        ]);
+        for (const r of (roomsRes.data ?? []) as Array<{ block_id: string; capacity: number | null }>) {
+          capByBlock.set(r.block_id, (capByBlock.get(r.block_id) ?? 0) + Number(r.capacity ?? 0));
+        }
+        for (const o of (occRes.data ?? []) as Array<{ block_id: string; active_residents: number | null }>) {
+          occByBlock.set(o.block_id, (occByBlock.get(o.block_id) ?? 0) + Number(o.active_residents ?? 0));
+        }
+      }
+
+      const totalCapacity = blockIds.reduce((s, id) => s + (capByBlock.get(id) ?? 0), 0);
+      const totalOccupancy = blockIds.reduce((s, id) => s + (occByBlock.get(id) ?? 0), 0);
 
       // By hostel type
       const byType: Record<string, { capacity: number; occupancy: number; blocks: number }> = {};
       for (const b of blockData) {
         if (!byType[b.hostel_type]) byType[b.hostel_type] = { capacity: 0, occupancy: 0, blocks: 0 };
-        byType[b.hostel_type].capacity += (b.total_capacity ?? 0);
-        byType[b.hostel_type].occupancy += (b.current_occupancy ?? 0);
+        byType[b.hostel_type].capacity += (capByBlock.get(b.id) ?? 0);
+        byType[b.hostel_type].occupancy += (occByBlock.get(b.id) ?? 0);
         byType[b.hostel_type].blocks++;
       }
 
@@ -61,8 +83,8 @@ export class CampusLivingAnalytics {
           percentage: data.capacity > 0 ? Math.round((data.occupancy / data.capacity) * 100) : 0,
         })),
         by_block: blockData.map((b) => {
-          const cap = b.total_capacity ?? 0;
-          const occ = b.current_occupancy ?? 0;
+          const cap = capByBlock.get(b.id) ?? 0;
+          const occ = occByBlock.get(b.id) ?? 0;
           return {
             id: b.id,
             name: b.name,

@@ -21,6 +21,7 @@ import type {
 
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Allowed stage transitions — defines the valid moves for each funnel stage.
@@ -640,23 +641,26 @@ export class LeadService {
             .maybeSingle();
 
           if (counselorProfile?.user_id) {
-            await db
-              .from('notifications')
-              .insert({
-                user_id: counselorProfile.user_id,
-                type: 'info',
-                category: 'admission',
-                priority: 'normal',
-                title: 'New Lead Assigned to You',
-                message: `Lead "${data.full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
-                metadata: {
-                  event_type: 'lead_assigned',
-                  lead_id: data.id,
-                },
-                action_url: `/admission/leads/${data.id}`,
+            // Shared fanout helper: one notifications row (real columns) + a
+            // user_notifications link so the alert reaches the bell. Prior
+            // inline insert used non-existent columns and never fanned out.
+            await fanoutNotification(db, {
+              title: 'New Lead Assigned to You',
+              body: `Lead "${data.full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+              userIds: [counselorProfile.user_id],
+              createdBy: user?.id ?? counselorProfile.user_id,
+              category: 'admission',
+              priority: 'normal',
+              url: `/admission/leads/${data.id}`,
+              targeting: { type: 'user', user_ids: [counselorProfile.user_id] },
+              metadata: {
+                event_type: 'lead_assigned',
+                lead_id: data.id,
                 action_label: 'View Lead',
                 channels: ['PUSH', 'IN_APP'],
-              });
+              },
+              source: 'lead-service',
+            });
           }
         } catch (notifErr) {
           console.warn('[LeadService] Could not notify auto-assigned counselor:', notifErr);
@@ -1218,23 +1222,26 @@ export class LeadService {
           .maybeSingle();
 
         if (counselorProfile?.user_id) {
-          await (this.supabase as any)
-            .from('notifications')
-            .insert({
-              user_id: counselorProfile.user_id,
-              type: 'info',
-              category: 'admission',
-              priority: 'normal',
-              title: 'New Lead Assigned to You',
-              message: `Lead "${(data as any).full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
-              metadata: {
-                event_type: 'lead_assigned',
-                lead_id: leadId,
-              },
-              action_url: `/admission/leads/${leadId}`,
+          // Shared fanout helper: one notifications row (real columns) + a
+          // user_notifications link so the alert reaches the bell. Prior
+          // inline insert used non-existent columns and never fanned out.
+          await fanoutNotification(this.supabase as any, {
+            title: 'New Lead Assigned to You',
+            body: `Lead "${(data as any).full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+            userIds: [counselorProfile.user_id],
+            createdBy: user?.id ?? counselorProfile.user_id,
+            category: 'admission',
+            priority: 'normal',
+            url: `/admission/leads/${leadId}`,
+            targeting: { type: 'user', user_ids: [counselorProfile.user_id] },
+            metadata: {
+              event_type: 'lead_assigned',
+              lead_id: leadId,
               action_label: 'View Lead',
               channels: ['PUSH', 'IN_APP'],
-            });
+            },
+            source: 'lead-service',
+          });
         }
       } catch (notifErr) {
         console.warn('[LeadService] Could not send counselor assignment notification:', notifErr);

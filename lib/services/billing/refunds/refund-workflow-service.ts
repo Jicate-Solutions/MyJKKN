@@ -28,7 +28,7 @@ export class RefundFlowActiveConflictError extends Error {
 const REQUEST_SELECT = `
   *,
   student:learners_profiles(id, first_name, last_name, roll_number, lifecycle_status),
-  bills:billing_refund_request_bills(*, bill:billing_student_bills(id, bill_description, bill_amount, status)),
+  bills:billing_refund_request_bills(*, bill:billing_student_bills(id, bill_description, bill_amount:final_amount, status)),
   actions:billing_refund_request_actions(*, actor:profiles(id, full_name))
 `;
 

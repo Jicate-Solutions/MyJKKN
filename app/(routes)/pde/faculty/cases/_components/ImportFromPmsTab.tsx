@@ -12,17 +12,18 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Search, Loader2, Stethoscope, Sparkles, AlertTriangle, ShieldCheck } from 'lucide-react';
-import type { CreateClinicalCaseInput } from '@/types/pde';
+import type { CreateClinicalCaseInput, ImportedPmsImage } from '@/types/pde';
 
 interface Hit {
   casesheet_id: string;
   pseudonym: string;
   condition: string;
   case_date: string | null;
+  image_count?: number;
 }
 
 interface Props {
-  onApply: (parsed: Partial<CreateClinicalCaseInput>) => void;
+  onApply: (parsed: Partial<CreateClinicalCaseInput>, images?: ImportedPmsImage[]) => void;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -77,7 +78,10 @@ export function ImportFromPmsTab({ onApply }: Props) {
         setError(data?.error || 'Import failed.');
         return;
       }
-      onApply(data.data as Partial<CreateClinicalCaseInput>);
+      onApply(
+        data.data as Partial<CreateClinicalCaseInput>,
+        Array.isArray(data.images) ? (data.images as ImportedPmsImage[]) : []
+      );
     } catch {
       setError('Import failed. Please try again.');
     } finally {
@@ -107,8 +111,9 @@ export function ImportFromPmsTab({ onApply }: Props) {
             onKeyDown={(e) => e.key === 'Enter' && runSearch()}
             placeholder="e.g. lichen planus, periapical abscess, OSMF…"
             disabled={busy}
+            className="min-w-0 flex-1"
           />
-          <Button onClick={runSearch} disabled={searching || busy || query.trim().length < 2} variant="secondary">
+          <Button onClick={runSearch} disabled={searching || busy || query.trim().length < 2} variant="secondary" className="shrink-0">
             {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             <span className="ml-1">Search</span>
           </Button>
@@ -131,9 +136,14 @@ export function ImportFromPmsTab({ onApply }: Props) {
                 <div className="text-xs text-muted-foreground mt-0.5">
                   <Badge variant="outline" className="mr-2">{h.pseudonym}</Badge>
                   {h.case_date ?? 'undated'}
+                  {typeof h.image_count === 'number' && h.image_count > 0 ? (
+                    <Badge variant="secondary" className="ml-2">
+                      {h.image_count} image{h.image_count > 1 ? 's' : ''}
+                    </Badge>
+                  ) : null}
                 </div>
               </div>
-              <Button size="sm" onClick={() => draft(h.casesheet_id)} disabled={busy}>
+              <Button size="sm" onClick={() => draft(h.casesheet_id)} disabled={busy} className="shrink-0">
                 {draftingId === h.casesheet_id ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-1" /> Drafting…
@@ -157,13 +167,14 @@ export function ImportFromPmsTab({ onApply }: Props) {
             value={manualId}
             onChange={(e) => setManualId(e.target.value)}
             placeholder="00000000-0000-0000-0000-000000000000"
-            className="font-mono text-xs"
+            className="font-mono text-xs min-w-0 flex-1"
             disabled={busy}
           />
           <Button
             onClick={() => draft(manualId.trim())}
             disabled={busy || !UUID_RE.test(manualId.trim())}
             variant="secondary"
+            className="shrink-0"
           >
             {draftingId === manualId.trim() ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             <span className="ml-1">Draft with AI</span>

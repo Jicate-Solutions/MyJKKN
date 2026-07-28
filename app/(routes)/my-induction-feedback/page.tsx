@@ -138,7 +138,7 @@ export default function MyInductionFeedbackPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <Badge variant={done ? 'default' : 'secondary'} className="tabular-nums">
                           {s.captured}/{s.group_size} captured
                         </Badge>

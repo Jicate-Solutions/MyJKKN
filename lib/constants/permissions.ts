@@ -162,6 +162,20 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // MBA teaching-enterprise: Management Associates file improvement ideas about
+    // JKKN's own operations; facilitators + CEO office review/approve; only staff
+    // (board.manage) can mark a fix applied/verified (propose-only enforced in DB).
+    name: 'Improvement Board',
+    key: 'improvement',
+    permissions: [
+      { key: 'improvement.ideas.view', label: 'View Improvement Board' },
+      { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
+      { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
+      { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
+      { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
+    ]
+  },
+  {
     name: 'User Management',
     key: 'users',
     permissions: [
@@ -406,7 +420,11 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    name: 'Employee Management',
+    // Display name only — the audit gate (lib/permissions-audit/module-mappings.ts
+    // deriveCategoryKey) matches on `key`, never on `name`, so this is safe to
+    // retitle. Renamed 'Employee Management' → 'Employee' 2026-07-20 to match
+    // the sidebar row.
+    name: 'Employee',
     key: 'staff',
     permissions: [
       { key: 'staff.dashboard.view', label: 'View Employee Analytics Dashboard' },
@@ -499,6 +517,16 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.session_feedback.verdict.write',
         label: 'Set Loop-Note Verdicts (leadership override)'
       },
+      // 2026-07-26: SCF note-safety loop Phase 0 — opens the learner-note
+      // review queue to a named human reviewer (grantable via Role Management;
+      // seeded on the scf_note_reviewer role). The DB gate on
+      // fn_scf_learner_notes_review / _pending is is_super_admin() OR this
+      // key. Key name is fixed by the note-safety spec (§6.3). Mixed prefix in
+      // this category is deliberate precedent (see faculty.calendar.view above).
+      {
+        key: 'scf.notes.review',
+        label: 'Review AI-Drafted Learner Support Notes (note-safety Phase 0)'
+      },
       {
         key: 'academic.curriculum.lesson.manage',
         label: 'Manage Curriculum Lessons (leadership override: edit, approve/reject AI drafts)'
@@ -513,6 +541,16 @@ export const PERMISSION_CATEGORIES = [
       {
         key: 'academic.internal_marks.exam_audit.view',
         label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
+      },
+      // 2026-07-27: gates EDITING the exam attendance eligibility thresholds
+      // (platform_policies academic.exam_eligibility.attendance_pct /
+      // .condonation_floor_pct). Previously any is_admin() role could move a
+      // regulatory threshold; setting it to 0 would make every learner eligible.
+      // Enforced in RLS by 20260727060000_exam_eligibility_manage_permission.sql —
+      // granting this key is what actually confers the ability.
+      {
+        key: 'academic.exam_eligibility.manage',
+        label: 'Change exam attendance eligibility thresholds (75% / 65%)'
       },
       {
         key: 'academic.attendance.consolidation.view',
@@ -643,6 +681,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.invoices.send', label: 'Send Invoices' },
       { key: 'billing.onboarding.view', label: 'View Learner Onboarding' },
       { key: 'billing.onboarding.approve', label: 'Approve Learner Onboarding' },
+      { key: 'billing.coverage.view', label: 'View Bill Coverage' },
+      { key: 'billing.coverage.export', label: 'Export Bill Coverage' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
       { key: 'billing.analytics.view', label: 'View Billing Analytics' },
       { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
@@ -678,7 +718,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
-      // Leave (Sprint 2) — RLS keys referenced in hr_leave_* policies
+      // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
+      // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
+      // this comment was aspirational: the policies gated on user_hr_access +
+      // hardcoded 'hr_officer'/'hr_director' strings and no policy called
+      // user_has_permission(), so granting these keys changed nothing.
       { key: 'hr.leave.view', label: 'View Leave Applications' },
       { key: 'hr.leave.apply', label: 'Apply for Leave' },
       { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
@@ -687,6 +731,38 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
       { key: 'hr.leave.encashment.view', label: 'View Leave Encashment Requests' },
       { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
+      { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
+      { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
+
+      // ── Employee Self Service (2026-07-21) ───────────────────────────────
+      // Gates for the "Employee Self Service" sidebar group. Every key here
+      // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
+      // app/(routes)/hr/layout.tsx wraps the whole subtree in
+      // RoutePermissionGuard, which resolves by LONGEST PREFIX, so any /hr/*
+      // page lacking its own entry silently inherits '/hr' → 'hr.view' — held
+      // by 2 of 75 roles. A key declared here without a menu entry does
+      // nothing at all; the page stays blocked.
+      //
+      // Naming follows the `.view_own` convention (~14 existing keys, the
+      // largest of six competing self-service conventions in this file). Do
+      // not introduce a seventh.
+      //
+      // hr.attendance.view_self / regularize_self are NOT new — 22 roles have
+      // carried them in custom_roles.permissions since the attendance sprint,
+      // and the code already gates on them. They were simply never declared
+      // here, so Role Management could not show them and the audit gate could
+      // not see them. Declaring them is a catalog fix, not a grant.
+      { key: 'hr.attendance.view_self', label: 'View Own Attendance' },
+      { key: 'hr.attendance.regularize_self', label: 'Request Own Attendance Regularization' },
+      { key: 'hr.shifts.view_own', label: 'View Own Shifts and Swap Requests' },
+      { key: 'hr.assets.view_own', label: 'View Own Assigned Assets' },
+      { key: 'hr.memos.view_own', label: 'View Own Memos' },
+      { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },
+      { key: 'hr.promotion.apply_own', label: 'Apply for Own Promotion' },
+      { key: 'hr.training.view_own', label: 'View Own Training and Enroll' },
+      { key: 'hr.fdp.view_own', label: 'View Own FDP Applications' },
+      { key: 'hr.documents.view_own', label: 'Manage Own HR Documents' },
+      { key: 'hr.forms.submit_own', label: 'Submit HR Forms' },
       // Employees (Sprint 1) — HR employee directory
       { key: 'hr.employees.view', label: 'View Employee Directory' },
       { key: 'hr.employees.create', label: 'Add New Employees' },
@@ -704,7 +780,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.onboarding.execute', label: 'Execute Onboarding Steps' },
       // Dashboard (Sprint 6) — HR Command Center
       { key: 'hr.dashboard.view', label: 'View HR Command Center' },
-      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' }
+      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' },
+      // Sanctioned faculty posts register (Wave 2A, 2026-07-26) —
+      // /hr/admin/sanctioned-posts. The nightly hr-naac-evidence refresh
+      // compares filled strength against this register to emit NAAC 2.2.1
+      // (cadre strength vs sanctioned posts) evidence.
+      { key: 'hr.sanctioned_posts.view', label: 'View Sanctioned Senior Learner Posts' },
+      { key: 'hr.sanctioned_posts.manage', label: 'Manage Sanctioned Senior Learner Posts' }
     ]
   },
   {
@@ -1287,6 +1369,22 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
       { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
 
+      // Employer + alumni course feedback — the EXTERNAL half of NAAC 1.2
+      // (bos_meetings supplies the internal half). view = see cycles, the chase
+      // list and the comments; manage = create/open/close a cycle, build the
+      // recipient list, remove a respondent on request.
+      { key: 'accreditation.naac.surveys.stakeholder.view', label: 'View Employer & Alumni Feedback' },
+      { key: 'accreditation.naac.surveys.stakeholder.manage', label: 'Run Employer & Alumni Feedback Cycles' },
+
+      // NAAC AI narrative drafter — grounded, human-verified per-metric narratives.
+      // view = see drafts; edit = owning Senior Learner edits + okays;
+      // approve = Principal approve / Director submit / request revision;
+      // manage = assign the owning Senior Learner for a metric.
+      { key: 'accreditation.naac.narrative.view', label: 'View AI Criteria Narratives' },
+      { key: 'accreditation.naac.narrative.edit', label: 'Edit & Okay AI Narrative (Owning Senior Learner)' },
+      { key: 'accreditation.naac.narrative.approve', label: 'Approve / Submit AI Narrative (Principal / Director)' },
+      { key: 'accreditation.naac.narrative.manage', label: 'Assign Narrative Owners (IQAC Coordinator)' },
+
       // Per-body dashboards (PR-A9 through PR-A15)
       { key: 'accreditation.nirf.view', label: 'View NIRF Dashboard' },
       { key: 'accreditation.nba.view', label: 'View NBA Dashboard' },
@@ -1298,12 +1396,31 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
       { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' },
 
+      // Cluster Academic Council — a peer tab in the same row, but JKKN's own
+      // governance body rather than an outside regulator, so it has no
+      // scorecard and nothing to submit. Read-only: forming a council and
+      // editing its roster stay on the committees hub under the
+      // accreditation.naac.committees.* keys.
+      { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
+
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
       { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
       { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
+
+      // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
+      // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
+      { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
+      { key: 'accreditation.collaborations.manage', label: 'Manage MoU & Grants Register (add/edit/delete records)' },
+
+      // Monthly utility meter register (Attribute 10, 2026-07-26) —
+      // /accreditation/manage/utility-readings. Readings auto-emit NAAC 10.2
+      // (water & waste) + 10.3 (net-zero progress); a campus with no readings
+      // emits nothing rather than a zero.
+      { key: 'accreditation.sustainability_readings.view', label: 'View Monthly Utility Readings' },
+      { key: 'accreditation.sustainability_readings.manage', label: 'Enter Monthly Utility Readings (per campus, per month)' },
 
       // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
       // accreditation_officer (existing system role) is the primary IIQA Coordinator;
@@ -1567,6 +1684,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.mess.menu.view', label: 'View Mess Menu' },
       { key: 'campus_living.mess.menu.publish', label: 'Publish Menu' },
       { key: 'campus_living.mess.menu.approve', label: 'Approve Menu' },
+      { key: 'campus_living.mess.menu.manage', label: 'Manage Menu Loop (recommendations + verdicts)' },
 
       // Mess — meals
       { key: 'campus_living.mess.meals.view', label: 'View Meal Records' },
@@ -1845,7 +1963,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.marathon.create', label: 'Create Marathon Events' },
       // Events Platform Promotion — shared logistics
       { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
-      { key: 'events.presets.manage', label: 'Publish Official Event Presets' }
+      { key: 'events.presets.manage', label: 'Publish Official Event Presets' },
+      // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
+      // (confirm/decline/supersede) a raised "please confirm a date" request via
+      // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
@@ -2365,15 +2487,30 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
-  // rcltp.config.manage for /rcltp (EKSAQ reading-assessment module) but the
+  // rcltp.config.manage for /rcltp (MyJKKN reading-assessment module) but the
   // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
   // permissions-catalog gate on every open PR and hiding the toggle from the
   // Role-Management Edit dialog.
+  // Added 2026-07-28 — grantability fix. Eight rcltp.* keys were already being
+  // enforced by page guards and RLS policies, but only rcltp.config.manage was
+  // registered here. Role Management builds its checkboxes from this list, so
+  // the other seven could never be granted through the UI (they had been seeded
+  // straight into custom_roles rows), and rcltp.question.approve — required by
+  // /rcltp/teacher/questions and by the rcltp_pbq_update_review policy — was
+  // held by zero of 81 roles, making question approval super-admin-only.
   {
     name: 'RCLTP',
     key: 'rcltp',
     permissions: [
-      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
+      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' },
+      { key: 'rcltp.question.approve', label: 'Approve RCLTP Comprehension Questions' },
+      { key: 'rcltp.review', label: 'Review & Approve RCLTP Remedial Plans' },
+      { key: 'rcltp.assessment.manage', label: 'Manage RCLTP Assessments' },
+      { key: 'rcltp.assessment.take', label: 'Take RCLTP Assessments' },
+      { key: 'rcltp.report.view_all', label: 'View All RCLTP Reports' },
+      { key: 'rcltp.report.view_class', label: 'View RCLTP Reports for a Section' },
+      { key: 'rcltp.report.view_child', label: 'View RCLTP Reports for Own Ward' },
+      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' }
     ]
   },
   {
@@ -2443,6 +2580,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cohort.create', label: 'Create Cohorts' },
       { key: 'cohort.edit', label: 'Edit Cohorts' },
       { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
+    ]
+  },
+  {
+    // Added 2026-07-23 — ID Card substrate (Phase 1A). Keys referenced by RLS
+    // on id_card_templates / id_card_print_jobs and the student-photos storage
+    // bucket (migration 20260507150000_id_card_substrate.sql). Seeded to
+    // registrar + admission (admin keys) and student (my-cards.view) in the
+    // same migration; super_admin/admin bypass every policy.
+    name: 'ID Cards',
+    key: 'id_cards',
+    permissions: [
+      { key: 'id_cards.templates.view', label: 'View ID Card Templates' },
+      { key: 'id_cards.templates.create', label: 'Create ID Card Templates' },
+      { key: 'id_cards.templates.edit', label: 'Edit ID Card Templates' },
+      { key: 'id_cards.templates.delete', label: 'Delete ID Card Templates' },
+      { key: 'id_cards.jobs.view', label: 'View All ID Card Print Jobs' },
+      { key: 'id_cards.jobs.manage', label: 'Enqueue Print Jobs + Resolve Failures' },
+      { key: 'id_cards.my-cards.view', label: 'View My Own ID Card Status' }
     ]
   }
 ];

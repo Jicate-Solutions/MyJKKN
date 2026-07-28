@@ -260,7 +260,7 @@ export default function SeatConfigPage() {
           <Card>
             <CardContent className='pt-4 pb-4'>
               <div className='flex flex-wrap gap-4 items-end'>
-                <div className='space-y-1 min-w-[240px]'>
+                <div className='space-y-1 w-full sm:w-auto sm:min-w-[240px]'>
                   <p className='text-xs font-medium flex items-center gap-1'>
                     <Building2 className='h-3 w-3' /> Institution
                   </p>

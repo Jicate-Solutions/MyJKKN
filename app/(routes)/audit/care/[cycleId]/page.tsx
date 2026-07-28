@@ -29,6 +29,7 @@ import {
   Copy,
   HeartHandshake,
   Link2,
+  Lock,
   ShieldAlert,
   UserPlus,
   Users,
@@ -41,8 +42,15 @@ import {
   useCarreAudit,
   useCreateCarreInvite,
   useUpsertCarreScore,
+  useCarreItemEvidence,
+  useCarreParticipantRollup,
+  useCarreParticipantActivity,
 } from '@/hooks/audit';
-import { CareScoreSheet, type SheetValue } from '../_components/care-score-sheet';
+import {
+  CareScoreSheet,
+  type LiveEvidence,
+  type SheetValue,
+} from '../_components/care-score-sheet';
 import { CareSummaryStrip } from '../_components/care-summary-strip';
 import { CareResultsPanel } from '../_components/care-results-panel';
 import { careIndex } from '@/lib/services/audit/care-scoring-service';
@@ -139,6 +147,24 @@ export default function CultureAuditDetailPage({
   const settingCode = isCarre
     ? (detail as CarreAuditDetail | null)?.snapshot?.setting_code
     : undefined;
+
+  // Live evidence + doctrine caps and the sealed k≥3 participant rollup —
+  // CARRE only; both RPCs self-gate (lead auditor / leadership) and return
+  // nothing for everyone else, so no page-level guard is needed.
+  const evidenceQ = useCarreItemEvidence(isCarre ? cycleId : undefined);
+  const rollupQ = useCarreParticipantRollup(isCarre ? cycleId : undefined);
+  // Cycle-level participation line — appears once >= 3 distinct learners have
+  // scored ANYTHING in the sealed lane, even before any per-item group hits k.
+  const activityQ = useCarreParticipantActivity(isCarre ? cycleId : undefined);
+  const evidenceByCode = useMemo(() => {
+    const map: Record<string, LiveEvidence> = {};
+    for (const row of evidenceQ.data ?? []) {
+      map[row.parameter_code] = { evidence: row.evidence, cap: row.cap };
+    }
+    return map;
+  }, [evidenceQ.data]);
+  const sealedRollup = rollupQ.data ?? [];
+  const sealedActivity = activityQ.data ?? null;
 
   async function handleScore(code: string, score: number) {
     if (!detail?.is_owner) return;
@@ -403,12 +429,82 @@ export default function CultureAuditDetailPage({
               parameters={d.snapshot?.parameters ?? []}
               values={sheetValues}
               settingCode={settingCode}
+              evidenceByCode={
+                isCarre && Object.keys(evidenceByCode).length > 0
+                  ? evidenceByCode
+                  : undefined
+              }
               onScore={(code, score) => void handleScore(code, score)}
               onNote={(code, note) => void handleNote(code, note)}
               disabled={!d.is_owner || d.cycle.phase === 'closed'}
             />
           </CardContent>
         </Card>
+
+        {/* Sealed participant voice — k≥3 aggregates only, never identities.
+            Renders when the cycle-level participation line exists (>= 3
+            distinct sealed scorers) OR any per-item group has hit k. */}
+        {isCarre && (sealedActivity !== null || sealedRollup.length > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                Sealed participant voice
+                <Badge variant="outline" className="text-[10px]">
+                  k≥3 · identities sealed
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {sealedActivity && (
+                <p className="text-sm">
+                  <strong>{sealedActivity.scorers} learners</strong> have spoken
+                  through the sealed lane (
+                  {sealedActivity.items_scored}{' '}
+                  {sealedActivity.items_scored === 1 ? 'item' : 'items'} touched)
+                  — per-item medians appear once an item&apos;s lane (lived
+                  experience or observer) reaches 3 scorers.
+                  {sealedActivity.last_activity && (
+                    <span className="text-xs text-muted-foreground">
+                      {' '}
+                      Last activity {formatDate(sealedActivity.last_activity)}.
+                    </span>
+                  )}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Learners scored these items through the sealed lane. Only groups
+                with <strong>3 or more scorers</strong> appear — a lone voice can
+                never be isolated — and scorer identities are visible to no one
+                below the Director seal. This is measured participant experience;
+                it never overwrites your human score.
+              </p>
+              {sealedRollup.length > 0 && (
+                <div className="rounded-md border divide-y">
+                  {sealedRollup.map((r) => (
+                    <div
+                      key={`${r.parameter_code}-${r.lane}`}
+                      className="flex items-center gap-3 p-2.5 text-xs"
+                    >
+                      <span className="font-mono text-[11px] text-muted-foreground w-16 flex-shrink-0">
+                        {r.parameter_code.replace(/^CARR?E-/, '')}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {r.lane === 'own' ? 'lived experience' : 'observer'}
+                      </Badge>
+                      <span className="text-muted-foreground">
+                        {r.scorers} scorers
+                      </span>
+                      <span className="ml-auto font-semibold tabular-nums">
+                        median {Number(r.median_score)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Results + corrective moves (only once all owner scores exist) */}
         {complete && (

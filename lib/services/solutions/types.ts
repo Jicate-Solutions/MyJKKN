@@ -814,13 +814,18 @@ export interface JicateSession extends BaseEntity {
   notes?: string;
 }
 
+// Mirrors the LIVE sh_notifications columns. The original shape declared
+// `type` / `link` / `read`, none of which exist on the table (real columns:
+// notification_type NOT NULL / action_url / is_read), so every insert threw.
+// Same drift class as #2172 (work-pulse + learn notify) and #2168.
 export interface Notification extends BaseEntity {
   user_id: string;
-  type: NotificationType;
+  notification_type: NotificationType;
   title: string;
   message?: string;
-  link?: string;
-  read: boolean;
+  action_url?: string;
+  is_read: boolean;
+  read_at?: string;
 }
 
 export interface AuditLog extends BaseEntity {

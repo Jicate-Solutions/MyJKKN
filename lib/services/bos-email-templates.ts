@@ -102,12 +102,29 @@ interface BosEmailTemplateRow {
   template_code: string;
   subject: string;
   body_html: string;
+  // ── Per-committee / versioning fields (20260724140000) ─────────────────────
+  body_type_code?: string | null;
+  effective_from?: string | null;   // ISO date
+  pdf_heading?: string | null;
+  pdf_intro_html?: string | null;
+  pdf_closing_html?: string | null;
+  reply_to_email?: string | null;
+  signoff_html?: string | null;
 }
+
+// Default catalog code used when a meeting can't be mapped to a specific body.
+export const BOS_DEFAULT_BODY_TYPE = 'BOS';
 
 /**
  * Resolve the active template for (institutionsId, templateCode). Per-
  * institution row wins; falls back to the global default (institutions_id IS
  * NULL). Returns null if neither exists.
+ *
+ * NOTE: This is the legacy, body-agnostic resolver kept for callers that
+ * haven't adopted per-committee formats. New callers should use
+ * resolveBosEmailTemplateForBody, which adds the body-type + effective-date
+ * axes. This helper still works because every row now carries body_type_code
+ * (backfilled to 'BOS'); it simply ignores that dimension.
  */
 export async function resolveBosEmailTemplate(
   supabase: SupabaseClient,
@@ -136,4 +153,137 @@ export async function resolveBosEmailTemplate(
   // Prefer the institution-specific row over the global default.
   const specific = data.find((r) => r.institutions_id === institutionsId);
   return specific ?? data.find((r) => r.institutions_id === null) ?? null;
+}
+
+// A meeting shape sufficient to resolve its governing body.
+export interface BodyResolvableMeeting {
+  meeting_type?: string | null;
+  committee_id?: string | null;
+}
+
+/**
+ * Map a meeting to one of the catalog body codes (bos_body_types.code) via the
+ * agreed waterfall:
+ *
+ *   meeting_type = 'academic_council' → 'AC'
+ *   meeting_type = 'governing_body'   → 'GB'
+ *   else committee_id → bos_committees.body_type_code
+ *        └─ if that instance row is unmapped (NULL), fall back to the master
+ *           TEMPLATE committee (composition_id IS NULL) with the same
+ *           institution + name — committee NAMES vary per institution, and an
+ *           instance created before body_type_code existed may be blank while
+ *           its template is mapped.
+ *   default                            → 'BOS'
+ *
+ * Never throws — any lookup failure degrades to 'BOS' so a send is never
+ * blocked by body resolution.
+ */
+export async function resolveMeetingBodyType(
+  supabase: SupabaseClient,
+  meeting: BodyResolvableMeeting,
+): Promise<string> {
+  if (meeting.meeting_type === 'academic_council') return 'AC';
+  if (meeting.meeting_type === 'governing_body') return 'GB';
+
+  if (meeting.committee_id) {
+    const { data, error } = await supabase
+      .from('bos_committees')
+      .select('body_type_code, name, institutions_id')
+      .eq('id', meeting.committee_id)
+      .maybeSingle();
+    if (error) {
+      console.warn('[bos-email-templates] committee body-type lookup failed:', error);
+    }
+    const row = data as
+      | { body_type_code?: string | null; name?: string | null; institutions_id?: string | null }
+      | null;
+
+    if (row?.body_type_code) return row.body_type_code;
+
+    // Instance unmapped → try its master template row (composition_id IS NULL)
+    // matched by institution + case-insensitive name.
+    if (row?.name && row?.institutions_id) {
+      const { data: tmpl } = await supabase
+        .from('bos_committees')
+        .select('body_type_code')
+        .is('composition_id', null)
+        .eq('institutions_id', row.institutions_id)
+        .ilike('name', row.name)
+        .maybeSingle();
+      const tmplCode = (tmpl as { body_type_code?: string | null } | null)?.body_type_code;
+      if (tmplCode) return tmplCode;
+    }
+  }
+
+  return BOS_DEFAULT_BODY_TYPE;
+}
+
+/**
+ * Resolve the effective template for a specific body on a specific date.
+ *
+ * Selection precedence, applied in this order:
+ *   1. Institution row for the exact body, newest effective_from ≤ onDate
+ *   2. Institution row for the default body (BOS), same date rule
+ *   3. Global (institutions_id NULL) row for the exact body
+ *   4. Global row for the default body (BOS)
+ *
+ * Steps 2 & 4 implement the "fall back to a global/base default, never block a
+ * send" decision: a body with no configured format inherits BOS's, then the
+ * global default. Returns null only if the table is completely empty.
+ *
+ * @param onDate  ISO date string (typically meeting.scheduled_date). When
+ *                null/absent we use "no upper bound" — i.e. the newest version.
+ */
+export async function resolveBosEmailTemplateForBody(
+  supabase: SupabaseClient,
+  params: {
+    templateCode: string;
+    institutionsId: string | null;
+    bodyTypeCode: string;
+    onDate?: string | null;
+  },
+): Promise<BosEmailTemplateRow | null> {
+  const { templateCode, institutionsId, bodyTypeCode, onDate } = params;
+
+  let query = supabase
+    .from('bos_email_templates')
+    .select(
+      'id, institutions_id, template_code, subject, body_html, body_type_code, effective_from, pdf_heading, pdf_intro_html, pdf_closing_html, reply_to_email, signoff_html',
+    )
+    .eq('template_code', templateCode)
+    .eq('is_active', true);
+
+  if (institutionsId) {
+    query = query.or(`institutions_id.eq.${institutionsId},institutions_id.is.null`);
+  } else {
+    query = query.is('institutions_id', null);
+  }
+
+  // Only versions that are already in effect for the target date.
+  if (onDate) query = query.lte('effective_from', onDate);
+
+  const { data, error } = await query.order('effective_from', { ascending: false });
+  if (error) {
+    console.error('[bos-email-templates] versioned resolver error:', error);
+    return null;
+  }
+  const rows = (data ?? []) as BosEmailTemplateRow[];
+  if (rows.length === 0) return null;
+
+  // rows are newest-effective first. Pick the best (institution, body) combo.
+  const pick = (instMatch: boolean, body: string) =>
+    rows.find(
+      (r) =>
+        (instMatch ? r.institutions_id === institutionsId : r.institutions_id === null) &&
+        (r.body_type_code ?? BOS_DEFAULT_BODY_TYPE) === body,
+    );
+
+  return (
+    pick(true, bodyTypeCode) ??
+    pick(true, BOS_DEFAULT_BODY_TYPE) ??
+    pick(false, bodyTypeCode) ??
+    pick(false, BOS_DEFAULT_BODY_TYPE) ??
+    rows[0] ??
+    null
+  );
 }

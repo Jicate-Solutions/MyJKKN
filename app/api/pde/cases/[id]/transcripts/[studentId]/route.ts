@@ -44,17 +44,25 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden — institution scope mismatch' }, { status: 403 });
     }
 
-    // Learner
+    // Learner. learners_profiles stores first_name/last_name — there is no
+    // full_name column, and selecting one made PostgREST reject the whole query
+    // (42703), which is why this route returned 500 on every call.
     const { data: learner } = await (supabase as any)
       .from('learners_profiles')
-      .select('id, full_name, roll_number')
+      .select('id, first_name, last_name, roll_number')
       .eq('id', studentId)
       .single();
 
-    // All submissions for this case + learner
+    const learnerName =
+      [learner?.first_name, learner?.last_name].filter(Boolean).join(' ').trim() || 'Unknown';
+
+    // All submissions for this case + learner.
+    // NOTE: `metadata` was selected here but does not exist on pde_submissions
+    // (the second half of the 42703) — and was never read below. Per-domain
+    // scores are derived from answers[].domain_score further down.
     const { data: subs, error: sErr } = await (supabase as any)
       .from('pde_submissions')
-      .select('id, attempt_number, started_at, completed_at, auto_score, final_score, passed, answers, metadata, assessment_version')
+      .select('id, attempt_number, started_at, completed_at, auto_score, final_score, passed, answers, assessment_version')
       .eq('assessment_id', caseId)
       .eq('learner_id', studentId)
       .order('attempt_number', { ascending: true });
@@ -99,7 +107,7 @@ export async function GET(
       return {
         submission_id: s.id,
         learner_id: studentId,
-        learner_name: learner?.full_name || 'Unknown',
+        learner_name: learnerName,
         learner_roll_number: learner?.roll_number,
         attempt_number: s.attempt_number,
         started_at: s.started_at,

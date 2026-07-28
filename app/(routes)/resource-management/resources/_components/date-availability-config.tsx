@@ -163,7 +163,7 @@ export function DateAvailabilityConfigComponent({
         {/* Custom Date Ranges */}
         {mode === 'custom_dates' && (
           <div className='space-y-4 rounded-lg border p-4 bg-muted/20'>
-            <div className='flex items-center justify-between'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
               <Label>Custom Date Ranges</Label>
               <Button
                 type='button'
@@ -336,7 +336,7 @@ export function DateAvailabilityConfigComponent({
 
         {/* Blackout Dates */}
         <div className='space-y-4 rounded-lg border p-4'>
-          <div className='flex items-center justify-between'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
             <Label className='text-sm font-medium'>
               Blackout Dates (Exceptions)
             </Label>

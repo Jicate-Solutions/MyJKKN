@@ -126,7 +126,7 @@ export function FeatureFlagCard({ institutionId }: Props) {
               No fee structures exist for this institution yet. Enabling now
               means new enquiries will hit the no-match empty state until you
               configure structures via{' '}
-              <code>/admission/settings/fees-structure</code>. Continue anyway?
+              <code className="break-all">/admission/settings/fees-structure</code>. Continue anyway?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

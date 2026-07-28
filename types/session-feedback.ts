@@ -233,18 +233,48 @@ export interface FacilitatorCoverageRow {
   last_feedback: string | null;
 }
 
-/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B).
- *  Surfaced when the learner previously took the SAME course and flagged trouble
- *  (prior_understood <= 2 OR left checklist items unchecked). prior_unmet_items are
- *  the checklist item_keys that were false/missing in the prior row (UI maps to labels). */
+/** One open free-text concern carried to the next same-course check-in
+ *  ("you mentioned the lab pace — better this time?"). AI-summarized from the
+ *  learner's OWN prior words; shown only to them. scf_freetext_carry. */
+export interface CarryforwardConcern {
+  id: string;
+  summary: string;
+  source_date: string;            // 'YYYY-MM-DD'
+}
+
+/** The learner's latest un-acknowledged praise item (one-line ack, no question). */
+export interface CarryforwardPraise {
+  id: string;
+  summary: string;
+}
+
+/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B;
+ *  free-text extension 2026-07-19). Surfaced when the learner previously took the SAME
+ *  course and flagged trouble (prior_understood <= 2 OR unchecked checklist items) —
+ *  OR has open free-text items for it. On a concerns-only row the checklist fields
+ *  are null/empty (decision 8: words count even from a happy 5/Clear check-in). */
 export interface CarryforwardItem {
   timetable_id: string;
   period_id: string;
   course_code: string;
   course_name: string | null;
-  prior_session_date: string;     // 'YYYY-MM-DD'
-  prior_understood: number;       // 1..5
-  prior_unmet_items: string[];    // checklist item_keys that were false/missing
+  prior_session_date: string | null; // 'YYYY-MM-DD'; null = concerns-only row
+  prior_understood: number | null;   // 1..5; null = concerns-only row
+  prior_unmet_items: string[];       // checklist item_keys that were false/missing
+  prior_concerns: CarryforwardConcern[];
+  prior_praise: CarryforwardPraise | null;
+}
+
+/** Course-level counts of free-text follow-ups for a Senior Learner's own
+ *  sessions. Counts only, >=floor distinct learners (fn_scf_freetext_carry_counts). */
+export interface FreetextCarryCountsRow {
+  course_code: string;
+  course_name: string | null;
+  learners: number;
+  open_concerns: number;
+  resolved: number;
+  partly: number;
+  not_better: number;
 }
 
 /** A configured checklist item the learner ticks. session_feedback_checklist_config. */
@@ -461,4 +491,72 @@ export interface MarksCoverageResponse {
   /** Present (true) only when the planned-code list was truncated server-side
    *  and coverage may undercount — surfaced, never silent. */
   codes_capped?: boolean;
+}
+
+// ── Pre-session materials (Rank 3a) — post a link + objective opens trace ──────
+// Substrate: 20260801100000_scf_session_resources.sql (session_resource +
+// session_resource_open, RLS-on / SECDEF-only). All access is via the four
+// fn_scf_*_session_resource / fn_scf_resources_for_session RPCs.
+
+export type SessionResourceKind = 'notebooklm' | 'material' | 'other';
+
+/** One active material for a session, as returned by fn_scf_resources_for_session.
+ *  `opened` is the CALLER-learner's own flag; `open_count` is the aggregate number
+ *  of distinct learners who opened it (adoption — the Senior Learner sees this
+ *  count only, never who). */
+export interface SessionResourceRow {
+  id: string;
+  kind: SessionResourceKind;
+  title: string;
+  url: string;
+  posted_at: string;
+  opened: boolean;
+  open_count: number;
+}
+
+/** The row returned by fn_scf_post_session_resource (the inserted material). */
+export interface PostedSessionResource {
+  id: string;
+  institution_id: string | null;
+  timetable_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_id: string | null;
+  kind: SessionResourceKind;
+  title: string;
+  url: string;
+  posted_by: string;
+  posted_at: string;
+  is_active: boolean;
+}
+
+export interface PostSessionResourceInput {
+  timetableId: string;
+  attendanceDate: string;
+  periodId: string;
+  /** Defaults to 'notebooklm' server-side when omitted. */
+  kind?: SessionResourceKind;
+  title: string;
+  url: string;
+}
+
+// ── Clarification requests (Lane C, CARRE evidence instrumentation) ───────────
+// Substrate: 20260725133000_session_clarification_requests.sql. The learner's
+// OWN trace of "I asked for a re-explanation of this session" and — self-
+// reported by the SAME learner — what happened. Writes only via the two RPCs.
+
+export type ClarificationOutcome = 'pending' | 're_explained' | 'refused' | 'unanswered';
+
+export interface ClarificationRequestRow {
+  id: string;
+  institution_id: string;
+  student_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_code: string | null;
+  asked_at: string;
+  outcome: ClarificationOutcome;
+  outcome_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

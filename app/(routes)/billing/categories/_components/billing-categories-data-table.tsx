@@ -1,10 +1,17 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,8 +24,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { usePermissions } from '@/hooks/use-permissions';
-import type { BillingCategory } from '@/types/billing';
+import type { BillingCategory, BillingCollectionType } from '@/types/billing';
 import { getColumns } from './columns';
+import { COLLECTION_TYPE_OPTIONS } from './billing-category-form';
+
+const ALL = 'all';
 
 // Adapts the advanced (server-driven) DataTable to BillingCategoryService:
 // maps {page,limit,search,sort_by,sort_order} → service filters and the
@@ -35,6 +45,14 @@ export function BillingCategoriesDataTable() {
   const [bulkResetFn, setBulkResetFn] = useState<(() => void) | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
+  // Toolbar filters. Held in a ref as well as state so `fetchData` can read the
+  // current values while keeping the stable identity the DataTable contract
+  // below relies on; changing a filter bumps refetchKey to trigger the refetch.
+  const [collectionType, setCollectionType] = useState<BillingCollectionType | ''>('');
+  const [learnerVisibility, setLearnerVisibility] = useState<'visible' | 'hidden' | ''>('');
+  const filtersRef = useRef({ collectionType, learnerVisibility });
+  filtersRef.current = { collectionType, learnerVisibility };
+
   // Stable identity (closes over no component state) so the DataTable refetches
   // only on real param changes (page/search/sort) + refetchKey — not on every
   // unrelated re-render such as opening the bulk-delete dialog.
@@ -48,11 +66,15 @@ export function BillingCategoriesDataTable() {
       sort_by: string;
       sort_order: string;
     }) => {
+      const f = filtersRef.current;
       const { data, metadata } =
         await BillingCategoryService.getBillingCategories({
           page: params.page,
           limit: params.limit,
           search: params.search || undefined,
+          collectionType: f.collectionType || undefined,
+          visibleToLearners:
+            f.learnerVisibility === '' ? undefined : f.learnerVisibility === 'visible',
           sortBy: params.sort_by || undefined,
           sortOrder: (params.sort_order as 'asc' | 'desc') || undefined
         });
@@ -125,22 +147,61 @@ export function BillingCategoriesDataTable() {
           columnWidths: [],
           headers: []
         }}
-        renderToolbarContent={({ selectedRows, resetSelection }) =>
-          canDelete && selectedRows.length > 0 ? (
-            <Button
-              size='sm'
-              variant='destructive'
-              className='h-8'
-              onClick={() => {
-                setBulkRows(selectedRows as BillingCategory[]);
-                setBulkResetFn(() => resetSelection);
+        renderToolbarContent={({ selectedRows, resetSelection }) => (
+          <div className='flex flex-wrap items-center gap-2'>
+            <Select
+              value={collectionType || ALL}
+              onValueChange={(v) => {
+                setCollectionType(v === ALL ? '' : (v as BillingCollectionType));
+                refresh();
               }}
             >
-              <Trash2 className='mr-2 h-4 w-4' />
-              Delete Selected ({selectedRows.length})
-            </Button>
-          ) : null
-        }
+              <SelectTrigger className='h-8 w-[150px]'>
+                <SelectValue placeholder='Collection' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All collections</SelectItem>
+                {COLLECTION_TYPE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={learnerVisibility || ALL}
+              onValueChange={(v) => {
+                setLearnerVisibility(v === ALL ? '' : (v as 'visible' | 'hidden'));
+                refresh();
+              }}
+            >
+              <SelectTrigger className='h-8 w-[170px]'>
+                <SelectValue placeholder='Learner portal' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All categories</SelectItem>
+                <SelectItem value='visible'>Visible to learners</SelectItem>
+                <SelectItem value='hidden'>Hidden from learners</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {canDelete && selectedRows.length > 0 && (
+              <Button
+                size='sm'
+                variant='destructive'
+                className='h-8'
+                onClick={() => {
+                  setBulkRows(selectedRows as BillingCategory[]);
+                  setBulkResetFn(() => resetSelection);
+                }}
+              >
+                <Trash2 className='mr-2 h-4 w-4' />
+                Delete Selected ({selectedRows.length})
+              </Button>
+            )}
+          </div>
+        )}
       />
 
       <AlertDialog

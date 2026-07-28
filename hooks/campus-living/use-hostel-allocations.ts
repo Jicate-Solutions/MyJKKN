@@ -26,34 +26,48 @@ export const hostelAllocationKeys = {
 };
 
 // --- Query hooks ---
+//
+// Scope-race guard (2026-07-26): isSuperAdmin is FALSE while usePermissions()
+// is still loading. These hooks previously (a) fetched during that window —
+// scoping a super-admin to their home institution (for director that is the
+// Testing Institution → 0 rows, so the Allocations page showed "0 Allocated")
+// — and (b) resolved the effective scope inside queryFn while the queryKey
+// carried the RAW institutionId, so when the flag flipped the key did not
+// change and React Query kept serving the mis-scoped cached result until the
+// next staleness refetch (numbers flapping 0 ↔ real count on refocus).
+// Fix: resolve the effective scope BEFORE useQuery, key the cache on it, and
+// hold the fetch until permissions have loaded.
 
 export function useHostelAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const effectiveInstitutionId = isSuperAdmin ? undefined : institutionId;
   return useQuery({
-    queryKey: hostelAllocationKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelAllocationService.getAllocations(isSuperAdmin ? undefined : institutionId, filters),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: hostelAllocationKeys.list({ institutionId: effectiveInstitutionId, ...filters }),
+    queryFn: () => HostelAllocationService.getAllocations(effectiveInstitutionId, filters),
+    enabled: !permissionsLoading && (isSuperAdmin || !!institutionId),
   });
 }
 
 // Full allocation set (no page cap) for the admin allocations page — drives the
 // summary counts + the advanced client-side table/filters. ~100s of rows today.
 export function useAllAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const effectiveInstitutionId = isSuperAdmin ? undefined : institutionId;
   return useQuery({
-    queryKey: ['hostel-allocations', 'all', { institutionId, ...filters }] as const,
-    queryFn: () => HostelAllocationService.getAllAllocations(isSuperAdmin ? undefined : institutionId, filters),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: ['hostel-allocations', 'all', { institutionId: effectiveInstitutionId, ...filters }] as const,
+    queryFn: () => HostelAllocationService.getAllAllocations(effectiveInstitutionId, filters),
+    enabled: !permissionsLoading && (isSuperAdmin || !!institutionId),
     staleTime: 30_000,
   });
 }
 
 export function useActiveAllocations(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const effectiveInstitutionId = isSuperAdmin ? undefined : institutionId;
   return useQuery({
-    queryKey: hostelAllocationKeys.active(institutionId),
-    queryFn: () => HostelAllocationService.getActiveAllocations(isSuperAdmin ? undefined : institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    queryKey: hostelAllocationKeys.active(effectiveInstitutionId),
+    queryFn: () => HostelAllocationService.getActiveAllocations(effectiveInstitutionId),
+    enabled: !permissionsLoading && (isSuperAdmin || !!institutionId),
   });
 }
 

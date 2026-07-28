@@ -608,7 +608,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
         <TabsContent value='members'>
           <Card>
             <CardHeader className='pb-3'>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <CardTitle className='text-base'>
                   Members
                   <span className='ml-2 text-sm font-normal text-muted-foreground'>
@@ -616,7 +616,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
                   </span>
                 </CardTitle>
                 {canManage && (
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     <Button size='sm' variant='ghost' onClick={() => setAddCommitteeOpen(true)}>
                       <Plus className='mr-2 h-4 w-4' />
                       Add Committee
@@ -689,7 +689,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
               <div className='flex items-center gap-3'>
                 <span className='text-sm font-medium shrink-0'>Regulation</span>
                 <Select value={selectedRegulationId} onValueChange={setSelectedRegulationId}>
-                  <SelectTrigger className='w-[260px]'>
+                  <SelectTrigger className='w-full sm:w-[260px]'>
                     <SelectValue placeholder='Select regulation…' />
                   </SelectTrigger>
                   <SelectContent>
@@ -739,6 +739,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
           onClose={() => setAddDialogOpen(false)}
           compositionId={compositionId}
           institutionsId={composition.institutions_id}
+          academicYear={composition.academic_year}
           committees={committees.filter((c) => c.is_active)}
           memberTypes={memberTypeRows.filter((t) => t.is_active)}
           existingMembers={members.map((m) => ({

@@ -3,9 +3,9 @@
 /**
  * Change Decision Dialog
  *
- * Approve or reject a pending change request. Sets status to 'approved' or
- * 'rejected', stamps decided_at. decided_by is left null (no auth helper
- * available in this layer — deferred, noted in PR).
+ * Approve or reject a submitted / under-review change request. Sets status to
+ * 'approved' or 'rejected', stamps decided_at. decided_by is resolved from the
+ * current session by ChangeService (omitted here).
  *
  * Spec: specs/pm-projects-module-2026-05-26.md — Feature F14.
  */
@@ -48,8 +48,7 @@ export function ChangeDecisionDialog({
         id: changeRequest.id,
         decision: {
           status,
-          // decided_by: null — no auth helper available; wired by orchestrator.
-          decided_by: null,
+          // decided_by omitted → ChangeService resolves it to the session actor.
         },
       },
       {

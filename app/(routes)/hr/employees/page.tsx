@@ -1,14 +1,13 @@
 'use client';
 
 /**
- * HR Workforce — all employees from the staff table.
- *
- * After consolidation (migration 20260524083600), hr_employees has been
- * dropped. All employee types now live in the staff table.
+ * HR Employee Directory — read-only view of ALL staff (staff table), enriched
+ * with HR context where present. Fixes the prior !inner join that hid staff
+ * without an hr_staff_details row. Gated by hr.employees.view.
  */
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -20,50 +19,126 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BeatLoader } from 'react-spinners';
-import { UsersRound, AlertCircle, ArrowRight } from 'lucide-react';
-import { useHREmployees } from '@/hooks/hr/use-employees';
+import { UsersRound, AlertCircle, Download } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useHREmployees, fetchHREmployeesForExport } from '@/hooks/hr/use-employees';
+import { ExportService } from '@/lib/services/export-service';
+import { getErrorMessage } from '@/lib/utils';
+import {
+  HREmployeesFilters,
+  type HREmployeeFilterState,
+} from './_components/hr-employees-filters';
+import { HREmployeesTable } from './_components/hr-employees-table';
+import type { HRPersonView } from '@/types/hr';
 
-export default function HRWorkforcePage() {
-  const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
+const PAGE_SIZE = 25;
+
+const EXPORT_HEADERS: Record<string, string> = {
+  employee_code: 'Employee Code',
+  first_name: 'First Name',
+  last_name: 'Last Name',
+  email: 'Email',
+  phone: 'Phone',
+  designation_name: 'Designation',
+  cadre_name: 'Cadre',
+  organization_name: 'Organization',
+  institution_name: 'Institution',
+  department_name: 'Department',
+  is_active: 'Active',
+};
+
+export default function HREmployeeDirectoryPage() {
+  const { isLoading: permsLoading, isSuperAdmin, canAccess } = usePermissions();
+  const [filterState, setFilterState] = useState<HREmployeeFilterState>({ search: '', is_active: true });
   const [page, setPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
 
-  const { data, isLoading, error } = useHREmployees({
-    search: search || undefined,
-    is_active: activeFilter === 'all' ? undefined : activeFilter === 'active',
+  const canView = isSuperAdmin || canAccess('hr.employees', 'view');
+  const canExport = isSuperAdmin || canAccess('hr.employees', 'export');
+
+  const apiFilters = {
+    search: filterState.search || undefined,
+    institution_id: filterState.institution_id,
+    department_id: filterState.department_id,
+    is_active: filterState.is_active,
     page,
-    pageSize: 25,
-  });
+    pageSize: PAGE_SIZE,
+  };
+
+  const { data, isLoading, error } = useHREmployees(apiFilters, !permsLoading && canView);
+
+  const handleFilterChange = useCallback((patch: Partial<HREmployeeFilterState>) => {
+    setFilterState((prev) => ({ ...prev, ...patch }));
+    setPage(1);
+  }, []);
+
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const rows: HRPersonView[] = await fetchHREmployeesForExport({
+        search: filterState.search || undefined,
+        institution_id: filterState.institution_id,
+        department_id: filterState.department_id,
+        is_active: filterState.is_active,
+      });
+      const flat = rows.map((r) => ({
+        employee_code: r.employee_code ?? '',
+        first_name: r.first_name,
+        last_name: r.last_name ?? '',
+        email: r.email ?? '',
+        phone: r.phone ?? '',
+        designation_name: r.designation_name ?? '',
+        cadre_name: r.cadre_name ?? '',
+        organization_name: r.organization_name ?? '',
+        institution_name: r.institution_name ?? '',
+        department_name: r.department_name ?? '',
+        is_active: r.is_active ? 'Yes' : 'No',
+      }));
+      ExportService.exportToExcel(flat, EXPORT_HEADERS as any, 'hr-employees', 'Employees');
+      toast.success(`Exported ${flat.length} employees`);
+    } catch (e) {
+      toast.error(getErrorMessage(e) || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }, [filterState]);
+
+  if (permsLoading) {
+    return (
+      <ContentLayout title="HR Directory">
+        <div className="flex justify-center py-16"><BeatLoader color="#3b82f6" /></div>
+      </ContentLayout>
+    );
+  }
+
+  if (!canView) {
+    return (
+      <ContentLayout title="HR Directory">
+        <Alert variant="destructive" className="mt-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Access Denied</AlertTitle>
+          <AlertDescription>You don&apos;t have permission to view the employee directory.</AlertDescription>
+        </Alert>
+      </ContentLayout>
+    );
+  }
 
   return (
-    <ContentLayout title="HR — Workforce">
+    <ContentLayout title="HR Directory">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/">Home</Link>
-            </BreadcrumbLink>
+            <BreadcrumbLink asChild><Link href="/">Home</Link></BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href="/hr">HR</Link>
-            </BreadcrumbLink>
+            <BreadcrumbLink asChild><Link href="/hr">HR</Link></BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>Workforce</BreadcrumbPage>
-          </BreadcrumbItem>
+          <BreadcrumbItem><BreadcrumbPage>Employees</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
@@ -72,120 +147,49 @@ export default function HRWorkforcePage() {
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <UsersRound className="h-6 w-6" />
-              HR Workforce
+              Employee Directory
             </h1>
             <p className="text-sm text-muted-foreground">
-              All employees registered in the HR module
+              All staff across the HR module
               {data ? ` — ${data.metadata.total} total` : ' — loading...'}
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/staff/list">
-              <ArrowRight className="mr-2 h-4 w-4" />
-              Full Employee Management
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            {canExport && (
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+                <Download className="mr-2 h-4 w-4" />
+                {exporting ? 'Exporting…' : 'Export'}
+              </Button>
+            )}
+            <Button asChild variant="outline" size="sm">
+              <Link href="/staff/list">Full Staff Management</Link>
+            </Button>
+          </div>
         </div>
 
-        {/* Filters */}
         <Card>
-          <CardContent className="pt-6 space-y-3">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                placeholder="Search name / code / email"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-              />
-              <Select
-                value={activeFilter}
-                onValueChange={(v) => {
-                  setActiveFilter(v as 'all' | 'active' | 'inactive');
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active only</SelectItem>
-                  <SelectItem value="inactive">Inactive only</SelectItem>
-                  <SelectItem value="all">All</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <CardContent className="pt-6">
+            <HREmployeesFilters value={filterState} onChange={handleFilterChange} />
           </CardContent>
         </Card>
 
-        {/* Results */}
         <Card>
-          <CardHeader>
-            <CardTitle>Employees</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Employees</CardTitle></CardHeader>
           <CardContent>
-            {isLoading && (
-              <div className="flex justify-center py-8">
-                <BeatLoader color="#3b82f6" />
-              </div>
-            )}
+            {isLoading && <div className="flex justify-center py-8"><BeatLoader color="#3b82f6" /></div>}
             {error && (
               <div className="flex items-center gap-2 text-red-600 py-4">
                 <AlertCircle className="h-4 w-4" />
-                <span>Failed to load: {error instanceof Error ? error.message : 'Unknown error'}</span>
+                <span>Failed to load: {getErrorMessage(error)}</span>
               </div>
             )}
             {data && data.data.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground space-y-3">
-                <UsersRound className="h-10 w-10 mx-auto opacity-40" />
-                <p className="font-medium">No employees found.</p>
-                <p className="text-xs max-w-md mx-auto">
-                  Employees registered in the HR module will appear here. Manage
-                  staff at <Link href="/staff/list" className="underline">Employee Management</Link>.
-                </p>
+              <div className="text-center py-12 text-muted-foreground">
+                <UsersRound className="h-10 w-10 mx-auto opacity-40 mb-3" />
+                <p className="font-medium">No employees match these filters.</p>
               </div>
             )}
-            {data && data.data.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-b">
-                    <tr className="text-left text-muted-foreground">
-                      <th className="py-2 pr-3">Code</th>
-                      <th className="py-2 pr-3">Name</th>
-                      <th className="py-2 pr-3">Designation</th>
-                      <th className="py-2 pr-3">Institution</th>
-                      <th className="py-2 pr-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.data.map((emp) => (
-                      <tr key={emp.id} className="border-b hover:bg-muted/40">
-                        <td className="py-2 pr-3 font-mono text-xs">
-                          <Link href={`/hr/employees/${emp.id}?source=staff`} className="underline-offset-2 hover:underline">
-                            {emp.employee_code ?? '---'}
-                          </Link>
-                        </td>
-                        <td className="py-2 pr-3">
-                          <Link href={`/hr/employees/${emp.id}?source=staff`} className="hover:underline">
-                            {emp.first_name} {emp.last_name ?? ''}
-                          </Link>
-                        </td>
-                        <td className="py-2 pr-3">{emp.designation_name ?? '—'}</td>
-                        <td className="py-2 pr-3">{emp.organization_name ?? '—'}</td>
-                        <td className="py-2 pr-3">
-                          {emp.is_active ? (
-                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">Active</Badge>
-                          ) : (
-                            <Badge variant="outline" className="bg-gray-50 text-gray-600">Inactive</Badge>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {data && data.data.length > 0 && <HREmployeesTable rows={data.data} />}
 
             {data && data.metadata.totalPages > 1 && (
               <div className="flex justify-between items-center pt-4">
@@ -193,22 +197,8 @@ export default function HRWorkforcePage() {
                   Page {data.metadata.page} of {data.metadata.totalPages}
                 </span>
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page >= data.metadata.totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Next
-                  </Button>
+                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</Button>
+                  <Button variant="outline" size="sm" disabled={page >= data.metadata.totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
                 </div>
               </div>
             )}

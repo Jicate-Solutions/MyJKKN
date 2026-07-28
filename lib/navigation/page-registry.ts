@@ -297,6 +297,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['student fee', 'student bill', 'fee search', 'student balance'],
     description: 'Search students and view their fee details'
   },
+  '/billing/coverage': {
+    keywords: ['bill not generated', 'missing bill', 'not billed', 'bill gap', 'unbilled learners', 'bill generated', 'bill coverage', 'pending bill generation'],
+    description: 'Find learners with no bill generated for an academic year'
+  },
   '/billing/onboarding': {
     keywords: ['onboarding', 'learner onboarding', 'account', 'enrollment', 'fee payment', 'admission billing', 'new student'],
     description: 'Review pending learner payments and approve for enrollment'

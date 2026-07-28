@@ -37,9 +37,14 @@ export type CourseLevel =
 
 export type EvaluationType = 'CIA' | 'ESE' | 'CIA + ESE';
 export type ResultType = 'Mark' | 'Status' | 'comment' | 'credit';
-// Free-form group code (COE column `course_mapping.course_group` is plain text).
-// Historically held labels like 'Elective - I'; now entered as a numeric code.
-export type CourseGroup = string;
+// COE `course_mapping.course_group` — constrained by
+// course_mapping_course_group_check to COURSE_GROUP_VALUES
+// ('General', 'Elective - I', …). Do not send bare numbers here;
+// the numeric banding key is `group_order`.
+export type CourseGroup =
+  | 'General'
+  | 'Elective - I' | 'Elective - II' | 'Elective - III'
+  | 'Elective - IV' | 'Elective - V' | 'Elective - VI';
 
 export interface BosCourseMaster {
   id: string;
@@ -123,6 +128,10 @@ export interface BosCourseMapping {
   course_group: CourseGroup | null;
   semester_code: string | null;
   course_order: number | null;
+  // COE `course_mapping.group_order` — usually equals the course order number;
+  // elective options share one group_order so they band + count once in totals.
+  // Optional: older COE deployments / optimistic rows may omit it.
+  group_order?: number | null;
   regulation_code: string | null;
   is_active: boolean;
   mapping_status: 'Active' | 'Locked' | string;   // Lock state for the mapping row itself.
@@ -141,8 +150,11 @@ export interface BosCourseMappingDetailed extends BosCourseMapping {
     | 'course_code' | 'course_name' | 'course_category' | 'course_type'
     | 'course_type_code'
     | 'course_part_master' | 'credit' | 'exam_duration'
-    | 'theory_hours' | 'practical_hours'
+    | 'theory_hours' | 'tutorial_hours' | 'practical_hours'
     | 'internal_max_mark' | 'external_max_mark' | 'total_max_mark'
+    // Optional on the master, so it stays optional here — the semester table
+    // reads it to grey out and un-delete locked rows.
+    | 'course_status'
   >;
 }
 

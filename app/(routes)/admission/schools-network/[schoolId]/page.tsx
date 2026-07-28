@@ -293,7 +293,7 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="sessions">
             Sessions ({sessionsQuery.data?.rows.length ?? recentSessions.length})
@@ -441,13 +441,13 @@ function SchoolDetailContent({ schoolId }: { schoolId: string }) {
         {/* CONTRIBUTIONS */}
         <TabsContent value="contributions">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-base">Contributions delivered</CardTitle>
                 <CardDescription>Devices, branding, funds, training kits, etc.</CardDescription>
               </div>
               <PermissionGuard module="schools_network.contributions" action="create">
-                <Link href={`/admission/schools-network/${schoolId}/contributions/new`}>
+                <Link href={`/admission/schools-network/${schoolId}/contributions/new`} className="shrink-0">
                   <Button size="sm">
                     <Plus className="h-4 w-4 mr-2" /> Log contribution
                   </Button>

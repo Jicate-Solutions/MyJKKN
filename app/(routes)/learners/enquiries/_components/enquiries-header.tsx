@@ -38,7 +38,7 @@ export function EnquiriesHeader() {
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {/* Super-admin-only: export all non-active records + bulk-edit round-trip */}
         {isSuperAdmin && <BulkEditEnquiriesDialog onSuccess={handleImportComplete} />}
 
