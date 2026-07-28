@@ -63,6 +63,7 @@ import {
   type MbaGapTrackRecord
 } from '@/lib/services/mba-data-gap/mba-data-gap-service';
 import { ReportDataGapDialog } from '../../_components/report-data-gap-dialog';
+import { DeptPlaybookPanel } from './dept-playbook-panel';
 
 interface AnalyticsClientProps {
   userId: string;
@@ -472,6 +473,12 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
                   ))}
                 </div>
               )}
+
+              <DeptPlaybookPanel
+                areaId={section.areaId}
+                areaLabel={section.areaLabel}
+                canManage={false}
+              />
             </section>
           ))}
         </div>
@@ -665,6 +672,14 @@ function ManagerAnalyticsBoard() {
             ))}
           </div>
         </section>
+      )}
+
+      {selectedAreaId && (
+        <DeptPlaybookPanel
+          areaId={selectedAreaId}
+          areaLabel={selectedLabel ?? 'Department'}
+          canManage
+        />
       )}
 
       <ReportDataGapDialog
