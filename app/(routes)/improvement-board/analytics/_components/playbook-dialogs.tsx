@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Printer, History } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow';
 
@@ -109,7 +110,11 @@ export function ViewPlaybookDialog({
 
   function print() {
     const w = window.open('', '_blank', 'width=820,height=1000');
-    if (!w) return;
+    if (!w) {
+      // Pop-up blocked — tell the user how to enable printing instead of a silent no-op.
+      toast.error('Your browser blocked the print window. Please allow pop-ups for this site and try again.');
+      return;
+    }
     w.document.write(buildPrintHtml(areaLabel, artifactType, content));
     w.document.close();
   }

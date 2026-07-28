@@ -137,7 +137,17 @@ export default function NAACCommitteesPage() {
     : userProfile?.institution_id ?? '';
   const [scope, setScope] = useState<string>(defaultScope);
 
-  const effectiveScope = isSuperAdmin ? scope : userProfile?.institution_id ?? '';
+  // usePermissions() resolves AFTER the first paint, so the initialiser above runs
+  // while isSuperAdmin is still false and freezes `scope` to '' — the non-admin
+  // branch — for a viewer who then turns out to BE a super admin. A useState
+  // initialiser never re-runs, so that '' survives. Read as 'all', matching what
+  // the query below already assumes, so the label and the picker agree with the
+  // rows actually fetched instead of reading '—' against an unfiltered list.
+  const superAdminScope = scope || 'all';
+
+  const effectiveScope = isSuperAdmin
+    ? superAdminScope
+    : userProfile?.institution_id ?? '';
 
   const { data: committees, isLoading } = useNAACCommittees(
     effectiveScope === '' ? 'all' : effectiveScope,
@@ -231,7 +241,10 @@ export default function NAACCommitteesPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 {isSuperAdmin && (
-                  <Select value={scope} onValueChange={handleScopeChange}>
+                  <Select
+                    value={superAdminScope}
+                    onValueChange={handleScopeChange}
+                  >
                     <SelectTrigger className="min-w-[240px] bg-card">
                       <SelectValue placeholder="Select college" />
                     </SelectTrigger>

@@ -12,6 +12,10 @@ import type {
   ImportResult,
   ImportSuccessRow
 } from '@/lib/utils/mappings/student-bill-excel-mappings';
+import {
+  isOncePerLearnerViolation,
+  oncePerLearnerMessage
+} from '@/lib/utils/billing-duplicate-error';
 
 /**
  * POST /api/billing/schedule/bills/import
@@ -289,15 +293,65 @@ export async function POST(request: NextRequest) {
 
     const { data: categories } = await supabase
       .from('billing_categories')
-      .select('id, category_name, is_active')
+      .select('id, category_name, is_active, once_per_learner')
       .in('category_name', uniqueCategoryNames);
 
     const categoryByName = new Map<string, string>();
+    // Categories that permit only one live bill per learner. The DB trigger is
+    // the real enforcement, but this import commits every row in ONE batch —
+    // so letting the trigger fire would abort the whole sheet over a single
+    // offending row, breaking the partial-success contract the dialog promises.
+    // Pre-checking lets the offending rows fail individually and the rest land.
+    const oncePerLearnerCategoryIds = new Set<string>();
     (categories ?? []).forEach((c: any) => {
       if (c.is_active !== false) {
         categoryByName.set(c.category_name, c.id);
+        if (c.once_per_learner) oncePerLearnerCategoryIds.add(c.id);
       }
     });
+
+    // Existing live bills for the restricted categories, limited to the
+    // learners actually named in this sheet.
+    const existingRestrictedPairs = new Set<string>();
+    if (oncePerLearnerCategoryIds.size > 0) {
+      const studentIds = Array.from(
+        new Set(
+          Array.from(studentByRoll.values())
+            .map((s) => s.id)
+            .filter((id) => id && id !== '__AMBIGUOUS__')
+        )
+      );
+      // Chunked: an unbounded .in() builds a URL PostgREST rejects with a 400
+      // once a sheet gets large.
+      const CHUNK = 200;
+      for (let i = 0; i < studentIds.length; i += CHUNK) {
+        const { data: existing, error: existingError } = await supabase
+          .from('billing_student_bills')
+          .select('student_id, item_category_id')
+          .in('student_id', studentIds.slice(i, i + CHUNK))
+          .in('item_category_id', Array.from(oncePerLearnerCategoryIds))
+          .not('status', 'in', '("cancelled","superseded")');
+
+        if (existingError) {
+          console.error('[bills/import] Duplicate pre-check failed:', existingError);
+          return NextResponse.json(
+            {
+              error: 'Failed to check for existing bills',
+              message: existingError.message
+            },
+            { status: 500 }
+          );
+        }
+        (existing ?? []).forEach((b: any) =>
+          existingRestrictedPairs.add(`${b.student_id}::${b.item_category_id}`)
+        );
+      }
+    }
+
+    // Pairs claimed by an earlier row of THIS sheet — catches a sheet that
+    // lists the same learner and category twice, which the DB would otherwise
+    // reject only after the first row had already been accepted.
+    const claimedInThisSheet = new Set<string>();
 
     // -- Build insert rows for entries that pass lookup ----------------
     const insertRows: any[] = [];
@@ -346,6 +400,33 @@ export async function POST(request: NextRequest) {
           student_name: studentMatch.name
         });
         continue;
+      }
+
+      // "Once per learner" guard. Rejected here rather than at the database so
+      // one offending row fails alone instead of aborting the whole batch.
+      if (oncePerLearnerCategoryIds.has(categoryId)) {
+        const pairKey = `${studentMatch.id}::${categoryId}`;
+        if (existingRestrictedPairs.has(pairKey)) {
+          errors.push({
+            row: rowNumber,
+            field: 'Billing Category',
+            message: `"${cleaned.billing_category_name}" allows only one bill per learner, and this learner already has one. Cancel the existing bill first, or turn off "Once per learner" on the category.`,
+            roll_number: cleaned.roll_number,
+            student_name: studentMatch.name
+          });
+          continue;
+        }
+        if (claimedInThisSheet.has(pairKey)) {
+          errors.push({
+            row: rowNumber,
+            field: 'Billing Category',
+            message: `"${cleaned.billing_category_name}" allows only one bill per learner, and an earlier row in this file already bills this learner for it.`,
+            roll_number: cleaned.roll_number,
+            student_name: studentMatch.name
+          });
+          continue;
+        }
+        claimedInThisSheet.add(pairKey);
       }
 
       // Resolve the optional academic year against this student's institution.
@@ -416,6 +497,12 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       console.error('[bills/import] Insert error:', insertError);
+      // The pre-check above catches the ordinary case. Reaching here means a
+      // concurrent session created the conflicting bill between our check and
+      // this insert — rare, but the batch is all-or-nothing, so say what to do.
+      if (isOncePerLearnerViolation(insertError)) {
+        insertError.message = `${oncePerLearnerMessage(insertError)} Another user appears to have created it while this file was uploading — re-upload to import the remaining rows.`;
+      }
       // The batch insert is all-or-nothing, so every pending row failed —
       // surface each learner so the failure report names them all.
       for (const pending of pendingSuccesses) {

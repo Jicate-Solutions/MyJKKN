@@ -50,6 +50,13 @@ export interface HRLeaveType {
   sto_min_minutes: number | null;
   sto_max_minutes: number | null;
 
+  // Per-period cap for day-based leave — "at most 2 Casual Leave days a month".
+  // Sits alongside the annual entitlement rather than replacing it: 12 a year
+  // AND no more than 2 in any one month. NULL period means no monthly throttle.
+  // Ignored for short_time_off and compensatory_off.
+  leave_limit_period: LeaveLimitPeriod | null;
+  leave_max_days_per_period: number | null;
+
   duration_type: LeaveDurationType;
   allow_half_day: boolean;
   allow_hourly: boolean;
@@ -133,7 +140,19 @@ export const APPLICABLE_GENDER_LABELS: Record<LeaveApplicableGender, string> = {
  * measured in minutes and request counts instead of days.
  */
 export type StoLimitMode = 'none' | 'request_count' | 'total_duration';
-export type StoLimitPeriod = 'month' | 'quarter' | 'half_year' | 'year';
+
+/**
+ * The period vocabulary both cap systems share.
+ *
+ * Declared once and aliased rather than written out twice: Short Time Off and
+ * day-based leave both resolve their window through the same
+ * hr_leave_period_window() function, so two independent unions of the same four
+ * values would drift the moment one is edited — the same reasoning that keeps
+ * LeaveDurationType re-exported from types/hr.ts at the top of this file.
+ */
+export type LimitPeriod = 'month' | 'quarter' | 'half_year' | 'year';
+export type StoLimitPeriod = LimitPeriod;
+export type LeaveLimitPeriod = LimitPeriod;
 
 export const STO_LIMIT_MODE_LABELS: Record<StoLimitMode, string> = {
   'none': 'No limit',
@@ -147,12 +166,15 @@ export const STO_LIMIT_MODE_HINTS: Record<StoLimitMode, string> = {
   'total_duration': 'Caps the TOTAL time taken across the period, regardless of how many requests it is split into.',
 };
 
-export const STO_LIMIT_PERIOD_LABELS: Record<StoLimitPeriod, string> = {
+export const LIMIT_PERIOD_LABELS: Record<LimitPeriod, string> = {
   'month': 'Per month',
   'quarter': 'Per quarter',
   'half_year': 'Per half year',
   'year': 'Per year',
 };
+
+/** Alias kept so existing Short Time Off call sites read naturally. */
+export const STO_LIMIT_PERIOD_LABELS = LIMIT_PERIOD_LABELS;
 
 /**
  * Quarter, half-year and year run from the institution's academic year start,
@@ -183,6 +205,28 @@ export interface StoUsage {
   minutes_used?: number;
   requests_left?: number | null;
   minutes_left?: number | null;
+}
+
+/**
+ * Per-period leave usage, from hr_leave_period_usage().
+ *
+ * `limited` is false when the type carries no per-period cap — the annual
+ * entitlement still applies and is read from hr_leave_balances as before.
+ */
+export interface LeavePeriodUsage {
+  limited: boolean;
+  /**
+   * The period could not be resolved, so the trigger refuses every submission.
+   * Reported explicitly: telling someone they are within their limit while the
+   * database rejects them is the worse lie.
+   */
+  window_unresolved?: boolean;
+  limit_period?: LeaveLimitPeriod;
+  period_start?: string;
+  period_end?: string;
+  max_days?: number;
+  days_used?: number;
+  days_left?: number;
 }
 
 /** 90 -> "1h 30m", 45 -> "45m". Minutes are the stored unit. */

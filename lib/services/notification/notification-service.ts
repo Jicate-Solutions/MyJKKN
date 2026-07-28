@@ -513,26 +513,52 @@ export async function getNotification(
 }
 
 export async function createNotification(
-  dto: CreateNotificationDto
+  dto: CreateNotificationDto,
+  actorId?: string
 ): Promise<Notification> {
-  const notificationData = {
-    ...dto,
-    priority: dto.priority || NotificationPriority.NORMAL,
-    channels: dto.channels || [NotificationChannel.IN_APP],
-    status: NotificationStatus.UNREAD,
-    is_read: false,
-    is_archived: false
-  };
+  // Map the legacy DTO onto the REAL public.notifications columns. The table
+  // has NO message/type/user_id/channels/status/is_read/is_archived columns —
+  // those belong to the per-recipient user_notifications table or to metadata.
+  // Writing them here throws at runtime (silently dropped when a caller wraps
+  // this in try/catch). See feedback_ai_rpc_send_notification_broken.
+  const channels = dto.channels || [NotificationChannel.IN_APP];
+  // created_by is NOT NULL with no default. Prefer the acting/authenticated
+  // user threaded from the caller; else fall back to the recipient id. Never
+  // null or a zero uuid.
+  const createdBy = actorId ?? dto.user_id;
 
   const { data, error } = await supabase
     .from('notifications')
-    .insert(notificationData as any)
+    .insert({
+      title: dto.title,
+      body: dto.message,
+      category: dto.category,
+      priority: dto.priority || NotificationPriority.NORMAL,
+      created_by: createdBy,
+      targeting: { type: 'user', user_ids: [dto.user_id] },
+      ...(dto.action_url ? { url: dto.action_url } : {}),
+      metadata: {
+        ...(dto.metadata ?? {}),
+        type: dto.type,
+        ...(dto.action_label ? { action_label: dto.action_label } : {})
+      }
+    } as any)
     .select()
     .single();
 
   if (error) throw error;
 
-  const notification = data as unknown as Notification;
+  // Re-attach the legacy UI-shaped fields the DB row does not carry, so the
+  // returned object stays compatible with callers and with sendToChannels().
+  const notification = {
+    ...(data as any),
+    user_id: dto.user_id,
+    message: dto.message,
+    type: dto.type,
+    action_url: dto.action_url,
+    action_label: dto.action_label,
+    channels
+  } as unknown as Notification;
 
   // Mirror into user_notifications so getNotifications() (which queries that
   // junction table) can surface this notification in the bell/inbox UI.

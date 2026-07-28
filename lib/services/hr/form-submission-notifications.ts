@@ -226,9 +226,11 @@ async function dispatchInApp(
     const { data: notif, error } = await supabase
       .from('notifications')
       .insert({
-        type: 'hr_form',
         title,
-        message,
+        body: message,
+        category: 'hr_form',
+        created_by: userIds[0],
+        targeting: { type: 'user', user_ids: userIds },
         metadata: { source: 'hr_form_submission', ...metadata },
       })
       .select('id')
