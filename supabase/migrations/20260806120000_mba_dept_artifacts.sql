@@ -87,6 +87,16 @@ BEGIN
     RAISE EXCEPTION 'fn_mba_dept_artifact_ai_draft_upsert: no such improvement_area %', p_area_id;
   END IF;
 
+  -- LOCK: an approved artifact must be reopened (fn_mba_dept_artifact_reopen)
+  -- before a fresh AI draft may replace it — protects approved work from an
+  -- accidental "Draft with AI" click.
+  IF EXISTS (
+    SELECT 1 FROM public.mba_dept_artifacts
+    WHERE area_id = p_area_id AND artifact_type = p_artifact_type AND status = 'approved'
+  ) THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_ai_draft_upsert: % artifact is approved and locked — reopen it first', p_artifact_type;
+  END IF;
+
   INSERT INTO public.mba_dept_artifacts (
     area_id, artifact_type, content, status, version,
     ai_model, ai_prompt, ai_job_id, ai_drafted_at, updated_at
@@ -220,6 +230,57 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) TO authenticated;
+
+-- 5b) RPC — reopen: the ONLY way out of 'approved' (manager-gated).
+-- approved -> needs_changes, so a locked artifact can be re-drafted / edited again.
+CREATE OR REPLACE FUNCTION public.fn_mba_dept_artifact_reopen(
+  p_area_id       uuid,
+  p_artifact_type text
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_id uuid; v_status text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_reopen: not authenticated';
+  END IF;
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('improvement.board.manage')
+  ) THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_reopen: requires improvement.board.manage';
+  END IF;
+
+  SELECT id, status INTO v_id, v_status
+  FROM public.mba_dept_artifacts
+  WHERE area_id = p_area_id AND artifact_type = p_artifact_type
+  FOR UPDATE;
+
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_reopen: no % artifact for that area', p_artifact_type;
+  END IF;
+  IF v_status <> 'approved' THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_reopen: only an approved artifact can be reopened';
+  END IF;
+
+  UPDATE public.mba_dept_artifacts
+  SET status       = 'needs_changes',
+      reviewed_by  = auth.uid(),
+      reviewed_at  = now(),
+      review_notes = 'Reopened for changes.',
+      updated_by   = auth.uid(),
+      updated_at   = now()
+  WHERE id = v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_reopen(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_reopen(uuid, text) TO authenticated;
 
 -- 6) Max-lane job type (₹0) — clone of the proven lesson-spine generate row ──
 -- Only job_type / title / description differ from that template row.
