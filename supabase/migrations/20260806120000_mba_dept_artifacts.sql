@@ -300,3 +300,178 @@ SELECT
 WHERE NOT EXISTS (
   SELECT 1 FROM public.ai_job_types WHERE job_type = 'mba.draft_dept_artifact'
 );
+
+-- ============================================================================
+-- Delta 3: MBA department playbooks — version history + change-request notify.
+-- Decisions (2026-07-28 follow-up interview): keep a history of approved versions;
+-- notify the area's associates when a manager requests changes.
+-- Note: the blessed ai_rpc_send_notification is broken (inserts non-existent
+-- message/type cols), so we insert directly into notifications + user_notifications
+-- (the mechanism behind 30k live deliveries), best-effort so it never blocks.
+-- ============================================================================
+
+-- 1) History table — one immutable snapshot per approval.
+CREATE TABLE IF NOT EXISTS public.mba_dept_artifact_versions (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  artifact_id   uuid NOT NULL REFERENCES public.mba_dept_artifacts(id) ON DELETE CASCADE,
+  area_id       uuid NOT NULL REFERENCES public.improvement_areas(id) ON DELETE CASCADE,
+  artifact_type text NOT NULL,
+  content       jsonb NOT NULL,
+  version       integer NOT NULL,
+  approved_by   uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  approved_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mba_dept_artifact_versions_area
+  ON public.mba_dept_artifact_versions(area_id, artifact_type, approved_at DESC);
+
+ALTER TABLE public.mba_dept_artifact_versions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.mba_dept_artifact_versions FROM anon, PUBLIC;
+GRANT SELECT ON public.mba_dept_artifact_versions TO authenticated;
+
+DROP POLICY IF EXISTS mba_dept_artifact_versions_select ON public.mba_dept_artifact_versions;
+CREATE POLICY mba_dept_artifact_versions_select ON public.mba_dept_artifact_versions
+  FOR SELECT TO authenticated
+  USING (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('improvement.board.manage')
+    OR (
+      public.user_has_permission('improvement.ideas.view')
+      AND EXISTS (
+        SELECT 1 FROM public.mba_associate_postings p
+        WHERE p.area_id = mba_dept_artifact_versions.area_id
+          AND p.associate_user_id = auth.uid()
+      )
+    )
+  );
+
+-- 2) approve now writes a version snapshot after approving.
+CREATE OR REPLACE FUNCTION public.fn_mba_dept_artifact_approve(
+  p_area_id       uuid,
+  p_artifact_type text,
+  p_content       jsonb DEFAULT NULL,
+  p_review_notes  text  DEFAULT NULL
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_id uuid; v_status text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_approve: not authenticated';
+  END IF;
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('improvement.board.manage')
+  ) THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_approve: requires improvement.board.manage';
+  END IF;
+
+  SELECT id, status INTO v_id, v_status
+  FROM public.mba_dept_artifacts
+  WHERE area_id = p_area_id AND artifact_type = p_artifact_type
+  FOR UPDATE;
+
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_approve: no % artifact for that area', p_artifact_type;
+  END IF;
+  IF v_status = 'approved' THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_approve: already approved';
+  END IF;
+
+  UPDATE public.mba_dept_artifacts
+  SET content      = COALESCE(p_content, content),
+      status       = 'approved',
+      reviewed_by  = auth.uid(),
+      reviewed_at  = now(),
+      review_notes = p_review_notes,
+      updated_by   = auth.uid(),
+      updated_at   = now()
+  WHERE id = v_id;
+
+  -- history snapshot (immutable record of this approved version)
+  INSERT INTO public.mba_dept_artifact_versions (
+    artifact_id, area_id, artifact_type, content, version, approved_by, approved_at
+  )
+  SELECT id, area_id, artifact_type, content, version, reviewed_by, reviewed_at
+  FROM public.mba_dept_artifacts WHERE id = v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_approve(uuid, text, jsonb, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_approve(uuid, text, jsonb, text) TO authenticated;
+
+-- 3) request_changes now notifies the area's associates (best-effort).
+CREATE OR REPLACE FUNCTION public.fn_mba_dept_artifact_request_changes(
+  p_area_id       uuid,
+  p_artifact_type text,
+  p_review_notes  text
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_id uuid; v_notif uuid; v_label text; v_recipients uuid[];
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_request_changes: not authenticated';
+  END IF;
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('improvement.board.manage')
+  ) THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_request_changes: requires improvement.board.manage';
+  END IF;
+
+  SELECT id INTO v_id
+  FROM public.mba_dept_artifacts
+  WHERE area_id = p_area_id AND artifact_type = p_artifact_type
+  FOR UPDATE;
+
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_request_changes: no % artifact for that area', p_artifact_type;
+  END IF;
+
+  UPDATE public.mba_dept_artifacts
+  SET status       = 'needs_changes',
+      reviewed_by  = auth.uid(),
+      reviewed_at  = now(),
+      review_notes = p_review_notes,
+      updated_by   = auth.uid(),
+      updated_at   = now()
+  WHERE id = v_id;
+
+  -- Notify the area's associates (best-effort: never block the status change).
+  BEGIN
+    SELECT array_agg(DISTINCT ap.associate_user_id) INTO v_recipients
+    FROM public.mba_associate_postings ap
+    WHERE ap.area_id = p_area_id AND ap.associate_user_id IS NOT NULL;
+
+    IF v_recipients IS NOT NULL AND array_length(v_recipients, 1) > 0 THEN
+      SELECT label INTO v_label FROM public.improvement_areas WHERE id = p_area_id;
+      INSERT INTO public.notifications (title, body, category, url, priority, created_by)
+      VALUES (
+        'Playbook changes requested — ' || COALESCE(v_label, 'department') || ' · ' || p_artifact_type,
+        COALESCE(NULLIF(btrim(p_review_notes), ''), 'A manager requested changes.'),
+        'improvement:playbook', '/improvement-board/analytics', 'normal', auth.uid()
+      )
+      RETURNING id INTO v_notif;
+      INSERT INTO public.user_notifications (notification_id, user_id)
+      SELECT v_notif, unnest(v_recipients);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- notification is best-effort
+  END;
+
+  RETURN v_id;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) TO authenticated;
