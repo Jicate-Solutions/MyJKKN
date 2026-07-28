@@ -1673,6 +1673,7 @@ interface PendingEvent {
   observed_value: number | null;
   threshold: number;
   breach_date: string;
+  subject_type: string | null;
   subject_label: string | null;
   judge_profile_id: string | null;
   notified_profile_ids: string[] | null;
@@ -1855,7 +1856,7 @@ export async function bookPendingMeetings(
   const { data: events, error } = await db
     .from('meeting_trigger_events')
     .select(
-      'id, institution_id, metric_key, observed_value, threshold, breach_date, subject_label, judge_profile_id, notified_profile_ids, calendar_nudged_profile_ids, booking_error'
+      'id, institution_id, metric_key, observed_value, threshold, breach_date, subject_type, subject_label, judge_profile_id, notified_profile_ids, calendar_nudged_profile_ids, booking_error'
     )
     .eq('status', 'meeting_pending')
     .is('booking_id', null)
@@ -1887,10 +1888,21 @@ export async function bookPendingMeetings(
   const groups = new Map<string, BookingGroup>();
   for (const ev of pending) {
     try {
-      let people = (ev.notified_profile_ids ?? []).filter(Boolean);
-      if (people.length === 0 && ev.institution_id) {
-        people = (await resolveRecipients(db, ev.institution_id)).recipientIds;
+      let notified = (ev.notified_profile_ids ?? []).filter(Boolean);
+      if (notified.length === 0 && ev.institution_id) {
+        notified = (await resolveRecipients(db, ev.institution_id)).recipientIds;
       }
+
+      // Decision #11 is a two-sided meeting: the judge, plus whoever actually
+      // has to answer for the breach. Who that is differs by engine:
+      //  - project events store [accountable, ...informees] — the informees got
+      //    a heads-up bell, not a summons, so only the FIRST is in the room;
+      //  - attendance events asked every recipient to explain, so they all
+      //    belong — but capped, because the no-principal fallback fans out to
+      //    up to 5 super-admins and a 6-person review is neither intended by
+      //    #11 nor realistically schedulable.
+      const people = ev.subject_type ? notified.slice(0, 1) : notified.slice(0, 2);
+
       // Project events carry their own judge; attendance events answer to the
       // Director (first super-admin).
       const judge = ev.judge_profile_id ?? adminIds[0] ?? null;
