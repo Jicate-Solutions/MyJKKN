@@ -228,6 +228,15 @@ async function createBellNotification(
       config: ActionConfig;
       deadlineHours: number;
     };
+    /**
+     * When set, the DB's own partial UNIQUE index
+     * (idx_notifications_idempotency on idempotency_key WHERE NOT NULL)
+     * guarantees this notification is sent AT MOST ONCE, ever. A duplicate
+     * insert returns 23505 and this function returns null rather than logging
+     * an error — used by the weekly summary's once-per-ISO-week gate, where the
+     * database, not a read-then-write check, is the arbiter.
+     */
+    idempotencyKey?: string;
   }
 ): Promise<string | null> {
   const row: Record<string, unknown> = {
@@ -247,6 +256,7 @@ async function createBellNotification(
     row.action_type = opts.action.type;
     row.action_config = opts.action.config;
   }
+  if (opts.idempotencyKey) row.idempotency_key = opts.idempotencyKey;
 
   const { data: notif, error } = await db
     .from('notifications')
@@ -255,6 +265,9 @@ async function createBellNotification(
     .single();
 
   if (error || !notif) {
+    // 23505 on an idempotency key is the expected "already sent" outcome, not
+    // a failure — do not log it as one.
+    if (opts.idempotencyKey && (error as any)?.code === '23505') return null;
     logger.error(MODULE, 'Failed to insert notification', error);
     return null;
   }
@@ -1954,6 +1967,15 @@ interface ParticipantSchedule {
  * and never intersect a host starting at 09:00 — the meeting would look
  * impossible when both are free. Rounding the start UP and the end DOWN keeps
  * every candidate strictly inside the person's real availability.
+ *
+ * This is a real condition, not a hypothetical: 24 of the 1,460 live windows on
+ * prod start on a non-:00/:30 minute (e.g. 560 = 09:20, 1065 = 17:45).
+ *
+ * The cost is that a window too short to hold a grid-aligned 30-minute meeting
+ * (1065-1095 = 17:45-18:15) yields nothing. That is correct — we would rather
+ * offer no slot than one two people cannot both attend — but the CALLER must
+ * treat "all my windows died" as "no availability", not as "no schedule", which
+ * is why loadParticipantSchedules distinguishes the two below.
  */
 function snapWindow(
   startMinute: number,
@@ -2020,6 +2042,8 @@ async function loadParticipantSchedules(
   const scheduleIds = [...scheduleForHost.values()].map((s) => s.id);
   const windowsBySchedule = new Map<string, EngineWindow[]>();
   const overridesBySchedule = new Map<string, EngineOverride[]>();
+  /** Schedules that HAVE window rows, even if none survived the grid snap. */
+  const schedulesWithAnyWindowRow = new Set<string>();
 
   if (scheduleIds.length > 0) {
     const { data: wins } = await db
@@ -2027,6 +2051,7 @@ async function loadParticipantSchedules(
       .select('schedule_id, weekday, start_minute, end_minute')
       .in('schedule_id', scheduleIds);
     for (const w of ((wins ?? []) as any[])) {
+      schedulesWithAnyWindowRow.add(w.schedule_id);
       const snapped = snapWindow(Number(w.start_minute), Number(w.end_minute));
       if (!snapped) continue;
       const list = windowsBySchedule.get(w.schedule_id) ?? [];
@@ -2059,14 +2084,20 @@ async function loadParticipantSchedules(
 
   for (const pid of profileIds) {
     const sched = scheduleForHost.get(pid);
-    const windows = sched ? windowsBySchedule.get(sched.id) ?? [] : [];
-    if (!sched || windows.length === 0) {
+    // The campus default is for people who have said NOTHING about when they
+    // are available. It must NOT be substituted for someone who HAS a schedule
+    // whose windows are all too short/off-grid to hold a 30-minute meeting —
+    // that person has stated availability and we would be booking outside it.
+    // One live schedule on prod (5 windows, all 30 minutes at :45 boundaries)
+    // is exactly this case; it now yields no slots instead of a fake 10:00.
+    const hasScheduleRows = !!sched && schedulesWithAnyWindowRow.has(sched.id);
+    if (!sched || !hasScheduleRows) {
       out.set(pid, defaultSchedule());
       continue;
     }
     out.set(pid, {
       timezone: sched.timezone,
-      windows,
+      windows: windowsBySchedule.get(sched.id) ?? [],
       overrides: overridesBySchedule.get(sched.id) ?? [],
       origin: 'own'
     });
@@ -2913,10 +2944,17 @@ export async function bookPendingMeetings(
 // it rather than the engine quietly never booking anything.
 //
 // Deliberately NOT a new vercel.json cron: it is a weekly PATH inside the
-// existing hourly reconcile cron, gated to fire once per ISO week. The ledger
-// is the notification itself — if a summary carrying this ISO week already
-// exists, the pass is a no-op. That is idempotent with no extra table and no
-// state column to drift.
+// existing hourly reconcile cron, gated to fire once per ISO week.
+//
+// The gate is the DATABASE, not a read-then-write check. `notifications` already
+// carries idempotency_key under a partial UNIQUE index
+// (idx_notifications_idempotency ... WHERE idempotency_key IS NOT NULL), so the
+// key `meetings:calendar-connect-weekly:<ISO week>:<institution>` makes a second
+// send physically impossible — no extra table, no state column to drift, and no
+// race between the check and the insert. A cheap indexed pre-check skips the
+// work; the unique index is what actually guarantees it.
+// (The obvious alternative — filtering on metadata->>'iso_week' — would be an
+// unindexed containment scan over 220,289 notification rows every hour.)
 
 const WEEKLY_SUMMARY_CATEGORY = 'meetings:calendar-connect-weekly';
 
@@ -2956,13 +2994,17 @@ export async function sendWeeklyCalendarConnectSummary(
     errors: []
   };
 
-  // --- the once-per-week gate (idempotent, no new table) ---------------------
+  const weeklyKey = (institutionId: string) =>
+    `${WEEKLY_SUMMARY_CATEGORY}:${isoWeek}:${institutionId}`;
+
+  // --- cheap indexed pre-check: has ANY college's summary gone out this week?
+  // This only saves the work; the unique index on idempotency_key is what makes
+  // a duplicate send impossible even if two workers get past this together.
   if (!opts.force) {
     const { data: already, error: gateErr } = await db
       .from('notifications')
       .select('id')
-      .eq('category', WEEKLY_SUMMARY_CATEGORY)
-      .contains('metadata', { iso_week: isoWeek })
+      .like('idempotency_key', `${WEEKLY_SUMMARY_CATEGORY}:${isoWeek}:%`)
       .limit(1);
     if (gateErr) {
       result.errors.push(`weekly gate: ${gateErr.message}`);
@@ -3057,9 +3099,10 @@ export async function sendWeeklyCalendarConnectSummary(
         const shown = names.slice(0, 12);
         const more = names.length - shown.length;
 
-        await createBellNotification(db, {
+        const notificationId = await createBellNotification(db, {
           recipientIds: audience,
           createdBy,
+          idempotencyKey: weeklyKey(institutionId),
           title: `${names.length} ${names.length === 1 ? 'person' : 'people'} at ${instName} still have no calendar connected`,
           body:
             `Accountability review meetings cannot be scheduled for anyone whose ` +
@@ -3079,7 +3122,9 @@ export async function sendWeeklyCalendarConnectSummary(
             source: 'cron:meeting-trigger-reconcile'
           }
         });
-        result.institutions_notified++;
+        // null = the unique index refused a second send for this week. Not an
+        // error; just nothing to count.
+        if (notificationId) result.institutions_notified++;
       } catch (e: any) {
         result.errors.push(
           `weekly summary ${institutionId}: ${e?.message ?? String(e)}`
