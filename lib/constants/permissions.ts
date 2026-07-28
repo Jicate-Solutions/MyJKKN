@@ -171,6 +171,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'improvement.ideas.view', label: 'View Improvement Board' },
       { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
       { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
+      // Assigning a role holder writes hr_additional_roles — institution-wide org data,
+      // not a note on a playbook — so it is an officer action (CEO / CAO / EAO), held
+      // separately from board.manage. Board managers can SEE holders, not change them.
+      { key: 'improvement.area_role.assign', label: 'Assign Department Role Holders (CEO / CAO / EAO)' },
       { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
       { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
     ]

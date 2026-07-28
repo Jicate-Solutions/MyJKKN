@@ -107,6 +107,34 @@ export function EditArtifactDialog({
   const listKey = LIST_KEY[artifactType];
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [saving, setSaving] = useState(false);
+  // Assigning a holder writes hr_additional_roles — institution-wide org data — so it is
+  // an officer action (CEO / CAO / EAO) held under its own permission, separate from
+  // improvement.board.manage. The DB enforces this; this only decides whether to render
+  // an editable picker or a read-only value, so a manager is never shown a control whose
+  // save would be rejected.
+  const [canAssign, setCanAssign] = useState(false);
+
+  useEffect(() => {
+    if (!open || artifactType !== 'organogram') {
+      setCanAssign(false);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClientSupabaseClient() as unknown as {
+      rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
+    };
+    supabase
+      .rpc('user_has_permission', { permission_name: 'improvement.area_role.assign' })
+      .then(({ data }) => {
+        if (!cancelled) setCanAssign(data === true);
+      })
+      .catch(() => {
+        if (!cancelled) setCanAssign(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, artifactType]);
 
   useEffect(() => {
     if (!open) return;
@@ -241,14 +269,25 @@ export function EditArtifactDialog({
                       className="min-h-16 resize-y text-sm"
                     />
                   ) : f.people ? (
-                    <PersonPicker
-                      areaId={areaId}
-                      value={{
-                        name: str(row[f.key]),
-                        staffId: str(row[HOLDER_ID_KEY]).trim() || null,
-                      }}
-                      onChange={(next) => updateHolder(i, next.name, next.staffId)}
-                    />
+                    canAssign ? (
+                      <PersonPicker
+                        areaId={areaId}
+                        value={{
+                          name: str(row[f.key]),
+                          staffId: str(row[HOLDER_ID_KEY]).trim() || null,
+                        }}
+                        onChange={(next) => updateHolder(i, next.name, next.staffId)}
+                      />
+                    ) : (
+                      // Assigning a holder writes institution-wide org data, so it is
+                      // reserved for the CEO / CAO / EAO. Managers still SEE the holder.
+                      <div
+                        className="bg-muted/40 text-muted-foreground flex h-8 items-center rounded-md border px-2 text-sm"
+                        title="Only the CEO, CAO or Executive Administrative Officer can assign a role holder"
+                      >
+                        {str(row[f.key]).trim() || 'Not assigned yet'}
+                      </div>
+                    )
                   ) : (
                     <Input
                       value={str(row[f.key])}
