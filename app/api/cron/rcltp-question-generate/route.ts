@@ -43,6 +43,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
   QUESTION_GEN_JOB_TYPE,
   QUESTION_KEYCHECK_JOB_TYPE,
@@ -90,6 +91,83 @@ async function findCandidatePassages(admin: Admin, cap: number): Promise<string[
   }
   const covered = new Set((withQuestions ?? []).map((r: { passage_id: string }) => r.passage_id));
   return ids.filter((id) => !covered.has(id)).slice(0, cap);
+}
+
+const EMPTY_ALERT_AFTER_NIGHTS = 3;
+const EMPTY_ALERT_REPEAT_NIGHTS = 7;
+const EMPTY_ALERT_SOURCE = 'rcltp-question-generate-empty-streak';
+
+/**
+ * How long the nightly sweep has found nothing, and a notice when that has gone
+ * on too long. Derived, not stored: the nightly sweep is the only thing that
+ * enqueues stage 1 unattended, so "days since the last stage-1 job" IS the empty
+ * streak — no run log or migration needed. Speaks at the threshold and weekly
+ * after, so a long drought keeps saying so without becoming a nightly drip.
+ * fanoutNotification's idempotencyKey makes a duplicate bell item impossible.
+ */
+async function reportEmptyStreak(admin: Admin, dry: boolean) {
+  const { data, error } = await admin
+    .from('ai_jobs')
+    .select('requested_at')
+    .eq('job_type', QUESTION_GEN_JOB_TYPE)
+    .order('requested_at', { ascending: false })
+    .limit(1);
+  if (error) {
+    console.error('[cron/rcltp-question-generate] empty-streak read failed:', error.message);
+    return { checked: false, reason: 'streak read failed' };
+  }
+
+  const last = data?.[0]?.requested_at as string | undefined;
+  if (!last) {
+    // Never generated anything, so there is no baseline to measure a drought
+    // against. Report that plainly rather than alert on a module that has not
+    // started yet — a false alarm here teaches people to ignore the real one.
+    return { checked: true, nights: null, alerted: false, reason: 'no prior run to measure from' };
+  }
+
+  const nights = Math.floor((Date.now() - new Date(last).getTime()) / 86_400_000);
+  const due =
+    nights >= EMPTY_ALERT_AFTER_NIGHTS &&
+    (nights - EMPTY_ALERT_AFTER_NIGHTS) % EMPTY_ALERT_REPEAT_NIGHTS === 0;
+  if (!due) return { checked: true, nights, alerted: false };
+
+  // No owner is recorded for the reading programme yet, so this goes to the
+  // people who can actually act on it. Narrow this the day an owner exists.
+  const { data: recipientRows } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('is_super_admin', true)
+    .eq('is_active', true);
+  const userIds = (recipientRows ?? []).map((r: { id: string }) => r.id);
+  if (userIds.length === 0) {
+    console.error('[cron/rcltp-question-generate] empty streak but no recipient resolved');
+    return { checked: true, nights, alerted: false, reason: 'no recipients' };
+  }
+  if (dry) return { checked: true, nights, alerted: false, would_notify: userIds.length };
+
+  const outcome = await fanoutNotification(admin, {
+    title: 'Reading question drafting has had nothing to do',
+    body:
+      `The overnight helper has found nothing to work on for ${nights} nights running. ` +
+      'It only picks up approved, active, English reading passages that have no questions yet, ' +
+      'so this usually means no new reading material has been added. Add a passage under ' +
+      'Reading (RCLTP) → Content Authoring and it will draft questions overnight, free.',
+    url: '/rcltp/admin/content',
+    userIds,
+    kind: 'work_item',
+    priority: 'normal',
+    category: 'rcltp',
+    idempotencyKey: `rcltp-qgen-empty-${nights}`,
+    metadata: { nights_empty: nights, route: 'rcltp-question-generate' },
+    source: EMPTY_ALERT_SOURCE,
+  });
+
+  return {
+    checked: true,
+    nights,
+    alerted: outcome.notified > 0 || outcome.skipped === 'idempotent',
+    recipients: userIds.length,
+  };
 }
 
 /** Guard against a duplicate set landing on a passage that already has one. */
@@ -170,6 +248,15 @@ export async function GET(request: NextRequest) {
         console.warn(`[cron/rcltp-question-generate] enqueue failed for ${id}: ${r.reason ?? r.error}`);
       }
     }
+    // A sweep that finds nothing is indistinguishable from a sweep that never
+    // ran. Director edge ruling (2026-07-25): say something after a few empty
+    // nights rather than stay silent. Only the nightly sweep evaluates this —
+    // an on-demand ?passageId= run returned above.
+    const emptyRun =
+      candidates.length === 0
+        ? await reportEmptyStreak(admin, request.nextUrl.searchParams.get('dry') === '1')
+        : null;
+
     return NextResponse.json({
       ok: true,
       mode: 'enqueue',
@@ -178,6 +265,7 @@ export async function GET(request: NextRequest) {
       enqueued,
       in_flight: inFlight,
       failed,
+      empty_streak: emptyRun,
       elapsed_ms: Date.now() - started,
     });
   }
