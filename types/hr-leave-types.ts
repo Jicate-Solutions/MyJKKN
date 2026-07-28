@@ -229,6 +229,78 @@ export interface LeavePeriodUsage {
   days_left?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Leave approval flows — hr_approval_flows WHERE flow_for = 'leave_approval'
+// ---------------------------------------------------------------------------
+//
+// One row per (organization, leave type), plus one org-wide catch-all whose
+// conditions carry no leave_type_id. LeaveService.buildApprovalChain() picks the
+// most specific match and FREEZES it onto the application, so editing a flow
+// never rewrites in-flight requests.
+
+/** A step's approver is either a role or one named person — never both. */
+export type LeaveApproverMode = 'role' | 'user';
+
+export interface LeaveApprovalFlowStep {
+  chain_order: number;
+  /** 'review' passes to the next step; 'final' grants approval. Last step must be final. */
+  step_type: 'review' | 'final';
+  /**
+   * A custom_roles.role_key, or a placeholder such as 'hr_approver'.
+   * trg_hla_approver_gate enforces a key that exists in custom_roles and
+   * ignores one that does not — an unrecognised value means "any permitted
+   * approver", which is what keeps the 14 seeded flows working.
+   */
+  approver_role: string;
+  /**
+   * profiles.id — an AUTH UID, never a staff.id. assertCanDecide() resolves the
+   * caller through staff.profile_id and the gate trigger compares auth.uid(),
+   * so a staff id here would save cleanly and then match nobody.
+   */
+  approver_user_id: string | null;
+  /** Display label for a pinned person, so the chain reads without a lookup. */
+  approver_name: string | null;
+  escalate_after_hours: number;
+}
+
+export interface LeaveApprovalFlow {
+  id: string;
+  hr_organization_id: string;
+  flow_name: string;
+  /** `{ leave_type_id }` for a per-type flow; `{}` for the org catch-all. */
+  conditions: { leave_type_id?: string } | null;
+  steps: LeaveApprovalFlowStep[];
+  is_active: boolean;
+  escalate_after_hours: number;
+}
+
+/** From hr_leave_approver_role_options(). */
+export interface LeaveApproverRoleOption {
+  role_key: string;
+  role_name: string;
+  user_count: number;
+  /**
+   * Whether the role's permissions JSONB grants hr.leave.approve. A step routed
+   * to a role without it is a dead end — the gate trigger lets that person past
+   * but hla_update then refuses the write.
+   */
+  grants_approve: boolean;
+}
+
+/** From hr_leave_approver_candidates(). */
+export interface LeaveApproverCandidate {
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  role_names: string | null;
+  can_approve: boolean;
+}
+
+export const LEAVE_APPROVER_MODE_LABELS: Record<LeaveApproverMode, string> = {
+  role: 'Anyone holding a role',
+  user: 'One named person',
+};
+
 /** 90 -> "1h 30m", 45 -> "45m". Minutes are the stored unit. */
 export function formatMinutes(mins: number | null | undefined): string {
   if (mins === null || mins === undefined || !Number.isFinite(mins)) return '—';
