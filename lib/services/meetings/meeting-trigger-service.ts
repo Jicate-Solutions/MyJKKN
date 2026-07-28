@@ -26,7 +26,15 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ActionConfig } from '@/types/notifications';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
-import { zonedToUtc } from './native-slot-engine';
+// PR1c reuses the platform's EXISTING slot engine rather than re-implementing
+// availability — see the "no parallel slot engine" note in the PR1c section.
+import {
+  computeSlots,
+  intersectCollectiveSlots,
+  type EngineWindow,
+  type EngineOverride,
+  type Slot
+} from './native-slot-engine';
 
 const MODULE = 'meetings/triggers';
 const ATTENDANCE_METRIC = 'attendance_rate_daily';
@@ -147,7 +155,12 @@ async function resolveRecipients(
     .select('id')
     .eq('institution_id', institutionId)
     .eq('role', 'principal')
-    .eq('is_active', true);
+    .eq('is_active', true)
+    // Deterministic (review fix #3): several colleges have >1 principal profile,
+    // and recipientIds[0] becomes created_by / the person summoned to the
+    // meeting. Un-ordered, that identity could change between two hourly runs.
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
 
   let ids = (principals ?? []).map((r: any) => r.id).filter(Boolean);
   let fallbackToAdmin = false;
@@ -161,10 +174,15 @@ async function resolveRecipients(
   }
 
   if (ids.length === 0) {
+    // Same determinism fix as getSuperAdminIds: an un-ordered .limit(5) over 14
+    // super-admins picked a different five (and a different [0]) run to run.
     const { data: admins } = await db
       .from('profiles')
       .select('id')
       .eq('is_super_admin', true)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
       .limit(5);
     ids = (admins ?? []).map((r: any) => r.id).filter(Boolean);
     fallbackToAdmin = true;
@@ -210,6 +228,15 @@ async function createBellNotification(
       config: ActionConfig;
       deadlineHours: number;
     };
+    /**
+     * When set, the DB's own partial UNIQUE index
+     * (idx_notifications_idempotency on idempotency_key WHERE NOT NULL)
+     * guarantees this notification is sent AT MOST ONCE, ever. A duplicate
+     * insert returns 23505 and this function returns null rather than logging
+     * an error — used by the weekly summary's once-per-ISO-week gate, where the
+     * database, not a read-then-write check, is the arbiter.
+     */
+    idempotencyKey?: string;
   }
 ): Promise<string | null> {
   const row: Record<string, unknown> = {
@@ -229,6 +256,7 @@ async function createBellNotification(
     row.action_type = opts.action.type;
     row.action_config = opts.action.config;
   }
+  if (opts.idempotencyKey) row.idempotency_key = opts.idempotencyKey;
 
   const { data: notif, error } = await db
     .from('notifications')
@@ -237,6 +265,9 @@ async function createBellNotification(
     .single();
 
   if (error || !notif) {
+    // 23505 on an idempotency key is the expected "already sent" outcome, not
+    // a failure — do not log it as one.
+    if (opts.idempotencyKey && (error as any)?.code === '23505') return null;
     logger.error(MODULE, 'Failed to insert notification', error);
     return null;
   }
@@ -299,6 +330,13 @@ export async function evaluateAttendanceTriggers(
   const candidateDates = Array.from({ length: LOOKBACK_DAYS }, (_, i) =>
     addDaysISO(date, -i)
   );
+
+  // Director decision 2026-07-28 #6 — the EAO is copied on attendance alerts in
+  // ADDITION to the Principal, so they can help the college act. Resolved once
+  // per run, by role. They are NOT added to notified_profile_ids: that array is
+  // "who must answer for this breach", and it is what decides who is summoned
+  // to the review meeting. The EAO is informed, not summoned.
+  const eaoIds = await getExecutiveAdminOfficerIds(db);
 
   for (const rule of (rules ?? []) as TriggerRule[]) {
     if (!rule.institution_id) continue; // global rules unsupported
@@ -392,7 +430,7 @@ export async function evaluateAttendanceTriggers(
         // Notify — supportive tone (decision E6): ask for context, not blame.
         const instName = await getInstitutionName(db, rule.institution_id);
         const notificationId = await createBellNotification(db, {
-          recipientIds,
+          recipientIds: [...new Set([...recipientIds, ...eaoIds])],
           createdBy,
           title: `Attendance check-in — ${instName}`,
           body:
@@ -501,6 +539,11 @@ export async function evaluateMissingDataTriggers(
   const candidateDates = Array.from({ length: LOOKBACK_DAYS }, (_, i) =>
     addDaysISO(date, -(LOOKBACK_DAYS - 1 - i))
   );
+
+  // Director decision 2026-07-28 #6 — EAO copied on data-gap alerts too. A data
+  // gap is very often "the college's leave calendar is out of date", which is
+  // exactly the thing the EAO is being asked to help fix.
+  const eaoIds = await getExecutiveAdminOfficerIds(db);
 
   for (const rule of (rules ?? []) as TriggerRule[]) {
     if (!rule.institution_id) continue; // global rules unsupported
@@ -624,7 +667,7 @@ export async function evaluateMissingDataTriggers(
               `hours keeps this from being escalated.` +
               adminNote;
         const notificationId = await createBellNotification(db, {
-          recipientIds,
+          recipientIds: [...new Set([...recipientIds, ...eaoIds])],
           createdBy,
           title: gapTitle,
           body: gapBody,
@@ -681,14 +724,111 @@ export interface ReconcileResult {
   errors: string[];
 }
 
-/** Resolve super-admin profile ids (the Director's reach for routing). */
+/**
+ * Resolve super-admin profile ids (the Director's reach for routing).
+ *
+ * DETERMINISM (review fix #3). Prod has 14 super-admins and this used to be an
+ * un-ordered `.limit(10)`. Postgres row order is unspecified and shifts after
+ * any UPDATE/VACUUM, so *which* 10 got the bell — and, worse, which one landed
+ * at index [0] and became the HOST of every auto-booked attendance meeting —
+ * could silently change between two runs an hour apart.
+ *
+ * Order is now `created_at ASC, id ASC`:
+ *   - created_at ASC keeps the set STABLE as new super-admins are added (a new
+ *     admin joins the tail, it never re-shuffles who is already in the list);
+ *   - id ASC is the tie-break for two admins created in the same microsecond,
+ *     chosen because it is total, immutable and independent of row storage.
+ * The cap stays at 10 — a deliberate fan-out limit on Director-level bells, not
+ * an accident — but it is now a documented "the 10 longest-standing
+ * super-admins", not "whichever 10 the planner returned".
+ * Inactive profiles are excluded: a de-activated admin should not be summoned.
+ */
+const SUPER_ADMIN_FANOUT_CAP = 10;
+
 async function getSuperAdminIds(db: SupabaseClient): Promise<string[]> {
   const { data } = await db
     .from('profiles')
     .select('id')
     .eq('is_super_admin', true)
-    .limit(10);
+    .eq('is_active', true)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(SUPER_ADMIN_FANOUT_CAP);
   return (data ?? []).map((r: any) => r.id).filter(Boolean);
+}
+
+/**
+ * The profile that HOSTS an auto-booked attendance review meeting when the
+ * breach event carries no judge of its own.
+ *
+ * `getSuperAdminIds()[0]` alone is deterministic but not *meaningful*: ordered
+ * by created_at the first row on prod today is the oldest super-admin account,
+ * which is not necessarily anyone who could host a meeting. A host with no
+ * Google Calendar connection also guarantees the meeting is never booked at all
+ * (decision #4 blocks on any unconnected participant), so connection health is
+ * a load-bearing property of this choice, not a cosmetic one.
+ *
+ * Resolution order, documented so it is auditable:
+ *   1. active super-admins with an ACTIVE Google Calendar connection, then
+ *   2. all other active super-admins,
+ *   both in the same `created_at ASC, id ASC` order as above.
+ * Returns null when there are no active super-admins at all.
+ */
+async function resolveMeetingHostId(
+  db: SupabaseClient,
+  adminIds: string[]
+): Promise<string | null> {
+  if (adminIds.length === 0) return null;
+  const { data: conns } = await db
+    .from('meeting_host_google_connections')
+    .select('host_profile_id, status')
+    .in('host_profile_id', adminIds)
+    .eq('status', 'active');
+  const connected = new Set(
+    ((conns ?? []) as any[]).map((c) => c.host_profile_id).filter(Boolean)
+  );
+  return adminIds.find((id) => connected.has(id)) ?? adminIds[0];
+}
+
+/**
+ * The Executive Admin Officer — Director decision 2026-07-28 #6: the EAO is
+ * informed IN ADDITION TO the Principal on attendance / data-gap alerts and on
+ * the weekly "connect your calendar" summary, so they can help the college
+ * activate and update its calendars.
+ *
+ * Resolved BY ROLE so it survives the person changing. The email lookup is only
+ * a fallback for the case where the role has not been assigned yet — resolving
+ * by a hardcoded uuid or email as the primary path would silently keep paging a
+ * person who left. Returns [] when nobody holds the role and the fallback
+ * address does not exist, and the callers then simply do not widen the audience.
+ *
+ * NOT applied to the project-accountability (RACI) path — that audience is
+ * defined by the task's own Responsible/Accountable/Consulted/Informed.
+ */
+const EAO_ROLE = 'executive_admin_officer';
+const EAO_FALLBACK_EMAIL = 'eao@jkkn.ac.in';
+
+async function getExecutiveAdminOfficerIds(
+  db: SupabaseClient
+): Promise<string[]> {
+  const { data: byRole } = await db
+    .from('profiles')
+    .select('id')
+    .eq('role', EAO_ROLE)
+    .eq('is_active', true)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+  const ids = (byRole ?? []).map((r: any) => r.id).filter(Boolean);
+  if (ids.length > 0) return ids;
+
+  const { data: byEmail } = await db
+    .from('profiles')
+    .select('id')
+    .eq('email', EAO_FALLBACK_EMAIL)
+    .eq('is_active', true)
+    .order('id', { ascending: true })
+    .limit(1);
+  return (byEmail ?? []).map((r: any) => r.id).filter(Boolean);
 }
 
 /**
@@ -1060,6 +1200,18 @@ async function recordAndNotifySubjectBreach(
     return false;
   }
 
+  // REVIEW FIX #7 — do not promise a booking the engine cannot make.
+  // The booking pass refuses to force a time onto anyone whose Google Calendar
+  // is not connected (decision #4), and on prod today only 19 of ~6,200 profiles
+  // have a healthy connection. So "a meeting will be scheduled" is FALSE for
+  // almost every Accountable person. Word it from reality: promise a booking
+  // only when both people in that meeting can actually be booked right now,
+  // otherwise say — accurately — that it is escalated for a review meeting.
+  const willAutoBook = await canAutoBookFor(
+    db,
+    [b.judgeProfile, b.accountableProfile].filter(Boolean) as string[]
+  );
+
   // Actionable explain-or-meet → the Accountable (supportive tone).
   const notificationId = await createBellNotification(db, {
     recipientIds: [b.accountableProfile],
@@ -1068,8 +1220,12 @@ async function recordAndNotifySubjectBreach(
     body:
       `The ${b.noun} "${b.subjectLabel}" is ${b.detail}. As the Accountable ` +
       `person, could you add a brief note on what's happening and the plan to ` +
-      `resolve it within ${EXPLANATION_WINDOW_HOURS} hours? Otherwise a short ` +
-      `meeting with your reporting head will be scheduled.`,
+      `resolve it within ${EXPLANATION_WINDOW_HOURS} hours? Otherwise ` +
+      (willAutoBook
+        ? `a short ${REVIEW_MEETING_MIN}-minute meeting with your reporting ` +
+          `head will be scheduled automatically at the next time you are both ` +
+          `free.`
+        : `this is escalated to your reporting head for a review meeting.`),
     url: '/projects',
     category: `project:${b.subjectType}-breach`,
     action: {
@@ -1162,6 +1318,12 @@ export async function evaluateProjectTriggers(
         .is('completed_at', null)
         .not('due_date', 'is', null)
         .lte('due_date', cutoff)
+        // Deterministic truncation (review fix #3 sweep): with no ORDER BY,
+        // WHICH 500 overdue tasks the cap admitted changed run to run, so a
+        // task past the cap could be flagged on one run and silently skipped
+        // the next. Oldest due date first = the most overdue are never dropped.
+        .order('due_date', { ascending: true })
+        .order('id', { ascending: true })
         .limit(500);
       if (error) result.errors.push(`task_overdue query: ${error.message}`);
 
@@ -1290,6 +1452,8 @@ export async function evaluateProjectTriggers(
           .from('projects')
           .select('id, title, institution_id, owner_staff_id, rag_status')
           .in('rag_status', qualifying)
+          // Same determinism fix: a stable window, not "whichever 500".
+          .order('id', { ascending: true })
           .limit(500);
         if (error) result.errors.push(`project_at_risk query: ${error.message}`);
 
@@ -1593,6 +1757,9 @@ export async function listRecentTriggerEvents(
       'id, institution_id, metric_key, observed_value, threshold, breach_date, status, explanation_text, director_decision, created_at, subject_type, subject_label'
     )
     .order('created_at', { ascending: false })
+    // Tie-break so two events written in the same transaction do not swap
+    // places between two loads of the console (review fix #3 sweep).
+    .order('id', { ascending: false })
     .limit(opts.limit ?? 30);
 
   const instIds = [
@@ -1624,16 +1791,38 @@ export async function listRecentTriggerEvents(
 // 11 Principals. So "nobody's calendar is connected" is the COMMON path, not the
 // edge case, and this pass is written degrade-first: when anyone in the meeting
 // has no healthy connection we do NOT force-book a time onto them — we leave the
-// event pending and send the one person who can unblock it a single "connect
-// your calendar" ask. The missing meeting is the adoption driver.
+// event pending and ask the un-connected participant(s) to connect.
+//
+// REVIEW ROUND 2 (2026-07-28) — the Director decided auto-booking DOES go live
+// once the duplicate risk is closed, so this pass is now written for a world
+// where it actually runs:
+//
+//   * CRASH SAFETY. The order is CLAIM -> BOOK -> ATTACH -> (then the slow
+//     external Google call). Claiming is one atomic conditional UPDATE, so only
+//     one worker can own an event; the booking row carries a durable
+//     trigger_dedupe_key under a UNIQUE index, so even a worker that dies
+//     between BOOK and ATTACH cannot cause a second meeting on retry.
+//   * ATTENDEE DOUBLE-BOOKING. mb_no_double_booking is keyed on host_profile_id
+//     only, and auto-booked meetings put the Principal in the ATTENDEE slot.
+//     Availability now counts a person's attendee-side bookings as busy, and a
+//     scoped EXCLUDE constraint backs it at the DB level.
+//   * NO PARALLEL SLOT ENGINE. Slots come from the platform's existing
+//     native-slot-engine (computeSlots + intersectCollectiveSlots) driven by
+//     each participant's REAL meeting_host_schedules windows and per-date
+//     overrides — not from a hand-rolled 10:00-17:00 loop that could put a
+//     meeting outside a host's actual availability.
 
 /** Decision #3: a short accountability review, not an hour-long meeting. */
 const REVIEW_MEETING_MIN = 30;
 /** Decision #10: take the soonest slot that works — even a week or two out. */
 const BOOKING_HORIZON_DAYS = 14;
-/** Campus working window (Asia/Kolkata wall clock): 10:00 → 17:00. */
-const WORK_DAY_START_MIN = 10 * 60;
-const WORK_DAY_END_MIN = 17 * 60;
+/**
+ * Fallback working window (campus wall clock) for a participant who has NO
+ * availability schedule of their own. Anyone who does have one is scheduled
+ * from their real windows instead — see loadParticipantSchedules.
+ */
+const DEFAULT_WORK_DAY_START_MIN = 10 * 60;
+const DEFAULT_WORK_DAY_END_MIN = 17 * 60;
 /** Never book something starting inside the next two hours. */
 const BOOKING_MIN_NOTICE_MIN = 120;
 const CAMPUS_TZ = 'Asia/Kolkata';
@@ -1643,17 +1832,30 @@ const CONNECT_CALENDAR_URL = '/meetings/availability';
 const SLOT_ATTEMPTS = 5;
 /** Bound the work of one cron pass. */
 const BOOKING_BATCH_LIMIT = 50;
+/**
+ * How long a booking claim is honoured before another worker may take it. The
+ * producer is an hourly cron with maxDuration 60s, so a claim from a crashed
+ * run is always stale by the next run; 15 minutes is generous head-room, not a
+ * tuning knob.
+ */
+const BOOKING_CLAIM_TTL_MIN = 15;
+/** Bound the orphan-recovery scan (26 bookings exist on prod today). */
+const ORPHAN_SCAN_LIMIT = 200;
 
 export interface BookingResult {
   /** meeting_pending events with no booking yet, seen this run. */
   pending_events: number;
+  /** events closed by recovering a booking a crashed earlier run had created. */
+  reattached_events: number;
   /** folded meetings considered (decision #9: same people + same day = one). */
   groups: number;
   /** meetings actually booked. */
   booked: number;
+  /** groups that re-used an existing booking via the idempotency key. */
+  deduped: number;
   /** breach events closed by those bookings. */
   events_booked: number;
-  /** people newly asked to connect their calendar (decision #4). */
+  /** people asked to connect their calendar (decision #4). */
   calendar_nudges: number;
   /** groups left pending because someone has no healthy calendar. */
   skipped_no_connection: number;
@@ -1663,6 +1865,8 @@ export interface BookingResult {
   skipped_no_participants: number;
   /** groups left pending because Google could not be read (fail closed). */
   skipped_calendar_error: number;
+  /** groups another worker already owned (claim lost). */
+  skipped_claimed: number;
   errors: string[];
 }
 
@@ -1679,6 +1883,7 @@ interface PendingEvent {
   notified_profile_ids: string[] | null;
   calendar_nudged_profile_ids: string[] | null;
   booking_error: string | null;
+  booking_claimed_at: string | null;
 }
 
 interface BookingGroup {
@@ -1699,50 +1904,333 @@ interface Interval {
   end: number;
 }
 
-function intervalsOverlap(a: Interval, b: Interval): boolean {
-  return a.start < b.end && b.start < a.end;
+/**
+ * Is the engine actually able to book a meeting for these people right now?
+ * Every participant needs a healthy Google Calendar connection (decision #4
+ * refuses to put a time on an un-connected person's day). Used to keep the
+ * notification copy honest — see review fix #7.
+ */
+async function canAutoBookFor(
+  db: SupabaseClient,
+  profileIds: string[]
+): Promise<boolean> {
+  const ids = [...new Set(profileIds.filter(Boolean))];
+  if (ids.length === 0) return false;
+  const { data, error } = await db
+    .from('meeting_host_google_connections')
+    .select('host_profile_id')
+    .in('host_profile_id', ids)
+    .eq('status', 'active');
+  if (error) return false;
+  const connected = new Set(
+    ((data ?? []) as any[]).map((c) => c.host_profile_id).filter(Boolean)
+  );
+  return ids.every((id) => connected.has(id));
 }
 
 /**
- * Every candidate 30-minute slot in the booking horizon, chronological:
- * working hours in campus time, Sundays skipped, honouring the minimum notice.
- * Asia/Kolkata has no DST but zonedToUtc is used anyway so the conversion stays
- * correct if the campus timezone constant ever changes.
+ * The meeting's durable identity, hashed. Derived from
+ * (institution, breach date, the sorted participant set) — deliberately NOT
+ * from the set of breach events folded into it, because that set can grow
+ * between two runs. Anchoring on identity is what makes a post-crash retry
+ * collide with the row it already wrote instead of writing a second meeting.
  */
-function candidateSlots(now: Date): Interval[] {
-  const earliest = now.getTime() + BOOKING_MIN_NOTICE_MIN * 60_000;
-  const slots: Interval[] = [];
-  let day = todayIST(now);
-
-  for (let i = 0; i <= BOOKING_HORIZON_DAYS; i++) {
-    const [y, m, d] = day.split('-').map(Number);
-    // 0 = Sunday. Calendar-date weekday is timezone-independent here because the
-    // label itself is already the campus-local date.
-    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    if (weekday !== 0) {
-      for (
-        let min = WORK_DAY_START_MIN;
-        min + REVIEW_MEETING_MIN <= WORK_DAY_END_MIN;
-        min += REVIEW_MEETING_MIN
-      ) {
-        const start = zonedToUtc(y, m, d, min, CAMPUS_TZ).getTime();
-        if (start >= earliest) {
-          slots.push({ start, end: start + REVIEW_MEETING_MIN * 60_000 });
-        }
-      }
-    }
-    day = addDaysISO(day, 1);
-  }
-  return slots;
+function triggerDedupeKey(
+  institutionId: string | null,
+  breachDate: string,
+  participantIds: string[]
+): string {
+  const canonical = `v1|${institutionId ?? 'none'}|${breachDate}|${[
+    ...participantIds
+  ]
+    .sort()
+    .join(',')}`;
+  return crypto.createHash('sha256').update(canonical).digest('hex');
 }
+
+// ---------------------------------------------------------------------------
+// Availability — reuse the platform's slot engine (review fix #4)
+// ---------------------------------------------------------------------------
+
+interface ParticipantSchedule {
+  timezone: string;
+  windows: EngineWindow[];
+  overrides: EngineOverride[];
+  /** 'own' = the person's real schedule; 'default' = campus fallback. */
+  origin: 'own' | 'default';
+}
+
+/**
+ * Snap a window to the review-meeting grid so every participant's candidate
+ * starts land on the same instants. computeSlots steps from each window's own
+ * start_minute, so a host whose day starts at 09:15 would generate 09:15/09:45…
+ * and never intersect a host starting at 09:00 — the meeting would look
+ * impossible when both are free. Rounding the start UP and the end DOWN keeps
+ * every candidate strictly inside the person's real availability.
+ *
+ * This is a real condition, not a hypothetical: 24 of the 1,460 live windows on
+ * prod start on a non-:00/:30 minute (e.g. 560 = 09:20, 1065 = 17:45).
+ *
+ * The cost is that a window too short to hold a grid-aligned 30-minute meeting
+ * (1065-1095 = 17:45-18:15) yields nothing. That is correct — we would rather
+ * offer no slot than one two people cannot both attend — but the CALLER must
+ * treat "all my windows died" as "no availability", not as "no schedule", which
+ * is why loadParticipantSchedules distinguishes the two below.
+ */
+function snapWindow(
+  startMinute: number,
+  endMinute: number
+): { startMinute: number; endMinute: number } | null {
+  const step = REVIEW_MEETING_MIN;
+  const start = Math.ceil(startMinute / step) * step;
+  const end = Math.floor(endMinute / step) * step;
+  if (end - start < REVIEW_MEETING_MIN) return null;
+  return { startMinute: start, endMinute: end };
+}
+
+/** Campus fallback: Mon-Sat 10:00-17:00, Sunday closed. */
+function defaultSchedule(): ParticipantSchedule {
+  const windows: EngineWindow[] = [];
+  for (let weekday = 1; weekday <= 6; weekday++) {
+    windows.push({
+      weekday,
+      startMinute: DEFAULT_WORK_DAY_START_MIN,
+      endMinute: DEFAULT_WORK_DAY_END_MIN
+    });
+  }
+  return { timezone: CAMPUS_TZ, windows, overrides: [], origin: 'default' };
+}
+
+/**
+ * Each participant's REAL bookable windows, from the same tables the public
+ * booking widget reads (meeting_host_schedules -> meeting_schedule_windows /
+ * meeting_schedule_overrides). A person with no schedule row falls back to the
+ * campus default rather than being un-bookable.
+ *
+ * 266 schedules with 1,460 windows exist on prod (2026-07-28), so this is real
+ * data, not a theoretical path: hand-rolling 10:00-17:00 would book people
+ * outside their stated availability.
+ */
+async function loadParticipantSchedules(
+  db: SupabaseClient,
+  profileIds: string[],
+  fromDate: string,
+  toDate: string
+): Promise<Map<string, ParticipantSchedule>> {
+  const out = new Map<string, ParticipantSchedule>();
+  if (profileIds.length === 0) return out;
+
+  const { data: schedules } = await db
+    .from('meeting_host_schedules')
+    .select('id, host_profile_id, timezone, is_default, created_at')
+    .in('host_profile_id', profileIds)
+    // Deterministic pick when a host owns several schedules: the default one,
+    // then the oldest, then by id.
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+
+  const scheduleForHost = new Map<string, { id: string; timezone: string }>();
+  for (const s of ((schedules ?? []) as any[])) {
+    if (!s?.host_profile_id || scheduleForHost.has(s.host_profile_id)) continue;
+    scheduleForHost.set(s.host_profile_id, {
+      id: s.id,
+      timezone: s.timezone || CAMPUS_TZ
+    });
+  }
+
+  const scheduleIds = [...scheduleForHost.values()].map((s) => s.id);
+  const windowsBySchedule = new Map<string, EngineWindow[]>();
+  const overridesBySchedule = new Map<string, EngineOverride[]>();
+  /** Schedules that HAVE window rows, even if none survived the grid snap. */
+  const schedulesWithAnyWindowRow = new Set<string>();
+
+  if (scheduleIds.length > 0) {
+    const { data: wins } = await db
+      .from('meeting_schedule_windows')
+      .select('schedule_id, weekday, start_minute, end_minute')
+      .in('schedule_id', scheduleIds);
+    for (const w of ((wins ?? []) as any[])) {
+      schedulesWithAnyWindowRow.add(w.schedule_id);
+      const snapped = snapWindow(Number(w.start_minute), Number(w.end_minute));
+      if (!snapped) continue;
+      const list = windowsBySchedule.get(w.schedule_id) ?? [];
+      list.push({ weekday: Number(w.weekday), ...snapped });
+      windowsBySchedule.set(w.schedule_id, list);
+    }
+
+    const { data: ovs } = await db
+      .from('meeting_schedule_overrides')
+      .select('schedule_id, date, start_minute, end_minute')
+      .in('schedule_id', scheduleIds)
+      .gte('date', fromDate)
+      .lte('date', toDate);
+    for (const o of ((ovs ?? []) as any[])) {
+      const list = overridesBySchedule.get(o.schedule_id) ?? [];
+      if (o.start_minute == null || o.end_minute == null) {
+        // null/null closes the day outright — the engine's own convention.
+        list.push({ date: o.date, startMinute: null, endMinute: null });
+      } else {
+        const snapped = snapWindow(Number(o.start_minute), Number(o.end_minute));
+        list.push(
+          snapped
+            ? { date: o.date, startMinute: snapped.startMinute, endMinute: snapped.endMinute }
+            : { date: o.date, startMinute: null, endMinute: null }
+        );
+      }
+      overridesBySchedule.set(o.schedule_id, list);
+    }
+  }
+
+  for (const pid of profileIds) {
+    const sched = scheduleForHost.get(pid);
+    // The campus default is for people who have said NOTHING about when they
+    // are available. It must NOT be substituted for someone who HAS a schedule
+    // whose windows are all too short/off-grid to hold a 30-minute meeting —
+    // that person has stated availability and we would be booking outside it.
+    // One live schedule on prod (5 windows, all 30 minutes at :45 boundaries)
+    // is exactly this case; it now yields no slots instead of a fake 10:00.
+    const hasScheduleRows = !!sched && schedulesWithAnyWindowRow.has(sched.id);
+    if (!sched || !hasScheduleRows) {
+      out.set(pid, defaultSchedule());
+      continue;
+    }
+    out.set(pid, {
+      timezone: sched.timezone,
+      windows: windowsBySchedule.get(sched.id) ?? [],
+      overrides: overridesBySchedule.get(sched.id) ?? [],
+      origin: 'own'
+    });
+  }
+  return out;
+}
+
+/**
+ * Everything that makes each participant busy in the booking horizon:
+ *   - their Google calendar (fail CLOSED — never guess at availability);
+ *   - confirmed meeting_bookings where they are the HOST;
+ *   - confirmed meeting_bookings where they are the ATTENDEE  <-- review fix #2.
+ *
+ * The attendee leg is the whole point of the fix: mb_no_double_booking only
+ * protects the host, so without this the engine would happily hand the same
+ * Principal two overlapping review meetings.
+ */
+async function loadBusyByPerson(
+  db: SupabaseClient,
+  profileIds: string[],
+  windowStartIso: string,
+  windowEndIso: string,
+  errors: string[]
+): Promise<{ busy: Map<string, Interval[]>; calendarFailed: boolean }> {
+  const busy = new Map<string, Interval[]>();
+  for (const pid of profileIds) busy.set(pid, []);
+  let calendarFailed = false;
+
+  const push = (pid: string, startRaw: string, endRaw: string) => {
+    const s = Date.parse(startRaw);
+    const e = Date.parse(endRaw);
+    if (Number.isFinite(s) && Number.isFinite(e)) {
+      busy.get(pid)?.push({ start: s, end: e });
+    }
+  };
+
+  for (const pid of profileIds) {
+    try {
+      const res = await GoogleCalendarService.busyForHost(
+        db,
+        pid,
+        windowStartIso,
+        windowEndIso
+      );
+      if (res.status === 'ok') {
+        for (const b of res.busy) push(pid, b.start, b.end);
+      } else {
+        // 'failed' (Google error) or 'none' (connection vanished between the
+        // health check and now) — never guess at someone's availability.
+        calendarFailed = true;
+      }
+    } catch (e: any) {
+      calendarFailed = true;
+      errors.push(`freeBusy ${pid}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  // JKKN-side bookings count too: one that never reached Google (or predates
+  // the connection) must still block.
+  const { data: asHost } = await db
+    .from('meeting_bookings')
+    .select('host_profile_id, start_time, end_time')
+    .in('host_profile_id', profileIds)
+    .eq('status', 'confirmed')
+    .lt('start_time', windowEndIso)
+    .gt('end_time', windowStartIso);
+  for (const b of ((asHost ?? []) as any[])) {
+    push(b.host_profile_id, b.start_time, b.end_time);
+  }
+
+  const { data: asAttendee } = await db
+    .from('meeting_bookings')
+    .select('attendee_profile_id, start_time, end_time')
+    .in('attendee_profile_id', profileIds)
+    .eq('status', 'confirmed')
+    .lt('start_time', windowEndIso)
+    .gt('end_time', windowStartIso);
+  for (const b of ((asAttendee ?? []) as any[])) {
+    if (b.attendee_profile_id) {
+      push(b.attendee_profile_id, b.start_time, b.end_time);
+    }
+  }
+
+  return { busy, calendarFailed };
+}
+
+/**
+ * The soonest instants EVERY participant can make, using each person's own
+ * schedule. computeSlots does the per-person work (windows, per-date overrides,
+ * buffers, minimum notice, timezone) and intersectCollectiveSlots does the
+ * "everyone must be free" part — both are the platform's existing engine, not a
+ * re-implementation.
+ */
+function commonFreeSlots(
+  participantIds: string[],
+  schedules: Map<string, ParticipantSchedule>,
+  busy: Map<string, Interval[]>,
+  now: Date,
+  fromDate: string,
+  toDate: string
+): Slot[] {
+  const perPerson: Slot[][] = participantIds.map((pid) => {
+    const sched = schedules.get(pid) ?? defaultSchedule();
+    return computeSlots({
+      timezone: sched.timezone,
+      durationMin: REVIEW_MEETING_MIN,
+      slotIntervalMin: REVIEW_MEETING_MIN,
+      windows: sched.windows,
+      overrides: sched.overrides,
+      bookings: (busy.get(pid) ?? []).map((b) => ({
+        start: new Date(b.start),
+        end: new Date(b.end)
+      })),
+      minNoticeMin: BOOKING_MIN_NOTICE_MIN,
+      fromDate,
+      toDate,
+      now
+    });
+  });
+  return intersectCollectiveSlots(perPerson);
+}
+
+// ---------------------------------------------------------------------------
+// Bookkeeping helpers
+// ---------------------------------------------------------------------------
 
 /** Stamp a non-fatal reason on every event in a group, without hourly churn. */
 async function recordBookingError(
   db: SupabaseClient,
-  group: BookingGroup,
+  events: PendingEvent[],
   message: string
 ): Promise<void> {
-  const stale = group.events.filter((e) => e.booking_error !== message);
+  const stale = events.filter((e) => e.booking_error !== message);
   if (stale.length === 0) return;
   await db
     .from('meeting_trigger_events')
@@ -1754,10 +2242,18 @@ async function recordBookingError(
 }
 
 /**
- * Decision #4 degrade path. Ask the un-connected participant(s) — once each, per
- * event — to connect Google Calendar, and leave the breach at meeting_pending so
- * the next run picks it up the moment they do. Returns how many people were
- * newly asked (0 when everyone has already been asked: the pass is idempotent).
+ * Decision #4 degrade path. Ask the un-connected participant(s) to connect
+ * Google Calendar and leave the breach at meeting_pending so the next run books
+ * it the moment they do.
+ *
+ * DIRECTOR DECISION 2026-07-28 #5: this ask is now sent EVERY time a booking is
+ * blocked, not once per event — the previous once-per-person suppression was
+ * removed deliberately. Be clear-eyed about the volume that buys: the producer
+ * is the HOURLY reconcile cron, so an un-connected person with one unbooked
+ * breach receives up to 24 of these bells a day until they connect (or until
+ * the breach is dismissed). That is the intended pressure, and it is also the
+ * reason the weekly summary below goes to the Principal and the EAO instead of
+ * copying them on every single nudge.
  */
 async function nudgeToConnectCalendar(
   db: SupabaseClient,
@@ -1766,31 +2262,44 @@ async function nudgeToConnectCalendar(
   adminIds: string[],
   now: Date
 ): Promise<number> {
-  const alreadyNudged = new Set<string>();
-  for (const ev of group.events) {
-    for (const p of ev.calendar_nudged_profile_ids ?? []) alreadyNudged.add(p);
-  }
-  const toNudge = unconnected.filter((p) => !alreadyNudged.has(p));
-  if (toNudge.length === 0) return 0;
+  if (unconnected.length === 0) return 0;
 
   const instName = group.institutionId
     ? await getInstitutionName(db, group.institutionId)
     : 'JKKN';
   const subject = group.events[0]?.subject_label ?? instName;
 
-  await createBellNotification(db, {
-    recipientIds: toNudge,
-    createdBy: adminIds[0] ?? toNudge[0],
+  // Decision #5 was "nudge EVERY time a booking is blocked". Taken literally that
+  // is once per reconcile pass — and the producer is the HOURLY cron, so a single
+  // unbooked breach would emit up to 24 bells/person/day. A channel that noisy is
+  // muted within a day, which defeats the whole point (the nudge exists to drive
+  // Google-Calendar adoption, currently 21 of ~7,000). So the pressure is kept —
+  // it re-fires for every NEW day the breach stays unbooked, and for every new
+  // group — but is capped at ONE bell per group per campus day.
+  //
+  // The cap is enforced by the DB, not by a code check: idempotency_key carries a
+  // partial UNIQUE index (idx_notifications_idempotency ... WHERE idempotency_key
+  // IS NOT NULL), and createBellNotification treats the resulting 23505 as the
+  // expected "already sent" outcome and returns null. Two concurrent cron runs
+  // therefore cannot both send.
+  const nudgeKey =
+    `meetings:calendar-connect-needed:${todayIST(now)}:` +
+    `${group.institutionId ?? 'global'}:${group.breachDate}`;
+
+  const notificationId = await createBellNotification(db, {
+    recipientIds: unconnected,
+    createdBy: adminIds[0] ?? unconnected[0],
     title: 'Connect your Google Calendar so this review meeting can be scheduled',
     body:
       `A short review meeting about ${subject} (${group.breachDate}) is waiting ` +
       `to be scheduled, but your Google Calendar is not connected — so we cannot ` +
       `see when you are free and will not put a time on your day without it. ` +
-      `Open Meetings → Availability and connect Google Calendar; the meeting is ` +
-      `then booked automatically at the soonest ${REVIEW_MEETING_MIN}-minute slot ` +
-      `everyone shares.`,
+      `Open Meetings → Availability and connect Google Calendar; as soon as ` +
+      `everyone in the meeting is connected it is booked automatically at the ` +
+      `soonest ${REVIEW_MEETING_MIN}-minute slot you all share.`,
     url: CONNECT_CALENDAR_URL,
     category: 'meetings:calendar-connect-needed',
+    idempotencyKey: nudgeKey,
     metadata: {
       event_ids: group.events.map((e) => e.id),
       institution_id: group.institutionId,
@@ -1800,12 +2309,21 @@ async function nudgeToConnectCalendar(
     }
   });
 
-  const nextNudged = [...new Set([...alreadyNudged, ...unconnected])];
+  // Already nudged for this group today — nothing was sent, so do not count it.
+  if (notificationId === null) return 0;
+
+  const alreadyNudged = new Set<string>();
+  for (const ev of group.events) {
+    for (const p of ev.calendar_nudged_profile_ids ?? []) alreadyNudged.add(p);
+  }
   await db
     .from('meeting_trigger_events')
     .update({
       calendar_nudge_sent_at: now.toISOString(),
-      calendar_nudged_profile_ids: nextNudged,
+      // Audit trail only — no longer a suppression list (decision #5).
+      calendar_nudged_profile_ids: [
+        ...new Set([...alreadyNudged, ...unconnected])
+      ],
       booking_error: 'waiting on a Google Calendar connection'
     })
     .in(
@@ -1813,7 +2331,65 @@ async function nudgeToConnectCalendar(
       group.events.map((e) => e.id)
     );
 
-  return toNudge.length;
+  return unconnected.length;
+}
+
+/**
+ * Crash recovery (review fix #1, second layer). If an earlier run died between
+ * "booking inserted" and "events flipped to booked", the booking exists but the
+ * breach events are still queued — and a naive next run would book a SECOND
+ * meeting. Re-attach those events to the meeting that already exists, before
+ * anything is grouped.
+ *
+ * Cheap and bounded: only this engine's own bookings, newest first, capped.
+ */
+async function reattachOrphanBookings(
+  db: SupabaseClient,
+  pending: PendingEvent[],
+  errors: string[]
+): Promise<Set<string>> {
+  const attached = new Set<string>();
+  if (pending.length === 0) return attached;
+
+  const pendingIds = new Set(pending.map((e) => e.id));
+  const { data: bookings, error } = await db
+    .from('meeting_bookings')
+    .select('id, answers')
+    .eq('source', 'trigger-engine')
+    .eq('status', 'confirmed')
+    .order('created_at', { ascending: false })
+    .limit(ORPHAN_SCAN_LIMIT);
+  if (error) {
+    errors.push(`orphan scan: ${error.message}`);
+    return attached;
+  }
+
+  for (const b of ((bookings ?? []) as any[])) {
+    const refs: string[] = Array.isArray(b?.answers?.trigger_event_ids)
+      ? b.answers.trigger_event_ids
+      : [];
+    const orphans = refs.filter((id) => pendingIds.has(id) && !attached.has(id));
+    if (orphans.length === 0) continue;
+
+    const { data: fixed, error: upErr } = await db
+      .from('meeting_trigger_events')
+      .update({
+        status: 'booked',
+        booking_id: b.id,
+        booking_error: null,
+        booking_claimed_at: null,
+        booking_claim_token: null
+      })
+      .in('id', orphans)
+      .is('booking_id', null)
+      .select('id');
+    if (upErr) {
+      errors.push(`orphan reattach ${b.id}: ${upErr.message}`);
+      continue;
+    }
+    for (const r of ((fixed ?? []) as any[])) attached.add(r.id);
+  }
+  return attached;
 }
 
 /**
@@ -1821,15 +2397,18 @@ async function nudgeToConnectCalendar(
  *
  * Runs after reconcileExplanations in the hourly cron. For every
  * status='meeting_pending' event with no booking yet:
+ *   0. recover any booking a crashed earlier run created but never attached;
  *   1. resolve who must be in the room — the notified owner(s) (Principal /
  *      alert owner / Accountable) plus the judge (Director / super-admin);
- *   2. fold same-day breaches for the same people into ONE meeting (#9);
+ *   2. fold same-day breaches for the same people at the same institution into
+ *      ONE meeting (#9);
  *   3. if EVERY participant has a healthy Google connection, take the soonest
- *      common free 30-minute working-hours slot inside 14 days (#3, #10, #11),
- *      write the meeting_bookings row, add a Google event with a Meet link, and
- *      flip the events to 'booked';
- *   4. otherwise DO NOT book (#4) — nudge the un-connected participant(s) once
- *      and leave the events pending.
+ *      slot they ALL have free according to their own availability schedules
+ *      (#3, #10, #11): claim the events, write the meeting_bookings row under
+ *      its idempotency key, flip the events to 'booked', and only THEN make the
+ *      slow external Google call;
+ *   4. otherwise DO NOT book (#4) — ask the un-connected participant(s) to
+ *      connect and leave the events pending.
  *
  * Never throws: every Google call is wrapped, and any failure leaves the event
  * pending with a readable booking_error so the next run retries it. A Google
@@ -1842,25 +2421,31 @@ export async function bookPendingMeetings(
   const now = opts.now ?? new Date();
   const result: BookingResult = {
     pending_events: 0,
+    reattached_events: 0,
     groups: 0,
     booked: 0,
+    deduped: 0,
     events_booked: 0,
     calendar_nudges: 0,
     skipped_no_connection: 0,
     skipped_no_slot: 0,
     skipped_no_participants: 0,
     skipped_calendar_error: 0,
+    skipped_claimed: 0,
     errors: []
   };
 
   const { data: events, error } = await db
     .from('meeting_trigger_events')
     .select(
-      'id, institution_id, metric_key, observed_value, threshold, breach_date, subject_type, subject_label, judge_profile_id, notified_profile_ids, calendar_nudged_profile_ids, booking_error'
+      'id, institution_id, metric_key, observed_value, threshold, breach_date, subject_type, subject_label, judge_profile_id, notified_profile_ids, calendar_nudged_profile_ids, booking_error, booking_claimed_at'
     )
     .eq('status', 'meeting_pending')
     .is('booking_id', null)
     .order('breach_date', { ascending: true })
+    // id is the tie-break: breach_date alone is not unique, so which 50 events
+    // the batch limit admitted could otherwise change between runs.
+    .order('id', { ascending: true })
     .limit(opts.limit ?? BOOKING_BATCH_LIMIT);
 
   if (error) {
@@ -1876,13 +2461,20 @@ export async function bookPendingMeetings(
     return result;
   }
 
-  const pending = (events ?? []) as unknown as PendingEvent[];
-  result.pending_events = pending.length;
+  const loaded = (events ?? []) as unknown as PendingEvent[];
+  result.pending_events = loaded.length;
   // The state today: 0 events, all rules dormant. Clean no-op, no Google calls,
   // no admin lookup, nothing written.
+  if (loaded.length === 0) return result;
+
+  // --- 0. crash recovery BEFORE anything is grouped --------------------------
+  const reattached = await reattachOrphanBookings(db, loaded, result.errors);
+  result.reattached_events = reattached.size;
+  const pending = loaded.filter((e) => !reattached.has(e.id));
   if (pending.length === 0) return result;
 
   const adminIds = await getSuperAdminIds(db);
+  const defaultHostId = await resolveMeetingHostId(db, adminIds);
 
   // --- 1 + 2. resolve participants, then fold same-day duplicates (#9) -------
   const groups = new Map<string, BookingGroup>();
@@ -1904,8 +2496,9 @@ export async function bookPendingMeetings(
       const people = ev.subject_type ? notified.slice(0, 1) : notified.slice(0, 2);
 
       // Project events carry their own judge; attendance events answer to the
-      // Director (first super-admin).
-      const judge = ev.judge_profile_id ?? adminIds[0] ?? null;
+      // Director. defaultHostId is resolved deterministically (review fix #3) —
+      // it can no longer change identity between two runs an hour apart.
+      const judge = ev.judge_profile_id ?? defaultHostId ?? null;
       const participantIds = [
         ...new Set([...(judge ? [judge] : []), ...people])
       ].filter(Boolean) as string[];
@@ -1919,8 +2512,16 @@ export async function bookPendingMeetings(
       const attendeeId =
         people.find((p) => p !== hostId) ?? people[0] ?? hostId;
 
-      // Same people + same breach day → one meeting, not one per breach.
-      const key = `${ev.breach_date}|${[...participantIds].sort().join(',')}`;
+      // Same INSTITUTION + same people + same breach day → one meeting.
+      // The institution is part of the key (review fix #8): without it, in the
+      // no-Principal fallback where every college resolves to the same
+      // super-admin set, same-day breaches at N different institutions collapse
+      // into ONE meeting attributed to whichever institution was seen first.
+      const key = `${ev.institution_id ?? 'none'}|${ev.breach_date}|${[
+        ...participantIds
+      ]
+        .sort()
+        .join(',')}`;
       const existing = groups.get(key);
       if (existing) {
         existing.events.push(ev);
@@ -1940,6 +2541,9 @@ export async function bookPendingMeetings(
     }
   }
   result.groups = groups.size;
+
+  const fromDate = todayIST(now);
+  const toDate = addDaysISO(fromDate, BOOKING_HORIZON_DAYS);
 
   // --- 3 + 4. book, or degrade -----------------------------------------------
   for (const group of groups.values()) {
@@ -1972,7 +2576,59 @@ export async function bookPendingMeetings(
         continue;
       }
 
-      // --- availability: Google freeBusy, fail CLOSED on any read failure ----
+      // --- CLAIM FIRST (review fix #1) --------------------------------------
+      // One atomic conditional UPDATE. Two workers racing the same event both
+      // run this; Postgres serialises them on the row and re-evaluates the
+      // predicate against the winner's new row version, so the loser matches 0
+      // rows and walks away. Nothing has been created at this point, so losing
+      // the claim costs nothing.
+      const claimToken = crypto.randomUUID();
+      const staleBefore = new Date(
+        now.getTime() - BOOKING_CLAIM_TTL_MIN * 60_000
+      ).toISOString();
+      const { data: claimedRows, error: claimErr } = await db
+        .from('meeting_trigger_events')
+        .update({
+          booking_claimed_at: now.toISOString(),
+          booking_claim_token: claimToken
+        })
+        .in(
+          'id',
+          group.events.map((e) => e.id)
+        )
+        .eq('status', 'meeting_pending')
+        .is('booking_id', null)
+        .or(`booking_claimed_at.is.null,booking_claimed_at.lt.${staleBefore}`)
+        .select('id');
+
+      if (claimErr) {
+        result.errors.push(`claim ${group.key}: ${claimErr.message}`);
+        continue;
+      }
+      const claimedIds = new Set(
+        ((claimedRows ?? []) as any[]).map((r) => r.id)
+      );
+      if (claimedIds.size === 0) {
+        // Someone else owns every event in this group right now.
+        result.skipped_claimed++;
+        continue;
+      }
+      // Work only with what we actually own.
+      const ownedEvents = group.events.filter((e) => claimedIds.has(e.id));
+
+      // Best-effort release, used only for failures BEFORE the booking insert.
+      // After the insert we deliberately leave the claim to age out: the
+      // idempotency key already makes a retry safe, and holding the claim stops
+      // a second worker doing redundant Google work in the meantime.
+      const releaseClaim = async () => {
+        await db
+          .from('meeting_trigger_events')
+          .update({ booking_claimed_at: null, booking_claim_token: null })
+          .in('id', [...claimedIds])
+          .eq('booking_claim_token', claimToken);
+      };
+
+      // --- availability: everyone's real schedule, fail CLOSED on read error -
       const windowStartIso = new Date(
         now.getTime() + BOOKING_MIN_NOTICE_MIN * 60_000
       ).toISOString();
@@ -1980,71 +2636,47 @@ export async function bookPendingMeetings(
         now.getTime() + (BOOKING_HORIZON_DAYS + 1) * 86_400_000
       ).toISOString();
 
-      const busy: Interval[] = [];
-      let calendarFailed = false;
-
-      for (const pid of group.participantIds) {
-        try {
-          const res = await GoogleCalendarService.busyForHost(
-            db,
-            pid,
-            windowStartIso,
-            windowEndIso
-          );
-          if (res.status === 'ok') {
-            for (const b of res.busy) {
-              const s = Date.parse(b.start);
-              const e = Date.parse(b.end);
-              if (Number.isFinite(s) && Number.isFinite(e)) {
-                busy.push({ start: s, end: e });
-              }
-            }
-          } else {
-            // 'failed' (Google error) or 'none' (connection vanished between the
-            // check above and now) — never guess at someone's availability.
-            calendarFailed = true;
-          }
-        } catch (e: any) {
-          calendarFailed = true;
-          result.errors.push(`freeBusy ${pid}: ${e?.message ?? String(e)}`);
-        }
-      }
+      const { busy, calendarFailed } = await loadBusyByPerson(
+        db,
+        group.participantIds,
+        windowStartIso,
+        windowEndIso,
+        result.errors
+      );
 
       if (calendarFailed) {
         result.skipped_calendar_error++;
         await recordBookingError(
           db,
-          group,
+          ownedEvents,
           'Google Calendar availability could not be read; will retry next run'
         );
+        await releaseClaim();
         continue;
       }
 
-      // Anything already on the JKKN side counts as busy too — a booking that
-      // never reached Google (or predates the connection) must still block.
-      const { data: existingBookings } = await db
-        .from('meeting_bookings')
-        .select('start_time, end_time')
-        .in('host_profile_id', group.participantIds)
-        .eq('status', 'confirmed')
-        .lt('start_time', windowEndIso)
-        .gt('end_time', windowStartIso);
-      for (const b of (existingBookings ?? []) as any[]) {
-        const s = Date.parse(b.start_time);
-        const e = Date.parse(b.end_time);
-        if (Number.isFinite(s) && Number.isFinite(e)) busy.push({ start: s, end: e });
-      }
-
-      const freeSlots = candidateSlots(now).filter(
-        (s) => !busy.some((b) => intervalsOverlap(s, b))
+      const schedules = await loadParticipantSchedules(
+        db,
+        group.participantIds,
+        fromDate,
+        toDate
+      );
+      const freeSlots = commonFreeSlots(
+        group.participantIds,
+        schedules,
+        busy,
+        now,
+        fromDate,
+        toDate
       );
       if (freeSlots.length === 0) {
         result.skipped_no_slot++;
         await recordBookingError(
           db,
-          group,
-          `no common free ${REVIEW_MEETING_MIN}-minute slot in the next ${BOOKING_HORIZON_DAYS} days`
+          ownedEvents,
+          `no common free ${REVIEW_MEETING_MIN}-minute slot in the next ${BOOKING_HORIZON_DAYS} days that fits everyone's availability`
         );
+        await releaseClaim();
         continue;
       }
 
@@ -2068,9 +2700,10 @@ export async function bookPendingMeetings(
         );
         await recordBookingError(
           db,
-          group,
+          ownedEvents,
           'the person answering for this breach has no email on file'
         );
+        await releaseClaim();
         continue;
       }
 
@@ -2079,12 +2712,27 @@ export async function bookPendingMeetings(
         : 'JKKN';
       const label = group.events[0]?.subject_label ?? instName;
 
-      // --- insert the booking; the DB exclusion constraint arbitrates races --
-      let booking: { id: string; startIso: string; endIso: string } | null = null;
+      // --- insert the booking under its idempotency key ---------------------
+      // 23505 on uq_meeting_bookings_trigger_dedupe_key means an earlier run
+      // already created this exact meeting and died before attaching it: adopt
+      // that row instead of writing a second one. 23P01 means the slot was
+      // taken between the read and the write (by the host constraint OR the new
+      // attendee constraint) — try the next free slot.
+      const dedupeKey = triggerDedupeKey(
+        group.institutionId,
+        group.breachDate,
+        group.participantIds
+      );
+      let booking:
+        | { id: string; startIso: string; endIso: string; reused: boolean }
+        | null = null;
       let lastErr = '';
+
       for (const slot of freeSlots.slice(0, SLOT_ATTEMPTS)) {
         const startIso = new Date(slot.start).toISOString();
-        const endIso = new Date(slot.end).toISOString();
+        const endIso = new Date(
+          new Date(slot.start).getTime() + REVIEW_MEETING_MIN * 60_000
+        ).toISOString();
         const { data: inserted, error: insErr } = await (db as any)
           .from('meeting_bookings')
           .insert({
@@ -2095,12 +2743,15 @@ export async function bookPendingMeetings(
             attendee_name: nameOf(group.attendeeId),
             attendee_email: attendeeEmail,
             attendee_profile_id: group.attendeeId,
+            trigger_dedupe_key: dedupeKey,
             answers: {
               auto_booked_by: 'meeting-trigger-engine',
               // Decision #9: every folded breach is referenced here, so the
-              // meeting can always be traced back to all of its causes.
-              trigger_event_ids: group.events.map((e) => e.id),
+              // meeting can always be traced back to all of its causes — and so
+              // reattachOrphanBookings can find it after a crash.
+              trigger_event_ids: ownedEvents.map((e) => e.id),
               breach_date: group.breachDate,
+              institution_id: group.institutionId,
               participant_profile_ids: group.participantIds
             },
             start_time: startIso,
@@ -2112,81 +2763,158 @@ export async function bookPendingMeetings(
           .single();
 
         if (!insErr && inserted) {
-          booking = { id: (inserted as any).id as string, startIso, endIso };
+          booking = {
+            id: (inserted as any).id as string,
+            startIso,
+            endIso,
+            reused: false
+          };
           break;
         }
         lastErr = insErr?.message ?? 'unknown insert error';
-        // 23P01 = exclusion_violation: the host got booked in that range while
-        // we were computing. Anything else is not worth retrying.
-        if ((insErr as any)?.code !== '23P01') break;
+        const code = (insErr as any)?.code;
+
+        if (code === '23505') {
+          const { data: existing } = await (db as any)
+            .from('meeting_bookings')
+            .select('id, start_time, end_time')
+            .eq('trigger_dedupe_key', dedupeKey)
+            .eq('status', 'confirmed')
+            .maybeSingle();
+          if (existing) {
+            booking = {
+              id: (existing as any).id as string,
+              startIso: (existing as any).start_time as string,
+              endIso: (existing as any).end_time as string,
+              reused: true
+            };
+            result.deduped++;
+          }
+          break;
+        }
+        // Exclusion violation → the slot went; anything else is not retryable.
+        if (code !== '23P01') break;
       }
 
       if (!booking) {
         result.errors.push(`group ${group.key}: booking insert failed — ${lastErr}`);
-        await recordBookingError(db, group, `booking insert failed: ${lastErr}`);
+        await recordBookingError(db, ownedEvents, `booking insert failed: ${lastErr}`);
+        await releaseClaim();
         continue;
       }
 
-      // --- Google event + Meet link (best effort; never undoes the booking) --
-      let meetUrl: string | null = null;
-      try {
-        const attendees = group.participantIds
-          .map((p) => ({ email: emailOf(p), displayName: nameOf(p) }))
-          .filter((a): a is { email: string; displayName: string } => !!a.email);
-
-        const created = await GoogleCalendarService.createEvent(db, group.hostId, {
-          summary: `Review meeting — ${label}`,
-          description:
-            `Auto-scheduled by the JKKN accountability engine because the ` +
-            `${group.breachDate} threshold breach was not resolved by an ` +
-            `explanation.\n\n` +
-            group.events
-              .map(
-                (e) =>
-                  `• ${e.metric_key}: observed ${e.observed_value ?? '—'} vs threshold ${e.threshold} on ${e.breach_date}`
-              )
-              .join('\n'),
-          startIso: booking.startIso,
-          endIso: booking.endIso,
-          timezone: CAMPUS_TZ,
-          attendees,
-          withMeet: true
-        });
-        if (created) {
-          meetUrl = created.meetUrl;
-          await db
-            .from('meeting_bookings')
-            .update({
-              google_event_id: created.eventId,
-              video_url: created.meetUrl
-            })
-            .eq('id', booking.id);
-        }
-      } catch (e: any) {
-        // The meeting exists in JKKN either way; only the calendar copy is lost.
-        logger.error(MODULE, 'Google event creation failed for auto-booking', e);
-        result.errors.push(
-          `google event for booking ${booking.id}: ${e?.message ?? String(e)}`
-        );
-      }
-
-      // --- close the breach events ------------------------------------------
-      const { error: upErr } = await db
+      // --- ATTACH immediately, before any slow external call ----------------
+      // This is the crash-window that used to produce duplicates. It is now two
+      // back-to-back DB writes, and even that window is covered: the booking is
+      // findable by reattachOrphanBookings and re-derivable by dedupe key.
+      const { data: attachedRows, error: upErr } = await db
         .from('meeting_trigger_events')
         .update({
           status: 'booked',
           booking_id: booking.id,
-          booking_error: null
+          booking_error: null,
+          booking_claimed_at: null,
+          booking_claim_token: null
         })
-        .in(
-          'id',
-          group.events.map((e) => e.id)
-        );
+        .in('id', [...claimedIds])
+        .eq('booking_claim_token', claimToken)
+        .select('id');
       if (upErr) {
         result.errors.push(`mark booked ${group.key}: ${upErr.message}`);
       }
-      result.booked++;
-      result.events_booked += group.events.length;
+      const attachedCount = ((attachedRows ?? []) as any[]).length;
+      if (attachedCount === 0) {
+        // Our claim was taken over while we were writing. The booking is safe
+        // (idempotency key) and the next run's orphan recovery will attach it;
+        // do NOT report this as a success, and do not bell a room that another
+        // worker is about to bell.
+        result.errors.push(
+          `group ${group.key}: claim lost before attach — booking ${booking.id} left for the next run to adopt`
+        );
+        continue;
+      }
+      // `booked` counts meetings this run actually created; a re-used booking
+      // was created by an earlier run and is counted under `deduped`.
+      if (!booking.reused) result.booked++;
+      result.events_booked += attachedCount;
+
+      // When we adopted an existing booking, widen its trace so the meeting
+      // still lists every breach it now closes. (A plain answers UPDATE is not
+      // a lifecycle event for either meeting_bookings trigger — the webhook
+      // function returns early unless status or start_time changed, and the
+      // workflow trigger only fires on UPDATE OF status.)
+      if (booking.reused) {
+        const { data: cur } = await (db as any)
+          .from('meeting_bookings')
+          .select('answers')
+          .eq('id', booking.id)
+          .maybeSingle();
+        const prevRefs: string[] = Array.isArray(
+          (cur as any)?.answers?.trigger_event_ids
+        )
+          ? (cur as any).answers.trigger_event_ids
+          : [];
+        await (db as any)
+          .from('meeting_bookings')
+          .update({
+            answers: {
+              ...((cur as any)?.answers ?? {}),
+              trigger_event_ids: [
+                ...new Set([...prevRefs, ...ownedEvents.map((e) => e.id)])
+              ]
+            }
+          })
+          .eq('id', booking.id);
+      }
+
+      // --- Google event + Meet link (slow, external; DB is already correct) --
+      let meetUrl: string | null = null;
+      if (!booking.reused) {
+        try {
+          const attendees = group.participantIds
+            .map((p) => ({ email: emailOf(p), displayName: nameOf(p) }))
+            .filter((a): a is { email: string; displayName: string } => !!a.email);
+
+          const created = await GoogleCalendarService.createEvent(db, group.hostId, {
+            summary: `Review meeting — ${label}`,
+            description:
+              `Auto-scheduled by the JKKN accountability engine because the ` +
+              `${group.breachDate} threshold breach was not resolved by an ` +
+              `explanation.\n\n` +
+              ownedEvents
+                .map(
+                  (e) =>
+                    `• ${e.metric_key}: observed ${e.observed_value ?? '—'} vs threshold ${e.threshold} on ${e.breach_date}`
+                )
+                .join('\n'),
+            startIso: booking.startIso,
+            endIso: booking.endIso,
+            timezone: CAMPUS_TZ,
+            attendees,
+            withMeet: true
+          });
+          if (created) {
+            meetUrl = created.meetUrl;
+            await db
+              .from('meeting_bookings')
+              .update({
+                google_event_id: created.eventId,
+                video_url: created.meetUrl
+              })
+              .eq('id', booking.id);
+          }
+        } catch (e: any) {
+          // The meeting exists in JKKN either way; only the calendar copy is
+          // lost, and GoogleCalendarService gives us no client-supplied event
+          // id, so retrying it later could create a DUPLICATE Google event.
+          // We therefore do not auto-retry — the booking is real and visible in
+          // JKKN, and the bell below still tells the room.
+          logger.error(MODULE, 'Google event creation failed for auto-booking', e);
+          result.errors.push(
+            `google event for booking ${booking.id}: ${e?.message ?? String(e)}`
+          );
+        }
+      }
 
       // --- tell the room ------------------------------------------------------
       const whenLabel = new Date(booking.startIso).toLocaleString('en-IN', {
@@ -2201,8 +2929,8 @@ export async function bookPendingMeetings(
         body:
           `A ${REVIEW_MEETING_MIN}-minute review meeting has been scheduled for ` +
           `${whenLabel} (IST) — the first slot everyone was free.` +
-          (group.events.length > 1
-            ? ` It covers ${group.events.length} items from ${group.breachDate}.`
+          (ownedEvents.length > 1
+            ? ` It covers ${ownedEvents.length} items from ${group.breachDate}.`
             : '') +
           (meetUrl ? ` Google Meet: ${meetUrl}` : '') +
           ` It is on your Google Calendar; reply there if you need a different time.`,
@@ -2210,10 +2938,11 @@ export async function bookPendingMeetings(
         category: 'meetings:trigger-meeting-booked',
         metadata: {
           booking_id: booking.id,
-          event_ids: group.events.map((e) => e.id),
+          event_ids: ownedEvents.map((e) => e.id),
           institution_id: group.institutionId,
           breach_date: group.breachDate,
           start_time: booking.startIso,
+          reused_existing_booking: booking.reused,
           source: 'cron:meeting-trigger-reconcile'
         }
       });
@@ -2221,6 +2950,213 @@ export async function bookPendingMeetings(
       result.errors.push(`group ${group.key}: ${e?.message ?? String(e)}`);
       logger.error(MODULE, 'bookPendingMeetings group failed', e);
     }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Weekly "who still has no calendar" summary (Director decisions #5 + #6)
+// ---------------------------------------------------------------------------
+// The per-blocked-booking nudge goes to the un-connected person. This is the
+// other half: once a week the PRINCIPAL of each college — and the EAO, who is
+// the person tasked with helping them — gets the list of people in that college
+// who still have no healthy Google Calendar connection, so somebody can chase
+// it rather than the engine quietly never booking anything.
+//
+// Deliberately NOT a new vercel.json cron: it is a weekly PATH inside the
+// existing hourly reconcile cron, gated to fire once per ISO week.
+//
+// The gate is the DATABASE, not a read-then-write check. `notifications` already
+// carries idempotency_key under a partial UNIQUE index
+// (idx_notifications_idempotency ... WHERE idempotency_key IS NOT NULL), so the
+// key `meetings:calendar-connect-weekly:<ISO week>:<institution>` makes a second
+// send physically impossible — no extra table, no state column to drift, and no
+// race between the check and the insert. A cheap indexed pre-check skips the
+// work; the unique index is what actually guarantees it.
+// (The obvious alternative — filtering on metadata->>'iso_week' — would be an
+// unindexed containment scan over 220,289 notification rows every hour.)
+
+const WEEKLY_SUMMARY_CATEGORY = 'meetings:calendar-connect-weekly';
+
+export interface WeeklyConnectSummaryResult {
+  ran: boolean;
+  iso_week: string;
+  institutions_notified: number;
+  people_unconnected: number;
+  errors: string[];
+}
+
+/** ISO-8601 week label, e.g. "2026-W31". Weeks start Monday. */
+function isoWeekLabel(d: Date): string {
+  const t = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+  );
+  const dayNum = t.getUTCDay() || 7; // Sunday = 7
+  t.setUTCDate(t.getUTCDate() + 4 - dayNum); // to the week's Thursday
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(
+    ((t.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7
+  );
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+export async function sendWeeklyCalendarConnectSummary(
+  opts: { now?: Date; client?: SupabaseClient; force?: boolean } = {}
+): Promise<WeeklyConnectSummaryResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const now = opts.now ?? new Date();
+  const isoWeek = isoWeekLabel(now);
+  const result: WeeklyConnectSummaryResult = {
+    ran: false,
+    iso_week: isoWeek,
+    institutions_notified: 0,
+    people_unconnected: 0,
+    errors: []
+  };
+
+  const weeklyKey = (institutionId: string) =>
+    `${WEEKLY_SUMMARY_CATEGORY}:${isoWeek}:${institutionId}`;
+
+  // --- cheap indexed pre-check: has ANY college's summary gone out this week?
+  // This only saves the work; the unique index on idempotency_key is what makes
+  // a duplicate send impossible even if two workers get past this together.
+  if (!opts.force) {
+    const { data: already, error: gateErr } = await db
+      .from('notifications')
+      .select('id')
+      .like('idempotency_key', `${WEEKLY_SUMMARY_CATEGORY}:${isoWeek}:%`)
+      .limit(1);
+    if (gateErr) {
+      result.errors.push(`weekly gate: ${gateErr.message}`);
+      return result;
+    }
+    if ((already ?? []).length > 0) return result; // already sent this week
+  }
+
+  try {
+    // Who the engine could ever need to book: anyone set up as a meeting host,
+    // plus every Principal (a Principal with no schedule is still summonable —
+    // the booking pass falls back to the campus default window for them).
+    const { data: hostRows } = await db
+      .from('meeting_host_schedules')
+      .select('host_profile_id');
+    const hostIds = [
+      ...new Set(
+        ((hostRows ?? []) as any[]).map((r) => r.host_profile_id).filter(Boolean)
+      )
+    ];
+
+    const people = new Map<
+      string,
+      { id: string; name: string; institutionId: string | null; role: string | null }
+    >();
+    const collect = (rows: any[]) => {
+      for (const p of rows) {
+        if (!p?.id || people.has(p.id)) continue;
+        people.set(p.id, {
+          id: p.id,
+          name: p.full_name || p.email || 'Unnamed',
+          institutionId: p.institution_id ?? null,
+          role: p.role ?? null
+        });
+      }
+    };
+
+    if (hostIds.length > 0) {
+      const { data: hostProfiles } = await db
+        .from('profiles')
+        .select('id, full_name, email, role, institution_id')
+        .in('id', hostIds)
+        .eq('is_active', true);
+      collect((hostProfiles ?? []) as any[]);
+    }
+    const { data: principalProfiles } = await db
+      .from('profiles')
+      .select('id, full_name, email, role, institution_id')
+      .eq('role', 'principal')
+      .eq('is_active', true);
+    collect((principalProfiles ?? []) as any[]);
+
+    const allIds = [...people.keys()];
+    if (allIds.length === 0) return result;
+
+    const { data: conns } = await db
+      .from('meeting_host_google_connections')
+      .select('host_profile_id, status')
+      .in('host_profile_id', allIds)
+      .eq('status', 'active');
+    const healthy = new Set(
+      ((conns ?? []) as any[]).map((c) => c.host_profile_id).filter(Boolean)
+    );
+
+    // Group the un-connected by college. People with no institution_id have no
+    // Principal to chase them and are left to the EAO-wide view, not invented
+    // into somebody else's college.
+    const byInstitution = new Map<string, string[]>();
+    for (const p of people.values()) {
+      if (healthy.has(p.id)) continue;
+      result.people_unconnected++;
+      if (!p.institutionId) continue;
+      const list = byInstitution.get(p.institutionId) ?? [];
+      list.push(p.name);
+      byInstitution.set(p.institutionId, list);
+    }
+    if (byInstitution.size === 0) {
+      result.ran = true;
+      return result;
+    }
+
+    const eaoIds = await getExecutiveAdminOfficerIds(db);
+
+    for (const [institutionId, names] of byInstitution.entries()) {
+      try {
+        const { recipientIds, createdBy, fallbackToAdmin } =
+          await resolveRecipients(db, institutionId);
+        const audience = [...new Set([...recipientIds, ...eaoIds])];
+        if (audience.length === 0 || !createdBy) continue;
+
+        const instName = await getInstitutionName(db, institutionId);
+        const shown = names.slice(0, 12);
+        const more = names.length - shown.length;
+
+        const notificationId = await createBellNotification(db, {
+          recipientIds: audience,
+          createdBy,
+          idempotencyKey: weeklyKey(institutionId),
+          title: `${names.length} ${names.length === 1 ? 'person' : 'people'} at ${instName} still have no calendar connected`,
+          body:
+            `Accountability review meetings cannot be scheduled for anyone whose ` +
+            `Google Calendar is not connected — the engine will not put a time on ` +
+            `someone's day it cannot see. Still not connected at ${instName}: ` +
+            `${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}. ` +
+            `Ask them to open Meetings → Availability and connect Google Calendar.` +
+            (fallbackToAdmin
+              ? ' (No principal on record yet — routed to administration.)'
+              : ''),
+          url: CONNECT_CALENDAR_URL,
+          category: WEEKLY_SUMMARY_CATEGORY,
+          metadata: {
+            iso_week: isoWeek,
+            institution_id: institutionId,
+            unconnected_count: names.length,
+            source: 'cron:meeting-trigger-reconcile'
+          }
+        });
+        // null = the unique index refused a second send for this week. Not an
+        // error; just nothing to count.
+        if (notificationId) result.institutions_notified++;
+      } catch (e: any) {
+        result.errors.push(
+          `weekly summary ${institutionId}: ${e?.message ?? String(e)}`
+        );
+      }
+    }
+
+    result.ran = true;
+  } catch (e: any) {
+    result.errors.push(`weekly summary: ${e?.message ?? String(e)}`);
+    logger.error(MODULE, 'sendWeeklyCalendarConnectSummary failed', e);
   }
 
   return result;
