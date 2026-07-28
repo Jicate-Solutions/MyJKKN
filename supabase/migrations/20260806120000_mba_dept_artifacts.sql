@@ -475,3 +475,115 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) TO authenticated;
+
+-- ============================================================================
+-- Delta 4: MBA department playbooks — notify BOARD MANAGERS (not associates) on
+-- request-changes, + a manager-gated delete. (2026-07-28 interview round 4.)
+-- Only managers can draft, so the people who can act on 'request changes' are
+-- other managers — use the canonical resolver tms_users_with_permission.
+-- ============================================================================
+
+-- 1) request_changes now notifies OTHER board managers (best-effort).
+CREATE OR REPLACE FUNCTION public.fn_mba_dept_artifact_request_changes(
+  p_area_id       uuid,
+  p_artifact_type text,
+  p_review_notes  text
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_id uuid; v_notif uuid; v_label text; v_recipients uuid[];
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_request_changes: not authenticated';
+  END IF;
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('improvement.board.manage')
+  ) THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_request_changes: requires improvement.board.manage';
+  END IF;
+
+  SELECT id INTO v_id
+  FROM public.mba_dept_artifacts
+  WHERE area_id = p_area_id AND artifact_type = p_artifact_type
+  FOR UPDATE;
+
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_request_changes: no % artifact for that area', p_artifact_type;
+  END IF;
+
+  UPDATE public.mba_dept_artifacts
+  SET status       = 'needs_changes',
+      reviewed_by  = auth.uid(),
+      reviewed_at  = now(),
+      review_notes = p_review_notes,
+      updated_by   = auth.uid(),
+      updated_at   = now()
+  WHERE id = v_id;
+
+  -- Notify OTHER board managers (they can actually redraft/fix it). Best-effort.
+  BEGIN
+    SELECT array_agg(u) INTO v_recipients
+    FROM (
+      SELECT u FROM public.tms_users_with_permission('improvement.board.manage') u
+      WHERE u <> auth.uid()
+      LIMIT 50   -- notifications are capped at 50 recipients
+    ) s;
+
+    IF v_recipients IS NOT NULL AND array_length(v_recipients, 1) > 0 THEN
+      SELECT label INTO v_label FROM public.improvement_areas WHERE id = p_area_id;
+      INSERT INTO public.notifications (title, body, category, url, priority, created_by)
+      VALUES (
+        'Playbook changes requested — ' || COALESCE(v_label, 'department') || ' · ' || p_artifact_type,
+        COALESCE(NULLIF(btrim(p_review_notes), ''), 'A manager requested changes.'),
+        'improvement:playbook', '/improvement-board/analytics', 'normal', auth.uid()
+      )
+      RETURNING id INTO v_notif;
+      INSERT INTO public.user_notifications (notification_id, user_id)
+      SELECT v_notif, unnest(v_recipients);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL; -- notification is best-effort; never block the status change
+  END;
+
+  RETURN v_id;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_request_changes(uuid, text, text) TO authenticated;
+
+-- 2) delete — manager-gated; removes the artifact (its versions cascade away).
+CREATE OR REPLACE FUNCTION public.fn_mba_dept_artifact_delete(
+  p_area_id       uuid,
+  p_artifact_type text
+) RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_count integer;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_delete: not authenticated';
+  END IF;
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('improvement.board.manage')
+  ) THEN
+    RAISE EXCEPTION 'fn_mba_dept_artifact_delete: requires improvement.board.manage';
+  END IF;
+
+  DELETE FROM public.mba_dept_artifacts
+  WHERE area_id = p_area_id AND artifact_type = p_artifact_type;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_mba_dept_artifact_delete(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_mba_dept_artifact_delete(uuid, text) TO authenticated;
