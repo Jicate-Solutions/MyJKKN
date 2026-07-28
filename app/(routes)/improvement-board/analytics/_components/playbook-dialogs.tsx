@@ -7,7 +7,7 @@
 //  • RequestChangesDialog — lets a manager type WHAT needs fixing; the note is
 //    saved (fn_mba_dept_artifact_request_changes p_review_notes) and shown.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Printer } from 'lucide-react';
+import { Printer, History } from 'lucide-react';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow';
 
@@ -197,6 +197,98 @@ export function RequestChangesDialog({
             {saving ? 'Sending…' : 'Send'}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface VersionRow {
+  id: string;
+  version: number;
+  content: Record<string, unknown>;
+  approved_at: string | null;
+}
+
+export function HistoryDialog({
+  areaLabel,
+  artifactType,
+  areaId,
+  open,
+  onOpenChange,
+}: {
+  areaLabel: string;
+  artifactType: ArtifactType;
+  areaId: string;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const [versions, setVersions] = useState<VersionRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch(
+      `/api/mba/dept-artifacts/history?area_id=${encodeURIComponent(areaId)}&artifact_type=${artifactType}`,
+    )
+      .then((r) => (r.ok ? r.json() : { versions: [] }))
+      .then((j: { versions?: VersionRow[] }) => setVersions(j.versions ?? []))
+      .catch(() => setVersions([]))
+      .finally(() => setLoading(false));
+  }, [open, areaId, artifactType]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-1.5">
+            <History className="h-4 w-4" /> History — {areaLabel} · {LABEL[artifactType]}
+          </DialogTitle>
+          <DialogDescription>Every approved version, newest first.</DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <p className="text-muted-foreground text-sm">Loading…</p>
+        ) : versions.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No approved versions yet.</p>
+        ) : (
+          <ol className="space-y-2">
+            {versions.map((v) => {
+              const rows = rowsFor(artifactType, v.content);
+              const isOpen = openId === v.id;
+              return (
+                <li key={v.id} className="rounded-md border">
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(isOpen ? null : v.id)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm"
+                  >
+                    <span className="font-medium">Version {v.version}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {v.approved_at ? new Date(v.approved_at).toLocaleString() : '—'}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <ol className="space-y-1 border-t px-3 py-2 text-sm">
+                      {rows.map((r, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="text-muted-foreground w-5 shrink-0 text-right">
+                            {i + 1}.
+                          </span>
+                          <span>
+                            <span className="font-medium">{r.a || '—'}</span>
+                            {r.b && <span className="text-muted-foreground"> — {r.b}</span>}
+                          </span>
+                        </li>
+                      ))}
+                      {rows.length === 0 && <li className="text-muted-foreground">No items.</li>}
+                    </ol>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </DialogContent>
     </Dialog>
   );

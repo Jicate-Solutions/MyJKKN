@@ -20,10 +20,12 @@ import {
   GitBranch,
   Network,
   Eye,
+  History,
+  AlertCircle,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EditArtifactDialog } from './edit-artifact-dialog';
-import { ViewPlaybookDialog, RequestChangesDialog } from './playbook-dialogs';
+import { ViewPlaybookDialog, RequestChangesDialog, HistoryDialog } from './playbook-dialogs';
 
 // Kept inline so this panel builds standalone (the matching backend types live
 // in lib/services/mba-dept-artifacts, shipped in the drafting-engine PR).
@@ -75,6 +77,7 @@ const STATUS_LABEL: Record<string, string> = {
 export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const [byType, setByType] = useState<Partial<Record<ArtifactType, MbaDeptArtifact>>>({});
   const [busy, setBusy] = useState<Partial<Record<ArtifactType, string>>>({});
+  const [failed, setFailed] = useState<Partial<Record<ArtifactType, boolean>>>({});
 
   const refetch = useCallback(async () => {
     try {
@@ -96,17 +99,16 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const draft = useCallback(
     async (type: ArtifactType) => {
       const before = byType[type]?.version ?? 0;
+      setFailed((f) => ({ ...f, [type]: false }));
       setBusy((b) => ({ ...b, [type]: 'Drafting…' }));
+      let landed = false;
       try {
         const res = await fetch('/api/mba/dept-artifacts/draft', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ area_id: areaId, artifact_type: type }),
         });
-        if (!res.ok) {
-          setBusy((b) => ({ ...b, [type]: undefined }));
-          return;
-        }
+        if (!res.ok) return; // landed stays false -> failure shown below
         // Poll the collect route until the draft lands (Mac seat drains in ~seconds).
         for (let i = 0; i < 15; i++) {
           await new Promise((r) => setTimeout(r, 4000));
@@ -121,12 +123,15 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               const map: Partial<Record<ArtifactType, MbaDeptArtifact>> = {};
               for (const a of json.artifacts ?? []) map[a.artifact_type] = a;
               setByType(map);
+              landed = true;
               break;
             }
           }
         }
       } finally {
         setBusy((b) => ({ ...b, [type]: undefined }));
+        // The AI couldn't produce a usable draft in time — offer a retry.
+        if (!landed) setFailed((f) => ({ ...f, [type]: true }));
       }
     },
     [areaId, byType],
@@ -174,6 +179,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const [editType, setEditType] = useState<ArtifactType | null>(null);
   const [viewType, setViewType] = useState<ArtifactType | null>(null);
   const [reqType, setReqType] = useState<ArtifactType | null>(null);
+  const [histType, setHistType] = useState<ArtifactType | null>(null);
 
   return (
     <Card className="border-dashed">
@@ -224,6 +230,13 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                 <p className="text-muted-foreground mb-3 text-xs">Not drafted yet.</p>
               )}
 
+              {failed[type] && !working && (
+                <p className="mb-2 flex items-start gap-1 rounded bg-rose-50 px-2 py-1 text-[11px] text-rose-700">
+                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                  The AI couldn&apos;t produce a draft this time. Please try again.
+                </p>
+              )}
+
               <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
                 {/* Drafting is manager-only and blocked on approved (locked). */}
                 {canManage && status !== 'approved' && (
@@ -239,7 +252,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                     ) : (
                       <RefreshCw className="mr-1 h-3 w-3" />
                     )}
-                    {art ? 'Re-draft' : 'Draft with AI'}
+                    {failed[type] ? 'Retry' : art ? 'Re-draft' : 'Draft with AI'}
                   </Button>
                 )}
 
@@ -276,6 +289,17 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                   >
                     <Eye className="mr-1 h-3 w-3" />
                     View / download
+                  </Button>
+                )}
+                {art && status === 'approved' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setHistType(type)}
+                  >
+                    <History className="mr-1 h-3 w-3" />
+                    History
                   </Button>
                 )}
                 {canManage && status === 'approved' && (
@@ -342,6 +366,18 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
             if (!o) setReqType(null);
           }}
           onSubmit={(note) => requestChanges(reqType, note)}
+        />
+      )}
+
+      {histType && (
+        <HistoryDialog
+          areaId={areaId}
+          areaLabel={areaLabel}
+          artifactType={histType}
+          open={histType !== null}
+          onOpenChange={(o) => {
+            if (!o) setHistType(null);
+          }}
         />
       )}
     </Card>
