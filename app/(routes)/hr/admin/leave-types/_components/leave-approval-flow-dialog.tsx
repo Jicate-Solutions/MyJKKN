@@ -318,7 +318,7 @@ export function LeaveApprovalFlowDialog({
                       <div className="mt-2 max-h-40 overflow-y-auto rounded-md border">
                         {(candidates ?? []).length === 0 ? (
                           <p className="p-3 text-xs text-muted-foreground">
-                            No matching staff with a login account.
+                            No matching team members with a login account.
                           </p>
                         ) : (
                           (candidates ?? []).map((c) => (
