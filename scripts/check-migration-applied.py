@@ -393,8 +393,19 @@ def extract(sql):
 
 
 GRANT_RE = re.compile(
-    r"\b(GRANT|REVOKE)\s+(.+?)\s+ON\s+(FUNCTION|PROCEDURE|ROUTINE|TABLE|SEQUENCE|SCHEMA)?\s*"
-    r"([\w.\"]+)\s*(\([^;]*?\))?\s*(?:FROM|TO)\s+([^;]+);",
+    r"\b(GRANT|REVOKE)\s+(.+?)\s+ON\s+(FUNCTION|PROCEDURE|ROUTINE|TABLE|SEQUENCE|SCHEMA)?\b\s*"
+    r"([\w.\"]+)\s*(\([^;()]*\))?\s*(?:FROM|TO)\s+([^;]+);",
+    re.I | re.S,
+)
+
+# Shapes that name no single object: schema-wide grants and default privileges.
+# They must be pulled out BEFORE GRANT_RE runs — "ON ALL FUNCTIONS" otherwise
+# lets the kind alternation match the "FUNCTION" prefix of "FUNCTIONS" and the
+# target group swallows the stray "S", producing a nonsense label.
+BULK_RE = re.compile(
+    r"\bALTER\s+DEFAULT\s+PRIVILEGES\b[^;]*;"
+    r"|\b(?:GRANT|REVOKE)\b[^;]*?\bON\s+ALL\s+\w+\s+IN\s+SCHEMA\b[^;]*;"
+    r"|\b(?:GRANT|REVOKE)\b[^;]*?\bON\s+SCHEMA\b[^;]*;",
     re.I | re.S,
 )
 
@@ -413,6 +424,12 @@ def extract_grants(body):
     ):
         unparsed.append(" ".join(m.group(0).split())[:120])
 
+    # Schema-wide and default-privilege grants name no single object. Report
+    # them, then remove them so the per-object parser never sees them.
+    for m in BULK_RE.finditer(body):
+        unparsed.append(" ".join(m.group(0).split())[:140])
+    body = BULK_RE.sub(" ", body)
+
     for m in GRANT_RE.finditer(body):
         verb = m.group(1).upper()
         privs = " ".join(m.group(2).split()).upper()
@@ -424,7 +441,7 @@ def extract_grants(body):
             for r in m.group(6).split(",")
             if r.strip() and r.strip().upper() not in ("CASCADE", "RESTRICT")
         ]
-        if kind == "SCHEMA" or "ALL " in target.upper():
+        if kind == "SCHEMA" or target.upper() == "ALL":
             unparsed.append(f"{verb} ... ON {kind} {target}")
             continue
         schema, obj = qualify(target)
@@ -501,7 +518,8 @@ def main(argv):
             print("  NOT CHECKABLE BY OBJECT EXISTENCE — this migration declares no")
             print("  tables/columns/functions/policies/indexes/constraints/buckets.")
             if unparsed:
-                print("  It DOES change privileges, but dynamically:")
+                print("  It DOES change privileges, but not in a form that resolves")
+                print("  to one named object (dynamic EXECUTE format, or schema-wide):")
                 for u in unparsed:
                     print(f"    - {u}")
                 print("  Verify the grants manually, e.g.:")
