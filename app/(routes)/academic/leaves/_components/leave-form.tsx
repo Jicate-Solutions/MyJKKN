@@ -44,6 +44,13 @@ import { useSections } from '@/hooks/organization/use-sections';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { LeaveService } from '@/lib/services/academic/leave-service';
+import {
+  WEEKDAY_CODES,
+  WEEKDAY_LABELS,
+  weeklyRecurrenceDays,
+  type WeekdayCode,
+  type WeeklyRecurrencePattern
+} from '@/lib/services/academic/leave-management-service';
 import { LEAVE_SCOPE_OPTIONS } from '@/types/leaves';
 import type { InstitutionLeave } from '@/types/leaves';
 import type { Department, Semester, Section, Degree, Program } from '@/types/organizations';
@@ -58,10 +65,18 @@ const leaveFormSchema = z.object({
   department_ids: z.array(z.string()).optional(),
   semester_ids: z.array(z.string()).optional(),
   section_ids: z.array(z.string()).optional(),
-  is_recurring: z.boolean().default(false)
+  is_recurring: z.boolean().default(false),
+  // Weekday codes (SU..SA). Form-only field: it is turned into the
+  // recurrence_pattern jsonb on submit and never sent as a column.
+  recurrence_days: z.array(z.enum(WEEKDAY_CODES)).default([])
 }).refine((data) => data.end_date >= data.start_date, {
   message: 'End date must be after start date',
   path: ['end_date']
+}).refine((data) => !data.is_recurring || data.recurrence_days.length > 0, {
+  // Without this the switch is a silent no-op again: is_recurring would be saved
+  // as true with no pattern, which is exactly the dead state this feature fixes.
+  message: 'Pick at least one day, or turn off the weekly repeat',
+  path: ['recurrence_days']
 });
 
 type LeaveFormData = z.infer<typeof leaveFormSchema>;
@@ -206,11 +221,25 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
       department_ids: leave?.department_ids || [],
       semester_ids: leave?.semester_ids || [],
       section_ids: leave?.section_ids || [],
-      is_recurring: leave?.is_recurring || false
+      is_recurring: leave?.is_recurring || false,
+      recurrence_days: weeklyRecurrenceDays(leave?.recurrence_pattern)
     }
   });
 
   const scopeLevel = form.watch('scope_level');
+  const isRecurring = form.watch('is_recurring');
+  const recurrenceDays = form.watch('recurrence_days');
+
+  const toggleRecurrenceDay = (code: WeekdayCode) => {
+    const current = form.getValues('recurrence_days') || [];
+    form.setValue(
+      'recurrence_days',
+      current.includes(code)
+        ? current.filter((d) => d !== code)
+        : [...current, code],
+      { shouldValidate: true }
+    );
+  };
 
   // Update form values when scope arrays change
   useEffect(() => {
@@ -272,6 +301,16 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
     try {
       setIsSubmitting(true);
 
+      // recurrence_days is a form-only field. It becomes the recurrence_pattern
+      // jsonb the database expands (see COMMENT ON COLUMN
+      // institution_leaves.recurrence_pattern); it must never be sent as a column.
+      // Cleared back to null when the weekly repeat is switched off, so an edit
+      // that turns it off actually removes the rule instead of orphaning it.
+      const recurrencePattern: WeeklyRecurrencePattern | null =
+        data.is_recurring && data.recurrence_days.length > 0
+          ? { freq: 'weekly', byday: data.recurrence_days }
+          : null;
+
       const payload = {
         leave_type_id: data.leave_type_id,
         leave_name: data.leave_name,
@@ -284,6 +323,7 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
         semester_ids: data.semester_ids,
         section_ids: data.section_ids,
         is_recurring: data.is_recurring,
+        recurrence_pattern: recurrencePattern,
         requested_by: userProfile?.id || ''
       };
 
@@ -291,10 +331,12 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
         await LeaveService.createLeave(payload);
         toast.success('Leave created successfully');
       } else {
+        const { recurrence_days: _recurrenceDays, ...rest } = data;
         await LeaveService.updateLeave(leave!.id, {
-          ...data,
+          ...rest,
           start_date: format(data.start_date, 'yyyy-MM-dd'),
-          end_date: format(data.end_date, 'yyyy-MM-dd')
+          end_date: format(data.end_date, 'yyyy-MM-dd'),
+          recurrence_pattern: recurrencePattern
         });
         toast.success('Leave updated successfully');
       }
@@ -927,26 +969,76 @@ export function LeaveForm({ leave, mode }: LeaveFormProps) {
         )}
 
         {/* Recurring */}
-        <FormField
-          control={form.control}
-          name='is_recurring'
-          render={({ field }) => (
-            <FormItem className='flex flex-row items-start space-x-3 space-y-0'>
-              <FormControl>
-                <Checkbox
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
-                />
-              </FormControl>
-              <div className='space-y-1 leading-none'>
-                <FormLabel>Recurring Leave</FormLabel>
-                <FormDescription>
-                  Mark if this leave repeats annually
-                </FormDescription>
-              </div>
-            </FormItem>
+        <div className='space-y-4 rounded-md border p-4'>
+          <FormField
+            control={form.control}
+            name='is_recurring'
+            render={({ field }) => (
+              <FormItem className='flex flex-row items-start space-x-3 space-y-0'>
+                <FormControl>
+                  <Checkbox
+                    checked={field.value}
+                    onCheckedChange={(checked) => {
+                      const on = checked === true;
+                      field.onChange(on);
+                      if (!on) {
+                        form.setValue('recurrence_days', [], {
+                          shouldValidate: true
+                        });
+                      }
+                    }}
+                  />
+                </FormControl>
+                <div className='space-y-1 leading-none'>
+                  <FormLabel>Repeating weekly holiday</FormLabel>
+                  <FormDescription>
+                    Turn this on for a day that is off every week, such as
+                    &ldquo;every Saturday&rdquo;. You will not have to add it
+                    again each week.
+                  </FormDescription>
+                </div>
+              </FormItem>
+            )}
+          />
+
+          {isRecurring && (
+            <FormField
+              control={form.control}
+              name='recurrence_days'
+              render={() => (
+                <FormItem>
+                  <FormLabel>Repeats every week on these days</FormLabel>
+                  <FormControl>
+                    <div className='flex flex-wrap gap-x-6 gap-y-3 pt-1'>
+                      {WEEKDAY_CODES.map((code) => (
+                        <div key={code} className='flex items-center gap-2'>
+                          <Checkbox
+                            id={`recurrence-day-${code}`}
+                            checked={(recurrenceDays || []).includes(code)}
+                            onCheckedChange={() => toggleRecurrenceDay(code)}
+                          />
+                          <label
+                            htmlFor={`recurrence-day-${code}`}
+                            className='text-sm cursor-pointer'
+                          >
+                            {WEEKDAY_LABELS[code]}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    These days will be treated as holidays from the start date
+                    onwards, every week. Timetables skip them and the
+                    &ldquo;no attendance recorded&rdquo; alert will not fire on
+                    them.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           )}
-        />
+        </div>
 
         {/* Actions */}
         <div className='flex justify-end gap-4'>

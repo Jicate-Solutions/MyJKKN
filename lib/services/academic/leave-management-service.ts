@@ -43,6 +43,78 @@ import type {
   LeaveBlockInfo,
 } from '@/types/leaves';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// WEEKLY RECURRENCE (added 2026-07-28)
+// ═══════════════════════════════════════════════════════════════════════════
+// Contract mirrored from the DB: see the COMMENT ON COLUMN
+// institution_leaves.recurrence_pattern and the CHECK constraint
+// institution_leaves_recurrence_pattern_valid, added in migration
+// 20260804101500_institution_recurring_weekly_off.sql. The canonical expander is
+// public.is_institution_holiday(), which the timetable working-day engine and the
+// college data-gap check both call — so this is the ONE place a "every Saturday
+// off" rule needs to be written for every consumer to inherit it.
+//
+// Codes are iCalendar (RFC 5545) BYDAY codes, ordered to line up with PostgreSQL
+// EXTRACT(DOW) where 0 = Sunday. WEEKDAY_CODES[dow] is the code for that dow.
+export const WEEKDAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const;
+export type WeekdayCode = (typeof WEEKDAY_CODES)[number];
+
+export const WEEKDAY_LABELS: Record<WeekdayCode, string> = {
+  SU: 'Sunday',
+  MO: 'Monday',
+  TU: 'Tuesday',
+  WE: 'Wednesday',
+  TH: 'Thursday',
+  FR: 'Friday',
+  SA: 'Saturday',
+};
+
+export interface WeeklyRecurrencePattern {
+  freq: 'weekly';
+  /** Non-empty. Order is irrelevant; duplicates are pointless but harmless. */
+  byday: WeekdayCode[];
+  /** Inclusive last date the rule applies, 'YYYY-MM-DD'. Omit for open-ended. */
+  until?: string;
+}
+
+/**
+ * The shapes recurrence_pattern may legitimately hold. `RecurrencePattern` in
+ * types/leaves.ts describes an older {type:'yearly'|'monthly'} shape that no code
+ * has ever read (recurrence_pattern is NULL on every production row); it is left
+ * alone rather than replaced so nothing else has to move.
+ */
+export type LeaveRecurrencePattern =
+  | WeeklyRecurrencePattern
+  | NonNullable<CreateLeaveDto['recurrence_pattern']>;
+
+/** CreateLeaveDto with recurrence_pattern widened to include the weekly shape. */
+export type CreateLeaveWithRecurrenceDto = Omit<CreateLeaveDto, 'recurrence_pattern'> & {
+  recurrence_pattern?: LeaveRecurrencePattern | null;
+};
+
+/** UpdateLeaveDto with recurrence_pattern widened to include the weekly shape. */
+export type UpdateLeaveWithRecurrenceDto = Omit<UpdateLeaveDto, 'recurrence_pattern'> & {
+  recurrence_pattern?: LeaveRecurrencePattern | null;
+};
+
+export function isWeeklyRecurrencePattern(
+  pattern: unknown
+): pattern is WeeklyRecurrencePattern {
+  if (!pattern || typeof pattern !== 'object') return false;
+  const p = pattern as Record<string, unknown>;
+  return (
+    p.freq === 'weekly' &&
+    Array.isArray(p.byday) &&
+    p.byday.length > 0 &&
+    p.byday.every((d) => WEEKDAY_CODES.includes(d as WeekdayCode))
+  );
+}
+
+/** Reads the selected weekdays out of whatever is stored, safely. */
+export function weeklyRecurrenceDays(pattern: unknown): WeekdayCode[] {
+  return isWeeklyRecurrencePattern(pattern) ? pattern.byday : [];
+}
+
 export class LeaveManagementService {
   private static get supabase() {
     return createClientSupabaseClient();
@@ -428,9 +500,16 @@ export class LeaveManagementService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Create a new institution leave
+   * Create a new institution leave.
+   *
+   * `data` is passed straight through to the insert, so recurrence_pattern is
+   * persisted verbatim — the DTO type is widened (rather than the insert changed)
+   * because the only thing that ever blocked a weekly pattern here was the
+   * narrower `RecurrencePattern` type, not the query.
    */
-  static async createLeave(data: CreateLeaveDto): Promise<InstitutionLeave> {
+  static async createLeave(
+    data: CreateLeaveWithRecurrenceDto
+  ): Promise<InstitutionLeave> {
     try {
       // Validate no overlapping approved leaves exist
       const hasOverlap = await this.checkOverlappingLeaves(
@@ -500,7 +579,7 @@ export class LeaveManagementService {
    */
   static async updateLeave(
     id: string,
-    data: UpdateLeaveDto
+    data: UpdateLeaveWithRecurrenceDto
   ): Promise<InstitutionLeave> {
     try {
       const { data: leave, error } = await (this.supabase as any)
