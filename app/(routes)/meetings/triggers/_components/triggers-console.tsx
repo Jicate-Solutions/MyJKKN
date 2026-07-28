@@ -18,10 +18,18 @@
 //
 // Hooks-order safety: all hooks declared unconditionally at the top before any
 // early return (feedback memory: hooks_order_runtime_crash_passes_ci).
+//
+// State-updater purity: the per-college staff fetch de-dupes through REFS, never
+// by mutating a variable inside a setState updater. React may invoke an updater
+// twice (StrictMode / concurrent re-render); an updater that flips an outer
+// `shouldFetch` flag can therefore fire two requests, and — worse — the first
+// version of this file pinned the key at `null` ("Loading team members…") inside
+// that same updater, so a failed fetch left the row loading forever with no way
+// back. Every updater below is now a pure `(prev) => next`.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Save, Check, X } from 'lucide-react';
+import { Loader2, Save, Check, X, RotateCw } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -85,6 +93,15 @@ type RuleRow = TriggerRuleWithRate & { alert_owner_staff_id?: string | null };
 
 type StaffOption = { value: string; label: string };
 
+/**
+ * Per-institution load state for the alert-owner picker. `error` is a real
+ * terminal state with a retry affordance — never an eternal "Loading…".
+ */
+type StaffFetchState =
+  | { status: 'loading' }
+  | { status: 'ready'; options: StaffOption[]; truncated: boolean }
+  | { status: 'error'; message: string };
+
 /** Shared classes for the native <select> used by the alert-owner picker. */
 const SELECT_CLS =
   'h-8 w-full min-w-[10rem] max-w-[16rem] rounded-md border border-input bg-background px-2 text-xs ' +
@@ -120,11 +137,15 @@ export function TriggersConsole({
   const [events, setEvents] = useState<TriggerEventRow[]>(initialEvents);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [decidingId, setDecidingId] = useState<string | null>(null);
-  // institution_id → staff options, filled lazily the first time a row's picker
-  // is focused/hovered. `null` while that institution's fetch is in flight.
-  const [staffOptions, setStaffOptions] = useState<
-    Record<string, StaffOption[] | null>
-  >({});
+  // institution_id → load state for that college's staff list, filled lazily
+  // when a row's picker is focused or opened — never on hover.
+  const [staffState, setStaffState] = useState<Record<string, StaffFetchState>>(
+    {}
+  );
+  // De-dupe bookkeeping lives in refs, deliberately OUTSIDE React state, so the
+  // state updaters stay pure and double invocation cannot fire two fetches.
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const loadedRef = useRef<Set<string>>(new Set());
 
   const attendanceRules = rules.filter((r) => r.metric_key === ATTENDANCE_METRIC);
   const missingDataRules = rules.filter(
@@ -139,39 +160,65 @@ export function TriggersConsole({
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  /** Load a college's staff list once, on first focus/hover of its picker. */
-  const ensureStaffOptions = useCallback(async (institutionId: string | null) => {
-    if (!institutionId) return;
-    let shouldFetch = false;
-    setStaffOptions((prev) => {
-      if (institutionId in prev) return prev;
-      shouldFetch = true;
-      return { ...prev, [institutionId]: null };
-    });
-    if (!shouldFetch) return;
-    try {
-      const res = await fetch(
-        `/api/meetings/triggers/staff-options?institution_id=${encodeURIComponent(
-          institutionId
-        )}`,
-        { cache: 'no-store' }
-      );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? 'Could not load team members');
-      setStaffOptions((prev) => ({
+  /**
+   * Load a college's staff list once, on first focus/open of its picker.
+   *
+   * Safe under double invocation: the two `setStaffState` calls are pure
+   * `(prev) => next` functions — they read nothing but `prev` and constants
+   * captured in this closure, and they mutate nothing. All "have I already
+   * asked for this?" bookkeeping happens in `inFlightRef` / `loadedRef`, which
+   * are plain refs mutated in ordinary async code, so React re-running an
+   * updater can never trigger a second request or strand a key at "loading".
+   * A failed fetch lands in `{ status: 'error' }` and is NOT added to
+   * `loadedRef`, so the next focus — or the Retry button — tries again.
+   */
+  const ensureStaffOptions = useCallback(
+    async (institutionId: string | null, opts?: { force?: boolean }) => {
+      if (!institutionId) return;
+      if (inFlightRef.current.has(institutionId)) return;
+      if (!opts?.force && loadedRef.current.has(institutionId)) return;
+
+      inFlightRef.current.add(institutionId);
+      setStaffState((prev) => ({
         ...prev,
-        [institutionId]: Array.isArray(json.options) ? json.options : []
+        [institutionId]: { status: 'loading' }
       }));
-    } catch (e: any) {
-      // Drop the placeholder so a retry (next focus) can fetch again.
-      setStaffOptions((prev) => {
-        const next = { ...prev };
-        delete next[institutionId];
-        return next;
-      });
-      toast.error(e?.message ?? 'Could not load team members');
-    }
-  }, []);
+      try {
+        const res = await fetch(
+          `/api/meetings/triggers/staff-options?institution_id=${encodeURIComponent(
+            institutionId
+          )}`,
+          { cache: 'no-store' }
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok)
+          throw new Error(json?.error ?? 'Could not load team members');
+        const options: StaffOption[] = Array.isArray(json.options)
+          ? json.options
+          : [];
+        const truncated = json?.truncated === true;
+        loadedRef.current.add(institutionId);
+        setStaffState((prev) => ({
+          ...prev,
+          [institutionId]: { status: 'ready', options, truncated }
+        }));
+        if (truncated)
+          toast.warning(
+            `Only the first ${options.length} team members are listed — the list was cut short. Ask for the full roster if the person you want is missing.`
+          );
+      } catch (e: any) {
+        const message = e?.message ?? 'Could not load team members';
+        setStaffState((prev) => ({
+          ...prev,
+          [institutionId]: { status: 'error', message }
+        }));
+        toast.error(message);
+      } finally {
+        inFlightRef.current.delete(institutionId);
+      }
+    },
+    []
+  );
 
   async function saveRule(rule: RuleRow) {
     setSavingId(rule.id);
@@ -420,41 +467,74 @@ export function TriggersConsole({
                     <TableCell>
                       {(() => {
                         const instId = r.institution_id;
-                        const loaded = instId ? staffOptions[instId] : undefined;
+                        const st = instId ? staffState[instId] : undefined;
                         const current = r.alert_owner_staff_id ?? '';
-                        const isLoading = instId != null && loaded === null;
+                        const options =
+                          st?.status === 'ready' ? st.options : [];
                         // Keep the saved owner selectable before the list loads.
                         const showStub =
                           current !== '' &&
-                          !(loaded ?? []).some((o) => o.value === current);
+                          !options.some((o) => o.value === current);
+                        const stubLabel =
+                          st?.status === 'loading'
+                            ? 'Loading team members…'
+                            : 'Currently assigned';
                         return (
-                          <select
-                            className={SELECT_CLS}
-                            aria-label={`Alert owner for ${r.college_name}`}
-                            value={current}
-                            disabled={!instId}
-                            onFocus={() => ensureStaffOptions(instId)}
-                            onPointerEnter={() => ensureStaffOptions(instId)}
-                            onChange={(e) =>
-                              patchLocal(r.id, {
-                                alert_owner_staff_id: e.target.value || null
-                              })
-                            }
-                          >
-                            <option value="">(Principal / default)</option>
-                            {showStub && (
-                              <option value={current}>
-                                {isLoading
-                                  ? 'Loading team members…'
-                                  : 'Currently assigned'}
-                              </option>
+                          <div className="space-y-1">
+                            <select
+                              className={SELECT_CLS}
+                              aria-label={`Alert owner for ${r.college_name}`}
+                              value={current}
+                              disabled={!instId}
+                              // Fetch on real intent only: keyboard focus, or
+                              // pressing the control to open it. NOT on hover —
+                              // sweeping the cursor down the table used to fire
+                              // one service-role staff query per row.
+                              onFocus={() => ensureStaffOptions(instId)}
+                              onMouseDown={() => ensureStaffOptions(instId)}
+                              onChange={(e) =>
+                                patchLocal(r.id, {
+                                  alert_owner_staff_id: e.target.value || null
+                                })
+                              }
+                            >
+                              <option value="">(Principal / default)</option>
+                              {showStub && (
+                                <option value={current}>{stubLabel}</option>
+                              )}
+                              {options.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                            {st?.status === 'error' && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[11px] text-red-600">
+                                  Couldn&apos;t load the list.
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-1.5 text-[11px]"
+                                  onClick={() =>
+                                    ensureStaffOptions(instId, { force: true })
+                                  }
+                                  aria-label={`Retry loading team members for ${r.college_name}`}
+                                >
+                                  <RotateCw className="mr-1 h-3 w-3" />
+                                  Retry
+                                </Button>
+                              </div>
                             )}
-                            {(loaded ?? []).map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                            {st?.status === 'ready' && st.truncated && (
+                              <p className="text-[11px] text-amber-700">
+                                Showing the first {st.options.length} only — the
+                                list was cut short.
+                              </p>
+                            )}
+                          </div>
                         );
                       })()}
                     </TableCell>
@@ -512,10 +592,27 @@ export function TriggersConsole({
             </Table>
             <p className="mt-3 text-xs text-muted-foreground">
               <strong>Alert owner</strong>{' '}
-              is only used when a college has no Principal on record — the alert
-              then goes to that one person instead of to every super-admin.
-              Leave it on &quot;(Principal / default)&quot; when the college has
-              a Principal. Remember to press Save on the row.
+              is only used when a college has no active Principal on record —
+              the alert then goes to that one named person instead of to up to 5
+              administrators. Leave it on &quot;(Principal / default)&quot; when
+              the college has a Principal. Remember to press Save on the row.
+            </p>
+            {/*
+              Director decision 2026-07-28 #6: the EAO (eao@jkkn.ac.in, role
+              executive_admin_officer) is copied on these alerts IN ADDITION to
+              the Principal. This is copy only — the send lives in
+              resolveRecipients() in meeting-trigger-service.ts, owned by a
+              sibling PR this round. MERGE ORDER MATTERS: if this card ships
+              before that engine change, this line promises a recipient who is
+              not yet being copied. Nothing is live today (all 7 data-gap rules
+              are active = false, verified in prod 2026-07-28), so the window is
+              harmless — but do not activate a rule until both have landed.
+            */}
+            <p className="mt-2 text-xs text-muted-foreground">
+              The Executive Admin Officer is informed as well as the Principal,
+              so they can help the college keep its leave calendar up to date
+              (approved holidays are what stop a genuine day off being read as a
+              missing-attendance gap).
             </p>
           </CardContent>
         </Card>
