@@ -20,7 +20,15 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Lightbulb, Plus, Filter, Zap, Lock, Trophy } from 'lucide-react';
+import {
+  Lightbulb,
+  Plus,
+  Filter,
+  Zap,
+  Lock,
+  Trophy,
+  SlidersHorizontal
+} from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   ImprovementService,
@@ -143,6 +151,14 @@ export function ImprovementBoardClient({
               Impact Leaderboard
             </Link>
           </Button>
+          {canManage && (
+            <Button variant="outline" asChild>
+              <Link href="/improvement-board/manage-boards">
+                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                Manage boards
+              </Link>
+            </Button>
+          )}
           {canCreate && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
