@@ -10,8 +10,16 @@
 //
 // PR1c then BOOKS those pending meetings in the same pass (bookPendingMeetings):
 // soonest common free slot when every participant's Google Calendar is
-// connected, otherwise a one-time "connect your calendar" ask and the event
-// stays pending. Same CRON_SECRET gate, no new cron entry.
+// connected, otherwise a "connect your calendar" ask (re-sent every blocked
+// pass, Director decision 2026-07-28 #5) and the event stays pending. Same
+// CRON_SECRET gate, no new cron entry.
+//
+// A third, WEEKLY path rides the same hourly cron
+// (sendWeeklyCalendarConnectSummary): once per ISO week each Principal — and
+// the EAO — gets the list of people in their college who still have no healthy
+// Google Calendar connection (Director decisions #5 + #6). It is gated by its
+// own notifications ledger, so calling it 168 times a week sends it once; that
+// is why it does NOT need a new vercel.json cron entry.
 //
 // Hourly so the 24h deadline is enforced within ~1h and explanations reach the
 // Director promptly. Auth: CRON_SECRET (Bearer header OR ?secret=).
@@ -24,7 +32,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   reconcileExplanations,
   bookPendingMeetings,
-  type BookingResult
+  sendWeeklyCalendarConnectSummary,
+  type BookingResult,
+  type WeeklyConnectSummaryResult
 } from '@/lib/services/meetings/meeting-trigger-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -57,10 +67,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       booking = { failed: bookErr?.message ?? 'Internal error' };
     }
 
+    // Weekly summary — same isolation. Its own ISO-week gate makes this a
+    // no-op on 167 of every 168 hourly runs.
+    let weekly: WeeklyConnectSummaryResult | { failed: string };
+    try {
+      weekly = await sendWeeklyCalendarConnectSummary();
+    } catch (weeklyErr: any) {
+      logger.error(
+        'meetings/triggers',
+        'sendWeeklyCalendarConnectSummary failed',
+        weeklyErr
+      );
+      weekly = { failed: weeklyErr?.message ?? 'Internal error' };
+    }
+
     return NextResponse.json({
       success: true,
       ...result,
       booking,
+      weekly,
       duration_ms: Date.now() - startTime
     });
   } catch (error: any) {
