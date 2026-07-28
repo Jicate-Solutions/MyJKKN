@@ -50,6 +50,12 @@ export interface AttendanceHierarchyFilter {
   programId?: string;
   semesterId?: string;
   sectionId?: string;
+  /** Narrow to first-year learners only — those admitted in their institution's
+   *  CURRENT intake (admission_years.is_current). Resolves per-institution, so it
+   *  stays correct in the all-institutions view (each college's own newest batch).
+   *  Chosen over a semester-based rule because semester data isn't reliably
+   *  advanced (e.g. Dental showed 597/600 by semester vs ~56 by admission year). */
+  firstYearOnly?: boolean;
 }
 
 export class AttendanceDashboardService {
@@ -187,7 +193,11 @@ export class AttendanceDashboardService {
             p_department_id: hierarchy.departmentId ?? null,
             p_program_id: hierarchy.programId ?? null,
             p_semester_id: hierarchy.semesterId ?? null,
-            p_section_id: hierarchy.sectionId ?? null
+            p_section_id: hierarchy.sectionId ?? null,
+            // First-year-only narrowing (default false → unchanged for every
+            // existing caller). The RPC resolves "first year" as admitted in the
+            // institution's is_current admission year.
+            p_first_year_only: hierarchy.firstYearOnly ?? false
           }
         );
 
