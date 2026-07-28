@@ -4,7 +4,7 @@
 // /rcltp/teacher/recordings — Part A recording-review queue (Phase 4c)
 // =============================================================================
 // Listen to learners' Part A voice recordings and record a MANUAL review.
-// Auto voice-scoring is EKSAQ-gated (the score route returns 501), so the manual
+// Auto voice-scoring is MyJKKN-gated (the score route returns 501), so the manual
 // review fields start EMPTY and we never render a fabricated auto-score.
 //
 // Gated to rcltp.review. Access failures are surfaced explicitly (rule #27),

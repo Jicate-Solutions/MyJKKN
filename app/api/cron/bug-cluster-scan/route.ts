@@ -14,6 +14,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  sendResolutionEmailAndLog,
+  cascadeStatusToDuplicates,
+  recordClusterOutcome
+} from '@/lib/bug-reports/resolve-cascade';
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization') || '';
@@ -45,9 +50,71 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // ── AUTO-RESOLVE pass (R1-R4, built dormant) ─────────────────────────
+  // fn_bug_auto_resolve_scan returns eligible groups ONLY when the feature
+  // is armed: policy enabled AND the earned track record exists AND not
+  // circuit-breaker-suspended. Until then it returns armed:false and this
+  // block does nothing. The resolve itself reuses EXACTLY the human path
+  // (email + cascade + ledger via lib/bug-reports/resolve-cascade).
+  const autoResolve: { armed: boolean; resolved: string[] } = {
+    armed: false,
+    resolved: []
+  };
+  try {
+    const { data: gate } = await (supabase as any).rpc('fn_bug_auto_resolve_scan');
+    autoResolve.armed = gate?.armed === true;
+    const eligible: any[] = Array.isArray(gate?.eligible) ? gate.eligible : [];
+    for (const g of eligible) {
+      // Mark FIRST (the breaker keys on this stamp), then resolve the
+      // canonical exactly like the human PATCH path.
+      await (supabase as any).rpc('fn_bug_auto_resolve_mark', { p_cluster_id: g.cluster_id });
+      const { data: updated, error: upErr } = await (supabase as any)
+        .from('bug_reports')
+        .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+        .eq('id', g.seed_bug_id)
+        .select()
+        .single();
+      if (upErr || !updated) continue;
+      await sendResolutionEmailAndLog(supabase as any, g.seed_bug_id, updated);
+      await cascadeStatusToDuplicates(supabase as any, g.seed_bug_id, 'resolved');
+      await recordClusterOutcome(supabase as any, g.seed_bug_id);
+      autoResolve.resolved.push(g.cluster_id);
+
+      // R4 visibility: bell the admin who enabled the policy (real
+      // notifications schema; best-effort, never fails the cron).
+      if (gate?.notify_user_id) {
+        try {
+          const { data: notification } = await (supabase as any)
+            .from('notifications')
+            .insert({
+              title: 'A bug group auto-resolved',
+              body: `All ${g.member_count} reports in a group were resolved automatically: every reporter question settled, nobody said still-broken, at least one confirmed fixed. Reporters have been emailed.`,
+              url: '/admin/bug-reports',
+              category: 'bug_reports:auto_resolve',
+              kind: 'work_item',
+              priority: 'normal',
+              targeting: { user_ids: [gate.notify_user_id] },
+              metadata: { source: 'bug_auto_resolve', cluster_id: g.cluster_id },
+              created_by: gate.notify_user_id
+            })
+            .select('id')
+            .single();
+          if (notification?.id) {
+            await (supabase as any)
+              .from('user_notifications')
+              .insert([{ notification_id: notification.id, user_id: gate.notify_user_id }]);
+          }
+        } catch {}
+      }
+    }
+  } catch (e: any) {
+    console.error('[cron/bug-cluster-scan] auto-resolve pass failed:', String(e?.message).slice(0, 200));
+  }
+
   return NextResponse.json({
     ok: true,
     ...(data ?? {}),
+    auto_resolve: autoResolve,
     elapsed_ms: Date.now() - startedAt
   });
 }

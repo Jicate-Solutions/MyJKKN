@@ -20,6 +20,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
+import { FixedForYouPrompts } from './_components/fixed-for-you-prompts';
 import {
   Eye,
   Bug,
@@ -264,6 +265,9 @@ export default function MyBugReportsPage() {
   return (
     <ContentLayout title='My Bug Reports'>
       <div className='space-y-6'>
+        {/* "Is this fixed for you?" prompts — renders nothing when none open */}
+        <FixedForYouPrompts />
+
         {/* Header with Live Indicator */}
         <div className='flex items-center justify-between'>
           <div>
@@ -377,12 +381,12 @@ export default function MyBugReportsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <div className='space-y-1'>
                   <p className='text-sm text-orange-600 dark:text-orange-400'>
                     Thank you for helping improve our platform!
                   </p>
-                  <div className='flex items-center gap-4 text-sm'>
+                  <div className='flex flex-wrap items-center gap-4 text-sm'>
                     <div className='flex items-center gap-1'>
                       <Target className='w-4 h-4 text-orange-500' />
                       <span>{stats.total} reports submitted</span>

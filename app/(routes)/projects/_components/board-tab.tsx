@@ -45,9 +45,9 @@ export function BoardTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Label className="text-sm text-muted-foreground">Project</Label>
+        <Label className="shrink-0 text-sm text-muted-foreground">Project</Label>
         <Select value={projectId} onValueChange={setProject}>
-          <SelectTrigger className="w-72">
+          <SelectTrigger className="w-full sm:w-72">
             <SelectValue placeholder={isLoading ? 'Loading…' : 'Select a project'} />
           </SelectTrigger>
           <SelectContent>

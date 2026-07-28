@@ -1234,20 +1234,20 @@ function MarathonSettingsPageInner() {
       />
 
       <div className="space-y-4 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">{event.name}</h1>
             <p className="text-sm text-muted-foreground">
               Configure your marathon event settings.
             </p>
           </div>
-          <Badge variant="secondary" className="uppercase">
+          <Badge variant="secondary" className="uppercase self-start sm:self-auto">
             {event.status}
           </Badge>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="general" className="gap-1.5">
               <Settings className="h-3.5 w-3.5 hidden sm:inline-block" />
               General

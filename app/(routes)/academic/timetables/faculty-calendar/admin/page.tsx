@@ -121,7 +121,7 @@ function AdminFacultyCalendarPageInner() {
             </div>
 
             {/* Header Actions */}
-            <div className='flex items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-2'>
               <Button variant='outline' size='sm' onClick={handleFilterToggle}>
                 <Filter className='h-4 w-4 mr-2' />
                 {showFilters ? 'Hide Filters' : 'Show Filters'}
@@ -204,7 +204,7 @@ function AdminFacultyCalendarPageInner() {
             onValueChange={setActiveTab}
             className='space-y-4'
           >
-            <TabsList className='grid w-full grid-cols-4'>
+            <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible'>
               <TabsTrigger value='calendar'>
                 <Calendar className='h-4 w-4 mr-2' />
                 Calendar View

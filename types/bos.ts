@@ -7,22 +7,26 @@
 export type BosExpertCategory =
   | 'university_nominee'
   | 'subject_expert'
+  | 'academic_expert'
   | 'industry_expert'
   | 'alumni'
-  | 'startup';
+  | 'startup'
+  | 'student';
 
 export type BosMemberType =
   | 'chairman'
   | 'internal_member'
   | 'university_nominee'
   | 'subject_expert'
+  | 'academic_expert'
   | 'industry_expert'
   | 'alumni'
   | 'startup'
   | 'hod'
   | 'facilitator'
   | 'principal'
-  | 'member_secretary';
+  | 'member_secretary'
+  | 'student';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -34,7 +38,7 @@ export type BosMeetingStatus =
   | 'minutes_approved'
   | 'ratified';
 
-export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council';
+export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council' | 'governing_body';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
@@ -70,9 +74,11 @@ export type BosClaimStatus = 'draft' | 'submitted' | 'approved' | 'paid';
 export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   university_nominee: 'University Nominee',
   subject_expert: 'Subject Expert',
+  academic_expert: 'Academic Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
   startup: 'Startup',
+  student: 'Student',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
@@ -80,6 +86,7 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   internal_member: 'Member',
   university_nominee: 'University Nominee',
   subject_expert: 'Subject Expert',
+  academic_expert: 'Academic Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
   startup: 'Startup',
@@ -87,6 +94,7 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   facilitator: 'Facilitator',
   principal: 'Principal',
   member_secretary: 'Member Secretary',
+  student: 'Student',
 };
 
 /**
@@ -133,7 +141,28 @@ export const BOS_MEETING_TYPE_LABELS: Record<BosMeetingType, string> = {
   online: 'Online',
   hybrid: 'Hybrid',
   academic_council: 'Academic Council',
+  governing_body: 'Governing Body',
 };
+
+/**
+ * Download / attachment filename for a per-member call-letter PDF.
+ * Prefix follows meeting_type so GB/AC notices are not labelled "bos-".
+ * e.g. governing-body-call-letter-Mrs-O-Isvarya-Lakshmi.pdf
+ */
+export function bosCallLetterFilename(
+  meetingType: string | null | undefined,
+  displayName: string,
+): string {
+  const prefix =
+    meetingType === 'governing_body'
+      ? 'governing-body-call-letter'
+      : meetingType === 'academic_council'
+        ? 'academic-council-call-letter'
+        : 'bos-call-letter';
+  const safeName =
+    displayName.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'member';
+  return `${prefix}-${safeName}.pdf`;
+}
 
 export const BOS_COURSE_REVIEW_ACTION_LABELS: Record<BosCourseReviewAction, string> = {
   approved: 'Approved',
@@ -184,11 +213,23 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   ratified: null,
 };
 
-// ── Academic Council meeting state machine ───────────────────────────────────
-// AC meetings (meeting_type = 'academic_council') are convened by the principal,
-// so there is NO 'principal_approved' hop (the principal is the scheduler) and
-// NO 'ratified' terminal state (the AC is itself the ratifying body). Call
-// letters are sent at 'noticed'; there is no separate 'expert_invited' step.
+// ── Council-family meeting types ─────────────────────────────────────────────
+// Institution-level bodies convened by the principal — Academic Council and
+// Governing Body. They are modelled identically ("all as same"): the same
+// shorter status machine, the same principal-driven authorization, and the same
+// board-less composition. They are distinguished ONLY for listing, preparation,
+// and labels. Use this predicate anywhere a meeting could be either one.
+export const COUNCIL_MEETING_TYPES: BosMeetingType[] = ['academic_council', 'governing_body'];
+export function isCouncilMeetingType(t: string | null | undefined): boolean {
+  return t === 'academic_council' || t === 'governing_body';
+}
+
+// ── Academic Council / Governing Body meeting state machine ──────────────────
+// Council meetings (meeting_type = 'academic_council' | 'governing_body') are
+// convened by the principal, so there is NO 'principal_approved' hop (the
+// principal is the scheduler) and NO 'ratified' terminal state (the council is
+// itself the ratifying body). Call letters are sent at 'noticed'; there is no
+// separate 'expert_invited' step.
 //
 //   draft → noticed → completed → minutes_drafted → minutes_approved
 //
@@ -217,7 +258,7 @@ export const AC_MEETING_NEXT_STATUS: Partial<Record<BosMeetingStatus, BosMeeting
 export function meetingNextStatusMap(
   meetingType: string | null | undefined
 ): Partial<Record<BosMeetingStatus, BosMeetingStatus | null>> {
-  return meetingType === 'academic_council'
+  return isCouncilMeetingType(meetingType)
     ? AC_MEETING_NEXT_STATUS
     : BOS_MEETING_NEXT_STATUS;
 }
@@ -423,6 +464,14 @@ export interface BosCourseContentData {
   // the invariant that exactly one of units/topics/project_units is populated.
   is_practical?: boolean;
   topics?: BosPracticalTopic[];
+  /**
+   * PDF/exports: whether to print the inline experiment number (e.g. "1. Zener
+   * diode …") on each practical sub-topic and heading. Defaults to ON when
+   * absent so existing syllabi keep their current numbered output; unchecking
+   * the "Number experiments" toggle in the Content tab stores `false` and the
+   * exports drop the inline prefix (the S.No column still numbers the rows).
+   */
+  number_practical_topics?: boolean;
   // Project-mode: group-based project work rules and guidelines
   is_project?: boolean;
   project_units?: BosProjectUnit[];
@@ -607,6 +656,12 @@ export interface BosCourseSyllabus {
   course_credits?: number;
   total_hours?: number;
   contact_hours?: number;
+
+  // NAAC-2024 coverage tags
+  /** NAAC metric 1.4 — skill/apprenticeship-focused course */
+  is_skill_based?: boolean;
+  /** NAAC metric 1.6 — contains Indian Knowledge System content */
+  is_iks?: boolean;
 
   // Versioning
   version_number: number;
@@ -862,6 +917,13 @@ export interface BosComposition {
    * time) plus principal-added members. See 20260706b_bos_academic_council.sql.
    */
   is_academic_council?: boolean;
+  /**
+   * True when this composition represents the institution-level Governing Body.
+   * Modelled identically to is_academic_council (board-less, principal-driven);
+   * distinguished only for listing, preparation, and labels.
+   * See 20260724120000_bos_governing_body.sql.
+   */
+  is_governing_body?: boolean;
   term_start_date: string;
   term_end_date: string;
   academic_year: string;

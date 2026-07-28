@@ -184,7 +184,7 @@ export function IssuesKanbanClient({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Kanban className="h-6 w-6 text-primary" />
@@ -223,7 +223,7 @@ export function IssuesKanbanClient({
                   rows={4}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Category</Label>
                   <Select value={category} onValueChange={setCategory}>
@@ -343,7 +343,7 @@ export function IssuesKanbanClient({
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Select value={filterAssignee} onValueChange={setFilterAssignee}>
           <SelectTrigger className="w-48">

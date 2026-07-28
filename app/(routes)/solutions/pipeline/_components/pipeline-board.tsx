@@ -470,14 +470,14 @@ export function PipelineBoard() {
       <OverdueAlertBanner />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold py-1">Pipeline Board</h1>
           <p className="text-sm text-muted-foreground">
             Drag prospects between stages to update their pipeline status
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button variant="outline" size="sm" asChild>
             <Link href="/solutions/pipeline/list">
               <List className="h-4 w-4 mr-1" />

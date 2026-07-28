@@ -1,5 +1,5 @@
 /**
- * EKSAQ RCLTP — Schedule domain service (Phase B)
+ * MyJKKN RCLTP — Schedule domain service (Phase B)
  * ----------------------------------------------------------------------------
  * Tables: rcltp_assessment_schedule (§3.13), rcltp_practice_assignments (§3.9).
  *
@@ -15,7 +15,7 @@
  *   - STUDENT-affecting writes (practice completion) are stubs → server-side
  *     route (migration §6.10)
  *   - content/formula-dependent logic (adaptive 5/3/1 assignment) is stubbed →
- *     awaiting EKSAQ
+ *     awaiting MyJKKN
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -33,7 +33,7 @@ import {
   rcltpRange,
   rcltpMetadata,
   rcltpPostJson,
-  rcltpAwaitingEksaqContent,
+  rcltpAwaitingValidationContent,
 } from './rcltp-helpers';
 
 export class RcltpScheduleService {
@@ -179,18 +179,18 @@ export class RcltpScheduleService {
   }
 
   // -------------------------------------------------------------------------
-  // DEFERRED — content/formula pipeline → awaiting EKSAQ
+  // DEFERRED — content/formula pipeline → awaiting MyJKKN
   // -------------------------------------------------------------------------
 
   /**
    * Generate this learner's weekly adaptive practice set (5/3/1 exercises by
-   * band). The 5/3/1-by-band allocation depends on EKSAQ's band model, so this
+   * band). The 5/3/1-by-band allocation depends on MyJKKN's band model, so this
    * is deferred until that content/spec lands.
    */
   static async assignWeeklyPractice(
     _learnerId: string
   ): Promise<RcltpPracticeAssignment> {
-    return rcltpAwaitingEksaqContent(
+    return rcltpAwaitingValidationContent(
       'adaptive practice assignment (5/3/1 by band)'
     );
   }

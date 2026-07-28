@@ -74,6 +74,7 @@ import { RegistrationFormCard } from './_components/registration-form-card';
 import { DivisionFeeBadge } from './_components/division-fee-badge';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
 import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
+import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { EventLogistics } from '@/components/events/shared/event-logistics';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
@@ -373,7 +374,7 @@ export default function TournamentManagePage() {
     return { active: active.length, payment, played, totalMatches: matches.length, divisionRows };
   }, [entries, matches, divisions, entriesByDivision]);
 
-  if (loadingT) {
+  if (loadingT || access.isLoading) {
     return (
       <ContentLayout title="Tournament">
         <div className="flex h-64 items-center justify-center">
@@ -389,6 +390,27 @@ export default function TournamentManagePage() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             Tournament not found, or you don&apos;t have access to it.
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
+
+  // PER-EVENT authorization (2026-07-21). RoutePermissionGuard's fallbackCheck admits
+  // anyone holding a role on ANY tournament (fn_has_any_tournament_role), so entering
+  // the subtree does NOT imply access to THIS tournament. access.canView was computed
+  // for exactly this but never enforced — so an in-charge of tournament A could open
+  // tournament B and read its EventLogistics (sponsors ₹, budget, committees,
+  // incidents) and every entrant's payment status, all rendered read-only but visible.
+  // RLS does not cover this: event_sponsors / event_budget_items are readable far more
+  // broadly than the tournament access model implies.
+  if (!access.canView) {
+    return (
+      <ContentLayout title="Tournament">
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            You don&apos;t have access to this tournament. Ask a sports coordinator to add
+            you as an in-charge or committee member.
           </CardContent>
         </Card>
       </ContentLayout>
@@ -483,6 +505,10 @@ export default function TournamentManagePage() {
                       Committee member — view only, tasks editable
                     </Badge>
                   )}
+                  {/* NAAC evidence tags (events.naac_criteria) — set via the
+                      Edit dialog; the evidence emitter picks these up once the
+                      tournament completes. */}
+                  <NaacCriteriaChips codes={tournament.naac_criteria ?? []} />
                 </div>
               </div>
             </div>

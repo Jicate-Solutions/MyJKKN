@@ -69,50 +69,52 @@ export default function AllocationBatchesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Block</TableHead>
-                  <TableHead>Rooms &amp; beds by category</TableHead>
+                  <TableHead>Floor</TableHead>
+                  <TableHead>Room Category</TableHead>
+                  <TableHead>Rooms</TableHead>
+                  <TableHead>Beds</TableHead>
                   <TableHead>Allocated</TableHead>
-                  <TableHead>Skipped</TableHead>
+                  <TableHead>Not Allocated</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Review</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {batches.map((b) => (
-                  <TableRow key={b.id}>
-                    <TableCell className="font-medium">{b.block_name ?? '—'}</TableCell>
-                    <TableCell>
-                      {b.category_breakdown && b.category_breakdown.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {b.category_breakdown.map((c) => (
-                            <div key={c.category} className="text-xs">
-                              <span className="font-medium">{c.category}</span>
-                              <span className="text-muted-foreground">
-                                {' '}· {c.rooms} room{c.rooms === 1 ? '' : 's'} · {c.beds} bed
-                                {c.beds === 1 ? '' : 's'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{b.allocated_count}</TableCell>
-                    <TableCell className="text-muted-foreground">{b.skipped_count}</TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[b.status] ?? 'outline'}>
-                        {STATUS_LABEL[b.status] ?? b.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/campus-living/allocations/batches/${b.id}`}>
-                          Open <ArrowRight className="h-4 w-4 ml-1" />
-                        </Link>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {batches.flatMap((b) => {
+                  const categoryRows =
+                    b.category_breakdown && b.category_breakdown.length > 0
+                      ? b.category_breakdown
+                      : [null];
+                  return categoryRows.map((c, idx) => (
+                    <TableRow key={c ? `${b.id}-${c.category}-${idx}` : b.id}>
+                      <TableCell className="font-medium">{b.block_name ?? '—'}</TableCell>
+                      <TableCell>{c?.floors ?? '—'}</TableCell>
+                      <TableCell>{c?.category ?? '—'}</TableCell>
+                      <TableCell>{c?.rooms ?? '—'}</TableCell>
+                      <TableCell>{c?.beds ?? '—'}</TableCell>
+                      <TableCell>{b.allocated_count}</TableCell>
+                      <TableCell className="text-muted-foreground">{b.skipped_count}</TableCell>
+                      <TableCell>
+                        <Badge variant={STATUS_VARIANT[b.status] ?? 'outline'}>
+                          {STATUS_LABEL[b.status] ?? b.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link
+                            href={
+                              c
+                                ? `/campus-living/allocations/batches/${b.id}?category=${encodeURIComponent(c.category)}`
+                                : `/campus-living/allocations/batches/${b.id}`
+                            }
+                          >
+                            Open <ArrowRight className="h-4 w-4 ml-1" />
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ));
+                })}
               </TableBody>
             </Table>
           </div>

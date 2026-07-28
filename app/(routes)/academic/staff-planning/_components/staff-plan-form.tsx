@@ -200,6 +200,11 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   useEffect(() => {
     async function loadInitialEditData() {
       if (staffPlan) {
+        // Skip re-initialization once already loaded for this plan — otherwise a
+        // re-render that changes the userProfile reference (e.g. a background
+        // profile refetch) re-runs this effect and calls form.reset(), silently
+        // discarding any in-progress edits and making Save appear to do nothing.
+        if (hasInitializedRef.current) return;
         try {
           // Load all dependent data in parallel
           // Scope institution list to the current user's accessible institutions.
@@ -308,6 +313,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           if (isEditing) {
             setLoading(false);
           }
+          hasInitializedRef.current = true;
         }
       } else {
         // Load only institutions for new form

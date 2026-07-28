@@ -24,7 +24,7 @@ interface AnalyticsKPICardsProps {
 export function AnalyticsKPICards({ data, isLoading }: AnalyticsKPICardsProps) {
   if (isLoading) {
     return (
-      <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
         {Array.from({ length: 8 }).map((_, i) => (
           <Card key={i}>
             <CardHeader className='pb-2'>
@@ -115,7 +115,7 @@ export function AnalyticsKPICards({ data, isLoading }: AnalyticsKPICardsProps) {
   ];
 
   return (
-    <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+    <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4'>
       {kpis.map((kpi, index) => (
         <Card key={index}>
           <CardHeader className='flex flex-row items-center justify-between pb-2'>

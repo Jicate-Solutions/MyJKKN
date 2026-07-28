@@ -156,7 +156,7 @@ export function CurfewSection() {
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-orange-600" />
@@ -169,7 +169,7 @@ export function CurfewSection() {
               <span className="font-medium">latest</span> time for exit.
             </p>
           </div>
-          <Button onClick={openCreate}>
+          <Button onClick={openCreate} className="shrink-0">
             <Plus className="h-4 w-4 mr-2" /> Add rule
           </Button>
         </div>

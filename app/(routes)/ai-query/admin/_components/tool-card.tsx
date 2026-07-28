@@ -282,9 +282,9 @@ export function ToolCard({ tool }: ToolCardProps) {
           </ScrollArea>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t bg-muted/30 flex items-center justify-between">
-            <div className="text-xs text-muted-foreground">
-              RPC: <code className="font-mono">{tool.rpcFunction}</code>
+          <div className="px-6 py-4 border-t bg-muted/30 flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0 text-xs text-muted-foreground">
+              RPC: <code className="font-mono break-all">{tool.rpcFunction}</code>
             </div>
             <Button variant="outline" onClick={() => setIsOpen(false)}>
               Close

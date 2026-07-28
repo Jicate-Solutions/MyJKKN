@@ -4,14 +4,20 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Loader2, ChevronRight, Download } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { FileText, Loader2, ChevronRight, Download, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useQuestionPapers } from '@/hooks/question-papers/use-question-papers';
+import { useQuestionPapers, useApprovePapers } from '@/hooks/question-papers/use-question-papers';
 import { IaPaperService } from '@/lib/services/question-papers/ia-paper-service';
 import { PAPER_STATUS_META } from '@/types/ia-question-paper';
 import { isPracticalCategory } from '@/lib/utils/question-papers/course-category';
 import type { IaQuestionPaper } from '@/types/ia-question-paper';
 import type { QuestionPaperFilterState } from './question-paper-filters';
+
+/** Papers an approver may still act on (not yet approved/locked). */
+function isApprovable(p: IaQuestionPaper): boolean {
+  return p.status === 'draft' || p.status === 'submitted';
+}
 
 /**
  * Practical is decided by the CANONICAL COE `courses.course_category` (enriched by
@@ -28,11 +34,15 @@ interface Props {
   filters: Partial<QuestionPaperFilterState>;
   /** Whether the user may export a paper PDF. */
   canExport: boolean;
+  /** Whether the user may approve papers (HOD / principal / CoE / super_admin). */
+  canApprove: boolean;
   onOpen: (paperId: string) => void;
 }
 
-export function PaperList({ institutionId, filters, canExport, onOpen }: Props) {
+export function PaperList({ institutionId, filters, canExport, canApprove, onOpen }: Props) {
   const [theoryOnly, setTheoryOnly] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const approve = useApprovePapers();
   const listFilters = {
     institutionId,
     examSessionId: filters.exam_session_id,
@@ -64,6 +74,26 @@ export function PaperList({ institutionId, filters, canExport, onOpen }: Props) 
   const practicalCount = allPapers.filter(isPracticalPaper).length;
   const visiblePapers = theoryOnly ? allPapers.filter((p) => !isPracticalPaper(p)) : allPapers;
 
+  // Approval selection (approvers only): draft/submitted papers can be approved.
+  const approvablePapers = visiblePapers.filter(isApprovable);
+  const selectedApprovable = approvablePapers.filter((p) => selected.has(p.id));
+  const allApprovableSelected =
+    approvablePapers.length > 0 && approvablePapers.every((p) => selected.has(p.id));
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const toggleAll = () =>
+    setSelected(allApprovableSelected ? new Set() : new Set(approvablePapers.map((p) => p.id)));
+  const doApprove = (list: IaQuestionPaper[]) =>
+    approve.mutate(
+      list.map((p) => ({ id: p.id, base_updated_at: p.updated_at })),
+      { onSuccess: () => setSelected(new Set()) }
+    );
+
   return (
     <div className='space-y-4'>
       <div className='flex items-center justify-between gap-2'>
@@ -93,6 +123,26 @@ export function PaperList({ institutionId, filters, canExport, onOpen }: Props) 
           </Button>
         </div>
       </div>
+
+      {/* Bulk approve — approvers only. Select all / N, then Approve. */}
+      {canApprove && approvablePapers.length > 0 && (
+        <div className='flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2'>
+          <label className='flex items-center gap-2 text-sm cursor-pointer select-none'>
+            <Checkbox checked={allApprovableSelected} onCheckedChange={toggleAll} />
+            Select all approvable ({approvablePapers.length})
+          </label>
+          <Button
+            size='sm'
+            disabled={selectedApprovable.length === 0 || approve.isPending}
+            onClick={() => doApprove(selectedApprovable)}
+          >
+            {approve.isPending
+              ? <Loader2 className='h-4 w-4 mr-1 animate-spin' />
+              : <CheckCircle2 className='h-4 w-4 mr-1' />}
+            Approve ({selectedApprovable.length})
+          </Button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className='flex items-center justify-center py-12'>
@@ -124,9 +174,18 @@ export function PaperList({ institutionId, filters, canExport, onOpen }: Props) 
                 }}
                 className='w-full text-left rounded-md border p-3 hover:bg-muted/50 transition-colors flex items-center gap-3 cursor-pointer'
               >
+                {canApprove && isApprovable(p) && (
+                  <span onClick={(e) => e.stopPropagation()} className='shrink-0 flex'>
+                    <Checkbox
+                      checked={selected.has(p.id)}
+                      onCheckedChange={() => toggleOne(p.id)}
+                      aria-label={`Select ${p.course_code}`}
+                    />
+                  </span>
+                )}
                 <FileText className='h-5 w-5 text-muted-foreground shrink-0' />
                 <div className='min-w-0 flex-1'>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     <span className='font-mono text-sm font-medium'>{p.course_code}</span>
                     {p.program_code && (
                       <span className='text-[11px] text-muted-foreground'>· {p.program_code}</span>
@@ -146,10 +205,23 @@ export function PaperList({ institutionId, filters, canExport, onOpen }: Props) 
                     variant='ghost'
                     size='sm'
                     className='h-8 px-2 shrink-0'
-                    title='Download PDF'
-                    onClick={(e) => { e.stopPropagation(); IaPaperService.openPaperPdf(p.id); }}
+                    title={p.authored ? 'Download PDF' : 'Author the paper before exporting'}
+                    disabled={!p.authored}
+                    onClick={(e) => { e.stopPropagation(); IaPaperService.downloadPaperPdf(p.id); }}
                   >
                     <Download className='h-4 w-4' />
+                  </Button>
+                )}
+                {canApprove && isApprovable(p) && (
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className='h-8 px-2 shrink-0 text-emerald-600'
+                    title='Approve this paper'
+                    disabled={approve.isPending}
+                    onClick={(e) => { e.stopPropagation(); doApprove([p]); }}
+                  >
+                    <CheckCircle2 className='h-4 w-4' />
                   </Button>
                 )}
                 <ChevronRight className='h-4 w-4 text-muted-foreground shrink-0' />

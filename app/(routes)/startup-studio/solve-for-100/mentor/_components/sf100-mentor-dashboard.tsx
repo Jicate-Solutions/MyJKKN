@@ -567,7 +567,7 @@ export function SF100MentorDashboard() {
       {/* Tabs + Sort */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="all">All Teams ({sortedEnrollments.length})</TabsTrigger>
             <TabsTrigger value="needs-review">
               Needs Review{needsReview.length > 0 && (

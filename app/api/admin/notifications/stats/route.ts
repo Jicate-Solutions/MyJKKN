@@ -14,17 +14,29 @@ export const GET = withAuth(async (_request, auth) => {
       .from('notifications')
       .select('*', { count: 'exact', head: true });
 
-    // Get unique users reached (distinct user_ids from user_notifications)
-    // Supabase JS client doesn't support COUNT(DISTINCT), so we fetch user_ids and deduplicate
-    const { data: userIdRows } = await supabase
+    // Get unique users reached (EXACT distinct user_id count).
+    // PostgREST has no COUNT(DISTINCT), and a bare .select('user_id') array is
+    // capped at db-max-rows (~1000) — deduplicating that capped page undercounts
+    // distinct users on the ~132k-row fan-out table. Use a SECURITY DEFINER RPC
+    // that returns the exact bigint COUNT(DISTINCT user_id) instead.
+    const { data: uniqueUsersData, error: uniqueUsersError } = await supabase.rpc(
+      'fn_notifications_unique_users_reached'
+    );
+    if (uniqueUsersError) {
+      console.error('Error fetching unique users reached:', uniqueUsersError);
+    }
+    // Scalar bigint arrives as a JS number (or a string for very large values);
+    // Number(...) normalizes both, and ?? 0 guards an errored/null response.
+    const uniqueUsersReached = Number(uniqueUsersData ?? 0);
+
+    // Get total delivered row count (exact) for the read-percentage denominator.
+    // Must be an exact count over the SAME population as totalRead. A bare
+    // .select() array is capped by PostgREST at db-max-rows (~1000), so using
+    // its length undercounts the denominator and can push the ratio above 100%
+    // (observed 278% on prod = 2780 read / 1000 capped).
+    const { count: totalDelivered } = await supabase
       .from('user_notifications')
-      .select('user_id');
-
-    const uniqueUserIds = new Set(userIdRows?.map((row: { user_id: string }) => row.user_id));
-    const uniqueUsersReached = uniqueUserIds.size;
-
-    // Get total row count for read percentage calculation
-    const totalNotificationRows = userIdRows?.length || 0;
+      .select('*', { count: 'exact', head: true });
 
     // Get read notifications count
     const { count: totalRead } = await supabase
@@ -38,9 +50,11 @@ export const GET = withAuth(async (_request, auth) => {
       .select('*', { count: 'exact', head: true })
       .not('acknowledged_at', 'is', null);
 
-    // Calculate read percentage based on total notification rows (not unique users)
-    const readPercentage = totalNotificationRows
-      ? Math.round(((totalRead || 0) / totalNotificationRows) * 100)
+    // Calculate read percentage. Numerator and denominator are both exact counts
+    // over the same user_notifications population, so the ratio can never exceed
+    // 100%. Math.min is a defensive clamp.
+    const readPercentage = totalDelivered
+      ? Math.min(100, Math.round(((totalRead || 0) / totalDelivered) * 100))
       : 0;
 
     return NextResponse.json(

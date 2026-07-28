@@ -69,7 +69,7 @@ function CounterInner() {
               </SelectContent>
             </Select>
             <Input
-              className="flex-1 min-w-64"
+              className="flex-1 min-w-0 sm:min-w-64"
               placeholder={audience === 'learner' ? 'Scan QR / type register number or name…' : 'Type staff name…'}
               value={term}
               onChange={(e) => setTerm(e.target.value)}

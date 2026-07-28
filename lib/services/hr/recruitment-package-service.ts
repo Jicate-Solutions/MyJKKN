@@ -15,6 +15,24 @@ import type {
 } from '@/types/hr-recruitment';
 
 // =====================================================================================
+// Helpers
+// =====================================================================================
+
+/**
+ * The proposed salary is optional. Treat blank / null / undefined as "not decided
+ * yet" and store NULL; reject only a value that was actually supplied but invalid.
+ * Guards against a form sending '' (which Postgres would reject as 22P02 numeric).
+ */
+function normaliseSalary(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : parseFloat(value);
+  if (isNaN(n) || n <= 0) {
+    throw new Error('proposed_monthly_salary must be a positive number when provided');
+  }
+  return n;
+}
+
+// =====================================================================================
 // Recruitment Package Service
 // =====================================================================================
 
@@ -52,14 +70,15 @@ export class RecruitmentPackageService {
   /**
    * Propose a new Monthly Salary package for a candidate.
    * Any HR-authorised user with hr.recruitment.packages.propose permission can call this.
+   *
+   * proposed_monthly_salary is OPTIONAL — a package may be opened without a
+   * figure (breakdown/notes carry the offer). When supplied it must be positive.
    */
   static async proposePackage(
     supabase: SupabaseClient,
     payload: HRRecruitmentCandidatePackageInsert
   ): Promise<HRRecruitmentCandidatePackage> {
-    if (!payload.proposed_monthly_salary || payload.proposed_monthly_salary <= 0) {
-      throw new Error('proposed_monthly_salary must be a positive number');
-    }
+    const monthlySalary = normaliseSalary(payload.proposed_monthly_salary);
 
     const { data, error } = await supabase
       .from('hr_recruitment_candidate_packages')
@@ -67,7 +86,7 @@ export class RecruitmentPackageService {
         candidate_id: payload.candidate_id,
         hr_organization_id: payload.hr_organization_id ?? null,
         proposed_by: payload.proposed_by,
-        proposed_monthly_salary: payload.proposed_monthly_salary,
+        proposed_monthly_salary: monthlySalary,
         proposed_monthly_salary_breakdown: payload.proposed_monthly_salary_breakdown ?? null,
         currency: payload.currency ?? 'INR',
         is_counter_offer: payload.is_counter_offer ?? false,
@@ -155,7 +174,7 @@ export class RecruitmentPackageService {
         candidate_id: newPackage.candidate_id,
         hr_organization_id: newPackage.hr_organization_id ?? parent.hr_organization_id,
         proposed_by: newPackage.proposed_by,
-        proposed_monthly_salary: newPackage.proposed_monthly_salary,
+        proposed_monthly_salary: normaliseSalary(newPackage.proposed_monthly_salary),
         proposed_monthly_salary_breakdown: newPackage.proposed_monthly_salary_breakdown ?? null,
         currency: newPackage.currency ?? parent.currency,
         is_counter_offer: true,

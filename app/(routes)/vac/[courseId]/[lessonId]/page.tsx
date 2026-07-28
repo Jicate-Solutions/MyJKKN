@@ -597,7 +597,7 @@ export default function LessonContentPage({
         </div>
 
         {/* Navigation */}
-        <div className="flex items-center justify-between pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-4">
           {prevLesson ? (
             <Button
               variant="outline"

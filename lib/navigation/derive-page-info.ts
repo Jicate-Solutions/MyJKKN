@@ -56,7 +56,7 @@ const MODULE_PREFIX_MAP: Array<{ prefix: string; module: string }> = [
   { prefix: '/work-pulse', module: 'Work Pulse' },
   { prefix: '/vac', module: 'Value Added Courses' },
   { prefix: '/billing', module: 'Billing' },
-  { prefix: '/staff', module: 'Employee Management' },
+  { prefix: '/staff', module: 'Employee' },
   { prefix: '/hr', module: 'HR' },
   { prefix: '/organizations', module: 'Organization' },
   { prefix: '/system', module: 'System' },

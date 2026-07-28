@@ -51,6 +51,7 @@ export function InstitutionPicker({
   onChange,
   onSelect,
   showAllOption = false,
+  allowAllInstitutions = false,
   hideLabel = false,
   className,
 }: {
@@ -58,13 +59,19 @@ export function InstitutionPicker({
   onChange: (institutionId: string | undefined) => void;
   onSelect?: (option: InstitutionOption) => void;
   showAllOption?: boolean;
+  /**
+   * When true, fetch the FULL institution list even for non-super-admins.
+   * Pass for BoS read-all observers (view-grant holders) — the
+   * /api/institutions/resolve list mode authorizes them server-side.
+   */
+  allowAllInstitutions?: boolean;
   /** When true, render bare select without the "Institution" label — for compact filter rows. */
   hideLabel?: boolean;
   /** Override the trigger width (default `w-[220px]`). */
   className?: string;
 }) {
   const ownCtx = useInstitutionContext();
-  const allCtx = useAllInstitutionContexts();
+  const allCtx = useAllInstitutionContexts({ enabled: allowAllInstitutions });
 
   const institutions = useMemo<InstitutionOption[]>(() => {
     if (allCtx.data && allCtx.data.length > 0) {

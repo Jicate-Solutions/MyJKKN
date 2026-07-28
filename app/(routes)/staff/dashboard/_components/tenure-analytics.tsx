@@ -163,7 +163,7 @@ export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
           <div>
             <CardTitle className='flex items-center gap-2'>
               <Clock className='h-5 w-5' />
@@ -180,7 +180,7 @@ export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
       </CardHeader>
       <CardContent>
         <Tabs defaultValue='distribution' className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='distribution'>Tenure Distribution</TabsTrigger>
             <TabsTrigger value='trends'>New Hires Trend</TabsTrigger>
             <TabsTrigger value='categories'>By Category</TabsTrigger>

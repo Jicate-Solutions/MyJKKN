@@ -51,8 +51,13 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   'Learners Council':        'bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-700',
 
   // People / HR — warm rose
-  'Employee Management':     'bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700',
+  // 'Employee Management' key removed 2026-07-20: that groupLabel was retired
+  // when /staff merged into the HR Management group as the "Employee" row.
   'HR Management':           'bg-gradient-to-br from-rose-500 via-red-500 to-rose-800',
+  // 'Employee Self Service' key removed 2026-07-21 (same day it was added):
+  // that groupLabel was retired when self-service became a "Self Service" row
+  // INSIDE HR Management rather than its own section. A row inherits the
+  // group's tile, so it needs no gradient of its own.
 
   // Living / Wellness — amber / orange
   'Campus Living':           'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700',
@@ -68,6 +73,8 @@ export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   // Finance / Resources — emerald / teal / sky
   'Billing & Accounts':      'bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-700',
   'Resources':               'bg-gradient-to-br from-teal-400 via-cyan-500 to-teal-700',
+  // IMS is sister to Resources — green/emerald blend, distinct from both
+  'IMS':                     'bg-gradient-to-br from-green-400 via-emerald-500 to-teal-700',
   'Service Requests':        'bg-gradient-to-br from-sky-400 via-blue-500 to-sky-700',
 
   // Performance / Compliance — cyan / sky
@@ -130,21 +137,29 @@ export function BottomNavMoreMenu({
   // multi-peer without changing this code — the criterion is data-driven.
   const groupTiles = groups
     .filter((g) => g.menus.length > 0)
-    .map((group) => ({
-      key: group.id,
-      label: group.groupLabel,
-      icon: group.icon,
-      href: group.topLevelPeers[0]?.href ?? group.menus[0].href,
-      hasMultipleModules: group.topLevelPeers.length > 1,
-      // Drill-down content: top-level peers only (Decision C from
-      // /assumption-thrash 2026-04-26). User goes peer → module root →
-      // in-page tabs handle the rest.
-      drillItems: group.topLevelPeers,
-      isActive: group.menus.some(
-        (m) => pathname === m.href || pathname.startsWith(m.href + '/')
-      ),
-      tileGradient: GROUP_TILE_GRADIENTS[group.groupLabel] ?? undefined
-    }));
+    .map((group) => {
+      // Drill-down content. Default (Decision C, /assumption-thrash 2026-04-26):
+      // show top-level peers only — user goes peer → module root → in-page tabs
+      // handle the rest. But a single-parent module (IMS, Billing) has ONE peer
+      // wrapping many submenus and NO in-page tabs to reach them on mobile, so
+      // its peers list would be a dead single row that just navigates away. For
+      // those, drill into the flattened submenus instead so every sub-page is
+      // reachable. Criterion is data-driven: >1 peer → peers; else → submenus.
+      const drillItems =
+        group.topLevelPeers.length > 1 ? group.topLevelPeers : group.menus;
+      return {
+        key: group.id,
+        label: group.groupLabel,
+        icon: group.icon,
+        href: group.topLevelPeers[0]?.href ?? group.menus[0].href,
+        hasMultipleModules: drillItems.length > 1,
+        drillItems,
+        isActive: group.menus.some(
+          (m) => pathname === m.href || pathname.startsWith(m.href + '/')
+        ),
+        tileGradient: GROUP_TILE_GRADIENTS[group.groupLabel] ?? undefined
+      };
+    });
 
   const drillGroup = drillIntoGroupId
     ? groupTiles.find((t) => t.key === drillIntoGroupId) ?? null

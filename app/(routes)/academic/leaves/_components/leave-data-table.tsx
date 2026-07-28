@@ -89,11 +89,11 @@ export function LeavesDataTable({ search }: LeavesDataTableProps) {
   return (
     <div className='space-y-4'>
       {/* Toolbar */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div className='text-sm text-muted-foreground'>
           {metadata.total} leave{metadata.total !== 1 ? 's' : ''} found
         </div>
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           <Button
             variant='outline'
             size='sm'
@@ -176,7 +176,7 @@ export function LeavesDataTable({ search }: LeavesDataTableProps) {
       </div>
 
       {/* Pagination */}
-      <div className='flex items-center justify-between'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <div className='text-sm text-muted-foreground'>
           Page {metadata.page} of {metadata.totalPages || 1}
         </div>

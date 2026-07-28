@@ -22,6 +22,7 @@ export const navMeta = { label: 'Learner Notes', icon: 'ClipboardCheck' } as con
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { LearnerNotesApprovalQueue } from './_components/learner-notes-approval-queue';
+import { AutoPublishedSpotCheck } from './_components/auto-published-spotcheck';
 
 export default function LearnerNotesApprovalPage() {
   return (
@@ -38,6 +39,7 @@ export default function LearnerNotesApprovalPage() {
     >
       <ContentLayout title="Learner Notes — Approval Queue">
         <LearnerNotesApprovalQueue />
+        <AutoPublishedSpotCheck />
       </ContentLayout>
     </SuperAdminOnly>
   );

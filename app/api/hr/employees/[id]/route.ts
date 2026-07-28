@@ -1,68 +1,25 @@
 export const dynamic = 'force-dynamic';
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import type { CookieOptions } from '@supabase/ssr';
+import { withAuth, type AuthContext } from '@/lib/auth/with-auth';
 import { HRPersonService } from '@/lib/services/hr/employee-service';
 
-async function getClient() {
-  const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) { return cookieStore.get(name)?.value; },
-        set(name: string, value: string, options: CookieOptions) {
-          try { cookieStore.set({ name, value, ...options }); } catch {}
-        },
-        remove(name: string, options: CookieOptions) {
-          try { cookieStore.set({ name, value: '', ...options }); } catch {}
-        },
-      },
-    }
-  );
-}
+export const GET = withAuth(
+  async (
+    _request: NextRequest,
+    auth: AuthContext,
+    context?: { params?: Promise<Record<string, string>> }
+  ) => {
+    const params = context?.params ? await context.params : {};
+    const id = params.id;
+    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-async function requireAuth() {
-  const supabase = await getClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) {
-    return { supabase: null, user: null, response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
-  }
-  return { supabase, user, response: null };
-}
+    const person = await HRPersonService.getPersonDetail(auth.supabase, id);
+    if (!person) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ data: person });
+  },
+  { allowApiKey: false, requiredPermission: 'read', requirePermission: 'hr.employees.view' }
+);
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  await connection();
-  try {
-    const { id } = await params;
-    const { supabase, response } = await requireAuth();
-    if (response) return response;
-
-    // All employees now come from staff. The ?source param is kept for
-    // backwards compatibility but always queries staff.
-    const details = await HRPersonService.getStaffDetails(supabase!, id);
-    if (!details) {
-      // Fallback: try fetching the full staff member record
-      const staffMember = await HRPersonService.getStaffMember(supabase!, id);
-      if (!staffMember) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      return NextResponse.json({ data: staffMember });
-    }
-    return NextResponse.json({ data: details });
-  } catch (err) {
-    console.error('[hr/employees/:id] GET error', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 }
-    );
-  }
-}
-
-// DELETE removed — deactivation of non-staff employees via hr_employees table
-// is no longer applicable. Staff deactivation should go through the staff module.
+// DELETE removed — staff deactivation goes through the staff module.

@@ -326,12 +326,21 @@ export async function POST(request: NextRequest) {
     for (const notif of notifications) {
       if (notif.user_ids.length === 0) continue;
 
+      // notifications real columns: body/created_by/targeting/kind are NOT NULL
+      // and there is NO type/message column. The prior insert used {type,
+      // message} so it threw at runtime and no training-win notification was
+      // delivered. Mirror the already-fixed sibling app/api/work-pulse/notify:
+      // body carries the message, created_by anchors to the first recipient,
+      // targeting + the fan-out below deliver it to every affected user.
       const { data: notification } = await supabase
         .from('notifications')
         .insert({
-          type: 'work_pulse',
           title: 'Training Opportunity',
-          message: notif.message,
+          body: notif.message,
+          created_by: notif.user_ids[0],
+          targeting: { type: 'user', user_ids: notif.user_ids },
+          category: 'work_pulse',
+          kind: 'work_item',
           metadata: { source: 'work_pulse_analysis' },
         })
         .select('id')

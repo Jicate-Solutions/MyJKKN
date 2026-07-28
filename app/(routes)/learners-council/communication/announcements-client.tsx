@@ -261,7 +261,7 @@ export function AnnouncementsClient({
                     onChange={(e) => setFormContent(e.target.value)}
                   />
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="text-sm font-medium mb-1 block">Type</label>
                     <Select value={formType} onValueChange={(v) => setFormType(v as AnnouncementType)}>

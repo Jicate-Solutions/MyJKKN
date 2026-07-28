@@ -19,7 +19,15 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Loader2, Plus, Trash2, Users, UserPlus, Crown, Phone } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
 import {
   useEventCommittees,
   useCreateEventCommittee,
@@ -164,19 +172,42 @@ function TaskRow({
 }) {
   const update = useUpdateEventTask(eventId);
   const del = useDeleteEventTask(eventId);
+  const { profile } = useAuth();
   const done = task.status === 'completed';
+
+  // Task-tier editors (tournament committee members: canEditTasks && !canManage) may
+  // tick ONLY their own tasks — mirroring event_tasks' UPDATE policy, which admits a
+  // plain member solely via assigned_to = auth.uid(). Ticking someone else's task
+  // would be filtered by RLS and read as a no-op, so don't offer it. Managers keep
+  // full control, and marathon (where canEditTasks defaults to canManage) is unchanged.
+  const assignedToMe = !!profile?.id && task.assigned_to === profile.id;
+  const editable = canManage || (canEditTasks && assignedToMe);
+
   return (
     <div className="flex items-center gap-2 py-1 text-sm">
       <Checkbox
         checked={done}
-        disabled={!canEditTasks || update.isPending}
+        disabled={!editable || update.isPending}
+        title={
+          editable
+            ? undefined
+            : canEditTasks
+              ? 'Only the member this task is assigned to can tick it'
+              : undefined
+        }
         onCheckedChange={(v) => update.mutate({ id: task.id, dto: { status: v ? 'completed' : 'pending' } })}
       />
       <span className={`min-w-0 flex-1 truncate ${done ? 'text-muted-foreground line-through' : ''}`}>
         {task.title}
       </span>
       {task.assigned_to_name && (
-        <span className="shrink-0 text-[11px] text-muted-foreground">{task.assigned_to_name}</span>
+        <span
+          className={`shrink-0 text-[11px] ${
+            assignedToMe ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground'
+          }`}
+        >
+          {assignedToMe ? 'You' : task.assigned_to_name}
+        </span>
       )}
       {canManage && (
         <Button
@@ -213,14 +244,41 @@ function CommitteeCard({
   const removeGuest = useRemoveExternalMember(eventId);
   const createTask = useCreateEventTask(eventId);
   const [taskTitle, setTaskTitle] = useState('');
+  const [assigneeIdx, setAssigneeIdx] = useState<string>('unassigned');
   const tasks = committee.tasks ?? [];
   const externals = committee.external_members ?? [];
 
+  // Assignable people = internal members picked from the MyJKKN directory, i.e. the
+  // slots where member_ids is index-aligned with member_names (see
+  // EventCommitteeService.addInternalMembers). Legacy free-text committees have
+  // names without ids; those can't be assigned because assigned_to must be an auth
+  // uid for the member to pass event_tasks' UPDATE policy.
+  const memberNames = committee.member_names ?? [];
+  const memberIds = committee.member_ids ?? [];
+  const assignable =
+    memberIds.length === memberNames.length
+      ? memberNames.map((name, i) => ({ idx: String(i), name, id: memberIds[i] }))
+      : [];
+
   const addTask = () => {
     if (!taskTitle.trim()) return;
+    const picked = assignable.find((a) => a.idx === assigneeIdx);
     createTask.mutate(
-      { event_id: eventId, committee_id: committee.id, title: taskTitle.trim() },
-      { onSuccess: () => setTaskTitle('') }
+      {
+        event_id: eventId,
+        committee_id: committee.id,
+        title: taskTitle.trim(),
+        // assigned_to is the auth uid — it is what event_tasks' UPDATE policy
+        // compares against auth.uid(). Without it the assignee cannot tick the task.
+        assigned_to: picked?.id,
+        assigned_to_name: picked?.name,
+      },
+      {
+        onSuccess: () => {
+          setTaskTitle('');
+          setAssigneeIdx('unassigned');
+        },
+      }
     );
   };
 
@@ -320,15 +378,32 @@ function CommitteeCard({
               />
             ))
           )}
-          {canEditTasks && (
-            <div className="mt-2 flex gap-2">
+          {/* Creating tasks is a manage action. It was previously gated on
+              canEditTasks, which showed the box to view-only committee members. */}
+          {canManage && (
+            <div className="mt-2 flex flex-wrap gap-2">
               <Input
-                className="h-8 text-xs"
+                className="h-8 min-w-[8rem] flex-1 text-xs"
                 placeholder="Add a task…"
                 value={taskTitle}
                 onChange={(e) => setTaskTitle(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addTask()}
               />
+              {assignable.length > 0 && (
+                <Select value={assigneeIdx} onValueChange={setAssigneeIdx}>
+                  <SelectTrigger className="h-8 w-[9rem] text-xs">
+                    <SelectValue placeholder="Assign to…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {assignable.map((a) => (
+                      <SelectItem key={a.idx} value={a.idx}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button size="sm" className="h-8" disabled={createTask.isPending || !taskTitle.trim()} onClick={addTask}>
                 <Plus className="h-3.5 w-3.5" />
               </Button>

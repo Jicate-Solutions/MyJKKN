@@ -201,13 +201,13 @@ function CampaignROIPageContent() {
           {/* Campaign List */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Campaign Performance</CardTitle>
                   <CardDescription>{total} campaigns total</CardDescription>
                 </div>
                 <Select value={channelFilter} onValueChange={setChannelFilter}>
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger className="w-[150px] shrink-0">
                     <SelectValue placeholder="All channels" />
                   </SelectTrigger>
                   <SelectContent>
@@ -233,7 +233,7 @@ function CampaignROIPageContent() {
               ) : (
                 <div className="space-y-3">
                   {campaigns.map(campaign => (
-                    <div key={campaign.campaign_id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/30 transition-colors">
+                    <div key={campaign.campaign_id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg border hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-3">
                         <div className={`w-2 h-8 rounded-full ${CHANNEL_COLORS[campaign.channel]}`} />
                         <div>
@@ -246,7 +246,7 @@ function CampaignROIPageContent() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-6 text-sm">
+                      <div className="flex items-center gap-3 sm:gap-6 text-sm flex-wrap">
                         <div className="text-center">
                           <p className="font-medium">{campaign.total_sent}</p>
                           <p className="text-xs text-muted-foreground">Sent</p>

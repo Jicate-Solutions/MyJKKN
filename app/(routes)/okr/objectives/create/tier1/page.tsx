@@ -441,7 +441,7 @@ function Tier1CreatePageInner() {
               {/* Navigation */}
               <Card>
                 <CardContent className="pt-6">
-                  <TabsList className="grid w-full grid-cols-6 h-auto">
+                  <TabsList className="flex w-full justify-start gap-1 overflow-x-auto h-auto sm:grid sm:grid-cols-6 sm:gap-0 sm:overflow-visible">
                     <TabsTrigger value="section1" className="flex-col gap-1 py-2">
                       <Target className="h-4 w-4" />
                       <span className="text-xs">Basic & Context</span>

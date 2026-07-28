@@ -32,7 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { AlertTriangle, ArrowUpDown, ExternalLink, ShieldAlert } from 'lucide-react';
-import { useAtRiskLearners } from '@/hooks/pde/use-pde';
+import { useAtRiskHistory, useAtRiskLearners } from '@/hooks/pde/use-pde';
 import { useVACCourses } from '@/hooks/vac/use-vac';
 import type { RiskLevel } from '@/types/pde';
 
@@ -54,6 +54,25 @@ const RISK_SORT_ORDER: Record<RiskLevel, number> = {
   on_track: 3,
 };
 
+/** Short, unambiguous date for the "First Flagged" column. */
+function formatFlagDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/**
+ * How long this learner has been flagged, in the words an admin uses. Day 0 is
+ * "Flagged today" — not "0 days", which reads like a bug.
+ */
+function formatFlaggedFor(days: number): string {
+  if (days <= 0) return 'Flagged today';
+  if (days === 1) return '1 day';
+  if (days < 30) return `${days} days`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? '1 month+' : `${months} months+`;
+}
+
 export default function AtRiskLearnersPage() {
   const [courseFilter, setCourseFilter] = useState<string | undefined>(undefined);
   const [sortField, setSortField] = useState<'risk' | 'days' | 'score'>('risk');
@@ -62,6 +81,12 @@ export default function AtRiskLearnersPage() {
   const { data: learners, isLoading, isError } = useAtRiskLearners(
     courseFilter && courseFilter !== 'all' ? courseFilter : undefined
   );
+
+  // Flag history recorded by /api/cron/pde-at-risk-flag. Additive on purpose:
+  // the live table above renders exactly as before if this is empty or errors
+  // (cron has not run yet, or the migration is not applied).
+  const { data: history } = useAtRiskHistory();
+  const historyByLearner = new Map((history || []).map((h) => [h.learner_id, h]));
 
   // Sort learners
   const sortedLearners = [...(learners || [])].sort((a, b) => {
@@ -77,7 +102,11 @@ export default function AtRiskLearnersPage() {
 
   const criticalCount = (learners || []).filter(l => l.risk_level === 'critical').length;
   const warningCount = (learners || []).filter(l => l.risk_level === 'warning').length;
-  const strugglingCount = (learners || []).filter(l => l.risk_level === 'struggling').length;
+  // Counts everyone averaging below the pass mark, not just those whose band
+  // happens to be 'struggling'. risk_level is a single-branch CASE where
+  // inactivity outranks score, so an absent-AND-failing learner lands in
+  // 'warning'/'critical' and was previously missing from this figure entirely.
+  const strugglingCount = (learners || []).filter(l => l.is_low_scoring).length;
 
   return (
     <PermissionGuard
@@ -115,7 +144,7 @@ export default function AtRiskLearnersPage() {
         </Breadcrumb>
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <ShieldAlert className="h-6 w-6 text-red-500" />
@@ -123,13 +152,14 @@ export default function AtRiskLearnersPage() {
             </h1>
             <p className="text-muted-foreground">
               Learners who need attention based on inactivity, low scores, or engagement patterns.
+              Flag history is recorded by a check that runs every six hours.
             </p>
           </div>
           <Select
             value={courseFilter || 'all'}
             onValueChange={(v) => setCourseFilter(v === 'all' ? undefined : v)}
           >
-            <SelectTrigger className="w-[240px]">
+            <SelectTrigger className="w-full sm:w-[240px] shrink-0">
               <SelectValue placeholder="Filter by course" />
             </SelectTrigger>
             <SelectContent>
@@ -244,6 +274,8 @@ export default function AtRiskLearnersPage() {
                         <ArrowUpDown className="h-3 w-3 ml-1" />
                       </Button>
                     </TableHead>
+                    <TableHead>First Flagged</TableHead>
+                    <TableHead>Flagged For</TableHead>
                     <TableHead className="w-[140px] text-right">Progress</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -268,12 +300,56 @@ export default function AtRiskLearnersPage() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        {learner.avg_score !== null
-                          ? `${Math.round(learner.avg_score)}%`
-                          : '-'}
+                        {learner.avg_score !== null ? (
+                          `${Math.round(learner.avg_score)}%`
+                        ) : learner.has_assessment_scores === false ? (
+                          <span className="text-muted-foreground" title="No completed assessments yet">
+                            no scores yet
+                          </span>
+                        ) : (
+                          '-'
+                        )}
                       </TableCell>
                       <TableCell>{learner.total_lessons_completed}</TableCell>
-                      <TableCell>{riskBadge(learner.risk_level)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {riskBadge(learner.risk_level)}
+                          {/* Shown only when the band would otherwise hide it —
+                              'struggling' already means "failing", so a second
+                              badge there would be noise. */}
+                          {learner.is_low_scoring && learner.risk_level !== 'struggling' ? (
+                            <Badge variant="destructive" title="Averaging below the pass mark">
+                              Low score
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      {(() => {
+                        const h = historyByLearner.get(learner.learner_id);
+                        return (
+                          <>
+                            <TableCell className="text-sm">
+                              {h ? (
+                                formatFlagDate(h.first_flagged_at)
+                              ) : (
+                                <span className="text-muted-foreground">Not yet recorded</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {h ? (
+                                <span
+                                  className={h.days_since_first_flag >= 14 ? 'font-medium text-red-600' : ''}
+                                  title={`${h.flag_count} flag${h.flag_count === 1 ? '' : 's'} recorded since ${formatFlagDate(h.first_flagged_at)}`}
+                                >
+                                  {formatFlaggedFor(h.days_since_first_flag)}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          </>
+                        );
+                      })()}
                       <TableCell className="text-right">
                         <Link
                           href={`/vac/progress?user=${learner.learner_id}`}

@@ -40,12 +40,19 @@ export const columns: ColumnDef<AdmissionYear>[] = [
     cell: ({ row }) => {
       const ay = row.original;
       return (
-        <Link
-          href={`/admission/settings/years/${ay.id}`}
-          className='font-medium text-primary hover:underline'
-        >
-          {ay.admission_year_name}
-        </Link>
+        <div className='flex items-center gap-2'>
+          <Link
+            href={`/admission/settings/years/${ay.id}`}
+            className='font-medium text-primary hover:underline'
+          >
+            {ay.admission_year_name}
+          </Link>
+          {ay.is_current && (
+            <Badge variant='outline' className='border-primary text-primary'>
+              Current
+            </Badge>
+          )}
+        </div>
       );
     }
   },

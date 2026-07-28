@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { QuestionRichEditor } from '@/components/question-papers/question-rich-editor';
 import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -69,12 +69,27 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
   editsRef.current = edits;
   const dirtyRef = useRef<Set<string>>(new Set());
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest server updated_at — sent as the optimistic-save guard (base_updated_at).
+  const baseUpdatedAtRef = useRef<string | undefined>(undefined);
+  baseUpdatedAtRef.current = paper?.updated_at;
+  // Which paper id we've already seeded — so we seed ONCE per paper, never again.
+  const seededPaperIdRef = useRef<string | null>(null);
+  const [isEditsSeeded, setIsEditsSeeded] = useState(false);
 
-  // Seed local state whenever the server paper (re)loads.
-  useEffect(() => {
-    if (!paper?.ia_paper_questions) return;
+  // Seed local edit state ONCE per paper (layout effect — before paint, so the
+  // user can't type into empty fields that get wiped a frame later). It must NOT
+  // re-seed on later server updates: every autosave replaces paper.questions in
+  // the cache, and re-seeding then would overwrite in-progress keystrokes and
+  // reset the editor cursor. `edits` is the source of truth while authoring.
+  useLayoutEffect(() => {
+    if (!paper?.id || !paper?.questions) {
+      setIsEditsSeeded(false);
+      return;
+    }
+    if (seededPaperIdRef.current === paper.id) return;
+    seededPaperIdRef.current = paper.id;
     const seed: Record<string, Editable> = {};
-    for (const q of paper.ia_paper_questions) {
+    for (const q of paper.questions) {
       seed[q.id] = {
         id: q.id,
         question_text: q.question_text ?? '',
@@ -87,11 +102,26 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
     }
     setEdits(seed);
     dirtyRef.current = new Set();
-  }, [paper?.id, paper?.ia_paper_questions]);
+    setIsEditsSeeded(true);
+  }, [paperId, paper?.id, paper?.questions]);
 
-  const partById = useMemo(() => {
+  // Opening a different paper must allow a fresh seed (skip the initial mount —
+  // the layout effect handles first load).
+  const prevPaperIdRef = useRef(paperId);
+  useEffect(() => {
+    if (prevPaperIdRef.current === paperId) return;
+    prevPaperIdRef.current = paperId;
+    seededPaperIdRef.current = null;
+    setIsEditsSeeded(false);
+    setEdits({});
+    dirtyRef.current = new Set();
+  }, [paperId]);
+
+  // Questions in the JSONB column carry part_label (not part_id), so match the
+  // template part by label.
+  const partByLabel = useMemo(() => {
     const map = new Map<string, IaTemplatePart>();
-    for (const p of paper?.template_parts ?? []) map.set(p.id, p);
+    for (const p of paper?.template_parts ?? []) map.set(p.part_label, p);
     return map;
   }, [paper?.template_parts]);
 
@@ -99,35 +129,46 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
   const grouped = useMemo(() => {
     const groups: { part?: IaTemplatePart; label: string; questions: IaPaperQuestion[] }[] = [];
     const byLabel = new Map<string, number>();
-    for (const q of paper?.ia_paper_questions ?? []) {
+    for (const q of paper?.questions ?? []) {
       const label = q.part_label ?? '—';
       if (!byLabel.has(label)) {
         byLabel.set(label, groups.length);
-        groups.push({ part: q.part_id ? partById.get(q.part_id) : undefined, label, questions: [] });
+        groups.push({ part: partByLabel.get(label), label, questions: [] });
       }
       groups[byLabel.get(label)!].questions.push(q);
     }
     return groups;
-  }, [paper?.ia_paper_questions, partById]);
+  }, [paper?.questions, partByLabel]);
 
   const isEditable = (paper?.status === 'draft' || paper?.status === 'submitted') && canEnter;
 
   const enteredMarks = useMemo(() => {
     let total = 0;
-    for (const q of paper?.ia_paper_questions ?? []) {
+    for (const q of paper?.questions ?? []) {
       if (q.is_choice_alternative) continue; // don't double-count "(OR)" branches
       total += Number(edits[q.id]?.marks ?? q.marks ?? 0);
     }
     return total;
-  }, [paper?.ia_paper_questions, edits]);
+  }, [paper?.questions, edits]);
 
   const flushSave = useCallback(() => {
     if (dirtyRef.current.size === 0) return;
+    // Serialize: never overlap saves, or a second save would 409 against the first's
+    // not-yet-committed updated_at. Retry shortly instead.
+    if (saveMutation.isPending) {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = setTimeout(() => flushSaveRef.current(), 400);
+      return;
+    }
     const ids = [...dirtyRef.current];
     dirtyRef.current = new Set();
     const questions = ids.map((id) => editsRef.current[id]).filter(Boolean).map(toDto);
-    if (questions.length > 0) saveMutation.mutate({ questions });
+    if (questions.length > 0) {
+      saveMutation.mutate({ questions, base_updated_at: baseUpdatedAtRef.current });
+    }
   }, [saveMutation]);
+  const flushSaveRef = useRef(flushSave);
+  flushSaveRef.current = flushSave;
 
   const scheduleAutosave = useCallback(() => {
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
@@ -165,12 +206,16 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
       const ids = [...dirtyRef.current];
       dirtyRef.current = new Set();
       const questions = ids.map((id) => editsRef.current[id]).filter(Boolean).map(toDto);
-      saveMutation.mutate({ status, ...(questions.length > 0 ? { questions } : {}) });
+      saveMutation.mutate({
+        status,
+        base_updated_at: baseUpdatedAtRef.current,
+        ...(questions.length > 0 ? { questions } : {}),
+      });
     },
     [saveMutation]
   );
 
-  if (isLoading) {
+  if (isLoading || !isEditsSeeded) {
     return (
       <div className='flex items-center justify-center py-16'>
         <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
@@ -210,7 +255,7 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
             <ArrowLeft className='h-4 w-4 mr-1' /> Back
           </Button>
           <div className='min-w-0 flex-1'>
-            <div className='flex items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-2'>
               <span className='font-mono text-sm font-semibold'>{paper.course_code}</span>
               {paper.set_label && <Badge variant='outline'>Set {paper.set_label}</Badge>}
               <Badge variant='outline' className={cn('border', statusMeta.className)}>
@@ -285,13 +330,13 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
                       </div>
                     </div>
 
-                    <Textarea
+                    <QuestionRichEditor
                       value={e?.question_text ?? ''}
                       disabled={!isEditable}
                       placeholder='Enter the question…'
-                      onChange={(ev) => patch(q.id, 'question_text', ev.target.value)}
+                      onChange={(html) => patch(q.id, 'question_text', html)}
                       onBlur={flushSave}
-                      className='text-sm min-h-[60px]'
+                      className='text-sm'
                     />
 
                     {/* MCQ options */}
@@ -362,7 +407,7 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
         )}
         <div className='ml-auto flex flex-wrap items-center gap-2'>
           {canExport && (
-            <Button variant='outline' size='sm' onClick={() => IaPaperService.openPaperPdf(paper.id)}>
+            <Button variant='outline' size='sm' onClick={() => IaPaperService.downloadPaperPdf(paper.id)}>
               <FileDown className='h-4 w-4 mr-1' /> PDF
             </Button>
           )}

@@ -218,7 +218,7 @@ function StaffDashboardPageInner() {
         </Breadcrumb>
 
         {/* Header */}
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div>
             <h1 className='text-3xl font-bold flex items-center gap-3'>
               <BarChart3 className='h-8 w-8 text-primary' />
@@ -261,7 +261,7 @@ function StaffDashboardPageInner() {
 
         {/* Dashboard Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-6'>
-          <TabsList className='grid w-full grid-cols-2 lg:grid-cols-6'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-6 lg:gap-0 lg:overflow-visible'>
             <TabsTrigger value='overview'>Overview</TabsTrigger>
             <TabsTrigger value='organizational'>Organizational</TabsTrigger>
             <TabsTrigger value='demographics'>Demographics</TabsTrigger>

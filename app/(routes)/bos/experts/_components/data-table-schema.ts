@@ -9,7 +9,10 @@ export const expertSearchParamsSchema = z.object({
 
   // Expert-specific filters
   category: z
-    .enum(['university_nominee', 'subject_expert', 'industry_expert', 'alumni', 'startup'])
+    .enum([
+      'university_nominee', 'subject_expert', 'academic_expert',
+      'industry_expert', 'alumni', 'startup', 'student',
+    ])
     .optional(),
   is_active: z.enum(['true', 'false']).optional(),
   institutionsId: z.string().optional(),

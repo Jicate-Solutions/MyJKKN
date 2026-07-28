@@ -13,6 +13,8 @@ import {
   useIssueImsIndentItem,
   useMarkImsIndentIssued,
   useConfirmImsIndentDelivery,
+  useImsHodPendingIndents,
+  useLocalApproveImsIndent,
 } from '@/hooks/ims/use-ims-indents';
 import {
   INDENT_STATUS_CONFIG,
@@ -88,6 +90,16 @@ function IndentDetailPageInner() {
   const markIssued = useMarkImsIndentIssued();
   const confirmDelivery = useConfirmImsIndentDelivery();
 
+  // Phase D: HOD approval on the detail page. Reuses the HOD-queue query
+  // (shared React Query cache with /ims/indents/hod-approvals) — membership in
+  // that list already proves "pending_local_approval AND I head this dept",
+  // so no separate headship lookup is needed. Only fetched while relevant.
+  const { data: hodQueue = [] } = useImsHodPendingIndents(
+    indent?.status === 'pending_local_approval' ? profile?.id : undefined
+  );
+  const localApprove = useLocalApproveImsIndent();
+  const isHodApprover = hodQueue.some((q) => q.id === id);
+
   if (isLoading) {
     return (
       <ContentLayout title="Indent Details">
@@ -143,6 +155,15 @@ function IndentDetailPageInner() {
     }
   };
 
+  const handleHodApprove = async () => {
+    try {
+      await localApprove.mutateAsync({ id, userId: profile?.id || '' });
+      toast.success('Approved — forwarded to store admin');
+    } catch {
+      toast.error('Failed to approve indent');
+    }
+  };
+
   const handleReject = async () => {
     if (!rejectReason.trim()) {
       toast.error('Please provide a rejection reason');
@@ -169,11 +190,11 @@ function IndentDetailPageInner() {
       return;
     }
     try {
-      await issueItem.mutateAsync({ itemId, quantity: qty });
+      await issueItem.mutateAsync({ itemId, quantity: qty, userId: profile?.id || '' });
       toast.success('Item issued successfully');
       setIssueQuantities((prev) => ({ ...prev, [itemId]: 0 }));
-    } catch {
-      toast.error('Failed to issue item');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to issue item');
     }
   };
 
@@ -216,7 +237,7 @@ function IndentDetailPageInner() {
               <p className="text-muted-foreground">Indent Request Details</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isEditable && (
               <Button
                 variant="outline"
@@ -235,6 +256,26 @@ function IndentDetailPageInner() {
                 >
                   <CheckCircle className="mr-2 h-4 w-4" />
                   Approve
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => setRejectDialogOpen(true)}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Reject
+                </Button>
+              </>
+            )}
+            {/* Phase D: HOD step — reuses the same reject dialog below */}
+            {isHodApprover && (
+              <>
+                <Button
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={handleHodApprove}
+                  disabled={localApprove.isPending}
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Approve (HOD)
                 </Button>
                 <Button
                   variant="destructive"

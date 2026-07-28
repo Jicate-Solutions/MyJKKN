@@ -324,11 +324,11 @@ export function TemplateManagerTab({ institutionId }: { institutionId: string })
         </p>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
           {(templates || []).length} template{(templates || []).length !== 1 ? 's' : ''} found
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
@@ -362,15 +362,15 @@ export function TemplateManagerTab({ institutionId }: { institutionId: string })
           {(templates || []).map((template) => (
             <Card key={template.id || template.name}>
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-3 min-w-0">
                     <CardTitle className="text-base font-semibold">
                       {template.name}
                     </CardTitle>
                     <TemplatStatusBadge status={template.status} />
                     <CategoryBadge category={template.category} />
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <Badge variant="outline" className="text-xs">
                       {template.language}
                     </Badge>

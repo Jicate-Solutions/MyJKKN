@@ -215,7 +215,7 @@ function UserDashboardInner() {
             </p>
           </div>
 
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2'>
             <Button
               variant='outline'
               size='sm'
@@ -386,7 +386,7 @@ function UserDashboardInner() {
               onValueChange={setActiveTab}
               className='space-y-6'
             >
-              <TabsList className='grid w-full grid-cols-5'>
+              <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-5 sm:gap-0 sm:overflow-visible'>
                 <TabsTrigger value='overview'>Overview</TabsTrigger>
                 <TabsTrigger value='analytics'>Analytics</TabsTrigger>
                 <TabsTrigger value='roles'>Roles</TabsTrigger>

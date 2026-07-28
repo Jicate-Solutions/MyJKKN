@@ -84,7 +84,7 @@ export function RefundInitiateDialog({ studentId, institutionId, institutionName
         <div className='space-y-4'>
           <div className='space-y-2'>
             <Label>Refund Type *</Label>
-            <RadioGroup value={refundType} onValueChange={(v) => setRefundType(v as RefundType)} className='flex gap-6'>
+            <RadioGroup value={refundType} onValueChange={(v) => setRefundType(v as RefundType)} className='flex flex-wrap gap-x-6 gap-y-2'>
               <label className='flex items-center gap-2 text-sm'><RadioGroupItem value='adjustment' />Adjustment (overpayment/correction)</label>
               <label className='flex items-center gap-2 text-sm'><RadioGroupItem value='withdrawal' />Withdrawal (student leaving)</label>
             </RadioGroup>
@@ -136,7 +136,7 @@ export function RefundInitiateDialog({ studentId, institutionId, institutionName
               institutionName={institutionName} requestRef={`draft-${studentId}`} />
           </div>
 
-          <div className='flex items-center justify-between pt-2 border-t'>
+          <div className='flex flex-wrap items-center justify-between gap-3 pt-2 border-t'>
             <p className='text-sm font-semibold'>Total refund: ₹{total.toLocaleString('en-IN')}</p>
             <div className='flex gap-2'>
               <Button variant='outline' onClick={() => setOpen(false)} disabled={initiate.isPending}>Cancel</Button>

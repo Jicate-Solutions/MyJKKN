@@ -267,7 +267,7 @@ export function VenuesDashboard({ eventId }: VenuesDashboardProps) {
       </div>
 
       <Tabs defaultValue="build_day">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="build_day">Build Day (Sunday)</TabsTrigger>
           <TabsTrigger value="demo_day">Demo Day (Monday)</TabsTrigger>
         </TabsList>

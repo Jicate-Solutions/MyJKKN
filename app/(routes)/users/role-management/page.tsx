@@ -244,7 +244,7 @@ function RoleManagementPageInner() {
         </Alert>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-          <TabsList className='grid h-auto w-full grid-cols-1 gap-1 sm:h-9 sm:grid-cols-3 sm:gap-0'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:h-9 sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='roles' className='flex items-center gap-2'>
               <Users className='h-4 w-4' />
               Role Management
@@ -266,7 +266,7 @@ function RoleManagementPageInner() {
           </TabsList>
 
           <TabsContent value='roles' className='space-y-6'>
-            <div className='flex items-center gap-4'>
+            <div className='flex flex-wrap items-center gap-2 sm:gap-4'>
               <Button
                 variant='outline'
                 onClick={handleMigratePermissions}

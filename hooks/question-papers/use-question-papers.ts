@@ -5,6 +5,7 @@ import { academicKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import type {
   GeneratePapersDto,
+  IaQuestionPaperDetail,
   QuestionPaperListFilters,
   SavePaperDto,
 } from '@/types/ia-question-paper';
@@ -96,9 +97,48 @@ export function useSavePaper(paperId: string | undefined) {
   return useMutation({
     mutationFn: (dto: SavePaperDto) => IaPaperService.savePaper(paperId!, dto),
     onSuccess: (updated) => {
-      // Write the server row straight into the detail cache; refresh the list.
-      queryClient.setQueryData(academicKeys.questionPapers.detail(paperId ?? ''), updated);
+      // MERGE into the detail cache — the save response carries questions/status/
+      // updated_at but NOT template_parts/course_outcomes (GET-only), so a full
+      // replace would blank the authoring grid's parts and CO options.
+      queryClient.setQueryData(
+        academicKeys.questionPapers.detail(paperId ?? ''),
+        (prev: IaQuestionPaperDetail | undefined) =>
+          prev ? { ...prev, ...updated } : updated
+      );
       queryClient.invalidateQueries({ queryKey: academicKeys.questionPapers.list() });
+    },
+    onError: (e: Error) => {
+      // Optimistic-guard conflict: tell the user to reload; keep their edits.
+      if (/conflict/i.test(e.message)) {
+        toast.error('This paper was changed elsewhere. Reload before saving again.');
+      } else {
+        toast.error(e.message);
+      }
+    },
+  });
+}
+
+/**
+ * Approve one or more papers (bulk or individual). Each is an independent PUT
+ * status='approved'; partial failures are tolerated and summarised. Approving
+ * locks the paper's questions from further edits (enforced COE-side).
+ */
+export function useApprovePapers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (papers: { id: string; base_updated_at?: string }[]) => {
+      const results = await Promise.allSettled(
+        papers.map((p) =>
+          IaPaperService.savePaper(p.id, { status: 'approved', base_updated_at: p.base_updated_at })
+        )
+      );
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      return { ok, fail: results.length - ok };
+    },
+    onSuccess: ({ ok, fail }) => {
+      if (ok > 0) toast.success(`Approved ${ok} paper${ok === 1 ? '' : 's'}${fail ? `, ${fail} failed` : ''}`);
+      else if (fail > 0) toast.error(`Could not approve ${fail} paper${fail === 1 ? '' : 's'}`);
+      queryClient.invalidateQueries({ queryKey: academicKeys.questionPapers.all });
     },
     onError: (e: Error) => toast.error(e.message),
   });
