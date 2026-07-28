@@ -514,8 +514,17 @@ export async function getNotification(
 
 export async function createNotification(
   dto: CreateNotificationDto,
-  actorId?: string
+  actorId?: string,
+  client?: SupabaseClient
 ): Promise<Notification> {
+  // Server callers MUST pass their session-bound client. The module-level
+  // `supabase` here is the BROWSER singleton: imported into a route handler it
+  // carries no session, so every query runs as `anon` — the notifications RLS
+  // then rejects the write (INSERT needs is_super_admin()/is_admin(auth.uid()))
+  // and the trailing .select() calls fn_notification_is_for_user, which anon
+  // may not EXECUTE ("permission denied for function"). Same pattern as the
+  // other client-accepting helpers in this file.
+  const db = client ?? supabase;
   // Map the legacy DTO onto the REAL public.notifications columns. The table
   // has NO message/type/user_id/channels/status/is_read/is_archived columns —
   // those belong to the per-recipient user_notifications table or to metadata.
@@ -527,7 +536,7 @@ export async function createNotification(
   // null or a zero uuid.
   const createdBy = actorId ?? dto.user_id;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notifications')
     .insert({
       title: dto.title,
@@ -563,7 +572,7 @@ export async function createNotification(
   // Mirror into user_notifications so getNotifications() (which queries that
   // junction table) can surface this notification in the bell/inbox UI.
   if (dto.user_id) {
-    const { error: ujError } = await (supabase as any)
+    const { error: ujError } = await (db as any)
       .from('user_notifications')
       .insert({ user_id: dto.user_id, notification_id: notification.id });
     if (ujError) console.error('user_notifications insert failed:', ujError);
