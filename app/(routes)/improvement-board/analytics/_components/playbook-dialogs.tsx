@@ -293,3 +293,48 @@ export function HistoryDialog({
     </Dialog>
   );
 }
+
+export function ConfirmDeleteDialog({
+  areaLabel,
+  artifactType,
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  areaLabel: string;
+  artifactType: ArtifactType;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onConfirm: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    setBusy(true);
+    try {
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete this playbook?</DialogTitle>
+          <DialogDescription>
+            This removes the {LABEL[artifactType]} for {areaLabel}, including its saved
+            history. This cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button className="bg-rose-600 hover:bg-rose-700" onClick={confirm} disabled={busy}>
+            {busy ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

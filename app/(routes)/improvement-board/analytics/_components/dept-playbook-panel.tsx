@@ -22,10 +22,16 @@ import {
   Eye,
   History,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EditArtifactDialog } from './edit-artifact-dialog';
-import { ViewPlaybookDialog, RequestChangesDialog, HistoryDialog } from './playbook-dialogs';
+import {
+  ViewPlaybookDialog,
+  RequestChangesDialog,
+  HistoryDialog,
+  ConfirmDeleteDialog,
+} from './playbook-dialogs';
 
 // Kept inline so this panel builds standalone (the matching backend types live
 // in lib/services/mba-dept-artifacts, shipped in the drafting-engine PR).
@@ -73,6 +79,13 @@ const STATUS_LABEL: Record<string, string> = {
   approved: 'Approved',
   needs_changes: 'Changes requested',
 };
+
+// Approved playbooks are nudged for re-review after ~6 months.
+const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 182;
+function isStale(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  return Date.now() - new Date(iso).getTime() > SIX_MONTHS_MS;
+}
 
 export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const [byType, setByType] = useState<Partial<Record<ArtifactType, MbaDeptArtifact>>>({});
@@ -175,21 +188,59 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     [areaId, refetch],
   );
 
+  // Draft all three at once — handy for a brand-new department. Skips locked
+  // (approved) ones and runs the rest concurrently, reusing draft()'s per-type
+  // busy + failure handling.
+  const draftAll = useCallback(async () => {
+    await Promise.all(
+      ARTIFACT_TYPES.filter((t) => byType[t]?.status !== 'approved').map((t) => draft(t)),
+    );
+  }, [byType, draft]);
+
+  const deleteArtifact = useCallback(
+    async (type: ArtifactType) => {
+      await rpcClient().rpc('fn_mba_dept_artifact_delete', {
+        p_area_id: areaId,
+        p_artifact_type: type,
+      });
+      setDelType(null);
+      await refetch();
+    },
+    [areaId, refetch],
+  );
+
+  const anyBusy = Object.values(busy).some(Boolean);
+
   // Which artifact type has a dialog open (null = none).
   const [editType, setEditType] = useState<ArtifactType | null>(null);
   const [viewType, setViewType] = useState<ArtifactType | null>(null);
   const [reqType, setReqType] = useState<ArtifactType | null>(null);
   const [histType, setHistType] = useState<ArtifactType | null>(null);
+  const [delType, setDelType] = useState<ArtifactType | null>(null);
 
   return (
     <Card className="border-dashed">
       <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-violet-500" />
-          <h3 className="text-sm font-semibold">Department Playbook</h3>
-          <Badge variant="outline" className="text-xs">
-            AI draft · human approves
-          </Badge>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-violet-500" />
+            <h3 className="text-sm font-semibold">Department Playbook</h3>
+            <Badge variant="outline" className="text-xs">
+              AI draft · human approves
+            </Badge>
+          </div>
+          {canManage && ARTIFACT_TYPES.some((t) => byType[t]?.status !== 'approved') && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 text-xs"
+              disabled={anyBusy}
+              onClick={() => void draftAll()}
+            >
+              <Sparkles className="mr-1 h-3 w-3" />
+              Draft all three
+            </Button>
+          )}
         </div>
         <p className="text-muted-foreground text-xs">
           AI proposes a starter organogram, SOP and workflow for {areaLabel}. A
@@ -221,6 +272,15 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               {status === 'needs_changes' && art?.review_notes && (
                 <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
                   Changes requested: {art.review_notes}
+                </p>
+              )}
+
+              {status === 'approved' && art?.reviewed_at && (
+                <p className="text-muted-foreground mb-2 text-[11px]">
+                  Approved {new Date(art.reviewed_at).toLocaleDateString()}
+                  {isStale(art.reviewed_at) && (
+                    <span className="ml-1 font-medium text-amber-600">· time to review</span>
+                  )}
                 </p>
               )}
 
@@ -324,6 +384,18 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                     A manager can draft this.
                   </p>
                 )}
+
+                {canManage && art && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-destructive ml-auto h-7 px-2 text-xs"
+                    onClick={() => setDelType(type)}
+                    aria-label="Delete this playbook"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                )}
               </div>
             </div>
           );
@@ -378,6 +450,18 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
           onOpenChange={(o) => {
             if (!o) setHistType(null);
           }}
+        />
+      )}
+
+      {delType && (
+        <ConfirmDeleteDialog
+          areaLabel={areaLabel}
+          artifactType={delType}
+          open={delType !== null}
+          onOpenChange={(o) => {
+            if (!o) setDelType(null);
+          }}
+          onConfirm={() => deleteArtifact(delType)}
         />
       )}
     </Card>
