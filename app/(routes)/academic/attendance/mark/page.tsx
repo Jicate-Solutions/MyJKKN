@@ -1471,6 +1471,28 @@ export default function AttendanceMarkPage() {
         }
       };
 
+      // Guard: never silently save a period with zero students recorded. Without
+      // this, a roster that failed to load (RLS/timing/network race) or a
+      // subdivided group whose student_ids no longer match the loaded roster
+      // still produces a "saved successfully" toast plus a permanently empty
+      // report (0 Total/Present/Absent, red 0.0%) that reads as a false
+      // low-attendance alert right after a successful save.
+      const periodEntry = attendancePayload[periodId || 'default'];
+      const savedStudentCount =
+        periodEntry.students.length > 0
+          ? periodEntry.students.length
+          : (periodEntry.groups || []).reduce(
+              (sum: number, group: any) => sum + (group.students?.length || 0),
+              0
+            );
+
+      if (savedStudentCount === 0) {
+        toast.error(
+          'No learners found for this class. Attendance was not saved — please refresh and try again.'
+        );
+        return;
+      }
+
       // Debug: Log the payload being sent
 
       // Updated: 2025-10-25 - Add practical period support with batch section_ids
