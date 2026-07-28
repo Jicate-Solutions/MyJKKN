@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Plus, X } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow';
@@ -69,6 +70,12 @@ function asArray(v: unknown): Record<string, unknown>[] {
 function str(v: unknown): string {
   return typeof v === 'string' ? v : v == null ? '' : String(v);
 }
+function errMsg(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) {
+    return str((e as { message?: unknown }).message);
+  }
+  return str(e);
+}
 
 export function EditArtifactDialog({
   areaId,
@@ -112,12 +119,17 @@ export function EditArtifactDialog({
       const supabase = createClientSupabaseClient() as unknown as {
         rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
       };
-      await supabase.rpc('fn_mba_dept_artifact_approve', {
+      const { error } = await supabase.rpc('fn_mba_dept_artifact_approve', {
         p_area_id: areaId,
         p_artifact_type: artifactType,
         p_content: edited,
         p_review_notes: null,
       });
+      if (error) {
+        // Keep the dialog open so the manager's edits are preserved and retryable.
+        toast.error(`Couldn't approve — ${errMsg(error) || 'please try again.'}`);
+        return;
+      }
       onOpenChange(false);
       onApproved();
     } finally {
