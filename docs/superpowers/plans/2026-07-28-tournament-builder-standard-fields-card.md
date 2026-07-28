@@ -10,6 +10,22 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-28-tournament-builder-standard-fields-card-design.md`
 
+> **⚠️ Amended during execution, 2026-07-28 — read before trusting the code blocks below.**
+>
+> This plan was written and executed with a one-line `StandardFieldsNote` in the
+> preview column. Partway through Task 2 the requester rejected that: a panel
+> titled "Preview — what registrants will see" has to actually show the fields.
+>
+> **`StandardFieldsNote` does not exist.** It was replaced by
+> `StandardFieldsPreview`, which renders the full field list styled like a
+> previewed custom section. Every `StandardFieldsNote` reference below — Task 1
+> Steps 1 and 3, Task 2 Steps 1, 3, 5 — is superseded; see the spec's
+> "Revision" note and the shipped `standard-fields-card.tsx` for what was
+> actually built. Task counts changed too: 5 tests in Task 1, 4 in Task 2.
+>
+> The steps are left as written because they record the order the work happened
+> in. Nothing else about the plan changed.
+
 ## Global Constraints
 
 - **Read-only.** The standard fields must not become editable, toggleable, reorderable, or relabellable. No switches, no inputs, no drag handles on them.

@@ -64,31 +64,44 @@ const STANDARD_FIELDS = [
 ] as const
 ```
 
-Rendered as a `Card` with a lock affordance per row, matching the surrounding
-builder styling. Copy states plainly that these are built in and should not be
-re-created as custom fields.
+Two exported renderers share that one constant:
 
-The list mirrors the JSX order in `register-form.tsx` so the card reads in the
-same sequence a registrant meets the fields.
+- `StandardFieldsCard` — a `Card` with a lock affordance per row, matching the
+  surrounding builder styling. Copy states plainly that these are built in and
+  should not be re-created as custom fields.
+- `StandardFieldsPreview` — the same fields styled like a previewed custom
+  section (bold section title, then the fields), so the preview panel reads as
+  one continuous form.
+
+The list mirrors the JSX order in `register-form.tsx` so both read in the same
+sequence a registrant meets the fields.
 
 ### Placement
 
-Two locations, deliberately weighted differently, in
-`registration-form-editor.tsx`:
+Two locations in `registration-form-editor.tsx`, both showing the full field
+list:
 
-**Builder column** — the full card, above the sections list and above the
+**Builder column** — `StandardFieldsCard`, above the sections list and the
 "Add section" button. This is where an organizer decides what to create, so this
 is where the "don't re-create these" message belongs.
 
-**Preview column** — not the card. A single muted line above the previewed
-sections:
+**Preview column** — `StandardFieldsPreview`, directly under the
+"Preview — what registrants will see" heading and above the previewed sections.
+Renders unconditionally: the standard fields are collected whether or not custom
+fields are enabled.
 
-> Registrants fill the standard fields (division, name, college, roster,
-> contact) before these.
+Why a second renderer rather than reusing the card: inside a panel titled
+"what registrants will see", a bordered admin card reads as chrome rather than as
+part of the form. The preview variant drops the card frame and adopts the
+previewed sections' typography instead.
 
-The panel is titled "Preview — what registrants will see". Omitting any mention
-of the standard fields makes that title inaccurate; repeating the whole card
-there is noise. One line resolves both.
+Neither variant renders a live input. The fields are fixed, so a control the
+organizer could type into would imply an editability that does not exist.
+
+> **Revision, 2026-07-28.** The first version of this design put only a
+> one-line note in the preview column, on the reasoning that repeating the list
+> would be noise. Rejected on review by the requester: a panel titled "what
+> registrants will see" has to actually show them. Full list in both columns.
 
 ### Data flow
 
@@ -117,7 +130,7 @@ complexity on every read. Mitigation is a cross-reference comment in both files:
 
 - `npm run typecheck` clean.
 - Visual check of the builder page: card renders above sections in the builder
-  column; the one-line note renders above the preview sections.
+  column; the preview list renders above the preview sections.
 - Confirm the public registration form is byte-for-byte unchanged — no file
   under `app/p/tournament/` is touched by this work.
 
