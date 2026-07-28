@@ -17,6 +17,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Plus, X } from 'lucide-react';
@@ -49,18 +50,25 @@ const LIST_KEY: Record<ArtifactType, string> = {
   sop: 'steps',
   workflow: 'stages',
 };
-const FIELDS: Record<ArtifactType, Array<{ key: string; label: string; people?: boolean }>> = {
+// `long` marks a free-text description field. Those hold a sentence or more, so
+// a single-line input truncated them mid-word ("Document which library resources,
+// locat…") — a manager could not read the text they were being asked to approve,
+// let alone edit its tail. They render as a wrapping, auto-growing textarea.
+const FIELDS: Record<
+  ArtifactType,
+  Array<{ key: string; label: string; people?: boolean; long?: boolean }>
+> = {
   organogram: [
     { key: 'title', label: 'Role' },
     { key: 'holder', label: 'Who holds it', people: true },
   ],
   sop: [
     { key: 'title', label: 'Step' },
-    { key: 'detail', label: 'What happens' },
+    { key: 'detail', label: 'What happens', long: true },
   ],
   workflow: [
     { key: 'name', label: 'Stage' },
-    { key: 'action', label: 'What happens' },
+    { key: 'action', label: 'What happens', long: true },
   ],
 };
 
@@ -169,12 +177,21 @@ export function EditArtifactDialog({
               {fields.map((f) => (
                 <div key={f.key}>
                   <Label className="text-muted-foreground text-xs">{f.label}</Label>
-                  <Input
-                    value={str(row[f.key])}
-                    list={f.people ? `people-${artifactType}` : undefined}
-                    onChange={(e) => updateRow(i, f.key, e.target.value)}
-                    className="h-8 text-sm"
-                  />
+                  {f.long ? (
+                    <Textarea
+                      value={str(row[f.key])}
+                      onChange={(e) => updateRow(i, f.key, e.target.value)}
+                      rows={3}
+                      className="min-h-16 resize-y text-sm"
+                    />
+                  ) : (
+                    <Input
+                      value={str(row[f.key])}
+                      list={f.people ? `people-${artifactType}` : undefined}
+                      onChange={(e) => updateRow(i, f.key, e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  )}
                 </div>
               ))}
               <button
