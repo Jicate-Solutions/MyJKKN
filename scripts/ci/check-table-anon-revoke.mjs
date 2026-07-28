@@ -2,11 +2,20 @@
 /**
  * scripts/ci/check-table-anon-revoke.mjs
  *
- * CI guard: every NEW table added in a migration must explicitly lock `anon` —
- * either REVOKE ... FROM anon, or an explicit GRANT ... TO anon (the documented
- * intentional-public escape hatch). The table-level sibling of
- * check-secdef-anon-revoke.mjs, enforcing the same CLAUDE.md rule one level
- * down: "Every new table needs explicit REVOKE ALL ... FROM anon, PUBLIC".
+ * CI guard, two independent dimensions:
+ *
+ *   1. ANON LOCK — every NEW table, VIEW or MATERIALIZED VIEW added in a
+ *      migration must explicitly lock `anon`: either REVOKE ... FROM anon, or an
+ *      explicit GRANT ... TO anon (the documented intentional-public hatch).
+ *   2. RLS ENABLED — every NEW table must also turn row level security on.
+ *
+ * They fail separately because they defend different doors. The revoke closes the
+ * public anon key; RLS is what stops one signed-in college reading another's rows.
+ * A table can pass either while failing the other, so neither substitutes.
+ *
+ * The relation-level sibling of check-secdef-anon-revoke.mjs, enforcing the same
+ * CLAUDE.md rule one level down: "Every new table needs explicit
+ * REVOKE ALL ... FROM anon, PUBLIC".
  *
  * WHY (root cause this guard replaces):
  *   Supabase ships `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON
@@ -63,12 +72,21 @@
  *     satisfies the check; it does not verify the revoke actually runs.
  *   - Only schema `public` (bare or explicitly `public.`) is gated. Supabase's
  *     default privileges are scoped to public, so other schemas are out of scope.
- *   - TEMP / TEMPORARY tables are exempt (session-local, never reachable via
- *     PostgREST).
- *   - VIEWs and MATERIALIZED VIEWs are NOT checked, though the same default
- *     privileges reach them. Deliberately out of scope for this first cut.
- *   - It does NOT check that RLS was enabled. Complementary property, separate
- *     gate; see the PR body.
+ *   - TEMP / TEMPORARY tables and views are exempt (session-local, never
+ *     reachable via PostgREST).
+ *   - A blanket `REVOKE ... ON ALL TABLES IN SCHEMA public` is accepted for views
+ *     and materialised views as well as tables. That is not a concession: it was
+ *     measured against this project's live PostgreSQL on 2026-07-28, in an
+ *     isolated schema inside BEGIN … ROLLBACK —
+ *       GRANT SELECT ON ALL TABLES IN SCHEMA s TO anon
+ *     leaves has_table_privilege('anon', …, 'SELECT') true for the table, the
+ *     view AND the materialised view. Worth stating because the PostgreSQL GRANT
+ *     docs enumerate only "tables, views, and foreign tables" for ALL TABLES, so
+ *     reading the docs alone suggests matviews escape it. They do not.
+ *   - The RLS check covers TABLES only. Views and materialised views cannot carry
+ *     a policy at all, so requiring it of them would be an unsatisfiable gate.
+ *   - A table with an explicit GRANT ... TO anon is exempt from the RLS check:
+ *     that grant is already the audited "public on purpose" signal.
  *   - CI can only see DDL that lands in supabase/migrations/. Production DDL
  *     applied out-of-band via the Management API bypasses this gate entirely
  *     (supabase_migrations.schema_migrations is stale by several versions on
@@ -307,6 +325,66 @@ function hasAnonTableGrant(stmts, table) {
   });
 }
 
+const CREATE_VIEW_RE = new RegExp(
+  'create\\s+' +
+  '(?:or\\s+replace\\s+)?' +
+  '(?:(temp|temporary)\\s+)?' +
+  '(?:recursive\\s+)?' +
+  '(materialized\\s+)?' +
+  'view\\s+' +
+  '(?:if\\s+not\\s+exists\\s+)?' +
+  '(?:("?[A-Za-z0-9_]+"?)\\s*\\.\\s*)?' +   // optional schema
+  '("?[A-Za-z0-9_]+"?)',                    // view name
+  'gi'
+);
+
+/**
+ * Views and materialised views CREATEd in schema public, as {name, kind}.
+ *
+ * These carry the SAME exposure as a table and for the same reason: Supabase's
+ * ALTER DEFAULT PRIVILEGES grant covers them, so a fresh view in schema public is
+ * born readable by the anon key. A view is in fact the sharper hazard — it can
+ * republish a table that IS locked, and RLS on the underlying table does not
+ * follow: a non-SECURITY_INVOKER view executes as its owner, so a correctly
+ * protected table can be served to anon straight through the view over it.
+ *
+ * Excludes TEMP / TEMPORARY and any explicitly non-public schema, matching
+ * createdTables().
+ */
+function createdViews(sqlNoComments) {
+  const found = new Map();
+  CREATE_VIEW_RE.lastIndex = 0;
+  let m;
+  while ((m = CREATE_VIEW_RE.exec(sqlNoComments)) !== null) {
+    const temp = (m[1] || '').toLowerCase();
+    if (temp === 'temp' || temp === 'temporary') continue;
+    const schema = (m[3] || '').replace(/"/g, '').toLowerCase();
+    if (schema && schema !== 'public') continue;
+    const name = m[4].replace(/"/g, '');
+    const kind = m[2] ? 'materialized view' : 'view';
+    if (!found.has(name)) found.set(name, kind);
+  }
+  return [...found].map(([name, kind]) => ({ name, kind }));
+}
+
+/**
+ * Was RLS turned ON for this table in the same migration?
+ *
+ * Only ENABLE counts. `FORCE ROW LEVEL SECURITY` without a prior ENABLE protects
+ * nothing — it changes how RLS applies to the table owner, it does not switch RLS
+ * on — so accepting it would be accepting a no-op.
+ *
+ * A blanket form does not exist for RLS (there is no ALTER ALL TABLES), so unlike
+ * the revoke check there is no schema-wide shortcut to honour.
+ */
+function hasRlsEnabled(stmts, table) {
+  return stmts.some(s => {
+    if (!/^alter\s+table\b/i.test(s)) return false;
+    if (!/\benable\s+row\s+level\s+security\b/i.test(s)) return false;
+    return statementNamesTable(s, table);
+  });
+}
+
 // ---------------------------------------------------------------------------
 
 const files = targetFiles().filter(Boolean);
@@ -316,45 +394,114 @@ if (files.length === 0) {
 }
 
 const violations = [];
+const rlsViolations = [];
 let checked = 0, passed = 0;
+let rlsChecked = 0, rlsPassed = 0;
 
 for (const file of files) {
   if (!existsSync(file)) continue;
   const raw = readFileSync(file, 'utf8');
-  // The escape-hatch marker IS a comment, so it must be read BEFORE stripping.
-  if (/--\s*ci:allow-anon-table\b/i.test(raw)) {
-    if (VERBOSE) console.log(`${DIM}skip (ci:allow-anon-table marker): ${file}${RESET}`);
-    continue;
-  }
+  // The escape-hatch markers ARE comments, so they must be read BEFORE stripping.
+  const skipAnon = /--\s*ci:allow-anon-table\b/i.test(raw);
+  const skipRls = /--\s*ci:allow-no-rls\b/i.test(raw);
+  if (skipAnon && VERBOSE) console.log(`${DIM}skip anon-lock (ci:allow-anon-table marker): ${file}${RESET}`);
+  if (skipRls && VERBOSE) console.log(`${DIM}skip RLS (ci:allow-no-rls marker): ${file}${RESET}`);
+  if (skipAnon && skipRls) continue;
+
   const sql = stripSqlComments(raw);
   const stmts = splitStatements(sql);
-  for (const t of createdTables(sql)) {
-    checked++;
-    if (hasAnonTableRevoke(stmts, t) || hasAnonTableGrant(stmts, t)) {
-      passed++;
-      if (VERBOSE) console.log(`${GREEN}✓${RESET} ${t} ${DIM}(${file})${RESET}`);
-    } else {
-      violations.push({ file, table: t });
+
+  // --- anon lock: tables AND views/matviews share one rule and one counter -----
+  if (!skipAnon) {
+    const relations = [
+      ...createdTables(sql).map(name => ({ name, kind: 'table' })),
+      ...createdViews(sql),
+    ];
+    for (const rel of relations) {
+      checked++;
+      if (hasAnonTableRevoke(stmts, rel.name) || hasAnonTableGrant(stmts, rel.name)) {
+        passed++;
+        if (VERBOSE) console.log(`${GREEN}✓${RESET} ${rel.name} ${DIM}(${rel.kind}, ${file})${RESET}`);
+      } else {
+        violations.push({ file, table: rel.name, kind: rel.kind });
+      }
+    }
+  }
+
+  // --- RLS enabled: TABLES only ----------------------------------------------
+  // Views and matviews are skipped because they cannot carry RLS at all — the
+  // policy lives on the underlying table. Requiring it of them would be an
+  // unsatisfiable gate.
+  //
+  // A table published to anon on purpose is exempt: the explicit GRANT is already
+  // the audited "this is public" signal, and demanding RLS on top would fail the
+  // documented-public pattern (the community / caste lists) that criterion (b)
+  // exists to bless.
+  if (!skipRls) {
+    for (const t of createdTables(sql)) {
+      if (hasAnonTableGrant(stmts, t)) continue;
+      rlsChecked++;
+      if (hasRlsEnabled(stmts, t)) {
+        rlsPassed++;
+      } else {
+        rlsViolations.push({ file, table: t });
+      }
     }
   }
 }
 
-console.log(`\n${BOLD}New-table anon-lock guard${RESET} — ${checked} new table(s) checked, ${passed} locked.`);
+console.log(`\n${BOLD}New-relation anon-lock guard${RESET} — ${checked} new table(s)/view(s) checked, ${passed} locked.`);
+console.log(`${BOLD}New-table RLS guard${RESET} — ${rlsChecked} new table(s) checked, ${rlsPassed} with RLS enabled.`);
 
-if (violations.length > 0) {
-  console.error(`\n${RED}${BOLD}✗ ${violations.length} new table(s) missing an explicit anon lock:${RESET}`);
-  for (const v of violations) {
+if (rlsViolations.length > 0) {
+  console.error(`\n${RED}${BOLD}✗ ${rlsViolations.length} new table(s) never enable row level security:${RESET}`);
+  for (const v of rlsViolations) {
     console.error(`  ${RED}•${RESET} ${BOLD}${v.table}${RESET}  ${DIM}${v.file}${RESET}`);
   }
   console.error(`
 ${YELLOW}Fix:${RESET} in the SAME migration, for each table add:
-  ${DIM}REVOKE ALL ON TABLE public.${violations[0].table} FROM anon, PUBLIC;${RESET}
-  ${DIM}GRANT  SELECT ON TABLE public.${violations[0].table} TO authenticated;   -- or whatever it needs${RESET}
-  ${DIM}ALTER TABLE public.${violations[0].table} ENABLE ROW LEVEL SECURITY;    -- strongly recommended, not checked here${RESET}
+  ${DIM}ALTER TABLE public.${rlsViolations[0].table} ENABLE ROW LEVEL SECURITY;${RESET}
+  ${DIM}CREATE POLICY ... ON public.${rlsViolations[0].table} FOR SELECT TO authenticated USING (...);${RESET}
+
+Whole-file escape hatch (rare, audited): add a line comment
+  ${DIM}-- ci:allow-no-rls <reason>${RESET}
+
+Why this is a SEPARATE failure from the anon lock: revoking anon closes the public
+key, but every signed-in role still reaches the table through PostgREST. Without
+RLS there is no row-level boundary between institutions at all, so any
+authenticated user of any college can read every other college's rows. The revoke
+and the policy defend different doors; passing one is not passing the other.
+
+Note a table published on purpose (an explicit GRANT ... TO anon) is exempt here —
+that is the documented-public pattern, and it is audited by the grant itself.`);
+}
+
+if (violations.length > 0) {
+  const tables = violations.filter(v => v.kind === 'table');
+  const views = violations.filter(v => v.kind !== 'table');
+  console.error(`\n${RED}${BOLD}✗ ${violations.length} new relation(s) missing an explicit anon lock:${RESET}`);
+  for (const v of violations) {
+    const tag = v.kind === 'table' ? '' : ` ${DIM}[${v.kind}]${RESET}`;
+    console.error(`  ${RED}•${RESET} ${BOLD}${v.table}${RESET}${tag}  ${DIM}${v.file}${RESET}`);
+  }
+  if (views.length > 0) {
+    console.error(`
+${YELLOW}${views.length} of these are views.${RESET} A view needs the revoke as much as a table does,
+and arguably more: it does not inherit the underlying table's RLS. Unless it is
+declared WITH (security_invoker = true), a view runs as ITS OWNER, so a view over a
+correctly locked table will happily serve that table's rows to anon.
+  ${DIM}REVOKE ALL ON TABLE public.${views[0].table} FROM anon, PUBLIC;${RESET}
+  ${DIM}-- REVOKE ... ON TABLE also covers views and materialised views.${RESET}`);
+  }
+  if (tables.length > 0) console.error(`
+${YELLOW}Fix:${RESET} in the SAME migration, for each table add:
+  ${DIM}REVOKE ALL ON TABLE public.${tables[0].table} FROM anon, PUBLIC;${RESET}
+  ${DIM}GRANT  SELECT ON TABLE public.${tables[0].table} TO authenticated;   -- or whatever it needs${RESET}
+  ${DIM}ALTER TABLE public.${tables[0].table} ENABLE ROW LEVEL SECURITY;    -- also gated, see the RLS guard above${RESET}
 
 If the table is INTENTIONALLY public (e.g. the community / caste lists read by
 the unauthenticated admission landing page):
-  ${DIM}GRANT SELECT ON TABLE public.${violations[0].table} TO anon;  -- + a comment saying why${RESET}
+  ${DIM}GRANT SELECT ON TABLE public.${tables[0].table} TO anon;  -- + a comment saying why${RESET}
 
 Whole-file escape hatch (rare, audited): add a line comment
   ${DIM}-- ci:allow-anon-table <reason>${RESET}
@@ -364,8 +511,11 @@ new public-schema table is created with SELECT/INSERT/UPDATE/DELETE granted to t
 anon key embedded in every page of https://www.jkkn.ai. RLS is not a substitute —
 CREATE TABLE AS never enables it, and an RLS policy written TO PUBLIC still applies
 to anon. See CLAUDE.md + supabase/migrations/20260726180000_revoke_anon_on_unprotected_backup_tables.sql.`);
-  process.exit(1);
 }
 
-console.log(`${GREEN}✓ All new tables explicitly lock anon (or are documented public).${RESET}`);
+// One exit for both dimensions. An RLS-only failure must still fail the build —
+// scoping the exit inside the anon block would have let it report and pass.
+if (violations.length > 0 || rlsViolations.length > 0) process.exit(1);
+
+console.log(`${GREEN}✓ All new tables and views explicitly lock anon (or are documented public), and every new table enables RLS.${RESET}`);
 process.exit(0);
