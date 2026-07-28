@@ -143,8 +143,15 @@ export function FacultyQuickAttendance({
     const recordId = periodRecordIds.get(period.timetable_slot_id);
 
     if (isMarked && recordId) {
-      // Navigate to attendance report details page
-      router.push(`/academic/attendance/reports/${recordId}`);
+      // Navigate to attendance report details page.
+      // Updated: 2026-07-21 - Pass the clicked period. One record holds every period
+      // marked that day, so without ?period= the report (and its Edit button) opened
+      // on period_details[0] — a faculty with 6+ marked periods could only ever view
+      // and edit the first one. Key is timetable_slot_id: that is what attendance_data
+      // is keyed by, and what the marking branch below sends as periodId.
+      router.push(
+        `/academic/attendance/reports/${recordId}?period=${encodeURIComponent(period.timetable_slot_id)}`
+      );
       return;
     } else {
       // Navigate to separate attendance marking page

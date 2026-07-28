@@ -336,7 +336,7 @@ export function MouManagement({ solutionId }: MouManagementProps) {
             </div>
           )}
 
-          <div className="flex gap-4 pt-4 border-t">
+          <div className="flex flex-wrap gap-4 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsEditing(true)}>
               Edit MoU
             </Button>

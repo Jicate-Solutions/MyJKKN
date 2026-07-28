@@ -119,15 +119,15 @@ export default function BillingSchedulePage() {
           </Breadcrumb>
 
           {/* Header Section */}
-          <div className='flex items-center justify-between'>
-            <div>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div className='min-w-0'>
               <h1 className='text-2xl font-bold py-1'>Billing Schedule Management</h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
                 Manage student bills, track payments, and schedule recurring billing
               </p>
             </div>
 
-            <div className='flex items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-2 shrink-0'>
               {/* Super-admin only: bulk receipt generation from current filters */}
               {isSuperAdmin && (
                 <Button

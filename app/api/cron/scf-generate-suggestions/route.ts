@@ -237,11 +237,19 @@ function groupSizeWord(n: number): string {
   return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
 }
 
+// Display band shown to the facilitator/AI. Recalibrated 2026-07-24 (Director
+// interview) to Strong >= 4.0, mirroring understandingLevel in
+// components/session-feedback/understanding-band.tsx. NOTE the deliberate decouple:
+// this DISPLAY band (4.0) is intentionally NOT STANDOUT_THRESHOLD (4.5), which still
+// gates success-vs-improvement note generation. So a 4.0-4.5 session reads "strong"
+// yet may still receive a gentle improvement note. Do not collapse these two back
+// together without Director sign-off (moving STANDOUT to 4.0 ~4x's success-note volume).
+const STRONG_BAND_THRESHOLD = 4.0;
 function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
   if (a < LOW_UNDERSTOOD_THRESHOLD) return 'low';
-  if (a < STANDOUT_THRESHOLD) return 'mixed';
+  if (a < STRONG_BAND_THRESHOLD) return 'mixed';
   return 'strong';
 }
 

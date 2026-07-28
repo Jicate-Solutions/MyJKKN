@@ -5,6 +5,7 @@ import {
   resolveBosBoardScope,
   guardCompositionChairman,
   guardAcademicCouncilWrite,
+  guardGoverningBodyWrite,
   hasBosPermission,
   isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
@@ -40,23 +41,25 @@ export async function GET(request: NextRequest) {
     const hasView = await hasBosPermission(user.id, 'academic.bos-members.view');
     const canReadAllBos = isBosReadAllObserver(scope, hasView);
     const seeAll = scope.isSuperAdmin || canReadAllBos;
-    // AC bodies: the roster read must go through the service-role client because
-    // principals lack the bos.members.view RLS grant, so a user-context SELECT
-    // returns empty for them. Route-level visibility below is the source of truth.
+    // Council bodies (Academic Council / Governing Body): the roster read must go
+    // through the service-role client because principals lack the bos.members.view
+    // RLS grant, so a user-context SELECT returns empty for them. Route-level
+    // visibility below is the source of truth.
     let isAcComp = false;
     if (!scope.isSuperAdmin) {
       let visible = seeAll || scope.memberOf.has(compositionId);
       const { data: comp } = await supabase
         .from('bos_compositions')
-        .select('institutions_id, created_by, is_academic_council')
+        .select('institutions_id, created_by, is_academic_council, is_governing_body')
         .eq('id', compositionId)
         .maybeSingle();
       const compRow = comp as {
         institutions_id?: string | null;
         created_by?: string | null;
         is_academic_council?: boolean;
+        is_governing_body?: boolean;
       } | null;
-      isAcComp = compRow?.is_academic_council === true;
+      isAcComp = compRow?.is_academic_council === true || compRow?.is_governing_body === true;
       if (!visible) {
         const compInstitution = compRow?.institutions_id ?? null;
         const isCreator = compRow?.created_by != null && compRow.created_by === user.id;
@@ -135,15 +138,16 @@ export async function POST(request: NextRequest) {
     // mask the real check, we degrade to chairman-only and surface a clear
     // schema-out-of-date message.
     const scope = await resolveBosBoardScope(user.id);
-    // Academic Council bodies flip the roster-authz: the principal manages the
-    // roster (not a board chairman). When the parent is an AC body we authorize
-    // via guardAcademicCouncilWrite and write with the service-role client,
-    // since the board-keyed bos_members RLS wouldn't pass a principal.
+    // Council bodies (Academic Council / Governing Body) flip the roster-authz:
+    // the principal manages the roster (not a board chairman). When the parent is
+    // a council body we authorize via the council write-gate and write with the
+    // service-role client, since the board-keyed bos_members RLS wouldn't pass a
+    // principal.
     let isAcComp = false;
     if (!scope.isSuperAdmin) {
       const { data: parentComp, error: parentErr } = await supabase
         .from('bos_compositions')
-        .select('created_by, is_academic_council, institutions_id')
+        .select('created_by, is_academic_council, is_governing_body, institutions_id')
         .eq('id', body.composition_id)
         .maybeSingle();
       if (parentErr) {
@@ -162,11 +166,15 @@ export async function POST(request: NextRequest) {
       const comp = parentComp as {
         created_by?: string | null;
         is_academic_council?: boolean;
+        is_governing_body?: boolean;
         institutions_id?: string | null;
       } | null;
-      isAcComp = comp?.is_academic_council === true;
+      const isGbComp = comp?.is_governing_body === true;
+      isAcComp = comp?.is_academic_council === true || isGbComp;
       if (isAcComp) {
-        const deny = guardAcademicCouncilWrite(scope, comp?.institutions_id);
+        const deny = isGbComp
+          ? guardGoverningBodyWrite(scope, comp?.institutions_id)
+          : guardAcademicCouncilWrite(scope, comp?.institutions_id);
         if (deny) return NextResponse.json({ error: deny }, { status: 403 });
       } else {
         const isCreator = comp?.created_by === user.id;
@@ -189,20 +197,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Academic Council bodies carry a single default 'Academic Council'
-    // committee (seeded by 20260710123000 + the AC-prepare route). Members
-    // added without an explicit committee are attached to it, so the
-    // committee-scoped meeting roster / attendance / TA-DA generation sees
-    // them. BoS members keep whatever the Add Member dialog sent.
+    // Council bodies (Academic Council / Governing Body) carry a single default
+    // committee (seeded by the prepare route). Members added without an explicit
+    // committee are attached to it, so the committee-scoped meeting roster /
+    // attendance / TA-DA generation sees them. BoS members keep whatever the Add
+    // Member dialog sent.
     let committeeId: string | null = body.committee_id ?? null;
     if (!committeeId) {
       const lookupDb = createServiceRoleClient();
       const { data: compRow } = await lookupDb
         .from('bos_compositions')
-        .select('is_academic_council')
+        .select('is_academic_council, is_governing_body')
         .eq('id', body.composition_id)
         .maybeSingle();
-      if ((compRow as { is_academic_council?: boolean } | null)?.is_academic_council === true) {
+      const councilRow = compRow as {
+        is_academic_council?: boolean;
+        is_governing_body?: boolean;
+      } | null;
+      if (councilRow?.is_academic_council === true || councilRow?.is_governing_body === true) {
         const { data: defaultCommittee } = await lookupDb
           .from('bos_committees')
           .select('id')

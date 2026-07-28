@@ -141,7 +141,7 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
       <div className="space-y-6 mt-4">
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-4">
             <Button variant="ghost" size="icon" asChild>
               <Link href="/solutions/software/builders">
                 <ArrowLeft className="h-4 w-4" />
@@ -155,8 +155,8 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
                   .join('') || '?'}
               </AvatarFallback>
             </Avatar>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-2xl font-bold">{builder.name}</h1>
                 <Badge variant={builder.is_active ? 'default' : 'secondary'}>
                   {builder.is_active ? 'Active' : 'Inactive'}
@@ -167,7 +167,7 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
                   </Badge>
                 )}
               </div>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 {builder.email && (
                   <span className="flex items-center gap-1">
                     <Mail className="h-3 w-3" />

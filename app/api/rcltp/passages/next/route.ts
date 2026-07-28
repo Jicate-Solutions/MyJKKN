@@ -10,7 +10,7 @@
  * WIDEN to the nearest available level on the ladder (and only as a last resort
  * to any grade) before declaring none left — so an exhausted level degrades
  * gracefully instead of 404-ing. The continuous 80/50 nudge that CHANGES
- * served_content_level lives in the EKSAQ-gated results/journey step — not here.
+ * served_content_level lives in the MyJKKN-gated results/journey step — not here.
  *
  * Gate: rcltp.assessment.take. Learner from session (get_my_learner_id), never body.
  * Body: { assessment_id?, grade_level? }

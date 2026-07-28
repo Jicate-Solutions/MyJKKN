@@ -127,8 +127,8 @@ export function CalendarView() {
           return {
             id: it.item_id,
             title,
-            start: new Date(it.start_at),
-            end: new Date(it.end_at),
+            start: it.all_day ? allDayLocalDate(it.start_at, 'start') : new Date(it.start_at),
+            end: it.all_day ? allDayLocalDate(it.end_at, 'end') : new Date(it.end_at),
             allDay: it.all_day,
             color: it.color_code || '#6b7280',
             resource: it,
@@ -282,6 +282,23 @@ function CalendarLegend({
   );
 }
 
+/**
+ * All-day items are stored UTC-anchored: 00:00:00Z on the start date through
+ * 23:59:59.999Z on the end date. `new Date(iso)` re-anchors them to the
+ * viewer's zone, which east of UTC pushes the end past midnight (IST +5:30 →
+ * 05:29 the NEXT day). RBC's month grid spans `ceil(end,'day')`, so that extra
+ * 5½ hours paints a whole extra column — a 15 Aug holiday renders 15–16 Aug.
+ * West of UTC the start slips backwards the same way. Rebuilding the same
+ * calendar Y-M-D in local time makes the grid show exactly the authored days in
+ * every timezone. Timed items keep `new Date()` — those SHOULD shift to local.
+ */
+function allDayLocalDate(iso: string, edge: 'start' | 'end'): Date {
+  const m = moment.utc(iso);
+  return edge === 'end'
+    ? new Date(m.year(), m.month(), m.date(), 23, 59, 59, 999)
+    : new Date(m.year(), m.month(), m.date());
+}
+
 function feedKeyFor(it: CalendarItem): string {
   if (it.source_module === 'global') return 'global_entries';
   if (it.source_module === 'academic') return 'academic_holidays';
@@ -289,7 +306,7 @@ function feedKeyFor(it: CalendarItem): string {
   if (it.source_module === 'hr_leave') return 'staff_leave';
   if (it.source_module === 'academic_leave') return 'student_leave';
   if (it.source_module === 'events' || it.source_module === 'lc_event' || it.source_module === 'startup_event') return 'events';
-  if (it.source_module === 'bos_meeting') return 'meetings';
+  if (it.source_module === 'bos_meeting' || it.source_module === 'meeting_booking') return 'meetings';
   if (it.source_module === 'reservation') return 'reservations';
   return it.source_module;
 }

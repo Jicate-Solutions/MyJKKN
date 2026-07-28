@@ -607,7 +607,7 @@ function IncompleteProfilesTable({ filters }: { filters: LearnerDashboardFilters
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <XCircle className="h-5 w-5 text-orange-600" />
@@ -618,7 +618,7 @@ function IncompleteProfilesTable({ filters }: { filters: LearnerDashboardFilters
               {data?.total ? ` (showing ${data.profiles.length} of ${data.total})` : ''}
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" size="sm" asChild className="shrink-0">
             <Link href="/learners/profiles?is_profile_complete=false">
               View All
               <ExternalLink className="ml-1 h-3 w-3" />

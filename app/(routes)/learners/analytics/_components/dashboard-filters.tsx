@@ -373,7 +373,7 @@ export function DashboardFilters({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Filter className="h-5 w-5 text-muted-foreground" />
           <h3 className="text-lg font-semibold">Advanced Filters</h3>
@@ -383,7 +383,7 @@ export function DashboardFilters({
             </span>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={onReset}>
+        <Button variant="outline" size="sm" onClick={onReset} className="shrink-0">
           <X className="h-4 w-4 mr-2" />
           Reset All
         </Button>
@@ -410,7 +410,7 @@ export function DashboardFilters({
                     : 'Pick a date range'}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
+              <PopoverContent className="w-auto max-w-[calc(100vw-2rem)] overflow-x-auto p-0" align="start">
                 <div className="p-3 space-y-2 border-b">
                   <p className="text-sm font-medium">Quick Select</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -638,7 +638,7 @@ export function DashboardFilters({
           <RadioGroup
             value={selectedProfileComplete}
             onValueChange={setSelectedProfileComplete}
-            className="flex gap-4"
+            className="flex flex-wrap gap-4"
           >
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="all" id="pc-all" />
@@ -661,7 +661,7 @@ export function DashboardFilters({
           <RadioGroup
             value={selectedGender}
             onValueChange={setSelectedGender}
-            className="flex gap-4"
+            className="flex flex-wrap gap-4"
           >
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="all" id="gender-all" />

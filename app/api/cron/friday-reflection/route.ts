@@ -46,6 +46,13 @@ export async function GET(request: NextRequest) {
 
   const serviceClient = createServiceRoleClient();
   const week = isoWeek(new Date());
+  // Self-obsoleting weekly card: expire in 7 days so it clears the day next
+  // Friday's reflection arrives, instead of piling up unread forever. The
+  // notification read path honors expires_at as of 2026-07-26 (see
+  // lib/services/notification/notification-service.ts). 7d > the 7d cadence, so
+  // at most one reflection card is ever live per user.
+  const REFLECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const expiresAt = new Date(Date.now() + REFLECTION_TTL_MS).toISOString();
   const results = {
     week,
     eligible_users: 0,
@@ -102,6 +109,7 @@ export async function GET(request: NextRequest) {
       // (which filters to kind='announcement'). User dashboard surfaces still pick them up.
       kind: 'work_item',
       idempotency_key: idempKey,
+      expires_at: expiresAt,
       metadata: {
         role: user.role,
         week,

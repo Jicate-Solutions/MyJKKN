@@ -75,7 +75,8 @@ export async function GET(request: NextRequest) {
       'online',
       'bank_transfer',
       'dd',
-      'cheque'
+      'cheque',
+      'combined'
     ]);
     const rawMode = sp.get('default_payment_mode') || 'cash';
     const defaultMode = ALLOWED_MODES.has(rawMode) ? rawMode : 'cash';
@@ -192,12 +193,12 @@ export async function GET(request: NextRequest) {
       sheet.getCell(`H${row}`).dataValidation = {
         type: 'list',
         allowBlank: false,
-        formulae: ['"cash,online,bank_transfer,dd,cheque"'],
+        formulae: ['"cash,online,bank_transfer,dd,cheque,combined"'],
         showErrorMessage: true,
         errorStyle: 'stop',
         errorTitle: 'Invalid Payment Mode',
         error:
-          'Payment Mode must be one of: cash, online, bank_transfer, dd, cheque.'
+          'Payment Mode must be one of: cash, online, bank_transfer, dd, cheque, combined.'
       };
       // Paid Date — must be a date >= 2000-01-01 and <= 2099-12-31
       sheet.getCell(`I${row}`).dataValidation = {
@@ -263,7 +264,7 @@ export async function GET(request: NextRequest) {
       '',
       '3. EDITABLE COLUMNS (highlighted light green):',
       '   - Paid Amount         (decimal, ≤ Balance Amount, > 0 to be processed)',
-      '   - Payment Mode        (cash / online / bank_transfer / dd / cheque) — dropdown',
+      '   - Payment Mode        (cash / online / bank_transfer / dd / cheque / combined) — dropdown',
       '   - Paid Date           (YYYY-MM-DD)',
       '   - Payer Name          (defaults to the student\'s name)',
       '   - Payer Contact       (optional phone / email)',

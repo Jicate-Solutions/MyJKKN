@@ -143,8 +143,18 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
   const params = await searchParams;
 
   const rawTab = typeof params.tab === 'string' ? params.tab : undefined;
-  const activeTab: TabValue =
-    rawTab && TAB_VALUES.has(rawTab as TabValue) ? (rawTab as TabValue) : 'enquiry';
+  // Backward-compat: pre-2026-05-20 links selected the tab via `lifecycle_status`
+  // directly. Without this fallback, an old bookmarked/shared link like
+  // `?lifecycle_status=admitted` (no `tab`) silently falls through to the
+  // default 'enquiry' tab, filtering on the wrong status with no indication
+  // to the user (BUG-003869, BUG-003870).
+  const rawLegacyStatus =
+    typeof params.lifecycle_status === 'string' ? params.lifecycle_status : undefined;
+  const activeTab: TabValue = rawTab && TAB_VALUES.has(rawTab as TabValue)
+    ? (rawTab as TabValue)
+    : rawLegacyStatus && TAB_VALUES.has(rawLegacyStatus as TabValue)
+      ? (rawLegacyStatus as TabValue)
+      : 'enquiry';
 
   return (
     <ContentLayout title="Admission Management">

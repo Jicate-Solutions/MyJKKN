@@ -479,15 +479,15 @@ export function DemographicsTab({ data, filters }: DemographicsTabProps) {
                 const pct = totalByLearnerType > 0 ? (item.count / totalByLearnerType) * 100 : 0;
                 return (
                   <div key={item.id} className="flex items-center justify-between text-sm p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div
-                        className="h-3 w-3 rounded-full"
+                        className="h-3 w-3 rounded-full shrink-0"
                         style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
                       />
-                      <span className="font-medium capitalize">{item.name}</span>
+                      <span className="font-medium capitalize truncate">{item.name}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-24 bg-muted rounded-full h-2">
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="hidden sm:block w-24 bg-muted rounded-full h-2">
                         <div
                           className="h-2 rounded-full"
                           style={{

@@ -62,7 +62,7 @@ export function TrainingGatePanel({ status, onChanged }: { status: MyTrainingSta
           </li>
         </ul>
         {!selfDone ? (
-          <Button onClick={ack} disabled={saving} style={{ backgroundColor: BRAND }} className="text-white hover:opacity-90">
+          <Button onClick={ack} disabled={saving} style={{ backgroundColor: BRAND }} className="text-white hover:opacity-90 h-auto whitespace-normal text-left">
             <ShieldCheck className="h-4 w-4 mr-1" /> {saving ? 'Saving…' : 'I have read this and I understand my role'}
           </Button>
         ) : (

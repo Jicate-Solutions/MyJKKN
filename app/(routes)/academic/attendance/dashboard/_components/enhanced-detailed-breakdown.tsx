@@ -232,8 +232,8 @@ function HierarchyCard({
       style={{ borderLeftColor: level > 0 ? item.color : undefined }}
     >
       <CardHeader className='pb-3'>
-        <div className='flex items-center justify-between'>
-          <div className='flex items-center gap-3'>
+        <div className='flex items-center justify-between gap-2'>
+          <div className='flex items-center gap-3 min-w-0 flex-1'>
             {hasChildren && (
               <Button
                 variant='ghost'
@@ -257,17 +257,17 @@ function HierarchyCard({
             >
               <Icon className='h-5 w-5' />
             </div>
-            <div>
-              <CardTitle className='text-lg font-semibold'>
+            <div className='min-w-0'>
+              <CardTitle className='text-lg font-semibold truncate'>
                 {item.name}
               </CardTitle>
-              <p className='text-sm text-muted-foreground capitalize'>
+              <p className='text-sm text-muted-foreground capitalize truncate'>
                 {item.level} • {item.total_students} students
               </p>
             </div>
           </div>
 
-          <div className='flex items-center gap-3'>
+          <div className='flex items-center gap-3 shrink-0'>
             <Badge className={gradeColor}>{grade}</Badge>
             <div className='text-right'>
               <div className='text-2xl font-bold'>

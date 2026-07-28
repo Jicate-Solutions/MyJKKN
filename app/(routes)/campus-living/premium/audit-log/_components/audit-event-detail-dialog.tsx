@@ -43,7 +43,7 @@ export function AuditEventDetailDialog({ row, open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
-          <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-muted/30 p-3">
+          <div className="grid grid-cols-1 gap-3 rounded-md border border-border bg-muted/30 p-3 sm:grid-cols-2">
             <DetailRow label="When" value={formatTimestamp(row.created_at)} />
             <DetailRow label="Actor" value={row.actor_name ?? 'System'} />
             <DetailRow label="Actor email" value={row.actor_email ?? '—'} />
@@ -129,7 +129,7 @@ function DetailRow({
   return (
     <div className={wide ? 'col-span-2' : ''}>
       <div className="text-xs uppercase text-muted-foreground">{label}</div>
-      <div className={mono ? 'font-mono text-xs' : 'text-sm'}>{value}</div>
+      <div className={mono ? 'break-all font-mono text-xs' : 'text-sm'}>{value}</div>
     </div>
   );
 }

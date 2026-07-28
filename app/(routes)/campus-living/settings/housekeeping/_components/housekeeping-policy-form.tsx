@@ -753,7 +753,7 @@ export function HousekeepingPolicyForm() {
       </div>
 
       {/* Save bar */}
-      <div className="flex items-center justify-end gap-2 border-t pt-4">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
         {dirty && (
           <span className="mr-auto text-sm text-muted-foreground">
             {dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? '' : 's'}

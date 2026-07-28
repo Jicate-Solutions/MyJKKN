@@ -245,12 +245,12 @@ export function PendingStatisticsCards({
       {/* Quick Summary */}
       <Card className='border-0 shadow-md bg-gradient-to-r from-gray-50 to-gray-100'>
         <CardContent className='pt-4'>
-          <div className='flex items-center justify-between text-sm'>
-            <span className='text-gray-600'>
+          <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm'>
+            <span className='text-gray-600 min-w-0'>
               {stats.staff} staff members have periods scheduled for {selectedDate.toLowerCase()}
             </span>
             {stats.pendingPeriods > 0 && (
-              <Badge variant='secondary' className='bg-orange-100 text-orange-800'>
+              <Badge variant='secondary' className='shrink-0 bg-orange-100 text-orange-800'>
                 {stats.pendingPeriods} periods need attention
               </Badge>
             )}

@@ -7,6 +7,7 @@ export const FEE_HEAD_LABELS: Record<BillingCategoryKind, string> = {
   university_fee: 'University',
   establishment: 'Establishment',
   hostel: 'Hostel',
+  mess: 'Mess',
   transport: 'Transport',
   exam: 'Exam',
   application_fee: 'Application',

@@ -37,8 +37,8 @@ export function QuestionCard({
       readOnly && submissionAnswer && (isCorrect ? 'border-green-300 bg-green-50/50 dark:bg-green-950/10' : 'border-red-300 bg-red-50/50 dark:bg-red-950/10')
     )}>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <CardTitle className="text-base font-medium">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base font-medium min-w-0">
             <span className="text-muted-foreground mr-2">Q{questionNumber}.</span>
             {question.question_text}
           </CardTitle>

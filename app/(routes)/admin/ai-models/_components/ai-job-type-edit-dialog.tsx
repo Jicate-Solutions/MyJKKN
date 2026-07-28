@@ -8,11 +8,21 @@
 // (fn_ai_job_type_upsert). job_type is the primary key: editable ONLY on
 // create (locked when editing an existing type). Includes an input_schema
 // builder — add/remove field rows the generic Run card auto-draws from.
+//
+// 2026-08-04 — CHANGING THE PROMPT NO LONGER CHANGES THE LIVE PROMPT. The RPC
+// files an edited prompt as a proposed version (a challenger) and leaves the
+// live one alone until a human promotes it. That is invisible from the outside:
+// an admin edits, saves, sees the job behave exactly as before, concludes the
+// save is broken, and "fixes" it by reverting the loop. So this dialog states
+// the rule BEFORE the save (a standing note, plus a live callout the moment the
+// text differs) and AFTER it (a panel the admin must dismiss, naming the
+// version number) — never a bare success toast. CLAUDE.md #27: a state outcome
+// the user did not get must be explicit, never silent.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { FileClock, Info, Loader2, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,8 +47,10 @@ import {
 import {
   FIELD_TYPE_OPTIONS,
   LANE_OPTIONS,
+  promptNeedsExplicitNotice,
   type AiJobType,
   type AiJobTypeDef,
+  type AiJobTypeSaveResult,
   type InputFieldType,
   type InputSchemaField,
 } from './ai-job-types';
@@ -97,10 +109,30 @@ export function AiJobTypeEditDialog({
   const isEdit = !!jobType;
   const [form, setForm] = useState<FormState>(buildFormState(null));
   const [saving, setSaving] = useState(false);
+  /** Set only for outcomes where the admin's prompt did NOT go live — the
+   *  dialog then shows a panel they must dismiss instead of closing silently. */
+  const [notice, setNotice] = useState<AiJobTypeSaveResult | null>(null);
 
   useEffect(() => {
-    if (open) setForm(buildFormState(jobType));
+    if (open) {
+      setForm(buildFormState(jobType));
+      setNotice(null);
+    }
   }, [open, jobType]);
+
+  /** The prompt as it stands live right now, for change detection. */
+  const livePrompt = jobType?.prompt_template ?? '';
+  /** Only a job type that ALREADY has a live prompt has a champion to
+   *  challenge. Giving one its first prompt goes live immediately, so the
+   *  proposal warnings must not claim otherwise. */
+  const hasLivePrompt = isEdit && livePrompt.trim() !== '';
+  /** Predicts the RPC's challenger branch. JS .trim() is all-whitespace, which
+   *  is what the SQL side normalises on too. Prediction only — the message
+   *  shown AFTER saving always comes from the RPC's own prompt_action. */
+  const promptChanged =
+    hasLivePrompt &&
+    form.prompt_template.trim() !== livePrompt.trim() &&
+    form.prompt_template.trim() !== '';
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -217,11 +249,28 @@ export function AiJobTypeEditDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(def),
       });
+      const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
         throw new Error(payload.error ?? `HTTP ${res.status}`);
       }
-      toast.success(isEdit ? `${def.title} updated.` : `${def.title} created.`);
+
+      // The RPC reports what it did with the prompt. When the admin's text did
+      // NOT become the live prompt, say so in a panel they have to dismiss —
+      // a toast that fades in four seconds is exactly how this reads as a
+      // broken save.
+      const result = payload.data as AiJobTypeSaveResult | undefined;
+      if (result && promptNeedsExplicitNotice(result.prompt_action)) {
+        setNotice(result);
+        return; // keep the dialog open; onSaved() runs when the panel is dismissed
+      }
+
+      toast.success(
+        result?.prompt_action === 'champion_created'
+          ? `${def.title} saved. ${result.prompt_message}`
+          : isEdit
+            ? `${def.title} updated.`
+            : `${def.title} created.`,
+      );
       onSaved();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Save failed.');
@@ -230,8 +279,69 @@ export function AiJobTypeEditDialog({
     }
   };
 
+  /** Dismissing the outcome panel is what finishes the save — by any route
+   *  (Done, Cancel, Esc, the X), so the list still refreshes behind it. */
+  const handleOpenChange = (next: boolean) => {
+    if (!next && notice) {
+      setNotice(null);
+      onSaved();
+      return;
+    }
+    onOpenChange(next);
+  };
+
+  // ── Outcome panel: the save succeeded but the LIVE prompt did not change ──
+  if (notice) {
+    const isProposal = notice.prompt_action === 'challenger_created';
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileClock className="h-5 w-5 text-amber-600" aria-hidden="true" />
+              {isProposal ? 'Saved as a proposed version' : 'Live prompt kept'}
+            </DialogTitle>
+            <DialogDescription>
+              {isProposal
+                ? 'Everything else you changed is saved and live. The prompt is the exception.'
+                : 'Everything else you changed is saved and live.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              {notice.prompt_message}
+            </div>
+            {isProposal && (
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This is deliberate. A prompt change is a{' '}
+                  <strong className="text-foreground">proposal</strong>, not an edit — the
+                  job keeps running on its current prompt so a change can be compared
+                  against it before it affects real work.
+                </p>
+                <p>
+                  <strong className="text-foreground">
+                    Version {notice.prompt_version} is now waiting for approval.
+                  </strong>{' '}
+                  Nothing you typed is lost, and the job&apos;s behaviour will not change
+                  until an admin approves that version. Saving again simply files another
+                  version alongside this one.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => handleOpenChange(false)}>Got it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[640px]">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit: ${jobType!.title}` : 'New AI job type'}</DialogTitle>
@@ -295,10 +405,39 @@ export function AiJobTypeEditDialog({
               Use <code className="font-mono">{'{{key}}'}</code> placeholders — they get
               filled from the run form fields you define below.
             </p>
+
+            {/* Standing rule, shown before anything is typed: editing this
+                prompt will NOT change what the job actually runs. */}
+            {hasLivePrompt && (
+              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  Changing this prompt does not change the live prompt. Your new text is
+                  saved as a proposed version and the job keeps running on its current
+                  prompt until an admin approves the change.
+                </span>
+              </p>
+            )}
+
+            {/* Live callout the moment the text differs — the admin sees the
+                consequence while typing, not only after saving. */}
+            {promptChanged && (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+              >
+                <FileClock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>
+                  <strong>This prompt will be saved as a proposed version.</strong> Saving
+                  will not change what this job runs — the live prompt stays as it is
+                  until someone approves the new version.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* tool_set + output_target */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="tool_set">Tool set</Label>
               <Input
@@ -328,7 +467,7 @@ export function AiJobTypeEditDialog({
           </div>
 
           {/* allow_rule + lane */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="allow_rule">Who can run it</Label>
               <Input
@@ -492,12 +631,18 @@ export function AiJobTypeEditDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isEdit ? 'Save changes' : 'Create job type'}
+            {/* The button says what the click will actually do — a plain
+                "Save changes" would promise a live prompt change it won't make. */}
+            {!isEdit
+              ? 'Create job type'
+              : promptChanged
+                ? 'Save (prompt goes for approval)'
+                : 'Save changes'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -242,7 +242,7 @@ export default function VenueDetailPage({
               {(['build_day', 'demo_day'] as DayType[]).map((day) => (
                 <TabsContent key={day} value={day}>
                   <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-                    <TabsList>
+                    <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
                       <TabsTrigger value="staff" className="gap-1.5">
                         <UserPlus className="h-3.5 w-3.5" />
                         In-Charge Orchestrators

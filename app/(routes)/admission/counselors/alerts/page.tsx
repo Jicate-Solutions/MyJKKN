@@ -139,7 +139,7 @@ function AlertsPageContent() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Institution:</span>
               <Select value={chosenInstitutionId || institutionId} onValueChange={setChosenInstitutionId}>
-                <SelectTrigger className="w-[250px] h-8 text-xs">
+                <SelectTrigger className="w-full sm:w-[250px] h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -203,7 +203,7 @@ function AlertsPageContent() {
                               <h3 className="font-medium">{eventType.label}</h3>
                               <p className="text-sm text-muted-foreground">{eventType.description}</p>
                               {rule && (
-                                <div className="flex gap-2 mt-1">
+                                <div className="flex flex-wrap gap-2 mt-1">
                                   {rule.notify_assigned_counselor && (
                                     <Badge variant="outline" className="text-xs">Assigned Counselor</Badge>
                                   )}
@@ -251,7 +251,7 @@ function AlertsPageContent() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium">{entry.message}</p>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <User className="h-3 w-3" />{entry.lead_name}
                               </span>

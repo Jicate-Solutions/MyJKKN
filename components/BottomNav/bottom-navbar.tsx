@@ -561,6 +561,7 @@ export function BottomNavbar() {
         }}
         className={cn(
           'fixed bottom-0 left-0 right-0 z-[80]',
+          'max-w-full overflow-x-hidden',
           // Hide on desktop when sidebar is visible (lg+)
           'lg:hidden',
           'bg-background border-t border-border',
@@ -581,7 +582,7 @@ export function BottomNavbar() {
             Every item gets a 3-color holographic gradient via tileGradient.
             Modules use GROUP_TILE_GRADIENTS by groupLabel; Search + More
             get utility-color defaults. */}
-        <div className="flex items-center justify-around">
+        <div className="flex w-full min-w-0 items-center justify-around">
           {primaryNavGroups.map((group) => (
             <BottomNavItem
               key={group.id}

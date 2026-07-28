@@ -34,6 +34,11 @@ import type {
   MyPulseRow,
   MarksCoverageResponse,
   FreetextCarryCountsRow,
+  SessionResourceRow,
+  PostedSessionResource,
+  PostSessionResourceInput,
+  ClarificationRequestRow,
+  ClarificationOutcome,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -185,6 +190,65 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to submit feedback: ${error.message}`);
     return data as SessionFeedbackRow;
+  }
+
+  // ── Clarification requests (Lane C) — ask → self-reported outcome ──────────
+  // Substrate: 20260725133000_session_clarification_requests.sql. Reads go via
+  // RLS (a learner only ever sees their OWN rows); writes only via the RPCs.
+
+  /** The caller's own clarification request for one session, if any. */
+  static async getClarification(
+    attendanceDate: string,
+    periodId: string,
+  ): Promise<ClarificationRequestRow | null> {
+    const supabase = getSupabase();
+    // Deterministic single row even for broad-RLS viewers (leadership can see
+    // several learners' asks for one session — a bare maybeSingle() would
+    // throw on >1 row). Learners still only ever see their own row via RLS.
+    const { data, error } = await supabase
+      .from('session_clarification_requests')
+      .select('*')
+      .eq('attendance_date', attendanceDate)
+      .eq('period_id', periodId)
+      .order('asked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to load clarification request: ${error.message}`);
+    return (data as ClarificationRequestRow) ?? null;
+  }
+
+  /** Record "I asked for a re-explanation of this session" (learner-only;
+   *  one per session — a second tap upserts, never duplicates). */
+  static async askClarification(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<ClarificationRequestRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_clarification_ask', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Could not record your request: ${error.message}`);
+    return data as ClarificationRequestRow;
+  }
+
+  /** The SAME learner self-reports what happened after their ask — mirrors the
+   *  SCF verdict pattern (this is the learner's own record; nobody else writes it). */
+  static async reportClarificationOutcome(
+    attendanceDate: string,
+    periodId: string,
+    outcome: Exclude<ClarificationOutcome, 'pending'>,
+  ): Promise<ClarificationRequestRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_clarification_outcome', {
+      p_attendance_date: attendanceDate,
+      p_period_id: periodId,
+      p_outcome: outcome,
+    });
+    if (error) throw new Error(`Could not record what happened: ${error.message}`);
+    return data as ClarificationRequestRow;
   }
 
   /** Anonymized aggregate over the caller faculty's own sessions. */
@@ -627,5 +691,82 @@ export class SessionFeedbackService {
     if (error) throw new Error(`Failed to load pulse totals: ${error.message}`);
     const rows = (data || []) as PulseTotals[];
     return rows.length > 0 ? rows[0] : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pre-session materials (Rank 3a) — post a NotebookLM link/material for a
+  // session + log objective opens. All four flow through the SECURITY DEFINER
+  // RPCs in 20260801100000_scf_session_resources.sql (RLS-on tables, anon-locked).
+  // Authority for post/deactivate is _fn_curriculum_class_ctx(...require_manage):
+  // the RPC raises for a caller without manage rights on that session.
+  // ---------------------------------------------------------------------------
+
+  /** Post a material for a session (a Senior Learner of the course, or an
+   *  HOD/admin of the institution). Throws on failure so the caller sees the real
+   *  auth/validation error (e.g. another course's Senior Learner is rejected).
+   *  Returns the inserted row. */
+  static async postSessionResource(
+    input: PostSessionResourceInput,
+  ): Promise<PostedSessionResource> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_post_session_resource', {
+      p_timetable_id: input.timetableId,
+      p_attendance_date: input.attendanceDate,
+      p_period_id: input.periodId,
+      p_kind: input.kind ?? 'notebooklm',
+      p_title: input.title,
+      p_url: input.url,
+    });
+    if (error) throw new Error(error.message);
+    return data as PostedSessionResource;
+  }
+
+  /** Active materials for a session + the caller-learner's own `opened` flag and
+   *  the aggregate `open_count`. Authenticated read (class-shared study links, not
+   *  sensitive). Decorative on both surfaces — a read failure (including the RPC
+   *  not yet applied on prod) returns [] so neither page ever crashes. */
+  static async getResourcesForSession(
+    timetableId: string,
+    attendanceDate: string,
+    periodId: string,
+  ): Promise<SessionResourceRow[]> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_resources_for_session', {
+        p_timetable_id: timetableId,
+        p_attendance_date: attendanceDate,
+        p_period_id: periodId,
+      });
+      if (error) {
+        logger.warn('academic/session-feedback', 'resources-for-session read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data || []) as SessionResourceRow[];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'resources-for-session read threw', err);
+      return [];
+    }
+  }
+
+  /** Learner logs an open of a material (idempotent upsert; increments the count
+   *  on re-open). Throws on failure — the UI fires the new-tab open regardless, so
+   *  the link still works even if the log call fails. */
+  static async logResourceOpen(resourceId: string): Promise<void> {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('fn_scf_log_resource_open', {
+      p_resource_id: resourceId,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  /** Deactivate a mis-posted material (manage authority; the RPC raises otherwise). */
+  static async deactivateSessionResource(resourceId: string): Promise<void> {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('fn_scf_deactivate_session_resource', {
+      p_resource_id: resourceId,
+    });
+    if (error) throw new Error(error.message);
   }
 }

@@ -48,6 +48,7 @@ const TEST_ACCOUNTS = [
   { roleKey: 'faculty', email: 'test.faculty@jkkn.ac.in', name: 'Test Faculty', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'student', email: 'test.student@jkkn.ac.in', name: 'Test Student', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'accounts', email: 'test.accounts@jkkn.ac.in', name: 'Test Accountant', isSuperAdmin: false, needsInstitution: true },
+  { roleKey: 'registrar', email: 'test.registrar@jkkn.ac.in', name: 'Test Registrar', isSuperAdmin: false, needsInstitution: false },
   { roleKey: 'staff', email: 'test.staff@jkkn.ac.in', name: 'Test Staff', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'digital_coordinator', email: 'test.digital@jkkn.ac.in', name: 'Test Digital Coordinator', isSuperAdmin: false, needsInstitution: true },
   { roleKey: 'principal', email: 'test.principal@jkkn.ac.in', name: 'Test Principal', isSuperAdmin: false, needsInstitution: true },
