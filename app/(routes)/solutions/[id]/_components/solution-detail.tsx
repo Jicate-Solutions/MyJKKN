@@ -404,7 +404,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/solutions/list">
@@ -422,7 +422,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <Select value={solutionStatus} onValueChange={(v) => handleStatusChange(v as SolutionStatus)}>
             <SelectTrigger className="w-[140px]">
               <SelectValue />
@@ -451,7 +451,7 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
 
       {/* Content Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           {solutionType === 'software' && (
             <TabsTrigger value="phases">Phases ({phases.length})</TabsTrigger>

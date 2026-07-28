@@ -87,10 +87,10 @@ export function Navbar({ title }: NavbarProps) {
 
   return (
     <header className='sticky top-0 z-30 w-full bg-background border-b border-border shadow-sm dark:shadow-secondary'>
-      <div className='mx-4 sm:mx-8 flex h-14 items-center justify-between'>
-        <div className='flex items-center space-x-4 lg:space-x-0'>
+      <div className='mx-2 sm:mx-8 flex h-14 items-center justify-between gap-2'>
+        <div className='flex min-w-0 flex-1 items-center space-x-2 sm:space-x-4 lg:space-x-0'>
           <SheetMenu />
-          <h1 className='font-bold text-foreground text-sm sm:text-base truncate max-w-[180px] sm:max-w-[300px] md:max-w-none'>{resolvedTitle}</h1>
+          <h1 className='font-bold text-foreground text-sm sm:text-base truncate min-w-0 max-w-[180px] sm:max-w-[300px] md:max-w-none'>{resolvedTitle}</h1>
           {currentPage && (
             <Suspense
               fallback={
@@ -108,7 +108,7 @@ export function Navbar({ title }: NavbarProps) {
             </Suspense>
           )}
         </div>
-        <div className='flex items-center justify-between space-x-4'>
+        <div className='flex shrink-0 items-center justify-between space-x-4'>
           {/* Desktop view */}
           <div className='hidden md:flex items-center space-x-2'>
             <HeaderConnectionBadge />
@@ -118,14 +118,14 @@ export function Navbar({ title }: NavbarProps) {
           </div>
 
           {/* Mobile view */}
-          <div className='flex md:hidden items-center space-x-2'>
+          <div className='flex md:hidden items-center space-x-1 sm:space-x-2'>
             <HeaderConnectionBadge />
             <NotificationBell />
             <UserNav />
             <Button
               variant='destructive'
               onClick={handleLogout}
-              className='text-sm'
+              className='text-sm px-3'
             >
               <LogOut className='w-4 h-4' />
             </Button>

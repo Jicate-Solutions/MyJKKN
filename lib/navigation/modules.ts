@@ -74,14 +74,22 @@ export const MODULES: Module[] = [
   // ── Admission CRM ─────────────────────────────────────────────────────
   { slug: 'admission', label: 'Admission CRM', icon: 'UserPlus', section: 'Admission CRM', hasNavConfig: true },
 
-  // ── Employee Management / HR Management ──────────────────────────────
+  // ── HR Management ────────────────────────────────────────────────────
   // 2026-05-09: /staff + /hr unified under "Employee Management".
-  // 2026-07-03: /hr split back out into its own "HR Management" section
-  // (sidebar group: HR · Recruitment · Admin); /staff stays in
-  // "Employee Management". Section strings MUST match the sidebar
-  // groupLabels in lib/sidebarMenuLink.ts (bottom-nav matches by exact string).
-  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
+  // 2026-07-03: /hr split back out into its own "HR Management" section.
+  // 2026-07-20: re-merged — /staff folded into the "Employee" MenuItem row
+  // inside the HR Management sidebar group (HR · Employee · Recruitment ·
+  // Admin), so both slugs now share one section.
+  //
+  // `hr` MUST stay ABOVE `staff`: getSectionIcon() in
+  // components/BottomNav/bottom-navbar.tsx does MODULES.find(m => m.section
+  // === section) and takes the FIRST match, so swapping these two silently
+  // changes the section's mobile icon from UsersRound to Briefcase.
+  //
+  // Section strings MUST match the sidebar groupLabels in
+  // lib/sidebarMenuLink.ts (bottom-nav matches by exact string).
   { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'HR Management', hasNavConfig: true },
+  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'HR Management', hasNavConfig: false },
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },
@@ -96,7 +104,11 @@ export const MODULES: Module[] = [
 
   // ── Inventory (IMS) ───────────────────────────────────────────────────
   // Sister to Resources — distinct top-level /ims/* tree.
-  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'Inventory (IMS)', hasNavConfig: false },
+  // section MUST equal the sidebar groupLabel ('IMS' in sidebarMenuLink.ts) —
+  // the mobile bottom-nav joins MODULES sections to sidebar groups by exact
+  // string equality (bottom-navbar.tsx:295). A mismatch drops IMS to the
+  // trailing safety-net (More-only, no section icon/gradient).
+  { slug: 'ims', label: 'Inventory Management', icon: 'Package', section: 'IMS', hasNavConfig: false },
 
   // ── Procurement ───────────────────────────────────────────────────────
   // Centralized purchasing spine (PR → RFQ → PO → GRN). Module-agnostic;

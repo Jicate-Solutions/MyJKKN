@@ -138,7 +138,11 @@ export async function POST(
         icon: '🐛',
         priority: 'normal',
         category: 'bug_report_message',
-        created_by: senderId
+        created_by: senderId,
+        // targeting is NOT NULL with no default — omitting it threw at runtime,
+        // so no bug-report message notification was ever delivered. Mirror the
+        // per-recipient fan-out written below into user_notifications.
+        targeting: { type: 'user', user_ids: eligibleParticipants.map((p) => p.user_id) }
       })
       .select()
       .single() as { data: { id: string; title: string } | null; error: unknown };

@@ -500,7 +500,7 @@ export function ImportLeadsDialog({
         {step === 'preview' && (
           <div className="space-y-4">
             {/* Summary */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <Badge variant="outline" className="gap-1">
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 {file?.name}

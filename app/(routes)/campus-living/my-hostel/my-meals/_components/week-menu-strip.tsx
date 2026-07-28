@@ -16,9 +16,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { CalendarRange, ChefHat, Sparkles } from 'lucide-react';
+import { CalendarRange, ChefHat, Sparkles, Star } from 'lucide-react';
 import { useMessPlanOptions, planLabel } from '@/lib/services/campus-living/mess-plan-options';
 import type { MenuWeekResult } from '@/hooks/campus-living/use-choose-your-menu';
+import { RateMealDialog } from '@/app/(routes)/campus-living/mess/menu/_components/rate-meal-dialog';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MEAL_ROWS = ['breakfast', 'lunch', 'tea', 'dinner'] as const;
@@ -44,6 +45,7 @@ export function WeekMenuStrip({
   canChoose = false,
   chosenByMeal = {},
   onChoose,
+  profileId = null,
 }: {
   menu: MenuWeekResult | undefined;
   isLoading: boolean;
@@ -53,6 +55,13 @@ export function WeekMenuStrip({
   /** `${day}-${meal}` → picked dish, for the "Your pick" badge. */
   chosenByMeal?: Record<string, string>;
   onChoose?: (dayOfWeek: number, mealType: string, mealLabel: string) => void;
+  /**
+   * profiles.id (== auth.uid()) — enables the per-cell RateMealDialog. The
+   * dialog only renders when the cell carries its mess_menus row identity
+   * (fn_mess_menu_week extension, 2026-07-26 migration) AND useCanRate allows
+   * (active allocation / mess plan, rating window still open).
+   */
+  profileId?: string | null;
 }) {
   const [selectedDay, setSelectedDay] = useState(todayIsoDow());
   const { options: planOptions } = useMessPlanOptions();
@@ -153,6 +162,31 @@ export function WeekMenuStrip({
                         >
                           {myPick ? 'Change' : 'Choose'}
                         </Button>
+                      )}
+                      {/* Rating intake (the loop's measurement leg). Renders
+                          only when the cell carries its menu-row identity AND
+                          useCanRate (inside the dialog) allows — allocation /
+                          mess plan + the post-meal rating window. */}
+                      {profileId && cell?.id && cell.institution_id && cell.week_start_date && (
+                        <RateMealDialog
+                          profileId={profileId}
+                          menu={{
+                            id: cell.id,
+                            institution_id: cell.institution_id,
+                            week_start_date: cell.week_start_date,
+                            day_of_week: selectedDay,
+                            meal_type: meal,
+                            items_tamil: cell.items_tamil,
+                            items_english: cell.items_english,
+                            items: cell.items,
+                          }}
+                          trigger={
+                            <Button variant="outline" size="sm" className="h-6 px-2 text-xs">
+                              <Star className="mr-1 h-3 w-3 text-yellow-500" />
+                              Rate
+                            </Button>
+                          }
+                        />
                       )}
                     </span>
                   </div>

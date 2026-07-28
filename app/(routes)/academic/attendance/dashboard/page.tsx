@@ -290,6 +290,7 @@ function AttendanceDashboardContent() {
               onFiltersChange={handleFiltersChange}
               onRefresh={handleRefresh}
               isLoading={loading}
+              showHierarchy
             />
 
             {/* Information Alert for Non-Today Data */}
@@ -441,6 +442,7 @@ function AttendanceDashboardContent() {
               onFiltersChange={handleFiltersChange}
               onRefresh={handleRefresh}
               isLoading={loading}
+              showHierarchy
             />
             <FeedbackConfirmationTab
               userInstitutionId={

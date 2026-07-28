@@ -611,7 +611,7 @@ export function StudentSearchFilters({
       </div>
 
       {/* Search and Clear Buttons */}
-      <div className='flex justify-between items-center gap-4'>
+      <div className='flex flex-wrap justify-between items-center gap-4'>
         <div className='flex gap-2'>
           <Button
             onClick={handleSearch}

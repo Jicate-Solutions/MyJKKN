@@ -242,7 +242,10 @@ export interface HealthSportsAchievement {
   id: string;
   learner_id: string;
   achievement_date: string;
-  sport: string;
+  /** Required for category 'sports'; null for academic / cultural / other awards (Wave 2C, 2026-07-26). */
+  sport: string | null;
+  /** Award category — widened 2026-07-26 (Wave 2C) so academic/external awards have a home. Verified rows emit NAAC 8.3 evidence via DB trigger. */
+  category: AchievementCategory;
   event_name: string;
   event_level: SportLevel;
   achievement_type: AchievementType;
@@ -254,6 +257,21 @@ export interface HealthSportsAchievement {
 
 export type SportLevel = 'intra_college' | 'inter_college' | 'district' | 'state' | 'national' | 'international';
 export type AchievementType = 'gold' | 'silver' | 'bronze' | 'participation' | 'record' | 'best_player' | 'captain' | 'other';
+export type AchievementCategory = 'sports' | 'academic' | 'cultural' | 'other';
+
+export const ACHIEVEMENT_CATEGORIES: { value: AchievementCategory; label: string; emoji: string }[] = [
+  { value: 'sports', label: 'Sports', emoji: '🏆' },
+  { value: 'academic', label: 'Academic', emoji: '🎓' },
+  { value: 'cultural', label: 'Cultural', emoji: '🎭' },
+  { value: 'other', label: 'Other', emoji: '🌟' },
+];
+
+export const ACHIEVEMENT_CATEGORY_LABELS: Record<AchievementCategory, string> = {
+  sports: 'Sports',
+  academic: 'Academic',
+  cultural: 'Cultural',
+  other: 'Other',
+};
 
 // ============================================================================
 // Constants

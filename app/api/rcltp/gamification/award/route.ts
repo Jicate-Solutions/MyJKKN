@@ -10,7 +10,7 @@
  * learner outside their institution by supplying their own institution_id.
  *
  * SCOPE NOTE: this is the AWARD WIRING. It does NOT decide WHICH badge to award —
- * the badge CRITERIA (and the badge catalog seed) are EKSAQ/admin content. The
+ * the badge CRITERIA (and the badge catalog seed) are MyJKKN/admin content. The
  * caller passes a badge_slug explicitly. Until a catalog row exists, the RPC raises
  * "badge not found" (expected — wiring is live, content is awaited).
  *
@@ -65,7 +65,7 @@ export const POST = withAuth(
     });
     if (error) {
       // The DEFINER RPC RAISEs when the slug is unknown/inactive (no catalog seeded
-      // yet = awaiting EKSAQ content). Surface as a 400, not a 500.
+      // yet = awaiting MyJKKN content). Surface as a 400, not a 500.
       return errorResponse(error.message || 'Award failed', 400, 'AWARD_FAILED');
     }
 

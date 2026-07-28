@@ -83,7 +83,7 @@ export default function HostelResidentsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={onTabChange} className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='learners'>Learners</TabsTrigger>
             <TabsTrigger value='non-learners'>Non-learners</TabsTrigger>
             <TabsTrigger value='generate'>Generate Hostel-Year Bills</TabsTrigger>

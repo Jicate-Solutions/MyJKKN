@@ -35,9 +35,12 @@ export class StartupStudioNotificationService {
     message: string;
   }): Promise<void> {
     const insert = {
-      type: 'startup_studio',
       title: params.title,
-      message: params.message,
+      body: params.message,
+      category: 'startup_studio',
+      kind: 'work_item' as const,
+      created_by: params.user_id,
+      targeting: { type: 'user', user_ids: [params.user_id] },
       metadata: {
         source: 'startup_studio_notify',
         event_type: params.event_type,

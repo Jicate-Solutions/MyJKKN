@@ -77,7 +77,7 @@ interface EditRoleDialogProps {
 const MODULE_SCOPE_OPTIONS: Array<{ key: string; label: string; description: string }> = [
   {
     key: 'staff',
-    label: 'Employee Management',
+    label: 'Employee',
     description:
       "Controls which employee records this role can read/edit/delete. 'Own records' = only the user's own staff row."
   }

@@ -221,10 +221,10 @@ export default function RfqDetailPage() {
 
         {/* Vendors */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base">Vendors ({rfq.vendors.length})</CardTitle>
             {editable && availableVendors.length > 0 && (
-              <div className="w-[220px]">
+              <div className="w-full sm:w-[220px]">
                 <Select
                   value=""
                   onValueChange={(supplierId) =>
@@ -260,15 +260,15 @@ export default function RfqDetailPage() {
                 {rfq.vendors.map((v) => (
                   <div
                     key={v.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
                   >
-                    <div>
-                      <p className="text-sm font-medium">{v.supplier?.name ?? v.supplier_id}</p>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{v.supplier?.name ?? v.supplier_id}</p>
                       {v.supplier?.email && (
-                        <p className="text-xs text-muted-foreground">{v.supplier.email}</p>
+                        <p className="truncate text-xs text-muted-foreground">{v.supplier.email}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       {v.sent_at && <Badge variant="secondary">Sent</Badge>}
                       {editable && (
                         <Button

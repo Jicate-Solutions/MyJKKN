@@ -7,6 +7,8 @@ import {
   guardInstitutionWrite,
   resolveCoeInstitutionId,
   readableCounsellingCodes,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
@@ -59,14 +61,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 2: Resolve board-membership scope.
-    // Policy (2026-07-16): a syllabus is visible ONLY to its own board's people.
-    // Board-scoped for everyone except super-admin — members, chairman AND
-    // principals see only the boards they sit on (scope.boardsOf). A user on no
-    // board (including holders of academic.bos-syllabus.view who aren't on a
-    // board) sees nothing. The read-all observer tier is intentionally NOT
-    // applied to syllabi.
+    // Policy (2026-07-23, reverses 2026-07-16): the read-all observer tier IS
+    // applied — any holder of academic.bos-syllabus.view reads every board's
+    // syllabi across ALL institutions, VIEW ONLY (edit stays gated by
+    // guardSyllabusEdit on the mutating routes). Board-scoping now only
+    // applies to users who reach this route WITHOUT the view grant.
     const scope = await resolveBosBoardScope(user.id);
-    const seeAll = scope.isSuperAdmin;
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const seeAll = scope.isSuperAdmin || isBosReadAllObserver(scope, hasView);
     const boardIds = Array.from(scope.boardsOf);
 
     if (!seeAll && boardIds.length === 0) {

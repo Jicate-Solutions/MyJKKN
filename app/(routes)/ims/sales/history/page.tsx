@@ -253,7 +253,7 @@ function SalesHistoryPageInner() {
               </div>
               <div className="flex flex-col sm:flex-row gap-4 items-end">
                 <div className="flex items-center gap-2 flex-1">
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1 min-w-0 sm:flex-none">
                     <label className="text-xs text-muted-foreground">From</label>
                     <Input
                       type="date"
@@ -262,10 +262,10 @@ function SalesHistoryPageInner() {
                         setDateFrom(e.target.value);
                         setPage(1);
                       }}
-                      className="w-40"
+                      className="w-full sm:w-40"
                     />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1 min-w-0 sm:flex-none">
                     <label className="text-xs text-muted-foreground">To</label>
                     <Input
                       type="date"
@@ -274,7 +274,7 @@ function SalesHistoryPageInner() {
                         setDateTo(e.target.value);
                         setPage(1);
                       }}
-                      className="w-40"
+                      className="w-full sm:w-40"
                     />
                   </div>
                 </div>

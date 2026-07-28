@@ -53,7 +53,7 @@ import {
   useRcltpAssessment,
   useRcltpResponses,
 } from '@/hooks/rcltp/use-rcltp-assessments';
-import { useRcltpPassage, useRcltpQuestions } from '@/hooks/rcltp/use-rcltp-passages';
+import { useRcltpPassage, useRcltpQuestionsForTake } from '@/hooks/rcltp/use-rcltp-passages';
 import { RcltpAssessmentsService } from '@/lib/services/rcltp/assessments-service';
 import type { RcltpAssessmentStatus } from '@/types/rcltp';
 import { VoiceRecorder } from './voice-recorder';
@@ -99,9 +99,10 @@ export function TakeFlow({ assessmentId }: { assessmentId: string }) {
   const passageId = assessment?.passage_id ?? '';
 
   const passageQuery = useRcltpPassage(passageId);
-  const questionsQuery = useRcltpQuestions(
-    passageId ? { passage_id: passageId, status: 'approved' } : {}
-  );
+  // Learner-safe read: answer key (correct_answer + ai_meta) is never fetched to
+  // the browser. RLS blocks the base-table select for learners; this uses the
+  // SECURITY DEFINER RPC that returns only answerable columns.
+  const questionsQuery = useRcltpQuestionsForTake(passageId);
   const responsesQuery = useRcltpResponses(
     assessmentId ? { assessment_id: assessmentId } : {}
   );
@@ -263,9 +264,9 @@ export function TakeFlow({ assessmentId }: { assessmentId: string }) {
   if (!isOpen) {
     return (
       <div className='space-y-5'>
-        <div className='flex items-center justify-between gap-3'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <h1 className='text-xl font-semibold'>{typeLabel}</h1>
-          <Button asChild variant='outline' size='sm'>
+          <Button asChild variant='outline' size='sm' className='shrink-0 self-start sm:self-auto'>
             <Link href='/rcltp/student'>
               <ArrowLeft className='mr-2 h-4 w-4' /> My Reading
             </Link>

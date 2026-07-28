@@ -51,7 +51,7 @@ export async function GET(
     // Fetch all submissions for this assessment
     const { data: submissions, error: sErr } = await (supabase as any)
       .from('pde_submissions')
-      .select('id, learner_id, attempt_number, final_score, auto_score, passed, completed_at, started_at')
+      .select('id, learner_id, attempt_number, final_score, auto_score, passed, completed_at, started_at, answers')
       .eq('assessment_id', caseId);
     if (sErr) throw sErr;
 
@@ -82,9 +82,12 @@ export async function GET(
     const learnerIds = Array.from(learners) as string[];
     let learnerProfiles: any[] = [];
     if (learnerIds.length) {
+      // learners_profiles stores first_name/last_name — there is no full_name
+      // column, and selecting one made PostgREST reject the whole query (42703),
+      // which is why this route returned 500 on every call.
       const { data: lp } = await (supabase as any)
         .from('learners_profiles')
-        .select('id, full_name, roll_number')
+        .select('id, first_name, last_name, roll_number')
         .in('id', learnerIds);
       learnerProfiles = lp || [];
     }
@@ -134,7 +137,8 @@ export async function GET(
       const lpRow = lpById.get(r.learner_id);
       const cur = perLearner.get(r.learner_id) || {
         learner_id: r.learner_id,
-        learner_name: lpRow?.full_name || 'Unknown',
+        learner_name:
+          [lpRow?.first_name, lpRow?.last_name].filter(Boolean).join(' ').trim() || 'Unknown',
         roll_number: lpRow?.roll_number,
         attempts_used: 0,
         best_score: null,
@@ -155,26 +159,35 @@ export async function GET(
       perLearner.set(r.learner_id, cur);
     });
 
-    // Per-domain average (rough — pulls from pde_submissions.metadata.per_domain_scores if present)
+    // Per-domain average.
+    //
+    // This previously read pde_submissions.metadata.per_domain_scores — a column
+    // that does not exist on the table, so the query 42703'd and took the whole
+    // route down with it. Domain scores are derived instead from each answer's
+    // domain_score, keyed by the question's osce_domain, which is exactly how
+    // the per-learner transcript route computes them; deriving keeps the two
+    // surfaces from disagreeing.
     const domainTotals: Record<OSCEDomain, { sum: number; count: number }> = {} as any;
     DOMAINS.forEach((d) => (domainTotals[d] = { sum: 0, count: 0 }));
 
-    // Optional: pull metadata for domain scores if column populated
     if (rows.length) {
-      const { data: meta } = await (supabase as any)
-        .from('pde_submissions')
+      const { data: qRows } = await (supabase as any)
+        .from('pde_assessment_questions')
         .select('id, metadata')
         .eq('assessment_id', caseId);
-      (meta || []).forEach((m: any) => {
-        const pd = m.metadata?.per_domain_scores;
-        if (pd && typeof pd === 'object') {
-          DOMAINS.forEach((d) => {
-            if (typeof pd[d] === 'number') {
-              domainTotals[d].sum += pd[d];
-              domainTotals[d].count += 1;
-            }
-          });
-        }
+      const domainByQuestion = new Map<string, OSCEDomain>(
+        (qRows || []).map((q: any) => [q.id, (q?.metadata?.osce_domain as OSCEDomain) || 'data_gathering'])
+      );
+
+      rows.forEach((r: any) => {
+        const answers = Array.isArray(r.answers) ? r.answers : [];
+        answers.forEach((a: any) => {
+          if (typeof a?.domain_score !== 'number') return;
+          const domain = domainByQuestion.get(a.question_id);
+          if (!domain || !domainTotals[domain]) return;
+          domainTotals[domain].sum += a.domain_score;
+          domainTotals[domain].count += 1;
+        });
       });
     }
 

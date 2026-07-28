@@ -35,7 +35,8 @@ export const BULK_RECEIPT_PAYMENT_MODES = [
   'online',
   'bank_transfer',
   'dd',
-  'cheque'
+  'cheque',
+  'combined'
 ] as const;
 export type BulkReceiptPaymentMode =
   (typeof BULK_RECEIPT_PAYMENT_MODES)[number];

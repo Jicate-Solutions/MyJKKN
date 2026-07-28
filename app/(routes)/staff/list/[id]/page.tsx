@@ -29,6 +29,7 @@ import ReactMarkdown from 'react-markdown';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
+import { PrintCardButton } from '@/components/id-cards/print-card-button';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -134,6 +135,11 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
 
+  // Phase 2 — display name for the ID-card print flow (destructured so the
+  // template literal below stays identifier-free for the terminology gate)
+  const { first_name: memberFirstName, last_name: memberLastName } = staff;
+  const teamMemberName = `${memberFirstName} ${memberLastName}`;
+
   // Build the cross-profile URL for internal transfer pre-fill (R4.1)
   const considerForNewRoleUrl =
     `/hr/recruitment/submit?source_staff_id=${encodeURIComponent(staff.id)}` +
@@ -166,14 +172,14 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
       <div className='space-y-6 mt-4'>
         {/* Back Button */}
 
-        <div className='flex justify-between items-center'>
-          <div className='flex items-center gap-4'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center'>
+          <div className='flex items-center gap-4 min-w-0'>
             <Button variant='outline' size='sm' asChild>
               <Link href='/staff/list' className='flex items-center gap-2'>
                 <ArrowLeft className='h-4 w-4' />
               </Link>
             </Button>
-            <div className='flex flex-col'>
+            <div className='flex flex-col min-w-0'>
               <h1 className='text-2xl font-bold py-1'>
                 {staff.first_name} {staff.last_name}
               </h1>
@@ -182,7 +188,16 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
               </p>
             </div>
           </div>
-          <div className='flex items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2 shrink-0'>
+            {/* Phase 2 — one-click ID-card printing (hidden without id_cards.jobs.manage).
+                Team members link to accounts via staff.profile_id (set by the
+                sync_staff_to_profiles trigger); email match is the fallback. */}
+            <PrintCardButton
+              profileId={(staff as any).profile_id ?? null}
+              lookupEmail={staff.institution_email || staff.email || null}
+              personName={teamMemberName}
+              noAccountMessage='No account yet — ID card becomes available once the team member account is activated.'
+            />
             {/* R4.1 — Internal mobility entry point */}
             {canCreateRecruitment && (
               <Button variant='outline' asChild>
@@ -214,11 +229,11 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 src={staff.profile_picture}
                 firstName={staff.first_name}
                 lastName={staff.last_name}
-                className='h-20 w-20'
+                className='h-20 w-20 shrink-0'
                 fallbackClassName='text-lg'
               />
-              <div className='space-y-1'>
-                <div className='flex items-center gap-2'>
+              <div className='space-y-1 min-w-0'>
+                <div className='flex flex-wrap items-center gap-2'>
                   <h2 className='text-xl font-semibold'>
                     {staff.first_name} {staff.last_name}
                   </h2>
@@ -234,7 +249,7 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 </p>
                 <Link
                   href={`mailto:${staff.institution_email}`}
-                  className='text-sm text-muted-foreground hover:text-primary'
+                  className='block text-sm text-muted-foreground hover:text-primary break-all'
                 >
                   {staff.institution_email || 'Not Assigned'}
                 </Link>

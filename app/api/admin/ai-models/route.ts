@@ -35,6 +35,18 @@ interface FeatureWithUsage extends AiModelConfigRow {
   // prompt template, non-interactive → the generic drain can execute it).
   lane: string | null;
   runnable: boolean;
+  // UNIFICATION (2026-07-23): false when this registry job carries no model yet
+  // (provider/model_id are ''). The UI shows "Uses default model" and a "Set
+  // model" button that governs the job for the first time.
+  model_set: boolean;
+  // VISIBILITY (2026-07-25): the registry `enabled` flag, surfaced so the
+  // console can MARK dormant jobs. The service-role read below already returns
+  // disabled rows (enabled=false) — they were rendering identical to enabled
+  // ones because the payload only carried the conflated `runnable`. This is the
+  // raw gate: a disabled job is not claimed/enqueued by the drain. Distinct from
+  // `is_active` (ai_model_config's own display toggle) and from `runnable`
+  // (enabled AND has-prompt AND non-interactive).
+  enabled: boolean;
 }
 
 async function requireSuperAdmin() {
@@ -63,7 +75,8 @@ export async function GET(_request: NextRequest) {
 
     // 1. Feature list — CONFIG MERGE (2026-07-14): the ai_job_types registry is
     // now the authoritative source of model governance, so the page's row list
-    // is DRIVEN by the registry (every job type that carries a model), enriched
+    // is DRIVEN by the registry (UNIFICATION 2026-07-23: every job type, model
+    // or not — model-less rows carry model_set:false), enriched
     // with ai_model_config for the display-only fields the registry does not yet
     // hold (display_name, category, config_json, is_active, audit stamps). The
     // registry also supplies `lane` and whether the feature is `runnable`.
@@ -76,12 +89,18 @@ export async function GET(_request: NextRequest) {
     // (requireSuperAdmin above), so bypassing RLS for the read is safe, and it
     // matches how getModelForFeature resolves the registry.
     const svc = createServiceRoleClient();
+    // UNIFICATION (2026-07-23): return ALL registry job types, not only those
+    // that carry a model. The unified console shows every one of the 45 jobs
+    // grouped by lane, so model-less rows must appear too — they come back with
+    // provider/model_id = null and a `model_set: false` flag. The UI renders
+    // these as "Uses default model" and offers a "Set model" button that governs
+    // the job for the first time (the [feature_key] PATCH upserts an
+    // ai_model_config row when none exists yet).
     const { data: regRows, error: regErr } = await svc
       .from('ai_job_types')
       .select(
         'job_type, title, description, lane, enabled, prompt_template, interactive, provider, model_id, fallback_provider, fallback_model_id, monthly_spend_cap_inr, updated_at',
-      )
-      .not('model_id', 'is', null);
+      );
     if (regErr) {
       console.error('[ai-models] registry list error:', regErr);
       return NextResponse.json({ error: 'Failed to load AI model config' }, { status: 500 });
@@ -166,8 +185,10 @@ export async function GET(_request: NextRequest) {
           (typeof r.job_type === 'string' && r.job_type.includes('.')
             ? r.job_type.split('.')[0]
             : 'other'),
-        provider: r.provider as string,
-        model_id: r.model_id as string,
+        // UNIFICATION: model-less registry jobs come back with '' here; the UI
+        // keys off `model_set` (below) to render "Uses default model".
+        provider: (r.provider as string | null) ?? '',
+        model_id: (r.model_id as string | null) ?? '',
         fallback_provider: (r.fallback_provider as string | null) ?? null,
         fallback_model_id: (r.fallback_model_id as string | null) ?? null,
         monthly_spend_cap_inr: (r.monthly_spend_cap_inr as number | null) ?? null,
@@ -189,6 +210,10 @@ export async function GET(_request: NextRequest) {
         lane: (r.lane as string | null) ?? null,
         runnable:
           r.enabled === true && !!r.prompt_template && r.interactive === false,
+        model_set: r.model_id != null,
+        // VISIBILITY (2026-07-25): surface the raw registry gate so the console
+        // can badge disabled jobs. Already fetched in the .select() above.
+        enabled: r.enabled === true,
         month_to_date_cost_inr: s?.mtd_cost ?? 0,
         month_to_date_invocations: s?.mtd_count ?? 0,
         month_to_date_success_rate: s && s.mtd_count > 0 ? s.mtd_success / s.mtd_count : 1,

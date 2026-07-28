@@ -53,7 +53,7 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
 
   const { data: ev } = await svc
     .from('events')
-    .select('id, name, event_type, status, start_date, venue, venue_text, registration_open_date, registration_close_date')
+    .select('id, name, event_type, status, start_date, venue, venue_text, registration_open_date, registration_close_date, participant_org_type')
     .eq('id', id)
     .eq('event_type', 'sports_tournament')
     .maybeSingle();
@@ -156,6 +156,7 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
         signedInName={signedInName}
         isLearner={isLearner}
         sections={sections}
+        participantOrgType={ev.participant_org_type === 'college' ? 'college' : 'school'}
       />
 
       <footer className="mt-8 text-center text-xs text-muted-foreground">JKKN Institutions · Tournament registration</footer>

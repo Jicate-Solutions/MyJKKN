@@ -7,13 +7,18 @@ import {
   Search,
   History,
   Info,
+  Plus,
+  MinusCircle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { BeatLoader } from 'react-spinners';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -32,16 +37,23 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import {
   useImsDepartmentsForSelect,
   useImsDepartmentStock,
   useImsDepartmentSummaries,
   useImsDepartmentItemMovements,
+  useImsIssuableItems,
+  useIssueItemToDepartment,
+  useRecordDepartmentConsumption,
 } from '@/hooks/ims/use-ims-departments';
 import type { ImsDepartmentStock } from '@/types/ims';
 
@@ -58,8 +70,29 @@ const MOVEMENT_TYPE_BADGE: Record<string, string> = {
   adjusted: 'bg-purple-100 text-purple-800',
 };
 
+interface IssueFormData {
+  department_id: string;
+  item_id: string;
+  quantity: number;
+  notes: string;
+}
+
+const emptyIssueForm: IssueFormData = {
+  department_id: '',
+  item_id: '',
+  quantity: 0,
+  notes: '',
+};
+
 export default function DepartmentStockPage() {
   const { storeId, institutionId } = useImsStoreContext();
+  const { profile } = useAuth();
+  const { canAccess, isSuperAdmin } = usePermissions();
+
+  // Issuing to a department and recording usage both mutate stock levels, so
+  // they need the same permission as Stock Adjustments. Gated at the action
+  // level rather than the page level so read-only viewers keep their access.
+  const canModifyStock = isSuperAdmin || canAccess('ims.stock', 'adjust');
 
   const [departmentId, setDepartmentId] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -68,8 +101,26 @@ export default function DepartmentStockPage() {
     null
   );
 
+  // Add Item (direct store → department issue)
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [issueForm, setIssueForm] = useState<IssueFormData>(emptyIssueForm);
+
+  // Record Usage (department consumption)
+  const [usageDialogOpen, setUsageDialogOpen] = useState(false);
+  const [usageRow, setUsageRow] = useState<ImsDepartmentStock | null>(null);
+  const [usageQuantity, setUsageQuantity] = useState(0);
+  const [usageNotes, setUsageNotes] = useState('');
+
   const { data: departmentOptions = [] } =
     useImsDepartmentsForSelect(institutionId);
+
+  const { data: issuableItems = [] } = useImsIssuableItems({
+    store_id: storeId,
+    institution_id: institutionId,
+  });
+
+  const issueItem = useIssueItemToDepartment();
+  const recordUsage = useRecordDepartmentConsumption();
 
   const { data: summaries = [], isLoading: summariesLoading } =
     useImsDepartmentSummaries({
@@ -97,15 +148,96 @@ export default function DepartmentStockPage() {
     setHistoryDialogOpen(true);
   };
 
+  const openUsage = (row: ImsDepartmentStock) => {
+    setUsageRow(row);
+    setUsageQuantity(0);
+    setUsageNotes('');
+    setUsageDialogOpen(true);
+  };
+
+  const selectedIssueItem = issuableItems.find(
+    (i) => i.item_id === issueForm.item_id
+  );
+
+  const handleIssueSubmit = async () => {
+    if (!issueForm.department_id || !issueForm.item_id) {
+      toast.error('Please select a department and an item');
+      return;
+    }
+    if (issueForm.quantity <= 0) {
+      toast.error('Please enter a valid quantity');
+      return;
+    }
+    try {
+      await issueItem.mutateAsync({
+        data: {
+          department_id: issueForm.department_id,
+          item_id: issueForm.item_id,
+          quantity: issueForm.quantity,
+          notes: issueForm.notes,
+          store_id: storeId,
+          institution_id: institutionId,
+        },
+        userId: profile?.id || '',
+      });
+      toast.success('Item issued to department');
+      setIssueDialogOpen(false);
+      setIssueForm(emptyIssueForm);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to issue item'
+      );
+    }
+  };
+
+  const handleUsageSubmit = async () => {
+    if (!usageRow) return;
+    if (usageQuantity <= 0) {
+      toast.error('Please enter a valid quantity');
+      return;
+    }
+    try {
+      await recordUsage.mutateAsync({
+        data: {
+          department_id: usageRow.department_id,
+          item_id: usageRow.item_id,
+          quantity: usageQuantity,
+          notes: usageNotes,
+          store_id: storeId,
+          institution_id: institutionId,
+        },
+        userId: profile?.id || '',
+      });
+      toast.success('Usage recorded');
+      setUsageDialogOpen(false);
+      setUsageRow(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to record usage'
+      );
+    }
+  };
+
   return (
     <ContentLayout title="Department Stock">
       <div className="space-y-6">
+        {canModifyStock && (
+          <div className="flex justify-end">
+            <Button onClick={() => setIssueDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Item
+            </Button>
+          </div>
+        )}
+
         <Alert>
           <Info className="h-4 w-4" />
           <AlertTitle>Department Stock Tracking</AlertTitle>
           <AlertDescription>
             Department stock is tracked from stock issues and consumption
-            entries. Select a department below to filter its inventory.
+            entries. Adding an item here issues it straight from store stock,
+            without needing an indent. Select a department below to filter its
+            inventory.
           </AlertDescription>
         </Alert>
 
@@ -231,14 +363,27 @@ export default function DepartmentStockPage() {
                         {row.balance}
                       </TableCell>
                       <TableCell className="text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openHistory(row)}
-                        >
-                          <History className="h-4 w-4 mr-1" />
-                          View History
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          {canModifyStock && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={Number(row.balance) <= 0}
+                              onClick={() => openUsage(row)}
+                            >
+                              <MinusCircle className="h-4 w-4 mr-1" />
+                              Record Usage
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openHistory(row)}
+                          >
+                            <History className="h-4 w-4 mr-1" />
+                            View History
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -247,6 +392,180 @@ export default function DepartmentStockPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Add Item Dialog — direct store → department issue */}
+        <Dialog open={issueDialogOpen} onOpenChange={setIssueDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Item to Department</DialogTitle>
+              <DialogDescription>
+                Issues the item straight from store stock. Store quantity goes
+                down and the department&apos;s balance goes up.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="issue_department">Department</Label>
+                <Select
+                  value={issueForm.department_id}
+                  onValueChange={(v) =>
+                    setIssueForm((p) => ({ ...p, department_id: v }))
+                  }
+                >
+                  <SelectTrigger id="issue_department">
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentOptions.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.department_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="issue_item">Item</Label>
+                <Select
+                  value={issueForm.item_id}
+                  onValueChange={(v) =>
+                    setIssueForm((p) => ({ ...p, item_id: v }))
+                  }
+                >
+                  <SelectTrigger id="issue_item">
+                    <SelectValue placeholder="Select item" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {issuableItems.length === 0 ? (
+                      <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                        No items with stock available in this store.
+                      </div>
+                    ) : (
+                      issuableItems.map((item) => (
+                        <SelectItem key={item.item_id} value={item.item_id}>
+                          {item.item_name} ({item.item_code})
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {selectedIssueItem && (
+                  <p className="text-sm text-muted-foreground">
+                    Available in store: {selectedIssueItem.available_quantity}
+                    {selectedIssueItem.unit_abbreviation
+                      ? ` ${selectedIssueItem.unit_abbreviation}`
+                      : ''}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="issue_quantity">Quantity</Label>
+                <Input
+                  id="issue_quantity"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  max={selectedIssueItem?.available_quantity}
+                  value={issueForm.quantity}
+                  onChange={(e) =>
+                    setIssueForm((p) => ({
+                      ...p,
+                      quantity: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="issue_notes">Notes (optional)</Label>
+                <Textarea
+                  id="issue_notes"
+                  placeholder="e.g. Issued for lab practical"
+                  value={issueForm.notes}
+                  onChange={(e) =>
+                    setIssueForm((p) => ({ ...p, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setIssueDialogOpen(false)}
+                disabled={issueItem.isPending}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleIssueSubmit} disabled={issueItem.isPending}>
+                {issueItem.isPending ? 'Adding...' : 'Add Item'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Record Usage Dialog — department consumption */}
+        <Dialog open={usageDialogOpen} onOpenChange={setUsageDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Record Usage</DialogTitle>
+              <DialogDescription>
+                {usageRow && (
+                  <>
+                    {usageRow.item_name} — {usageRow.department_name}. Current
+                    balance: {usageRow.balance}
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="usage_quantity">Quantity Used</Label>
+                <Input
+                  id="usage_quantity"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  max={usageRow?.balance}
+                  value={usageQuantity}
+                  onChange={(e) =>
+                    setUsageQuantity(parseFloat(e.target.value) || 0)
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="usage_notes">Notes (optional)</Label>
+                <Textarea
+                  id="usage_notes"
+                  placeholder="e.g. Used in second-year practicals"
+                  value={usageNotes}
+                  onChange={(e) => setUsageNotes(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setUsageDialogOpen(false)}
+                disabled={recordUsage.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUsageSubmit}
+                disabled={recordUsage.isPending}
+              >
+                {recordUsage.isPending ? 'Recording...' : 'Record Usage'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* History Dialog */}
         <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>

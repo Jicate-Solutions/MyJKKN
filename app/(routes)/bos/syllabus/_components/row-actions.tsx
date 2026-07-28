@@ -124,11 +124,14 @@ export function SyllabusPdfDownloadButton({
   syllabus,
   institutionName,
   isCas = false,
+  isCet = false,
 }: {
   syllabus: BosCourseSyllabus;
   institutionName?: string;
   /** Arts-&-Science (CAS) institution → render unit content as a flowing paragraph. */
   isCas?: boolean;
+  /** CET (Engineering) institution → always render the Engineering PDF format. */
+  isCet?: boolean;
 }) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
@@ -167,14 +170,17 @@ export function SyllabusPdfDownloadButton({
       // AND the Engineering college banner/logo — even though they are managed
       // under the A&S autonomous college's BoS. The hosting institution is NOT a
       // reliable signal, so detect from the syllabus itself:
-      //   1. an explicit `stream` of "Engineering", or
-      //   2. an Anna University course code (2–3 letters + 4 digits, e.g.
+      //   1. the syllabus is hosted under CET itself — every CET course uses this
+      //      format, and the code/stream heuristics below miss autonomous CET
+      //      codes such as "CP25C22" (letters inside the digit block), or
+      //   2. an explicit `stream` of "Engineering", or
+      //   3. an Anna University course code (2–3 letters + 4 digits, e.g.
       //      "EC3354") — a shape A&S codes like "24UUCSDSE01" never match, so it
       //      is a safe fallback when the Stream field was left blank.
       const isEngineeringStream = /engineering/i.test(syllabus.stream ?? '');
       const isAnnaUnivCode = /^[A-Z]{2,3}\d{4}$/.test((syllabus.course_code ?? '').trim());
       const variant: 'default' | 'engineering' =
-        isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
+        isCet || isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
 
       // Force the Engineering header (name/accreditation/right logo) for the CET
       // variant; otherwise resolve branding from the hosting institution's name.

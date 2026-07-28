@@ -5,10 +5,11 @@ import type {
   PaymentProvider, VerifySignatureInput, VerifyWebhookInput,
 } from '../provider';
 import type { RazorpayApiAuth, RazorpayCredentials } from './credentials';
+import type { RazorpayPayment } from './types';
 import { createOrder } from './create-order';
 import { verifySignature } from './verify-signature';
 import { verifyWebhookSignature } from './verify-webhook';
-import { getOrderStatus, getPaymentStatus, dualInquiry } from './get-status';
+import { getOrderStatus, getPaymentStatus, getOrderPayments, dualInquiry } from './get-status';
 import { createRefund } from './create-refund';
 
 /**
@@ -64,6 +65,14 @@ export class RazorpayProvider implements PaymentProvider {
 
   async getPaymentStatus(gatewayPaymentId: string): Promise<GetStatusResult> {
     return getPaymentStatus(gatewayPaymentId, this.auth);
+  }
+
+  /**
+   * Every payment attempt against an order. Used by the reconciliation sweep to
+   * recover the `pay_…` id when only the order id is known.
+   */
+  async getOrderPayments(gatewayOrderId: string): Promise<RazorpayPayment[]> {
+    return getOrderPayments(gatewayOrderId, this.auth);
   }
 
   /**

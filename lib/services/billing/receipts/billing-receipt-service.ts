@@ -272,6 +272,22 @@ export class BillingReceiptService {
     filters: ReceiptFilters = {}
   ): Promise<ReceiptListResponse> {
     try {
+      // Ownership filter. billing_receipts has no category of its own, so this
+      // walks receipt_items -> bill -> category via chained !inner embeds, which
+      // makes it "receipts containing AT LEAST ONE line of this ownership" — a
+      // single payment can settle both, and a mixed receipt shows under either.
+      // Only added when the filter is on, so the default list keeps its existing
+      // (cheaper) query shape. Verified against PostgREST: the nested dotted
+      // filter path resolves and count=exact is NOT inflated by the join.
+      const ownershipEmbed = filters.collection_type
+        ? `,
+          collection_lines:billing_receipt_items!inner(
+            bill:billing_student_bills!inner(
+              category:billing_categories!inner(collection_type)
+            )
+          )`
+        : '';
+
       let query = (this.supabase as any).from('billing_receipts').select(
         `
           *,
@@ -291,10 +307,17 @@ export class BillingReceiptService {
             id,
             refund_amount,
             approval_status
-          )
+          )${ownershipEmbed}
         `,
         { count: 'exact' }
       );
+
+      if (filters.collection_type) {
+        query = query.eq(
+          'collection_lines.bill.category.collection_type',
+          filters.collection_type
+        );
+      }
 
       // Apply filters
       if (filters.search) {

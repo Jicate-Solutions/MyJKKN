@@ -88,7 +88,7 @@ function AnalyticsTabContent({ institutionId }: { institutionId: string }) {
   return (
     <div className="space-y-6">
       {/* Header + Date Range */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
             <Trophy className="h-6 w-6 text-primary" />
@@ -100,7 +100,7 @@ function AnalyticsTabContent({ institutionId }: { institutionId: string }) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Input
             type="date"
             value={dateFrom}

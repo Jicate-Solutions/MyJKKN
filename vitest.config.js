@@ -13,6 +13,7 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['**/__tests__/schedule-restore-dialog.test.tsx', 'jsdom'],
       ['**/__tests__/batch-size-selector.test.tsx', 'jsdom'],
+      ['**/__tests__/question-papers/**/*.test.tsx', 'jsdom'],
     ],
   },
 });

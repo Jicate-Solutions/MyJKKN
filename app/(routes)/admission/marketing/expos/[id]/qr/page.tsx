@@ -125,13 +125,13 @@ function QrPageContent() {
       {/* Event Info */}
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between">
-            <div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
               <CardTitle className="flex items-center gap-2">
-                <QrCode className="h-5 w-5" />
+                <QrCode className="h-5 w-5 shrink-0" />
                 QR Code — {event.event_name}
               </CardTitle>
-              <CardDescription className="flex items-center gap-3 mt-1">
+              <CardDescription className="flex flex-wrap items-center gap-3 mt-1">
                 <span className="flex items-center gap-1">
                   <MapPin className="h-3.5 w-3.5" />
                   {event.city}
@@ -145,7 +145,7 @@ function QrPageContent() {
                 </span>
               </CardDescription>
             </div>
-            <Badge variant={event.event_status === 'in_progress' ? 'default' : 'outline'}>
+            <Badge variant={event.event_status === 'in_progress' ? 'default' : 'outline'} className="shrink-0">
               {event.event_status}
             </Badge>
           </div>
@@ -180,7 +180,7 @@ function QrPageContent() {
               <Input
                 value={captureUrl}
                 readOnly
-                className="font-mono text-xs"
+                className="font-mono text-xs min-w-0"
               />
               <Button
                 variant="outline"

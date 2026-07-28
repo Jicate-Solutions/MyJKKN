@@ -229,7 +229,7 @@ function MeetingsAnalyticsInner() {
                 value={selectedInstitution}
                 onValueChange={setSelectedInstitution}
               >
-                <SelectTrigger className="w-[220px]">
+                <SelectTrigger className="w-full sm:w-[220px]">
                   <Building2 className="h-4 w-4 mr-2 text-muted-foreground" />
                   <SelectValue placeholder="Institution" />
                 </SelectTrigger>
@@ -252,7 +252,7 @@ function MeetingsAnalyticsInner() {
               value={rangeKey}
               onValueChange={(v) => setRangeKey(v as RangeKey)}
             >
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

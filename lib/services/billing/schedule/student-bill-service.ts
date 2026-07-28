@@ -514,7 +514,8 @@ export class StudentBillService {
               id,
               category_name,
               amount,
-              frequency
+              frequency,
+              collection_type
             )
           `,
           { count: 'exact' }
@@ -563,7 +564,8 @@ export class StudentBillService {
               id,
               category_name,
               amount,
-              frequency
+              frequency,
+              collection_type
             )
           `,
           { count: 'exact' }
@@ -632,6 +634,36 @@ export class StudentBillService {
 
       if (filters.item_category_id) {
         query = query.eq('item_category_id', filters.item_category_id);
+      }
+
+      // Ownership filter. Resolved to ids against the (global, ~20-row) category
+      // master and applied as an IN list rather than switching the embedded
+      // billing_categories join to !inner — an inner join here would silently
+      // drop uncategorised bills from every query shape, and the select string
+      // is built in two separate branches above.
+      if (filters.collection_type) {
+        const { data: cats, error: catErr } = await (this.supabase as any)
+          .from('billing_categories')
+          .select('id')
+          .eq('collection_type', filters.collection_type);
+
+        if (catErr) throw catErr;
+
+        const categoryIds = ((cats ?? []) as { id: string }[]).map((c) => c.id);
+        if (categoryIds.length === 0) {
+          // No category carries this ownership — nothing can match. (page/limit
+          // are only destructured further down, so read them off filters here.)
+          return {
+            data: [],
+            metadata: {
+              total: 0,
+              page: filters.page || 1,
+              limit: filters.limit || 10,
+              totalPages: 0
+            }
+          };
+        }
+        query = query.in('item_category_id', categoryIds);
       }
 
       if (filters.status) {
