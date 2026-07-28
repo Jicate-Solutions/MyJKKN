@@ -80,10 +80,23 @@ export function useImsStoresForSelect(
 export function useImsStoresForAssignment() {
   return useQuery({
     queryKey: ['ims-stores-assignment'],
-    queryFn: () => ImsStoreService.getStoresForSelect(null, true),
+    queryFn: () => ImsStoreService.getStoresForAssignment(),
     staleTime: 10 * 60 * 1000,
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 8000),
+  });
+}
+
+/**
+ * Cross-institution store grants held by `userId`, for the admin edit form.
+ * Super-admin only — RLS returns [] for anyone else editing another user.
+ */
+export function useImsUserStoreGrants(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['ims-user-store-grants', userId],
+    queryFn: () => ImsStoreService.getUserStoreGrants(userId!),
+    enabled: !!userId,
+    staleTime: 10 * 60 * 1000,
   });
 }
 
