@@ -38,7 +38,7 @@ async function validateAlertOwner(
   if (!UUID_RE.test(staffId)) return 'alert_owner_staff_id must be a uuid';
 
   const service = createServiceRoleClient();
-  const [{ data: rule }, { data: staff }] = await Promise.all([
+  const [{ data: rule }, { data: owner }] = await Promise.all([
     service
       .from('meeting_trigger_rules')
       .select('institution_id')
@@ -52,12 +52,12 @@ async function validateAlertOwner(
   ]);
 
   if (!rule) return 'Rule not found';
-  if (!staff) return 'Alert owner not found';
-  if ((staff as any).is_active === false)
+  if (!owner) return 'Alert owner not found';
+  if ((owner as any).is_active === false)
     return 'Alert owner is not an active team member';
   if (
     !(rule as any).institution_id ||
-    (staff as any).institution_id !== (rule as any).institution_id
+    (owner as any).institution_id !== (rule as any).institution_id
   )
     return 'Alert owner must belong to the same institution as the rule';
   return null;
