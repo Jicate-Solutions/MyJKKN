@@ -37,28 +37,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Authorize: a board manager, OR an associate posted to this area who can view it.
+    // Authorize: only a board manager may draft (2026-07-28 interview decision —
+    // associates can view/review, but drafting is manager-driven).
     const { data: canManage } = await supabase.rpc('user_has_permission', {
       permission_name: 'improvement.board.manage',
     });
-    let allowed = canManage === true;
-    if (!allowed) {
-      const { data: canView } = await supabase.rpc('user_has_permission', {
-        permission_name: 'improvement.ideas.view',
-      });
-      if (canView === true) {
-        const { data: posting } = await supabase
-          .from('mba_associate_postings')
-          .select('id')
-          .eq('area_id', areaId)
-          .eq('associate_user_id', user.id)
-          .maybeSingle();
-        allowed = Boolean(posting);
-      }
-    }
-    if (!allowed) {
+    if (canManage !== true) {
       return NextResponse.json(
-        { ok: false, error: 'You do not have access to draft playbooks for this area.' },
+        { ok: false, error: 'Only a board manager can draft department playbooks.' },
         { status: 403 },
       );
     }
@@ -72,6 +58,20 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (!area) {
       return NextResponse.json({ ok: false, error: 'No such area' }, { status: 404 });
+    }
+
+    // Locked: an approved artifact must be reopened before a fresh AI draft.
+    const { data: existing } = await admin
+      .from('mba_dept_artifacts')
+      .select('status')
+      .eq('area_id', areaId)
+      .eq('artifact_type', artifactType)
+      .maybeSingle();
+    if (existing?.status === 'approved') {
+      return NextResponse.json(
+        { ok: false, error: 'This playbook is approved and locked. Reopen it before re-drafting.' },
+        { status: 409 },
+      );
     }
     const { data: ideas } = await admin
       .from('improvement_ideas')
