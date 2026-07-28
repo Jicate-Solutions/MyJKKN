@@ -488,3 +488,24 @@ BEGIN
     true);   -- p_exclude_google_synced: never re-emit a booking Google already has
 END;
 $function$;
+
+-- ---------------------------------------------------------------------------
+-- 6. ACL for fn_calendar_ics — INTENTIONALLY anon-callable.
+-- ---------------------------------------------------------------------------
+-- CREATE OR REPLACE above preserves the pre-existing ACL, so this block is a
+-- no-op at runtime. It is restated explicitly because (a) the "New SECURITY
+-- DEFINER functions lock anon" CI gate requires every SECDEF function created or
+-- replaced in a migration to declare its anon posture in that SAME file, and
+-- (b) per CLAUDE.md an explicit GRANT TO anon is the audit-trail signal that the
+-- grant is DELIBERATE rather than Supabase's default.
+--
+-- WHY ANON IS CORRECT HERE: this is the ICS feed that Google Calendar / Apple
+-- Calendar subscribe to. Those clients send no session, only the secret feed
+-- token in the URL. Authorisation IS the token: the function resolves
+-- calendar_feed_tokens (is_active = true) to a user_id and returns NOTHING when
+-- the token is unknown or revoked — it never accepts a caller-supplied user id.
+-- That missing check is exactly what made fn_calendar_items_for_user an IDOR,
+-- which is why that resolver is owner-only (section 4) while this token-gated
+-- wrapper is deliberately public.
+REVOKE EXECUTE ON FUNCTION public.fn_calendar_ics(text, date, date) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_calendar_ics(text, date, date) TO anon, authenticated, service_role;
