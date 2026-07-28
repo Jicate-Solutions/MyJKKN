@@ -141,7 +141,10 @@ export async function POST(request: NextRequest) {
           url,
           category: 'general',
           priority: 'normal',
-          created_by: user.id
+          created_by: user.id,
+          // targeting is NOT NULL with no default — without it this insert
+          // throws and the in-app bell notification is silently dropped.
+          targeting: { type: 'user', user_ids: [userId] }
         })
         .select('id')
         .single();
