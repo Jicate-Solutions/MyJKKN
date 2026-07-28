@@ -2269,7 +2269,24 @@ async function nudgeToConnectCalendar(
     : 'JKKN';
   const subject = group.events[0]?.subject_label ?? instName;
 
-  await createBellNotification(db, {
+  // Decision #5 was "nudge EVERY time a booking is blocked". Taken literally that
+  // is once per reconcile pass — and the producer is the HOURLY cron, so a single
+  // unbooked breach would emit up to 24 bells/person/day. A channel that noisy is
+  // muted within a day, which defeats the whole point (the nudge exists to drive
+  // Google-Calendar adoption, currently 21 of ~7,000). So the pressure is kept —
+  // it re-fires for every NEW day the breach stays unbooked, and for every new
+  // group — but is capped at ONE bell per group per campus day.
+  //
+  // The cap is enforced by the DB, not by a code check: idempotency_key carries a
+  // partial UNIQUE index (idx_notifications_idempotency ... WHERE idempotency_key
+  // IS NOT NULL), and createBellNotification treats the resulting 23505 as the
+  // expected "already sent" outcome and returns null. Two concurrent cron runs
+  // therefore cannot both send.
+  const nudgeKey =
+    `meetings:calendar-connect-needed:${todayIST(now)}:` +
+    `${group.institutionId ?? 'global'}:${group.breachDate}`;
+
+  const notificationId = await createBellNotification(db, {
     recipientIds: unconnected,
     createdBy: adminIds[0] ?? unconnected[0],
     title: 'Connect your Google Calendar so this review meeting can be scheduled',
@@ -2282,6 +2299,7 @@ async function nudgeToConnectCalendar(
       `soonest ${REVIEW_MEETING_MIN}-minute slot you all share.`,
     url: CONNECT_CALENDAR_URL,
     category: 'meetings:calendar-connect-needed',
+    idempotencyKey: nudgeKey,
     metadata: {
       event_ids: group.events.map((e) => e.id),
       institution_id: group.institutionId,
@@ -2290,6 +2308,9 @@ async function nudgeToConnectCalendar(
       source: 'cron:meeting-trigger-reconcile'
     }
   });
+
+  // Already nudged for this group today — nothing was sent, so do not count it.
+  if (notificationId === null) return 0;
 
   const alreadyNudged = new Set<string>();
   for (const ev of group.events) {
