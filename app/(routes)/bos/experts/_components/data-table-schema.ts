@@ -12,6 +12,7 @@ export const expertSearchParamsSchema = z.object({
     .enum([
       'university_nominee', 'subject_expert', 'academic_expert',
       'industry_expert', 'alumni', 'startup', 'student',
+      'faculty_member', 'chairman',
     ])
     .optional(),
   is_active: z.enum(['true', 'false']).optional(),

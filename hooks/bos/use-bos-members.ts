@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BosMember, CreateBosMemberDto, UpdateBosMemberDto } from '@/types/bos';
+import {
+  BosMember,
+  BosMemberRefreshResult,
+  CreateBosMemberDto,
+  UpdateBosMemberDto,
+} from '@/types/bos';
 import { BosMemberService } from '@/lib/services/bos/bos-member-service';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 
@@ -49,7 +54,10 @@ export function useAddBosMember() {
         email: variables.email,
         contact_no: variables.contact_no,
         is_active: variables.is_active ?? true,
-        sort_order: variables.sort_order ?? 0,
+        // The server appends the member (count + 1); we don't know that number
+        // yet, so park the placeholder at the end rather than at 0 — otherwise
+        // it visibly jumps to the top of the group and then moves.
+        sort_order: variables.sort_order ?? Number.MAX_SAFE_INTEGER,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       } as unknown as BosMember;
@@ -103,6 +111,95 @@ export function useUpdateBosMember() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({
         queryKey: bosMemberKeys.byComposition(updated.composition_id),
+      });
+    },
+  });
+}
+
+/**
+ * Manual "pull the latest details from the staff / expert record" action.
+ *
+ * Deliberately NOT a database trigger: bos_members.display_* is a point-in-time
+ * snapshot, so an Assistant Professor promoted to Associate Professor must keep
+ * reading "Assistant Professor" on last year's meeting papers. The operator
+ * chooses which roster adopts the new details, and when.
+ *
+ * Pass `memberIds` to refresh one committee's members only; omit for the whole
+ * composition.
+ */
+export function useRefreshBosMembers() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    BosMemberRefreshResult,
+    Error,
+    { compositionId: string; memberIds?: string[] }
+  >({
+    mutationFn: ({ compositionId, memberIds }) =>
+      BosMemberService.refreshMembers(compositionId, memberIds),
+    onSuccess: (result, variables) => {
+      // Only refetch when something actually moved — a no-op refresh shouldn't
+      // churn the list.
+      if (result.updated > 0) {
+        queryClient.invalidateQueries({
+          queryKey: bosMemberKeys.byComposition(variables.compositionId),
+        });
+      }
+    },
+  });
+}
+
+/**
+ * Persist the roster order into bos_members.sort_order.
+ *
+ * `orderedIds` is the whole composition in render order — see
+ * BosMemberService.reorderMembers.
+ */
+export function useReorderBosMembers() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    { updated: number; total: number },
+    Error,
+    { compositionId: string; orderedIds: string[] },
+    // Explicit context type — onMutate's return is what onError rolls back to.
+    { previous: BosMember[] | undefined; compositionId: string }
+  >({
+    mutationFn: ({ compositionId, orderedIds }) =>
+      BosMemberService.reorderMembers(compositionId, orderedIds),
+    // Optimistic: the arrows must feel instant. We rewrite sort_order in the
+    // cache to the new 1..n ranks so the list re-sorts on this tick.
+    onMutate: async ({ compositionId, orderedIds }) => {
+      const queryKey = bosMemberKeys.byComposition(compositionId);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<BosMember[]>(queryKey);
+      const rankById = new Map(orderedIds.map((id, idx) => [id, idx + 1]));
+      queryClient.setQueryData<BosMember[]>(queryKey, (old = []) =>
+        old.map((m) =>
+          rankById.has(m.id)
+            ? {
+                ...m,
+                sort_order: rankById.get(m.id)!,
+                // group_position is recomputed server-side; clearing it makes
+                // the card badge fall back to its rendered index for the few
+                // hundred ms until the refetch lands, so the numbers stay
+                // consistent with the order on screen instead of freezing.
+                group_position: undefined,
+              }
+            : m,
+        ),
+      );
+      return { previous, compositionId };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(
+          bosMemberKeys.byComposition(context.compositionId),
+          context.previous,
+        );
+      }
+    },
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: bosMemberKeys.byComposition(variables.compositionId),
       });
     },
   });

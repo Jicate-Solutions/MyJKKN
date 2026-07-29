@@ -37,6 +37,17 @@ import {
   type ImportWarning,
   type ImportSummaryCounts,
 } from '@/components/bos/syllabus-import-issues-dialog';
+import {
+  PharmacyScopeCard,
+  PharmacyExamSchemeCard,
+  PharmacyInternshipCard,
+} from '@/components/bos/syllabus-pharmacy-tabs';
+import {
+  resolveAcademicModel,
+  isPharmacyModel,
+  modelHasOutcomes,
+} from '@/lib/services/bos/academic-model';
+import type { AcademicModel } from '@/types/bos';
 
 interface Institution { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
@@ -306,6 +317,48 @@ export function SyllabusForm({
       setActiveTab('mappings');
     }
   }, [isFinksBoard, activeTab]);
+
+  // ── Academic model (COP pharmacy support) ─────────────────────────────
+  // COP hosts BOTH B.Pharm (pci_pharm) and Pharm.D (mgr_pharmd) as separate
+  // BoS boards, so the model is resolved from the SELECTED BOARD (name/code),
+  // not the institution_code. Computed live from the board; injected into the
+  // save payload (never stored in formData so a board change re-resolves).
+  // While the board list is still loading on an edit, trust the persisted
+  // academic_model so pharmacy tabs don't flicker to the Anna set.
+  const selectedBoardMeta = useMemo(
+    () => boards.find((b) => b.id === formData.board_id),
+    [boards, formData.board_id],
+  );
+  const institutionCode = useMemo(
+    () => institutions.find((i) => i.id === formData.institutions_id)?.institution_code,
+    [institutions, formData.institutions_id],
+  );
+  const academicModel: AcademicModel = useMemo(() => {
+    if (!selectedBoardMeta && existingSyllabus?.academic_model) {
+      return existingSyllabus.academic_model;
+    }
+    return resolveAcademicModel({
+      institutionCode,
+      boardId: formData.board_id,
+      boardName: selectedBoardMeta?.board_name,
+      boardCode: selectedBoardMeta?.board_code,
+    });
+  }, [selectedBoardMeta, existingSyllabus?.academic_model, institutionCode, formData.board_id]);
+
+  const isPharmacy = isPharmacyModel(academicModel);
+  const isBPharm = academicModel === 'pci_pharm';
+  const isPharmD = academicModel === 'mgr_pharmd';
+  // Pharmacy models carry no CO/PO/PSO/Bloom — hide those tabs entirely.
+  const showOutcomeTabs = modelHasOutcomes(academicModel);
+
+  // If the user is parked on an outcome tab when the model resolves to a
+  // pharmacy model (board changed mid-edit), bounce to a visible tab so the
+  // body isn't blank.
+  useEffect(() => {
+    if (isPharmacy && ['clo', 'pedagogy', 'mappings'].includes(activeTab)) {
+      setActiveTab('content');
+    }
+  }, [isPharmacy, activeTab]);
 
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
@@ -899,11 +952,16 @@ export function SyllabusForm({
     }
 
     try {
+      // Inject the resolved academic model so pharmacy/AHS rows persist their
+      // discriminator (it's computed from the board, not stored in formData, so
+      // a board change always re-resolves). Anna rows get 'anna_univ' — a no-op
+      // vs the DB default.
+      const payload = { ...formData, academic_model: academicModel };
       if (isEditing && currentSyllabusId) {
-        const result = await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
+        const result = await updateMutation.mutateAsync(payload as UpdateBosSyllabusDto);
         onSuccess?.(result);
       } else {
-        const result = await createMutation.mutateAsync(formData as CreateBosSyllabusDto);
+        const result = await createMutation.mutateAsync(payload as CreateBosSyllabusDto);
         onSuccess?.(result);
       }
     } catch (error) {
@@ -983,14 +1041,25 @@ export function SyllabusForm({
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         {/* Clone popup shows only Basic Info — hide the tab chrome entirely. */}
         {!compact && (
-          <TabsList className={`grid w-full ${isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'}`}>
+          <TabsList
+            className={`grid w-full ${
+              isPharmacy ? 'grid-cols-6' : isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'
+            }`}
+          >
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
+            {/* B.Pharm carries a "Scope" paragraph before Objectives. */}
+            {isBPharm && <TabsTrigger value="scope">Scope</TabsTrigger>}
             <TabsTrigger value="objectives">Objectives</TabsTrigger>
-            <TabsTrigger value="clo">Course Outcomes</TabsTrigger>
-            <TabsTrigger value="content">Content</TabsTrigger>
+            {/* Outcome tabs (CO/PO/PSO, Pedagogy) — Anna models only; pharmacy has none. */}
+            {showOutcomeTabs && <TabsTrigger value="clo">Course Outcomes</TabsTrigger>}
+            <TabsTrigger value="content">{isPharmD ? 'Lecture Topics' : 'Content'}</TabsTrigger>
             <TabsTrigger value="resources">Resources</TabsTrigger>
-            <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>
-            <TabsTrigger value="mappings">PO Mappings</TabsTrigger>
+            {showOutcomeTabs && <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>}
+            {showOutcomeTabs && <TabsTrigger value="mappings">PO Mappings</TabsTrigger>}
+            {/* Pharmacy exam scheme (PCI / Dr. MGR) replaces the outcome mapping. */}
+            {isPharmacy && <TabsTrigger value="exam">Exam Scheme</TabsTrigger>}
+            {/* Pharm.D 6th-year internship postings. */}
+            {isPharmD && <TabsTrigger value="internship">Internship</TabsTrigger>}
             {/* Fink's-only tabs — Bloom's boards end the flow at PO Mappings */}
             {isFinksBoard && (
               <>
@@ -999,6 +1068,69 @@ export function SyllabusForm({
               </>
             )}
           </TabsList>
+        )}
+
+        {/* ── Pharmacy (COP) tabs — pci_pharm (B.Pharm) / mgr_pharmd (Pharm.D) ── */}
+        {isBPharm && (
+          <TabsContent value="scope" className="space-y-4">
+            <PharmacyScopeCard
+              value={formData.scope}
+              onChange={(v) => updateField('scope', v)}
+            />
+          </TabsContent>
+        )}
+        {isPharmacy && (
+          <TabsContent value="exam" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Program placement</CardTitle>
+                <CardDescription>
+                  {isBPharm
+                    ? 'Which semester this course belongs to (B.Pharm 1–8).'
+                    : 'Which academic year this subject belongs to (Pharm.D 1–5).'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {isBPharm && (
+                  <div>
+                    <label className="text-xs text-muted-foreground">Semester (1–8)</label>
+                    <Input
+                      inputMode="numeric"
+                      value={formData.semester ?? ''}
+                      onChange={(e) =>
+                        updateField('semester', e.target.value === '' ? undefined : Number(e.target.value))
+                      }
+                    />
+                  </div>
+                )}
+                {isPharmD && (
+                  <div>
+                    <label className="text-xs text-muted-foreground">Academic year (1–5)</label>
+                    <Input
+                      inputMode="numeric"
+                      value={formData.academic_year ?? ''}
+                      onChange={(e) =>
+                        updateField('academic_year', e.target.value === '' ? undefined : Number(e.target.value))
+                      }
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <PharmacyExamSchemeCard
+              value={formData.exam_scheme}
+              onChange={(v) => updateField('exam_scheme', v)}
+              showQuestionPattern={isBPharm}
+            />
+          </TabsContent>
+        )}
+        {isPharmD && (
+          <TabsContent value="internship" className="space-y-4">
+            <PharmacyInternshipCard
+              value={formData.internship_postings}
+              onChange={(v) => updateField('internship_postings', v)}
+            />
+          </TabsContent>
         )}
 
         {/* Basic Information */}

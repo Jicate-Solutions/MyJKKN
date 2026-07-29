@@ -11,6 +11,39 @@
 
 ---
 
+## Implementation status (2026-07-25)
+
+**BUILT** on branch `main` (decisions: B.Pharm & Pharm.D are **separate BoS boards** → resolver
+keys on board; build scope = **all phases**, Pharm.D COE fields stubbed + flagged):
+
+| Layer | File(s) | Status |
+|---|---|---|
+| Resolver + predicates | `lib/services/bos/academic-model.ts` (new) | ✅ board-keyed `resolveAcademicModel`, `isPharmacyModel`, `modelHasOutcomes`, `makePharmdTempCode` |
+| Types | `types/bos.ts` | ✅ `AcademicModel`, `BosExamScheme`, `BosInternshipPostings`, `BosAhsContent`; 7 new fields on `BosCourseSyllabus` |
+| Migration | `supabase/migrations/20260725_bos_syllabus_pharmacy_model.sql` (new) | ✅ additive; **NOT YET APPLIED** (apply via service-role executor — MCP can't reach project) |
+| Courses schema | `lib/services/bos/courses-schemas.ts` | ✅ `makeCourseFormSchema(model)`, `COP` in Part/Level-exempt, alnum temp codes, `toCoeCreatePayload` model branch |
+| Courses create | `app/api/bos/courses-master/route.ts`, `hooks/bos/use-bos-courses.ts`, `.../courses/_components/course-form.tsx`, `.../courses/new/page.tsx` | ✅ model-aware validate + form (Pharm.D optional credits/hours + Academic Year) |
+| Syllabus API | `app/api/bos/syllabus/[id]/route.ts` (PUT allow-list); POST already spreads body | ✅ |
+| Syllabus form | `components/bos/syllabus-form.tsx`, `components/bos/syllabus-pharmacy-tabs.tsx` (new) | ✅ pharmacy tab set (Scope/Exam/Internship), hides CLO/Pedagogy/PO, persists `academic_model` |
+| PDF export | `app/api/bos/syllabus/[id]/export-pdf/route.ts`, `lib/utils/bos/pharmacy-syllabus-html.ts` (new) | ✅ pharmacy layout, skips CO-PO/Bloom |
+| Skills | `.claude/skills/bos-curriculum-pdf-to-import/SKILL.md`, `.claude/skills/bos-syllabus-convert/SKILL.md` | ✅ PCI + Pharm.D branches |
+
+**DEFERRED (documented follow-ups, not blocking authoring):**
+- **COE-repo hand-off (Pharm.D):** COE `courses` table + `/api/v1/courses` need nullable
+  `credits/theory_hours/practical_hours/course_category` + new `academic_year` + `is_temp_code`
+  columns. Until then, MyJKKN forwards these fields (harmless/ignored) but Pharm.D course
+  *creation* in COE may reject null credits. **B.Pharm needs none of this** and works fully now.
+- **Bulk courses import** (`courses-import-dialog.tsx` / `import/route.ts`): still Anna-strict.
+  B.Pharm bulk import works (has credits); Pharm.D bulk import needs the year-based schema wired
+  in — use the manual New Course form or the skills meanwhile. (`makeImportRowSchema(model)` exists.)
+- **Courses list columns** (`courses-columns.tsx`): no pharmacy-specific columns yet (cosmetic).
+- **XLSX export** (`syllabus-xlsx.ts`): still emits the Anna 8-sheet template (empty CLO/PO
+  sheets for pharmacy). PDF is the pharmacy-correct export; XLSX pharmacy sheets are a follow-up.
+- **Migration application** + seeding the real COP board_ids into `PHARMD_BOARD_IDS` /
+  `BPHARM_BOARD_IDS` (name-matching works until then).
+
+---
+
 ## 0. Confirmed direction (locked before writing this spec)
 
 1. **COP carries TWO distinct academic models, not one.**
