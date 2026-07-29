@@ -25,6 +25,7 @@ import {
   PILLAR_LABELS as CARRE_PILLAR_LABELS,
   PILLAR_ORDER as CARRE_PILLAR_ORDER,
   CLASSROOM_PILLAR_ORDER,
+  CLASSROOM_SCORE_ANCHORS,
   SCORE_ANCHORS,
   classroomPillarFromCode,
   pillarFromCode as carrePillarFromCode,
@@ -137,6 +138,9 @@ export function CareScoreSheet({
     : isCarre
       ? carrePillarFromCode
       : carePillarFromCode;
+  // Classroom Practice scores frequency (never→always); CARE/CARRE score
+  // maturity (absent→measured). The buttons must say which one is being asked.
+  const anchors = isClassroom ? CLASSROOM_SCORE_ANCHORS : SCORE_ANCHORS;
 
   const byPillar = order
     .map((pillar) => ({
@@ -175,6 +179,7 @@ export function CareScoreSheet({
                   value={values[item.code]}
                   evidence={evidenceHint(item, settingCode)}
                   live={evidenceByCode?.[item.code]}
+                  anchors={anchors}
                   onScore={(s) => onScore(item.code, s)}
                   onNote={(n) => onNote(item.code, n)}
                   disabled={disabled}
@@ -193,6 +198,7 @@ function ScoreItem({
   value,
   evidence,
   live,
+  anchors,
   onScore,
   onNote,
   disabled,
@@ -201,6 +207,8 @@ function ScoreItem({
   value: SheetValue | undefined;
   evidence: string | undefined;
   live: LiveEvidence | undefined;
+  /** The 0–4 scale in play: frequency for Classroom Practice, maturity otherwise. */
+  anchors: Record<number, { label: string; hint: string }>;
   onScore: (score: number) => void;
   onNote: (note: string) => void;
   disabled: boolean;
@@ -266,7 +274,7 @@ function ScoreItem({
 
       <div className="flex flex-wrap gap-1.5 pl-16">
         {[0, 1, 2, 3, 4].map((s) => {
-          const anchor = SCORE_ANCHORS[s]!;
+          const anchor = anchors[s]!;
           const active = value?.score === s;
           const aboveCap = cap !== null && s > cap;
           return (

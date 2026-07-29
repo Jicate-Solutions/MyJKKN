@@ -162,6 +162,26 @@ export function pillarFromCode(code: string): CarrePillar | null {
 
 export const CLASSROOM_PRACTICE_ITEM_COUNT = 13;
 
+/**
+ * Classroom Practice scores FREQUENCY, not maturity.
+ *
+ * The 25-item CARRE sheet asks how developed a system is (absent → measured),
+ * which fits an initiative. A 13-item sheet about one person's own practice asks
+ * how OFTEN something happens, and — decisively — the learner drip asks its
+ * single micro-question on the same never→always scale. Both sides of the
+ * self-vs-learner compare have to be answering the same question, or the gap
+ * between them measures nothing.
+ *
+ * 4 is "always, and there is evidence of it" — the ratified top anchor.
+ */
+export const CLASSROOM_SCORE_ANCHORS: Record<number, { label: string; hint: string }> = {
+  0: { label: 'Never', hint: 'Does not happen' },
+  1: { label: 'Rarely', hint: 'Happens once in a while; nobody could rely on it' },
+  2: { label: 'Sometimes', hint: 'Happens about half the time' },
+  3: { label: 'Usually', hint: 'Happens most of the time' },
+  4: { label: 'Always', hint: 'Happens every time — and there is evidence of it' },
+};
+
 /** Pillars the Classroom Practice catalog actually uses, in display order. */
 export const CLASSROOM_PILLAR_ORDER: CarrePillar[] = ['C', 'A', 'RS', 'E'];
 
