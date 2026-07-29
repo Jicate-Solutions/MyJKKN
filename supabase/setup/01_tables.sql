@@ -6440,3 +6440,5 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts_voided (
   voided_by                uuid,
   void_reason              text NOT NULL
 );
+-- Supabase default-grants new public tables to anon; RLS is not a substitute.
+REVOKE ALL ON TABLE public.billing_receipts_voided FROM anon, PUBLIC;

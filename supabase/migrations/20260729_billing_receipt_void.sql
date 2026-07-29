@@ -63,6 +63,13 @@ CREATE INDEX IF NOT EXISTS idx_billing_receipts_voided_voided_at
 CREATE INDEX IF NOT EXISTS idx_billing_receipts_voided_number
   ON public.billing_receipts_voided (receipt_number);
 
+-- Supabase runs ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, so a
+-- brand-new public-schema table arrives with SELECT/INSERT/UPDATE/DELETE already
+-- granted to the anon key that ships in every page of jkkn.ai. RLS is NOT a
+-- substitute for this REVOKE, and these rows carry learner names, amounts and
+-- payment references.
+REVOKE ALL ON TABLE public.billing_receipts_voided FROM anon, PUBLIC;
+
 ALTER TABLE public.billing_receipts_voided ENABLE ROW LEVEL SECURITY;
 
 -- Staff-only. A voided receipt must NOT appear to the learner: unlike
