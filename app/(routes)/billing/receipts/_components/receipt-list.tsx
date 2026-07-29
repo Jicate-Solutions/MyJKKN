@@ -27,6 +27,10 @@ import {
   useDownloadReceiptPDF,
   useVoidBillingReceipt
 } from '@/hooks/billing/use-billing-receipts';
+import {
+  useRequestReceiptCancellation,
+  usePendingCancellations
+} from '@/hooks/billing/use-receipt-cancellations';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -112,6 +116,17 @@ export function ReceiptList({
   const canEditReceipts = isSuperAdmin || canAccess('billing.receipts', 'edit');
   const canDeleteReceipts =
     isSuperAdmin || canAccess('billing.receipts', 'delete');
+  // Accounts staff who cannot void directly raise a request instead; an
+  // approver decides it. Roles holding both see both actions.
+  const canRequestCancel =
+    isSuperAdmin || canAccess('billing.receipts', 'cancel.request');
+
+  const [receiptToCancel, setReceiptToCancel] = useState<BillingReceipt | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const requestCancellation = useRequestReceiptCancellation();
+  const { data: pendingCancellations = {} } = usePendingCancellations(
+    receipts.map((r) => r.id)
+  );
 
   const handleDelete = async () => {
     if (!receiptToDelete) return;
@@ -335,7 +350,16 @@ export function ReceiptList({
                     </TableCell>
                   )}
                   <TableCell className='font-medium'>
-                    {receipt.receipt_number}
+                    <div className='flex flex-col gap-1'>
+                      <span>{receipt.receipt_number}</span>
+                      {/* The receipt is still fully valid while this shows —
+                          it only means an approver has yet to decide. */}
+                      {pendingCancellations[receipt.id] && (
+                        <Badge variant='outline' className='w-fit text-[10px]'>
+                          Cancellation pending
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className='flex flex-col'>
@@ -479,6 +503,18 @@ export function ReceiptList({
                           </DropdownMenuItem>
                         )}
 
+                        {canRequestCancel && !pendingCancellations[receipt.id] && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setCancelReason('');
+                              setReceiptToCancel(receipt);
+                            }}
+                          >
+                            <Ban className='mr-2 h-4 w-4' />
+                            Request cancellation
+                          </DropdownMenuItem>
+                        )}
+
                         {canDeleteReceipts && (
                           <DropdownMenuItem
                             onClick={() => {
@@ -487,7 +523,7 @@ export function ReceiptList({
                             }}
                           >
                             <Ban className='mr-2 h-4 w-4' />
-                            Void receipt
+                            Void receipt (no approval)
                           </DropdownMenuItem>
                         )}
 
@@ -541,6 +577,79 @@ export function ReceiptList({
           </div>
         </div>
       )}
+
+      {/* Request cancellation — what accounts staff use. Nothing is reversed
+          here: the receipt stays valid and the bill stays paid until an
+          approver acts, so collections keep reflecting reality meanwhile. */}
+      <Dialog
+        open={!!receiptToCancel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptToCancel(null);
+            setCancelReason('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Request cancellation of {receiptToCancel?.receipt_number}
+            </DialogTitle>
+            <DialogDescription>
+              This sends the receipt for approval. It stays valid and the bill
+              stays paid until an approver approves the request — only then is
+              the receipt cancelled and the bill reverted.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-2'>
+            <Label htmlFor='cancel-reason'>Reason (required)</Label>
+            <Input
+              id='cancel-reason'
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder='e.g. same payment receipted twice'
+              autoComplete='off'
+            />
+            <p className='text-xs text-muted-foreground'>
+              Receipts with refunds, an attached invoice, or a captured online
+              payment cannot be cancelled — those need a refund instead.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setReceiptToCancel(null)}
+              disabled={requestCancellation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!receiptToCancel) return;
+                requestCancellation.mutate(
+                  { receiptId: receiptToCancel.id, reason: cancelReason.trim() },
+                  {
+                    onSuccess: () => {
+                      setReceiptToCancel(null);
+                      setCancelReason('');
+                      onRefresh();
+                    },
+                  }
+                );
+              }}
+              // The RPC enforces >= 5 chars too; mirroring it turns a
+              // round-trip error into an inert button.
+              disabled={
+                requestCancellation.isPending || cancelReason.trim().length < 5
+              }
+            >
+              {requestCancellation.isPending ? 'Sending...' : 'Send for approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Void dialog — the preferred way to reverse a mistaken receipt. Keeps
           the receipt number accounted for and reverts the bill; a reason is

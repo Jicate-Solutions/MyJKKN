@@ -659,8 +659,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.receipts.view', label: 'View Receipts' },
       { key: 'billing.receipts.create', label: 'Create Receipts' },
       { key: 'billing.receipts.edit', label: 'Edit Receipts' },
-      { key: 'billing.receipts.delete', label: 'Delete Receipts' },
+      { key: 'billing.receipts.delete', label: 'Delete/Void Receipts Directly' },
       { key: 'billing.receipts.generate', label: 'Generate Receipts' },
+      // Cancelling a receipt reverses money, so it is split in two: accounts
+      // staff RAISE a request, an approver DECIDES it. Anyone holding
+      // billing.receipts.delete can still void directly and bypass this, which
+      // is why that key was revoked from Accountant Assistant.
+      { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
+      { key: 'billing.receipts.cancel.approve', label: 'Approve Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
       { key: 'billing.discounts.edit', label: 'Edit Discounts' },

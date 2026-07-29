@@ -667,6 +667,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/refunds': 'billing.refunds.view',
   '/billing/refunds/[id]': 'billing.refunds.view',
   '/billing/refund-approvals': 'billing.refunds.configure',
+  // Gated on the REQUEST key so accounts staff can watch their own requests;
+  // approve/decline inside is gated separately and re-checked by the RPC.
+  '/billing/receipt-cancellations': 'billing.receipts.cancel.request',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -2489,6 +2492,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
+            { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },

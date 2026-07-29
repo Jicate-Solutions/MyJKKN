@@ -8205,3 +8205,35 @@ CREATE POLICY billing_receipts_voided_select_permission
     OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
   );
 -- No INSERT/UPDATE/DELETE policies: written only by fn_void_billing_receipt.
+
+-- Receipt cancellation requests: SELECT-only. Every write goes through the
+-- SECURITY DEFINER RPCs, so the audit trail cannot be edited by whoever it
+-- incriminates.
+ALTER TABLE public.billing_receipt_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_receipt_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT
+  USING (
+    is_super_admin()
+    OR is_admin()
+    OR requested_by = auth.uid()
+    OR (user_has_permission('billing.receipts.cancel.approve') AND role_has_institution_access(institution_id))
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM public.billing_receipt_cancel_requests r
+    WHERE r.id = request_id
+      AND (
+        is_super_admin()
+        OR is_admin()
+        OR r.requested_by = auth.uid()
+        OR (user_has_permission('billing.receipts.cancel.approve') AND role_has_institution_access(r.institution_id))
+        OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(r.institution_id))
+      )
+  ));

@@ -1972,6 +1972,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/billing/receipt-cancellations",
+        "label": "Receipt Cancellations",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/receipts",
         "label": "Receipts",
         "iconName": "Wallet",
