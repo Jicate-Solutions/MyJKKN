@@ -6411,3 +6411,32 @@ REVOKE ALL ON public.payment_audit_logs FROM anon, authenticated;
 
 COMMENT ON TABLE public.payment_audit_logs IS
   'Payment security audit trail (verification, manipulation, replay, webhook, receipt). No FKs by design: an audit write must never fail.';
+
+-- Archive of voided billing receipts (mig 20260729_billing_receipt_void).
+-- A void MOVES the row here rather than flagging it in place: 26 functions read
+-- billing_receipts and ~20 sum payment_amount directly, so a `voided_at` flag
+-- would need filtering in every one of them and a single miss overstates
+-- collections. Safe only because generate_receipt_number() uses a sequence, not
+-- MAX(receipt_number), so a number can never be reused.
+CREATE TABLE IF NOT EXISTS public.billing_receipts_voided (
+  id                       uuid PRIMARY KEY,
+  receipt_number           text NOT NULL,
+  receipt_date             date,
+  student_id               uuid,
+  institution_id           uuid,
+  payment_mode             text,
+  payment_reference_number text,
+  payment_amount           numeric,
+  payment_paid_date        date,
+  payer_name               text,
+  payer_contact            text,
+  accountant_id            uuid,
+  payment_remarks          text,
+  created_by               uuid,
+  created_at               timestamptz,
+  updated_at               timestamptz,
+  items_snapshot           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  voided_at                timestamptz NOT NULL DEFAULT now(),
+  voided_by                uuid,
+  void_reason              text NOT NULL
+);

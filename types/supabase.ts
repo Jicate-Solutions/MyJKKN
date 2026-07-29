@@ -12870,6 +12870,75 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_receipts_voided: {
+        Row: {
+          accountant_id: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          institution_id: string | null
+          items_snapshot: Json
+          payer_contact: string | null
+          payer_name: string | null
+          payment_amount: number | null
+          payment_mode: string | null
+          payment_paid_date: string | null
+          payment_reference_number: string | null
+          payment_remarks: string | null
+          receipt_date: string | null
+          receipt_number: string
+          student_id: string | null
+          updated_at: string | null
+          void_reason: string
+          voided_at: string
+          voided_by: string | null
+        }
+        Insert: {
+          accountant_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id: string
+          institution_id?: string | null
+          items_snapshot?: Json
+          payer_contact?: string | null
+          payer_name?: string | null
+          payment_amount?: number | null
+          payment_mode?: string | null
+          payment_paid_date?: string | null
+          payment_reference_number?: string | null
+          payment_remarks?: string | null
+          receipt_date?: string | null
+          receipt_number: string
+          student_id?: string | null
+          updated_at?: string | null
+          void_reason: string
+          voided_at?: string
+          voided_by?: string | null
+        }
+        Update: {
+          accountant_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          items_snapshot?: Json
+          payer_contact?: string | null
+          payer_name?: string | null
+          payment_amount?: number | null
+          payment_mode?: string | null
+          payment_paid_date?: string | null
+          payment_reference_number?: string | null
+          payment_remarks?: string | null
+          receipt_date?: string | null
+          receipt_number?: string
+          student_id?: string | null
+          updated_at?: string | null
+          void_reason?: string
+          voided_at?: string
+          voided_by?: string | null
+        }
+        Relationships: []
+      }
       billing_refunds: {
         Row: {
           approval_status: string | null

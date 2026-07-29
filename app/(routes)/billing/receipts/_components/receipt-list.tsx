@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   MoreVertical,
   Edit,
+  Ban,
   Trash2,
   RefreshCw,
   CheckSquare,
@@ -23,7 +24,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   usePrintReceipt,
   useEmailReceipt,
-  useDownloadReceiptPDF
+  useDownloadReceiptPDF,
+  useVoidBillingReceipt
 } from '@/hooks/billing/use-billing-receipts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -56,6 +58,8 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger
@@ -81,6 +85,9 @@ export function ReceiptList({
   onPageChange,
   onRefresh
 }: ReceiptListProps) {
+  const [receiptToVoid, setReceiptToVoid] = useState<BillingReceipt | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const voidReceipt = useVoidBillingReceipt();
   const [isLoading, setIsLoading] = useState(false);
   const [receiptToDelete, setReceiptToDelete] = useState<BillingReceipt | null>(
     null
@@ -474,11 +481,23 @@ export function ReceiptList({
 
                         {canDeleteReceipts && (
                           <DropdownMenuItem
+                            onClick={() => {
+                              setVoidReason('');
+                              setReceiptToVoid(receipt);
+                            }}
+                          >
+                            <Ban className='mr-2 h-4 w-4' />
+                            Void receipt
+                          </DropdownMenuItem>
+                        )}
+
+                        {canDeleteReceipts && (
+                          <DropdownMenuItem
                             className='text-destructive'
                             onClick={() => setReceiptToDelete(receipt)}
                           >
                             <Trash2 className='mr-2 h-4 w-4' />
-                            Delete
+                            Delete permanently
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -523,6 +542,77 @@ export function ReceiptList({
         </div>
       )}
 
+      {/* Void dialog — the preferred way to reverse a mistaken receipt. Keeps
+          the receipt number accounted for and reverts the bill; a reason is
+          mandatory because the archive row is what an auditor reads later. */}
+      <Dialog
+        open={!!receiptToVoid}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceiptToVoid(null);
+            setVoidReason('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Void receipt {receiptToVoid?.receipt_number}
+            </DialogTitle>
+            <DialogDescription>
+              The bill this receipt settled will go back to unpaid and its
+              balance will be restored. The receipt is archived with your reason
+              rather than deleted, so the number stays accounted for.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-2'>
+            <Label htmlFor='void-reason'>Reason (required)</Label>
+            <Input
+              id='void-reason'
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              placeholder='e.g. entered against the wrong learner'
+              autoComplete='off'
+            />
+            <p className='text-xs text-muted-foreground'>
+              Receipts with refunds, an attached invoice, or a captured online
+              payment cannot be voided — refund those instead.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setReceiptToVoid(null)}
+              disabled={voidReceipt.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!receiptToVoid) return;
+                voidReceipt.mutate(
+                  { id: receiptToVoid.id, reason: voidReason.trim() },
+                  {
+                    onSuccess: () => {
+                      setReceiptToVoid(null);
+                      setVoidReason('');
+                      onRefresh();
+                    },
+                  }
+                );
+              }}
+              // The RPC also enforces >= 5 chars; mirroring it here turns a
+              // round-trip error into an inert button.
+              disabled={voidReceipt.isPending || voidReason.trim().length < 5}
+            >
+              {voidReceipt.isPending ? 'Voiding...' : 'Void receipt'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete confirmation dialog */}
       <AlertDialog
         open={!!receiptToDelete}
@@ -532,8 +622,11 @@ export function ReceiptList({
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete receipt
-              &quot;{receiptToDelete?.receipt_number}&quot;.
+              This permanently deletes receipt &quot;
+              {receiptToDelete?.receipt_number}&quot;, leaving a gap in the
+              receipt-number sequence and no record that it ever existed. The
+              bill will be reverted either way — prefer <strong>Void
+              receipt</strong>, which keeps the audit trail.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

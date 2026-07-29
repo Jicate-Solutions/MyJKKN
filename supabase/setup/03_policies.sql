@@ -8191,3 +8191,17 @@ DROP POLICY IF EXISTS "id_card_agent_status_service_role_all" ON public.id_card_
 CREATE POLICY "id_card_agent_status_service_role_all"
   ON public.id_card_agent_status FOR ALL TO service_role
   USING (true) WITH CHECK (true);
+
+-- Voided receipts are staff-only. Unlike billing_receipts_select_permission
+-- there is deliberately NO student self-view branch: a learner must not keep
+-- seeing a receipt that no longer settles anything.
+ALTER TABLE public.billing_receipts_voided ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS billing_receipts_voided_select_permission ON public.billing_receipts_voided;
+CREATE POLICY billing_receipts_voided_select_permission
+  ON public.billing_receipts_voided FOR SELECT
+  USING (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+-- No INSERT/UPDATE/DELETE policies: written only by fn_void_billing_receipt.

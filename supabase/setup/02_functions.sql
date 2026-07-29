@@ -24015,3 +24015,131 @@ COMMENT ON FUNCTION public.seed_freshers_semester_for_program() IS
   'AFTER INSERT trigger on programs: seeds the default "Freshers" semester (semester_order = 0, initial_semester = false) and its section "A". No-ops when the program hierarchy is incomplete. SECURITY DEFINER because sections_insert_admin binds to the actor''s own institution.';
 
 NOTIFY pgrst, 'reload schema';
+
+-- Void a mistakenly-issued receipt (mig 20260729_billing_receipt_void).
+-- Archives the receipt + a snapshot of its items, then DELETEs it. The delete
+-- cascades to billing_receipt_items, whose AFTER DELETE trigger recomputes the
+-- bill's status/balance -- reusing that path so there is one definition of
+-- "paid". Refuses when reversing would destroy or resurrect money.
+CREATE OR REPLACE FUNCTION public.fn_void_billing_receipt(
+  p_receipt_id uuid,
+  p_reason     text
+)
+RETURNS TABLE(receipt_number text, bill_ids uuid[])
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_receipt public.billing_receipts%ROWTYPE;
+  v_items   jsonb;
+  v_bills   uuid[];
+BEGIN
+  IF p_receipt_id IS NULL THEN
+    RAISE EXCEPTION 'fn_void_billing_receipt: p_receipt_id must not be NULL';
+  END IF;
+  IF p_reason IS NULL OR length(trim(p_reason)) < 5 THEN
+    RAISE EXCEPTION 'A reason of at least 5 characters is required to void a receipt';
+  END IF;
+
+  SELECT * INTO v_receipt FROM public.billing_receipts WHERE id = p_receipt_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Receipt % not found (already voided or deleted)', p_receipt_id;
+  END IF;
+
+  -- SECURITY DEFINER bypasses RLS, so this must authorize itself.
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('billing.receipts.delete')
+        AND role_has_institution_access(v_receipt.institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to void receipts for this institution';
+  END IF;
+
+  -- billing_refunds cascades from billing_receipts: voiding would erase the
+  -- record that money went back to the learner.
+  IF EXISTS (SELECT 1 FROM public.billing_refunds WHERE receipt_id = p_receipt_id) THEN
+    RAISE EXCEPTION 'Cannot void: this receipt has refunds recorded against it. Reverse the refund first.';
+  END IF;
+
+  -- billing_invoice_items cascades too, leaving an invoice with a grand_total
+  -- and no lines.
+  IF EXISTS (SELECT 1 FROM public.billing_invoice_items WHERE receipt_id = p_receipt_id) THEN
+    RAISE EXCEPTION 'Cannot void: this receipt is attached to an invoice. Cancel the invoice first.';
+  END IF;
+
+  -- An online receipt would come back: processSuccessfulPayment dedupes on
+  -- payment_reference_number, so with the receipt gone the next webhook or
+  -- late-auth sweep re-creates it.
+  IF v_receipt.payment_reference_number IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.payment_transactions t
+    WHERE t.status = 'success'
+      AND v_receipt.payment_reference_number IN (
+            t.razorpay_payment_id, t.gateway_transaction_id, t.transaction_ref
+          )
+  ) THEN
+    RAISE EXCEPTION 'Cannot void: this receipt settles a captured online payment (%). Issue a refund instead - voiding it would be undone by the next webhook or reconciliation sweep.',
+      v_receipt.payment_reference_number;
+  END IF;
+
+  SELECT COALESCE(jsonb_agg(to_jsonb(ri)), '[]'::jsonb),
+         COALESCE(array_agg(ri.bill_id), ARRAY[]::uuid[])
+    INTO v_items, v_bills
+  FROM public.billing_receipt_items ri
+  WHERE ri.receipt_id = p_receipt_id;
+
+  INSERT INTO public.billing_receipts_voided (
+    id, receipt_number, receipt_date, student_id, institution_id, payment_mode,
+    payment_reference_number, payment_amount, payment_paid_date, payer_name,
+    payer_contact, accountant_id, payment_remarks, created_by, created_at,
+    updated_at, items_snapshot, voided_by, void_reason
+  ) VALUES (
+    v_receipt.id, v_receipt.receipt_number, v_receipt.receipt_date,
+    v_receipt.student_id, v_receipt.institution_id, v_receipt.payment_mode,
+    v_receipt.payment_reference_number, v_receipt.payment_amount,
+    v_receipt.payment_paid_date, v_receipt.payer_name, v_receipt.payer_contact,
+    v_receipt.accountant_id, v_receipt.payment_remarks, v_receipt.created_by,
+    v_receipt.created_at, v_receipt.updated_at, v_items, auth.uid(), trim(p_reason)
+  );
+
+  DELETE FROM public.billing_receipts WHERE id = p_receipt_id;
+
+  -- ::text is load-bearing -- receipt_number is varchar(50) and this signature
+  -- says text; without the cast Postgres rejects the call with 42804.
+  RETURN QUERY SELECT v_receipt.receipt_number::text, v_bills;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_void_billing_receipt(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_void_billing_receipt(uuid, text) TO authenticated, service_role;
+
+-- Must UNION the void archive: this is the only receipt-number function that
+-- uses MAX(), so without the archive it could rewind the sequence past a voided
+-- receipt's number and hand the same number out twice.
+CREATE OR REPLACE FUNCTION public.reset_receipt_number_sequence_for_year()
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+    current_year TEXT;
+    current_max INTEGER;
+BEGIN
+    current_year := EXTRACT(YEAR FROM NOW())::TEXT;
+
+    SELECT COALESCE(MAX(CAST(SUBSTRING(receipt_number FROM 10) AS INTEGER)), 0)
+    INTO current_max
+    FROM (
+        SELECT receipt_number FROM public.billing_receipts
+        UNION ALL
+        SELECT receipt_number FROM public.billing_receipts_voided
+    ) all_receipts
+    WHERE receipt_number LIKE 'RCP-' || current_year || '-%';
+
+    PERFORM setval('billing_receipt_number_seq', current_max + 1, false);
+
+    RAISE NOTICE 'Receipt number sequence reset for year %. Max was: %, Starting from: %',
+        current_year, current_max, current_max + 1;
+END;
+$function$;
