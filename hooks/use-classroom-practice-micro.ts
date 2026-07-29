@@ -43,11 +43,21 @@ export function useMicroItem(
 }
 
 /** Record a 0-4 answer or a skip. Never rejects (the service swallows), so the
- *  component can show the same quiet thanks state on every outcome. */
+ *  component can show the same quiet thanks state on every outcome. Resolves
+ *  with the server's commentInvite decision. */
 export function useAnswerMicroItem() {
   return useMutation({
     mutationFn: (input: { impressionId: string; score: number | null; skip: boolean }) =>
       ClassroomPracticeMicroService.answer(input.impressionId, input.score, input.skip),
+    retry: false,
+  });
+}
+
+/** Attach the one optional sealed line for the Principal. Never rejects. */
+export function useSealedComment() {
+  return useMutation({
+    mutationFn: (input: { impressionId: string; comment: string }) =>
+      ClassroomPracticeMicroService.comment(input.impressionId, input.comment),
     retry: false,
   });
 }

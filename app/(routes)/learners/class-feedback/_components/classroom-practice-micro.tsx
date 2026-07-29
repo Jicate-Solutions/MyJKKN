@@ -12,10 +12,20 @@
 //     errors, no interference with closing the dialog. While loading, and on
 //     any failure at all, this renders NOTHING: zero footprint.
 //   • The 0-4 anchors match the CARRE participant scale used everywhere else.
+//   • OCCASIONAL SEALED COMMENT — after every Nth ANSWERED item about the same
+//     person the SERVER (not this component) sets comment_invite, and an
+//     optional one-line box appears. Never after a skip, never required, and
+//     the thanks state is already on screen before it arrives, so a learner who
+//     ignores it loses nothing.
 
 import { useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
-import { useAnswerMicroItem, useMicroItem } from '@/hooks/use-classroom-practice-micro';
+import { CheckCircle2, Lock } from 'lucide-react';
+import {
+  useAnswerMicroItem,
+  useMicroItem,
+  useSealedComment,
+} from '@/hooks/use-classroom-practice-micro';
+import { COMMENT_MAX_LENGTH } from '@/lib/services/classroom-practice-micro-service';
 
 const BRAND = '#0b6d41';
 
@@ -27,6 +37,8 @@ const ANCHORS: { value: number; label: string }[] = [
   { value: 3, label: 'Usually' },
   { value: 4, label: 'Always' },
 ];
+
+type Phase = 'asking' | 'thanks' | 'comment';
 
 interface ClassroomPracticeMicroProps {
   attendanceDate: string;
@@ -46,14 +58,90 @@ export function ClassroomPracticeMicro({
     true,
   );
   const answer = useAnswerMicroItem();
-  const [done, setDone] = useState(false);
+  const sealedComment = useSealedComment();
+  const [phase, setPhase] = useState<Phase>('asking');
+  const [text, setText] = useState('');
 
   // Zero footprint while we do not yet know, and forever if there is nothing
   // to ask. No spinner: this must never look like something the learner is
   // waiting on.
   if (isLoading || !item) return null;
 
-  if (done) {
+  // Every outcome lands in the thanks state IMMEDIATELY. A failure to record is
+  // deliberately indistinguishable to the learner (invariant: never blocking,
+  // never alarming) — the miss is visible to leadership in fn_scf_micro_health.
+  // A comment invite, if the server grants one, arrives after the fact and
+  // simply replaces the thanks line.
+  const send = (score: number | null, skip: boolean) => {
+    setPhase('thanks');
+    answer
+      .mutateAsync({ impressionId: item.impression_id, score, skip })
+      .then((res) => {
+        if (res.commentInvite) setPhase('comment');
+      })
+      .catch(() => {
+        /* never surfaces — the thanks state is already on screen */
+      });
+  };
+
+  const sendComment = () => {
+    const body = text.trim();
+    setPhase('thanks');
+    if (!body) return;
+    sealedComment
+      .mutateAsync({ impressionId: item.impression_id, comment: body })
+      .catch(() => {
+        /* silent by design */
+      });
+  };
+
+  if (phase === 'comment') {
+    return (
+      <div className="rounded-md border bg-muted/30 p-3">
+        <div className="space-y-2">
+          <label htmlFor="cp-sealed-note" className="block text-sm font-medium">
+            Anything you&apos;d like the Principal to know about these sessions?
+          </label>
+          <textarea
+            id="cp-sealed-note"
+            rows={2}
+            maxLength={COMMENT_MAX_LENGTH}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Optional — one line is plenty"
+            className="w-full resize-none rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40"
+          />
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: BRAND }} />
+            <span>
+              Sealed — only the Principal and Director can read this. Never the person
+              who takes these sessions, and never with your name.
+            </span>
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPhase('thanks')}
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40"
+            >
+              No thanks
+            </button>
+            <button
+              type="button"
+              onClick={sendComment}
+              disabled={!text.trim()}
+              className="rounded-md px-3 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b6d41]/40 disabled:opacity-40"
+              style={{ backgroundColor: BRAND }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'thanks') {
     return (
       <div className="rounded-md border bg-muted/30 p-3">
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -63,14 +151,6 @@ export function ClassroomPracticeMicro({
       </div>
     );
   }
-
-  // Every outcome lands in the same quiet thanks state. A failure to record is
-  // deliberately indistinguishable to the learner (invariant: never blocking,
-  // never alarming) — the miss is visible to leadership in fn_scf_micro_health.
-  const send = (score: number | null, skip: boolean) => {
-    setDone(true);
-    answer.mutate({ impressionId: item.impression_id, score, skip });
-  };
 
   return (
     <div className="rounded-md border bg-muted/30 p-3">

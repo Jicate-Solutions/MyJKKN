@@ -21,6 +21,17 @@
 --   7. WATCHED ALARM METRIC = base session-feedback completion rate. If L2 costs
 --      base submissions, L2 is wrong. fn_scf_micro_health() makes that visible
 --      in one call.
+--   8. OCCASIONAL SEALED COMMENT (added 2026-07-29 with the pivot below). After
+--      every Nth ANSWERED item about the same person, the learner may add one
+--      optional line addressed to the Principal. Readable by the Principal and
+--      the Director ONLY — never by the person described, never in any reveal
+--      aggregate. Optional, one per impression, and as non-blocking as the item.
+--
+-- SCOPE PIVOT (Director, 2026-07-29): the separate semester learner sheet is
+-- CANCELLED. This drip IS the Classroom Practice learner input — the only one.
+-- The teacher-facing semester compare (sibling lane, migration 20260729190000,
+-- ordered AFTER this one) reads k>=3 aggregates of ANSWERED rows from this
+-- table over COMPLETED calendar windows only, joined on teacher_email.
 --
 -- ROLLBACK SWITCH (no deploy needed): set the platform_policies row
 --   'classroom_practice.l2' -> value->>'enabled' = false.
@@ -66,11 +77,28 @@ CREATE TABLE IF NOT EXISTS public.carre_micro_impressions (
   answered_at      timestamptz,
   score            smallint CHECK (score BETWEEN 0 AND 4),  -- NULL = skipped or never answered
   skipped          boolean NOT NULL DEFAULT false,
+  -- Occasional sealed comment invited after every Nth ANSWERED item. Readable
+  -- by the Principal and the Director ONLY — never by the person being
+  -- described. See the COMMENT ON COLUMN below.
+  sealed_comment   text,   -- length CHECK added as a named constraint below
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   -- INVARIANT 1, enforced in the database: one micro-item per (learner, session).
   UNIQUE (learner_id, attendance_date, period_id)
 );
+
+-- Idempotency: the CREATE above is IF NOT EXISTS, so an environment that
+-- already has an earlier copy of this table would silently miss the comment
+-- column. Add it explicitly.
+ALTER TABLE public.carre_micro_impressions
+  ADD COLUMN IF NOT EXISTS sealed_comment text;
+DO $$
+BEGIN
+  ALTER TABLE public.carre_micro_impressions
+    ADD CONSTRAINT carre_micro_impressions_sealed_comment_len
+    CHECK (sealed_comment IS NULL OR length(sealed_comment) <= 2000);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Deck query: "when did this learner last see this item about this person?"
 CREATE INDEX IF NOT EXISTS idx_carre_micro_deck
@@ -78,12 +106,18 @@ CREATE INDEX IF NOT EXISTS idx_carre_micro_deck
 -- Backoff query: "this learner's last N impressions, any senior learner".
 CREATE INDEX IF NOT EXISTS idx_carre_micro_learner_recent
   ON public.carre_micro_impressions (learner_id, offered_at DESC);
--- Future month-end reveal: k-floored aggregates per person per item.
+-- REVEAL SUBSTRATE (confirmed 2026-07-29): the sibling lane's semester compare
+-- and the future weekly/monthly reveal both aggregate THIS table. offered_at is
+-- part of the key because every reveal is windowed to COMPLETED calendar
+-- periods only. Join key is teacher_email — NOT a profiles.id; see the header.
 CREATE INDEX IF NOT EXISTS idx_carre_micro_reveal
-  ON public.carre_micro_impressions (teacher_email, parameter_code);
+  ON public.carre_micro_impressions (teacher_email, parameter_code, offered_at);
 
 COMMENT ON TABLE public.carre_micro_impressions IS
-  'SEALED Classroom Practice L2 micro-impressions: one row per micro-item OFFERED to a learner on a feedback submission (unanswered offers are rows too — that is what makes auto-backoff honest). RLS SELECT is super_admin-only, the same seal as carre_participant_scores: identities never leave this table. The month-end reveal (future PR) reads k>=3 aggregates ONLY and never a single learner''s answer. Writes are impossible directly — fn_scf_micro_next_item / fn_scf_micro_answer are the only write paths. learner_id = learners_profiles.id; teacher_email = attendance blob assigned_faculty.faculty_email (faculty_id is a STAFF id, not profiles.id).';
+  'SEALED Classroom Practice L2 micro-impressions: one row per micro-item OFFERED to a learner on a feedback submission (unanswered offers are rows too — that is what makes auto-backoff honest). RLS SELECT is super_admin-only, the same seal as carre_participant_scores: identities never leave this table. Writes are impossible directly — fn_scf_micro_next_item / fn_scf_micro_answer are the only write paths. learner_id = learners_profiles.id; teacher_email = attendance blob assigned_faculty.faculty_email (faculty_id is a STAFF id, not profiles.id). REVEAL SUBSTRATE (confirmed 2026-07-29, semester learner sheet cancelled): this table is now the ONLY learner input for Classroom Practice. The teacher-facing semester compare and any weekly/monthly reveal MUST read k>=3 aggregates of ANSWERED rows (answered_at IS NOT NULL AND NOT skipped) over COMPLETED calendar windows only — never an in-flight window, never a single learner''s answer, never sealed_comment.';
+
+COMMENT ON COLUMN public.carre_micro_impressions.sealed_comment IS
+  'Optional free-text line a learner may add when invited (every Nth ANSWERED item — see platform_policies classroom_practice.l2 -> comment_invite_every_n_answers). READABLE BY THE PRINCIPAL AND THE DIRECTOR ONLY. The person being described NEVER sees it: it is excluded from the teacher-facing semester compare and from every reveal aggregate, and the table''s RLS already limits SELECT to super admins. One comment maximum per impression — fn_scf_micro_answer refuses to overwrite a non-NULL value. Capped at 2000 characters.';
 
 -- ---------------------------------------------------------------------------
 -- 2) RLS — the Director seal. SELECT: super admin only. No write policies at
@@ -121,9 +155,10 @@ SELECT
     'backoff_answer_rate_floor',0.2,
     'backoff_window',           10,
     'backoff_cooldown_days',    3,
-    'leave_item_lookback_days', 60
+    'leave_item_lookback_days', 60,
+    'comment_invite_every_n_answers', 8
   ),
-  'Classroom Practice L2 micro-item knobs. enabled=false is the ROLLBACK SWITCH (silences the feature platform-wide with no deploy). min_gap_days_per_item = never re-ask the same item about the same senior learner to the same learner inside this many days. backoff_* = auto-quiet a learner whose answer rate over their last backoff_window offers falls below the floor, for backoff_cooldown_days. leave_item_lookback_days = how recently a leave/OD decision must have landed for the CP-C1 relevance gate to open.',
+  'Classroom Practice L2 micro-item knobs. enabled=false is the ROLLBACK SWITCH (silences the feature platform-wide with no deploy). min_gap_days_per_item = never re-ask the same item about the same senior learner to the same learner inside this many days. backoff_* = auto-quiet a learner whose answer rate over their last backoff_window offers falls below the floor, for backoff_cooldown_days. leave_item_lookback_days = how recently a leave/OD decision must have landed for the CP-C1 relevance gate to open. comment_invite_every_n_answers = after every Nth ANSWERED (not skipped) item a learner gives about the same person, invite an optional sealed comment for the Principal and Director; 0 or negative disables the invite entirely.',
   'object', true, true, 'operational', 'published', 'json', 'Classroom Practice'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.platform_policies
@@ -394,7 +429,8 @@ COMMENT ON FUNCTION public.fn_scf_micro_next_item(date,uuid,text) IS
 CREATE OR REPLACE FUNCTION public.fn_scf_micro_answer(
   p_impression_id uuid,
   p_score         int DEFAULT NULL,
-  p_skip          boolean DEFAULT false
+  p_skip          boolean DEFAULT false,
+  p_comment       text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -403,8 +439,13 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_lp  uuid;
-  v_hit int;
+  v_lp      uuid;
+  v_hit     int;
+  v_comment text;
+  v_every   int;
+  v_email   text;
+  v_answers int;
+  v_invite  boolean := false;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN jsonb_build_object('success', false, 'reason', 'not_authenticated');
@@ -424,6 +465,33 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'reason', 'no_learner_profile');
   END IF;
 
+  -- Trim, empty-to-NULL, hard cap. A comment is never required.
+  v_comment := NULLIF(btrim(COALESCE(p_comment, '')), '');
+  IF v_comment IS NOT NULL THEN
+    v_comment := left(v_comment, 2000);
+  END IF;
+
+  -- ---- comment-only follow-up -------------------------------------------
+  -- The invite appears AFTER the item is answered, so the comment arrives in a
+  -- second call. One comment maximum per impression: the sealed_comment IS NULL
+  -- guard makes a second send a no-op rather than an overwrite.
+  IF v_comment IS NOT NULL AND p_score IS NULL AND NOT COALESCE(p_skip, false) THEN
+    UPDATE public.carre_micro_impressions mi
+       SET sealed_comment = v_comment,
+           updated_at     = now()
+     WHERE mi.id = p_impression_id
+       AND mi.learner_id = v_lp
+       AND mi.answered_at IS NOT NULL
+       AND mi.sealed_comment IS NULL;
+
+    GET DIAGNOSTICS v_hit = ROW_COUNT;
+    IF v_hit = 0 THEN
+      RETURN jsonb_build_object('success', false, 'reason', 'not_commentable');
+    END IF;
+    RETURN jsonb_build_object('success', true, 'comment_saved', true);
+  END IF;
+
+  -- ---- normal answer ------------------------------------------------------
   IF NOT COALESCE(p_skip, false) THEN
     IF p_score IS NULL OR p_score < 0 OR p_score > 4 THEN
       RETURN jsonb_build_object('success', false, 'reason', 'invalid_score');
@@ -431,13 +499,15 @@ BEGIN
   END IF;
 
   UPDATE public.carre_micro_impressions mi
-     SET score       = CASE WHEN COALESCE(p_skip, false) THEN NULL ELSE p_score::smallint END,
-         skipped     = COALESCE(p_skip, false),
-         answered_at = now(),
-         updated_at  = now()
+     SET score          = CASE WHEN COALESCE(p_skip, false) THEN NULL ELSE p_score::smallint END,
+         skipped        = COALESCE(p_skip, false),
+         answered_at    = now(),
+         sealed_comment = COALESCE(mi.sealed_comment, v_comment),
+         updated_at     = now()
    WHERE mi.id = p_impression_id
      AND mi.learner_id = v_lp          -- ownership: never a caller-supplied identity
-     AND mi.answered_at IS NULL;       -- answer once
+     AND mi.answered_at IS NULL        -- answer once
+  RETURNING mi.teacher_email INTO v_email;
 
   GET DIAGNOSTICS v_hit = ROW_COUNT;
 
@@ -447,18 +517,57 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'reason', 'not_answerable');
   END IF;
 
-  RETURN jsonb_build_object('success', true, 'skipped', COALESCE(p_skip, false));
+  -- ---- comment invite cadence --------------------------------------------
+  -- Only after a real ANSWER (never after a skip), counted per (learner, person
+  -- described). N <= 0 disables the invite. Never blocks: any problem here just
+  -- means no invite this time.
+  IF NOT COALESCE(p_skip, false) AND v_email IS NOT NULL THEN
+    SELECT COALESCE((pp.value ->> 'comment_invite_every_n_answers')::int, 8)
+      INTO v_every
+    FROM public.platform_policies pp
+    WHERE pp.policy_key = 'classroom_practice.l2'
+      AND pp.scope_type = 'global'
+      AND pp.scope_id IS NULL
+      AND COALESCE(pp.is_active, true)
+    LIMIT 1;
+
+    v_every := COALESCE(v_every, 8);
+
+    IF v_every > 0 THEN
+      SELECT count(*) INTO v_answers
+      FROM public.carre_micro_impressions mi
+      WHERE mi.learner_id = v_lp
+        AND mi.teacher_email = v_email
+        AND mi.answered_at IS NOT NULL
+        AND NOT mi.skipped;
+
+      v_invite := COALESCE(v_answers, 0) > 0
+              AND (v_answers % v_every) = 0
+              AND v_comment IS NULL;
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success',        true,
+    'skipped',        COALESCE(p_skip, false),
+    'comment_invite', v_invite
+  );
 
 EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('success', false, 'reason', 'unavailable');
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_scf_micro_answer(uuid,int,boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_micro_answer(uuid,int,boolean) TO authenticated;
+-- The pre-comment 3-arg signature never reached production, but drop it if an
+-- environment picked up an earlier copy of this file: leaving both overloads in
+-- place makes a 3-argument call ambiguous ("function is not unique").
+DROP FUNCTION IF EXISTS public.fn_scf_micro_answer(uuid,int,boolean);
 
-COMMENT ON FUNCTION public.fn_scf_micro_answer(uuid,int,boolean) IS
-  'Classroom Practice L2: the learner answers their own micro-item 0-4, or skips (skip is a recorded answer, not an absence). Owner-scoped via learners_profiles — the impression id alone grants nothing, so a leaked id from another learner is refused with the same opaque reason as an already-answered one. Answer-once. Never raises.';
+REVOKE EXECUTE ON FUNCTION public.fn_scf_micro_answer(uuid,int,boolean,text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_micro_answer(uuid,int,boolean,text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_scf_micro_answer(uuid,int,boolean,text) IS
+  'Classroom Practice L2: the learner answers their own micro-item 0-4, or skips (skip is a recorded answer, not an absence), and may attach ONE sealed comment. Two shapes: a normal answer (score or skip), and a comment-only follow-up (comment with no score and no skip) for the invite that appears AFTER answering. Owner-scoped via learners_profiles — the impression id alone grants nothing, so a leaked id from another learner is refused with the same opaque reason as an already-answered one. Answer-once; one comment maximum per impression. Returns comment_invite=true after every Nth ANSWERED item about the same person (platform_policies classroom_practice.l2 -> comment_invite_every_n_answers; <=0 disables). Never raises.';
 
 -- ---------------------------------------------------------------------------
 -- 6) fn_scf_micro_health — INVARIANT 7, the watched alarm metric.

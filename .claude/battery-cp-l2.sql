@@ -30,6 +30,9 @@
 --   T14 skip is a recorded answer (skipped=true, score NULL)
 --   T15 health RPC returns the weekly shape (leadership)
 --   T16 health RPC denies a plain learner
+--   T17 comment invite honours comment_invite_every_n_answers (config read)
+--   T18 comment stored, and INVISIBLE to the learner who wrote it (RLS seal)
+--   T19 one comment maximum per impression (no overwrite)
 -- =============================================================================
 BEGIN;
 CREATE TEMP TABLE _r(test text, pass boolean, detail text);
@@ -50,6 +53,7 @@ DECLARE
   v_txt   text;
   v_ok    boolean;
   v_score smallint; v_skip boolean;
+  v_c     text;
 BEGIN
   -- ══ T0 scaffolding ═══════════════════════════════════════════════════════
   -- A recent session where a learner with an auth profile is Present AND the
@@ -136,7 +140,7 @@ BEGIN
   -- ══ T2 RPC anon revokes ══════════════════════════════════════════════════
   INSERT INTO _r VALUES ('T2 RPCs anon-revoked',
     NOT has_function_privilege('anon','public.fn_scf_micro_next_item(date,uuid,text)','EXECUTE')
-    AND NOT has_function_privilege('anon','public.fn_scf_micro_answer(uuid,int,boolean)','EXECUTE')
+    AND NOT has_function_privilege('anon','public.fn_scf_micro_answer(uuid,int,boolean,text)','EXECUTE')
     AND NOT has_function_privilege('anon','public.fn_scf_micro_health()','EXECUTE')
     AND has_function_privilege('authenticated','public.fn_scf_micro_next_item(date,uuid,text)','EXECUTE'),
     'anon EXECUTE denied on all three; authenticated allowed');
@@ -148,7 +152,8 @@ BEGIN
     AND scope_type = 'global' AND scope_id IS NULL
     AND value ? 'enabled' AND value ? 'min_gap_days_per_item'
     AND value ? 'backoff_answer_rate_floor' AND value ? 'backoff_window'
-    AND value ? 'backoff_cooldown_days' AND value ? 'leave_item_lookback_days';
+    AND value ? 'backoff_cooldown_days' AND value ? 'leave_item_lookback_days'
+    AND value ? 'comment_invite_every_n_answers';
   INSERT INTO _r VALUES ('T3 config row complete', v_cnt = 1, format('rows=%s', v_cnt));
 
   -- Seed synthetic CP catalog rows if the sibling migration has not landed, so
@@ -359,6 +364,69 @@ BEGIN
   ELSE
     INSERT INTO _r VALUES ('T14 skip recorded', true, 'SKIPPED — no second session');
   END IF;
+
+  -- ══ T17/T18/T19 sealed comment ═══════════════════════════════════════════
+  -- Clear the deck and force the invite cadence to 1 so the very next answer
+  -- must invite. Proves the RPC READS the config rather than hardcoding 8.
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  UPDATE public.platform_policies
+     SET value = jsonb_set(value, '{comment_invite_every_n_answers}', '1'::jsonb)
+   WHERE policy_key = 'classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+  v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
+
+  IF v_imp IS NULL THEN
+    INSERT INTO _r VALUES ('T17 comment invite honours config cadence', false,
+      format('no item offered: %s', v_res::text));
+    INSERT INTO _r VALUES ('T18 comment stored + sealed from the learner', false, 'no item');
+    INSERT INTO _r VALUES ('T19 one comment maximum', false, 'no item');
+  ELSE
+    v_res := public.fn_scf_micro_answer(v_imp, 4, false);
+    INSERT INTO _r VALUES ('T17 comment invite honours config cadence',
+      COALESCE((v_res ->> 'success')::boolean,false)
+      AND COALESCE((v_res ->> 'comment_invite')::boolean,false) = true,
+      v_res::text);
+
+    -- Comment-only follow-up (no score, no skip) — the shape the invite uses.
+    v_c := 'battery sealed line for the Principal';
+    v_res := public.fn_scf_micro_answer(v_imp, NULL, false, v_c);
+
+    -- The learner who WROTE it still cannot read the table back: RLS is
+    -- super-admin-only, so their own SELECT returns zero rows.
+    SELECT count(*) INTO v_cnt
+      FROM public.carre_micro_impressions WHERE id = v_imp;
+
+    PERFORM set_config('role', 'none', true);
+    SELECT sealed_comment INTO v_txt
+      FROM public.carre_micro_impressions WHERE id = v_imp;
+    PERFORM set_config('role', 'authenticated', true);
+
+    INSERT INTO _r VALUES ('T18 comment stored + sealed from the learner',
+      COALESCE((v_res ->> 'success')::boolean,false)
+      AND v_txt = v_c
+      AND v_cnt = 0,
+      format('stored=%L learner_visible_rows=%s', v_txt, v_cnt));
+
+    -- One comment maximum: a second send must not overwrite.
+    v_res := public.fn_scf_micro_answer(v_imp, NULL, false, 'OVERWRITE ATTEMPT');
+    PERFORM set_config('role', 'none', true);
+    SELECT sealed_comment INTO v_txt
+      FROM public.carre_micro_impressions WHERE id = v_imp;
+    PERFORM set_config('role', 'authenticated', true);
+
+    INSERT INTO _r VALUES ('T19 one comment maximum',
+      COALESCE((v_res ->> 'success')::boolean, true) = false AND v_txt = v_c,
+      format('second=%s still=%L', v_res ->> 'reason', v_txt));
+  END IF;
+
+  PERFORM set_config('role', 'none', true);
+  UPDATE public.platform_policies
+     SET value = jsonb_set(value, '{comment_invite_every_n_answers}', '8'::jsonb)
+   WHERE policy_key = 'classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  PERFORM set_config('role', 'authenticated', true);
 
   -- ══ T15 health shape (leadership gate) ═══════════════════════════════════
   -- Nested handler: this RPC RAISEs on an unauthorised caller by design, and a
