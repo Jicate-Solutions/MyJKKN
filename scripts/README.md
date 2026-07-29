@@ -89,3 +89,81 @@ we keep the route neutered in prod anyway.
 | Browser stays on Supabase `/auth/v1/verify` | Supabase allow-list missing `http://localhost:3104/auth/dev-login` |
 | Dev-login says "disabled" | Set `NEXT_PUBLIC_ENABLE_DEV_LOGIN=true` in `.env.local` and restart `npm run dev` |
 | `curl: (43) bad argument` | Old script bug; pull latest |
+
+---
+
+## `check-migration-applied.py` — the deploy migration gate
+
+Deploy ships **code**. It does **not** apply migrations. So a merged PR can put
+code live that expects schema which was never applied to production, and the
+page 500s. This is the gate that makes that gap impossible to ship silently —
+it is what `/deploy-myjkkn` Step 1.6 invokes.
+
+### Usage
+
+```bash
+# One or many migration files. Read-only: it never writes to the database.
+python3 scripts/check-migration-applied.py supabase/migrations/2026*_my_change.sql
+```
+
+| Exit | Meaning |
+|---|---|
+| `0` | Every declared object was verified present in production |
+| `1` | Operational error (no token, unreadable file, query failed) |
+| `2` | **GAP** — at least one declared object is missing from production |
+| `3` | **NOT CHECKABLE** — the file declares nothing this gate can verify |
+
+Credentials come from the environment, never from the source: `SUPABASE_PROJECT_REF`,
+and `SUPABASE_ACCESS_TOKEN` or `SUPABASE_ACCESS_TOKEN_FILE` (default
+`~/.supabase/access-token`). The token is handed to curl on stdin, so it never
+appears in `ps` output and is never printed.
+
+### What it checks
+
+It parses the migration for the objects it *declares* — tables, added columns,
+functions (name **and** arity, so a new overload is not satisfied by the old
+one), constraints, types, enum values, indexes, views, materialized views,
+policies (including ones created inside `DO $$ … EXECUTE $$` blocks), triggers
+and storage buckets — then asks live production, in one round-trip, whether each
+exists. For a `CHECK` constraint it also asserts every string literal the
+migration declares actually appears in `pg_get_constraintdef`, so a
+drop-and-re-add that widens a vocabulary cannot pass on name alone.
+
+**Why introspection and not `supabase_migrations.schema_migrations`:** SQL here
+is applied through the Supabase Management API, which does not write the
+migration ledger — only `supabase db push` does. The ledger lies. Catalog
+introspection is ground truth regardless of *how* the SQL was applied.
+
+### The REVOKE/GRANT-only case
+
+A privilege-only migration creates no objects at all, so a pure object-existence
+check passes it while verifying literally nothing — and those are the most
+security-critical files we ship. Two behaviours cover it:
+
+- **Literal** `GRANT`/`REVOKE` statements are parsed and the real privilege state
+  is verified with `has_function_privilege()` / `has_table_privilege()`. `PUBLIC`
+  is read straight off the ACL, because `has_*_privilege()` rejects the
+  pseudo-role and silently skipping it would hide the exact
+  `REVOKE … FROM anon` -but-not- `FROM PUBLIC` trap these migrations exist to close.
+- **Dynamic** privilege changes — `EXECUTE format('REVOKE … %s', sig)` inside a
+  `DO` block — carry no static signature, so the gate exits `3` with an explicit
+  *"NOT CHECKABLE BY OBJECT EXISTENCE — verify grants manually"* message and a
+  ready-to-paste query. It does not report PASS.
+
+### Known limits (read before trusting a green run)
+
+- **`CREATE OR REPLACE FUNCTION` is verified by name and arity, not by body.**
+  A stale replace that reverts a live function's logic still passes. For a
+  SECDEF function that gates money or access, cross-check
+  `md5(pg_get_functiondef(oid))` before and after applying.
+- **Each file is judged in isolation, not as a net of history.** Running it over
+  an old migration whose column a later migration dropped correctly reports
+  MISSING. Run it on the migrations in the PR being deployed.
+- **Pass the migration files as separate arguments, not concatenated into one
+  temp file.** The script already reports per file. Concatenating a PR whose
+  first migration adds a column and whose second drops it makes the added column
+  look absent, which is a false GAP. (`/deploy-myjkkn` Step 1.6 currently
+  concatenates — worth changing there.)
+- **Data-only migrations** (`INSERT`/`UPDATE`/`DELETE`) declare no schema, so they
+  exit `3`. That is deliberate — verify the rows by hand.
+- Exit `3` is non-zero on purpose. A gate that cannot fail is not a gate.
