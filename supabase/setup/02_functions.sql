@@ -24122,12 +24122,14 @@ BEGIN
     RAISE EXCEPTION 'Receipt % not found (already voided or deleted)', p_receipt_id;
   END IF;
 
+  -- NOT is_admin(): that also matches profiles.role IN ('admin','super_admin',
+  -- 'administrator'), which would let a non-super-admin void a receipt outright
+  -- and skip the cancellation approval flow entirely.
   IF NOT (
     is_super_admin()
-    OR is_admin()
     OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(v_inst))
   ) THEN
-    RAISE EXCEPTION 'Not authorized to void receipts for this institution';
+    RAISE EXCEPTION 'Only a super admin can void a receipt directly - raise a cancellation request instead';
   END IF;
 
   RETURN QUERY SELECT * FROM public._fn_exec_receipt_void(p_receipt_id, p_reason, NULL);
@@ -24185,6 +24187,9 @@ DECLARE
   v_id      uuid;
   v_number  text;
   v_role    text;
+  v_name    text;
+  v_email   text;
+  v_super   boolean;
 BEGIN
   IF p_reason IS NULL OR length(trim(p_reason)) < 5 THEN
     RAISE EXCEPTION 'A reason of at least 5 characters is required';
@@ -24195,9 +24200,9 @@ BEGIN
     RAISE EXCEPTION 'Receipt % not found (already cancelled or deleted)', p_receipt_id;
   END IF;
 
+  -- Super admins may raise too (they can also approve, just not their own).
   IF NOT (
     is_super_admin()
-    OR is_admin()
     OR (user_has_permission('billing.receipts.cancel.request')
         AND role_has_institution_access(v_receipt.institution_id))
   ) THEN
@@ -24211,8 +24216,8 @@ BEGIN
     RAISE EXCEPTION 'A cancellation request for this receipt is already awaiting approval';
   END IF;
 
-  -- Run the same guards the approval will run. A request that could never be
-  -- approved should fail here, not after it has sat in the Chief's queue.
+  -- Same guards the approval will run: a request that could never be approved
+  -- should fail here, not after sitting in the super admin's queue.
   IF EXISTS (SELECT 1 FROM public.billing_refunds WHERE receipt_id = p_receipt_id) THEN
     RAISE EXCEPTION 'Cannot cancel: this receipt has refunds recorded against it. Reverse the refund first.';
   END IF;
@@ -24223,8 +24228,7 @@ BEGIN
     SELECT 1 FROM public.payment_transactions t
     WHERE t.status = 'success'
       AND v_receipt.payment_reference_number IN (
-            t.razorpay_payment_id, t.gateway_transaction_id, t.transaction_ref
-          )
+            t.razorpay_payment_id, t.gateway_transaction_id, t.transaction_ref)
   ) THEN
     RAISE EXCEPTION 'Cannot cancel: this receipt settles a captured online payment (%). Issue a refund instead.',
       v_receipt.payment_reference_number;
@@ -24233,29 +24237,31 @@ BEGIN
   v_number := 'RCX-' || EXTRACT(YEAR FROM NOW())::text || '-'
               || LPAD(nextval('billing_receipt_cancel_number_seq')::text, 6, '0');
 
+  SELECT p.full_name, p.email, COALESCE(p.is_super_admin, false)
+    INTO v_name, v_email, v_super
+  FROM public.profiles p WHERE p.id = auth.uid();
+
   SELECT cr.role_name INTO v_role
   FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
   WHERE ur.user_id = auth.uid() LIMIT 1;
 
   INSERT INTO public.billing_receipt_cancel_requests (
     request_number, receipt_id, institution_id, student_id, receipt_snapshot,
-    reason, requested_by
+    reason, requested_by, requested_by_name, requested_by_email, requested_by_role
   ) VALUES (
     v_number, p_receipt_id, v_receipt.institution_id, v_receipt.student_id,
-    jsonb_build_object(
-      'receipt_number', v_receipt.receipt_number,
-      'payment_amount', v_receipt.payment_amount,
-      'payment_mode',   v_receipt.payment_mode,
-      'receipt_date',   v_receipt.receipt_date,
-      'payer_name',     v_receipt.payer_name
-    ),
-    trim(p_reason), auth.uid()
-  )
-  RETURNING id INTO v_id;
+    jsonb_build_object('receipt_number', v_receipt.receipt_number,
+                       'payment_amount', v_receipt.payment_amount,
+                       'payment_mode',   v_receipt.payment_mode,
+                       'receipt_date',   v_receipt.receipt_date,
+                       'payer_name',     v_receipt.payer_name),
+    trim(p_reason), auth.uid(), v_name, v_email, v_role
+  ) RETURNING id INTO v_id;
 
   INSERT INTO public.billing_receipt_cancel_request_actions (
-    request_id, action_type, actor_id, actor_role_name, notes
-  ) VALUES (v_id, 'requested', auth.uid(), v_role, trim(p_reason));
+    request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+    actor_is_super_admin, notes
+  ) VALUES (v_id, 'requested', auth.uid(), v_role, v_name, v_email, v_super, trim(p_reason));
 
   RETURN QUERY SELECT v_id, v_number;
 END;
@@ -24276,9 +24282,12 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_req  public.billing_receipt_cancel_requests%ROWTYPE;
-  v_role text;
-  v_num  text;
+  v_req   public.billing_receipt_cancel_requests%ROWTYPE;
+  v_role  text;
+  v_name  text;
+  v_email text;
+  v_desig text;
+  v_num   text;
 BEGIN
   IF p_action NOT IN ('approve','decline') THEN
     RAISE EXCEPTION 'p_action must be approve or decline';
@@ -24293,20 +24302,24 @@ BEGIN
     RAISE EXCEPTION 'This request is already %', v_req.status;
   END IF;
 
-  IF NOT (
-    is_super_admin()
-    OR is_admin()
-    OR (user_has_permission('billing.receipts.cancel.approve')
-        AND role_has_institution_access(v_req.institution_id))
-  ) THEN
-    RAISE EXCEPTION 'Not authorized to approve receipt cancellations for this institution';
+  -- SUPER ADMIN ONLY. Deliberately NOT is_admin(), which also matches
+  -- profiles.role IN ('admin','super_admin','administrator') and would let
+  -- plain admins decide. Deliberately no permission-key branch either: the key
+  -- is revoked everywhere and removed from the catalog, so a key check here
+  -- would be a silent no-op that looks like a control.
+  IF NOT is_super_admin() THEN
+    RAISE EXCEPTION 'Only a super admin can decide receipt cancellation requests';
   END IF;
 
-  -- Separation of duties: whoever raised it cannot wave it through, even when
-  -- they hold the approver permission too.
+  -- Separation of duties still applies: a super admin who raised the request
+  -- cannot wave their own through.
   IF v_req.requested_by IS NOT NULL AND v_req.requested_by = auth.uid() THEN
-    RAISE EXCEPTION 'You cannot approve your own cancellation request - another approver must act on it';
+    RAISE EXCEPTION 'You cannot approve your own cancellation request - another super admin must act on it';
   END IF;
+
+  SELECT p.full_name, p.email, p.designation
+    INTO v_name, v_email, v_desig
+  FROM public.profiles p WHERE p.id = auth.uid();
 
   SELECT cr.role_name INTO v_role
   FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
@@ -24315,29 +24328,34 @@ BEGIN
   IF p_action = 'decline' THEN
     UPDATE public.billing_receipt_cancel_requests
        SET status='declined', decided_by=auth.uid(), decided_at=now(),
-           decision_notes=p_notes, updated_at=now()
+           decision_notes=p_notes, decided_by_name=v_name, decided_by_email=v_email,
+           decided_by_role=v_role, decided_by_designation=v_desig,
+           decided_by_is_super_admin=true, updated_at=now()
      WHERE id = p_request_id;
     INSERT INTO public.billing_receipt_cancel_request_actions
-      (request_id, action_type, actor_id, actor_role_name, notes)
-      VALUES (p_request_id, 'declined', auth.uid(), v_role, p_notes);
+      (request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+       actor_is_super_admin, notes)
+      VALUES (p_request_id, 'declined', auth.uid(), v_role, v_name, v_email, true, p_notes);
     RETURN QUERY SELECT 'declined'::text,
                         (v_req.receipt_snapshot->>'receipt_number')::text,
                         'Request declined.'::text;
     RETURN;
   END IF;
 
-  -- The receipt vanishing between request and approval is TERMINAL, so close
-  -- the request rather than leaving it stuck pending forever. Guard failures
-  -- (refund/invoice/online) are different: those RAISE out of the exec helper
-  -- and roll back, because they are fixable and the request should survive.
+  -- The receipt vanishing between request and approval is TERMINAL, so close the
+  -- request instead of leaving it stuck pending. Guard failures are different:
+  -- those RAISE out of the helper and roll back, because they are fixable.
   IF NOT EXISTS (SELECT 1 FROM public.billing_receipts WHERE id = v_req.receipt_id) THEN
     UPDATE public.billing_receipt_cancel_requests
        SET status='failed', decided_by=auth.uid(), decided_at=now(),
-           decision_notes='Receipt no longer exists at approval time', updated_at=now()
+           decision_notes='Receipt no longer exists at approval time',
+           decided_by_name=v_name, decided_by_email=v_email, decided_by_role=v_role,
+           decided_by_designation=v_desig, decided_by_is_super_admin=true, updated_at=now()
      WHERE id = p_request_id;
     INSERT INTO public.billing_receipt_cancel_request_actions
-      (request_id, action_type, actor_id, actor_role_name, notes)
-      VALUES (p_request_id, 'failed', auth.uid(), v_role,
+      (request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+       actor_is_super_admin, notes)
+      VALUES (p_request_id, 'failed', auth.uid(), v_role, v_name, v_email, true,
               'Receipt no longer exists at approval time');
     RETURN QUERY SELECT 'failed'::text,
                         (v_req.receipt_snapshot->>'receipt_number')::text,
@@ -24350,11 +24368,14 @@ BEGIN
 
   UPDATE public.billing_receipt_cancel_requests
      SET status='approved', decided_by=auth.uid(), decided_at=now(),
-         decision_notes=p_notes, updated_at=now()
+         decision_notes=p_notes, decided_by_name=v_name, decided_by_email=v_email,
+         decided_by_role=v_role, decided_by_designation=v_desig,
+         decided_by_is_super_admin=true, updated_at=now()
    WHERE id = p_request_id;
   INSERT INTO public.billing_receipt_cancel_request_actions
-    (request_id, action_type, actor_id, actor_role_name, notes)
-    VALUES (p_request_id, 'approved', auth.uid(), v_role, p_notes);
+    (request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+     actor_is_super_admin, notes)
+    VALUES (p_request_id, 'approved', auth.uid(), v_role, v_name, v_email, true, p_notes);
 
   RETURN QUERY SELECT 'approved'::text, v_num::text,
                       'Receipt cancelled and the bill reverted.'::text;

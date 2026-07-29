@@ -661,12 +661,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.receipts.edit', label: 'Edit Receipts' },
       { key: 'billing.receipts.delete', label: 'Delete/Void Receipts Directly' },
       { key: 'billing.receipts.generate', label: 'Generate Receipts' },
-      // Cancelling a receipt reverses money, so it is split in two: accounts
-      // staff RAISE a request, an approver DECIDES it. Anyone holding
-      // billing.receipts.delete can still void directly and bypass this, which
-      // is why that key was revoked from Accountant Assistant.
+      // Cancelling a receipt reverses money, so it is split in two: staff RAISE
+      // a request, and only a SUPER ADMIN decides it. There is deliberately no
+      // "cancel.approve" key — approval is gated on is_super_admin() in
+      // fn_act_on_receipt_cancellation and cannot be delegated through Role
+      // Management. A key here would be a toggle that grants nothing.
+      // Anyone holding billing.receipts.delete can still void directly and
+      // bypass this, which is why it was revoked from the accounts roles and
+      // from Chief Accountant.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
-      { key: 'billing.receipts.cancel.approve', label: 'Approve Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
       { key: 'billing.discounts.edit', label: 'Edit Discounts' },

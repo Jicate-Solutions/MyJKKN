@@ -1457,11 +1457,13 @@ CREATE POLICY "bills_update_admin" ON billing_student_bills
         OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.edit'))
     );
 
-CREATE POLICY "bills_delete_admin" ON billing_student_bills
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.delete'))
-    );
+DROP POLICY IF EXISTS bills_delete_admin ON public.billing_student_bills;
+CREATE POLICY bills_delete_admin
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.bills.delete') AND role_has_institution_access(institution_id))
+  );
 
 CREATE POLICY "bills_select_student" ON billing_student_bills
     FOR SELECT USING (
@@ -8217,9 +8219,7 @@ CREATE POLICY billing_receipt_cancel_requests_select
   ON public.billing_receipt_cancel_requests FOR SELECT
   USING (
     is_super_admin()
-    OR is_admin()
     OR requested_by = auth.uid()
-    OR (user_has_permission('billing.receipts.cancel.approve') AND role_has_institution_access(institution_id))
     OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
   );
 
@@ -8231,9 +8231,25 @@ CREATE POLICY billing_receipt_cancel_actions_select
     WHERE r.id = request_id
       AND (
         is_super_admin()
-        OR is_admin()
         OR r.requested_by = auth.uid()
-        OR (user_has_permission('billing.receipts.cancel.approve') AND role_has_institution_access(r.institution_id))
         OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(r.institution_id))
       )
   ));
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_receipts_delete_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_delete_permission
+  ON public.billing_receipts FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(institution_id))
+  );
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_bills_delete_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_delete_permission
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.schedule.delete') AND role_has_institution_access(institution_id))
+  );

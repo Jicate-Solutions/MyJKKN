@@ -12947,6 +12947,11 @@ export type Database = {
           created_at: string
           decided_at: string | null
           decided_by: string | null
+          decided_by_designation: string | null
+          decided_by_email: string | null
+          decided_by_is_super_admin: boolean | null
+          decided_by_name: string | null
+          decided_by_role: string | null
           decision_notes: string | null
           id: string
           institution_id: string | null
@@ -12956,6 +12961,9 @@ export type Database = {
           request_number: string
           requested_at: string
           requested_by: string | null
+          requested_by_email: string | null
+          requested_by_name: string | null
+          requested_by_role: string | null
           status: string
           student_id: string | null
           updated_at: string
@@ -12964,6 +12972,11 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
           decision_notes?: string | null
           id?: string
           institution_id?: string | null
@@ -12973,6 +12986,9 @@ export type Database = {
           request_number: string
           requested_at?: string
           requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
           status?: string
           student_id?: string | null
           updated_at?: string
@@ -12981,6 +12997,11 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
           decision_notes?: string | null
           id?: string
           institution_id?: string | null
@@ -12990,6 +13011,9 @@ export type Database = {
           request_number?: string
           requested_at?: string
           requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
           status?: string
           student_id?: string | null
           updated_at?: string
@@ -12999,7 +13023,10 @@ export type Database = {
       billing_receipt_cancel_request_actions: {
         Row: {
           action_type: string
+          actor_email: string | null
           actor_id: string | null
+          actor_is_super_admin: boolean | null
+          actor_name: string | null
           actor_role_name: string | null
           created_at: string
           id: string
@@ -13008,7 +13035,10 @@ export type Database = {
         }
         Insert: {
           action_type: string
+          actor_email?: string | null
           actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
           actor_role_name?: string | null
           created_at?: string
           id?: string
@@ -13017,7 +13047,10 @@ export type Database = {
         }
         Update: {
           action_type?: string
+          actor_email?: string | null
           actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
           actor_role_name?: string | null
           created_at?: string
           id?: string
