@@ -1,8 +1,12 @@
 'use client';
 
-// Compact Registration card on the tournament detail page. Replaces the old
+// Compact Registration card shown on an event's detail page. Replaces the old
 // inline builder: the builder now lives on its own page. Students register
 // only through the public link — organizers configure the questions here.
+//
+// Moved here from the tournament route's _components/ 2026-07-29, because the
+// general-event detail page (app/(routes)/events/[id]/page.tsx) now renders
+// it too — a shared component must not live inside one route's _components/.
 
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,9 +17,12 @@ import { useRegistrationForm } from '@/hooks/events/use-tournament-registration-
 export function RegistrationFormCard({
   eventId,
   canManage,
+  href,
 }: {
   eventId: string;
   canManage: boolean;
+  /** Builder URL. Defaults to the tournament builder so the original caller is unchanged. */
+  href?: string;
 }) {
   const { data: form } = useRegistrationForm(canManage ? eventId : '');
 
@@ -48,7 +55,7 @@ export function RegistrationFormCard({
           Configure the questions students answer when they register. {summary}
         </p>
         <Button asChild size="sm" variant="outline">
-          <Link href={`/events/tournament/${eventId}/registration-form`}>
+          <Link href={href ?? `/events/tournament/${eventId}/registration-form`}>
             Manage registration form <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </Button>

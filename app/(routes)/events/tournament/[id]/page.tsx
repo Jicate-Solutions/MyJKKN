@@ -67,7 +67,7 @@ import { useTournamentEntries } from '@/hooks/events/use-tournament-registration
 import { useTournamentMatches } from '@/hooks/events/use-tournament-fixtures';
 import type { TournamentDivision, TournamentEntry, TournamentMatch } from '@/types/tournament';
 import { InchargePanel } from './_components/incharge-panel';
-import { RegistrationFormCard } from './_components/registration-form-card';
+import { RegistrationFormCard } from '@/components/events/shared/registration-form-card';
 // Reuses the list page's dialog — one editor, so the two entry points can't drift.
 import { EditTournamentDialog } from '../_components/edit-tournament-dialog';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';

@@ -48,6 +48,20 @@ export function useGeneralEvents() {
   });
 }
 
+/**
+ * One event by id, for the general-event detail page. Deliberately NOT
+ * filtered by event_type — the page itself redirects tournaments to their
+ * own console, so a type filter here would only turn that redirect into a
+ * "not found".
+ */
+export function useGeneralEvent(id: string) {
+  return useQuery({
+    queryKey: [...KEYS.all, 'detail', id] as const,
+    queryFn: () => EventBaseService.getEvent(id),
+    enabled: !!id,
+  });
+}
+
 // ============================================================================
 // Mutation Hooks
 // ============================================================================

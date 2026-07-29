@@ -16,6 +16,7 @@
 // (an UPDATE policy exists, so no silent 0-row no-op).
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { CalendarDays, MapPin, Pencil } from 'lucide-react';
 import {
   Card,
@@ -64,7 +65,12 @@ function GeneralEventRow({
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
       <div className="min-w-0 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{event.name}</span>
+          <Link
+            href={`/events/${event.id}`}
+            className="text-sm font-medium hover:underline"
+          >
+            {event.name}
+          </Link>
           <Badge variant="secondary" className="text-[10px] font-normal">
             {formatEventType(event.event_type as string)}
           </Badge>
