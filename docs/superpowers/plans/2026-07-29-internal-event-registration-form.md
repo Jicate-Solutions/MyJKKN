@@ -478,6 +478,8 @@ describe('GeneralEventDetailPage', () => {
     eventState.data = null;
     eventState.isLoading = true;
     const { container } = render(<GeneralEventDetailPage />);
+    // <Skeleton> applies animate-pulse itself — asserting on it proves a
+    // skeleton rendered rather than a blank page.
     expect(container.querySelector('.animate-pulse')).toBeTruthy();
   });
 
@@ -574,8 +576,8 @@ export default function GeneralEventDetailPage() {
     return (
       <ContentLayout title="Event">
         <div className="mt-4 space-y-4">
-          <Skeleton className="h-24 w-full animate-pulse" />
-          <Skeleton className="h-64 w-full animate-pulse" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-64 w-full" />
         </div>
       </ContentLayout>
     );
@@ -941,7 +943,7 @@ export default function GeneralEventRegistrationFormPage() {
   if (isLoading || accessLoading) {
     return (
       <ContentLayout title="Registration Form">
-        <Skeleton className="mt-4 h-64 w-full animate-pulse" />
+        <Skeleton className="mt-4 h-64 w-full" />
       </ContentLayout>
     );
   }
@@ -1950,7 +1952,7 @@ export default function EventRegisterPage() {
   if (authLoading || eventLoading || mineLoading) {
     return (
       <ContentLayout title="Register">
-        <Skeleton className="mx-auto mt-8 h-64 w-full max-w-lg animate-pulse" />
+        <Skeleton className="mx-auto mt-8 h-64 w-full max-w-lg" />
       </ContentLayout>
     );
   }
