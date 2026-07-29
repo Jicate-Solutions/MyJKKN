@@ -25,7 +25,7 @@ export default function ReceiptCancellationsPage() {
             <h1 className='py-1 text-2xl font-bold'>Receipt Cancellations</h1>
             <p className='text-muted-foreground text-sm sm:text-base'>
               Receipts issued by mistake are cancelled through approval rather than
-              deleted. Accounts staff and the Chief Accountant raise a request;
+              deleted. Accounts team members and the Chief Accountant raise a request;
               only a <strong>super admin</strong> can decide it. A request leaves
               the receipt fully valid and the bill paid — only approval cancels the
               receipt, reverts the bill to unpaid and restores its balance.
