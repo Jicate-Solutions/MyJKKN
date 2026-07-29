@@ -16,14 +16,18 @@
 // mirror for team members below audit leadership (fn_carre_predict_* gate
 // server-side). Parent paths stay gated in all three cases.
 //
-// EXEMPTION (2026-07-30): /audit/care/new. Opening a culture audit has always
+// CARVE-OUT (2026-07-30): /audit/care/new. Opening a culture audit has always
 // been "any team member" by design — fn_carre_create_audit and
 // fn_carre_create_classroom_audit enforce staff-only server-side and the page
 // renders every denial explicitly (rule #27). But '/audit' declares
 // audit.cycle.view in MENU_PERMISSIONS and the matcher inherits that down to
 // every /audit/** child, so this guard silently overrode that design once it
 // shipped. An ordinary Senior Learner could not reach the form to open an audit
-// on their own practice. Exact-path prefix — no descendants exist.
+// on their own practice.
+// It is granted through the fallback on an EXACT pathname match rather than via
+// exemptPrefixes, because a bare (no-trailing-slash) prefix also matches
+// descendants — a future /audit/care/new/<something> would silently inherit the
+// carve-out. Exact match cannot drift that way. (Review #2586, LOW 7.)
 //
 // OWNER CARVE-OUT (2026-07-30): the same inheritance locked a cycle's OWN lead
 // auditor out of /audit/care/[cycleId] with "Required Permission:
@@ -56,6 +60,11 @@ async function auditOwnerFallback(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   const pathname = window.location.pathname;
 
+  // Exact match only — see the carve-out note above.
+  if (pathname === '/audit/care/new') {
+    return true;
+  }
+
   const detail = CYCLE_DETAIL_PATH.exec(pathname);
   if (detail) {
     return CarreAuditService.isCycleOwner(detail[1]!);
@@ -81,7 +90,6 @@ const EXEMPT_PREFIXES = [
   '/audit/care/score/',
   '/audit/care/voice/',
   '/audit/care/predict/',
-  '/audit/care/new',
 ];
 
 export default function AuditLayout({ children }: { children: ReactNode }) {
