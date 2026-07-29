@@ -24,6 +24,27 @@ interface RequestDataTableProps {
   showCancel?: boolean;
   /** Super-admin-only hard delete. Gate at the call site (e.g. isSuperAdmin). */
   showDelete?: boolean;
+  /**
+   * Opt into server-side paging. Without it the table paginates only the rows
+   * already fetched, which silently caps the view at the API's page size.
+   */
+  serverSidePagination?: ServerSidePagination;
+  /** Server-side search over the whole result set, not just the current page. */
+  onSearch?: (query: string) => void;
+  initialSearch?: string;
+}
+
+/** Mirrors DataTable's serverSidePagination prop so call sites share one shape. */
+interface ServerSidePagination {
+  currentPage: number;
+  totalPages: number;
+  pageSize: number;
+  totalItems: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
+  isLoading?: boolean;
 }
 
 export function RequestDataTable({
@@ -34,6 +55,9 @@ export function RequestDataTable({
   showEdit = false,
   showCancel = false,
   showDelete = false,
+  serverSidePagination,
+  onSearch,
+  initialSearch,
 }: RequestDataTableProps) {
   const router = useRouter();
   const cancelRequest = useCancelServiceRequest();
@@ -227,6 +251,10 @@ export function RequestDataTable({
       data={data}
       filterColumn="request_number"
       searchPlaceholder="Search by request number..."
+      getRowId={(row) => row.id}
+      serverSidePagination={serverSidePagination}
+      onSearch={onSearch}
+      initialSearch={initialSearch}
     />
   );
 }

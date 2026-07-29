@@ -20,6 +20,7 @@ import {
   type ServiceRequestAnalytics,
 } from '@/types/service-request';
 import { ServiceRequestTimelineService } from './service-request-timeline-service';
+import { normalizePagination } from './pagination';
 
 const getSupabase = async () => await createServerSupabaseClient() as any;
 
@@ -556,8 +557,7 @@ export class ServiceRequestService {
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
 
-    const page = filters?.page || 1;
-    const limit = filters?.limit || 20;
+    const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -598,8 +598,7 @@ export class ServiceRequestService {
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
 
-    const page = filters?.page || 1;
-    const limit = filters?.limit || 20;
+    const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -640,8 +639,7 @@ export class ServiceRequestService {
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
 
-    const page = filters?.page || 1;
-    const limit = filters?.limit || 20;
+    const { page, limit } = normalizePagination(filters?.page, filters?.limit);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
