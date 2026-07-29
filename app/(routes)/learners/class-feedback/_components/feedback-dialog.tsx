@@ -28,6 +28,7 @@ import {
   NBLM_NONE_KEY,
 } from '@/lib/session-feedback/notebooklm-features';
 import { ClarificationTouchpoint } from './clarification-touchpoint';
+import { ClassroomPracticeMicro } from './classroom-practice-micro';
 
 const BRAND = '#0b6d41';
 
@@ -335,6 +336,14 @@ export function FeedbackDialog({
               </span>
             </p>
             <ClarificationTouchpoint
+              attendanceDate={session.attendance_date}
+              timetableId={session.timetable_id}
+              periodId={session.period_id}
+            />
+            {/* Classroom Practice L2 — at most ONE sealed micro-item, and only
+                when the server has one to give. Renders nothing otherwise, and
+                cannot affect the submit or close flow above. */}
+            <ClassroomPracticeMicro
               attendanceDate={session.attendance_date}
               timetableId={session.timetable_id}
               periodId={session.period_id}
