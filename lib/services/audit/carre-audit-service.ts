@@ -188,6 +188,20 @@ export class CarreAuditService {
     return (data ?? []) as CarreAuditListItem[];
   }
 
+  /**
+   * Is the caller the lead auditor of this CARRE cycle? Cheap EXISTS check used
+   * by the audit module's page guard to admit a cycle's own owner, who is
+   * authorized by every fn_carre_* RPC but need hold no audit.cycle.view.
+   * Never throws on a denial — a false answer simply means "not the owner".
+   */
+  static async isCycleOwner(cycleId: string): Promise<boolean> {
+    const { data, error } = await (this.supabase as any).rpc('fn_carre_is_cycle_owner', {
+      p_cycle_id: cycleId,
+    });
+    if (error) return false;
+    return data === true;
+  }
+
   /** Owner / leadership full view (cycle + snapshot + all scores + invite). */
   static async getAudit(cycleId: string): Promise<CarreRpcResult<CarreAuditDetail>> {
     const { data, error } = await (this.supabase as any).rpc('fn_carre_get_audit', {
