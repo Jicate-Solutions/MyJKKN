@@ -331,18 +331,32 @@ export async function generateClinicalReasoningFeedback(
   let costInr: number | null = null;
 
   if (useMaxLane) {
-    // systemPrompt ALREADY carries the answer — the policy template interpolates
-    // it under its own "STUDENT ANSWER:" heading (see POLICY_DEFAULT_TEMPLATE and
-    // the live clinical_reasoning.ai.system_prompt_template policy). Appending it
-    // a second time sent every answer twice in one prompt, which was visible in
-    // the queued payload: the full answer appeared under "STUDENT ANSWER:" and
-    // again under a trailing "Student answer:". Wasted tokens on every call, and
-    // on long answers it reads as if the learner said the same thing twice.
-    // The direct-provider path below already passes systemPrompt alone; this
-    // makes the Max-lane path match it.
+    // The policy template already interpolates the answer under its own
+    // "LEARNER ANSWER:" heading, so unconditionally appending it again sent the
+    // answer TWICE in one prompt — visible in the live queued payload, once
+    // under the heading and again under a trailing "Student answer:".
+    //
+    // But it cannot simply be dropped. The direct-provider path does not rely
+    // on the template alone: it passes `userPrompt: input.answer` separately
+    // (see dispatchSocratic below), which every provider sends as its own user
+    // turn. The Max lane has a SINGLE `prompt` field and no message structure,
+    // so that append was its only unconditional guarantee that the model ever
+    // sees the answer.
+    //
+    // `clinical_reasoning.ai.system_prompt_template` is a DB-editable policy.
+    // Drop `{student_answer}` from it — a one-character mistake while editing —
+    // and an unconditional removal would make the coach silently give feedback
+    // on an empty answer, with nothing failing loudly.
+    //
+    // So: append only when the rendered prompt does not already contain the
+    // answer. No duplicate in the normal case; the guarantee survives a
+    // mis-edited template.
+    const prompt = systemPrompt.includes(input.answer)
+      ? systemPrompt
+      : `${systemPrompt}\n\nLearner answer:\n\n${input.answer}`;
     const enq = await enqueueJobsLane(supabase, {
       jobType: 'pde.clinical_reasoning.coach',
-      prompt: systemPrompt,
+      prompt,
       context: {
         learner_id: input.learnerId,
         assessment_id: input.assessmentId,
