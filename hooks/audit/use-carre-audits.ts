@@ -45,6 +45,46 @@ export function useCreateCarreAudit() {
   });
 }
 
+/** Opens a 13-item Classroom Practice cycle (teacher-level catalog). */
+export function useCreateClassroomAudit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      teacherId?: string | null;
+      reAuditDate?: string | null;
+      openScoring?: boolean;
+    }) => CarreAuditService.createClassroomAudit(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: carreAuditKeys.list() }),
+  });
+}
+
+/**
+ * Opens/closes the sealed learner window. Invalidates the rollup too: closing
+ * the window is exactly the event that can release the batch reveal.
+ */
+export function useSetParticipantWindow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { cycleId: string; open: boolean }) =>
+      CarreAuditService.setParticipantWindow(input),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: carreAuditKeys.detail(vars.cycleId) });
+      void qc.invalidateQueries({ queryKey: ['audit', 'carre-evidence'] });
+    },
+  });
+}
+
+/** Type-ahead over team members for the Classroom Practice form. */
+export function useTeacherSearch(q: string) {
+  return useQuery({
+    queryKey: [...carreAuditKeys.all, 'teacher-search', q] as const,
+    queryFn: () => CarreAuditService.searchTeachers(q),
+    enabled: q.trim().length >= 2,
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useUpsertCarreScore() {
   const qc = useQueryClient();
   return useMutation({

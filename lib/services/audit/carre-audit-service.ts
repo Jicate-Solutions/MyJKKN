@@ -41,6 +41,14 @@ export interface CarreSnapshot {
   /** The setting this audit is scoped to — selects the evidence anchor shown. */
   setting_code: SettingCode;
   parameters: CarreSnapshotParameter[];
+  /**
+   * Which catalog was frozen. Absent on a standard 25-item CARRE cycle;
+   * 'CLASSROOM_PRACTICE' on a 13-item teacher-level cycle, which renders a
+   * different sheet (per-pillar medians, no /100 index, sealed compare card).
+   */
+  catalog?: 'CLASSROOM_PRACTICE' | null;
+  /** Classroom Practice only: profiles.id of the person whose practice this is. */
+  teacher_profile_id?: string | null;
 }
 
 export interface CarreScoreRow {
@@ -78,6 +86,8 @@ export interface CarreAuditDetail {
     owner_id: string;
     owner_name: string | null;
     created_at: string;
+    /** Is the sealed learner window still accepting submissions? */
+    participant_scoring_open: boolean;
   };
   snapshot: CarreSnapshot;
   scores: CarreScoreRow[];
@@ -93,6 +103,20 @@ export interface CarreRpcDenial {
   success: false;
   reason: string;
   detail?: string;
+}
+
+/**
+ * One row of the Classroom Practice owner picker. `sessions_90d` counts the
+ * session-feedback rows attributable to this person in the last 90 days — the
+ * exhaust the roster gate reads. Zero means no learner could be admitted to
+ * their sheet yet, which the form warns about rather than discovering later.
+ */
+export interface CarreTeacherOption {
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  role: string | null;
+  sessions_90d: number;
 }
 
 export type CarreRpcResult<T> = T | CarreRpcDenial;
@@ -152,6 +176,60 @@ export class CarreAuditService {
     });
     if (error) throw error;
     return data;
+  }
+
+  /**
+   * Opens a 13-item Classroom Practice cycle (the teacher-level catalog).
+   * `teacherId` omitted = open one on yourself; naming someone else requires
+   * audit leadership and is refused server-side otherwise.
+   */
+  static async createClassroomAudit(input: {
+    name: string;
+    teacherId?: string | null;
+    reAuditDate?: string | null; // YYYY-MM-DD
+    openScoring?: boolean;
+  }): Promise<CarreRpcResult<{ success: true; cycle_id: string }>> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_carre_create_classroom_audit',
+      {
+        p_name: input.name,
+        p_teacher_id: input.teacherId ?? null,
+        p_re_audit_date: input.reAuditDate ?? null,
+        p_open_scoring: input.openScoring ?? true,
+      },
+    );
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Opens or closes the sealed learner window. Closing it is what releases the
+   * batch reveal on a Classroom Practice cycle — the RPC, not the UI, is what
+   * holds the medians back until then.
+   */
+  static async setParticipantWindow(input: {
+    cycleId: string;
+    open: boolean;
+  }): Promise<CarreRpcResult<{ success: true; participant_scoring_open: boolean }>> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_carre_set_participant_window',
+      { p_cycle_id: input.cycleId, p_open: input.open },
+    );
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * Type-ahead over team members for the Classroom Practice form. Returns
+   * profiles.id (the audit cycle's owner column references auth.users, so a
+   * staff-table id would not work). Institution-scoped server-side.
+   */
+  static async searchTeachers(q: string): Promise<CarreTeacherOption[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_carre_search_teachers', {
+      p_q: q,
+    });
+    if (error) throw error;
+    return (data ?? []) as CarreTeacherOption[];
   }
 
   /** Owner mints (or re-reads) the second-scorer invite link token. */

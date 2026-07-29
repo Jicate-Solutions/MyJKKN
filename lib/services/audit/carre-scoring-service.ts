@@ -147,6 +147,86 @@ export function pillarFromCode(code: string): CarrePillar | null {
   return m ? (m[1] as CarrePillar) : null;
 }
 
+// ============================================================================
+// Classroom Practice (L3) — the 13-item teacher-level catalog.
+//
+// Same 0–4 scale and same pillars as CARRE, but a DIFFERENT instrument: it
+// scores one person's own practice rather than an initiative. Deliberately has
+// NO /100 index and no doctrine caps — a 13-item sheet with uneven pillar sizes
+// cannot produce a comparable index, and an index invites ranking people, which
+// this instrument must never do. Per-pillar MEDIANS (0–4) are what it reports.
+//
+// Recognition (R) has no items: recognition surfaces are institutional, not
+// something one person controls inside their own sessions.
+// ============================================================================
+
+export const CLASSROOM_PRACTICE_ITEM_COUNT = 13;
+
+/** Pillars the Classroom Practice catalog actually uses, in display order. */
+export const CLASSROOM_PILLAR_ORDER: CarrePillar[] = ['C', 'A', 'RS', 'E'];
+
+/** 'CP-RS3' -> 'RS'. Two-char RS matched before R (alternation order matters). */
+export function classroomPillarFromCode(code: string): CarrePillar | null {
+  const m = /^CP-(RS|C|A|R|E)(\d)$/.exec(code);
+  return m ? (m[1] as CarrePillar) : null;
+}
+
+/** True when a frozen snapshot is a Classroom Practice cycle. */
+export function isClassroomCatalog(
+  snapshot: { catalog?: string | null } | null | undefined,
+): boolean {
+  return snapshot?.catalog === 'CLASSROOM_PRACTICE';
+}
+
+export interface ClassroomPillarScore {
+  pillar: CarrePillar;
+  label: string;
+  /** Median of the scored items (0–4); null until at least one is scored. */
+  median: number | null;
+  scoredCount: number;
+  itemCount: number;
+}
+
+/** Median of a numeric list; null when empty. Even counts average the middle two. */
+export function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
+/**
+ * Per-pillar medians for a Classroom Practice sheet. Driven by the cycle's
+ * frozen parameter codes rather than a hardcoded item list, so a future catalog
+ * revision reports correctly without touching this function.
+ */
+export function classroomPillarScores(
+  parameterCodes: string[],
+  scores: CarreScoreInput[],
+): ClassroomPillarScore[] {
+  const scoreByCode = new Map<string, number>();
+  for (const s of scores) {
+    if (!s || typeof s.parameter_code !== 'string') continue;
+    if (typeof s.score !== 'number' || !Number.isFinite(s.score)) continue;
+    if (classroomPillarFromCode(s.parameter_code) === null) continue;
+    scoreByCode.set(s.parameter_code, s.score);
+  }
+
+  return CLASSROOM_PILLAR_ORDER.map((pillar) => {
+    const codes = parameterCodes.filter((c) => classroomPillarFromCode(c) === pillar);
+    const scored = codes
+      .map((c) => scoreByCode.get(c))
+      .filter((v): v is number => v !== undefined);
+    return {
+      pillar,
+      label: PILLAR_LABELS[pillar],
+      median: median(scored),
+      scoredCount: scored.length,
+      itemCount: codes.length,
+    };
+  }).filter((p) => p.itemCount > 0);
+}
+
 function toScoreMap(scores: CarreScoreInput[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const s of scores) {

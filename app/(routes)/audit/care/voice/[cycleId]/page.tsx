@@ -54,6 +54,11 @@ const DENIAL_COPY: Record<string, { title: string; body: string }> = {
     title: 'This audit cycle does not exist',
     body: 'The link may be mistyped or the cycle was removed. Check with whoever shared it.',
   },
+  not_in_teacher_roster: {
+    title: 'This sheet is for the learners in these sessions',
+    body:
+      'Only learners who submitted post-session feedback for this person can score them — that is how the platform knows you were actually there. If you did sit in these sessions, submit your session feedback first and open this link again.',
+  },
 };
 
 export default function SealedParticipantVoicePage({
@@ -70,6 +75,10 @@ export default function SealedParticipantVoicePage({
       ? (data as CarreParticipantContext)
       : null;
 
+  // A Classroom Practice sheet is always first-person: you are scoring sessions
+  // you sat in, and the roster gate already proved that. The observer lane would
+  // be incoherent here, so it is not offered.
+  const isClassroom = context?.catalog === 'CLASSROOM_PRACTICE';
   const [lane, setLane] = useState<'own' | 'observer'>('own');
   const [values, setValues] = useState<Record<string, SheetValue>>({});
   const [savedCodes, setSavedCodes] = useState<Set<string>>(new Set());
@@ -91,14 +100,14 @@ export default function SealedParticipantVoicePage({
     });
     setSavedCodes(new Set(context.my_scores.map((s) => s.parameter_code)));
     const firstLane = context.my_scores[0]?.lane;
-    if (firstLane === 'own' || firstLane === 'observer') setLane(firstLane);
-  }, [context]);
+    if (!isClassroom && (firstLane === 'own' || firstLane === 'observer')) setLane(firstLane);
+  }, [context, isClassroom]);
 
   const scoredCount = useMemo(
     () => Object.values(values).filter((v) => v.score !== undefined).length,
     [values],
   );
-  const totalItems = context?.parameters?.length ?? 25;
+  const totalItems = context?.parameters?.length ?? 0;
 
   async function handleSubmit() {
     if (!context) return;
@@ -194,8 +203,14 @@ export default function SealedParticipantVoicePage({
               <HeartHandshake className="h-4 w-4 text-emerald-600" />
               <h2 className="text-lg font-semibold">{ctx.cycle.name}</h2>
             </div>
-            {ctx.cycle.audience && (
-              <p className="text-sm text-muted-foreground">{ctx.cycle.audience}</p>
+            {isClassroom && ctx.teacher_name ? (
+              <p className="text-sm text-muted-foreground">
+                {`About your sessions with ${ctx.teacher_name} — sealed, and at least 3 learners must answer before anyone sees anything.`}
+              </p>
+            ) : (
+              ctx.cycle.audience && (
+                <p className="text-sm text-muted-foreground">{ctx.cycle.audience}</p>
+              )
             )}
             <div className="rounded-md border border-violet-200 bg-violet-50 p-3 text-xs dark:border-violet-900 dark:bg-violet-950">
               <p className="flex items-start gap-2">
@@ -214,7 +229,9 @@ export default function SealedParticipantVoicePage({
           </CardContent>
         </Card>
 
-        {/* Lane choice — Director decision: BOTH lanes exist. */}
+        {/* Lane choice — Director decision: BOTH lanes exist. Not offered on a
+            Classroom Practice sheet, which is first-person by construction. */}
+        {!isClassroom && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Which seat are you scoring from?</CardTitle>
@@ -254,6 +271,7 @@ export default function SealedParticipantVoicePage({
             </p>
           </CardContent>
         </Card>
+        )}
 
         {submittedBefore && (
           <Card className="border-emerald-300">
