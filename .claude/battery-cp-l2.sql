@@ -188,18 +188,50 @@ BEGIN
     AND value ? 'comment_invite_every_n_answers';
   INSERT INTO _r VALUES ('T3 config row complete', v_cnt = 1, format('rows=%s', v_cnt));
 
-  -- Seed synthetic CP catalog rows if the sibling migration has not landed, so
-  -- the deck tests are deterministic either way. Codes match the real catalog
-  -- (CP-C1..CP-E2); only the wording is placeholder.
+  -- Seed the CP catalog if the sibling migration has not landed, so the deck
+  -- tests are deterministic either way. These are the RATIFIED 13 items —
+  -- codes, names AND descriptions copied verbatim from the single source of
+  -- truth, 20260729190000_classroom_practice_catalog_and_compare.sql. Do NOT
+  -- invent wording here: a rehearsal transcript that shows a question the
+  -- Director never approved is worse than no transcript at all. (Only the
+  -- framework_mapping / evidence columns are omitted — this lane never reads
+  -- them.)
   SELECT count(*) INTO v_cnt FROM public.audit_parameter_catalog WHERE code LIKE 'CP-%';
   IF v_cnt = 0 THEN
     v_seeded := true;
     INSERT INTO public.audit_parameter_catalog
       (code, name, parameter_group, description, default_owner_role, is_active, is_system)
     VALUES
-      ('CP-C1','Leave decided by clear rules',1,'Was your leave or on-duty request decided by clear rules?','hod',true,false),
-      ('CP-A1','Doubts welcomed',2,'Were your doubts welcomed in this session?','hod',true,false),
-      ('CP-E1','Time respected',5,'Did this session start and end on time?','hod',true,false);
+      -- Clarity (group 1)
+      ('CP-C1','Leave decided by clear rules',1,
+       'When someone asks for leave or OD, the decision follows stated rules — not mood or favourites.','hod',true,true),
+      ('CP-C2','Good work is defined upfront',1,
+       'This Senior Learner tells us what good work looks like before we start — marks never feel like a surprise.','hod',true,true),
+      ('CP-C3','Rules come with reasons',1,
+       'When this Senior Learner sets a rule or says no, we are told the reason.','hod',true,true),
+      -- Appreciation (group 2)
+      ('CP-A1','Permissions answered fast',2,
+       'Requests and permissions get an answer quickly — we are not left waiting or chasing.','hod',true,true),
+      ('CP-A2','Struggling learners get follow-up',2,
+       'When someone struggles in a session, this Senior Learner follows up with them afterwards.','hod',true,true),
+      ('CP-A3','Quiet learners re-engaged',2,
+       'This Senior Learner notices quiet classmates and draws them back in, without embarrassing them.','hod',true,true),
+      -- Respect (group 4)
+      ('CP-RS1','No public punishment',4,
+       'Mistakes are corrected privately — nobody is shamed in front of the class.','hod',true,true),
+      ('CP-RS2','Everyone treated the same',4,
+       'This Senior Learner treats every learner the same, whoever they are.','hod',true,true),
+      ('CP-RS3','Questions never cost marks',4,
+       'Asking a question or admitting confusion never costs marks or goodwill with this Senior Learner.','hod',true,true),
+      ('CP-RS4','Easy to ask in class',4,
+       'It feels safe and easy to ask questions during this Senior Learner''s class.','hod',true,true),
+      ('CP-RS5','No running around for signatures',4,
+       'Getting a signature or a no-dues clearance from this Senior Learner does not take repeated trips.','hod',true,true),
+      -- Empowerment (group 5)
+      ('CP-E1','Sessions are engaging',5,
+       'This Senior Learner''s sessions keep me engaged — I am not just copying notes.','hod',true,true),
+      ('CP-E2','Feedback causes change',5,
+       'When we give feedback about this class, something actually changes.','hod',true,true);
   END IF;
 
   -- ══ T4a/T4 the rollback switch ═══════════════════════════════════════════
