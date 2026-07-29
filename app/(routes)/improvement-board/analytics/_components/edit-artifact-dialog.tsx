@@ -3,11 +3,14 @@
 // Review & approve dialog for a department playbook artifact. A manager edits
 // the AI draft's items (filling in real details), then approves — the edited
 // content is saved on approval (fn_mba_dept_artifact_approve takes p_content).
-// For the organogram, the "who holds it" field is backed by a datalist of REAL
-// people connected to the area (/api/mba/dept-artifacts/people), so holders come
-// from actual MyJKKN records rather than "[Manager to complete]" placeholders.
+//
+// For the organogram, "who holds it" picks a REAL MyJKKN person and records which
+// one. On approve the picks are written to hr_additional_roles as data
+// (fn_mba_dept_role_assignments_sync), so they SURVIVE a re-draft: content JSON is
+// replaced by a fresh AI draft, the assignment rows are not — and this dialog
+// pre-fills from them instead of showing "[Manager to complete]" again.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,12 +26,15 @@ import { Button } from '@/components/ui/button';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { PersonPicker } from './person-picker';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow';
-interface Person {
-  id: string;
-  name: string | null;
-  email: string | null;
+/** Content key holding the picked person's team member id, alongside `holder`. */
+const HOLDER_ID_KEY = 'holder_staff_id';
+interface Assignment {
+  role_type: string;
+  staff_id: string | null;
+  holder_name: string | null;
 }
 interface Props {
   areaId: string;
@@ -84,6 +90,10 @@ function errMsg(e: unknown): string {
   }
   return str(e);
 }
+/** Role titles are edited free-hand — match them the way the database does. */
+function normTitle(v: unknown): string {
+  return str(v).trim().toLowerCase();
+}
 
 export function EditArtifactDialog({
   areaId,
@@ -96,23 +106,80 @@ export function EditArtifactDialog({
 }: Props) {
   const listKey = LIST_KEY[artifactType];
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
-  const [people, setPeople] = useState<Person[]>([]);
   const [saving, setSaving] = useState(false);
+  // Assigning a holder writes hr_additional_roles — institution-wide org data — so it is
+  // an officer action (CEO / CAO / EAO) held under its own permission, separate from
+  // improvement.board.manage. The DB enforces this; this only decides whether to render
+  // an editable picker or a read-only value, so a manager is never shown a control whose
+  // save would be rejected.
+  const [canAssign, setCanAssign] = useState(false);
+
+  useEffect(() => {
+    if (!open || artifactType !== 'organogram') {
+      setCanAssign(false);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClientSupabaseClient() as unknown as {
+      rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
+    };
+    supabase
+      .rpc('user_has_permission', { permission_name: 'improvement.area_role.assign' })
+      .then(({ data }) => {
+        if (!cancelled) setCanAssign(data === true);
+      })
+      .catch(() => {
+        if (!cancelled) setCanAssign(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, artifactType]);
 
   useEffect(() => {
     if (!open) return;
-    setRows(asArray(content[listKey]).map((r) => ({ ...r })));
-    if (artifactType === 'organogram') {
-      fetch(`/api/mba/dept-artifacts/people?area_id=${encodeURIComponent(areaId)}`)
-        .then((r) => (r.ok ? r.json() : { people: [] }))
-        .then((j: { people?: Person[] }) => setPeople(j.people ?? []))
-        .catch(() => setPeople([]));
+    const base = asArray(content[listKey]).map((r) => ({ ...r }));
+    if (artifactType !== 'organogram') {
+      setRows(base);
+      return;
     }
+    setRows(base);
+
+    // Re-draft survival: the fresh AI draft resets every holder to a placeholder,
+    // so overlay the assignments that were actually made. They are keyed by role
+    // title, which is how the database keys them too.
+    let cancelled = false;
+    fetch(`/api/mba/dept-artifacts/role-assignments?area_id=${encodeURIComponent(areaId)}`)
+      .then((r) => (r.ok ? r.json() : { assignments: [] }))
+      .then((j: { assignments?: Assignment[] }) => {
+        if (cancelled) return;
+        const byTitle = new Map<string, Assignment>();
+        for (const a of j.assignments ?? []) byTitle.set(normTitle(a.role_type), a);
+        if (byTitle.size === 0) return;
+        setRows((rs) =>
+          rs.map((r) => {
+            const a = byTitle.get(normTitle(r.title));
+            if (!a) return r;
+            return { ...r, holder: a.holder_name ?? '', [HOLDER_ID_KEY]: a.staff_id ?? '' };
+          }),
+        );
+      })
+      .catch(() => {
+        /* keep the draft's own values */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, content, listKey, artifactType, areaId]);
 
   function updateRow(i: number, field: string, value: string) {
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
   }
+  const updateHolder = useCallback((i: number, name: string, staffId: string | null) => {
+    setRows((rs) =>
+      rs.map((r, idx) => (idx === i ? { ...r, holder: name, [HOLDER_ID_KEY]: staffId ?? '' } : r)),
+    );
+  }, []);
   function addRow() {
     setRows((rs) => [...rs, {}]);
   }
@@ -138,6 +205,30 @@ export function EditArtifactDialog({
         toast.error(`Couldn't approve — ${errMsg(error) || 'please try again.'}`);
         return;
       }
+
+      // Persist the organogram's holders as real rows. Runs AFTER the approve so
+      // a failure here can never lose an approval — it is reported, not swallowed.
+      if (artifactType === 'organogram') {
+        const assignments = rows
+          .map((r) => ({
+            role_type: str(r.title).trim(),
+            staff_id: str(r[HOLDER_ID_KEY]).trim() || null,
+            holder_note: str(r[HOLDER_ID_KEY]).trim() ? null : str(r.holder).trim() || null,
+          }))
+          .filter((a) => a.role_type !== '');
+        const { error: syncError } = await supabase.rpc('fn_mba_dept_role_assignments_sync', {
+          p_area_id: areaId,
+          p_assignments: assignments,
+        });
+        if (syncError) {
+          toast.error(
+            `Approved, but the role holders were not saved — ${
+              errMsg(syncError) || 'please reopen and try again.'
+            }`,
+          );
+        }
+      }
+
       onOpenChange(false);
       onApproved();
     } finally {
@@ -155,18 +246,11 @@ export function EditArtifactDialog({
             Review &amp; approve — {areaLabel} · {LABEL[artifactType]}
           </DialogTitle>
           <DialogDescription>
-            Fill in the real details, then approve. For the organogram you can pick people
-            already connected to this department, or type a name.
+            Fill in the real details, then approve. For the organogram, search MyJKKN by
+            name or email to pick the person who holds each role — the choice is saved and
+            comes back the next time this playbook is drafted.
           </DialogDescription>
         </DialogHeader>
-
-        {people.length > 0 && (
-          <datalist id={`people-${artifactType}`}>
-            {people.map((p) => (
-              <option key={p.id} value={p.name ?? p.email ?? ''} />
-            ))}
-          </datalist>
-        )}
 
         <div className="space-y-2">
           {rows.map((row, i) => (
@@ -184,10 +268,29 @@ export function EditArtifactDialog({
                       rows={3}
                       className="min-h-16 resize-y text-sm"
                     />
+                  ) : f.people ? (
+                    canAssign ? (
+                      <PersonPicker
+                        areaId={areaId}
+                        value={{
+                          name: str(row[f.key]),
+                          staffId: str(row[HOLDER_ID_KEY]).trim() || null,
+                        }}
+                        onChange={(next) => updateHolder(i, next.name, next.staffId)}
+                      />
+                    ) : (
+                      // Assigning a holder writes institution-wide org data, so it is
+                      // reserved for the CEO / CAO / EAO. Managers still SEE the holder.
+                      <div
+                        className="bg-muted/40 text-muted-foreground flex h-8 items-center rounded-md border px-2 text-sm"
+                        title="Only the CEO, CAO or Executive Administrative Officer can assign a role holder"
+                      >
+                        {str(row[f.key]).trim() || 'Not assigned yet'}
+                      </div>
+                    )
                   ) : (
                     <Input
                       value={str(row[f.key])}
-                      list={f.people ? `people-${artifactType}` : undefined}
                       onChange={(e) => updateRow(i, f.key, e.target.value)}
                       className="h-8 text-sm"
                     />

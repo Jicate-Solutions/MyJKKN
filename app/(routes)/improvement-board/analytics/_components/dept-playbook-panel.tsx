@@ -23,6 +23,7 @@ import {
   History,
   AlertCircle,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -56,6 +57,14 @@ interface MbaDeptArtifact {
   reviewed_at: string | null;
   review_notes: string | null;
   updated_at: string | null;
+}
+
+/** A standing organogram role holder (hr_additional_roles, area-scoped). */
+interface RoleAssignment {
+  role_type: string;
+  staff_id: string | null;
+  holder_name: string | null;
+  holder_email: string | null;
 }
 
 interface Props {
@@ -108,9 +117,27 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     }
   }, [areaId]);
 
+  // Who currently holds each organogram role. Real rows, not the artifact's JSON —
+  // this is what survives a re-draft, so it is worth showing on its own.
+  const [holders, setHolders] = useState<RoleAssignment[]>([]);
+  const refetchHolders = useCallback(async () => {
+    if (!canManage) return; // the read is manager-gated; don't fake an empty list
+    try {
+      const res = await fetch(
+        `/api/mba/dept-artifacts/role-assignments?area_id=${encodeURIComponent(areaId)}`,
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as { assignments?: RoleAssignment[] };
+      setHolders(json.assignments ?? []);
+    } catch {
+      /* keep last state */
+    }
+  }, [areaId, canManage]);
+
   useEffect(() => {
     void refetch();
-  }, [refetch]);
+    void refetchHolders();
+  }, [refetch, refetchHolders]);
 
   const draft = useCallback(
     async (type: ArtifactType) => {
@@ -271,6 +298,29 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
           AI proposes a starter organogram, SOP and workflow for {areaLabel}. A
           manager reviews and completes each before it becomes official.
         </p>
+
+        {holders.length > 0 && (
+          <div className="mt-2 rounded-md border bg-muted/40 p-2">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <Users className="text-muted-foreground h-3.5 w-3.5" />
+              <span className="text-xs font-medium">Who holds what</span>
+              <Badge variant="outline" className="text-[10px]">
+                {holders.length}
+              </Badge>
+            </div>
+            <ul className="grid gap-1 sm:grid-cols-2">
+              {holders.map((h) => (
+                <li key={h.role_type} className="text-[11px] leading-tight">
+                  <span className="text-muted-foreground">{h.role_type}: </span>
+                  <span className="font-medium">{h.holder_name ?? 'Unnamed'}</span>
+                  {!h.staff_id && (
+                    <span className="text-muted-foreground"> (not a MyJKKN record)</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="grid gap-3 pt-0 md:grid-cols-3">
         {ARTIFACT_TYPES.map((type) => {
@@ -442,6 +492,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
           onApproved={() => {
             setEditType(null);
             void refetch();
+            void refetchHolders();
           }}
         />
       )}
