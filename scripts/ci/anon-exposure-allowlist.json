@@ -1,0 +1,78 @@
+{
+  "$comment": [
+    "Allow-list for scripts/ci/check-anon-exposure-live.mjs — the scheduled sweep that",
+    "reads PRODUCTION and asks: which relations does the public `anon` key reach?",
+    "",
+    "This file is NOT a blanket pardon. Two statuses, and they behave differently:",
+    "",
+    "  approved      — a human ruled on it. Silent unless it disappears.",
+    "  grandfathered — exposed when the sweep was built (2026-07-29), never explicitly",
+    "                  ruled on. Reported every run as a WARN so it is not forgotten,",
+    "                  and ESCALATED TO A HARD FAILURE if it ever gains rows while",
+    "                  carrying an identity column (learner_id / user_id / email / …).",
+    "",
+    "That escalation is the point. pde_certificates, pde_learner_badges and",
+    "pde_reputation all carry learner_id and hold 0 rows today. A plain allow-list",
+    "would bless them forever, and the first certificate PDE ever issues would be",
+    "public with nothing to notice it. rows_at_grandfather is the tripwire.",
+    "",
+    "TO ADD AN ENTRY: state a reason a stranger can evaluate, and prefer `approved`",
+    "only when someone actually decided. Guessing here disarms the sweep."
+  ],
+  "generated": "2026-07-29",
+  "relations": [
+    {
+      "name": "castes",
+      "status": "approved",
+      "reason": "Read by app/student-form/[token]/ with the BROWSER anon client, by prospective applicants who have no account. Closing it breaks admission intake. Verified-intentional exception."
+    },
+    {
+      "name": "community_categories",
+      "status": "approved",
+      "reason": "Same unauthenticated admission-intake path as castes. Closing it breaks sign-ups."
+    },
+    {
+      "name": "institution_health_scores",
+      "status": "approved",
+      "reason": "Director decision 2026-07-26: aggregate, non-personal institution statistics consciously left open. Rule applied was 'close everything holding personal data; review and consciously rule on the rest'."
+    },
+    {
+      "name": "feature_usage_summary",
+      "status": "approved",
+      "reason": "Director decision 2026-07-26, same aggregate-statistics ruling as institution_health_scores."
+    },
+
+    { "name": "assignment_rule_type_registry", "status": "grandfathered", "rows_at_grandfather": 6, "reason": "Reference lookup, no identity column. Never explicitly ruled on." },
+    { "name": "bos_po_pso_mapping", "status": "grandfathered", "rows_at_grandfather": 118, "reason": "Curriculum outcome mapping. No personal data; never explicitly ruled on." },
+    { "name": "events_stalls", "status": "grandfathered", "rows_at_grandfather": 7, "reason": "Event stall lookup. Never explicitly ruled on." },
+    { "name": "hostel_category_upgrade_fees", "status": "grandfathered", "rows_at_grandfather": 10, "reason": "Fee configuration, not per-learner. Never explicitly ruled on." },
+    { "name": "hostel_program_eligibility", "status": "grandfathered", "rows_at_grandfather": 13, "reason": "Eligibility configuration, not per-learner. Never explicitly ruled on." },
+    { "name": "hr_peer_benchmarks", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Institution-level benchmark data. Empty at grandfathering." },
+    { "name": "hr_recruitment_signal_inputs", "status": "grandfathered", "rows_at_grandfather": 7, "reason": "Recruitment signal configuration. Never explicitly ruled on." },
+    { "name": "hr_regulatory_bodies", "status": "grandfathered", "rows_at_grandfather": 8, "reason": "Names of external regulators (AICTE, PCI, …), not people." },
+    { "name": "hr_regulatory_norms", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Regulator norm reference data. Empty at grandfathering." },
+    { "name": "hr_specializations", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Specialisation lookup. Empty at grandfathering." },
+    { "name": "marathon_checkpoint_scans", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Event checkpoint scans. Empty at grandfathering — WILL carry participant data if the event runs." },
+    { "name": "marathon_checkpoints", "status": "grandfathered", "rows_at_grandfather": 7, "reason": "Course checkpoint definitions, not people." },
+    { "name": "marathon_race_track_points", "status": "grandfathered", "rows_at_grandfather": 9, "reason": "Route geometry, not people." },
+    { "name": "marathon_race_tracks", "status": "grandfathered", "rows_at_grandfather": 3, "reason": "Route definitions, not people." },
+    { "name": "marathon_results", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Race results. Empty at grandfathering — WILL carry participant results if the event runs." },
+    { "name": "nps_analytics", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Net-promoter aggregates. Empty at grandfathering." },
+    { "name": "page_metadata", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Route metadata. Empty at grandfathering." },
+    { "name": "pde_badges", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Badge catalogue (definitions, not awards). Empty at grandfathering." },
+    { "name": "pde_certificates", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Carries learner_id. Empty today; the first certificate issued makes learner data public. Tripwire armed." },
+    { "name": "pde_learner_badges", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Carries learner_id. Empty today; the first badge awarded makes learner data public. Tripwire armed." },
+    { "name": "pde_reputation", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Carries learner_id. Empty today; first reputation row makes learner data public. Tripwire armed." },
+    { "name": "project_approval_workflows", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Workflow configuration. Empty at grandfathering." },
+    { "name": "project_budget_categories", "status": "grandfathered", "rows_at_grandfather": 5, "reason": "Budget category lookup." },
+    { "name": "project_labels", "status": "grandfathered", "rows_at_grandfather": 4, "reason": "Label lookup." },
+    { "name": "project_priorities", "status": "grandfathered", "rows_at_grandfather": 4, "reason": "Priority lookup." },
+    { "name": "project_statuses", "status": "grandfathered", "rows_at_grandfather": 7, "reason": "Status lookup." },
+    { "name": "project_templates", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Project template definitions. Empty at grandfathering." },
+    { "name": "project_types", "status": "grandfathered", "rows_at_grandfather": 6, "reason": "Type lookup." },
+    { "name": "resource_maintenance_logs", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Carries assigned_to_user_id. Empty today; tripwire armed." },
+    { "name": "resource_maintenance_schedules", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Carries assigned_to_user_id. Empty today; tripwire armed." },
+    { "name": "subcategories", "status": "grandfathered", "rows_at_grandfather": 7, "reason": "Generic subcategory lookup." },
+    { "name": "usage_events_archive", "status": "grandfathered", "rows_at_grandfather": 0, "reason": "Carries user_id. Empty today; tripwire armed — an archive job filling this would publish per-user activity." }
+  ]
+}
