@@ -5,10 +5,10 @@ import type {
 } from '@/types/billing-schedule';
 
 /**
- * Year-wise student counts and amounts for the /billing/reports dashboard.
+ * Year-wise learner counts and amounts for the /billing/reports dashboard.
  *
  * The dashboard RPC returns only grand totals, so this is the one extra query
- * the "Students by Year of Study" cards need. Kept client-side on purpose: no
+ * the "Learners by Year of Study" cards need. Kept client-side on purpose: no
  * migration to apply, so it works locally the moment the page loads.
  *
  * Honours the institution, academic year and date filters already on the page.
@@ -49,7 +49,7 @@ export class StudentYearBreakdownService extends BaseService {
       let q = this.supabase
         .from('billing_student_bills')
         .select(
-          'student_id, final_amount, balance_amount, status, student:learners_profiles(semester_id)',
+          'student_id, final_amount, balance_amount, status, learner:learners_profiles(semester_id)',
           withCount ? { count: 'exact' } : undefined
         );
       if (filters.institution_id) q = q.eq('institution_id', filters.institution_id);
@@ -95,8 +95,8 @@ export class StudentYearBreakdownService extends BaseService {
     for (const row of rows) {
       // A to-one embed is an object, but some PostgREST versions return a
       // single-element array — accept both.
-      const student = Array.isArray(row.student) ? row.student[0] : row.student;
-      const year = student?.semester_id ? years.get(student.semester_id) ?? null : null;
+      const learner = Array.isArray(row.learner) ? row.learner[0] : row.learner;
+      const year = learner?.semester_id ? years.get(learner.semester_id) ?? null : null;
 
       let b = buckets.get(year);
       if (!b) {

@@ -48,7 +48,7 @@ interface DashboardMetricsProps {
    *  Undefined for users without billing.analytics.view — the section is then
    *  simply not rendered. */
   split?: BillingCollectionSplit;
-  /** Year-wise split of the Total Students card. Served by its own query, since
+  /** Year-wise split of the Total Learners card. Served by its own query, since
    *  the dashboard RPC returns grand totals only. */
   yearWiseStudents?: StudentYearBreakdown[];
 }
@@ -112,11 +112,11 @@ export function DashboardMetrics({
 
       {/* KPI Cards */}
       <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
-        {/* Total Students */}
+        {/* Total Learners */}
         <Card>
           <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
             <CardTitle className='text-sm font-medium'>
-              Total Students
+              Total Learners
             </CardTitle>
             <Users className='h-4 w-4 text-muted-foreground' />
           </CardHeader>
@@ -228,12 +228,12 @@ export function DashboardMetrics({
         </Card>
       </div>
 
-      {/* Year-wise split of the Total Students card above. */}
+      {/* Year-wise split of the Total Learners card above. */}
       {yearWiseStudents.length > 0 && (
         <div>
-          <h3 className='text-lg font-medium'>Students by Year of Study</h3>
+          <h3 className='text-lg font-medium'>Learners by Year of Study</h3>
           <p className='text-sm text-muted-foreground mb-3'>
-            Splits the Total Students figure above using each learner&apos;s
+            Splits the Total Learners figure above using each learner&apos;s
             current semester. Billed and collected cover the selected date
             range; outstanding is the balance carried as of today.
           </p>
@@ -251,7 +251,7 @@ export function DashboardMetrics({
                     {bucket.student_count.toLocaleString()}
                   </div>
                   <p className='text-xs text-muted-foreground mt-1'>
-                    {bucket.student_count === 1 ? 'student' : 'students'}
+                    {bucket.student_count === 1 ? 'learner' : 'learners'}
                     {totalStudents > 0 &&
                       ` · ${formatPercentage(
                         (bucket.student_count / totalStudents) * 100
