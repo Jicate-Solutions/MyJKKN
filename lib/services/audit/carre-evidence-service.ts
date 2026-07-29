@@ -46,10 +46,6 @@ export interface CarreParticipantContext {
   success: true;
   cycle: { id: string; name: string; audience: string | null; phase: string };
   setting_code: string | null;
-  /** 'CLASSROOM_PRACTICE' on a 13-item teacher-level cycle; null on plain CARRE. */
-  catalog: string | null;
-  /** Classroom Practice only: whose sessions this sheet is about. */
-  teacher_name: string | null;
   parameters: CarreSnapshotParameter[];
   my_scores: Array<{
     parameter_code: string;

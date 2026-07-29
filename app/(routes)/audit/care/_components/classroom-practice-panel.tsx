@@ -8,10 +8,13 @@
 //      this instrument must never do.
 //
 //   2. ClassroomCompareCard — the owner's own scores beside the sealed learner
-//      medians, once the three ratified gates are satisfied. The gates are
-//      enforced by fn_carre_participant_rollup, NOT here; this card only
-//      EXPLAINS which one is still holding, so a locked state is never a silent
-//      dead end (rule #27).
+//      medians from the SCF drip, once the three ratified gates are satisfied.
+//      The gates are enforced by fn_classroom_practice_compare, NOT here; this
+//      card only EXPLAINS which one is still holding, so a locked state is
+//      never a silent dead end (rule #27).
+//
+//      Learner input arrives one micro-item at a time on post-session feedback
+//      submissions — there is no learner-facing semester sheet.
 //
 // The compare is the point of the whole instrument: the gap between how a
 // person believes their sessions land and how they actually land is the
@@ -22,15 +25,17 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { Lock, LockOpen, ScanEye } from 'lucide-react';
+import { ScanEye } from 'lucide-react';
 import {
   classroomPillarScores,
   type ClassroomPillarScore,
 } from '@/lib/services/audit/carre-scoring-service';
-import type { CarreParticipantRollupRow } from '@/lib/services/audit/carre-evidence-service';
+import type {
+  ClassroomCompareItem,
+  ClassroomCompareResult,
+} from '@/lib/services/audit/carre-audit-service';
 import type { ScoreSheetParameter } from './care-score-sheet';
 
 type ScoreInput = { parameter_code: string; score: number };
@@ -85,48 +90,38 @@ export function ClassroomPillarStrip({
   );
 }
 
+/** Narrows the compare payload to its unlocked shape (the one carrying items). */
+function isUnlocked(
+  c: ClassroomCompareResult | undefined,
+): c is Extract<ClassroomCompareResult, { locked: false }> {
+  return !!c && c.locked === false;
+}
+
 export function ClassroomCompareCard({
   parameters,
-  ownerScores,
-  rollup,
-  windowOpen,
-  isOwner,
-  onCloseWindow,
-  closing,
+  compare,
 }: {
   parameters: ScoreSheetParameter[];
-  ownerScores: ScoreInput[];
-  rollup: CarreParticipantRollupRow[];
-  windowOpen: boolean;
-  isOwner: boolean;
-  onCloseWindow: () => void;
-  closing: boolean;
+  compare: ClassroomCompareResult | undefined;
 }) {
+  const nameByCode = new Map(parameters.map((p) => [p.code, p.name]));
   const totalItems = parameters.length;
-  const selfByCode = new Map(ownerScores.map((s) => [s.parameter_code, s.score]));
-  const selfScored = parameters.filter((p) => selfByCode.has(p.code)).length;
 
-  // A learner scores their own experience, so 'own' is the lane that matters;
-  // fall back to whatever lane came back rather than dropping the row.
-  const learnerByCode = new Map<string, CarreParticipantRollupRow>();
-  for (const r of rollup) {
-    const existing = learnerByCode.get(r.parameter_code);
-    if (!existing || r.lane === 'own') learnerByCode.set(r.parameter_code, r);
-  }
+  const unlocked = isUnlocked(compare) ? compare : null;
+  const items: ClassroomCompareItem[] = unlocked?.items ?? [];
 
-  const rows = parameters
-    .map((p) => {
-      const learner = learnerByCode.get(p.code);
-      if (!learner) return null;
-      const self = selfByCode.get(p.code);
-      const learnerMedian = Number(learner.median_score);
-      const gap = self === undefined ? null : Math.abs(self - learnerMedian);
-      return { param: p, self, learnerMedian, scorers: learner.scorers, gap };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
+  // Below the k-floor the RPC returns the voice count but no median, so an item
+  // can be "answered but not yet revealable" — worth showing as progress.
+  const revealed = items.filter((i) => i.learner_median !== null);
+  const waiting = items.filter((i) => i.learner_median === null && i.voices > 0);
+  const gaps = revealed.map((i) => ({
+    item: i,
+    gap: i.self_score === null ? null : Math.abs(i.self_score - Number(i.learner_median)),
+  }));
+  const flagged = gaps.filter((g) => g.gap !== null && g.gap >= 2);
 
-  const flagged = rows.filter((r) => r.gap !== null && r.gap >= 2);
-  const revealed = rows.length > 0;
+  const selfScored = unlocked ? unlocked.self_scored : (compare?.self_scored ?? 0);
+  const selfComplete = totalItems > 0 && selfScored >= totalItems;
 
   return (
     <Card>
@@ -137,81 +132,59 @@ export function ClassroomCompareCard({
           <Badge variant="outline" className="text-[10px]">
             k≥3 · identities sealed
           </Badge>
-          {isOwner && windowOpen && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="ml-auto"
-              onClick={onCloseWindow}
-              disabled={closing}
-            >
-              <Lock className="mr-1 h-3.5 w-3.5" />
-              {closing ? 'Closing…' : 'Close the learner window'}
-            </Button>
-          )}
-          {isOwner && !windowOpen && (
-            <Badge variant="outline" className="ml-auto text-[10px]">
-              <LockOpen className="mr-1 h-3 w-3" />
-              window closed
-            </Badge>
-          )}
         </CardTitle>
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {!revealed ? (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              {
-                'Nothing is shown here until all three of these are true. They are enforced in the database, not on this screen — closing the window early or scoring one item will not shortcut them.'
+        <p className="text-xs text-muted-foreground">
+          {
+            'Learners are asked one of these 13 questions at a time, riding a session-feedback submission. Answers are sealed: this card only ever shows medians, never who said what.'
+          }
+        </p>
+
+        {revealed.length === 0 ? (
+          <ul className="space-y-1.5 text-xs">
+            <GateRow
+              done={selfComplete}
+              label={`Score all ${totalItems} yourself first`}
+              detail={`${selfScored} of ${totalItems} done — your own reading has to be on record before you see anyone else's, or the medians become an answer key.`}
+            />
+            <GateRow
+              done={false}
+              label="Learner voices reveal when the week completes"
+              detail="Answers from the current week are held back. A median that moves as replies arrive is a live scoreboard, and a scoreboard is what turns an honest instrument into a performance."
+            />
+            <GateRow
+              done={false}
+              label="Not enough voices yet"
+              detail={
+                waiting.length > 0
+                  ? `${waiting.length} ${waiting.length === 1 ? 'item has' : 'items have'} answers but fewer than 3. Below 3, a single learner could be identified by elimination, so no median is returned.`
+                  : 'An item needs at least 3 answered voices before its median appears. Below 3, a single learner could be identified by elimination.'
               }
-            </p>
-            <ul className="space-y-1.5 text-xs">
-              <GateRow
-                done={selfScored >= totalItems && totalItems > 0}
-                label={`Score all ${totalItems} items yourself first`}
-                detail={`${selfScored} of ${totalItems} done — your own reading has to be on record before you see anyone else's, or the medians become an answer key.`}
-              />
-              <GateRow
-                done={!windowOpen}
-                label="Close the learner window"
-                detail={
-                  windowOpen
-                    ? 'The learner window is still open — voices reveal in one batch after it closes. A running median would turn this into a live scoreboard.'
-                    : 'Closed. Submissions are final.'
-                }
-              />
-              <GateRow
-                done={false}
-                label="At least 3 learners answered"
-                detail="Fewer than 3 voices — not enough to unseal. Below 3, a single learner could be identified by elimination, so nothing is returned at all."
-              />
-            </ul>
-          </div>
+            />
+          </ul>
         ) : (
           <>
-            <p className="text-xs text-muted-foreground">
-              {
-                'Your score beside the sealed learner median for the same item. Medians only, never names, never notes — and only items at least 3 learners answered appear.'
-              }
-            </p>
             <div className="divide-y rounded-md border">
-              {rows.map((r) => {
-                const wide = r.gap !== null && r.gap >= 2;
+              {gaps.map(({ item, gap }) => {
+                const wide = gap !== null && gap >= 2;
                 return (
                   <div
-                    key={r.param.code}
+                    key={item.code}
                     className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2.5 text-xs"
                   >
                     <span className="w-12 flex-shrink-0 font-mono text-[11px] text-muted-foreground">
-                      {shortCode(r.param.code)}
+                      {shortCode(item.code)}
                     </span>
-                    <span className="min-w-0 flex-1 truncate font-medium">{r.param.name}</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      you {r.self ?? '—'}
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {nameByCode.get(item.code) ?? item.code}
                     </span>
                     <span className="tabular-nums text-muted-foreground">
-                      learners {r.learnerMedian} ({r.scorers})
+                      you {item.self_score ?? '—'}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      learners {Number(item.learner_median)} ({item.voices})
                     </span>
                     <span
                       className={cn(
@@ -219,7 +192,7 @@ export function ClassroomCompareCard({
                         wide ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
                       )}
                     >
-                      {r.gap === null ? '—' : `Δ ${r.gap}`}
+                      {gap === null ? '—' : `Δ ${gap}`}
                     </span>
                     {wide && (
                       <Badge
@@ -233,6 +206,14 @@ export function ClassroomCompareCard({
                 );
               })}
             </div>
+
+            {waiting.length > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {waiting.length} more {waiting.length === 1 ? 'item is' : 'items are'} collecting
+                answers but have not reached 3 voices yet.
+              </p>
+            )}
+
             {flagged.length > 0 && (
               <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
                 {flagged.length === 1

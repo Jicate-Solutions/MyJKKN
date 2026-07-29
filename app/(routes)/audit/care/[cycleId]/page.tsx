@@ -45,7 +45,7 @@ import {
   useCarreItemEvidence,
   useCarreParticipantRollup,
   useCarreParticipantActivity,
-  useSetParticipantWindow,
+  useClassroomCompare,
 } from '@/hooks/audit';
 import {
   CareScoreSheet,
@@ -163,17 +163,9 @@ export default function CultureAuditDetailPage({
       : 20;
   const settingCode = isCarre ? snapshot?.setting_code : undefined;
 
-  const setParticipantWindow = useSetParticipantWindow();
-  const windowOpen = !!(detail as CarreAuditDetail | null)?.cycle?.participant_scoring_open;
-
-  async function handleCloseWindow() {
-    const result = await setParticipantWindow.mutateAsync({ cycleId, open: false });
-    if (!result.success) {
-      toast.error(`Could not close the window (${(result as CarreRpcDenial).reason})`);
-      return;
-    }
-    toast.success('Learner window closed — the sealed voices reveal together now.');
-  }
+  // The teacher-side reveal reads the SCF drip, not the sealed participant
+  // lane; every gate on it is server-side.
+  const compareQ = useClassroomCompare(isClassroom ? cycleId : undefined);
 
   // Live evidence + doctrine caps and the sealed k≥3 participant rollup —
   // CARRE only; both RPCs self-gate (lead auditor / leadership) and return
@@ -496,12 +488,7 @@ export default function CultureAuditDetailPage({
         {isClassroom && (
           <ClassroomCompareCard
             parameters={snapshotParameters}
-            ownerScores={ownerScores}
-            rollup={sealedRollup}
-            windowOpen={windowOpen}
-            isOwner={!!d.is_owner}
-            onCloseWindow={() => void handleCloseWindow()}
-            closing={setParticipantWindow.isPending}
+            compare={compareQ.data}
           />
         )}
 

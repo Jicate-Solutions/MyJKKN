@@ -105,7 +105,7 @@ const CATALOG_CARDS: Array<{
     value: 'CLASSROOM',
     title: 'Classroom Practice — 13 items (teacher-level)',
     blurb:
-      'One person’s own practice, scored by the learners who sat in their sessions. Sealed, revealed in one batch after you have scored yourself.',
+      'One person’s own practice, scored by the learners in their sessions — one sealed question at a time, riding their session feedback.',
   },
 ];
 
@@ -202,7 +202,6 @@ function NewCarreAuditForm() {
         name: name.trim(),
         teacherId: owner?.profile_id ?? null,
         reAuditDate,
-        openScoring: true,
       });
       if (!result.success) {
         const reasons: Record<string, string> = {
@@ -361,7 +360,7 @@ function NewCarreAuditForm() {
                   <span>
                     <strong>{'13 items, scored 0–4, about one person’s own practice.'}</strong>{' '}
                     {
-                      'You score yourself first. The learners who sat in your sessions score the same 13 items, sealed. Nothing is revealed to you until you have scored all 13 AND you close the learner window AND at least 3 learners have answered — then it all appears at once, as medians, with no names attached.'
+                      'You score yourself first. Your learners are then asked one of these 13 questions at a time, attached to the session feedback they already submit. Nothing comes back to you until you have scored all 13, the week has finished, and at least 3 learners have answered that question — and it arrives as medians, with no names attached.'
                     }
                   </span>
                 ) : (
@@ -624,7 +623,7 @@ function OwnerPicker({
 
       <p className="text-[11px] text-muted-foreground">
         {
-          'Only learners who submitted session feedback for this person can score them, so someone with no sessions on record has nobody eligible to answer yet. Opening a cycle on someone other than yourself is an audit-leadership action.'
+          'The questions ride session feedback, so someone with no sessions on record has nobody being asked about them yet. Opening a cycle on someone other than yourself is an audit-leadership action.'
         }
       </p>
     </div>

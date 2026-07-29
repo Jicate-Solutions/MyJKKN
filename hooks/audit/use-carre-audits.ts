@@ -53,25 +53,21 @@ export function useCreateClassroomAudit() {
       name: string;
       teacherId?: string | null;
       reAuditDate?: string | null;
-      openScoring?: boolean;
     }) => CarreAuditService.createClassroomAudit(input),
     onSuccess: () => qc.invalidateQueries({ queryKey: carreAuditKeys.list() }),
   });
 }
 
 /**
- * Opens/closes the sealed learner window. Invalidates the rollup too: closing
- * the window is exactly the event that can release the batch reveal.
+ * Teacher-side compare (own score vs sealed learner median). Re-fetched when a
+ * self-score lands, since the 13th one is what releases the reveal.
  */
-export function useSetParticipantWindow() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { cycleId: string; open: boolean }) =>
-      CarreAuditService.setParticipantWindow(input),
-    onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: carreAuditKeys.detail(vars.cycleId) });
-      void qc.invalidateQueries({ queryKey: ['audit', 'carre-evidence'] });
-    },
+export function useClassroomCompare(cycleId: string | undefined) {
+  return useQuery({
+    queryKey: [...carreAuditKeys.all, 'compare', cycleId ?? ''] as const,
+    queryFn: () => CarreAuditService.getClassroomCompare(cycleId!),
+    enabled: !!cycleId,
+    staleTime: 60 * 1000,
   });
 }
 
@@ -97,6 +93,8 @@ export function useUpsertCarreScore() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: carreAuditKeys.detail(vars.cycleId) });
       qc.invalidateQueries({ queryKey: carreAuditKeys.list() });
+      // The last self-score is what unlocks the compare — refresh it.
+      qc.invalidateQueries({ queryKey: [...carreAuditKeys.all, 'compare', vars.cycleId] });
     },
   });
 }

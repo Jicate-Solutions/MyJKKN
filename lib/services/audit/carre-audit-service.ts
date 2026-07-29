@@ -86,8 +86,6 @@ export interface CarreAuditDetail {
     owner_id: string;
     owner_name: string | null;
     created_at: string;
-    /** Is the sealed learner window still accepting submissions? */
-    participant_scoring_open: boolean;
   };
   snapshot: CarreSnapshot;
   scores: CarreScoreRow[];
@@ -111,6 +109,38 @@ export interface CarreRpcDenial {
  * exhaust the roster gate reads. Zero means no learner could be admitted to
  * their sheet yet, which the form warns about rather than discovering later.
  */
+/**
+ * One item of the teacher-side compare. `learner_median` is null whenever
+ * `voices` is below the k-floor of 3 — the count is still reported so the owner
+ * can see answers are accumulating without any single one being identifiable.
+ */
+export interface ClassroomCompareItem {
+  code: string;
+  self_score: number | null;
+  voices: number;
+  learner_median: number | null;
+}
+
+export type ClassroomCompareResult =
+  | {
+      locked: true;
+      reason:
+        | 'self_score_incomplete'
+        | 'forbidden'
+        | 'not_found'
+        | 'not_authenticated';
+      item_count?: number;
+      self_scored?: number;
+    }
+  | {
+      locked: false;
+      item_count: number;
+      self_scored: number;
+      /** Impressions offered on or after this instant are held back. */
+      week_cutoff: string;
+      items: ClassroomCompareItem[];
+    };
+
 export interface CarreTeacherOption {
   profile_id: string;
   full_name: string | null;
@@ -187,7 +217,6 @@ export class CarreAuditService {
     name: string;
     teacherId?: string | null;
     reAuditDate?: string | null; // YYYY-MM-DD
-    openScoring?: boolean;
   }): Promise<CarreRpcResult<{ success: true; cycle_id: string }>> {
     const { data, error } = await (this.supabase as any).rpc(
       'fn_carre_create_classroom_audit',
@@ -195,7 +224,6 @@ export class CarreAuditService {
         p_name: input.name,
         p_teacher_id: input.teacherId ?? null,
         p_re_audit_date: input.reAuditDate ?? null,
-        p_open_scoring: input.openScoring ?? true,
       },
     );
     if (error) throw error;
@@ -203,20 +231,19 @@ export class CarreAuditService {
   }
 
   /**
-   * Opens or closes the sealed learner window. Closing it is what releases the
-   * batch reveal on a Classroom Practice cycle — the RPC, not the UI, is what
-   * holds the medians back until then.
+   * The teacher-side reveal: own score beside the sealed learner median per
+   * item, read from the SCF drip. Every gate is server-side — this call just
+   * reports which lock is holding.
    */
-  static async setParticipantWindow(input: {
-    cycleId: string;
-    open: boolean;
-  }): Promise<CarreRpcResult<{ success: true; participant_scoring_open: boolean }>> {
+  static async getClassroomCompare(
+    cycleId: string,
+  ): Promise<ClassroomCompareResult> {
     const { data, error } = await (this.supabase as any).rpc(
-      'fn_carre_set_participant_window',
-      { p_cycle_id: input.cycleId, p_open: input.open },
+      'fn_classroom_practice_compare',
+      { p_cycle_id: cycleId },
     );
     if (error) throw error;
-    return data;
+    return data as ClassroomCompareResult;
   }
 
   /**
