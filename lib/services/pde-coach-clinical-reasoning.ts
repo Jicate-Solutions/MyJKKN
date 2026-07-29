@@ -331,10 +331,18 @@ export async function generateClinicalReasoningFeedback(
   let costInr: number | null = null;
 
   if (useMaxLane) {
-    const fullPrompt = `${systemPrompt}\n\nStudent answer:\n\n${input.answer}`;
+    // systemPrompt ALREADY carries the answer — the policy template interpolates
+    // it under its own "STUDENT ANSWER:" heading (see POLICY_DEFAULT_TEMPLATE and
+    // the live clinical_reasoning.ai.system_prompt_template policy). Appending it
+    // a second time sent every answer twice in one prompt, which was visible in
+    // the queued payload: the full answer appeared under "STUDENT ANSWER:" and
+    // again under a trailing "Student answer:". Wasted tokens on every call, and
+    // on long answers it reads as if the learner said the same thing twice.
+    // The direct-provider path below already passes systemPrompt alone; this
+    // makes the Max-lane path match it.
     const enq = await enqueueJobsLane(supabase, {
       jobType: 'pde.clinical_reasoning.coach',
-      prompt: fullPrompt,
+      prompt: systemPrompt,
       context: {
         learner_id: input.learnerId,
         assessment_id: input.assessmentId,
