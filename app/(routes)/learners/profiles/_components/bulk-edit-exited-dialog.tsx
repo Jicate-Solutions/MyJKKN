@@ -61,6 +61,8 @@ interface PreviewRow {
   changes: FieldChange[];
   status: 'valid' | 'error' | 'no_changes';
   error?: string;
+  /** Labels (Community, Caste, Quota…) that matched no record — field skipped. */
+  warnings?: string[];
 }
 
 interface PreviewResult {
@@ -69,6 +71,8 @@ interface PreviewResult {
   valid_changes: number;
   no_changes: number;
   errors: number;
+  /** Count of rows carrying at least one unresolved label. */
+  warnings?: number;
   preview: PreviewRow[];
   error?: string; // Added for error responses from server
 }
@@ -871,6 +875,45 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                           ))}
                       </div>
                     </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Unresolved labels — the row still applies, minus that field.
+                  Shown separately from errors so a typo'd Quota/Caste can't be
+                  silently dropped the way it was before. */}
+              {(previewData.warnings ?? 0) > 0 && (
+                <Card className="border-amber-200">
+                  <CardHeader>
+                    <CardTitle className="text-amber-600">
+                      <AlertCircle className="inline h-5 w-5 mr-2" />
+                      Unmatched Values ({previewData.warnings})
+                    </CardTitle>
+                    <CardDescription>
+                      These cells didn&apos;t match any record. The rest of each row still updates —
+                      only the listed field is skipped.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {previewData.preview
+                        .filter(row => (row.warnings?.length ?? 0) > 0)
+                        .map((row, idx) => (
+                          <Alert key={idx} className="border-amber-200 bg-amber-50">
+                            <AlertCircle className="h-4 w-4 text-amber-600" />
+                            <AlertTitle className="text-amber-800">
+                              Row {row.rowNumber}: {row.learnerName}
+                            </AlertTitle>
+                            <AlertDescription className="text-amber-700">
+                              <ul className="list-disc pl-4 space-y-0.5">
+                                {row.warnings?.map((w, wIdx) => (
+                                  <li key={wIdx}>{w}</li>
+                                ))}
+                              </ul>
+                            </AlertDescription>
+                          </Alert>
+                        ))}
+                    </div>
                   </CardContent>
                 </Card>
               )}

@@ -9,10 +9,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
-import { buildQuotaResolver } from '@/lib/utils/quota-name-resolver';
-import { buildCommunityResolver } from '@/lib/utils/community-name-resolver';
-import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
-import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
+import {
+  getLearnerFkResolvers,
+  resolveLearnerFkFields,
+  fkLabel,
+  FK_FIELD_SPECS,
+  FK_CONSUMED_KEYS,
+} from './bulk-learner-fk-fields';
 
 // Create admin client for database operations
 const supabaseAdmin = createClient(
@@ -75,6 +78,12 @@ interface FieldChange {
 interface PreviewResult {
   exists: boolean;
   isActive: boolean;
+  /**
+   * Cells that carried a value but matched no lookup row (e.g. a quota label
+   * that isn't in `quotas`). The field is skipped on write, so the reviewer has
+   * to be told — silently dropping it is how the previous version hid problems.
+   */
+  warnings?: string[];
   // 2026-06-29: eligibility under the requested lifecycle scope. Active flow
   // requires active; the enquiry (non-active) flow requires NOT active. The
   // active routes ignore this field and keep reading `isActive`.
@@ -219,12 +228,32 @@ export class BulkLearnerEditService {
 
     const learnerName = `${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim();
 
+    // FK-backed fields (Community / Caste / Quota / Accommodation Type /
+    // Admission Year) store a uuid but travel through Excel as a readable
+    // label. Resolve label -> id and compare id-to-id below.
+    //
+    // The previous version compared the uploaded label against
+    // existingLearner['community'] etc. — TEXT columns dropped by the FK-only
+    // migrations. Reading a missing column yields `undefined`, which rendered as
+    // "(empty)" and differed from every populated cell, so a freshly downloaded
+    // template round-tripped as thousands of phantom changes.
+    const resolvers = await getLearnerFkResolvers(supabaseAdmin);
+    const fk = resolveLearnerFkFields(uploadedData, resolvers, {
+      institutionId: existingLearner.institution_id,
+      existing: existingLearner,
+    });
+
     // Compare fields and detect changes
     const changes: FieldChange[] = [];
 
     Object.entries(uploadedData).forEach(([key, newValue]) => {
       // Skip ID and protected fields
       if (key === 'id' || PROTECTED_FIELDS.has(key)) {
+        return;
+      }
+
+      // Handled by the FK pass below — never by raw string comparison.
+      if (FK_CONSUMED_KEYS.has(key)) {
         return;
       }
 
@@ -258,13 +287,35 @@ export class BulkLearnerEditService {
       }
     });
 
+    // FK pass — compare stored id against resolved id, but SHOW the labels so
+    // the preview table stays readable rather than printing uuids.
+    for (const spec of FK_FIELD_SPECS) {
+      const newId = fk.ids[spec.idColumn];
+      if (!newId) continue;
+
+      const oldId = existingLearner[spec.idColumn] ?? null;
+      if (oldId === newId) continue;
+
+      changes.push({
+        field: spec.idColumn,
+        fieldLabel: spec.fieldLabel,
+        oldValue: fkLabel(resolvers, spec, oldId) ?? '(empty)',
+        newValue: fkLabel(resolvers, spec, newId) ?? newId
+      });
+    }
+
+    const warnings = fk.unresolved.map(
+      (u) => `${u.fieldLabel}: "${u.value}" matched no record — this field will be skipped.`
+    );
+
     return {
       exists: true,
       isActive: learnerCheck.isActive,
       eligible: true,
       hasAccess: true,
       learnerName,
-      changes
+      changes,
+      warnings: warnings.length > 0 ? warnings : undefined
     };
   }
 
@@ -289,14 +340,11 @@ export class BulkLearnerEditService {
       errors: []
     };
 
-    // Resolve the readable quota label (Excel "Quota" column) → quota_id (FK)
-    // before each update. Storage is quota_id only; the `quota` TEXT column is
-    // being retired.
-    const resolveQuota = await buildQuotaResolver(supabaseAdmin);
-    const resolveCommunity = await buildCommunityResolver(supabaseAdmin);
-    const resolveCaste = await buildCasteResolver(supabaseAdmin);
-    // accommodation_type TEXT retired — resolve the label → institution-scoped FK.
-    const resolveAccommodation = await buildAccommodationTypeResolverMulti(supabaseAdmin);
+    // Community / Caste / Quota / Accommodation Type / Admission Year arrive as
+    // readable labels (or as "<Field> ID" uuids); storage is the FK column only.
+    // Resolved through the SAME helper the preview used, so what the reviewer
+    // approved is exactly what gets written.
+    const resolvers = await getLearnerFkResolvers(supabaseAdmin);
 
     for (const row of rows) {
       try {
@@ -364,6 +412,13 @@ export class BulkLearnerEditService {
             return;
           }
 
+          // FK-backed fields are resolved below — never written raw. The label
+          // columns they arrive in (community, caste, quota, …) no longer exist
+          // on learners_profiles, so letting one through would fail the update.
+          if (FK_CONSUMED_KEYS.has(key)) {
+            return;
+          }
+
           // Only update if value is provided (not empty)
           if (value !== undefined && value !== null && value !== '') {
             updateData[key] = value;
@@ -371,61 +426,16 @@ export class BulkLearnerEditService {
           }
         });
 
-        // Quota arrives as a readable label; persist the FK (quota_id), not the
-        // legacy TEXT column. Drop the text key either way so it never reaches
-        // the (retired) column; only set quota_id when the label resolves.
-        if (updateData.quota !== undefined) {
-          const qid = resolveQuota(updateData.quota);
-          delete updateData.quota;
-          const qi = fieldsUpdated.indexOf('quota');
-          if (qi !== -1) fieldsUpdated.splice(qi, 1);
-          if (qid) {
-            updateData.quota_id = qid;
-            fieldsUpdated.push('quota_id');
-          }
-        }
-
-        // Community arrives as a readable label; persist the FK
-        // (community_category_id), not the legacy TEXT column.
-        if (updateData.community !== undefined) {
-          const cid = resolveCommunity(updateData.community);
-          delete updateData.community;
-          const ci = fieldsUpdated.indexOf('community');
-          if (ci !== -1) fieldsUpdated.splice(ci, 1);
-          if (cid) {
-            updateData.community_category_id = cid;
-            fieldsUpdated.push('community_category_id');
-          }
-        }
-
-        // Caste arrives as a readable label; persist the FK (caste_id), not the
-        // legacy TEXT column. Resolution is community-scoped (ambiguous names).
-        if (updateData.caste !== undefined) {
-          const cstId = resolveCaste(updateData.caste, updateData.community_category_id);
-          delete updateData.caste;
-          const xi = fieldsUpdated.indexOf('caste');
-          if (xi !== -1) fieldsUpdated.splice(xi, 1);
-          if (cstId) {
-            updateData.caste_id = cstId;
-            fieldsUpdated.push('caste_id');
-          }
-        }
-
-        // Accommodation arrives as a readable label; persist the FK
-        // (accommodation_type_id), not the legacy TEXT column. Resolution is
-        // scoped to the learner's institution.
-        if (updateData.accommodation_type !== undefined) {
-          const aid = resolveAccommodation(
-            updateData.accommodation_type,
-            learnerCheck.learner.institution_id,
-          );
-          delete updateData.accommodation_type;
-          const ai = fieldsUpdated.indexOf('accommodation_type');
-          if (ai !== -1) fieldsUpdated.splice(ai, 1);
-          if (aid) {
-            updateData.accommodation_type_id = aid;
-            fieldsUpdated.push('accommodation_type_id');
-          }
+        // Label (or "<Field> ID" uuid) -> FK column. Unresolvable labels are
+        // left out entirely, preserving whatever the DB already holds; the
+        // preview surfaced them as a warning before the user confirmed.
+        const fk = resolveLearnerFkFields(row.data, resolvers, {
+          institutionId: learnerCheck.learner.institution_id,
+          existing: learnerCheck.learner,
+        });
+        for (const [column, id] of Object.entries(fk.ids)) {
+          updateData[column] = id;
+          fieldsUpdated.push(column);
         }
 
         // Skip if no fields to update

@@ -24,6 +24,45 @@ interface ImportBillsDialogProps {
 }
 
 /**
+ * Coerce any response body into an ImportResult.
+ *
+ * The upload response was previously cast straight to ImportResult without
+ * checking `response.ok`. Several server exits (expired session, unreadable
+ * workbook, missing columns, unhandled throw) answer with `{ error, message }`
+ * and no `errors` array — so `result.errors.length` threw a TypeError, the
+ * dialog unmounted into the route error boundary, and the server's actual
+ * explanation was lost. Normalise here so a bad shape becomes a readable row.
+ */
+function toImportResult(payload: unknown, response: Response): ImportResult {
+  const body = payload as Partial<ImportResult> & { error?: string; message?: string };
+
+  if (body && Array.isArray(body.errors)) {
+    return {
+      success: body.success ?? false,
+      successCount: body.successCount ?? 0,
+      errorCount: body.errorCount ?? body.errors.length,
+      totalRows: body.totalRows ?? 0,
+      errors: body.errors,
+      successes: body.successes ?? []
+    };
+  }
+
+  const message =
+    body?.message ||
+    body?.error ||
+    `Server returned ${response.status}${response.statusText ? ` ${response.statusText}` : ''}.`;
+
+  return {
+    success: false,
+    successCount: 0,
+    errorCount: 1,
+    totalRows: 0,
+    errors: [{ row: 0, message }],
+    successes: []
+  };
+}
+
+/**
  * Dialog for uploading a Student Bills Excel file.
  *
  * Mirrors the existing import-dialog pattern used elsewhere in the app
@@ -95,8 +134,12 @@ export function ImportBillsDialog({
 
       setProgress(70);
 
-      const data: ImportResult = await response.json();
+      // A non-JSON body (proxy timeout, HTML error page) must not throw here —
+      // toImportResult turns null into a readable "Server returned 502" row.
+      const payload = await response.json().catch(() => null);
       setProgress(100);
+
+      const data = toImportResult(payload, response);
       setResult(data);
 
       if (data.success) {
@@ -116,6 +159,13 @@ export function ImportBillsDialog({
         if (onImportComplete) {
           setTimeout(() => onImportComplete(), 500);
         }
+      } else if (data.totalRows === 0 && data.errors.length === 1) {
+        // Whole-request failure (bad session, unreadable sheet, missing
+        // columns) — show what the server actually said rather than "1 error".
+        toast.error(data.errors[0].message, {
+          icon: <AlertCircle className='h-4 w-4' />,
+          duration: 8000
+        });
       } else {
         toast.error(
           `Import failed — ${data.errorCount} error${data.errorCount !== 1 ? 's' : ''}.`,
@@ -201,7 +251,7 @@ export function ImportBillsDialog({
       const failedAoa: unknown[][] = [
         ['Excel Row', 'Roll Number', 'Student Name', 'Field', 'Error Reason', 'Status']
       ];
-      result.errors.forEach((e) =>
+      (result.errors ?? []).forEach((e) =>
         failedAoa.push([
           e.row,
           e.roll_number ?? '',
@@ -406,7 +456,7 @@ export function ImportBillsDialog({
 
               {/* Downloadable result report — names every learner whose bill
                   was created and every failed row with the reason. */}
-              {(result.errors.length > 0 ||
+              {((result.errors?.length ?? 0) > 0 ||
                 (result.successes && result.successes.length > 0)) && (
                 <div className='flex justify-end'>
                   <Button variant='outline' size='sm' onClick={handleDownloadReport}>
@@ -454,9 +504,12 @@ export function ImportBillsDialog({
                         key={index}
                         className='flex items-start gap-2 text-sm p-2 bg-white dark:bg-gray-800 rounded border'
                       >
-                        <Badge variant='outline' className='mt-0.5 shrink-0'>
-                          Row {error.row}
-                        </Badge>
+                        {/* row 0 = a whole-request failure, not a sheet row */}
+                        {error.row > 0 && (
+                          <Badge variant='outline' className='mt-0.5 shrink-0'>
+                            Row {error.row}
+                          </Badge>
+                        )}
                         <div className='flex-1'>
                           {(error.roll_number || error.student_name) && (
                             <span className='font-medium'>
