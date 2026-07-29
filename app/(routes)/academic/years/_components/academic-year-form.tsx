@@ -368,6 +368,7 @@ export function AcademicYearForm({
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
+                            type='button'
                             variant={'outline'}
                             className={cn(
                               'w-full pl-3 text-left font-normal',
@@ -444,6 +445,7 @@ export function AcademicYearForm({
                       <PopoverTrigger asChild>
                         <FormControl>
                           <Button
+                            type='button'
                             variant={'outline'}
                             className={cn(
                               'w-full pl-3 text-left font-normal',
