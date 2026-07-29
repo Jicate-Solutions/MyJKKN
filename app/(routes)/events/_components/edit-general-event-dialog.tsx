@@ -3,9 +3,11 @@
 // General events — minimal edit dialog. Scope kept deliberately small:
 // name / description / date / venue plus the NAAC evidence criteria field
 // (the writer for the events → quality-evidence-spine emitter, PR #2408).
-// No status control here — EventBaseService.updateEvent has no transition
-// validation, and the NaacCriteriaField's helper text already sets the honest
-// expectation that evidence emits only once the event completes.
+// Still no status control here — status now lives on the detail console
+// (/events/[id]), which routes it through GeneralEventService.updateStatus so
+// the Draft <-> Active transition is validated in one place. Writing status
+// from this dialog would bypass that (EventBaseService.updateEvent is a raw
+// passthrough with no transition validation).
 // The inner form is keyed by event id so it remounts with fresh initial state
 // per event (same pattern as edit-tournament-dialog, #2413).
 

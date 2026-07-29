@@ -10,7 +10,9 @@ export const dynamic = 'force-dynamic';
 // This sweep is the backstop of last resort: it asks Razorpay directly.
 //
 // Schedule: every 15 minutes (vercel.json).
-// Auth: ?secret=${CRON_SECRET} (matches the project's existing cron pattern).
+// Auth: `Authorization: Bearer <CRON_SECRET>` (what Vercel actually sends) OR
+// ?secret=<CRON_SECRET> for a manual operator run. BOTH are required — see the
+// 2026-07-29 incident note below.
 //
 // Query params (all optional, for operators):
 //   ?dryRun=1              report what would change, write nothing
@@ -35,6 +37,19 @@ export const dynamic = 'force-dynamic';
 //  3. It expired anything older than 5 days WITHOUT asking Razorpay first, so a
 //     genuinely captured payment that this sweep had missed would be quietly
 //     buried as 'expired' — money taken, bill unpaid, no trace.
+//
+// PRODUCTION INCIDENT, 2026-07-29 — the sweep from #2516 still never ran:
+//
+//  4. Auth accepted ONLY ?secret=. vercel.json registers the path as
+//     `/api/cron/razorpay-late-auth?secret=${CRON_SECRET}`, but Vercel does NOT
+//     interpolate env vars into a cron path — it sends that `${CRON_SECRET}`
+//     literally and passes the real secret in an `Authorization: Bearer` header.
+//     So every scheduled tick 401'd silently while the two manual operator runs
+//     (which substitute the secret by hand) worked, making the cron look alive.
+//     Every other cron in this repo accepts EITHER form; this one didn't. 12
+//     captured transport payments sat at 'initiated' — past the 5-day expiry
+//     window, so even the expiry half had never fired. Do not "simplify" this
+//     back to a single check.
 // ---------------------------------------------------------------------------
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -95,9 +110,15 @@ function emptyStat(): SweepStat {
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
-  const secret = url.searchParams.get('secret');
-  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    // Vercel's scheduler sends the secret as a Bearer header; the query param is
+    // for manual operator runs. Accept either — see incident 4 above.
+    const authHeader = request.headers.get('authorization');
+    const querySecret = url.searchParams.get('secret');
+    if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
   }
 
   const dryRun = url.searchParams.get('dryRun') === '1';

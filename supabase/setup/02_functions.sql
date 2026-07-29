@@ -13789,6 +13789,63 @@ GRANT EXECUTE ON FUNCTION public.fn_create_razorpay_draft(uuid, text, text, text
 REVOKE ALL ON FUNCTION public.fn_activate_razorpay_account(uuid, text, text, text, text, text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_activate_razorpay_account(uuid, text, text, text, text, text, uuid) TO service_role;
 
+-- Rotate ONLY the webhook secret, PRESERVING webhook_ref (so the URL already
+-- pasted into the Razorpay dashboard stays valid) and without requiring the
+-- Razorpay API key secret. The webhook secret is operator-chosen and never
+-- readable back, so "I forgot what I set" is routine; set/activate both demand
+-- the API keys AND mint a new ref, and deleting the account to recreate it is
+-- blocked by the payment_transactions FK because razorpay_account_id is the
+-- credential pin that refunds re-resolve through. mig 20260729.
+CREATE OR REPLACE FUNCTION public.fn_rotate_razorpay_webhook_secret(
+  p_account_id     uuid,
+  p_webhook_secret text,
+  p_master_secret  text,
+  p_actor          uuid DEFAULT NULL
+)
+RETURNS TABLE(id uuid, webhook_ref text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_ref text;
+BEGIN
+  IF p_account_id IS NULL THEN
+    RAISE EXCEPTION 'fn_rotate_razorpay_webhook_secret: p_account_id must not be NULL';
+  END IF;
+  IF p_webhook_secret IS NULL OR length(trim(p_webhook_secret)) = 0 THEN
+    RAISE EXCEPTION 'fn_rotate_razorpay_webhook_secret: p_webhook_secret must not be NULL or empty';
+  END IF;
+  IF p_master_secret IS NULL OR length(trim(p_master_secret)) = 0 THEN
+    RAISE EXCEPTION 'fn_rotate_razorpay_webhook_secret: p_master_secret must not be NULL or empty';
+  END IF;
+
+  SELECT a.webhook_ref INTO v_ref
+  FROM public.razorpay_accounts a
+  WHERE a.id = p_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fn_rotate_razorpay_webhook_secret: account % not found', p_account_id;
+  END IF;
+
+  IF v_ref IS NULL OR length(trim(v_ref)) = 0 THEN
+    v_ref := encode(gen_random_bytes(18), 'hex');
+  END IF;
+
+  UPDATE public.razorpay_accounts a
+     SET webhook_secret_encrypted = pgp_sym_encrypt(p_webhook_secret, p_master_secret),
+         webhook_ref              = v_ref,
+         updated_at               = now(),
+         updated_by               = p_actor
+   WHERE a.id = p_account_id;
+
+  RETURN QUERY SELECT p_account_id, v_ref;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_rotate_razorpay_webhook_secret(uuid, text, text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_rotate_razorpay_webhook_secret(uuid, text, text, uuid) TO service_role;
+
 -- Edit reconciliation/display metadata; routing slot changes only for DRAFTS when p_change_slot=true.
 CREATE OR REPLACE FUNCTION public.fn_update_razorpay_account_meta(
   p_account_id uuid, p_label text, p_mid text, p_tid text, p_dba_name text,
