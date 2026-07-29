@@ -285,7 +285,7 @@ function RecordingCard({ recording }: { recording: RcltpPartARecording }) {
 
         {/* Manual review form — fields START EMPTY */}
         <div className='space-y-3'>
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
             <div>
               <Label className='text-xs'>Scoring status</Label>
               <Select
@@ -414,9 +414,9 @@ export function RecordingsConsole() {
             Listen to each Part A reading and record your manual review.
           </p>
         </div>
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
           <Select value={instFilter} onValueChange={setInstFilter}>
-            <SelectTrigger className='w-56'>
+            <SelectTrigger className='w-full sm:w-56'>
               <SelectValue placeholder='Select school' />
             </SelectTrigger>
             <SelectContent>
@@ -428,7 +428,7 @@ export function RecordingsConsole() {
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className='w-44'>
+            <SelectTrigger className='w-full sm:w-44'>
               <SelectValue placeholder='All statuses' />
             </SelectTrigger>
             <SelectContent>

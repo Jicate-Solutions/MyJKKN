@@ -210,7 +210,7 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
     selectedRows: unknown[];
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {/* Templates-only vs. all-committees view. Templates are the reusable
           blueprints; "All" also surfaces every composition's committees. */}
       <div className='flex items-center rounded-md border p-0.5'>

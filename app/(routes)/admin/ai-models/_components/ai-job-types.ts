@@ -42,6 +42,7 @@ export interface AiJobType {
   max_inflight: number;
   schedulable: boolean;
   enabled: boolean;
+  loop_key: string | null;
   input_schema: InputSchemaField[];
   expected_seconds: number | null;
   // Optional — included by the list payload IF the backend joins
@@ -68,6 +69,40 @@ export interface AiJobTypeDef {
   input_schema: InputSchemaField[];
 }
 
+/** What fn_ai_job_type_upsert did with the prompt on this save (2026-08-04).
+ *  A prompt EDIT is a champion–challenger, not an edit — see the RPC in
+ *  20260804050000_prompt_edit_creates_challenger.sql. */
+export type PromptAction =
+  /** New job type, or the first prompt for one that had none — saved LIVE. */
+  | 'champion_created'
+  /** Prompt changed — filed as a proposed version; the live prompt is UNCHANGED. */
+  | 'challenger_created'
+  /** Prompt box left empty — the live prompt was kept rather than wiped. */
+  | 'clear_ignored'
+  /** Prompt not touched (or a whitespace-only difference). */
+  | 'none';
+
+/** The jsonb fn_ai_job_type_upsert returns, passed through as `data` by
+ *  POST /api/admin/ai-job-types. */
+export interface AiJobTypeSaveResult {
+  ok: boolean;
+  job_type: string;
+  prompt_action: PromptAction;
+  /** Version number written to ai_prompt_versions, or null when none was. */
+  prompt_version: number | null;
+  /** True only when ai_job_types.prompt_template actually changed. */
+  prompt_live_changed: boolean;
+  /** Plain-English outcome, safe to show to the admin verbatim. */
+  prompt_message: string;
+}
+
+/** Outcomes where the admin's prompt text did NOT become the live prompt.
+ *  These must never be reported with a bare success toast — the admin would
+ *  read the unchanged live behaviour as a broken save. */
+export function promptNeedsExplicitNotice(action: PromptAction): boolean {
+  return action === 'challenger_created' || action === 'clear_ignored';
+}
+
 /** Terminal + in-flight statuses from fn_ai_job_status. */
 export type AiJobStatus =
   | 'pending'
@@ -85,7 +120,7 @@ export interface AiJobStatusResponse {
 }
 
 export const LANE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'max', label: 'Max (subscription seat)' },
+  { value: 'max', label: 'Max (₹0 lane)' },
   { value: 'api', label: 'API (paid)' },
   { value: 'either', label: 'Either' },
 ];

@@ -296,7 +296,7 @@ function QuestDetailPageInner({
 
         {/* Tabbed content */}
         <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="requirements">Requirements</TabsTrigger>
             <TabsTrigger value="team">
@@ -391,13 +391,13 @@ function QuestDetailPageInner({
                 ) : (
                   <div className="space-y-3">
                     {requiredCaps.map((cap, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-[#0b6d41]/10 flex items-center justify-center">
+                      <div key={idx} className="flex items-center justify-between gap-2 p-3 bg-muted/30 rounded-lg">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-full bg-[#0b6d41]/10 flex items-center justify-center shrink-0">
                             <Unlock className="h-4 w-4 text-[#0b6d41]" />
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">
                               {cap.name || `Capability ${idx + 1}`}
                             </p>
                             <p className="text-xs text-muted-foreground">
@@ -407,7 +407,7 @@ function QuestDetailPageInner({
                         </div>
                         <Link
                           href={`/learn/capabilities/${cap.capability_id}`}
-                          className="text-xs text-[#0b6d41] hover:underline"
+                          className="text-xs text-[#0b6d41] hover:underline shrink-0"
                         >
                           View in Tree
                         </Link>
@@ -450,14 +450,14 @@ function QuestDetailPageInner({
                     {teamMembers.map((member: QuestEnrollment) => (
                       <div
                         key={member.id}
-                        className="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
+                        className="flex items-center justify-between gap-2 p-3 bg-muted/30 rounded-lg"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium shrink-0">
                             {(member.learner_name || 'L').charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">
                               {member.learner_name || 'Learner'}
                             </p>
                             {member.role && (
@@ -467,7 +467,7 @@ function QuestDetailPageInner({
                             )}
                           </div>
                         </div>
-                        <Badge variant="outline" className="text-xs capitalize">
+                        <Badge variant="outline" className="text-xs capitalize shrink-0">
                           {member.status}
                         </Badge>
                       </div>
@@ -496,11 +496,11 @@ function QuestDetailPageInner({
                     {submissions.map((sub: QuestSubmission) => (
                       <div
                         key={sub.id}
-                        className="flex items-start justify-between p-3 bg-muted/30 rounded-lg"
+                        className="flex items-start justify-between gap-2 p-3 bg-muted/30 rounded-lg"
                       >
-                        <div className="flex items-start gap-3">
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
                           <div className={cn(
-                            'w-8 h-8 rounded-full flex items-center justify-center mt-0.5',
+                            'w-8 h-8 rounded-full flex items-center justify-center mt-0.5 shrink-0',
                             sub.submission_type === 'final'
                               ? 'bg-[#0b6d41]/10'
                               : 'bg-blue-100 dark:bg-blue-950/30'
@@ -511,8 +511,8 @@ function QuestDetailPageInner({
                               <FileText className="h-4 w-4 text-blue-600" />
                             )}
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">{sub.title}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{sub.title}</p>
                             {sub.description && (
                               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                                 {sub.description}
@@ -524,7 +524,7 @@ function QuestDetailPageInner({
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <Badge
                             variant="outline"
                             className={cn(
@@ -551,7 +551,7 @@ function QuestDetailPageInner({
         {/* Action bar (sticky bottom on mobile) */}
         <div className="sticky bottom-4 z-10">
           <Card className="p-4 shadow-lg border-border/80 bg-background/95 backdrop-blur">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <div className="text-sm">
                 <span className="font-medium flex items-center gap-1">
                   <Trophy className="h-4 w-4 text-[#0b6d41]" />
@@ -564,7 +564,7 @@ function QuestDetailPageInner({
                 )}
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {isEnrolled ? (
                   <>
                     <Button

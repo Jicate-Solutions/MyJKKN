@@ -118,6 +118,12 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
   if (mod === 'billing') {
     capturedUpdate.payment_date = capturedAt;
     capturedUpdate.completed_at = new Date().toISOString();
+    // Mirror the payment id into gateway_transaction_id, which is what the
+    // callback path writes and what the receipt's payment_reference_number is
+    // built from. Keeping both columns in step is what makes receipt creation
+    // idempotent no matter which path finalizes the payment first.
+    capturedUpdate.gateway_transaction_id = payment.id;
+    capturedUpdate.payment_method = payment.method ?? null;
   }
 
   const { error: capturedUpdateError } = await (supabase as any)
@@ -141,7 +147,10 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
       .eq('id', existing.id)
       .single();
     if (txn) {
-      await (PaymentGatewayService as any).processSuccessfulPayment?.(txn);
+      // Pass the service-role client: this runs with no user session, so a
+      // cookie-scoped client would read zero transaction items through RLS and
+      // silently skip receipt creation (bill left unpaid).
+      await PaymentGatewayService.processSuccessfulPayment(txn, supabase as any);
     }
   } else if (mod === 'events') {
     // Mark the linked registration paid (mirror the callback success side-effect).

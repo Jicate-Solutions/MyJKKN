@@ -16,6 +16,7 @@ interface Row {
   fink_cos: number;
   spine_lessons: number;
   spine_courses: number;
+  missing_taxonomy_courses: number;
 }
 
 function shortName(n: string) {
@@ -67,6 +68,7 @@ export function CurriculumSection() {
 
   const live = rows.filter((r) => r.spine_lessons > 100).length;
   const awaiting = rows.filter((r) => r.syllabi_clos === 0 && r.spine_lessons <= 100).length;
+  const skippedNoTax = rows.reduce((sum, r) => sum + (r.missing_taxonomy_courses ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -78,10 +80,16 @@ export function CurriculumSection() {
         <span className="text-muted-foreground">
           <strong className="tabular-nums text-foreground">{awaiting}</strong> awaiting a learning-pathway upload
         </span>
+        {skippedNoTax > 0 && (
+          <span className="text-muted-foreground">
+            <strong className="tabular-nums text-amber-700 dark:text-amber-400">{skippedNoTax}</strong>{' '}
+            skipped — Board of Studies taxonomy not set
+          </span>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-2.5 font-semibold">College</th>
@@ -91,6 +99,7 @@ export function CurriculumSection() {
               <th className="px-3 py-2.5 font-semibold">PSOs</th>
               <th className="px-3 py-2.5 font-semibold">Outcomes</th>
               <th className="px-3 py-2.5 font-semibold">Spine</th>
+              <th className="px-3 py-2.5 font-semibold">No taxonomy</th>
             </tr>
           </thead>
           <tbody>
@@ -132,6 +141,11 @@ export function CurriculumSection() {
                   </td>
                   <td className="px-3 py-2.5">
                     {orphan ? <Pill value={`${r.spine_lessons} orphan`} warn /> : <Pill value={r.spine_lessons} />}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {r.missing_taxonomy_courses > 0
+                      ? <Pill value={r.missing_taxonomy_courses} warn />
+                      : <span className="text-muted-foreground/50">—</span>}
                   </td>
                 </tr>
               );

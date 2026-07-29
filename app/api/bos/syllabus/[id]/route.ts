@@ -219,6 +219,10 @@ export async function PUT(
         course_name: body.course_name,
         course_credits: body.course_credits,
         stream: body.stream,
+        // NAAC-2024 coverage tags (metrics 1.4 / 1.6). undefined keys are
+        // dropped by supabase-js, so requests that omit them leave the row as-is.
+        is_skill_based: body.is_skill_based,
+        is_iks: body.is_iks,
         course_objectives: body.course_objectives,
         course_learning_outcomes: body.course_learning_outcomes,
         course_content: body.course_content,

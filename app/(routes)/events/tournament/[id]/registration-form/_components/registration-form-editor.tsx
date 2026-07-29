@@ -28,6 +28,7 @@ import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, ArrowLeft, Save } from '
 import { useRegistrationForm, useSaveRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
 import type { SaveFormSectionPayload } from '@/lib/services/events/tournament/event-registration-form-service';
 import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
+import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
 import { FORM_FIELD_TYPES } from '@/types/tournament';
 import type {
   EventRegistrationFormField,
@@ -501,6 +502,10 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ── Builder ── */}
         <div className="space-y-4">
+          {/* Pinned above the sections: what the form already collects, so an
+              organizer does not re-create a built-in field as a custom one. */}
+          <StandardFieldsCard />
+
           {sections.length === 0 && (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
@@ -559,6 +564,9 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Preview — what registrants will see
           </p>
+          {/* Unconditional: the standard fields are collected whether or not
+              custom fields are enabled, so this heading would otherwise lie. */}
+          <StandardFieldsPreview />
           {!isEnabled && (
             <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
               Custom fields are turned off — learners will only see the standard fields.

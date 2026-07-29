@@ -499,7 +499,7 @@ export default function MarathonSponsorsPage() {
 
       <div className="space-y-4 mt-4">
         {/* Page header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">Sponsorship CRM</h1>
             <p className="text-sm text-muted-foreground">

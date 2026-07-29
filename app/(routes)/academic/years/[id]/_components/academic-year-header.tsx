@@ -24,9 +24,9 @@ export function AcademicYearHeader({ academicYear }: AcademicYearHeaderProps) {
     isSuperAdmin || canAccess('academic.years', 'edit');
 
   return (
-    <div className="flex justify-between items-center">
-      <div>
-        <h1 className="text-2xl font-bold py-1">
+    <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold py-1 break-words">
           {academicYear.academic_year_name}
         </h1>
         <p className="text-sm sm:text-base text-muted-foreground">
@@ -34,7 +34,7 @@ export function AcademicYearHeader({ academicYear }: AcademicYearHeaderProps) {
         </p>
       </div>
       {canEditAcademicYear && (
-        <Button asChild>
+        <Button asChild className="shrink-0">
           <Link href={`/academic/years/${academicYear.id}/edit`}>
             <PenSquare className="mr-2 h-4 w-4" />
             Edit Academic Year

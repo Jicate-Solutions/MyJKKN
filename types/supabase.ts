@@ -8903,6 +8903,7 @@ export type Database = {
           id: string
           institution_id: string
           is_active: boolean
+          is_current: boolean
           updated_at: string
           year: number
         }
@@ -8913,6 +8914,7 @@ export type Database = {
           id?: string
           institution_id: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year: number
         }
@@ -8923,6 +8925,7 @@ export type Database = {
           id?: string
           institution_id?: string
           is_active?: boolean
+          is_current?: boolean
           updated_at?: string
           year?: number
         }
@@ -12045,6 +12048,7 @@ export type Database = {
           id: string
           is_active: boolean
           kind: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner: boolean
           updated_at: string | null
           updated_by: string | null
           visible_to_learners: boolean
@@ -12060,6 +12064,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner?: boolean
           updated_at?: string | null
           updated_by?: string | null
           visible_to_learners?: boolean
@@ -12075,6 +12080,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner?: boolean
           updated_at?: string | null
           updated_by?: string | null
           visible_to_learners?: boolean
@@ -39073,8 +39079,9 @@ export type Database = {
           department_id: string | null
           end_date: string | null
           hr_employee_id: string | null
-          hr_organization_id: string
+          hr_organization_id: string | null
           id: string
+          improvement_area_id: string | null
           is_current: boolean
           notes: string | null
           role_category: string | null
@@ -39089,8 +39096,9 @@ export type Database = {
           department_id?: string | null
           end_date?: string | null
           hr_employee_id?: string | null
-          hr_organization_id: string
+          hr_organization_id?: string | null
           id?: string
+          improvement_area_id?: string | null
           is_current?: boolean
           notes?: string | null
           role_category?: string | null
@@ -39105,8 +39113,9 @@ export type Database = {
           department_id?: string | null
           end_date?: string | null
           hr_employee_id?: string | null
-          hr_organization_id?: string
+          hr_organization_id?: string | null
           id?: string
+          improvement_area_id?: string | null
           is_current?: boolean
           notes?: string | null
           role_category?: string | null
@@ -39135,6 +39144,13 @@ export type Database = {
             columns: ["hr_organization_id"]
             isOneToOne: false
             referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_additional_roles_improvement_area_id_fkey"
+            columns: ["improvement_area_id"]
+            isOneToOne: false
+            referencedRelation: "improvement_areas"
             referencedColumns: ["id"]
           },
           {
@@ -44778,7 +44794,7 @@ export type Database = {
           notes: string | null
           parent_package_id: string | null
           proposed_by: string
-          proposed_monthly_salary: number
+          proposed_monthly_salary: number | null
           proposed_monthly_salary_breakdown: Json | null
           status: string
         }
@@ -44794,7 +44810,7 @@ export type Database = {
           notes?: string | null
           parent_package_id?: string | null
           proposed_by: string
-          proposed_monthly_salary: number
+          proposed_monthly_salary?: number | null
           proposed_monthly_salary_breakdown?: Json | null
           status?: string
         }
@@ -44810,7 +44826,7 @@ export type Database = {
           notes?: string | null
           parent_package_id?: string | null
           proposed_by?: string
-          proposed_monthly_salary?: number
+          proposed_monthly_salary?: number | null
           proposed_monthly_salary_breakdown?: Json | null
           status?: string
         }
@@ -68901,6 +68917,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_audit_logs: {
+        Row: {
+          actual_amount: number | null
+          client_status: string | null
+          created_at: string
+          description: string | null
+          event_type: string
+          expected_amount: number | null
+          id: string
+          institution_id: string | null
+          ip_address: string | null
+          metadata: Json
+          server_status: string | null
+          student_id: string | null
+          transaction_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          actual_amount?: number | null
+          client_status?: string | null
+          created_at?: string
+          description?: string | null
+          event_type: string
+          expected_amount?: number | null
+          id?: string
+          institution_id?: string | null
+          ip_address?: string | null
+          metadata?: Json
+          server_status?: string | null
+          student_id?: string | null
+          transaction_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          actual_amount?: number | null
+          client_status?: string | null
+          created_at?: string
+          description?: string | null
+          event_type?: string
+          expected_amount?: number | null
+          id?: string
+          institution_id?: string | null
+          ip_address?: string | null
+          metadata?: Json
+          server_status?: string | null
+          student_id?: string | null
+          transaction_id?: string
+          user_agent?: string | null
+        }
+        Relationships: []
       }
       payment_transactions: {
         Row: {

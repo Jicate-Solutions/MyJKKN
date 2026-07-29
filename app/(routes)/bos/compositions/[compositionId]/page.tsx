@@ -1205,7 +1205,7 @@ function CompositionDetailPageInner({ params }: CompositionDetailPageProps) {
               <div className='flex items-center gap-3'>
                 <span className='text-sm font-medium shrink-0'>Regulation</span>
                 <Select value={selectedRegulationId} onValueChange={setSelectedRegulationId}>
-                  <SelectTrigger className='w-[260px]'>
+                  <SelectTrigger className='w-full sm:w-[260px]'>
                     <SelectValue placeholder='Select regulation…' />
                   </SelectTrigger>
                   <SelectContent>

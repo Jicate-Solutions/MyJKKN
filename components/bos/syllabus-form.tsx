@@ -21,6 +21,7 @@ import {
   BosLlcConferenceData,
 } from '@/types/bos';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -1460,6 +1461,31 @@ export function SyllabusForm({
                   onChange={(e) => updateField('stream', e.target.value)}
                   placeholder="e.g., Engineering, Pharmacy"
                 />
+              </div>
+              {/* NAAC-2024 coverage tags — counted live for metrics 1.4 / 1.6 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="is_skill_based"
+                    checked={formData.is_skill_based ?? false}
+                    onCheckedChange={(v) => updateField('is_skill_based', v === true)}
+                  />
+                  <label htmlFor="is_skill_based" className="text-sm font-medium cursor-pointer">
+                    Skill/apprenticeship-focused course
+                    <span className="ml-1 text-xs text-muted-foreground">(NAAC 1.4)</span>
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="is_iks"
+                    checked={formData.is_iks ?? false}
+                    onCheckedChange={(v) => updateField('is_iks', v === true)}
+                  />
+                  <label htmlFor="is_iks" className="text-sm font-medium cursor-pointer">
+                    Contains Indian Knowledge System content
+                    <span className="ml-1 text-xs text-muted-foreground">(NAAC 1.6)</span>
+                  </label>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Notes</label>

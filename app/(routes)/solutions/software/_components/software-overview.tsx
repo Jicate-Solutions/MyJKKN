@@ -172,12 +172,12 @@ export function SoftwareOverview() {
 
       {/* Recent Phases */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Active Phases</CardTitle>
             <CardDescription>Currently active development phases</CardDescription>
           </div>
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" size="sm" className="shrink-0" asChild>
             <Link href="/solutions/software/phases">
               View All <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
@@ -202,7 +202,7 @@ export function SoftwareOverview() {
                   key={phase.id}
                   className="flex items-center justify-between p-4 rounded-lg border"
                 >
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <Link
                       href={`/solutions/software/phases/${phase.id}`}
                       className="font-medium hover:underline"
@@ -213,7 +213,7 @@ export function SoftwareOverview() {
                       {phase.solution?.solution_code || 'N/A'} - {phase.solution?.title || 'Unknown Solution'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 shrink-0">
                     <div className="text-right text-sm">
                       <div className="flex items-center gap-1">
                         <Users className="h-3 w-3" />

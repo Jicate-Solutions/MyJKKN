@@ -73,7 +73,7 @@ export function DashboardMetrics({
   return (
     <div className='space-y-6'>
       {/* Header with Export */}
-      <div className='flex justify-between items-center'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <h3 className='text-lg font-medium'>Dashboard Overview</h3>
         {canExport && (
           <Button variant='outline' size='sm'>
@@ -271,19 +271,18 @@ export function DashboardMetrics({
                   >
                     <div className='flex items-center gap-3'>
                       <Receipt className='h-4 w-4 text-muted-foreground' />
-                      <div>
-                        <p className='font-medium'>{receipt.receipt_number}</p>
-                        <p className='text-sm text-muted-foreground'>
-                          {`${receipt.student?.first_name || 'Unknown'} ${receipt.student?.last_name || 'Student'}`}
-                        </p>
-                      </div>
+                      {/* The dashboard RPC's recent-receipts sub-select only
+                          emits id, receipt_number, receipt_date,
+                          payment_amount, payment_mode — no student name and
+                          no created_at, so neither is rendered here. */}
+                      <p className='font-medium'>{receipt.receipt_number}</p>
                     </div>
                     <div className='text-right'>
                       <p className='font-semibold text-green-600'>
                         {formatCurrency(receipt.payment_amount)}
                       </p>
                       <p className='text-xs text-muted-foreground'>
-                        {new Date(receipt.created_at).toLocaleDateString()}
+                        {new Date(receipt.receipt_date).toLocaleDateString()}
                       </p>
                     </div>
                   </div>

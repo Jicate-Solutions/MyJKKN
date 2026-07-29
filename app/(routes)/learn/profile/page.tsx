@@ -472,14 +472,14 @@ export default function ProfilePage() {
                       )}>
                         #{entry.rank}
                       </span>
-                      <span className="flex-1 text-sm truncate">
+                      <span className="flex-1 min-w-0 text-sm truncate">
                         {entry.learner_name}
                         {isMe && <span className="text-xs text-primary ml-1">(You)</span>}
                       </span>
-                      <Badge variant="outline" className={cn('text-xs', entryLevel.color)}>
+                      <Badge variant="outline" className={cn('text-xs shrink-0', entryLevel.color)}>
                         {entryLevel.label}
                       </Badge>
-                      <span className="text-sm font-medium w-16 text-right">{entry.total_points} pts</span>
+                      <span className="text-sm font-medium w-16 text-right shrink-0">{entry.total_points} pts</span>
                     </div>
                   );
                 })}
@@ -489,11 +489,11 @@ export default function ProfilePage() {
                   <>
                     <div className="text-center text-xs text-muted-foreground py-1">...</div>
                     <div className="flex items-center gap-3 p-2 rounded-md bg-primary/5 border border-primary/20">
-                      <span className="w-8 text-center font-bold text-sm">#{myPosition}</span>
-                      <span className="flex-1 text-sm truncate">
+                      <span className="w-8 text-center font-bold text-sm shrink-0">#{myPosition}</span>
+                      <span className="flex-1 min-w-0 text-sm truncate">
                         {user?.full_name} <span className="text-xs text-primary ml-1">(You)</span>
                       </span>
-                      <span className="text-sm font-medium">{reputation?.total_points || 0} pts</span>
+                      <span className="text-sm font-medium shrink-0">{reputation?.total_points || 0} pts</span>
                     </div>
                   </>
                 )}

@@ -27,6 +27,7 @@
 // =============================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { enqueueJobsLane, awaitJobsLaneResults } from '@/lib/services/platform/ai-jobs-lane';
 
 // ----------------------------------------------------------------------------
 // Types
@@ -368,15 +369,18 @@ interface ExtractArgs {
   modelId: string;
 }
 
-async function extractDomainScore({
-  supabase,
-  domain,
-  caseTitle,
-  questions,
-  answers,
-  provider,
-  modelId,
-}: ExtractArgs): Promise<DomainScore> {
+/**
+ * Build the per-domain OSCE scoring prompt + the evidence q-numbers. Pure (no
+ * I/O) so the direct path (extractDomainScore) and the ₹0 max-pde path
+ * (scoreAttemptViaMaxLane) produce byte-identical prompts.
+ */
+function buildDomainScorePrompt(
+  domain: RubricDomain,
+  template: string,
+  caseTitle: string,
+  questions: PdeQuestion[],
+  answers: PdeAnswer[],
+): { systemPrompt: string; evidenceNumbers: number[] } {
   const relevantQs = questions.filter((q) => domain.q_numbers.includes(q.q_number));
   const evidenceNumbers = relevantQs.map((q) => q.q_number);
 
@@ -392,12 +396,6 @@ async function extractDomainScore({
     .map((q) => `Q${q.q_number} ground truth: ${q.ground_truth}`)
     .join('\n\n');
 
-  const template = await getPolicy<string>(
-    supabase,
-    'scoring.osce_prompt_template',
-    DEFAULT_SCORING_TEMPLATE,
-  );
-
   const systemPrompt = interpolate(template, {
     case_title: caseTitle,
     domain_label: domain.label,
@@ -405,6 +403,31 @@ async function extractDomainScore({
     relevant_answers,
     ground_truth,
   });
+
+  return { systemPrompt, evidenceNumbers };
+}
+
+async function extractDomainScore({
+  supabase,
+  domain,
+  caseTitle,
+  questions,
+  answers,
+  provider,
+  modelId,
+}: ExtractArgs): Promise<DomainScore> {
+  const template = await getPolicy<string>(
+    supabase,
+    'scoring.osce_prompt_template',
+    DEFAULT_SCORING_TEMPLATE,
+  );
+  const { systemPrompt, evidenceNumbers } = buildDomainScorePrompt(
+    domain,
+    template,
+    caseTitle,
+    questions,
+    answers,
+  );
 
   const aiResponse = await callAi(provider, modelId, systemPrompt);
   const { score, justification } = parseScoreJson(aiResponse.text, domain.max_score);
@@ -419,6 +442,108 @@ async function extractDomainScore({
   };
 }
 
+/**
+ * Is the ₹0 max-pde lane active for this PDE job type? True only when the job
+ * type is registered AND enabled (the Director's cutover flip). Fail-safe: any
+ * read error returns false → the direct provider path runs.
+ */
+async function pdeMaxLaneActive(
+  supabase: SupabaseClient,
+  jobType: string,
+): Promise<boolean> {
+  try {
+    const { data } = await (supabase as any)
+      .from('ai_job_types')
+      .select('enabled')
+      .eq('job_type', jobType)
+      .maybeSingle();
+    return data?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Score every rubric domain on the ₹0 max-pde sub-lane: enqueue one job per
+ * domain (all claimed concurrently by the Claude Max seat), long-poll for every
+ * result, then parse each with the SAME parseScoreJson the direct path uses. A
+ * domain whose job fails or times out contributes a 0 with an error
+ * justification — identical to the direct path's per-domain failure handling —
+ * so aggregateScore always returns a valid OsceScore. No paid fallback.
+ */
+async function scoreAttemptViaMaxLane(
+  supabase: SupabaseClient,
+  rubric: RubricDomain[],
+  caseTitle: string,
+  questions: PdeQuestion[],
+  answers: PdeAnswer[],
+): Promise<OsceScore> {
+  const template = await getPolicy<string>(
+    supabase,
+    'scoring.osce_prompt_template',
+    DEFAULT_SCORING_TEMPLATE,
+  );
+
+  const stamp = Date.now();
+  const admin = supabase as any;
+
+  // Enqueue one job per domain (unique dedupeKey per domain per attempt).
+  const enqueued = await Promise.all(
+    rubric.map(async (domain) => {
+      const { systemPrompt, evidenceNumbers } = buildDomainScorePrompt(
+        domain,
+        template,
+        caseTitle,
+        questions,
+        answers,
+      );
+      const r = await enqueueJobsLane(admin, {
+        jobType: 'pde.osce_score',
+        prompt: systemPrompt,
+        context: { domain_key: domain.key },
+        dedupeKey: `pde-osce:${domain.key}:${stamp}`,
+      });
+      const jobId = r.ok ? (r as { jobId?: string }).jobId ?? null : null;
+      return { domain, evidenceNumbers, jobId };
+    }),
+  );
+
+  const jobIds = enqueued
+    .map((e) => e.jobId)
+    .filter((id): id is string => typeof id === 'string');
+  const results =
+    jobIds.length > 0
+      ? await awaitJobsLaneResults(admin, jobIds, { deadlineMs: 270_000 })
+      : new Map<string, string>();
+
+  const domainScores: DomainScore[] = enqueued.map((e) => {
+    const text = e.jobId ? results.get(e.jobId) : undefined;
+    if (!text) {
+      return {
+        domain_key: e.domain.key,
+        domain_label: e.domain.label,
+        score: 0,
+        max_score: e.domain.max_score,
+        justification: e.jobId
+          ? 'Scoring did not complete in time on the Max lane.'
+          : 'Scoring could not be started on the Max lane.',
+        evidence_q_numbers: e.evidenceNumbers,
+      };
+    }
+    const { score, justification } = parseScoreJson(text, e.domain.max_score);
+    return {
+      domain_key: e.domain.key,
+      domain_label: e.domain.label,
+      score,
+      max_score: e.domain.max_score,
+      justification,
+      evidence_q_numbers: e.evidenceNumbers,
+    };
+  });
+
+  return aggregateScore(domainScores);
+}
+
 // ----------------------------------------------------------------------------
 // Top-level — score a full attempt across all rubric domains.
 // ----------------------------------------------------------------------------
@@ -429,6 +554,13 @@ export async function scoreAttempt(args: ScoreAttemptArgs): Promise<OsceScore> {
     args.rubricDomains && args.rubricDomains.length > 0
       ? args.rubricDomains
       : FALLBACK_RUBRIC;
+
+  // ₹0 Max lane: when pde.osce_score is enabled AND a max-pde runner is live,
+  // score every domain via the Claude Max seat (₹0) instead of paid Gemini.
+  // Dark by default — pdeMaxLaneActive fail-safes to false → the direct path.
+  if (await pdeMaxLaneActive(supabase, 'pde.osce_score')) {
+    return scoreAttemptViaMaxLane(supabase, rubric, caseTitle, questions, answers);
+  }
 
   // Read AI provider + model from policies (with sensible defaults)
   const providerRaw = await getPolicy<string>(supabase, 'ai.provider', 'google');

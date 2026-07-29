@@ -20,7 +20,15 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Lightbulb, Plus, Filter, Zap, Lock, Trophy } from 'lucide-react';
+import {
+  Lightbulb,
+  Plus,
+  Filter,
+  Zap,
+  Lock,
+  Trophy,
+  SlidersHorizontal
+} from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   ImprovementService,
@@ -136,13 +144,21 @@ export function ImprovementBoardClient({
             Turn everyday problems into business cases the institution can act on.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" asChild>
             <Link href="/improvement-board/leaderboard">
               <Trophy className="mr-2 h-4 w-4" />
               Impact Leaderboard
             </Link>
           </Button>
+          {canManage && (
+            <Button variant="outline" asChild>
+              <Link href="/improvement-board/manage-boards">
+                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                Manage boards
+              </Link>
+            </Button>
+          )}
           {canCreate && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
@@ -153,10 +169,10 @@ export function ImprovementBoardClient({
       </div>
 
       {/* Filter */}
-      <div className="flex items-center gap-3">
-        <Filter className="text-muted-foreground h-4 w-4" />
+      <div className="flex flex-wrap items-center gap-3">
+        <Filter className="text-muted-foreground h-4 w-4 shrink-0" />
         <Select value={areaFilter} onValueChange={handleAreaFilter}>
-          <SelectTrigger className="w-64">
+          <SelectTrigger className="min-w-0 flex-1 sm:w-64 sm:flex-none">
             <SelectValue placeholder="Filter by area…" />
           </SelectTrigger>
           <SelectContent>
@@ -169,7 +185,7 @@ export function ImprovementBoardClient({
           </SelectContent>
         </Select>
         {areaFilter !== 'all' && (
-          <Badge variant="secondary">{areaLabelForSelect(areaFilter)}</Badge>
+          <Badge variant="secondary" className="shrink-0">{areaLabelForSelect(areaFilter)}</Badge>
         )}
       </div>
 

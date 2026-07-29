@@ -329,6 +329,29 @@ export const POLICY_KEYS = {
   // Resolved by fn_scf_faculty_completion (and, in Build 2, fn_scf_effective_attendance).
   // Seeded by 20260705_scf_enforcement_start_date_forward_only.sql. Default '2026-07-05'.
   SESSION_FEEDBACK_ENFORCEMENT_START_DATE: 'session_feedback.enforcement_start_date',
+
+  // Exam attendance eligibility (2026-07-26). Previously a hardcoded constant pair
+  // duplicated in FOUR places (exam-audit compute, the learner's running-score card,
+  // the consolidation advisory panel, and the Senior Learner guide prose) whose only
+  // stated authority was the comment "// university norm". Director confirmed the
+  // rule and approved consolidating it onto one row.
+  //
+  // It is a THREE-band rule, not a pass/fail gate:
+  //   pct >= attendance_pct              -> eligible
+  //   condonation_floor_pct <= pct < attendance_pct -> needs condonation
+  //   pct <  condonation_floor_pct       -> at risk of ineligibility
+  //
+  // Scope-aware: seeded global, but fn_get_policy resolves institution rows first,
+  // so a college whose affiliating university sets a different norm gets its own row
+  // without a code change. Seeded by
+  // 20260726193000_exam_eligibility_thresholds_policy.sql. Defaults 75 / 65.
+  //
+  // NOT the same as the similarly-valued keys elsewhere — do not conflate with
+  // internal_marks_insight_config.attendance_threshold ("counts as regular" for the
+  // insight engine), cdc.min_attendance_pct_for_internship_certificate,
+  // internship.policy.attendance_fail_below_pct, or vac.completion_attendance_threshold.
+  EXAM_ELIGIBILITY_ATTENDANCE_PCT: 'academic.exam_eligibility.attendance_pct',
+  EXAM_ELIGIBILITY_CONDONATION_FLOOR_PCT: 'academic.exam_eligibility.condonation_floor_pct',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

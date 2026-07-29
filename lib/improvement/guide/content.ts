@@ -83,6 +83,8 @@ export const GUIDES: ImprovementGuideBook = {
         'File an idea as a short business case',
         'Track it through review to impact',
         'Climb the Impact Leaderboard',
+        'Read your department analytics as an MBA Analyst',
+        'See which department your team works with this rotation',
       ],
       sections: [
         {
@@ -211,6 +213,64 @@ export const GUIDES: ImprovementGuideBook = {
             },
           ],
         },
+        {
+          id: 'department-analytics',
+          title: 'Read your department analytics (MBA Analyst)',
+          requires: REQUIRES.view,
+          steps: [
+            {
+              action: 'Open **My Analytics** to see the analytics for the department(s) you cover.',
+              detail:
+                'If you are posted to a department as an MBA Analyst, this is your read-only view of how that department is doing — the figures behind the improvement work.',
+              prerequisite:
+                'You see data here only once a manager assigns you to a department. Until then the page shows "No department assigned yet".',
+              platforms: {
+                web: 'Left sidebar → **Improvement Board** → **My Analytics**.',
+                mobile: 'Tap the menu (**☰**) → **Improvement Board** → **My Analytics**.',
+              },
+              link: { label: 'Open My Analytics', href: '/improvement-board/analytics' },
+            },
+            {
+              action: 'Read each department’s views, grouped by department.',
+              detail:
+                'Every department you cover has its own section. Each card is one view (for example an attendance or activity summary) shown as a simple table.',
+            },
+            {
+              action: 'Understand that the figures are **de-identified** and small groups are **hidden**.',
+              detail:
+                'The numbers are aggregated, never named. Any group smaller than five is suppressed to protect privacy, so a card may show "No rows to show" — that means the group was too small, not that nothing happened.',
+              tip: 'Views marked **Financial — de-identified, k≥5 suppressed** are sensitive money figures, shown the same privacy-safe way.',
+            },
+          ],
+        },
+        {
+          id: 'view-rotation',
+          title: 'See your team rotation',
+          requires: REQUIRES.view,
+          steps: [
+            {
+              action: 'Open **Team Rotation** to see the rota chart for your cycle.',
+              detail:
+                'The rota is a grid. Each row is a team, each column is a period (a block of time), and each cell shows the department that team works with during that period.',
+              platforms: {
+                web: 'Left sidebar → **Improvement Board** → **Team Rotation**.',
+                mobile: 'Tap the menu (**☰**) → **Improvement Board** → **Team Rotation**.',
+              },
+              link: { label: 'Open Team Rotation', href: '/improvement-board/rotation' },
+            },
+            {
+              action: 'Find the **highlighted period** — that is the one running now.',
+              detail:
+                'The current period is marked on the chart, so you can read straight across your team’s row to see which department you are paired with this block.',
+            },
+            {
+              action: 'Read across your team’s row to see where you go next.',
+              detail:
+                'The cells to the right of the current period are the departments your team rotates to in the blocks ahead, so you can see what is coming.',
+              tip: 'The rota is set by a Senior Learner. If a period looks empty, the schedule for that block has not been generated yet — it is not a mistake on your side.',
+            },
+          ],
+        },
       ],
     },
 
@@ -232,6 +292,8 @@ export const GUIDES: ImprovementGuideBook = {
         'Move an idea forward, step by step',
         'Score it and weigh the AI priority',
         'Recognise impact on the leaderboard',
+        'Assign MBA Associates to the departments they analyse',
+        'Build teams and run the team rotation',
       ],
       sections: [
         {
@@ -312,6 +374,61 @@ export const GUIDES: ImprovementGuideBook = {
             },
           ],
         },
+        {
+          id: 'assign-analysts',
+          title: 'Assign analysts to departments',
+          steps: [
+            {
+              action: 'Open **Analyst Assignments** to decide which MBA Associate covers which department.',
+              detail:
+                'This is where you post associates onto departments. An associate can cover more than one department, and only the department(s) you assign them show up on their **My Analytics** page.',
+              platforms: {
+                web: 'Left sidebar → **Improvement Board** → **Analyst Assignments**.',
+                mobile: 'Tap the menu (**☰**) → **Improvement Board** → **Analyst Assignments**.',
+              },
+              link: { label: 'Open Analyst Assignments', href: '/improvement-board/postings' },
+            },
+            {
+              action: 'Find an associate, then use **Add department** to assign one.',
+              detail:
+                'Search by name or email, then pick a department from the associate’s **Add department** menu. Assign as many as you need — each one appears as a chip on their card.',
+              tip: 'The MBA Associate roster is kept in sync automatically each day, so you do not add people by hand — you only decide which departments they cover.',
+            },
+            {
+              action: 'Remove a department with the **✕** on its chip.',
+              detail:
+                'Taking a department off an associate immediately stops that department’s analytics from showing on their My Analytics page.',
+            },
+          ],
+        },
+        {
+          id: 'set-up-rotation',
+          title: 'Build teams and run the rotation',
+          steps: [
+            {
+              action: 'Open **Rotation Teams** to build teams of MBA Associates by hand.',
+              detail:
+                'Group your associates into the teams that will rotate together. You decide who is on each team.',
+              platforms: {
+                web: 'Left sidebar → **Improvement Board** → **Rotation Teams**.',
+                mobile: 'Tap the menu (**☰**) → **Improvement Board** → **Rotation Teams**.',
+              },
+              link: { label: 'Open Rotation Teams', href: '/improvement-board/rotation/teams' },
+            },
+            {
+              action: 'Open **Rotation Setup** to configure the cycle and generate the rota.',
+              detail:
+                'Set the period length, the start date, and which departments are in the rotation, then generate the schedule. Add exam or holiday blackouts so no team is rotated during a break.',
+              link: { label: 'Open Rotation Setup', href: '/improvement-board/rotation/config' },
+            },
+            {
+              action: 'Open **Team Rotation** to check the generated rota.',
+              detail:
+                'The chart shows every team’s department for every period, with the current period highlighted. Associates see this same chart (read-only), so they always know where their team is posted.',
+              link: { label: 'Open Team Rotation', href: '/improvement-board/rotation' },
+            },
+          ],
+        },
       ],
     },
   },
@@ -332,6 +449,12 @@ export const GUIDES: ImprovementGuideBook = {
     { term: 'Impact Leaderboard', def: 'Top contributors ranked by their total improvement score, plus your own rank. It never shows a bottom or "worst" list.' },
     { term: 'Associate', def: 'An MBA Management Associate — the person who spots a problem and files it as an improvement idea.' },
     { term: 'Senior Learner', def: 'The Senior Learner (or CEO) who reviews ideas, moves them through the pipeline, scores them, and recognises impact.' },
+    { term: 'MBA Analyst', def: 'An MBA Associate posted to a department to read its analytics. The "My Analytics" page shows the department(s) they cover.' },
+    { term: 'Analyst assignment', def: 'Posting an associate onto a department so that department’s analytics appear on their My Analytics page. Managed on the Analyst Assignments page; an associate can cover several departments.' },
+    { term: 'De-identified / k≥5 suppressed', def: 'How the analytics are shown: figures are aggregated and never named, and any group smaller than five is hidden to protect privacy.' },
+    { term: 'Team rotation', def: 'The schedule that pairs each MBA Associate team with a department for a block of time, then rotates them to another — so associates learn how several departments really run.' },
+    { term: 'Rota chart', def: 'The grid on the Team Rotation page: rows are teams, columns are periods, and each cell is the department that team works with that period. The current period is highlighted.' },
+    { term: 'Period (rotation)', def: 'One block of time in a rotation cycle. A team stays with one department for a period, then moves to the next department in the following period.' },
   ],
 
   plannedLocaleNote: 'A Tamil version is planned — English only for now.',

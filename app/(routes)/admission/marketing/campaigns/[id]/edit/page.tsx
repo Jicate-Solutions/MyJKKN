@@ -428,7 +428,7 @@ export default function CampaignEditPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Start date</Label>
                   <Input
@@ -455,7 +455,7 @@ export default function CampaignEditPage() {
                   placeholder="e.g. 50000"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Target leads</Label>
                   <Input

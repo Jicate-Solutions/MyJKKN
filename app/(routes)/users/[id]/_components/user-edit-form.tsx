@@ -27,12 +27,17 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Profile, CustomRole, Gender } from '@/types/auth';
 import { Institution } from '@/types/organizations';
 import { UserService } from '@/lib/services/users/user-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { useImsStoresForAssignment } from '@/hooks/ims/use-ims-stores';
+import {
+  useImsStoresForAssignment,
+  useImsUserStoreGrants
+} from '@/hooks/ims/use-ims-stores';
+import { usePermissions } from '@/hooks/use-permissions';
 import { UpdateUserRequest } from '@/types/users';
 import { BeatLoader } from 'react-spinners';
 import { Save, User, Building2, Shield, Settings } from 'lucide-react';
@@ -45,6 +50,7 @@ const formSchema = z.object({
   institution_id: z.string(),
   department_id: z.string().nullable(),
   assigned_store_id: z.string().nullable(),
+  ims_store_grant_ids: z.array(z.string()).default([]),
   designation: z.string().nullable(),
   bio: z.string().nullable(),
   gender: z.enum(['male', 'female', 'other', 'prefer_not_to_say']).nullable(),
@@ -69,6 +75,10 @@ export function UserEditForm({ user }: UserEditFormProps) {
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const { data: stores = [], isLoading: storesLoading } =
     useImsStoresForAssignment();
+  const { isSuperAdmin } = usePermissions();
+  const { data: existingGrants } = useImsUserStoreGrants(
+    isSuperAdmin ? user.id : undefined
+  );
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -80,6 +90,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
       institution_id: user.institution_id || 'none',
       department_id: user.department_id || 'none',
       assigned_store_id: user.assigned_store_id || 'none',
+      ims_store_grant_ids: [],
       designation: user.designation || '',
       bio: user.bio || '',
       gender: user.gender || null,
@@ -87,6 +98,15 @@ export function UserEditForm({ user }: UserEditFormProps) {
       profile_completed: user.profile_completed || false
     }
   });
+
+  // Grants arrive after first render (separate query), so they cannot be part of
+  // defaultValues. Reset rather than setValue so the field is not marked dirty
+  // by data that merely finished loading.
+  useEffect(() => {
+    if (existingGrants) {
+      form.resetField('ims_store_grant_ids', { defaultValue: existingGrants });
+    }
+  }, [existingGrants, form]);
 
   // Fetch roles on component mount
   useEffect(() => {
@@ -176,6 +196,12 @@ export function UserEditForm({ user }: UserEditFormProps) {
           data.department_id === 'none' ? null : data.department_id,
         assigned_store_id:
           data.assigned_store_id === 'none' ? null : data.assigned_store_id,
+        // Only super admins may change grants, and the API rejects the field
+        // outright for anyone else — so a non-super-admin must not send it at
+        // all, or every ordinary profile save would 403.
+        ...(isSuperAdmin
+          ? { ims_store_grant_ids: data.ims_store_grant_ids }
+          : {}),
         designation: data.designation || null,
         bio: data.bio || null,
         gender: data.gender || null,
@@ -529,6 +555,79 @@ export function UserEditForm({ user }: UserEditFormProps) {
                     </FormItem>
                   )}
                 />
+
+                {/* Cross-institution store access. Hidden for non-super-admins:
+                    the API rejects the field for them anyway, so showing a
+                    control that cannot be saved would only mislead. */}
+                {isSuperAdmin && (
+                  <FormField
+                    control={form.control}
+                    name='ims_store_grant_ids'
+                    render={({ field }) => {
+                      // Stores in the user's own institution are already
+                      // reachable — offering them here would imply a grant is
+                      // needed when it is not.
+                      const selectedInstitutionId =
+                        form.watch('institution_id');
+                      const otherStores = stores.filter(
+                        (store) =>
+                          store.institution_id &&
+                          store.institution_id !== selectedInstitutionId
+                      );
+
+                      return (
+                        <FormItem className='md:col-span-2'>
+                          <FormLabel>Additional IMS Stores</FormLabel>
+                          <FormDescription>
+                            Stores outside this user&apos;s own institution that
+                            they may also operate. Affects IMS only — it does not
+                            grant access to any other module.
+                          </FormDescription>
+                          {storesLoading ? (
+                            <p className='text-sm text-muted-foreground'>
+                              Loading stores...
+                            </p>
+                          ) : otherStores.length === 0 ? (
+                            <p className='text-sm text-muted-foreground'>
+                              No stores outside this institution.
+                            </p>
+                          ) : (
+                            <div className='space-y-2 rounded-md border p-3'>
+                              {otherStores.map((store) => (
+                                <label
+                                  key={store.id}
+                                  className='flex items-center gap-3 text-sm'
+                                >
+                                  <Checkbox
+                                    checked={field.value?.includes(store.id)}
+                                    disabled={loading}
+                                    onCheckedChange={(checked) => {
+                                      const current = field.value || [];
+                                      field.onChange(
+                                        checked
+                                          ? [...current, store.id]
+                                          : current.filter(
+                                              (id) => id !== store.id
+                                            )
+                                      );
+                                    }}
+                                  />
+                                  <span>
+                                    {store.name}
+                                    <span className='ml-2 text-xs text-muted-foreground'>
+                                      {store.institution_name ?? store.code}
+                                    </span>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+                )}
               </div>
             </CardContent>
           </Card>

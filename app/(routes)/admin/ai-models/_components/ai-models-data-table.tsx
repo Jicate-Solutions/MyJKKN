@@ -102,10 +102,17 @@ const ROUTINE_TYPE_LABELS: Record<AIRoutine['type'], string> = {
 // grouping memo keeps stable references.
 const LANE_ORDER = ['max', 'api', 'either'] as const;
 const LANE_LABEL: Record<string, string> = {
-  max: 'Max lane · ₹0 subscription seat',
+  max: 'Max lane · ₹0',
   api: 'API lane · paid',
   either: 'Either lane',
+  // Dedicated Max sub-lane: still the ₹0 subscription worker, but isolated so
+  // its runner cannot race the user-facing chat drain for claims.
+  'max-pdf': 'Max lane · ₹0 · PDF reader',
 };
+
+/** Max lane or any dedicated Max sub-lane ('max-pdf', …) — all ₹0. */
+const isMaxLaneValue = (lane?: string | null): boolean =>
+  lane === 'max' || (typeof lane === 'string' && lane.startsWith('max-'));
 
 // ---------------------------------------------------------------------------
 // Max-lane schedule rows (`maxlane:<routine-id>` in ai_routine_schedules) —
@@ -188,17 +195,6 @@ function LaneBadge({ f, routines, scheduleMap }: {
       </Badge>
     );
   }
-  if (f.config_json?.lane === 'api_policy') {
-    return (
-      <Badge
-        variant="outline"
-        className="mt-1 text-[11px] font-normal text-muted-foreground"
-        title="Serves learners or other users live — Anthropic's terms don't allow a personal Max subscription to power it, so it stays on the paid API."
-      >
-        API only · policy
-      </Badge>
-    );
-  }
   return null;
 }
 
@@ -227,6 +223,11 @@ interface FeatureRow {
   // UNIFICATION (2026-07-23): false → this registry job has no model yet
   // (provider/model_id are ''); render "Uses default model" + a "Set model" button.
   model_set?: boolean;
+  // VISIBILITY (2026-07-25): the raw registry `enabled` gate. false → this job
+  // is dormant (the Max/API drain will not claim or enqueue it). The service
+  // read returns these rows so the Director can govern their model, but they
+  // MUST be marked so they aren't mistaken for live ones.
+  enabled?: boolean;
 }
 
 function formatInr(n: number): string {
@@ -407,7 +408,7 @@ export function AiModelsDataTable() {
 
   // UNIFICATION (2026-07-23): section by registry LANE (Max / API / Either),
   // not category — the Director governs by where a job runs and what it costs.
-  // Max first (the ₹0 subscription lane), then API (paid), then the rest. Rows
+  // Max first (the ₹0 lane), then API (paid), then the rest. Rows
   // within a lane sort by category then display name for a stable read.
   const grouped = useMemo(() => {
     if (!features) return [];
@@ -494,7 +495,7 @@ export function AiModelsDataTable() {
           {grouped.map(([lane, rows]) => (
             <section key={lane}>
               <h3 className="mb-2 flex items-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
-                {lane === 'max' && <Zap className="h-3.5 w-3.5 text-[#0b6d41]" />}
+                {isMaxLaneValue(lane) && <Zap className="h-3.5 w-3.5 text-[#0b6d41]" />}
                 <span className="uppercase">{LANE_LABEL[lane] ?? lane}</span>
                 <span className="text-xs font-normal normal-case text-muted-foreground/70">
                   {rows.length} job{rows.length === 1 ? '' : 's'}
@@ -519,17 +520,66 @@ export function AiModelsDataTable() {
                         f.monthly_spend_cap_inr !== null &&
                         f.month_to_date_cost_inr > f.monthly_spend_cap_inr;
                       const lowSuccess = f.month_to_date_invocations > 0 && f.month_to_date_success_rate < 0.9;
+                      // VISIBILITY (2026-07-25): a dormant registry job (enabled=
+                      // false). The service read returns it so its model stays
+                      // governable, but it must be dimmed + badged so it isn't
+                      // mistaken for a live one on the shared console.
+                      const disabled = f.enabled === false;
                       return (
-                        <TableRow key={f.feature_key} className={overCap ? 'bg-destructive/5' : undefined}>
+                        <TableRow
+                          key={f.feature_key}
+                          className={
+                            [overCap ? 'bg-destructive/5' : '', disabled ? 'opacity-60' : '']
+                              .filter(Boolean)
+                              .join(' ') || undefined
+                          }
+                        >
                           <TableCell>
                             <div className="space-y-0.5">
-                              <div className="font-medium">{f.display_name}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{f.display_name}</span>
+                                {disabled && (
+                                  <Badge
+                                    variant="outline"
+                                    className="gap-1 border-amber-500/50 bg-amber-50 text-[11px] font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-400"
+                                    title="This job is disabled in the registry — the Max/API drain will not claim or enqueue it. Its model is still editable here."
+                                  >
+                                    <PowerOff className="h-3 w-3" />
+                                    Disabled
+                                  </Badge>
+                                )}
+                              </div>
                               {f.description && (
                                 <div className="text-xs text-muted-foreground">{f.description}</div>
                               )}
                               <div className="text-xs text-muted-foreground/70 font-mono">
                                 {f.feature_key}
                               </div>
+                              {(() => {
+                                const jt = jobTypeMap.get(f.feature_key);
+                                if (!jt) return null;
+                                return jt.loop_key ? (
+                                  <Link
+                                    href={`/admin/loops#loop-${jt.loop_key}`}
+                                    title={`This job serves the ${jt.loop_key} loop — click to see it in the Loop Control Tower`}
+                                  >
+                                    <Badge
+                                      variant="outline"
+                                      className="mt-1 font-mono text-[11px] font-normal text-[#0b6d41] hover:underline"
+                                    >
+                                      {jt.loop_key}
+                                    </Badge>
+                                  </Link>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="mt-1 text-[11px] font-normal text-muted-foreground"
+                                    title="Not yet claimed by any governance loop"
+                                  >
+                                    unclaimed
+                                  </Badge>
+                                );
+                              })()}
                               {/* UNIFICATION: per-row lane badge removed — the
                                   console now sections by lane, so it was redundant. */}
                               {!f.is_active && (

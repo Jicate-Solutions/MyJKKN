@@ -19,7 +19,13 @@ name: Claude Deep Review (SDK multi-agent)
 #    token (the pwn_request vector). Fork PRs get no secret at all (token check).
 #  - Agents have no file tools; the whole script is crash-guarded to an explicit
 #    inconclusive review (never a silent green pass).
-# Advisory — posts a comment, never blocks.
+#
+# HONESTY CONTRACT (2026-07-28): FINDINGS are advisory — a CRITICAL finding still
+# leaves this check green and never blocks a merge. A MISSING REVIEW is not. If
+# the reviewer produces no review, this job goes RED, because a green tick that
+# can never go red means nothing was checked. Before this change the job posted
+# "Inconclusive — treat as NOT reviewed" and reported success anyway; every PR
+# from 2026-07-26 onward got that comment under a green tick.
 
 on:
   pull_request:
@@ -118,8 +124,13 @@ jobs:
           echo "diff bytes: $(wc -c < /tmp/pr.diff)"
 
       - name: Run multi-agent review
+        id: review
         if: steps.token.outputs.has_token == 'true' && steps.stage.outputs.run == 'true'
-        continue-on-error: true   # advisory — never redden the PR
+        # NOT continue-on-error. That flag used to discard the reviewer's exit
+        # code entirely, so even a hard crash reported success. The code is now
+        # CAPTURED here and re-raised by the "Honest verdict" step *after* the
+        # comment has been posted — the explanation still reaches the PR, and the
+        # check still goes red.
         timeout-minutes: 25
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -129,9 +140,15 @@ jobs:
           APP_CONTEXT: "a production multi-tenant college ERP (MyJKKN)"
         run: |
           export PATH="/tmp/reviewer/node_modules/.bin:$PATH"
+          set +e
           node /tmp/reviewer/deep-review.mjs
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "::notice::reviewer exited $code (0 = a review was produced)"
 
       - name: Post review comment (idempotent, self-dedup)
+        id: post
         if: steps.token.outputs.has_token == 'true' && steps.stage.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -139,8 +156,19 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -s /tmp/claude-review.md ]; then
-            echo "::warning::No review file produced — advisory, ending green."
+            # Was: "advisory, ending green" — a green tick for a review that does
+            # not exist. Record it and let the verdict step fail the job.
+            echo "no_review=true" >> "$GITHUB_OUTPUT"
+            echo "::error::No review file was produced at all — nothing to post."
             exit 0
+          fi
+          # A run can also produce a file that SAYS it reviewed nothing. Detect
+          # both the machine marker and the legacy prose, so this still works
+          # while an older copy of deep-review.mjs is the trusted base-ref copy.
+          if grep -qF '<!-- claude-deep-review-sdk:inconclusive -->' /tmp/claude-review.md \
+             || grep -qF 'treat as NOT reviewed' /tmp/claude-review.md; then
+            echo "inconclusive=true" >> "$GITHUB_OUTPUT"
+            echo "::error::The reviewer reported INCONCLUSIVE — this PR was not reviewed."
           fi
           mapfile -t IDS < <(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
             --paginate --jq '.[] | select(.body | startswith("<!-- claude-deep-review-sdk -->")) | .id' 2>/dev/null || true)
@@ -154,3 +182,40 @@ jobs:
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$stale" > /dev/null 2>&1 && echo "::notice::Deleted stale #$stale" || echo "::notice::Stale #$stale already gone"
             done
           fi
+
+      # A green tick on this job must mean "this PR was actually reviewed".
+      # Runs last so the explanation comment is already on the PR when it fails.
+      - name: Honest verdict (red when no review was produced)
+        if: always()
+        env:
+          HAS_TOKEN:    ${{ steps.token.outputs.has_token }}
+          STAGED:       ${{ steps.stage.outputs.run }}
+          REVIEW_EXIT:  ${{ steps.review.outputs.exit_code }}
+          NO_REVIEW:    ${{ steps.post.outputs.no_review }}
+          INCONCLUSIVE: ${{ steps.post.outputs.inconclusive }}
+          IS_FORK:      ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -uo pipefail
+          fail() { echo "::error title=No review produced::$1"; exit 1; }
+
+          if [ "${HAS_TOKEN:-}" != "true" ]; then
+            if [ "$IS_FORK" = "true" ]; then
+              echo "::notice::Fork PR — secrets are withheld by design, so no review is possible. Not treated as a regression."
+              exit 0
+            fi
+            fail "CLAUDE_CODE_OAUTH_TOKEN was not available to this run, so nothing was reviewed. Repository owner: re-add or refresh that repository secret."
+          fi
+
+          [ "${STAGED:-}" = "true" ] || \
+            fail "The trusted base-ref reviewer script (.github/scripts/deep-review.mjs) was not found on the base branch, so nothing was reviewed."
+
+          [ "${NO_REVIEW:-}" != "true" ] || \
+            fail "The reviewer produced no review file at all. See the step logs above for the crash."
+
+          [ "${INCONCLUSIVE:-}" != "true" ] || \
+            fail "The reviewer reported INCONCLUSIVE — it posted an explanation but did NOT review this PR. Read the posted comment for the reason."
+
+          [ "${REVIEW_EXIT:-}" = "0" ] || \
+            fail "The reviewer exited ${REVIEW_EXIT:-<it never ran>}, meaning no complete review was produced."
+
+          echo "::notice::A complete review was produced and posted. (Findings, if any, are advisory and never fail this job.)"
