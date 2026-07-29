@@ -69,3 +69,11 @@ BEGIN
     RETURN v_next;
 END;
 $function$;
+
+-- Lock anon. The counter table is written ONLY by ims_next_indent_number()
+-- (SECURITY DEFINER, runs as owner), and nothing reads it through PostgREST —
+-- so it gets no grants at all, matching the "RLS with no policies" note above.
+REVOKE ALL ON TABLE public.ims_indent_number_counters_global FROM anon, PUBLIC;
+
+REVOKE EXECUTE ON FUNCTION public.ims_next_indent_number(uuid, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.ims_next_indent_number(uuid, date) TO authenticated;

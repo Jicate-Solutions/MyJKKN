@@ -477,3 +477,29 @@ CREATE POLICY ims_supply_shipments_update ON public.ims_supply_shipments
 CREATE POLICY ims_supply_shipments_delete ON public.ims_supply_shipments
   FOR DELETE TO authenticated
   USING (public.get_current_user_role() = 'super_admin');
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 9. Lock anon.
+--    Supabase runs ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, and
+--    Postgres grants EXECUTE to PUBLIC by default, so without these an
+--    unauthenticated caller holding the public anon key could read this stock
+--    ledger and invoke the transfer engine directly. RLS is not a substitute.
+--
+--    Both tables are written ONLY by the SECURITY DEFINER functions below (which
+--    run as owner and are unaffected by these grants), and no application code
+--    reads or writes them through PostgREST — so authenticated gets SELECT only.
+-- ─────────────────────────────────────────────────────────────────────────────
+REVOKE ALL ON TABLE public.ims_supply_shipment_item_batches FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public.ims_supply_shipment_item_batches TO authenticated;
+
+REVOKE ALL ON TABLE public.ims_stock_movements FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public.ims_stock_movements TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.ims_pick_fefo_batches(UUID, UUID, NUMERIC) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.ims_pick_fefo_batches(UUID, UUID, NUMERIC) TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.ims_ship_out_from_source(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.ims_ship_out_from_source(UUID) TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.ims_receive_into_destination(UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.ims_receive_into_destination(UUID) TO authenticated;

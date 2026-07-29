@@ -158,3 +158,9 @@ $function$;
 
 COMMENT ON FUNCTION public.ims_create_push_transfer IS
   'Warehouse-initiated distribution. Creates an already-approved intra_institution request plus its shipment, FEFO-allocates batches, and (by default) dispatches immediately so stock leaves the warehouse. The receiving store then confirms receipt.';
+
+-- Lock anon: this is SECURITY DEFINER and moves stock, so an unauthenticated
+-- caller must never be able to invoke it. Postgres grants EXECUTE to PUBLIC by
+-- default and Supabase grants anon directly, so an explicit revoke is required.
+REVOKE EXECUTE ON FUNCTION public.ims_create_push_transfer(UUID, UUID, UUID, TEXT, JSONB, BOOLEAN) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.ims_create_push_transfer(UUID, UUID, UUID, TEXT, JSONB, BOOLEAN) TO authenticated;
