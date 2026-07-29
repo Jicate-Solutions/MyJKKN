@@ -76,13 +76,64 @@ const ALLOWLIST_PATH = allowIdx !== -1
   ? resolve(process.cwd(), argv[allowIdx + 1])
   : resolve(HERE, 'anon-exposure-allowlist.json');
 
+/**
+ * Two transports, because the two places this runs hold different credentials.
+ *
+ *   SUPABASE_DB_URL                             → direct Postgres (GitHub Actions)
+ *   SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF → Management API (this Mac)
+ *
+ * The Mac has a Management API token already and no Postgres URL; CI has neither
+ * yet. Supporting both means the sweep can start running today on whichever host
+ * is credentialled, instead of waiting on a secret nobody has added.
+ *
+ * DB_URL wins when both are present: a direct connection is one hop, and the
+ * Management API can serve a read-replica snapshot several hours stale — which
+ * for a security sweep would mean reporting an exposure as closed while it is
+ * still open.
+ */
 const DB_URL = process.env.SUPABASE_DB_URL;
-if (!DB_URL && !FIXTURE) {
-  console.error(`${RED}✗ SUPABASE_DB_URL is not set.${RESET}
-This gate reads production directly. Set the secret at /settings/secrets/actions.
+const MGMT_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+const MGMT_REF = process.env.SUPABASE_PROJECT_REF;
+const TRANSPORT = DB_URL ? 'postgres' : (MGMT_TOKEN && MGMT_REF ? 'mgmt-api' : null);
+
+if (!TRANSPORT && !FIXTURE) {
+  console.error(`${RED}✗ No way to reach the database.${RESET}
+Set ONE of:
+  SUPABASE_DB_URL                                (direct Postgres — use the
+                                                  SESSION POOLER string on port
+                                                  6543; GitHub runners cannot
+                                                  reach the direct 5432 host)
+  SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF   (Management API)
+
 Exiting 1 rather than 0: a credential-less run that "passes" is the failure mode
 this whole script exists to prevent — silence that looks like safety.`);
   process.exit(1);
+}
+
+/** Run the exposure query over the Management API. Same SQL, different pipe. */
+async function queryViaMgmtApi(sql) {
+  const res = await fetch(
+    `https://api.supabase.com/v1/projects/${MGMT_REF}/database/query`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MGMT_TOKEN}`,
+        'Content-Type': 'application/json',
+        // Required — the endpoint refuses a request without a browser-ish UA.
+        'User-Agent': 'Mozilla/5.0 (Macintosh)',
+      },
+      body: JSON.stringify({ query: sql }),
+    },
+  );
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(body)) {
+    // Never fall through to "no rows found" on a transport error: an empty
+    // result and a failed request must not look the same to this gate.
+    throw new Error(
+      `Management API query failed (HTTP ${res.status}): ${JSON.stringify(body)?.slice(0, 300)}`,
+    );
+  }
+  return body;
 }
 
 /**
@@ -157,6 +208,8 @@ function loadAllowlist() {
 let exposed;
 if (FIXTURE) {
   exposed = JSON.parse(readFileSync(resolve(process.cwd(), FIXTURE), 'utf8'));
+} else if (TRANSPORT === 'mgmt-api') {
+  exposed = await queryViaMgmtApi(EXPOSURE_SQL);
 } else {
   const client = new pg.Client({ connectionString: DB_URL });
   await client.connect();
