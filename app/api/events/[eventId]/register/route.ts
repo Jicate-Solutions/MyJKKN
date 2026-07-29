@@ -6,6 +6,11 @@ export const dynamic = 'force-dynamic';
 // public-register route, minus everything that exists only to serve guests:
 // no access codes, no divisions, no eligibility rules, no payment.
 //
+// NOT for sports_tournament or marathon events — both have their own
+// dedicated registration routes (payment, divisions, access codes, eligibility
+// rules) and are explicitly rejected below so this generic path can never be
+// used to bypass them.
+//
 // This route is the ONLY real gate. events_registrations carries an INSERT
 // policy (events_reg_public_insert) with role {public} and WITH CHECK (true),
 // so every check here must be re-done server-side regardless of what the page
@@ -47,15 +52,30 @@ export async function POST(
 
     const svc = createServiceRoleClient();
 
-    // ---- 2. event must exist and be accepting registrations ----
+    // ---- 2. event must exist, be a general event, and be accepting registrations ----
     const { data: event } = await (svc as any)
       .from('events')
-      .select('id, name, status, institution_id, registration_open_date, registration_close_date')
+      .select(
+        'id, name, event_type, status, institution_id, registration_open_date, registration_close_date'
+      )
       .eq('id', eventId)
       .maybeSingle();
 
     if (!event) {
       return NextResponse.json({ error: 'Event not found.' }, { status: 404 });
+    }
+
+    // sports_tournament and marathon each have their own dedicated registration
+    // route (payment, divisions/eligibility, access codes). Without this guard,
+    // any signed-in user could POST here with a tournament's eventId and create
+    // a source='event_self', payment_status='not_required' row that bypasses
+    // all of that — the window check below only looks at `status`, which a live
+    // tournament passes just as easily as a general event.
+    if (event.event_type === 'sports_tournament' || event.event_type === 'marathon') {
+      return NextResponse.json(
+        { error: 'Registration for this event is handled elsewhere.' },
+        { status: 404 }
+      );
     }
 
     const windowState = checkRegistrationWindow(event);
@@ -79,7 +99,7 @@ export async function POST(
     // ---- 4. identity from the profile (never from the request body) ----
     const { data: profile } = await (svc as any)
       .from('profiles')
-      .select('id, full_name, email, institution_id, department_id')
+      .select('id, full_name, email, department_id')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -103,13 +123,27 @@ export async function POST(
     // ---- 5. already registered? ----
     // Deliberately NOT filtered by source: a person bulk-imported onto the roster
     // is already registered, and should be told so rather than added twice.
-    const { data: existing } = await (svc as any)
+    // .limit(1) keeps this a single-row lookup even against pre-existing
+    // duplicate rows (production already has some, under other sources); without
+    // it, .maybeSingle() ERRORS on >1 matches (PGRST116). The `error` is captured
+    // and failed CLOSED — a lookup failure must never be read as "not
+    // registered", or this exact check gets silently bypassed.
+    const { data: existing, error: existingError } = await (svc as any)
       .from('events_registrations')
       .select('id')
       .eq('event_id', eventId)
       .eq('profile_id', user.id)
       .neq('status', 'cancelled')
+      .limit(1)
       .maybeSingle();
+
+    if (existingError) {
+      logger.error(MOD, 'Failed to check for an existing registration', { eventId, existingError });
+      return NextResponse.json(
+        { error: 'Could not verify your registration status.' },
+        { status: 500 }
+      );
+    }
 
     if (existing) {
       return NextResponse.json(
@@ -118,18 +152,51 @@ export async function POST(
       );
     }
 
-    // ---- 6. required custom fields ----
-    const { data: fields } = await (svc as any)
+    // ---- 6. custom fields: shape guard, required-field check, then whitelist ----
+    if (
+      body.custom_fields !== undefined &&
+      body.custom_fields !== null &&
+      (typeof body.custom_fields !== 'object' || Array.isArray(body.custom_fields))
+    ) {
+      return NextResponse.json({ error: 'custom_fields must be an object.' }, { status: 422 });
+    }
+
+    const { data: fields, error: fieldsError } = await (svc as any)
       .from('event_registration_form_fields')
       .select('field_key, field_label, is_required')
       .eq('event_id', eventId);
 
-    const missing = validateCustomFields(
-      (fields ?? []) as EventRegistrationFormField[],
-      body.custom_fields
-    );
+    if (fieldsError) {
+      // Fail CLOSED: this codebase has documented statement-timeout storms, and
+      // reading `fields` as [] on a query error would make validateCustomFields
+      // pass vacuously, silently skipping every required-field check below.
+      logger.error(MOD, 'Failed to load registration form fields', { eventId, fieldsError });
+      return NextResponse.json(
+        { error: 'Could not load the registration form.' },
+        { status: 500 }
+      );
+    }
+
+    const fieldDefs = (fields ?? []) as EventRegistrationFormField[];
+
+    const missing = validateCustomFields(fieldDefs, body.custom_fields);
     if (missing) {
       return NextResponse.json({ error: missing }, { status: 422 });
+    }
+
+    // Whitelist submitted answers to keys the form actually defines. Unknown
+    // keys are silently dropped rather than 422'd, so a stale client (a field
+    // removed after the page loaded) still registers successfully — but they
+    // must never reach the row: mapCustomAnswers renders any key with no
+    // matching field def using the RAW KEY as its label (by design, so answers
+    // to since-deleted fields aren't lost), which would let a registrant inject
+    // arbitrary labelled rows (e.g. {"Payment Status":"PAID"}) into the
+    // organizer's registrations view.
+    const allowedFieldKeys = new Set(fieldDefs.map((f) => f.field_key));
+    const submittedAnswers = (body.custom_fields ?? {}) as Record<string, unknown>;
+    const sanitizedCustomFields: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(submittedAnswers)) {
+      if (allowedFieldKeys.has(key)) sanitizedCustomFields[key] = value;
     }
 
     // ---- 7. write ----
@@ -150,7 +217,8 @@ export async function POST(
         department: departmentName,
         // custom_fields, NOT custom_data — custom_fields is what
         // EventRegistrationsService maps back to the organizer's labels.
-        custom_fields: body.custom_fields ?? {},
+        // Sanitized above: only keys the form defines, never the raw body.
+        custom_fields: sanitizedCustomFields,
         status: 'registered',
         payment_status: 'not_required',
         source: 'event_self',
