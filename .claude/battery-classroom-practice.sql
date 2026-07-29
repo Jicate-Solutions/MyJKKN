@@ -53,11 +53,31 @@ BEGIN;
 -- THE JOIN THAT IS EASY TO GET WRONG
 --   carre_micro_impressions has teacher_email (text), NOT a profiles.id — it is
 --   copied from the attendance blob's assigned_faculty.faculty_email, and the
---   sibling's faculty_id is a STAFF id. So the cycle's snapshot
---   teacher_profile_id resolves to a person through profiles.email, and the
---   comparison is case-insensitive because the two sides come from different
---   sources (attendance blob vs profiles). The matching expression index is
---   created below.
+--   sibling's faculty_id is a STAFF id, not a profiles.id (ground truth:
+--   20260615233000_session_feedback_substrate.sql).
+--
+--   profiles.email IS the canonical join to that value. Two production
+--   migrations already rely on it:
+--     · 20260720060000_scf_note_source_signal.sql — LEFT JOIN profiles p
+--       ON p.email = t.faculty_email
+--     · 20260722160000_att_reconcile_v2_multisignal_engine.sql — "by
+--       faculty_email -> profiles.email (session_feedback.faculty_id does NOT
+--       equal ...)"
+--
+--   So the email is RESOLVED ONCE, at cycle creation, and FROZEN into the
+--   snapshot as teacher_email (lower-cased). The compare then reads
+--   snapshot->>'teacher_email' directly — no runtime identity mapping, and a
+--   later change to someone's profile email cannot silently re-point a running
+--   cycle at a different person's voices.
+--
+--   RESIDUAL RISK, deliberately surfaced rather than hidden: the attendance
+--   blob is written as `staff.institution_email || staff.email` (see
+--   app/(routes)/academic/attendance/mark/page.tsx). If a team member's
+--   institution_email differs from their profiles.email, the drip rows carry
+--   the other address and this cycle will read zero voices. The creation form
+--   warns about exactly this before the cycle is opened: the picker's
+--   sessions_90d is computed with the same email join, so a mismatch shows as
+--   "0 sessions / 90d" at the moment of choosing the person.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -94,11 +114,11 @@ FROM (
    '{"classroom_practice":"CP-C1"}'::jsonb,
    '[{"setting":"ACAD","label":"OD/leave decisions on this person''s sessions: how many pending, and for how long"}]'::jsonb),
   ('CP-C2','Good work is defined upfront',1,
-   'This teacher tells us what good work looks like before we start — marks never feel like a surprise.',
+   'We are told what good work looks like before we start — marks never feel like a surprise.',
    '{"classroom_practice":"CP-C2"}',
    '[{"setting":"ACAD","label":"Rubric or success criteria published before the assessment window opens"}]'),
   ('CP-C3','Rules come with reasons',1,
-   'When this teacher sets a rule or says no, we are told the reason.',
+   'When a rule is set or a request is refused, we are told the reason.',
    '{"classroom_practice":"CP-C3"}',
    '[{"setting":"ACAD","label":"Session-feedback free-text: do learners report being told why?"}]'),
   -- Appreciation (group 2) — is effort noticed, and does noticing reach anyone?
@@ -107,42 +127,42 @@ FROM (
    '{"classroom_practice":"CP-A1"}',
    '[{"setting":"ACAD","label":"Time from request to first answer on this person''s approvals queue"}]'),
   ('CP-A2','Struggling learners get follow-up',2,
-   'When someone struggles in class, this teacher follows up with them afterwards.',
+   'When someone struggles in a session, they are followed up with afterwards.',
    '{"classroom_practice":"CP-A2"}',
    '[{"setting":"ACAD","label":"Low-understanding session-feedback rows and what happened next"}]'),
   ('CP-A3','Quiet learners re-engaged',2,
-   'This teacher notices quiet classmates and draws them back in, without embarrassing them.',
+   'Quiet classmates are noticed and drawn back in, without being embarrassed.',
    '{"classroom_practice":"CP-A3"}',
    '[{"setting":"ACAD","label":"Spread of participation across the register, not just the usual voices"}]'),
   -- Respect (group 4) — dignity. Never machine-scored; the sealed drip is the
   -- only honest source, which is why this pillar carries the most items.
   ('CP-RS1','No public punishment',4,
-   'Mistakes are corrected privately — nobody is shamed in front of the class.',
+   'Mistakes are corrected privately — nobody is shamed in front of everyone.',
    '{"classroom_practice":"CP-RS1"}',
    '[{"setting":"ACAD","label":"Human-observed only — the sealed learner drip is the sole source"}]'),
   ('CP-RS2','Everyone treated the same',4,
-   'This teacher treats every learner the same, whoever they are.',
+   'Every learner is treated the same, whoever they are.',
    '{"classroom_practice":"CP-RS2"}',
    '[{"setting":"ACAD","label":"Human-observed only — the sealed learner drip is the sole source"}]'),
   ('CP-RS3','Questions never cost marks',4,
-   'Asking a question or admitting confusion never costs marks or goodwill with this teacher.',
+   'Asking a question or admitting confusion never costs marks or goodwill.',
    '{"classroom_practice":"CP-RS3"}',
    '[{"setting":"ACAD","label":"Human-observed only — the sealed learner drip is the sole source"}]'),
-  ('CP-RS4','Easy to ask in class',4,
-   'It feels safe and easy to ask questions during this teacher''s class.',
+  ('CP-RS4','Easy to ask in session',4,
+   'It feels safe and easy to ask questions during the session.',
    '{"classroom_practice":"CP-RS4"}',
    '[{"setting":"ACAD","label":"Session-feedback checklist: doubts addressed, per session"}]'),
   ('CP-RS5','No running around for signatures',4,
-   'Getting a signature or a no-dues clearance from this teacher does not take repeated trips.',
+   'Getting a signature or a no-dues clearance does not take repeated trips.',
    '{"classroom_practice":"CP-RS5"}',
    '[{"setting":"ACAD","label":"Clearance/no-dues turnaround attributable to this person"}]'),
   -- Empowerment (group 5) — does the session belong to the learners in it?
-  ('CP-E1','Classes are engaging',5,
-   'This teacher''s classes keep me engaged — I am not just copying notes.',
+  ('CP-E1','Sessions are engaging',5,
+   'These sessions keep me engaged — I am not just copying notes.',
    '{"classroom_practice":"CP-E1"}',
    '[{"setting":"ACAD","label":"Session-feedback understanding band across this person''s sessions"}]'),
   ('CP-E2','Feedback causes change',5,
-   'When we give feedback about this class, something actually changes.',
+   'When we give feedback about these sessions, something actually changes.',
    '{"classroom_practice":"CP-E2"}',
    '[{"setting":"ACAD","label":"Improvement suggestions raised from these sessions that received a human verdict"}]')
 ) AS v(code, name, grp, description, mapping, evidence)
@@ -194,6 +214,7 @@ DECLARE
   v_owner_role   text;
   v_institution  uuid;
   v_re_audit     date;
+  v_owner_email  text;
   v_params       jsonb;
   v_cycle_id     uuid;
 BEGIN
@@ -227,12 +248,21 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT p.role, p.institution_id INTO v_owner_role, v_institution
+  SELECT p.role, p.institution_id, lower(nullif(trim(p.email), ''))
+    INTO v_owner_role, v_institution, v_owner_email
   FROM public.profiles p WHERE p.id = v_owner;
 
   IF v_owner_role IS NULL OR v_owner_role IN ('student', 'learner') THEN
     RETURN jsonb_build_object('success', false, 'reason', 'teacher_not_staff',
       'detail', 'A Classroom Practice cycle can only be opened on a team member.');
+  END IF;
+
+  -- The drip attributes every learner answer by email. Without one, no voice
+  -- could ever reach this cycle, so refuse at creation rather than shipping a
+  -- container that can only ever stay empty.
+  IF v_owner_email IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'teacher_email_missing',
+      'detail', 'This team member has no email on their profile, so learner answers could never be attributed to them.');
   END IF;
 
   -- Semester end is not knowable from here, so the default re-audit horizon is
@@ -285,6 +315,7 @@ BEGIN
        'version', '1.0',
        'setting_code', 'ACAD',
        'teacher_profile_id', v_owner,
+       'teacher_email', v_owner_email,   -- frozen: the drip's attribution key
        'parameters', v_params
      ),
      v_uid)
@@ -412,7 +443,6 @@ AS $$
 DECLARE
   v_uid         uuid := auth.uid();
   v_cycle       record;
-  v_owner       uuid;
   v_owner_email text;
   v_item_count  int;
   v_self_count  int;
@@ -442,8 +472,9 @@ BEGIN
     RETURN jsonb_build_object('locked', true, 'reason', 'forbidden');
   END IF;
 
-  v_owner := (v_cycle.parameter_catalog_snapshot ->> 'teacher_profile_id')::uuid;
-  SELECT p.email INTO v_owner_email FROM public.profiles p WHERE p.id = v_owner;
+  -- Frozen at cycle creation, so a later profile-email change cannot re-point a
+  -- running cycle at someone else's voices. Already lower-cased when frozen.
+  v_owner_email := v_cycle.parameter_catalog_snapshot ->> 'teacher_email';
 
   v_item_count := jsonb_array_length(
     COALESCE(v_cycle.parameter_catalog_snapshot -> 'parameters', '[]'::jsonb));
@@ -480,7 +511,7 @@ BEGIN
            percentile_cont(0.5) WITHIN GROUP (ORDER BY mi.score)::numeric AS med
     FROM public.carre_micro_impressions mi
     WHERE v_owner_email IS NOT NULL
-      AND lower(mi.teacher_email) = lower(v_owner_email)
+      AND lower(mi.teacher_email) = v_owner_email
       AND mi.score IS NOT NULL                      -- skips and unanswered offers never count
       AND mi.offered_at >= v_cycle.start_date::timestamptz
       AND mi.offered_at <  v_cutoff                 -- completed calendar weeks only
@@ -609,9 +640,14 @@ BEGIN
       AND v_snap ->> 'framework' = 'CARRE'
       AND v_snap ->> 'version' = '1.0'
       AND (v_snap ->> 'teacher_profile_id')::uuid = v_owner
+      AND v_snap ->> 'teacher_email' = lower(v_owner_email)
       AND jsonb_array_length(v_snap -> 'parameters') = 13,
-    format('catalog=%s params=%s', v_snap ->> 'catalog',
-           jsonb_array_length(v_snap -> 'parameters')));
+    format('catalog=%s email=%s params=%s', v_snap ->> 'catalog',
+           v_snap ->> 'teacher_email', jsonb_array_length(v_snap -> 'parameters')));
+
+  -- b04b: the compare must read the FROZEN email, not re-resolve it. Change the
+  -- owner's profile email and the running cycle must still find its voices.
+  UPDATE profiles SET email = 'rotated-' || email WHERE id = v_owner;
 
   INSERT INTO _r VALUES ('b05_window_always_closed',
     (SELECT participant_scoring_open = false AND module_key = 'classroom-practice'

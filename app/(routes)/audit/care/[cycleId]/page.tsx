@@ -324,7 +324,7 @@ export default function CultureAuditDetailPage({
                       variant="outline"
                       className="border-violet-300 bg-violet-50 text-[10px] text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
                     >
-                      {'Classroom Practice · teacher-level'}
+                      {'Classroom Practice · one person'}
                     </Badge>
                   )}
                 </div>

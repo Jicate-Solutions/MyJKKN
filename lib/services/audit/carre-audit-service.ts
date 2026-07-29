@@ -49,6 +49,12 @@ export interface CarreSnapshot {
   catalog?: 'CLASSROOM_PRACTICE' | null;
   /** Classroom Practice only: profiles.id of the person whose practice this is. */
   teacher_profile_id?: string | null;
+  /**
+   * Classroom Practice only: the address the SCF drip attributes answers by,
+   * resolved from profiles.email and FROZEN at cycle creation — a later profile
+   * email change cannot re-point a running cycle at someone else's voices.
+   */
+  teacher_email?: string | null;
 }
 
 export interface CarreScoreRow {
