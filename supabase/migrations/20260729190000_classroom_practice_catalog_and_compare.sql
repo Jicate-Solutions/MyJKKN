@@ -1,5 +1,5 @@
 -- ============================================================================
--- Classroom Practice — 13-item catalog + the teacher-side compare
+-- Classroom Practice — 13-item catalog + the owner-side compare
 -- 2026-07-29 · Director-ratified design, as revised by the 2026-07-29 pivot.
 --
 -- WHAT THIS IS
@@ -56,14 +56,17 @@
 --   later change to someone's profile email cannot silently re-point a running
 --   cycle at a different person's voices.
 --
---   RESIDUAL RISK, deliberately surfaced rather than hidden: the attendance
---   blob is written as `staff.institution_email || staff.email` (see
---   app/(routes)/academic/attendance/mark/page.tsx). If a team member's
---   institution_email differs from their profiles.email, the drip rows carry
---   the other address and this cycle will read zero voices. The creation form
---   warns about exactly this before the cycle is opened: the picker's
---   sessions_90d is computed with the same email join, so a mismatch shows as
---   "0 sessions / 90d" at the moment of choosing the person.
+--   MEASURED COVERAGE (live, 30d window, 2026-07-29): of 198 distinct
+--   session_feedback.faculty_email values, 189 match profiles.email
+--   case-insensitively (~95%) and only 134 match staff.email (~68%). So
+--   profiles.email is the correct source, by a wide margin — but ~5% of
+--   addresses still do not reconcile, and a Senior Learner in that tail reads
+--   ZERO drip voices until their email identities are reconciled.
+--
+--   That tail is visible BEFORE a cycle is opened rather than after: the
+--   creation form's picker computes sessions_90d with this same email join, so
+--   an unreconciled person shows as "0 sessions / 90d" at the moment of
+--   choosing them.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -100,11 +103,11 @@ FROM (
    '{"classroom_practice":"CP-C1"}'::jsonb,
    '[{"setting":"ACAD","label":"OD/leave decisions on this person''s sessions: how many pending, and for how long"}]'::jsonb),
   ('CP-C2','Good work is defined upfront',1,
-   'We are told what good work looks like before we start — marks never feel like a surprise.',
+   'This Senior Learner tells us what good work looks like before we start — marks never feel like a surprise.',
    '{"classroom_practice":"CP-C2"}',
    '[{"setting":"ACAD","label":"Rubric or success criteria published before the assessment window opens"}]'),
   ('CP-C3','Rules come with reasons',1,
-   'When a rule is set or a request is refused, we are told the reason.',
+   'When this Senior Learner sets a rule or says no, we are told the reason.',
    '{"classroom_practice":"CP-C3"}',
    '[{"setting":"ACAD","label":"Session-feedback free-text: do learners report being told why?"}]'),
   -- Appreciation (group 2) — is effort noticed, and does noticing reach anyone?
@@ -113,42 +116,42 @@ FROM (
    '{"classroom_practice":"CP-A1"}',
    '[{"setting":"ACAD","label":"Time from request to first answer on this person''s approvals queue"}]'),
   ('CP-A2','Struggling learners get follow-up',2,
-   'When someone struggles in a session, they are followed up with afterwards.',
+   'When someone struggles in a session, this Senior Learner follows up with them afterwards.',
    '{"classroom_practice":"CP-A2"}',
    '[{"setting":"ACAD","label":"Low-understanding session-feedback rows and what happened next"}]'),
   ('CP-A3','Quiet learners re-engaged',2,
-   'Quiet classmates are noticed and drawn back in, without being embarrassed.',
+   'This Senior Learner notices quiet classmates and draws them back in, without embarrassing them.',
    '{"classroom_practice":"CP-A3"}',
    '[{"setting":"ACAD","label":"Spread of participation across the register, not just the usual voices"}]'),
   -- Respect (group 4) — dignity. Never machine-scored; the sealed drip is the
   -- only honest source, which is why this pillar carries the most items.
   ('CP-RS1','No public punishment',4,
-   'Mistakes are corrected privately — nobody is shamed in front of everyone.',
+   'Mistakes are corrected privately — nobody is shamed in front of the class.',
    '{"classroom_practice":"CP-RS1"}',
    '[{"setting":"ACAD","label":"Human-observed only — the sealed learner drip is the sole source"}]'),
   ('CP-RS2','Everyone treated the same',4,
-   'Every learner is treated the same, whoever they are.',
+   'This Senior Learner treats every learner the same, whoever they are.',
    '{"classroom_practice":"CP-RS2"}',
    '[{"setting":"ACAD","label":"Human-observed only — the sealed learner drip is the sole source"}]'),
   ('CP-RS3','Questions never cost marks',4,
-   'Asking a question or admitting confusion never costs marks or goodwill.',
+   'Asking a question or admitting confusion never costs marks or goodwill with this Senior Learner.',
    '{"classroom_practice":"CP-RS3"}',
    '[{"setting":"ACAD","label":"Human-observed only — the sealed learner drip is the sole source"}]'),
-  ('CP-RS4','Easy to ask in session',4,
-   'It feels safe and easy to ask questions during the session.',
+  ('CP-RS4','Easy to ask in class',4,
+   'It feels safe and easy to ask questions during this Senior Learner''s class.',
    '{"classroom_practice":"CP-RS4"}',
    '[{"setting":"ACAD","label":"Session-feedback checklist: doubts addressed, per session"}]'),
   ('CP-RS5','No running around for signatures',4,
-   'Getting a signature or a no-dues clearance does not take repeated trips.',
+   'Getting a signature or a no-dues clearance from this Senior Learner does not take repeated trips.',
    '{"classroom_practice":"CP-RS5"}',
    '[{"setting":"ACAD","label":"Clearance/no-dues turnaround attributable to this person"}]'),
   -- Empowerment (group 5) — does the session belong to the learners in it?
   ('CP-E1','Sessions are engaging',5,
-   'These sessions keep me engaged — I am not just copying notes.',
+   'This Senior Learner''s sessions keep me engaged — I am not just copying notes.',
    '{"classroom_practice":"CP-E1"}',
    '[{"setting":"ACAD","label":"Session-feedback understanding band across this person''s sessions"}]'),
   ('CP-E2','Feedback causes change',5,
-   'When we give feedback about these sessions, something actually changes.',
+   'When we give feedback about this class, something actually changes.',
    '{"classroom_practice":"CP-E2"}',
    '[{"setting":"ACAD","label":"Improvement suggestions raised from these sessions that received a human verdict"}]')
 ) AS v(code, name, grp, description, mapping, evidence)
@@ -180,7 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_carre_micro_reveal_lower
 --    parameter that can only ever take one value is a lie in the signature.
 --
 --    module_key is 'classroom-practice', deliberately ABSENT from
---    CARRE_AUDITABLE_MODULES: teacher-level cycles must not appear on the
+--    CARRE_AUDITABLE_MODULES: per-Senior-Learner cycles must not appear on the
 --    module coverage map, which tracks platform modules.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_carre_create_classroom_audit(
@@ -408,7 +411,7 @@ COMMENT ON FUNCTION public.fn_carre_search_teachers IS
   'Team-member picker for the Classroom Practice form. Returns profiles.id (NOT staff.id — audit_cycles.lead_auditor_id references auth.users). Institution-scoped unless super admin/admin; min 2-char query; max 10 rows. sessions_90d reports session-feedback exhaust, the drip''s carrier.';
 
 -- ----------------------------------------------------------------------------
--- 5. fn_classroom_practice_compare — the teacher-side reveal.
+-- 5. fn_classroom_practice_compare — the owner-side reveal.
 --
 --    Returns the owner's own score beside the sealed learner median for the
 --    same item, and NOTHING ELSE: no identities, no comments, no per-learner
@@ -528,7 +531,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_classroom_practice_compare(uuid) FROM anon,
 GRANT  EXECUTE ON FUNCTION public.fn_classroom_practice_compare(uuid) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.fn_classroom_practice_compare IS
-  'Classroom Practice teacher-side reveal: the owner''s own score beside the sealed learner median per item, read from carre_micro_impressions (the SCF drip). Gated to the cycle owner or audit leadership. Three server-side invariants: self-score-first (locked until all items are self-scored), completed-calendar-weeks-only (offered_at < date_trunc(week, now()) — no live-updating medians), and k>=3 per item (below 3 voices the count is returned but the median is NULL). Aggregates only — never an identity, a comment, or a single answer.';
+  'Classroom Practice owner-side reveal: the owner''s own score beside the sealed learner median per item, read from carre_micro_impressions (the SCF drip). Gated to the cycle owner or audit leadership. Three server-side invariants: self-score-first (locked until all items are self-scored), completed-calendar-weeks-only (offered_at < date_trunc(week, now()) — no live-updating medians), and k>=3 per item (below 3 voices the count is returned but the median is NULL). Aggregates only — never an identity, a comment, or a single answer.';
 
 -- PostgREST schema-cache reload (new functions invisible to REST until this).
 NOTIFY pgrst, 'reload schema';

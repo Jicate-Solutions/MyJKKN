@@ -163,7 +163,7 @@ export default function CultureAuditDetailPage({
       : 20;
   const settingCode = isCarre ? snapshot?.setting_code : undefined;
 
-  // The teacher-side reveal reads the SCF drip, not the sealed participant
+  // The owner-side reveal reads the SCF drip, not the sealed participant
   // lane; every gate on it is server-side.
   const compareQ = useClassroomCompare(isClassroom ? cycleId : undefined);
 
@@ -324,7 +324,7 @@ export default function CultureAuditDetailPage({
                       variant="outline"
                       className="border-violet-300 bg-violet-50 text-[10px] text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
                     >
-                      {'Classroom Practice · one person'}
+                      {'Classroom Practice · one Senior Learner'}
                     </Badge>
                   )}
                 </div>

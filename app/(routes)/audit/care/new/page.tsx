@@ -103,7 +103,7 @@ const CATALOG_CARDS: Array<{
   },
   {
     value: 'CLASSROOM',
-    title: 'Classroom Practice — 13 items (one person)',
+    title: 'Classroom Practice — 13 items (one Senior Learner)',
     blurb:
       'One person’s own practice, scored by the learners in their sessions — one sealed question at a time, riding their session feedback.',
   },

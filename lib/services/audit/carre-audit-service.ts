@@ -43,7 +43,7 @@ export interface CarreSnapshot {
   parameters: CarreSnapshotParameter[];
   /**
    * Which catalog was frozen. Absent on a standard 25-item CARRE cycle;
-   * 'CLASSROOM_PRACTICE' on a 13-item teacher-level cycle, which renders a
+   * 'CLASSROOM_PRACTICE' on a 13-item per-Senior-Learner cycle, which renders a
    * different sheet (per-pillar medians, no /100 index, sealed compare card).
    */
   catalog?: 'CLASSROOM_PRACTICE' | null;
@@ -116,7 +116,7 @@ export interface CarreRpcDenial {
  * their sheet yet, which the form warns about rather than discovering later.
  */
 /**
- * One item of the teacher-side compare. `learner_median` is null whenever
+ * One item of the owner-side compare. `learner_median` is null whenever
  * `voices` is below the k-floor of 3 — the count is still reported so the owner
  * can see answers are accumulating without any single one being identifiable.
  */
@@ -215,7 +215,7 @@ export class CarreAuditService {
   }
 
   /**
-   * Opens a 13-item Classroom Practice cycle (the teacher-level catalog).
+   * Opens a 13-item Classroom Practice cycle (the per-Senior-Learner catalog).
    * `teacherId` omitted = open one on yourself; naming someone else requires
    * audit leadership and is refused server-side otherwise.
    */
@@ -237,7 +237,7 @@ export class CarreAuditService {
   }
 
   /**
-   * The teacher-side reveal: own score beside the sealed learner median per
+   * The owner-side reveal: own score beside the sealed learner median per
    * item, read from the SCF drip. Every gate is server-side — this call just
    * reports which lock is holding.
    */

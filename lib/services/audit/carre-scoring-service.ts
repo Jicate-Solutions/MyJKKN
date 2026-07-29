@@ -148,7 +148,7 @@ export function pillarFromCode(code: string): CarrePillar | null {
 }
 
 // ============================================================================
-// Classroom Practice (L3) — the 13-item teacher-level catalog.
+// Classroom Practice — the 13-item per-Senior-Learner catalog.
 //
 // Same 0–4 scale and same pillars as CARRE, but a DIFFERENT instrument: it
 // scores one person's own practice rather than an initiative. Deliberately has

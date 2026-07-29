@@ -45,7 +45,7 @@ export function useCreateCarreAudit() {
   });
 }
 
-/** Opens a 13-item Classroom Practice cycle (teacher-level catalog). */
+/** Opens a 13-item Classroom Practice cycle (the per-Senior-Learner catalog). */
 export function useCreateClassroomAudit() {
   const qc = useQueryClient();
   return useMutation({
@@ -74,7 +74,7 @@ export function useClassroomCompare(cycleId: string | undefined) {
 /** Type-ahead over team members for the Classroom Practice form. */
 export function useTeacherSearch(q: string) {
   return useQuery({
-    queryKey: [...carreAuditKeys.all, 'teacher-search', q] as const,
+    queryKey: [...carreAuditKeys.all, 'senior-learner-search', q] as const,
     queryFn: () => CarreAuditService.searchTeachers(q),
     enabled: q.trim().length >= 2,
     staleTime: 60 * 1000,
