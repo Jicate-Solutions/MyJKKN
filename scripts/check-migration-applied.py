@@ -462,24 +462,38 @@ def extract_grants(body):
                     # PUBLIC grant, and a NULL acl means the Postgres default —
                     # which for functions is EXECUTE TO PUBLIC. Skipping PUBLIC
                     # would hide the exact trap these revokes exist to close.
+                    #
+                    # to_regprocedure() (NOT ::regprocedure) is load-bearing: the
+                    # cast RAISES 42883 for an absent function, and since every
+                    # check is batched into one `union all`, one missing object
+                    # aborts the WHOLE query — the gate then reports an operational
+                    # error instead of the gap it exists to find. to_regprocedure()
+                    # returns NULL instead, the row drops out, and coalesce gives
+                    # false. Absence is still reported, by the object-existence
+                    # check this same migration emits for the CREATE statement.
                     expr = (
                         "coalesce((select coalesce(array_to_string(p.proacl, ','), '=X/owner') "
-                        f"~ '(^|,)=[a-zA-Z]*X' from pg_proc p where p.oid = {ident}::regprocedure), false) = {want}"
+                        f"~ '(^|,)=[a-zA-Z]*X' from pg_proc p where p.oid = to_regprocedure({ident})), false) = {want}"
                     )
                 else:
+                    # Same reason: has_function_privilege(role, text, ...) raises
+                    # 42883 when the function is absent. Resolve through pg_proc
+                    # via to_regprocedure() so a missing object yields no row.
                     expr = (
-                        f"coalesce((select has_function_privilege({lit(role)}, {ident}, 'EXECUTE')), false) = {want}"
+                        f"coalesce((select has_function_privilege({lit(role)}, p.oid, 'EXECUTE') "
+                        f"from pg_proc p where p.oid = to_regprocedure({ident})), false) = {want}"
                     )
             else:
                 ident = lit(f"{schema}.{obj}")
                 if is_public:
                     expr = (
                         "coalesce((select array_to_string(c.relacl, ',') ~ '(^|,)=[a-zA-Z]' "
-                        f"from pg_class c where c.oid = {ident}::regclass), false) = {want}"
+                        f"from pg_class c where c.oid = to_regclass({ident})), false) = {want}"
                     )
                 else:
                     expr = (
-                        f"coalesce((select has_table_privilege({lit(role)}, {ident}, {lit(priv)})), false) = {want}"
+                        f"coalesce((select has_table_privilege({lit(role)}, c.oid, {lit(priv)}) "
+                        f"from pg_class c where c.oid = to_regclass({ident})), false) = {want}"
                     )
             checks.append(
                 Check(
