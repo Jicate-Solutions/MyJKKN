@@ -45,7 +45,11 @@ export function CoverageClient() {
         summary={summaryQuery.data}
         isLoading={summaryQuery.isLoading}
       />
-      <CoverageFilterBar filters={filters} onChange={handleChange} />
+      <CoverageFilterBar
+        filters={filters}
+        onChange={handleChange}
+        canExport={canExport}
+      />
       <CoverageTable filters={filters} canExport={canExport} />
     </div>
   );
