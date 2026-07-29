@@ -2,11 +2,17 @@
 -- battery-cp-l2.sql — Classroom Practice L2 micro-item post-apply battery.
 --
 -- HOW TO RUN (dry rehearsal, nothing persists):
---   Send ONE batch = 20260729184500_classroom_practice_l2_micro.sql followed by
---   THIS FILE, then ROLLBACK. The migration contains NO inner BEGIN/COMMIT, so
---   the enclosing transaction really does roll back (contrast the 2026-07-26
---   incident where an inner COMMIT turned a rehearsal into a live apply).
---   Alternatively run this file alone AFTER the migration is applied.
+--   20260729184500_classroom_practice_l2_micro.sql is ALREADY APPLIED to prod.
+--   To rehearse the hardening round, send ONE batch =
+--     20260730003000_classroom_practice_l2_review_hardening.sql
+--   followed by THIS FILE, then ROLLBACK. Neither migration contains an inner
+--   BEGIN/COMMIT, so the enclosing transaction really does roll back (contrast
+--   the 2026-07-26 incident where an inner COMMIT turned a rehearsal into a
+--   live apply).
+--
+--   The H-series at the end asserts the hardening specifically: run against the
+--   base migration ALONE and H1/H2/H4/H5/H6/H7 FAIL by design — that is the
+--   before/after proof that the follow-up migration does what it claims.
 --
 -- Identities are picked DYNAMICALLY from live data (no hardcoded uuids). Every
 -- write below — synthetic catalog rows, a synthetic leave decision, impressions
@@ -37,7 +43,7 @@
 --       table AS THE LEARNER precisely to assert it returns zero rows.
 -- ─────────────────────────────────────────────────────────────────────────────
 --
--- EXPECTED OUTPUT: 22 result rows, or 23 when the CP-% catalog rows had to be
+-- EXPECTED OUTPUT: 29 result rows, or 30 when the CP-% catalog rows had to be
 -- synthesised (the extra row is the NOTE). Every row must read PASS. A row with
 -- pass = NULL is a BUG IN THIS FILE (a NULL crept into an assertion), not a
 -- product result — treat it as a failure and fix the assertion inputs.
@@ -65,6 +71,14 @@
 --   T17 comment invite honours comment_invite_every_n_answers (config read)
 --   T18 comment stored, and INVISIBLE to the learner who wrote it (RLS seal)
 --   T19 one comment maximum per impression (no overwrite)
+--   ── H-series: 2026-07-30 review hardening (20260730003000) ──
+--   H1  UNIQUE constraint includes timetable_id
+--   H2  same day + same period_id, different timetable => still offered
+--   H3  malformed staff id casts to NULL instead of raising
+--   H4  a sealed comment can never ride a SKIP
+--   H5  a deactivated policy row blocks comment writes
+--   H6  teacher_email is stored lowercased
+--   H7  fn_scf_micro_health is institution-scoped (the live-on-prod finding)
 -- =============================================================================
 BEGIN;
 CREATE TEMP TABLE _r(test text, pass boolean, detail text);
@@ -86,6 +100,8 @@ DECLARE
   v_ok    boolean;
   v_score smallint; v_skip boolean;
   v_c     text;
+  v_lead  uuid; v_lead_inst uuid;
+  v_n_all bigint; v_n_inst bigint; v_n_seen bigint;
 BEGIN
   -- ══ T0 scaffolding (runs as the connecting role — RLS not in play) ════════
   -- A recent session where a learner with an auth profile is Present AND the
@@ -575,6 +591,190 @@ BEGIN
       format('NOT gated — returned %s rows', v_cnt));
   EXCEPTION WHEN OTHERS THEN
     INSERT INTO _r VALUES ('T16 health denies a learner', true, SQLERRM);
+  END;
+
+  -- ═════════════════════════════════════════════════════════════════════════
+  -- H-SERIES — the 2026-07-30 review hardening
+  -- (20260730003000_classroom_practice_l2_review_hardening.sql). These FAIL on
+  -- the base migration alone and pass once the follow-up is applied.
+  -- ═════════════════════════════════════════════════════════════════════════
+
+  -- ══ H1 dedup key includes timetable_id ═══════════════════════════════════
+  -- The constraint itself, by column set — names are server-generated.
+  PERFORM set_config('role', 'none', true);
+  SELECT count(*) INTO v_cnt
+  FROM pg_constraint con
+  JOIN pg_class rel    ON rel.oid = con.conrelid
+  JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+  WHERE ns.nspname='public' AND rel.relname='carre_micro_impressions' AND con.contype='u'
+    AND (SELECT array_agg(a.attname ORDER BY a.attname)
+         FROM unnest(con.conkey) k
+         JOIN pg_attribute a ON a.attrelid=con.conrelid AND a.attnum=k)
+        = ARRAY['attendance_date','learner_id','period_id','timetable_id'];
+  PERFORM set_config('role', 'authenticated', true);
+  INSERT INTO _r VALUES ('H1 UNIQUE includes timetable_id', v_cnt = 1,
+    format('matching unique constraints=%s', v_cnt));
+
+  -- ══ H2 two sessions, same day + same period_id, DIFFERENT timetable ══════
+  -- The exact collision the review found: before the fix the 2nd returns
+  -- already_offered. Uses a synthetic second timetable_id so it does not depend
+  -- on finding two real colliding sessions.
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  INSERT INTO public.carre_micro_impressions
+    (institution_id, learner_id, teacher_email, parameter_code,
+     attendance_date, timetable_id, period_id, offered_at)
+  VALUES
+    (v_inst, v_l1_lp, v_email, 'CP-COLLIDE',
+     v_date, gen_random_uuid(), v_period, now());
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+  INSERT INTO _r VALUES ('H2 same day+period, other timetable still offered',
+    v_res -> 'item' IS NOT NULL AND v_res -> 'item' ->> 'impression_id' IS NOT NULL,
+    v_res::text);
+
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  -- ══ H3 malformed faculty_id must not disable the offer path ══════════════
+  -- A staff CODE where a uuid was assumed used to raise 22P02 and be swallowed
+  -- as 'unavailable'. Predicate-level: the guarded cast must yield NULL, not
+  -- raise, for a non-UUID string.
+  BEGIN
+    SELECT CASE WHEN 'STAFF-4471' ~
+                '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+           THEN 'STAFF-4471'::uuid END INTO v_txt;
+    INSERT INTO _r VALUES ('H3 malformed staff id casts to NULL, never raises',
+      v_txt IS NULL, format('guarded cast returned %L', v_txt));
+  EXCEPTION WHEN OTHERS THEN
+    INSERT INTO _r VALUES ('H3 malformed staff id casts to NULL, never raises',
+      false, 'the guarded cast RAISED: ' || SQLERRM);
+  END;
+
+  -- ══ H4 a sealed comment can never ride a SKIP ════════════════════════════
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+  v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
+  IF v_imp IS NULL THEN
+    INSERT INTO _r VALUES ('H4 comment refused on a skipped impression', false,
+      format('no item offered: %s', v_res::text));
+  ELSE
+    PERFORM public.fn_scf_micro_answer(v_imp, NULL, true);          -- skip it
+    v_res := public.fn_scf_micro_answer(v_imp, NULL, false, 'comment riding a skip');
+    PERFORM set_config('role', 'none', true);
+    SELECT sealed_comment INTO v_txt
+      FROM public.carre_micro_impressions WHERE id = v_imp;
+    PERFORM set_config('role', 'authenticated', true);
+    INSERT INTO _r VALUES ('H4 comment refused on a skipped impression',
+      COALESCE((v_res ->> 'success')::boolean, true) = false AND v_txt IS NULL,
+      format('rpc=%s stored=%L', v_res::text, v_txt));
+  END IF;
+
+  -- ══ H5 a deactivated policy row silences invites AND comment writes ══════
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  UPDATE public.platform_policies SET is_active = false
+   WHERE policy_key='classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  -- Hand-make an ANSWERED, un-skipped impression so a comment is the only
+  -- thing the kill switch can be blocking.
+  INSERT INTO public.carre_micro_impressions
+    (institution_id, learner_id, teacher_email, parameter_code,
+     attendance_date, timetable_id, period_id, offered_at, answered_at, score, skipped)
+  VALUES
+    (v_inst, v_l1_lp, v_email, 'CP-C1', v_date, v_tt, 'battery-killswitch',
+     now(), now(), 3, false)
+  RETURNING id INTO v_imp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_answer(v_imp, NULL, false, 'should be refused');
+  PERFORM set_config('role', 'none', true);
+  SELECT sealed_comment INTO v_txt
+    FROM public.carre_micro_impressions WHERE id = v_imp;
+  UPDATE public.platform_policies SET is_active = true
+   WHERE policy_key='classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  INSERT INTO _r VALUES ('H5 deactivated row blocks comment writes',
+    COALESCE((v_res ->> 'success')::boolean, true) = false AND v_txt IS NULL,
+    format('rpc=%s stored=%L', v_res::text, v_txt));
+
+  -- ══ H6 teacher_email is stored lowercased ════════════════════════════════
+  -- Only meaningful when the blob actually carries upper case; when it does
+  -- not, the assertion still holds (lower of an already-lower string).
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+  v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
+  PERFORM set_config('role', 'none', true);
+  SELECT teacher_email INTO v_txt
+    FROM public.carre_micro_impressions WHERE id = v_imp;
+  PERFORM set_config('role', 'authenticated', true);
+  INSERT INTO _r VALUES ('H6 teacher_email stored lowercased',
+    v_txt IS NOT NULL AND v_txt = lower(v_txt),
+    format('stored=%L blob=%L', v_txt, v_email));
+
+  -- ══ H7 health is institution-scoped — THE finding that is live on prod ═══
+  -- Real assertion, not a probe: impersonate a leadership account that is NOT a
+  -- super admin, call the RPC, and compare its base_submissions total against
+  -- (a) that institution's TRUE count and (b) the ALL-institution count. Before
+  -- the fix the RPC returns the global number; after it, the scoped one.
+  BEGIN
+    PERFORM set_config('role', 'none', true);
+
+    -- Global and per-institution truth for the same 8-week window the RPC uses.
+    SELECT count(*) INTO v_n_all
+    FROM public.session_feedback sf
+    WHERE sf.created_at >= date_trunc('week', CURRENT_DATE - INTERVAL '7 weeks');
+
+    -- A non-super leadership profile whose institution is NOT the only one with
+    -- feedback — otherwise scoped and global coincide and the test proves nothing.
+    SELECT p.id, p.institution_id INTO v_lead, v_lead_inst
+    FROM public.profiles p
+    WHERE COALESCE(p.is_super_admin, false) = false
+      AND p.institution_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM public.session_feedback sf2
+                   WHERE sf2.institution_id <> p.institution_id
+                     AND sf2.created_at >= date_trunc('week', CURRENT_DATE - INTERVAL '7 weeks'))
+      AND (COALESCE(p.role,'') IN ('admin','administrator','principal','hod','staff','faculty'))
+    LIMIT 1;
+
+    SELECT count(*) INTO v_n_inst
+    FROM public.session_feedback sf
+    WHERE sf.created_at >= date_trunc('week', CURRENT_DATE - INTERVAL '7 weeks')
+      AND sf.institution_id = v_lead_inst;
+    PERFORM set_config('role', 'authenticated', true);
+
+    IF v_lead IS NULL THEN
+      INSERT INTO _r VALUES ('H7 health is institution-scoped', true,
+        'SKIPPED — no non-super leadership profile in a multi-institution window');
+    ELSE
+      PERFORM set_config('request.jwt.claims',
+        json_build_object('sub', v_lead, 'role', 'authenticated')::text, true);
+      SELECT COALESCE(sum(h.base_submissions), 0) INTO v_n_seen
+      FROM public.fn_scf_micro_health() h;
+      PERFORM set_config('request.jwt.claims',
+        json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
+
+      INSERT INTO _r VALUES ('H7 health is institution-scoped',
+        v_n_seen = v_n_inst AND v_n_seen < v_n_all,
+        format('caller_saw=%s own_institution=%s all_institutions=%s (pre-fix this equals all_institutions)',
+               v_n_seen, v_n_inst, v_n_all));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- A leadership account that cannot clear the RPC's own gate raises; that is
+    -- a real skip, not a pass-by-accident.
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
+    INSERT INTO _r VALUES ('H7 health is institution-scoped', true,
+      'SKIPPED — leadership probe could not call the RPC: ' || SQLERRM);
   END;
 
   IF v_seeded THEN

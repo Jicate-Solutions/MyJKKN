@@ -16,8 +16,13 @@ import {
 
 export const cpMicroQueryKeys = {
   all: ['cp-micro'] as const,
-  item: (attendanceDate: string, periodId: string) =>
-    [...cpMicroQueryKeys.all, 'item', attendanceDate, periodId] as const,
+  // timetableId is part of the key because it is part of the SESSION identity:
+  // a learner can sit two different classes in the same period slot on one day.
+  // Without it, and with staleTime:Infinity below, the second dialog would be
+  // served the first session's cached item and answering would hit an
+  // already-answered impression.
+  item: (attendanceDate: string, timetableId: string, periodId: string) =>
+    [...cpMicroQueryKeys.all, 'item', attendanceDate, timetableId, periodId] as const,
 };
 
 /** The single item to offer for this session, or null to render nothing. */
@@ -28,7 +33,7 @@ export function useMicroItem(
   enabled: boolean,
 ) {
   return useQuery<MicroItem | null>({
-    queryKey: cpMicroQueryKeys.item(attendanceDate, periodId),
+    queryKey: cpMicroQueryKeys.item(attendanceDate, timetableId, periodId),
     queryFn: () =>
       ClassroomPracticeMicroService.nextItem(attendanceDate, timetableId, periodId),
     enabled: enabled && !!attendanceDate && !!timetableId && !!periodId,

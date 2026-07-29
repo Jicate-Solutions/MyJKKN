@@ -18,7 +18,7 @@
 //     the thanks state is already on screen before it arrives, so a learner who
 //     ignores it loses nothing.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { CheckCircle2, Lock } from 'lucide-react';
 import {
   useAnswerMicroItem,
@@ -61,6 +61,8 @@ export function ClassroomPracticeMicro({
   const sealedComment = useSealedComment();
   const [phase, setPhase] = useState<Phase>('asking');
   const [text, setText] = useState('');
+  const sentRef = useRef(false);
+  const commentSentRef = useRef(false);
 
   // Zero footprint while we do not yet know, and forever if there is nothing
   // to ask. No spinner: this must never look like something the learner is
@@ -73,6 +75,12 @@ export function ClassroomPracticeMicro({
   // A comment invite, if the server grants one, arrives after the fact and
   // simply replaces the thanks line.
   const send = (score: number | null, skip: boolean) => {
+    // In-flight guard. A rapid double-tap would otherwise fire twice on the same
+    // impression; the second is refused server-side by answer-once, so it is
+    // harmless, but it is a wasted round trip. A ref rather than isPending
+    // because two taps in the same frame both read a stale isPending.
+    if (sentRef.current) return;
+    sentRef.current = true;
     setPhase('thanks');
     answer
       .mutateAsync({ impressionId: item.impression_id, score, skip })
@@ -85,6 +93,8 @@ export function ClassroomPracticeMicro({
   };
 
   const sendComment = () => {
+    if (commentSentRef.current) return;   // same double-tap guard as send()
+    commentSentRef.current = true;
     const body = text.trim();
     setPhase('thanks');
     if (!body) return;
