@@ -60,6 +60,18 @@ function RequestTimeline({ requestId }: { requestId: string }) {
           <span className='text-muted-foreground'>
             {format(new Date(a.created_at), 'dd MMM yyyy, HH:mm')}
           </span>
+          {/* Name/email are SNAPSHOTS from the moment of the action, not a live
+              profile join — so the trail still reads correctly after a rename,
+              an email change, or the account being deactivated. */}
+          {a.actor_name && <span className='font-medium'>{a.actor_name}</span>}
+          {a.actor_email && (
+            <span className='text-muted-foreground'>({a.actor_email})</span>
+          )}
+          {a.actor_is_super_admin && (
+            <Badge variant='secondary' className='text-[10px]'>
+              super admin
+            </Badge>
+          )}
           {a.actor_role_name && (
             <span className='text-muted-foreground'>· {a.actor_role_name}</span>
           )}
@@ -77,8 +89,11 @@ export function CancellationQueueClient() {
 
   // usePermissions exposes `userProfile`, not `user`. profiles.id IS auth.uid()
   // in this codebase, so it is the right thing to compare requested_by against.
-  const { canAccess, isSuperAdmin, userProfile } = usePermissions();
-  const canApprove = isSuperAdmin || canAccess('billing.receipts', 'cancel.approve');
+  const { isSuperAdmin, userProfile } = usePermissions();
+  // Super admin ONLY — mirrors fn_act_on_receipt_cancellation, which gates on
+  // is_super_admin() and cannot be delegated through Role Management. There is
+  // no cancel.approve permission key to check.
+  const canApprove = isSuperAdmin;
 
   const { data: requests = [], isLoading } = useReceiptCancelRequests({ status });
   const act = useActOnReceiptCancellation();
@@ -208,7 +223,7 @@ export function CancellationQueueClient() {
                         )}
                         {isPending && canApprove && isOwnRequest && (
                           <span className='text-muted-foreground text-xs'>
-                            Your own request — another approver must act
+                            Your own request — another super admin must act
                           </span>
                         )}
                         {isPending && isOwnRequest && (
@@ -228,6 +243,59 @@ export function CancellationQueueClient() {
                       <TableRow>
                         <TableCell colSpan={8} className='bg-muted/40'>
                           <div className='space-y-3 p-2'>
+                            <div className='grid gap-3 text-sm sm:grid-cols-2'>
+                              <div>
+                                <p className='text-muted-foreground text-xs uppercase'>
+                                  Raised by
+                                </p>
+                                <p className='font-medium'>
+                                  {r.requested_by_name ?? '—'}
+                                </p>
+                                <p className='text-muted-foreground'>
+                                  {r.requested_by_email ?? '—'}
+                                  {r.requested_by_role ? ` · ${r.requested_by_role}` : ''}
+                                </p>
+                                <p className='text-muted-foreground'>
+                                  {format(new Date(r.requested_at), 'dd MMM yyyy, HH:mm')}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className='text-muted-foreground text-xs uppercase'>
+                                  Decided by
+                                </p>
+                                {r.decided_at ? (
+                                  <>
+                                    <p className='flex items-center gap-2 font-medium'>
+                                      {r.decided_by_name ?? '—'}
+                                      {r.decided_by_is_super_admin && (
+                                        <Badge variant='secondary' className='text-[10px]'>
+                                          super admin
+                                        </Badge>
+                                      )}
+                                    </p>
+                                    <p className='text-muted-foreground'>
+                                      {r.decided_by_email ?? '—'}
+                                      {r.decided_by_role ? ` · ${r.decided_by_role}` : ''}
+                                      {r.decided_by_designation
+                                        ? ` · ${r.decided_by_designation}`
+                                        : ''}
+                                    </p>
+                                    <p className='text-muted-foreground'>
+                                      {format(new Date(r.decided_at), 'dd MMM yyyy, HH:mm')}
+                                    </p>
+                                    {r.decision_notes && (
+                                      <p className='mt-1'>“{r.decision_notes}”</p>
+                                    )}
+                                  </>
+                                ) : (
+                                  <p className='text-muted-foreground'>
+                                    Awaiting a super admin
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
                             <RequestTimeline requestId={r.id} />
                             {isPending && canApprove && !isOwnRequest && (
                               <div className='max-w-md space-y-1'>

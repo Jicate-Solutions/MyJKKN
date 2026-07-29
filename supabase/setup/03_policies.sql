@@ -8217,9 +8217,7 @@ CREATE POLICY billing_receipt_cancel_requests_select
   ON public.billing_receipt_cancel_requests FOR SELECT
   USING (
     is_super_admin()
-    OR is_admin()
     OR requested_by = auth.uid()
-    OR (user_has_permission('billing.receipts.cancel.approve') AND role_has_institution_access(institution_id))
     OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
   );
 
@@ -8231,9 +8229,7 @@ CREATE POLICY billing_receipt_cancel_actions_select
     WHERE r.id = request_id
       AND (
         is_super_admin()
-        OR is_admin()
         OR r.requested_by = auth.uid()
-        OR (user_has_permission('billing.receipts.cancel.approve') AND role_has_institution_access(r.institution_id))
         OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(r.institution_id))
       )
   ));

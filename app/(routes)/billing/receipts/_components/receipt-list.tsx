@@ -596,9 +596,10 @@ export function ReceiptList({
               Request cancellation of {receiptToCancel?.receipt_number}
             </DialogTitle>
             <DialogDescription>
-              This sends the receipt for approval. It stays valid and the bill
-              stays paid until an approver approves the request — only then is
-              the receipt cancelled and the bill reverted.
+              This sends the receipt to a <strong>super admin</strong> for
+              approval. It stays valid and the bill stays paid until they
+              approve — only then is the receipt cancelled and the bill
+              reverted.
             </DialogDescription>
           </DialogHeader>
 
