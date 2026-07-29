@@ -88,11 +88,12 @@ const HEADERS: Array<{ match: RegExp; header: InstitutionPdfHeader }> = [
 			// CET office seal + principal stamp for BoS call letters. Shipped
 			// defaults — either can be replaced from /bos/email-settings
 			// (bos_letterhead_assets) without a deploy.
-			// NOTE: the signature scan carries "PRINCIPAL / J.K.K.NATTRAJA COLLEGE
-			// … / KUMARAPALAYAM" baked in, which is why the call-letter renderer
-			// drops its own typed designation line when this image is present.
+			// NOTE: the signature scan carries the squiggle PLUS "Dr.C.KATHIRVEL,
+			// M.E.,Ph.D., PRINCIPAL / J.K.K.Natraja College … / KUMARAPALAYAM"
+			// baked in, which is why the call-letter renderer drops its own typed
+			// designation line when this image is present.
 			sealImage: '/logo/engg/jkkncet_seal.png',
-			signImage: '/logo/engg/jkkncet_proncipla_sign.png',
+			signImage: '/logo/engg/jkkncet_principal_sign.png',
 			// Green "JKKN College of Engineering & Technology" mark. Save the PNG
 			// at this path (see public/logo/engg/); until then the banner renders
 			// text-only (addImage failures are caught).

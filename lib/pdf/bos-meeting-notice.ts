@@ -387,7 +387,7 @@ function buildCetCallLetterHtml(
 
   const closingHtml =
     bodyFormat?.pdf_closing_html?.trim() ||
-    `<p class="closing">We are expecting your presence and valuable suggestions.</p>`;
+    `<p class="closing">We are expecting your presence and valuable inputs and suggestions for improvement.</p>`;
 
   // Sign-off is three stacked parts so the signature image can sit where a real
   // one does — between the valediction and the typed designation:
@@ -493,9 +493,10 @@ function buildCetCallLetterHtml(
      seal parks right next to the stamp rather than at the far-left margin. */
   .sig-block { flex: 0 0 auto; text-align: right; line-height: 1.45; }
   .sig-block p { margin: 0; }
-  /* Sized so the stamp's baked-in "PRINCIPAL / college / town" lines stay
-     legible — it is the designation line, not just a squiggle. */
-  .sig-img { display: block; margin: 2pt 0 0 auto; max-width: 210pt; max-height: 76pt; object-fit: contain; }
+  /* Sized so the scan's baked-in name + "PRINCIPAL / college / town" lines stay
+     legible — it carries the designation, not just a squiggle, and is roughly
+     3:2 so the height cap is what binds. */
+  .sig-img { display: block; margin: 2pt 0 0 auto; max-width: 210pt; max-height: 104pt; object-fit: contain; }
 </style>
 </head>
 <body>
