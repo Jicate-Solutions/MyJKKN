@@ -67,8 +67,7 @@ describe('checkRegistrationWindow', () => {
     const result = checkRegistrationWindow(
       {
         status: 'draft',
-        registration_open_date: '2026-07-01T00:00:00Z',
-        registration_close_date: '2026-08-30T00:00:00Z',
+        registration_open_date: '2026-08-05T00:00:00Z',
       },
       NOW
     );

@@ -27,6 +27,7 @@ function formatLongDate(iso: string): string {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
+    timeZone: 'Asia/Kolkata',
   });
 }
 
