@@ -43,7 +43,7 @@
 --       table AS THE LEARNER precisely to assert it returns zero rows.
 -- ─────────────────────────────────────────────────────────────────────────────
 --
--- EXPECTED OUTPUT: 29 result rows, or 30 when the CP-% catalog rows had to be
+-- EXPECTED OUTPUT: 30 result rows, or 31 when the CP-% catalog rows had to be
 -- synthesised (the extra row is the NOTE). Every row must read PASS. A row with
 -- pass = NULL is a BUG IN THIS FILE (a NULL crept into an assertion), not a
 -- product result — treat it as a failure and fix the assertion inputs.
@@ -72,9 +72,10 @@
 --   T18 comment stored, and INVISIBLE to the learner who wrote it (RLS seal)
 --   T19 one comment maximum per impression (no overwrite)
 --   ── H-series: 2026-07-30 review hardening (20260730003000) ──
+--   H0  learner identity re-established after T15/T16 (GUC-rollback trap)
 --   H1  UNIQUE constraint includes timetable_id
 --   H2  same day + same period_id, different timetable => still offered
---   H3  malformed staff id casts to NULL instead of raising
+--   H3  malformed staff id in the REAL blob does not disable the offer
 --   H4  a sealed comment can never ride a SKIP
 --   H5  a deactivated policy row blocks comment writes
 --   H6  teacher_email is stored lowercased
@@ -102,6 +103,7 @@ DECLARE
   v_c     text;
   v_lead  uuid; v_lead_inst uuid;
   v_n_all bigint; v_n_inst bigint; v_n_seen bigint;
+  v_blob  jsonb;
 BEGIN
   -- ══ T0 scaffolding (runs as the connecting role — RLS not in play) ════════
   -- A recent session where a learner with an auth profile is Present AND the
@@ -599,6 +601,24 @@ BEGIN
   -- the base migration alone and pass once the follow-up is applied.
   -- ═════════════════════════════════════════════════════════════════════════
 
+  -- ⚠ RE-ESTABLISH IDENTITY. set_config(..., is_local := true) is
+  -- TRANSACTION-scoped, and a caught plpgsql exception rolls back its
+  -- subtransaction — INCLUDING GUC changes made inside it. T16 raises BY DESIGN
+  -- (the health RPC must reject a learner), so T16's own switch to the learner
+  -- identity is reverted when its handler catches, leaving T15's SUPER ADMIN in
+  -- place. In the 2026-07-30 round that made H2/H4/H6 call the RPC as a super
+  -- admin and fail on the role gate with 'learners_only' — three "product
+  -- failures" that were one scaffolding bug. Never assume an identity set inside
+  -- a BEGIN..EXCEPTION block survives it.
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+
+  INSERT INTO _r VALUES ('H0 learner identity re-established after T15/T16',
+    COALESCE(get_current_user_role(), '') IN ('student','learner'),
+    format('role now = %L (must be student/learner, NOT the super admin T15 left behind)',
+           get_current_user_role()));
+
   -- ══ H1 dedup key includes timetable_id ═══════════════════════════════════
   -- The constraint itself, by column set — names are server-generated.
   PERFORM set_config('role', 'none', true);
@@ -641,19 +661,51 @@ BEGIN
   PERFORM set_config('role', 'authenticated', true);
 
   -- ══ H3 malformed faculty_id must not disable the offer path ══════════════
-  -- A staff CODE where a uuid was assumed used to raise 22P02 and be swallowed
-  -- as 'unavailable'. Predicate-level: the guarded cast must yield NULL, not
-  -- raise, for a non-UUID string.
-  BEGIN
-    SELECT CASE WHEN 'STAFF-4471' ~
-                '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-           THEN 'STAFF-4471'::uuid END INTO v_txt;
-    INSERT INTO _r VALUES ('H3 malformed staff id casts to NULL, never raises',
-      v_txt IS NULL, format('guarded cast returned %L', v_txt));
-  EXCEPTION WHEN OTHERS THEN
-    INSERT INTO _r VALUES ('H3 malformed staff id casts to NULL, never raises',
-      false, 'the guarded cast RAISED: ' || SQLERRM);
-  END;
+  -- Tests the REAL FUNCTION against a genuinely malformed blob, not a
+  -- re-implementation of the guard.
+  --
+  -- The 2026-07-30 version of this test asserted the idiom with a LITERAL
+  -- ('STAFF-4471'::uuid inside a CASE) and "failed". That was a test artifact,
+  -- not a product defect: PostgreSQL constant-folds a literal cast at PLAN time,
+  -- before CASE evaluation, so the literal form raises while the product's form
+  -- — where the value comes from a jsonb expression and cannot be folded — does
+  -- not. Verified on PostgreSQL 16: literal RAISES, jsonb-sourced returns NULL.
+  -- So this now drives the actual RPC: put a staff CODE in the blob and require
+  -- an item to still be offered.
+  PERFORM set_config('role', 'none', true);
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  -- Save the real blob, then corrupt just this period's faculty_id. Rolls back.
+  SELECT sa.attendance_data INTO v_blob
+  FROM public.student_attendance sa
+  WHERE sa.timetable_id = v_tt AND sa.attendance_date = v_date;
+
+  UPDATE public.student_attendance sa
+     SET attendance_data = jsonb_set(
+           sa.attendance_data,
+           ARRAY[v_period, 'assigned_faculty', 'faculty_id'],
+           '"STAFF-4471"'::jsonb, true)
+   WHERE sa.timetable_id = v_tt AND sa.attendance_date = v_date;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+  v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
+
+  PERFORM set_config('role', 'none', true);
+  SELECT teacher_staff_id::text INTO v_txt
+    FROM public.carre_micro_impressions WHERE id = v_imp;
+  -- restore the untouched blob
+  UPDATE public.student_attendance sa
+     SET attendance_data = v_blob
+   WHERE sa.timetable_id = v_tt AND sa.attendance_date = v_date;
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  INSERT INTO _r VALUES ('H3 malformed staff id does not disable the offer',
+    v_imp IS NOT NULL
+    AND COALESCE(v_res ->> 'reason','') <> 'unavailable'
+    AND v_txt IS NULL,
+    format('offered=%s reason=%s teacher_staff_id=%L (must be NULL, not a raise)',
+           (v_imp IS NOT NULL), COALESCE(v_res ->> 'reason','(item)'), v_txt));
 
   -- ══ H4 a sealed comment can never ride a SKIP ════════════════════════════
   PERFORM set_config('role', 'none', true);
@@ -719,9 +771,14 @@ BEGIN
   SELECT teacher_email INTO v_txt
     FROM public.carre_micro_impressions WHERE id = v_imp;
   PERFORM set_config('role', 'authenticated', true);
+  -- The detail carries the RPC's own reason: in the 2026-07-30 round this test
+  -- reported only "stored=NULL", which read like a broken lower() refactor when
+  -- the real cause was that NO ITEM WAS OFFERED at all (wrong identity). An
+  -- assertion about a stored value must say why the row is missing.
   INSERT INTO _r VALUES ('H6 teacher_email stored lowercased',
-    v_txt IS NOT NULL AND v_txt = lower(v_txt),
-    format('stored=%L blob=%L', v_txt, v_email));
+    v_imp IS NOT NULL AND v_txt IS NOT NULL AND v_txt = lower(v_txt),
+    format('offered=%s reason=%s stored=%L blob=%L',
+           (v_imp IS NOT NULL), COALESCE(v_res ->> 'reason','(item)'), v_txt, v_email));
 
   -- ══ H7 health is institution-scoped — THE finding that is live on prod ═══
   -- Real assertion, not a probe: impersonate a leadership account that is NOT a
@@ -738,14 +795,21 @@ BEGIN
 
     -- A non-super leadership profile whose institution is NOT the only one with
     -- feedback — otherwise scoped and global coincide and the test proves nothing.
+    -- The probe MUST clear the RPC's own gate, or the assertion never runs.
+    -- 2026-07-30: this accepted 'principal'/'hod'/'staff'/'faculty', none of
+    -- which satisfy is_super_admin() OR is_admin() OR audit.cycle.view — so the
+    -- RPC raised "not authorised" and H7 recorded an honest but useless SKIP.
+    -- is_admin() is TRUE for role IN ('admin','super_admin','administrator'),
+    -- so restrict to the non-super members of that set: they pass the gate AND
+    -- get scoped, which is exactly the caller shape under test.
     SELECT p.id, p.institution_id INTO v_lead, v_lead_inst
     FROM public.profiles p
     WHERE COALESCE(p.is_super_admin, false) = false
       AND p.institution_id IS NOT NULL
+      AND COALESCE(p.role,'') IN ('admin','administrator')
       AND EXISTS (SELECT 1 FROM public.session_feedback sf2
                    WHERE sf2.institution_id <> p.institution_id
                      AND sf2.created_at >= date_trunc('week', CURRENT_DATE - INTERVAL '7 weeks'))
-      AND (COALESCE(p.role,'') IN ('admin','administrator','principal','hod','staff','faculty'))
     LIMIT 1;
 
     SELECT count(*) INTO v_n_inst
@@ -772,12 +836,18 @@ BEGIN
     END IF;
   EXCEPTION WHEN OTHERS THEN
     -- A leadership account that cannot clear the RPC's own gate raises; that is
-    -- a real skip, not a pass-by-accident.
-    PERFORM set_config('request.jwt.claims',
-      json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
+    -- a real skip, not a pass-by-accident. (The identity restore below is also
+    -- rolled back with this handler's subtransaction — see H0 — so the caller
+    -- must not rely on it; H7 is the last identity-sensitive test.)
     INSERT INTO _r VALUES ('H7 health is institution-scoped', true,
       'SKIPPED — leadership probe could not call the RPC: ' || SQLERRM);
   END;
+
+  -- Identity is unreliable after the nested handler above (GUC rollback), so
+  -- re-establish it explicitly for anything that follows.
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
 
   IF v_seeded THEN
     INSERT INTO _r VALUES ('NOTE', true, 'CP-% catalog rows were SYNTHETIC (sibling migration not applied)');
