@@ -1,0 +1,148 @@
+# Senior Peer Mentor Check-in Loop manifest — DISCOVERY PASS 2026-07-13.
+# Every fact below was verified read-only against jicate/main (git show) and the
+# prod DB (Mgmt API, information_schema + pg_proc + row counts). No sim/walk has
+# been RUN yet — this manifest records the Step-0 facts an audit would need.
+loop_key: mentor-checkins
+name: Senior Peer Mentor Check-in Loop
+prod_ref: kvizhngldtiuufknvehv
+loop_class: cadence            # loop_registry.loop_class (row read 2026-07-13)
+domain: induction
+
+tables:
+  # input = the monthly mentee signal ("did your mentor help you this month?")
+  # rating 1-5 NOT NULL + optional comment; UNIQUE (session_id, learner_id)
+  # via fn_induction_submit_mentor_month_feedback's ON CONFLICT upsert.
+  # Verified cols: id, event_id, session_id, learner_id, volunteer_id,
+  # institution_id, rating, comment, created_at, updated_at. NO outcome/lift/
+  # verdict columns exist on this table (checked information_schema 2026-07-13).
+  input: induction_mentor_month_feedback
+  # action/cadence = the monthly beats themselves: event_sessions rows with
+  # kind='mentor_checkin', created by fn_induction_generate_monthly_checkins
+  # (15th of each month 10:00-11:00, from the month after the last induction
+  # session through the freshers' first academic-year end; idempotent per month).
+  action: event_sessions        # WHERE kind='mentor_checkin'
+  # supporting roster tables (all verified in information_schema):
+  #   induction_feedback_volunteers        — the mentors (is_active, is_trained,
+  #     academic_year_id, ended_at, ended_reason). 19 active rows 2026-07-13.
+  #   induction_feedback_volunteer_group   — mentor->fresher assignment. 425 rows.
+  #   event_session_attendance             — mentor's check-in proof (marked_by =
+  #     mentor's auth uid via fn_induction_volunteer_mark_attendance).
+
+# ---------------------------------------------------------------------------
+# sim: OMITTED — honestly. loop_registry.gates.m='off' and pg_proc confirms NO
+# measure function exists for this loop (fn_induction_measure_loop_outcomes is
+# the induction-PLAYBOOK loop's; fn_induction_measure_session_effectiveness is
+# the session loop's; nothing measures mentor-checkin outcomes against a
+# baseline). A sim would need a fn that computes a known-delta assertable
+# metric — e.g. per-mentor rating lift between consecutive beats, or cadence
+# coverage (attendance-marked beats / due beats) — none exists yet.
+#
+# The closest existing read is fn_induction_mentor_helpfulness_crosscheck
+# (verified body): per mentor x month it returns rating_count, avg_rating and
+# mentor_checked_in (EXISTS attendance marked_by that mentor), flagging
+# avg_rating >= 4 AND NOT mentor_checked_in. That is a GAMING/integrity
+# detector, not an outcome measurer — do not sim against it as if it graded
+# lift.
+#
+# FUEL STATE 2026-07-13: 10 mentor_checkin beats exist, ALL on one event
+# (d0d995a9-8ab4-4ee8-a90b-e63f42a29d46 "Fresher Induction 2026", institution
+# b0b8a724-7c65-4f07-8047-2a38e8100ad5), monthly 2026-08-15 10:00 ->
+# 2027-05-15 10:00. induction_mentor_month_feedback = 0 rows — the first beat
+# has not come due yet. Pre-fuel is honest for a cadence loop, not broken.
+# ---------------------------------------------------------------------------
+
+# confound: OMITTED — no outcome column and no verdict column exist anywhere in
+# this loop's tables (induction_mentor_month_feedback checked column-by-column
+# 2026-07-13). Nothing to falsify causally until a measure layer exists.
+
+# feed_forward: OMITTED — registry gates.f='off' and no prior-suggestion-style
+# reader exists in pg_proc for this loop (nothing conditions beat N+1 on beat
+# N's measured outcome; generation is a fixed calendar template).
+
+# Cadence plumbing (the loop's actual moving parts, all verified):
+cadence:
+  generator:
+    fn: fn_induction_generate_monthly_checkins(p_event_id)   # pg_proc, body read
+    trigger: manual button "Schedule monthly check-ins" on /events/induction/[id]/mentors
+    authz: fn_induction_can_manage_training = is_super_admin OR is_admin OR
+      (induction.manage + role_has_institution_access) OR event coordinator
+  rollover:
+    cron: /api/cron/induction-mentorship-rollover              # jicate/main file read
+    schedule: "17 3 * * *"                                     # vercel.json verified
+    fn: fn_induction_close_ended_mentorships()                 # flips is_active=false,
+      # ended_reason='academic_year_end', deletes the mentor's group rows.
+      # Correctness does NOT depend on the cron: the mentor write RPCs also
+      # gate live on academic_years.end_date (verified in
+      # fn_induction_volunteer_mark_attendance's P2c lifecycle gate).
+  mentee_write:
+    fn: fn_induction_submit_mentor_month_feedback(session, rating, comment)
+    gates: [learner only, session kind='mentor_checkin', start_at <= now(),
+            enrolled in the event, has a mentor group row]
+  mentor_write:
+    fn: fn_induction_volunteer_mark_attendance(session, marks)
+    gates: [active volunteer row, is_trained (P2b), academic year not ended (P2c)]
+  oversight_read:
+    fn: fn_induction_mentor_helpfulness_crosscheck(p_event_id) # admin/coordinator only
+    flag_rule: "avg_rating >= 4 AND NOT mentor_checked_in"
+
+edges: []
+  # loop_edges re-verified 2026-07-13 (exact from_key/to_key match AND ILIKE
+  # %mentor%/%checkin% sweep): ZERO rows reference this loop. It is unwired in
+  # the loop graph. (An earlier draft of this manifest claimed one draft edge
+  # to 'decisions' — that row does not exist; corrected.) No escalation
+  # mechanism exists in code either: no fn/cron/UI writes a decision or
+  # escalation from this loop's tables.
+
+walk:                            # persona circuit — pages verified on jicate/main
+  personas:
+    student: test.student@jkkn.ac.in        # mentee lane
+    superadmin: test.superadmin@jkkn.ac.in  # admin lane (is_super_admin bypass)
+    # mentor lane: NO test.* account holds an induction_feedback_volunteers row
+    # (checked 2026-07-13) — walk the mentor lane via see-as-user on a REAL
+    # active mentor (19 exist), READ-ONLY, or skip it.
+  data_prereqs:
+    # Verified 2026-07-13: test.student has learner_id
+    # ef63c330-6611-4176-a595-2ed5339d7e38 but is NOT enrolled in event
+    # d0d995a9-… and is in NO mentor group -> both learner cards render null
+    # for them today. Also: no beat is due before 2026-08-15, so the mentee
+    # card is invisible to EVERYONE until then
+    # (fn_induction_my_mentor_checkins filters start_at <= now()).
+    # UNIQUE constraints that shape any seed (pg_constraint verified):
+    #   induction_enrollment UNIQUE (event_id, learner_id)
+    #   induction_feedback_volunteer_group UNIQUE (event_id, learner_id)
+    #     -> a fresher has exactly ONE mentor per event.
+    - "mentee hops need: enrollment + group assignment for the persona AND a due beat"
+    # To walk the mentee form_submit BEFORE 2026-08-15 you would have to seed a
+    # BACKDATED sentinel check-in (event_sessions kind='mentor_checkin',
+    # start_at < now()) — CAUTION: while it exists it is visible in all 19 real
+    # mentors' lanes (fn_induction_my_volunteer_sessions lists EVERY session of
+    # the event). Short window + same-session delete, or wait for a real beat.
+  hops:
+    - { as: superadmin, do: open_assert, page: "/events/induction/d0d995a9-8ab4-4ee8-a90b-e63f42a29d46/mentors",
+        expect: "mentor roster (19), mentee assignments, 'Schedule monthly check-ins' button,
+                 check-in counter = 10; crosscheck table EMPTY until ratings exist (HAVING count(f.id) > 0)" }
+    - { as: student, do: open_assert, page: "/learners/my-induction",
+        expect: "SeniorPeerMentorCard + MentorMonthFeedbackCard both render NOTHING
+                 for an unassigned learner (self-scoping null-render is the PASS
+                 condition today, not a failure)" }
+    - { as: student, do: form_submit, page: "/learners/my-induction",
+        detail: "ONLY once assigned + a beat is due (>= 2026-08-15): rate 1-5 on the month row",
+        assert_db: "1 row in induction_mentor_month_feedback (session_id, learner_id) upserted" }
+    - { as: mentor(see-as-user), do: open_assert, page: "/my-induction-feedback",
+        expect: "duties lane lists the Monthly Check-in sessions among covered
+                 sessions (fn_induction_my_volunteer_sessions joins ALL event_sessions
+                 of the mentor's event, incl. kind='mentor_checkin')" }
+  forbidden:
+    # Real-user side effects a walk must never trigger (each verified as a real
+    # write path; note the input table itself has NO nudge/digest triggers —
+    # only touch_updated_at — checked pg_trigger 2026-07-13):
+    - "clicking 'Schedule monthly check-ins' on a REAL event (creates real event_sessions rows every fresher sees)"
+    - "marking attendance for real freshers (event_session_attendance feeds induction completion recompute)"
+    - "submitting a month rating as/for a real fresher (upsert silently overwrites their real rating)"
+    - "appoint/remove/autobalance volunteers on the admin page (mutates the live mentor roster)"
+  cleanup: |
+    -- Only needed if a rating was submitted with a test learner:
+    DELETE FROM induction_mentor_month_feedback WHERE learner_id = '<test learner_id>';
+    -- verify in a SEPARATE call: count restored to pre-walk value (0 as of 2026-07-13).
+
+registry_gates_hint: '{"g":"on","a":"on","m":"off","f":"off"}'   # loop_registry read 2026-07-13

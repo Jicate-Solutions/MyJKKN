@@ -225,14 +225,14 @@ export interface CreateStaffDto {
 }
 
 // Reserved role keys that MUST NOT appear in the Staff onboarding dropdown.
-// (Learner/admin roles are managed elsewhere; exposing them here would bypass proper flows.)
+// (Learner roles are managed elsewhere; exposing them here would bypass proper flows.)
+// Kept in sync with RoleService.getStaffAssignableRoles(), which narrowed this
+// exclusion list to 'student'/'guest' on 2026-04-16 — privileged roles
+// (super_admin, administrator, admission, counselor) are now assignable for
+// staff. BUG-003019: this set still had the pre-narrowing list, so the
+// dropdown offered those roles but createStaff() rejected every one of them.
 export const RESERVED_STAFF_ROLE_KEYS = new Set([
   'student',
-  'super_admin',
-  'administrator',
-  'admission',
-  'admission_counselor',
-  'expo_counselor',
   'guest'
 ]);
 
@@ -293,6 +293,7 @@ export interface StaffOverviewStats {
   averageTenure: number; // Average years of service
   staffWithProfiles: number;
   staffWithoutProfiles: number;
+  inactiveProfiles: number;
 }
 
 export interface StaffRegistrationTrend {

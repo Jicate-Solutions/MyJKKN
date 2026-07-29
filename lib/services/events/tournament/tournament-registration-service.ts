@@ -5,12 +5,7 @@
 // so this service does NOT touch Supabase directly.
 // Created: 2026-06-22 (Sports Tournament PR2).
 
-import type {
-  TournamentEntry,
-  CreateEntryDto,
-  RegisterEntryResult,
-  UpdateEntryDto,
-} from '@/types/tournament';
+import type { TournamentEntry, UpdateEntryDto } from '@/types/tournament';
 
 async function asJson<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));
@@ -26,16 +21,6 @@ export class TournamentRegistrationService {
     const res = await fetch(`/api/events/tournament/${eventId}/entries`, { cache: 'no-store' });
     const data = await asJson<{ entries: TournamentEntry[] }>(res);
     return data.entries ?? [];
-  }
-
-  /** Register a team or individual into a division. */
-  static async register(eventId: string, dto: CreateEntryDto): Promise<RegisterEntryResult> {
-    const res = await fetch(`/api/events/tournament/${eventId}/entries`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dto),
-    });
-    return asJson<RegisterEntryResult>(res);
   }
 
   /** Update an entry (seed/status/name/notes). */
@@ -75,14 +60,20 @@ export class TournamentRegistrationService {
     return { refund: data.refund, reason: data.reason };
   }
 
-  /** Generate (or re-generate) an online payment link for an unpaid entry. */
+  /** Generate (or re-generate) a Razorpay payment order for an unpaid entry. */
   static async generatePaymentLink(
     eventId: string,
     entryId: string
-  ): Promise<{ payment_url: string | null; transaction_id: string | null }> {
+  ): Promise<{
+    transaction_id: string | null;
+    razorpay_order_id: string | null;
+    razorpay_key_id: string | null;
+    amount_paise: number | null;
+    customer: { name?: string; email?: string; phone?: string } | null;
+  }> {
     const res = await fetch(`/api/events/tournament/${eventId}/entries/${entryId}/pay`, {
       method: 'POST',
     });
-    return asJson<{ payment_url: string | null; transaction_id: string | null }>(res);
+    return asJson(res);
   }
 }

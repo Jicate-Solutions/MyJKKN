@@ -42,17 +42,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useFacilitatorStrengths } from '@/hooks/use-facilitator-strengths';
 import type { FacilitatorStrengthRow } from '@/types/facilitator-strengths';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
-
-/** Standout understanding is always >= 4.5 (the generator's gate); green throughout,
- *  amber as a defensive fallback if a lower value ever appears. */
-function understandingColor(avg: number | null): string {
-  if (avg == null) return 'text-muted-foreground';
-  if (avg >= 4.5) return 'text-green-600';
-  if (avg >= 3.5) return 'text-amber-600';
-  return 'text-red-600';
-}
 
 /** Format an ISO timestamp to a plain date; tolerate nulls/bad values. */
 function fmtDate(iso: string | null): string | null {
@@ -64,9 +56,25 @@ function fmtDate(iso: string | null): string | null {
   }
 }
 
-export function FacilitatorStrengthsCard({ from, to }: { from: string; to: string }) {
+export function FacilitatorStrengthsCard({
+  from,
+  to,
+  institutionId,
+}: {
+  from: string;
+  to: string;
+  /** Narrow to one college. The RPC already scopes rows to what the caller may
+   *  see, so this is a filter, never a widening — same doctrine as the
+   *  college/faculty tables on the Feedback Confirmation tab. */
+  institutionId?: string | null;
+}) {
   const strengths = useFacilitatorStrengths(from, to);
-  const rows = (strengths.data ?? []) as FacilitatorStrengthRow[];
+  const rows = useMemo(() => {
+    const all = (strengths.data ?? []) as FacilitatorStrengthRow[];
+    return institutionId
+      ? all.filter((r) => r.institution_id === institutionId)
+      : all;
+  }, [strengths.data, institutionId]);
 
   // Headline: how many facilitators have standout patterns, and how many patterns.
   const totals = useMemo(() => {
@@ -146,11 +154,7 @@ export function FacilitatorStrengthsCard({ from, to }: { from: string; to: strin
                       </span>
                     </TableCell>
                     <TableCell className="text-right align-top">
-                      <span
-                        className={`tabular-nums font-semibold ${understandingColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null ? `${r.avg_understood.toFixed(1)}/5` : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="align-top">
                       {r.latest_what_worked ? (

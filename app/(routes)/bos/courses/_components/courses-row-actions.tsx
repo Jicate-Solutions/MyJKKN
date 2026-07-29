@@ -86,7 +86,10 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
     logoImage: '/logo.png',
     rightLogoImage: header.rightLogoImage,
     course_code: course.course_code,
-    course_name: course.course_name,
+    // COE surfaces the title as course_name OR course_title depending on the
+    // response shape (see BosCourseMaster). The table column already falls back;
+    // do the same here so the PDF doesn't receive undefined.
+    course_name: course.course_name ?? course.course_title ?? course.course_code,
     course_part: partLabel,
     total_hours: totalHours,
     contact_hours: course.theory_hours ?? undefined,
@@ -105,6 +108,12 @@ async function downloadSyllabusPdf(course: BosCourseMaster, institutionName?: st
     po_mappings: syllabus.po_mappings?.mappings ?? [],
     po_keys: poKeys,
     pso_keys: psoKeys,
+    // v3.5 Fink's Formative + Capstone blocks
+    concept_applications: syllabus.concept_applications,
+    assessment_pattern: syllabus.assessment_pattern,
+    capstone_project: syllabus.capstone_project,
+    capstone_rubric: syllabus.capstone_rubric,
+    llc_conference: syllabus.llc_conference,
   });
 }
 

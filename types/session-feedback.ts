@@ -185,6 +185,12 @@ export interface AdminCollegeSummaryRow {
   students: number;
   avg_understood: number | null;
   low_sessions: number;
+  /** Responses rating understanding <= 2 in window — the individual-learner
+   *  lens (a struggling voice in an otherwise-fine class never moves
+   *  low_sessions). Optional: absent from cached pre-2026-07-11 responses. */
+  low_flag_responses?: number;
+  /** Sessions containing >= 1 such response. */
+  low_flag_sessions?: number;
 }
 
 /** Per-faculty admin summary (worst understanding first). fn_scf_admin_faculty_summary.
@@ -227,18 +233,48 @@ export interface FacilitatorCoverageRow {
   last_feedback: string | null;
 }
 
-/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B).
- *  Surfaced when the learner previously took the SAME course and flagged trouble
- *  (prior_understood <= 2 OR left checklist items unchecked). prior_unmet_items are
- *  the checklist item_keys that were false/missing in the prior row (UI maps to labels). */
+/** One open free-text concern carried to the next same-course check-in
+ *  ("you mentioned the lab pace — better this time?"). AI-summarized from the
+ *  learner's OWN prior words; shown only to them. scf_freetext_carry. */
+export interface CarryforwardConcern {
+  id: string;
+  summary: string;
+  source_date: string;            // 'YYYY-MM-DD'
+}
+
+/** The learner's latest un-acknowledged praise item (one-line ack, no question). */
+export interface CarryforwardPraise {
+  id: string;
+  summary: string;
+}
+
+/** A carry-forward re-ask for a pending session. fn_scf_carryforward_for_learner (PR B;
+ *  free-text extension 2026-07-19). Surfaced when the learner previously took the SAME
+ *  course and flagged trouble (prior_understood <= 2 OR unchecked checklist items) —
+ *  OR has open free-text items for it. On a concerns-only row the checklist fields
+ *  are null/empty (decision 8: words count even from a happy 5/Clear check-in). */
 export interface CarryforwardItem {
   timetable_id: string;
   period_id: string;
   course_code: string;
   course_name: string | null;
-  prior_session_date: string;     // 'YYYY-MM-DD'
-  prior_understood: number;       // 1..5
-  prior_unmet_items: string[];    // checklist item_keys that were false/missing
+  prior_session_date: string | null; // 'YYYY-MM-DD'; null = concerns-only row
+  prior_understood: number | null;   // 1..5; null = concerns-only row
+  prior_unmet_items: string[];       // checklist item_keys that were false/missing
+  prior_concerns: CarryforwardConcern[];
+  prior_praise: CarryforwardPraise | null;
+}
+
+/** Course-level counts of free-text follow-ups for a Senior Learner's own
+ *  sessions. Counts only, >=floor distinct learners (fn_scf_freetext_carry_counts). */
+export interface FreetextCarryCountsRow {
+  course_code: string;
+  course_name: string | null;
+  learners: number;
+  open_concerns: number;
+  resolved: number;
+  partly: number;
+  not_better: number;
 }
 
 /** A configured checklist item the learner ticks. session_feedback_checklist_config. */
@@ -331,4 +367,196 @@ export interface MyConfirmedAttendance {
   gate_mode: 'off' | 'visibility' | 'hard';
   pass_line: number;   // 75
   min_marks: number;   // 10 — settle-in floor
+}
+
+/** One unverdicted AI improvement note for a course+facilitator, surfaced at the
+ *  NEXT attendance-marking of that course (verdict-at-next-class card). Aggregate
+ *  guidance only — never per-student content, never a raw understanding number
+ *  (the card renders bands via understandingLevel; anti-gaming, same rule as
+ *  the faculty dashboard). */
+export interface PendingVerdictSuggestion {
+  id: string;
+  course_code: string;
+  kind: 'improvement';
+  suggestion: {
+    summary?: string;
+    quickWin?: string;
+    likelyCauses?: string[];
+    suggestedAdjustments?: { title: string; how: string }[];
+    whatToWatchNext?: string;
+    /** Exact closed-window session dates the note coached on (two-sided 48h
+     *  window, 2026-07-09) — stamped deterministically by the generator. */
+    contributing_dates?: string[];
+  } | null;
+  generated_at: string;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  outcome_measured_at: string | null;
+}
+
+/** One AI note addressed to the logged-in facilitator, for the always-visible
+ *  "Notes from your feedback loop" card on the faculty page. Same anti-gaming
+ *  rule as PendingVerdictSuggestion: averages render as band words only. */
+export interface MyLoopNote {
+  id: string;
+  course_code: string;
+  kind: 'improvement' | 'success';
+  suggestion: {
+    summary?: string;
+    quickWin?: string;
+    likelyCauses?: string[];
+    suggestedAdjustments?: { title: string; how: string }[];
+    whatToWatchNext?: string;
+    /** Exact closed-window session dates the note coached on (two-sided 48h
+     *  window, 2026-07-09) — stamped deterministically by the generator. */
+    contributing_dates?: string[];
+  } | null;
+  generated_at: string;
+  input_avg_understood: number | null;
+  outcome_avg_understood: number | null;
+  /** Measured change vs the RECOMPUTED window baseline (not input_avg_understood
+   *  — the two use different estimators). The card derives the displayed
+   *  "before" as outcome_avg_understood − outcome_lift so the story adds up. */
+  outcome_lift: number | null;
+  outcome_measured_at: string | null;
+  /** Stamped when the note waited 30+ days with no qualifying next session
+   *  (course likely ended) — reads as "could not be measured", not "waiting". */
+  outcome_unmeasurable_at: string | null;
+  human_verdict: 'tried_helped' | 'tried_no_change' | 'not_tried' | null;
+  human_verdict_at: string | null;
+}
+
+/** Student-confirmed resolution aggregate for one note (fn_scf_note_resolution_counts).
+ *  The fn enforces a k>=3 floor — a note with fewer than 3 votes returns NO row, so
+ *  staff can never reconstruct an individual learner's answer from a tiny class. */
+export interface NoteResolutionCounts {
+  suggestion_id: string;
+  better: number;
+  same: number;
+  worse: number;
+  total: number;
+}
+
+/** One facilitator's work-evidenced presence signals over a range
+ *  (fn_scf_facilitator_pulse — leadership-gated aggregate). Presence signals
+ *  only: no understanding scores, no ranks. */
+export interface FacilitatorPulseRow {
+  faculty_email: string;
+  faculty_name: string;
+  institution_id: string | null;
+  sessions_marked: number;
+  sessions_witnessed: number;
+  pulses_run: number;
+  lessons_linked: number;
+  notes_received: number;
+  verdicts_given: number;
+  /** Student Better/Same/Worse answers received on this facilitator's loop
+   *  notes — VOLUME ONLY. The split stays behind the k>=3 floor in
+   *  fn_scf_note_resolution_counts, never on the board. */
+  votes_received: number;
+  last_signal_at: string | null;
+}
+
+/** The caller's OWN work-signals over the last 30 days (fn_scf_my_pulse —
+ *  self-scoped by the caller's email; always exactly one row, zeros when no
+ *  signal). Same doctrine as the board: presence signals only, no scores,
+ *  no comparisons, no ranks. */
+export interface MyPulseRow {
+  sessions_marked: number;
+  sessions_witnessed: number;
+  pulses_run: number;
+  lessons_linked: number;
+  notes_received: number;
+  verdicts_given: number;
+  votes_received: number;
+  last_signal_at: string | null;
+}
+
+/** Signal 8 — marks coverage for one facilitator's planned courses in the
+ *  active COE exam cycle. COURSE COMPLETENESS, not a facilitator act: COE
+ *  marks are entered by the exam cell (~4 operator accounts; faculty_id never
+ *  filled), so this may never be presented as proof the facilitator entered
+ *  anything. courses_expected = planned courses COE examines this cycle
+ *  (registrations ∪ CIA rows); courses_marks_in = those with CIA entries. */
+export interface MarksCoverageRow {
+  faculty_email: string;
+  courses_expected: number;
+  courses_marks_in: number;
+}
+
+export interface MarksCoverageResponse {
+  configured: boolean;
+  session_code: string | null;
+  rows: MarksCoverageRow[];
+  /** Present (true) only when the planned-code list was truncated server-side
+   *  and coverage may undercount — surfaced, never silent. */
+  codes_capped?: boolean;
+}
+
+// ── Pre-session materials (Rank 3a) — post a link + objective opens trace ──────
+// Substrate: 20260801100000_scf_session_resources.sql (session_resource +
+// session_resource_open, RLS-on / SECDEF-only). All access is via the four
+// fn_scf_*_session_resource / fn_scf_resources_for_session RPCs.
+
+export type SessionResourceKind = 'notebooklm' | 'material' | 'other';
+
+/** One active material for a session, as returned by fn_scf_resources_for_session.
+ *  `opened` is the CALLER-learner's own flag; `open_count` is the aggregate number
+ *  of distinct learners who opened it (adoption — the Senior Learner sees this
+ *  count only, never who). */
+export interface SessionResourceRow {
+  id: string;
+  kind: SessionResourceKind;
+  title: string;
+  url: string;
+  posted_at: string;
+  opened: boolean;
+  open_count: number;
+}
+
+/** The row returned by fn_scf_post_session_resource (the inserted material). */
+export interface PostedSessionResource {
+  id: string;
+  institution_id: string | null;
+  timetable_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_id: string | null;
+  kind: SessionResourceKind;
+  title: string;
+  url: string;
+  posted_by: string;
+  posted_at: string;
+  is_active: boolean;
+}
+
+export interface PostSessionResourceInput {
+  timetableId: string;
+  attendanceDate: string;
+  periodId: string;
+  /** Defaults to 'notebooklm' server-side when omitted. */
+  kind?: SessionResourceKind;
+  title: string;
+  url: string;
+}
+
+// ── Clarification requests (Lane C, CARRE evidence instrumentation) ───────────
+// Substrate: 20260725133000_session_clarification_requests.sql. The learner's
+// OWN trace of "I asked for a re-explanation of this session" and — self-
+// reported by the SAME learner — what happened. Writes only via the two RPCs.
+
+export type ClarificationOutcome = 'pending' | 're_explained' | 'refused' | 'unanswered';
+
+export interface ClarificationRequestRow {
+  id: string;
+  institution_id: string;
+  student_id: string;
+  attendance_date: string;
+  period_id: string;
+  course_code: string | null;
+  asked_at: string;
+  outcome: ClarificationOutcome;
+  outcome_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

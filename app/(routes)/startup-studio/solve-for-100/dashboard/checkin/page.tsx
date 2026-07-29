@@ -17,11 +17,11 @@ export const metadata: Metadata = {
 };
 
 interface SF100CheckInPageProps {
-  searchParams: { enrollmentId?: string };
+  searchParams: Promise<{ enrollmentId?: string }>;
 }
 
-export default function SF100CheckInPage({ searchParams }: SF100CheckInPageProps) {
-  const enrollmentId = searchParams.enrollmentId ?? '';
+export default async function SF100CheckInPage({ searchParams }: SF100CheckInPageProps) {
+  const { enrollmentId = '' } = await searchParams;
 
   return (
     <ContentLayout title="Startup Studio">

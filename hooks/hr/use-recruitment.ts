@@ -171,6 +171,29 @@ export function useRejectCandidate() {
   });
 }
 
+export function useUpdateStepComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, stepIndex, comment }: { id: string; stepIndex: number; comment: string }) => {
+      const res = await fetch(`${BASE}/candidates/${id}/step-comment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step_index: stepIndex, comment }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Update comment failed');
+      }
+      return ((await res.json()).data) as HRRecruitmentCandidate;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate', data.id] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+    },
+  });
+}
+
 export function useWithdrawCandidate() {
   const qc = useQueryClient();
   return useMutation({
@@ -294,7 +317,7 @@ export function useCounterPackage() {
     }: {
       candidateId: string;
       packageId: string;
-      proposed_monthly_salary: number;
+      proposed_monthly_salary?: number | null;
       proposed_monthly_salary_breakdown?: Record<string, number> | null;
       notes?: string | null;
       hr_organization_id?: string | null;
@@ -948,6 +971,46 @@ export function useUpsertApprovalFlow() {
         throw new Error(err.error || 'Flow save failed');
       }
       return ((await res.json()).data) as { updated: number; created: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approval-flows'] });
+    },
+  });
+}
+
+/** Activate/deactivate a flow template (removes it from promote-time matching). */
+export function useSetApprovalFlowActive() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      const res = await fetch(`${BASE}/approval-flows/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Flow update failed');
+      }
+      return ((await res.json()).data) as { id: string; is_active: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approval-flows'] });
+    },
+  });
+}
+
+/** Delete a flow template. In-flight candidates keep their frozen chains. */
+export function useDeleteApprovalFlow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`${BASE}/approval-flows/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Flow delete failed');
+      }
+      return ((await res.json()).data) as { id: string; deleted: boolean };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-approval-flows'] });

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { format } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { useQuery } from '@tanstack/react-query';
@@ -89,7 +90,7 @@ function MeetingRegisterTab({ institutionsId }: { institutionsId: string }) {
       ) : meetings.length === 0 ? (
         <p className='text-sm text-muted-foreground text-center py-8'>No meetings found.</p>
       ) : (
-        <div className='rounded-lg border overflow-hidden'>
+        <div className='rounded-lg border overflow-x-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50'>
               <tr>
@@ -153,7 +154,7 @@ function ResolutionComplianceTab({ institutionsId }: { institutionsId: string })
           />
         </div>
         {items.length > 0 && (
-          <div className='flex gap-3 ml-4 text-sm'>
+          <div className='flex flex-wrap gap-3 ml-4 text-sm'>
             <span className='text-green-700 font-medium'>{completedCount} Completed</span>
             <span className='text-yellow-700 font-medium'>{pendingCount} Pending</span>
           </div>
@@ -244,7 +245,7 @@ function CompositionReportTab({ institutionsId }: { institutionsId: string }) {
             </p>
           </div>
 
-          <div className='rounded-lg border overflow-hidden'>
+          <div className='rounded-lg border overflow-x-auto'>
             <table className='w-full text-sm'>
               <thead className='bg-muted/50'>
                 <tr>
@@ -468,7 +469,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       ) : presentAttendees.length === 0 ? (
         <p className='text-sm text-muted-foreground text-center py-8'>No present attendees recorded for this meeting.</p>
       ) : (
-        <div className='rounded-lg border overflow-hidden'>
+        <div className='rounded-lg border overflow-x-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50'>
               <tr>
@@ -803,7 +804,7 @@ function MinutesOfMeetingTab({ institutionsId }: { institutionsId: string }) {
       ) : meetings.length === 0 ? (
         <p className='text-sm text-muted-foreground text-center py-8'>No meetings found.</p>
       ) : (
-        <div className='rounded-lg border overflow-hidden'>
+        <div className='rounded-lg border overflow-x-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50'>
               <tr>
@@ -871,9 +872,18 @@ function MinutesOfMeetingTab({ institutionsId }: { institutionsId: string }) {
 
 // ── Reports Page ──────────────────────────────────────────────────────────────
 
-export default function ReportsPage() {
+const REPORTS_TABS = [
+  'meeting-register',
+  'minutes-of-meeting',
+  'resolution-compliance',
+  'composition',
+  'attendance-certificates',
+] as const;
+
+function ReportsPageInner() {
   const { profile } = useAuth();
   const institutionsId = profile?.institution_id ?? '';
+  const [activeTab, setActiveTab] = useTabParam('meeting-register', REPORTS_TABS);
 
   return (
     <div className='space-y-6'>
@@ -884,8 +894,8 @@ export default function ReportsPage() {
 
       <Card>
         <CardContent className='p-4'>
-          <Tabs defaultValue='meeting-register'>
-            <TabsList className='mb-4'>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='meeting-register'>Meeting Register</TabsTrigger>
               <TabsTrigger value='minutes-of-meeting'>Minutes of Meeting</TabsTrigger>
               <TabsTrigger value='resolution-compliance'>Resolution Compliance</TabsTrigger>
@@ -916,5 +926,14 @@ export default function ReportsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function ReportsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <ReportsPageInner />
+    </Suspense>
   );
 }

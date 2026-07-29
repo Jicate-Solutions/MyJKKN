@@ -89,7 +89,11 @@ export async function dispatchByowStaleNotification(
           category: NOTIFICATION_CATEGORY,
           priority: 'high',
           kind: 'work_item',
-          targeting: { user_ids: [recipient.id] },
+          // created_by is NOT NULL with no default. This is a cron-generated
+          // stale-connection alert with no acting user, so attribute it to the
+          // recipient (the department owner being notified). Never null.
+          created_by: recipient.id,
+          targeting: { type: 'user', user_ids: [recipient.id] },
           metadata: {
             source: 'byow.connection_pulse.stale',
             institution_id: institutionId,

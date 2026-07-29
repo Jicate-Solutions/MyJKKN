@@ -1,13 +1,27 @@
 'use client';
 
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lock, AlertCircle, Edit } from 'lucide-react';
+import { ArrowLeft, Lock, AlertCircle, Edit, Trash2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
 import { Timetable } from '@/types/academics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
+import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { revalidateTimetables } from '../../_actions/revalidate-timetables';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 interface TimetableHeaderProps {
   timetable: Timetable;
@@ -16,6 +30,7 @@ interface TimetableHeaderProps {
   attendanceCount?: number;
   isSuperAdmin?: boolean;
   canEdit?: boolean; // New prop
+  canDelete?: boolean;
   todaysCycle?: number | null; // For cycle-format timetables: today's active cycle
   inchargeName?: string | null; // Resolved class incharge display name (session/day-wise)
 }
@@ -36,13 +51,32 @@ export function TimetableHeader({
   attendanceCount = 0,
   isSuperAdmin = false,
   canEdit = false,
+  canDelete = false,
   todaysCycle = null,
   inchargeName = null
 }: TimetableHeaderProps) {
   const router = useRouter();
   const adapt = useAdaptiveLabels();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      await TimetableService.deleteTimetable(timetable.id);
+      await revalidateTimetables();
+      setDeleteDialogOpen(false);
+      router.push('/academic/timetables');
+    } catch (error) {
+      logger.error('academic/timetables', 'Error deleting timetable', error);
+      setDeleteDialogOpen(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
+    <>
     <div className='bg-white rounded-lg shadow-sm border'>
       <div className='p-6'>
         <div className='flex items-center justify-between mb-4'>
@@ -116,6 +150,22 @@ export function TimetableHeader({
               >
                 <Edit className='h-4 w-4 mr-2' />
                 Edit
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant='destructive'
+                size='sm'
+                onClick={() => {
+                  if (!isNavigableId(timetable.id)) {
+                    toast.error('Unable to delete. Please refresh the page and try again.');
+                    return;
+                  }
+                  setDeleteDialogOpen(true);
+                }}
+              >
+                <Trash2 className='h-4 w-4 mr-2' />
+                Delete
               </Button>
             )}
             <Button variant='outline' size='sm' onClick={onBack}>
@@ -324,5 +374,32 @@ export function TimetableHeader({
         </div>
       </div>
     </div>
+
+    <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This action cannot be undone. This will permanently delete the
+            timetable &quot;{timetable.timetable_name}&quot; and all its
+            associated data.
+            <br /><br />
+            <strong>Note:</strong> If this timetable has been used for attendance tracking,
+            the deletion will be prevented to preserve attendance records.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={confirmDelete}
+            disabled={isDeleting}
+            className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

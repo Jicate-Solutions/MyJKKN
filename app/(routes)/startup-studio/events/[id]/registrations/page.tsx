@@ -1,7 +1,7 @@
 'use client';
 
 
-import { use, useState } from 'react';
+import { Suspense, use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -13,9 +13,13 @@ import { RegistrationsTable } from './_components/registrations-table';
 import { NotParticipatedTable } from './_components/not-participated-table';
 import { SarvamGalattaTable } from './_components/sarvam-galatta-table';
 import { ArrowLeft, Loader2, Users, UserX } from 'lucide-react';
+import { useTabParam } from '@/hooks/use-tab-param';
 
-export default function AdminRegistrationsPage({ params }: { params: Promise<{ id: string }> }) {
+const REGISTRATIONS_TABS = ['teams', 'not-participated'] as const;
+
+function AdminRegistrationsPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('teams', REGISTRATIONS_TABS);
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();
   const { data: event, isPending: eventPending } = useEvent(id);
@@ -67,8 +71,8 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
         {(['individual', 'sarvam_galatta'] as string[]).includes((event.config as any)?.registration_type) ? (
           <SarvamGalattaTable eventId={id} eventName={event.name} />
         ) : (
-          <Tabs defaultValue="teams">
-            <TabsList className="mb-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="teams" className="gap-2">
                 <Users className="h-4 w-4" />
                 Registered Teams
@@ -90,5 +94,14 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
         )}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function AdminRegistrationsPage(props: { params: Promise<{ id: string }> }) {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <AdminRegistrationsPageInner {...props} />
+    </Suspense>
   );
 }

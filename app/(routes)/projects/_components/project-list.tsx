@@ -111,14 +111,14 @@ export function ProjectList() {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-end gap-3">
-        <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
-          <div className="relative">
+        <form onSubmit={handleSearchSubmit} className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="relative flex-1 sm:flex-none">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by name or code…"
-              className="w-64 pl-8"
+              className="w-full pl-8 sm:w-64"
             />
           </div>
           <Button type="submit" variant="secondary">

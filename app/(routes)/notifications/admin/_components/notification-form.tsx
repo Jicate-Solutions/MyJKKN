@@ -1427,7 +1427,14 @@ export function NotificationForm() {
                         toast.error(`"${file.name}" exceeds ${MAX_FILE_SIZE_MB}MB limit`);
                         continue;
                       }
-                      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+                      // Browsers do not always populate file.type (empty string or
+                      // application/octet-stream) for legacy/Office docs, so fall back
+                      // to the extension the picker's `accept` list already permits.
+                      const fileExt = '.' + (file.name.split('.').pop() || '').toLowerCase();
+                      const isAllowedType =
+                        ALLOWED_FILE_TYPES.includes(file.type) ||
+                        ALLOWED_EXTENSIONS.split(',').includes(fileExt);
+                      if (!isAllowedType) {
                         toast.error(`"${file.name}" is not a supported file type`);
                         continue;
                       }

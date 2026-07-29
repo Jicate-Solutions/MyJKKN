@@ -2,12 +2,14 @@ import puppeteer, { Browser } from 'puppeteer';
 import { BosMeeting, BosMeetingAttendee, BosAgendaItem, BosMemberType } from '@/types/bos';
 
 const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
-  chairman: 1, university_nominee: 2, subject_expert: 3, industry_expert: 4,
-  alumni: 5, internal_member: 6, hod: 7, startup: 8, facilitator: 9, principal: 10,
+  chairman: 1, university_nominee: 2, subject_expert: 3, academic_expert: 4,
+  industry_expert: 5, alumni: 6, internal_member: 7, faculty_member: 7, hod: 8,
+  startup: 9, facilitator: 10, principal: 11, member_secretary: 12, student: 13,
 };
 
-function memberTypeRank(t: BosMemberType | null | undefined): number {
-  return t ? (MEMBER_TYPE_ORDER[t] ?? 99) : 99;
+function memberTypeRank(t: string | null | undefined): number {
+  // Catalog-name values (20260710150000) aren't in the enum map — rank 99.
+  return t ? ((MEMBER_TYPE_ORDER as Record<string, number>)[t] ?? 99) : 99;
 }
 
 function sortAttendeesForPdf(attendees: BosMeetingAttendee[]): BosMeetingAttendee[] {

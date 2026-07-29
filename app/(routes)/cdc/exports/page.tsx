@@ -63,10 +63,11 @@ function NaacSection() {
       <CardHeader>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs">NAAC</Badge>
-          <CardTitle className="text-base">Criterion 5.2.1 — Placement Export</CardTitle>
+          <CardTitle className="text-base">Metric 8.2 (Graduate Progression) — Placement Export</CardTitle>
         </div>
         <CardDescription>
-          Download placement data formatted for NAAC self-study report Criterion 5.2.1.
+          Download placement data formatted for the NAAC self-study report — Metric 8.2,
+          Graduate Progression (Binary framework).
           Column mapping is managed in Admin &rarr; CDC Policies.
         </CardDescription>
       </CardHeader>
@@ -127,7 +128,7 @@ function NaacSection() {
               <Label className="text-sm">Supporting Proof Documents</Label>
               <p className="text-xs text-muted-foreground">
                 Bundle the uploaded offer-letter documents for all accepted placements into
-                a single ZIP — the supporting evidence for NAAC 5.2.1 / AICTE submission.
+                a single ZIP — the supporting evidence for NAAC 8.2 (Graduate Progression) / AICTE submission.
               </p>
             </div>
             <PermissionGuard module="cdc.exports" action="download">

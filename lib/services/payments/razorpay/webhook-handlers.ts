@@ -109,14 +109,34 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
 
   const capturedAt = payment.created_at ? new Date(payment.created_at * 1000).toISOString() : new Date().toISOString();
 
-  await (supabase as any).from(table).update({
+  const capturedUpdate: Record<string, unknown> = {
     razorpay_payment_id: payment.id,
     status: 'success',
     captured_at: capturedAt,
-    payment_date: capturedAt,
-    completed_at: new Date().toISOString(),
     gateway_response: payload,
-  }).eq('id', existing.id);
+  };
+  if (mod === 'billing') {
+    capturedUpdate.payment_date = capturedAt;
+    capturedUpdate.completed_at = new Date().toISOString();
+    // Mirror the payment id into gateway_transaction_id, which is what the
+    // callback path writes and what the receipt's payment_reference_number is
+    // built from. Keeping both columns in step is what makes receipt creation
+    // idempotent no matter which path finalizes the payment first.
+    capturedUpdate.gateway_transaction_id = payment.id;
+    capturedUpdate.payment_method = payment.method ?? null;
+  }
+
+  const { error: capturedUpdateError } = await (supabase as any)
+    .from(table)
+    .update(capturedUpdate)
+    .eq('id', existing.id);
+  if (capturedUpdateError) {
+    logger.error('webhook/razorpay', 'payment.captured: failed to update transaction row', {
+      table,
+      id: existing.id,
+      error: capturedUpdateError,
+    });
+  }
 
   // Downstream: receipt creation (billing) or registration mark (events)
   if (mod === 'billing') {
@@ -127,7 +147,10 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
       .eq('id', existing.id)
       .single();
     if (txn) {
-      await (PaymentGatewayService as any).processSuccessfulPayment?.(txn);
+      // Pass the service-role client: this runs with no user session, so a
+      // cookie-scoped client would read zero transaction items through RLS and
+      // silently skip receipt creation (bill left unpaid).
+      await PaymentGatewayService.processSuccessfulPayment(txn, supabase as any);
     }
   } else if (mod === 'events') {
     // Mark the linked registration paid (mirror the callback success side-effect).
@@ -184,12 +207,26 @@ async function handlePaymentFailed(supabase: ServiceClient, payload: any) {
   if (!mod) return;
   const table = mod === 'billing' ? 'payment_transactions' : 'event_payment_transactions';
 
-  await (supabase as any).from(table).update({
+  const failedUpdate: Record<string, unknown> = {
     razorpay_payment_id: payment.id,
     status: 'failed',
     gateway_response: payload,
-    completed_at: new Date().toISOString(),
-  }).eq('razorpay_order_id', orderId);
+  };
+  if (mod === 'billing') {
+    failedUpdate.completed_at = new Date().toISOString();
+  }
+
+  const { error: failedUpdateError } = await (supabase as any)
+    .from(table)
+    .update(failedUpdate)
+    .eq('razorpay_order_id', orderId);
+  if (failedUpdateError) {
+    logger.error('webhook/razorpay', 'payment.failed: failed to update transaction row', {
+      table,
+      orderId,
+      error: failedUpdateError,
+    });
+  }
 }
 
 async function handleRefundEvent(supabase: ServiceClient, payload: any) {

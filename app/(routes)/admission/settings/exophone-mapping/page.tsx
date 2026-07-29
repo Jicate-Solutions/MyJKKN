@@ -379,7 +379,7 @@ export default function ExophoneMappingPage() {
               <AlertDescription>
                 The seed migration should have inserted 5 default rows. If this
                 is empty, run{' '}
-                <code className="mx-1 rounded bg-muted px-1">
+                <code className="mx-1 rounded bg-muted px-1 break-all">
                   20260503140001_exophone_institution_map.sql
                 </code>
                 .

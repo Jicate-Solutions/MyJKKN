@@ -15,8 +15,16 @@
  * year the bill was raised for (billing here is annual/term-based). Bills with
  * no academic_year_id fall back to the Indian June–May year inferred from
  * due_date; receipts inherit the year of the bills they settled.
+ *
+ * Learner visibility: categories flagged `visible_to_learners = false` are
+ * dropped here — bill rows, the Total Due / Total Billed tiles and the Pay
+ * Online path all lose them in one step. Receipts still show (the learner did
+ * pay), with their hidden lines collapsed into one unnamed "Other fees" row so
+ * the receipt total still ties. RLS enforces the same rule on the bill rows;
+ * this filter is what keeps the derived totals honest.
  */
 
+import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
@@ -29,6 +37,12 @@ import type {
   MyReceiptItem,
   BillingCategoryKind,
 } from '@/types/billing';
+import {
+  collapseHiddenReceiptItems,
+  getLearnerHiddenCategoryIds,
+  isBillLearnerVisible,
+  LEARNER_HIDDEN_LINE_LABEL,
+} from '@/lib/utils/billing/learner-visibility';
 import { MyBillsClient } from './_components/my-bills-client';
 
 export const metadata = {
@@ -78,12 +92,16 @@ export default async function MyBillsPage() {
   // Header context (own row — RLS-scoped).
   const { data: learnerRow } = await supabase
     .from('learners_profiles')
-    .select('first_name, last_name, roll_number, college_email, institution:institution_id ( name )')
+    .select('first_name, last_name, roll_number, college_email, institution_id, institution:institution_id ( name )')
     .eq('id', learnerId)
     .maybeSingle();
 
-  // Bills + receipts (RLS scopes to this learner).
-  const [{ data: billRows }, { data: receiptRows }] = await Promise.all([
+  // Bills + receipts (RLS scopes to this learner) + the learner-hidden category
+  // ids. The bill RLS policies already exclude hidden categories; re-applying
+  // the rule here keeps the derived totals correct and covers the receipt lines,
+  // which are deliberately NOT restricted at the DB level (see the helper).
+  const [{ data: billRows }, { data: receiptRows }, hiddenCategoryIds] =
+    await Promise.all([
     supabase
       .from('billing_student_bills')
       .select(
@@ -98,7 +116,18 @@ export default async function MyBillsPage() {
       )
       .eq('student_id', learnerId)
       .order('payment_paid_date', { ascending: false }),
+    getLearnerHiddenCategoryIds(supabase),
   ]);
+
+  // Bills fetched here whose category is flagged hidden. Once the student RLS
+  // policies are applied these normally never arrive (the DB filters them out
+  // first) — the check stays so the page is correct on its own and the derived
+  // totals below stay honest either way.
+  const hiddenByCategory = new Set(
+    (billRows ?? [])
+      .filter((b) => !isBillLearnerVisible(b.item_category_id, hiddenCategoryIds))
+      .map((b) => b.id)
+  );
 
   const receiptIds = (receiptRows ?? []).map((r) => r.id);
 
@@ -118,6 +147,16 @@ export default async function MyBillsPage() {
           .in('receipt_id', receiptIds)
       : Promise.resolve({ data: [] as never[] }),
   ]);
+
+  // Every bill a receipt line points at that this learner may not see — either
+  // RLS withheld the row (so it never reached billRows) or its category is
+  // flagged hidden. Both cases collapse into the same unnamed receipt line, so
+  // the receipt still totals to what was actually paid.
+  const visibleBillIds = new Set((billRows ?? []).map((b) => b.id));
+  const hiddenBillIds = new Set<string>(hiddenByCategory);
+  for (const it of itemRows ?? []) {
+    if (!visibleBillIds.has(it.bill_id)) hiddenBillIds.add(it.bill_id);
+  }
 
   // Resolve category name + fee head for each bill.
   const categoryIds = [
@@ -163,18 +202,27 @@ export default async function MyBillsPage() {
     const stored = b.academic_year_id ? yearName.get(b.academic_year_id) : undefined;
     const inferred = stored ? null : inferAcademicYear(b.due_date);
     billYear.set(b.id, { year: stored ?? inferred ?? 'Other', inferred: !stored });
+    // Hidden bills keep an entry (receipt lines look them up) but never expose
+    // their real description or amount, in case a line escapes the collapse.
+    const isHidden = hiddenByCategory.has(b.id);
     billMeta.set(b.id, {
-      description:
-        b.bill_description ||
-        (b.item_category_id ? categoryName.get(b.item_category_id) : null) ||
-        'Fee',
-      dueDate: b.due_date ?? null,
-      finalAmount: b.final_amount != null ? num(b.final_amount) : null,
+      description: isHidden
+        ? LEARNER_HIDDEN_LINE_LABEL
+        : b.bill_description ||
+          (b.item_category_id ? categoryName.get(b.item_category_id) : null) ||
+          'Fee',
+      dueDate: isHidden ? null : b.due_date ?? null,
+      finalAmount:
+        isHidden || b.final_amount == null ? null : num(b.final_amount),
     });
   }
 
-  // All ACTIVE bills — client derives outstanding (balance > 0) and analytics.
+  // All ACTIVE, learner-visible bills — client derives outstanding (balance > 0)
+  // and analytics. Dropping hidden bills here is what removes them from the
+  // list, the Total Due / Total Billed tiles, the analytics tab AND the Pay
+  // Online path (no row → no Pay button) in a single step.
   const bills: MyBill[] = (billRows ?? [])
+    .filter((b) => !hiddenByCategory.has(b.id))
     .filter((b) => !INACTIVE_BILL_STATUSES.has((b.status ?? '').toLowerCase()))
     .map((b) => {
       const total = num(b.final_amount ?? b.total_amount);
@@ -223,13 +271,18 @@ export default async function MyBillsPage() {
   }
 
   const receipts: MyReceipt[] = (receiptRows ?? []).map((r) => {
-    const items = itemsByReceipt.get(r.id) ?? [];
+    const allItems = itemsByReceipt.get(r.id) ?? [];
     const refunds = refundsByReceipt.get(r.id) ?? [];
     // A receipt belongs to the year of the bills it settled; a receipt with no
-    // line items (legacy) falls back to the year of its payment date.
-    const linkedYear = items
+    // line items (legacy) falls back to the year of its payment date. Resolved
+    // from the UNCOLLAPSED items so a receipt that only settled hidden bills
+    // still lands in the right academic-year group.
+    const linkedYear = allItems
       .map((it) => billYear.get(it.billId)?.year)
       .find((y): y is string => Boolean(y));
+    // Hidden lines merge into one unnamed row — the receipt total still equals
+    // what the learner actually paid.
+    const items = collapseHiddenReceiptItems(allItems, hiddenBillIds);
     return {
       id: r.id,
       receiptNumber: r.receipt_number ?? '',
@@ -273,13 +326,17 @@ export default async function MyBillsPage() {
         ]}
       />
       <div className='space-y-6 mt-6'>
-        <MyBillsClient
-          data={data}
-          learnerName={learnerName}
-          rollNumber={learnerRow?.roll_number ?? ''}
-          collegeEmail={learnerRow?.college_email ?? ''}
-          institutionName={institutionName}
-        />
+        <Suspense fallback={null}>
+          <MyBillsClient
+            data={data}
+            learnerId={learnerId}
+            learnerName={learnerName}
+            rollNumber={learnerRow?.roll_number ?? ''}
+            collegeEmail={learnerRow?.college_email ?? ''}
+            institutionId={learnerRow?.institution_id ?? null}
+            institutionName={institutionName}
+          />
+        </Suspense>
       </div>
     </ContentLayout>
   );

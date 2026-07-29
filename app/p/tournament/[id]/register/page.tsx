@@ -53,7 +53,7 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
 
   const { data: ev } = await svc
     .from('events')
-    .select('id, name, event_type, status, start_date, venue, venue_text, registration_open_date, registration_close_date')
+    .select('id, name, event_type, status, start_date, venue, venue_text, registration_open_date, registration_close_date, participant_org_type')
     .eq('id', id)
     .eq('event_type', 'sports_tournament')
     .maybeSingle();
@@ -84,6 +84,30 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
 
   if (!divisions || divisions.length === 0) {
     return <Empty title="No events to register for yet" msg="The organizer hasn't published any divisions yet." />;
+  }
+
+  const { data: formRow } = await svc
+    .from('event_registration_forms')
+    .select('id, is_enabled')
+    .eq('event_id', id)
+    .maybeSingle();
+
+  let sections: { id: string; title: string; display_order: number; fields: any[] }[] = [];
+  if (formRow && formRow.is_enabled !== false) {
+    const { data: rawSections } = await svc
+      .from('event_registration_form_sections')
+      .select('*')
+      .eq('form_id', formRow.id)
+      .order('display_order', { ascending: true });
+    const { data: rawFields } = await svc
+      .from('event_registration_form_fields')
+      .select('*')
+      .eq('event_id', id)
+      .order('display_order', { ascending: true });
+    sections = (rawSections ?? []).map((s) => ({
+      ...s,
+      fields: (rawFields ?? []).filter((f) => f.section_id === s.id),
+    }));
   }
 
   // hybrid identity: is a JKKN user signed in?
@@ -131,6 +155,8 @@ export default async function PublicRegisterPage({ params }: { params: Promise<{
         divisions={divisions as DivisionLite[]}
         signedInName={signedInName}
         isLearner={isLearner}
+        sections={sections}
+        participantOrgType={ev.participant_org_type === 'college' ? 'college' : 'school'}
       />
 
       <footer className="mt-8 text-center text-xs text-muted-foreground">JKKN Institutions · Tournament registration</footer>

@@ -726,12 +726,18 @@ Please select a different date period that doesn't overlap.`
       // If no attendance records, proceed with deletion
       // With the new JSON-based structure, we only need to delete the timetable record
       // All slots and periods are stored in the timetable_data JSONB column
-      const { error } = await this.supabase
+      const { data: deletedRows, error } = await this.supabase
         .from('timetables')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select('id');
 
       if (error) throw error;
+      // PostgREST returns no error but 0 rows when RLS silently blocks the DELETE.
+      // Without this check, a permission-denied delete looks like a success.
+      if (!deletedRows || deletedRows.length === 0) {
+        throw new Error('You do not have permission to delete this timetable. Please contact your administrator.');
+      }
 
       trackUsage({ module: 'academic/timetables', feature: 'delete_timetable', eventType: 'delete' });
       (async () => {

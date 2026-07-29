@@ -1,7 +1,8 @@
 // GET /api/cdc/exports/proofs-zip — BUG-004082
 //
-// Returns the manifest of offer-letter "proof" documents for the NAAC 5.2.1 /
-// AICTE placement set (cdc_placements where status = 'accepted'). The browser
+// Returns the manifest of offer-letter "proof" documents for the NAAC 8.2
+// (Graduate Progression) / AICTE placement set (cdc_placements where
+// status = 'accepted'). The browser
 // fetches each public cdc-docs URL in the manifest and bundles them into a ZIP
 // via jszip (see hooks/cdc/use-cdc-exports.ts -> useProofsZip). We return only
 // { url, filename } pairs — the server never buffers the PDFs themselves.

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import {
@@ -1177,12 +1178,15 @@ function RegistrationTab({ event }: { event: any }) {
 // Main Settings Page
 // ============================================================================
 
-export default function MarathonSettingsPage() {
+const MARATHON_SETTINGS_TABS = ['general', 'categories', 'route', 'registration'] as const;
+
+function MarathonSettingsPageInner() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
   const { data: event, isLoading, error } = useMarathonEvent(id);
   const access = useMarathonAccess();
+  const [activeTab, setActiveTab] = useTabParam('general', MARATHON_SETTINGS_TABS);
 
   // Block non-admin users from settings page
   if (!access.isLoading && !access.canManage) {
@@ -1230,20 +1234,20 @@ export default function MarathonSettingsPage() {
       />
 
       <div className="space-y-4 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">{event.name}</h1>
             <p className="text-sm text-muted-foreground">
               Configure your marathon event settings.
             </p>
           </div>
-          <Badge variant="secondary" className="uppercase">
+          <Badge variant="secondary" className="uppercase self-start sm:self-auto">
             {event.status}
           </Badge>
         </div>
 
-        <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible">
             <TabsTrigger value="general" className="gap-1.5">
               <Settings className="h-3.5 w-3.5 hidden sm:inline-block" />
               General
@@ -1283,5 +1287,14 @@ export default function MarathonSettingsPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function MarathonSettingsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MarathonSettingsPageInner />
+    </Suspense>
   );
 }

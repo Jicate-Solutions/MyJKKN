@@ -174,7 +174,7 @@ export default function FacultyCalendarPage() {
             </div>
 
             {/* Header Actions */}
-            <div className='flex items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-2'>
               {/* View Mode Toggle for Super Admin */}
               {isSuperAdmin && (
                 <div className='flex items-center border rounded-lg p-1'>
@@ -233,8 +233,8 @@ export default function FacultyCalendarPage() {
 
   return (
     <PermissionGuard
-      module='admin'
-      action='faculty'
+      module='faculty.calendar'
+      action='view'
       fallback={
         <ContentLayout title='Access Denied'>
           <div className='text-center py-8'>
@@ -290,7 +290,7 @@ export default function FacultyCalendarPage() {
             </div>
 
             {/* Header Actions */}
-            <div className='flex items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-2'>
               {/* View Mode Toggle for Super Admin */}
               {isSuperAdmin && (
                 <div className='flex items-center border rounded-lg p-1'>

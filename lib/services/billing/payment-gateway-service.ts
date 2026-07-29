@@ -258,7 +258,14 @@ export class PaymentGatewayService {
 
         // Resolve the institution + fee-head Razorpay account (falls back to the
         // institution default, then the common env account when unconfigured).
-        const provider = await getPaymentProvider('billing', { institutionId, feeHead });
+        // purpose: 'create-order' fails closed in production if resolution lands
+        // on a test-mode key — sandbox checkout fakes success (UPI QR auto-pays)
+        // and would receipt a bill with no money captured.
+        const provider = await getPaymentProvider('billing', {
+          institutionId,
+          feeHead,
+          purpose: 'create-order',
+        });
         const rzpAccountId = (provider as RazorpayProvider).accountId ?? null;
         const amountPaise = toPaise(totalAmount);
 
@@ -555,8 +562,10 @@ export class PaymentGatewayService {
         };
       }
 
-      // Step 2: Find transaction by transaction_ref (order_id)
-      const supabase = await createClient();
+      // Step 2: Find transaction by transaction_ref (order_id).
+      // Service-role: a webhook carries no user session, so a cookie-scoped
+      // client would see nothing through RLS.
+      const supabase = createServiceRoleClient();
       const { data: transaction, error: transactionError } = await (supabase as any)
         .from('payment_transactions')
         .select('*')
@@ -617,7 +626,7 @@ export class PaymentGatewayService {
       // Step 5: If payment successful, create receipt
       let receiptCreated = false;
       if (newStatus === 'success') {
-        receiptCreated = await this.processSuccessfulPayment(transaction);
+        receiptCreated = await this.processSuccessfulPayment(transaction, supabase);
       }
 
       logger.info('billing/payment-gateway', 'Webhook processed successfully', {
@@ -651,15 +660,53 @@ export class PaymentGatewayService {
    * @param transaction - Payment transaction
    * @returns True if receipt created successfully
    */
-  private static async processSuccessfulPayment(
-    transaction: PaymentTransaction
+  // Public: the Razorpay webhook handler and the razorpay-late-auth cron both
+  // finalize payments through this. Keeping it public means a typo at those
+  // call sites is a compile error rather than a silently skipped receipt.
+  static async processSuccessfulPayment(
+    transaction: PaymentTransaction,
+    injectedClient?: SupabaseClient
   ): Promise<boolean> {
     try {
       logger.info('billing/payment-gateway', 'Processing successful payment', {
         transaction_id: transaction.id,
       });
 
-      const supabase = await createClient();
+      // The callers of this method — the Razorpay webhook and the
+      // razorpay-late-auth cron — have NO user session. The cookie-scoped
+      // client returns zero rows through RLS for every lookup below, so this
+      // used to bail at the items check: the transaction flipped to 'success'
+      // while the bill stayed unpaid and no receipt was ever issued. Default to
+      // the service-role client; a caller holding a real session may inject its
+      // own.
+      const supabase: any = injectedClient ?? createServiceRoleClient();
+
+      // The payment reference that identifies this payment on the receipt.
+      // Razorpay rows have no session_id (see payment_transactions_provider_
+      // identifiers_chk), so fall back through the razorpay ids.
+      const paymentReference =
+        transaction.gateway_transaction_id ||
+        transaction.razorpay_payment_id ||
+        transaction.session_id ||
+        transaction.transaction_ref;
+
+      // Idempotency: the browser callback, the Razorpay webhook and the
+      // late-auth cron can each finalize the same transaction. Exactly one
+      // receipt must exist, or the learner is credited twice.
+      const { data: existingReceipt } = await supabase
+        .from('billing_receipts')
+        .select('id, receipt_number')
+        .eq('payment_reference_number', paymentReference)
+        .maybeSingle();
+
+      if (existingReceipt) {
+        logger.info('billing/payment-gateway', 'Receipt already exists for payment — skipping', {
+          transaction_id: transaction.id,
+          receipt_number: existingReceipt.receipt_number,
+          payment_reference: paymentReference,
+        });
+        return true;
+      }
 
       // Step 1: Fetch transaction items
       const { data: items, error: itemsError } = await supabase
@@ -696,9 +743,11 @@ export class PaymentGatewayService {
         payment_amount: transaction.total_amount,
         payment_paid_date: transaction.payment_date || new Date().toISOString(),
         payer_name: payerName,
-        payment_reference_number: transaction.gateway_transaction_id || transaction.session_id,
-        payment_remarks: `Online payment via HDFC SmartGateway - ${transaction.payment_method || 'card'}`,
-        receipt_items: items.map((item) => ({
+        payment_reference_number: paymentReference,
+        payment_remarks: `Online payment via ${
+          transaction.provider === 'razorpay' ? 'Razorpay' : 'HDFC SmartGateway'
+        } - ${transaction.payment_method || 'card'}`,
+        receipt_items: items.map((item: { bill_id: string; amount: number }) => ({
           bill_id: item.bill_id,
           amount_paid: item.amount,
         })),
@@ -1328,6 +1377,29 @@ export class PaymentGatewayService {
           verification.amount
         );
 
+        const paymentReference = verification.gatewayTransactionId || transaction.transaction_ref;
+
+        // Idempotency: the Razorpay webhook or the razorpay-late-auth cron may
+        // already have finalized this payment. One payment, one receipt — a
+        // second receipt would credit the learner twice.
+        const { data: existingReceipt } = await (supabase as any)
+          .from('billing_receipts')
+          .select('id, receipt_number')
+          .eq('payment_reference_number', paymentReference)
+          .maybeSingle();
+
+        if (existingReceipt) {
+          logger.info('billing/payment-gateway', 'Receipt already exists for payment — skipping', {
+            transactionId,
+            receiptNumber: existingReceipt.receipt_number,
+          });
+          return {
+            success: true,
+            receiptId: existingReceipt.id,
+            receiptNumber: existingReceipt.receipt_number,
+          };
+        }
+
         // Fetch transaction items
         const { data: items } = await (supabase as any)
           .from('payment_transaction_items')
@@ -1360,8 +1432,10 @@ export class PaymentGatewayService {
           payment_paid_date: verification.paymentTime || new Date().toISOString(),
           payer_name: payerName,
           payer_contact: student?.student_mobile || '',
-          payment_reference_number: verification.gatewayTransactionId || transaction.transaction_ref,
-          payment_remarks: `Online payment via HDFC SmartGateway - ${verification.paymentMethod || 'CARD'} (Verified)`,
+          payment_reference_number: paymentReference,
+          payment_remarks: `Online payment via ${
+            transaction.provider === 'razorpay' ? 'Razorpay' : 'HDFC SmartGateway'
+          } - ${verification.paymentMethod || 'CARD'} (Verified)`,
           receipt_items: items.map((item: { bill_id: string; amount: number }) => ({
             bill_id: item.bill_id,
             amount_paid: item.amount,

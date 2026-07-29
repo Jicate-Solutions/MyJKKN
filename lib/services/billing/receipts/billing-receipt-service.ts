@@ -268,10 +268,72 @@ export class BillingReceiptService {
     }
   }
 
+  /**
+   * Void a mistakenly-issued receipt. Prefer this over deleteBillingReceipt:
+   * the row is archived to billing_receipts_voided (with its receipt_items
+   * snapshotted and a reason recorded) rather than destroyed, so the receipt
+   * number stays accounted for and an auditor can still see what happened.
+   *
+   * The bill is reverted by the SAME path a delete uses — removing the receipt
+   * cascades to billing_receipt_items, whose AFTER DELETE trigger recomputes
+   * status and balance_amount — so there is one definition of "paid".
+   *
+   * The RPC refuses to void a receipt that has refunds, is attached to an
+   * invoice, or settles a captured online payment (that last one would simply
+   * be re-created by the next webhook or late-auth sweep — refund it instead).
+   */
+  static async voidBillingReceipt(
+    id: string,
+    reason: string
+  ): Promise<{ receiptNumber: string; billIds: string[] }> {
+    const { data, error } = await (this.supabase as any).rpc('fn_void_billing_receipt', {
+      p_receipt_id: id,
+      p_reason: reason,
+    });
+
+    if (error) {
+      logger.error('billing/receipts', 'Failed to void receipt', { id, error });
+      // Supabase errors are plain objects, not Error instances — reading
+      // `.message` directly is what surfaces the RPC's RAISE EXCEPTION text
+      // (e.g. "Cannot void: this receipt has refunds…") to the operator.
+      throw new Error(error.message || 'Failed to void receipt');
+    }
+
+    const row = (data as Array<Record<string, any>> | null)?.[0];
+
+    const template = BillingActivityTemplates.receiptDeleted(id);
+    logActivityForCurrentUser({
+      ...template,
+      resourceId: id,
+      metadata: { sub_type: template.sub_type, action: 'void', reason },
+    });
+
+    return {
+      receiptNumber: row?.receipt_number ?? '',
+      billIds: (row?.bill_ids ?? []) as string[],
+    };
+  }
+
   static async getBillingReceipts(
     filters: ReceiptFilters = {}
   ): Promise<ReceiptListResponse> {
     try {
+      // Ownership filter. billing_receipts has no category of its own, so this
+      // walks receipt_items -> bill -> category via chained !inner embeds, which
+      // makes it "receipts containing AT LEAST ONE line of this ownership" — a
+      // single payment can settle both, and a mixed receipt shows under either.
+      // Only added when the filter is on, so the default list keeps its existing
+      // (cheaper) query shape. Verified against PostgREST: the nested dotted
+      // filter path resolves and count=exact is NOT inflated by the join.
+      const ownershipEmbed = filters.collection_type
+        ? `,
+          collection_lines:billing_receipt_items!inner(
+            bill:billing_student_bills!inner(
+              category:billing_categories!inner(collection_type)
+            )
+          )`
+        : '';
+
       let query = (this.supabase as any).from('billing_receipts').select(
         `
           *,
@@ -291,10 +353,17 @@ export class BillingReceiptService {
             id,
             refund_amount,
             approval_status
-          )
+          )${ownershipEmbed}
         `,
         { count: 'exact' }
       );
+
+      if (filters.collection_type) {
+        query = query.eq(
+          'collection_lines.bill.category.collection_type',
+          filters.collection_type
+        );
+      }
 
       // Apply filters
       if (filters.search) {

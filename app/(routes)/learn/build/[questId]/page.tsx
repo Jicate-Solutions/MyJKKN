@@ -529,8 +529,14 @@ export default function BuildArenaPage({
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (alive) {
+          // Only show a number when the API says this learner actually has
+          // measurable data. has_data === false means the live recompute found
+          // nothing and fell back to an empty snapshot, so `overall` is 0 by
+          // absence, not by achievement — render '--', not a demoralising 0.
           const overall = j?.data?.overall;
-          setAgencyIndex(typeof overall === 'number' ? Math.round(overall) : null);
+          setAgencyIndex(
+            j?.has_data === true && typeof overall === 'number' ? Math.round(overall) : null,
+          );
         }
       })
       .catch(() => { /* leave as null → card shows '--' */ });

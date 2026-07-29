@@ -93,6 +93,7 @@ export const FEEDBACK_ADAPTER_ROUTINES: AIRoutine[] = [
   },
   {
     "id": "feedback-classify",
+    "maxLane": true,
     "name": "Feedback Spine AI Classifier (shared service)",
     "category": "feedback-adapters",
     "type": "service",
@@ -104,6 +105,6 @@ export const FEEDBACK_ADAPTER_ROUTINES: AIRoutine[] = [
     "configKnobs": "MODEL=claude-sonnet-4-6 (config row 'feedback.classify' — /admin/ai-models); max_tokens=400; input content capped at 4000 chars; API key from CLAUDE_API_KEY or ANTHROPIC_API_KEY. Driving cron uses BATCH=25 events/run, maxDuration=300s",
     "sideEffects": "The function itself is read-only (returns a classification object; sends NO messages — draft_reply is stored for human approval, never auto-sent). Persistence happens in its caller: /api/cron/feedback-classify writes ai_sentiment/ai_intent/ai_topic/ai_draft_reply/ai_model/ai_processed_at onto feedback_events rows where ai_processed_at IS NULL.",
     "safeToManualTrigger": false,
-    "notes": "Library function lib/services/feedback/feedback-classify.ts — not an HTTP route itself; operators run classification via the /api/cron/feedback-classify cron (auth: Bearer CRON_SECRET or x-vercel-cron). Uses the paid Anthropic API (NOT the Claude subscription); each event costs a fraction of a cent. Guarded by ai_processed_at IS NULL so re-runs only classify still-unprocessed events (drained-safe, idempotent). Throws on API/parse failure per event; the cron catches per-row."
+    "notes": "Library function lib/services/feedback/feedback-classify.ts — not an HTTP route itself; operators run classification via the /api/cron/feedback-classify cron (auth: Bearer CRON_SECRET or x-vercel-cron). Uses the paid Anthropic API (NOT the Claude subscription); each event costs a fraction of a cent. Guarded by ai_processed_at IS NULL so re-runs only classify still-unprocessed events (drained-safe, idempotent). Throws on API/parse failure per event; the cron catches per-row. Max lane: on-demand via the ⚡ button — a Mac-side runner twin executes on the Claude Max subscription (₹0 API) and is guard-idempotent with the API path."
   }
 ];

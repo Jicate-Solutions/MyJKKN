@@ -22,6 +22,10 @@ const upsertSchema = z.object({
   smtp_password: z.string().min(1),
   sender_email: z.string().email().max(255),
   sender_name: z.string().min(1).max(255),
+  // Academic Council From override. Optional — empty string / omitted means
+  // AC notices fall back to the shared sender_email / sender_name.
+  ac_sender_email: z.string().email().max(255).optional().or(z.literal('')),
+  ac_sender_name: z.string().max(255).optional(),
   default_cc_emails: z.array(z.string().email()).max(10).optional(),
   is_active: z.boolean().default(true),
 });
@@ -319,6 +323,9 @@ export async function POST(request: NextRequest) {
       smtp_password_encrypted: passwordToWrite,
       sender_email: p.sender_email,
       sender_name: p.sender_name,
+      // Normalise empty strings to NULL so the sender falls back cleanly.
+      ac_sender_email: p.ac_sender_email?.trim() ? p.ac_sender_email.trim() : null,
+      ac_sender_name: p.ac_sender_name?.trim() ? p.ac_sender_name.trim() : null,
       default_cc_emails: p.default_cc_emails ?? null,
       is_active: p.is_active,
       updated_at: new Date().toISOString(),

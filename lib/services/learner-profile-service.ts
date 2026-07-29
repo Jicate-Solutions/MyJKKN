@@ -4,6 +4,7 @@ import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-reso
 import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { SchoolDefaultsService } from '@/lib/services/school-defaults-service';
+import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -513,9 +514,12 @@ export class LearnerProfileService {
     }
 
     if (search) {
-      query = query.or(
-        `first_name.ilike.%${search}%,last_name.ilike.%${search}%,application_id.ilike.%${search}%,roll_number.ilike.%${search}%,student_mobile.ilike.%${search}%,student_email.ilike.%${search}%`
-      );
+      // Shared parser: handles "field:value" prefixes, multi-word full names
+      // (first_name + last_name spanning), and sanitizes PostgREST syntax chars.
+      const searchConditions = buildLearnerSearchConditions(search);
+      if (searchConditions.length > 0) {
+        query = query.or(searchConditions.join(','));
+      }
     }
 
     if (lifecycle_status) {
@@ -2906,6 +2910,8 @@ export class LearnerProfileService {
    * Helper: Get hierarchical institution data
    * Returns institution → degree → department → program → semester → section hierarchy
    * Fetches all learner records to build accurate hierarchy
+   * Always scoped to active learners (lifecycle_status = 'active'), independent of
+   * the dashboard's status filter — the Organizational tab represents current org headcount.
    */
   private static async getHierarchicalInstitutions(
     filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
@@ -2940,7 +2946,8 @@ export class LearnerProfileService {
           section_id,
           sections(id, section_name)
         `)
-        .not('institution_id', 'is', null);
+        .not('institution_id', 'is', null)
+        .eq('lifecycle_status', 'active');
 
       // Apply institution filter if provided
       if (filters.institutionIds && filters.institutionIds.length > 0) {

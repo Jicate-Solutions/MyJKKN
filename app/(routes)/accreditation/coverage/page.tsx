@@ -106,8 +106,8 @@ export default function AccreditationCoveragePage() {
               return (
                 <Card key={meta.code} className={meta.accentClass}>
                   <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center justify-between text-base">
-                      <span>
+                    <CardTitle className="flex items-center justify-between gap-2 text-base">
+                      <span className="min-w-0">
                         {meta.shortLabel}
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
                           {meta.name}
@@ -115,7 +115,7 @@ export default function AccreditationCoveragePage() {
                       </span>
                       <Link
                         href={`/accreditation/${meta.code.toLowerCase()}`}
-                        className="text-xs font-medium text-primary hover:underline"
+                        className="shrink-0 text-xs font-medium text-primary hover:underline"
                       >
                         Open dashboard →
                       </Link>

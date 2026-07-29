@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 // GET /api/pde/assessments/[id]/results?submissionId=xxx
 // Returns graded answers + Fink's taxonomy breakdown
@@ -40,8 +40,13 @@ export async function GET(
       return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
     }
 
-    // Fetch questions for this assessment
-    const { data: questions, error: qErr } = await (supabase as any)
+    // Fetch questions for this assessment. Learners no longer hold SELECT on
+    // pde_assessment_questions (pde_questions_read RLS tighten), and grading +
+    // the results view require the answer key. Submission ownership is already
+    // enforced above (the session-client read is RLS-scoped to the caller's own
+    // submission), so reading the key with the service-role client is safe.
+    const svc = createServiceRoleClient();
+    const { data: questions, error: qErr } = await (svc as any)
       .from('pde_assessment_questions')
       .select('*')
       .eq('assessment_id', assessmentId)

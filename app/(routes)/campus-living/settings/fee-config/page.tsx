@@ -15,7 +15,8 @@
  * Permission gate: `campus_living.settings.edit` (or super-admin).
  */
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Label } from '@/components/ui/label';
 import {
@@ -37,7 +38,9 @@ import { CategoryFeesSection } from './_components/category-fees-section';
 import { PackageFeesSection } from './_components/package-fees-section';
 import { UpgradeFeesSection } from './_components/upgrade-fees-section';
 
-export default function FeeConfigPage() {
+const FEE_CONFIG_TABS = ['category', 'upgrade', 'package'] as const;
+
+function FeeConfigPageInner() {
   const { permissions, isSuperAdmin } = usePermissions();
   const canEdit =
     isSuperAdmin || permissions?.['campus_living.settings.edit'] === true;
@@ -46,6 +49,7 @@ export default function FeeConfigPage() {
   const { currentYear } = useCurrentHostelYear();
 
   const [selectedYearId, setSelectedYearId] = useState<string | undefined>(undefined);
+  const [activeTab, setActiveTab] = useTabParam('category', FEE_CONFIG_TABS);
   const effectiveYearId =
     selectedYearId ?? currentYear?.id ?? hostelYears?.[0]?.id ?? undefined;
 
@@ -59,14 +63,14 @@ export default function FeeConfigPage() {
               Hostel category fees (room / mess / amenities) for the selected hostel year
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Label className="text-sm whitespace-nowrap">Hostel Year</Label>
             <Select
               value={effectiveYearId ?? ''}
               onValueChange={(v) => setSelectedYearId(v)}
               disabled={loadingYears || !hostelYears?.length}
             >
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Select year" />
               </SelectTrigger>
               <SelectContent>
@@ -106,8 +110,8 @@ export default function FeeConfigPage() {
         ) : null}
 
         {effectiveYearId ? (
-          <Tabs defaultValue="category" className="space-y-4">
-            <TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="category">Category Fees</TabsTrigger>
               <TabsTrigger value="upgrade">Upgrade Fees</TabsTrigger>
               <TabsTrigger value="package">Package Fees</TabsTrigger>
@@ -125,5 +129,14 @@ export default function FeeConfigPage() {
         ) : null}
       </div>
     </ContentLayout>
+  );
+}
+
+export default function FeeConfigPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <FeeConfigPageInner />
+    </Suspense>
   );
 }

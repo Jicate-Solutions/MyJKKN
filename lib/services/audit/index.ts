@@ -7,6 +7,10 @@ export { AuditAttestationService } from './audit-attestation-service';
 export { AuditParameterCatalogService } from './audit-parameter-catalog-service';
 export { AuditCoverageService } from './audit-coverage-service';
 export type { CoverageOptions } from './audit-coverage-service';
+export {
+  parameterMatchesFrameworks,
+  filterParametersByFrameworks,
+} from './framework-filter';
 export { AuditDiscoveryService } from './audit-discovery-service';
 export type {
   DiscoveryQueryResult,
@@ -31,6 +35,7 @@ export type {
   CarreSnapshot,
   CarreSnapshotParameter,
 } from './carre-audit-service';
+export { AuditAdaptationsService } from './audit-adaptations-service';
 export { AuditReportService } from './audit-report-service';
 export type {
   AuditReportFormat,

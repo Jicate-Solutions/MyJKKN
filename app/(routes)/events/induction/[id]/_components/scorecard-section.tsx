@@ -71,7 +71,7 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
         toast.info('NAAC evidence for this induction is already curated manually — left untouched.');
       } else {
         toast.success(
-          `Recorded as NAAC evidence (${n} criterion row${n === 1 ? '' : 's'}${n < 2 ? '; a manually-curated row was preserved' : ': 5.1.3 + 7.2.1'}).`,
+          `Recorded as NAAC evidence (${n} criterion row${n === 1 ? '' : 's'}${n < 2 ? '; a manually-curated row was preserved' : ': 6.3.1 + 6.3.2'}).`,
         );
       }
     } catch (e: any) {
@@ -111,7 +111,7 @@ export function ScorecardSection({ eventId }: { eventId: string }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardTitle className="text-base">Scorecard</CardTitle>
           <CardDescription>

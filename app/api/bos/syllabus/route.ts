@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosAccess,
   resolveBosBoardScope,
-  compositionScopeFilter,
   applyInstitutionScope,
   guardInstitutionWrite,
   resolveCoeInstitutionId,
   readableCounsellingCodes,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
@@ -59,13 +60,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Step 2: Resolve institution + board-membership scope.
-    // Syllabi have board_id but no composition_id, so members are filtered by
-    // boardsOf (the union of board_ids across their active compositions).
+    // Step 2: Resolve board-membership scope.
+    // Policy (2026-07-23, reverses 2026-07-16): the read-all observer tier IS
+    // applied — any holder of academic.bos-syllabus.view reads every board's
+    // syllabi across ALL institutions, VIEW ONLY (edit stays gated by
+    // guardSyllabusEdit on the mutating routes). Board-scoping now only
+    // applies to users who reach this route WITHOUT the view grant.
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const seeAll = scope.isSuperAdmin || isBosReadAllObserver(scope, hasView);
+    const boardIds = Array.from(scope.boardsOf);
 
-    if (scopeFilter.kind === 'none') {
+    if (!seeAll && boardIds.length === 0) {
       return NextResponse.json({
         data: [],
         metadata: { total: 0, page: 1, limit: 50, totalPages: 0 },
@@ -90,9 +96,11 @@ export async function GET(request: NextRequest) {
     // Step 4: Apply institution scope.
     // Super-admin with no institutionsId = "All institutions" cross-institution view — allowed.
     // Non-admin without an institution association = still rejected (403).
-    const scopedInstitutionsId = applyInstitutionScope(scope, institutionsId);
+    // Observer reads across all institutions, so an unscoped request is fine —
+    // treat like super-admin for the "no institution" allowance.
+    const scopedInstitutionsId = seeAll ? (institutionsId ?? null) : applyInstitutionScope(scope, institutionsId);
 
-    if (!scopedInstitutionsId && !scope.isSuperAdmin) {
+    if (!scopedInstitutionsId && !seeAll) {
       return NextResponse.json(
         {
           error: 'Your account is not associated with an institution. Contact your administrator to assign an institution to your profile.'
@@ -110,57 +118,90 @@ export async function GET(request: NextRequest) {
     //  - super-admin scoped to a specific institution: that institution's code.
     //  - super-admin with no institution: no filter (all institutions).
     let filterCode: string | null = null;
-    if (!scope.isSuperAdmin) {
+    if (!seeAll) {
       const codes = await readableCounsellingCodes(scope);
       filterCode = codes && codes.length > 0 ? codes[0] : null;
     } else if (scopedInstitutionsId) {
       filterCode = await counsellingCodeFor(supabase, scopedInstitutionsId);
     }
 
-    let query = supabase
-      .from('bos_course_syllabi')
-      .select('*', { count: 'exact' });
+    // Read via service-role, with the institution (counselling_code) + board_id
+    // filters below AS the authorization — the route enforces board-scoping
+    // explicitly (matching the PUT/DELETE + meetings/TA-DA precedent), so we
+    // don't depend on the bos_course_syllabi SELECT RLS policy (which errors for
+    // board members whose role can't read the tables its USING clause subqueries).
+    const readDb = createServiceRoleClient();
 
-    if (filterCode) {
-      query = query.eq('counselling_code', filterCode);
-    } else if (!scope.isSuperAdmin) {
-      // Non-admin whose code didn't resolve — never run unfiltered; fall back to
-      // the single institution UUID so we still scope (and don't leak).
-      query = query.eq('institutions_id', scopedInstitutionsId!);
-    }
-    // super-admin with no filterCode → "All institutions" (no institution filter)
-
-    // Board-membership scope (after the institution filter).
-    //  - 'all'           : super-admin — no extra filter
-    //  - 'byInstitution' : principal — institution filter above is sufficient
-    //  - 'byComposition' : member/chairman — restrict by board_id ∈ boardsOf.
-    //                      (Schema has board_id, no composition_id; we use the
-    //                      board set derived during scope resolution.)
-    if (scopeFilter.kind === 'byComposition') {
-      const boardIds = Array.from(scope.boardsOf);
-      if (boardIds.length === 0) {
-        return NextResponse.json({
-          data: [],
-          metadata: { total: 0, page, limit, totalPages: 0 },
-        } as BosSyllabusListResponse);
+    // Resolve the regulation filter to a CAS-sibling-aware set.
+    // A CAS college has TWO institution rows (Aided + Self-Financed), each with
+    // its OWN regulation row that shares the same regulation_code (e.g. two
+    // "R-2024" rows). Syllabi may be authored under either sibling, so filtering
+    // by the single passed regulation_id silently drops the other sibling's
+    // syllabi (the exact bug behind "only one course downloads"). We expand the
+    // filter to every active regulation_id sharing the code; the counselling_code
+    // filter above still scopes results to the caller's institution(s).
+    //
+    // For a NON-CAS institution a code maps to exactly one regulation row, so
+    // this resolves to [regulationId] and behaves identically to a plain .eq().
+    let regulationIdsFilter: string[] | null = null;
+    if (regulationId) {
+      const { data: regRow } = await supabase
+        .from('regulations')
+        .select('regulation_code')
+        .eq('id', regulationId)
+        .maybeSingle();
+      const code = regRow?.regulation_code as string | undefined;
+      if (code) {
+        const { data: siblingRegs } = await supabase
+          .from('regulations')
+          .select('id')
+          .eq('regulation_code', code)
+          .eq('is_active', true);
+        const ids = (siblingRegs ?? []).map((r) => r.id as string);
+        regulationIdsFilter = ids.length > 0 ? ids : [regulationId];
+      } else {
+        regulationIdsFilter = [regulationId];
       }
-      query = query.in('board_id', boardIds);
     }
 
-    // Apply filters
-    if (boardId) query = query.eq('board_id', boardId);
-    if (regulationId) query = query.eq('regulation_id', regulationId);
-    if (courseCode) query = query.eq('course_code', courseCode);
-    if (stream) query = query.eq('stream', stream);
-    if (isLatest) query = query.eq('is_latest', true);
-    if (isArchived !== undefined) query = query.eq('is_archived', isArchived);
+    // Query FACTORY, not a single builder. A PostgrestFilterBuilder executes
+    // (and is consumed) on await, so the drain loop below — which issues one
+    // request per 1000-row chunk — needs a fresh, identically-filtered builder
+    // each time. Every filter therefore lives here, in one place, so the chunked
+    // reads and the paginated read below can never drift apart.
+    const buildQuery = () => {
+      let q = readDb
+        .from('bos_course_syllabi')
+        .select('*', { count: 'exact' });
 
-    // Search filter
-    if (search) {
-      query = query.or(
-        `course_code.ilike.%${search}%,course_name.ilike.%${search}%`
-      );
-    }
+      if (filterCode) {
+        q = q.eq('counselling_code', filterCode);
+      } else if (!seeAll) {
+        // Non-admin whose code didn't resolve — never run unfiltered; fall back to
+        // the single institution UUID so we still scope (and don't leak).
+        q = q.eq('institutions_id', scopedInstitutionsId!);
+      }
+      // super-admin / read-all observer with no filterCode → "All institutions" (no institution filter)
+
+      // Board-scoped visibility for EVERYONE except super-admin — members,
+      // chairman AND principals see only the boards they sit on. boardIds was
+      // resolved (and the empty case returned early) in Step 2.
+      if (!seeAll) q = q.in('board_id', boardIds);
+
+      if (boardId) q = q.eq('board_id', boardId);
+      if (regulationIdsFilter) q = q.in('regulation_id', regulationIdsFilter);
+      if (courseCode) q = q.eq('course_code', courseCode);
+      if (stream) q = q.eq('stream', stream);
+      if (isLatest) q = q.eq('is_latest', true);
+      if (isArchived !== undefined) q = q.eq('is_archived', isArchived);
+
+      // Search filter
+      if (search) {
+        q = q.or(`course_code.ilike.%${search}%,course_name.ilike.%${search}%`);
+      }
+
+      return q;
+    };
 
     // Step 6: Sort + paginate.
     //
@@ -174,18 +215,47 @@ export async function GET(request: NextRequest) {
     let response: BosSyllabusListResponse;
 
     if (regulationId) {
-      // Enrichment cap matches DB row cap on the path below — bounded fan-out.
-      const enrichmentCap = Math.max(limit, 500);
-      const { data: allData, count, error } = await query
-        .order('course_code', { ascending: true })
-        .range(0, enrichmentCap - 1);
+      // Drain EVERY matching row, in chunks — do not cap at one window.
+      //
+      // The course_order sort below is a global reordering of the whole result
+      // set, so a partial read can't be sliced correctly: rows outside the
+      // window are simply absent, and `page=2` would slice past the end of a
+      // short array and return []. That is precisely what broke the
+      // /bos/course-scheme "Download Syllabi" ZIP — CAS R-2024 has 836 latest
+      // syllabi, the old 500-row window cut everything sorting after
+      // ~24UCYCP05, and the ZIP silently shipped a partial set (General Tamil,
+      // General English and the Generic Electives went missing).
+      //
+      // CHUNK stays at PostgREST's default max-rows so no single request is
+      // truncated server-side; HARD_CAP is a runaway guard, and hitting it is
+      // logged rather than silently swallowed.
+      const CHUNK = 1000;
+      const HARD_CAP = 10000;
+      const allRows: BosCourseSyllabus[] = [];
+      let count: number | null = null;
 
-      if (error) {
-        console.error('[GET /api/bos/syllabus] Query error:', error);
-        return NextResponse.json({ error: 'Failed to fetch syllabi' }, { status: 500 });
+      for (let from = 0; from < HARD_CAP; from += CHUNK) {
+        const { data: chunkData, count: chunkCount, error } = await buildQuery()
+          .order('course_code', { ascending: true })
+          .range(from, from + CHUNK - 1);
+
+        if (error) {
+          console.error('[GET /api/bos/syllabus] Query error:', error);
+          return NextResponse.json({ error: 'Failed to fetch syllabi' }, { status: 500 });
+        }
+
+        if (chunkCount != null) count = chunkCount;
+        const rows = (chunkData as BosCourseSyllabus[]) || [];
+        allRows.push(...rows);
+        if (rows.length < CHUNK) break;
       }
 
-      const allRows = (allData as BosCourseSyllabus[]) || [];
+      if (count != null && allRows.length < count) {
+        console.warn(
+          '[GET /api/bos/syllabus] HARD_CAP reached: read %d of %d rows (regulationId=%s) — results are incomplete',
+          allRows.length, count, regulationId,
+        );
+      }
 
       // Look up regulation_code (string) from regulation_id (uuid). Needed for
       // the COE course-mapping API which keys by code, not id.
@@ -261,11 +331,10 @@ export async function GET(request: NextRequest) {
       };
     } else {
       // No regulation filter — fall back to DB-side sort + range pagination.
-      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
       const offset = (page - 1) * limit;
-      query = query.range(offset, offset + limit - 1);
-
-      const { data, count, error } = await query;
+      const { data, count, error } = await buildQuery()
+        .order(sortBy, { ascending: sortOrder === 'asc' })
+        .range(offset, offset + limit - 1);
       if (error) {
         console.error('[GET /api/bos/syllabus] Query error:', error);
         return NextResponse.json({ error: 'Failed to fetch syllabi' }, { status: 500 });

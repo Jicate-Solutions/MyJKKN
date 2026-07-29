@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionContext } from '@/hooks/use-institution-context';
@@ -11,6 +11,8 @@ import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { InstitutionPicker } from '../../_components/institution-picker';
 import { CoursesFilters, type CoursesFiltersState } from './courses-filters';
 import { CoursesDataTable } from './courses-data-table';
+import { CoursesExportButton } from './courses-export-button';
+import { CoursesImportDialog } from './courses-import-dialog';
 
 export function CoursesPageClient() {
   const router = useRouter();
@@ -36,6 +38,7 @@ export function CoursesPageClient() {
     regulation_code: '',
     is_active: 'true',
   });
+  const [importOpen, setImportOpen] = useState(false);
 
   // Layer 2 (immediate): set institutionId from userProfile.institution_id so
   // the page renders right away without waiting for /api/institutions/resolve.
@@ -67,22 +70,40 @@ export function CoursesPageClient() {
       {/* Action bar — kept on its own row so the filter grid below stays a
           rigid 4-column matrix at every zoom level (grid columns share the
           row width as 1fr, so they never overflow into wraps). */}
-      <div className='flex justify-end'>
-        {/* Disable New Course when "All Institutions" is active — no institution context to create into. */}
+      <div className='flex flex-wrap justify-end gap-2'>
+        <CoursesExportButton
+          institutionId={institutionId}
+          institutionCode={institutionCode}
+          filters={filters}
+        />
+        {/* Import & New Course disabled when "All Institutions" is active — no institution context to create into. */}
         {canCreate && institutionId && (
-          <Button
-            size='sm'
-            onClick={() => {
-              const params = new URLSearchParams();
-              if (institutionCode) params.set('institution_code', institutionCode);
-              if (filters.regulation_code) params.set('regulation_code', filters.regulation_code);
-              router.push(`/bos/courses/new?${params}`);
-            }}
-          >
-            <Plus className='mr-2 h-4 w-4' /> New Course
-          </Button>
+          <>
+            <Button variant='outline' size='sm' onClick={() => setImportOpen(true)}>
+              <Upload className='mr-2 h-4 w-4' /> Import
+            </Button>
+            <Button
+              size='sm'
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (institutionCode) params.set('institution_code', institutionCode);
+                if (filters.regulation_code) params.set('regulation_code', filters.regulation_code);
+                router.push(`/bos/courses/new?${params}`);
+              }}
+            >
+              <Plus className='mr-2 h-4 w-4' /> New Course
+            </Button>
+          </>
         )}
       </div>
+
+      <CoursesImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        institutionId={institutionId}
+        institutionCode={institutionCode}
+        myjkknInstitutionIds={myjkknInstitutionIds}
+      />
 
       {/* Fixed-column filter grid: 1 col mobile → 2 cols tablet → 4 cols desktop.
           Each cell sizes equally via grid 1fr, so zoom in/out preserves the
@@ -125,6 +146,7 @@ export function CoursesPageClient() {
           institutionId={institutionId}
           filters={filters}
           institutionName={institutionName}
+          institutionCode={institutionCode}
         />
       ) : (
         <p className='text-sm text-muted-foreground'>Loading institution…</p>

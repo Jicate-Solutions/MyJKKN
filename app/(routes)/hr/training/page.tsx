@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, GraduationCap } from 'lucide-react';
+import { AddToLinkedInButton } from '@/components/linkedin/add-to-linkedin-button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   TrainingService,
@@ -257,6 +258,20 @@ export default function StaffTrainingPage() {
                             </>
                           )}
                         </div>
+                        {/* Staff can add a completed training to their LinkedIn.
+                            HR training certs are EXTERNAL URLs (FDP/NPTEL PDFs an
+                            admin pastes on completion) — not JKKN /verify creds —
+                            so certUrl points at the stored external certificate. */}
+                        {en.status === 'completed' && en.certificate_url && (
+                          <div className="mt-2">
+                            <AddToLinkedInButton
+                              cert={{
+                                name: p?.title || 'Training Programme',
+                                certUrl: en.certificate_url,
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

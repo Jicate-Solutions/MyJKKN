@@ -45,10 +45,15 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
   // Forcing them through the read-timer + scroll gate + quiz on dozens of items
   // per session is unworkable. The notification is still delivered and counted
   // in the audit log; the gate just doesn't enforce it for this audience.
-  const { isSuperAdmin } = usePermissions();
+  // `isLoading` here is TRUE until the role resolves. isSuperAdmin defaults to
+  // false during that window, so it must NOT be trusted until permissions load —
+  // otherwise the gate treats a not-yet-known super admin as a regular user.
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
   // Fetch unacknowledged notifications — disabled for super admins so we don't
-  // waste a request every 60s for a value we'll never act on.
+  // waste a request every 60s for a value we'll never act on. Also gated on
+  // permissions being LOADED: firing while isSuperAdmin is still defaulting to
+  // false is what flashed the modal for exempt super admins on load.
   const { data, isLoading } = useQuery({
     queryKey: ['unacknowledged-notifications'],
     queryFn: async () => {
@@ -56,7 +61,7 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
       if (!res.ok) return { unacknowledged: [], count: 0, has_pending: false };
       return res.json();
     },
-    enabled: !isSuperAdmin,
+    enabled: !isSuperAdmin && !permissionsLoading,
     refetchInterval: 60000, // Check every minute for new mandatory notifications
     refetchOnWindowFocus: true
   });
@@ -112,6 +117,12 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
       setAcknowledging(false);
     }
   }, [notifications, currentIndex, acknowledgeMutation]);
+
+  // Never decide the gate until permissions resolve. Until then isSuperAdmin
+  // defaults to false, and rendering here would flash the blocking modal at an
+  // exempt super admin (and anyone else) for the split second before their role
+  // is known — the "modal pops up now and then on load" bug.
+  if (permissionsLoading) return <>{children}</>;
 
   // Super admin bypass — never gate the platform operator
   if (isSuperAdmin) return <>{children}</>;

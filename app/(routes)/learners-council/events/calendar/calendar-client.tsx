@@ -182,12 +182,12 @@ export function CalendarClient({
       {/* Calendar Card */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-3">
               <Button variant="outline" size="icon" onClick={goToPrev}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <CardTitle className="text-lg min-w-[180px] text-center">
+              <CardTitle className="text-lg min-w-0 sm:min-w-[180px] text-center">
                 {MONTH_NAMES[month]} {year}
               </CardTitle>
               <Button variant="outline" size="icon" onClick={goToNext}>

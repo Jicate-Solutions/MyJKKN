@@ -9,7 +9,7 @@
 // card's own Follow-up column (the lift) is what judges whether it worked. The AI is
 // never the verifier and never acts on anyone.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Sparkles,
   AlertTriangle,
@@ -85,6 +85,20 @@ export function AiSuggestionDialog({
   const [suggestionId, setSuggestionId] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [savingVerdict, setSavingVerdict] = useState<Verdict | null>(null);
+  // Elapsed-seconds counter shown while the answer is computed on the Max lane
+  // (the seat/Windows drain claims ~every minute), so a longer-than-instant wait
+  // reads as steady progress, not a hang.
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const started = Date.now();
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [loading]);
 
   async function load() {
     setLoading(true);
@@ -178,6 +192,9 @@ export function AiSuggestionDialog({
             <BeatLoader color={BRAND_GREEN} size={9} />
             <p className="text-sm text-muted-foreground">
               Reading the feedback and drafting a fix…
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {elapsed}s elapsed · this usually takes under a minute
             </p>
           </div>
         ) : error ? (

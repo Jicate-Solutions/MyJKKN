@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -208,6 +209,8 @@ function BlockEditor({ block, onChange }: { block: EmailBlock; onChange: (conten
 // MAIN PAGE COMPONENT
 // ============================================================================
 
+const EMAIL_BUILDER_TABS = ['editor', 'preview', 'html'] as const;
+
 function EmailBuilderPageContent() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
@@ -221,7 +224,7 @@ function EmailBuilderPageContent() {
   ]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
-  const [activeTab, setActiveTab] = useState('editor');
+  const [activeTab, setActiveTab] = useTabParam('editor', EMAIL_BUILDER_TABS);
   const [isSaving, setIsSaving] = useState(false);
 
   const addBlock = (type: BlockType) => {
@@ -330,7 +333,7 @@ function EmailBuilderPageContent() {
             </TabsList>
 
             <TabsContent value="editor">
-              <div className="grid grid-cols-12 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Block Palette */}
                 <div className="col-span-2">
                   <Card>
@@ -429,8 +432,8 @@ function EmailBuilderPageContent() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="flex justify-center p-6 bg-muted/30">
-                  <div style={{ width: previewMode === 'mobile' ? '375px' : '600px' }} className="bg-white shadow-lg rounded overflow-hidden">
+                <CardContent className="flex justify-center p-6 bg-muted/30 overflow-x-auto">
+                  <div style={{ width: previewMode === 'mobile' ? '375px' : '600px' }} className="bg-white shadow-lg rounded overflow-hidden shrink-0">
                     <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
                   </div>
                 </CardContent>
@@ -454,9 +457,12 @@ function EmailBuilderPageContent() {
 }
 
 export default function EmailBuilderPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <EmailBuilderPageContent />
+      <Suspense fallback={null}>
+        <EmailBuilderPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

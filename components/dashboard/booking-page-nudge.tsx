@@ -117,7 +117,7 @@ export async function BookingPageNudge() {
     <Link
       href="/meetings/availability"
       data-dashboard-section="booking-page-nudge"
-      className="group flex items-start gap-4 rounded-2xl border border-emerald-200/70 dark:border-emerald-900/50 bg-gradient-to-br from-emerald-50/80 to-white/40 dark:from-emerald-950/30 dark:to-neutral-900/40 backdrop-blur-sm p-5 transition-colors hover:border-emerald-300 dark:hover:border-emerald-800"
+      className="group flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4 rounded-2xl border border-emerald-200/70 dark:border-emerald-900/50 bg-gradient-to-br from-emerald-50/80 to-white/40 dark:from-emerald-950/30 dark:to-neutral-900/40 backdrop-blur-sm p-5 transition-colors hover:border-emerald-300 dark:hover:border-emerald-800"
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
         <Icon className="h-5 w-5" />

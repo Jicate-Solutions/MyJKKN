@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useTabParam } from "@/hooks/use-tab-param";
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -70,7 +71,10 @@ const matchingRules = [
   { field: "Address", weight: 5, enabled: false },
 ];
 
+const DEDUPLICATION_TABS = ["duplicates", "rules", "history"] as const;
+
 function DeduplicationPageContent() {
+  const [activeTab, setActiveTab] = useTabParam("duplicates", DEDUPLICATION_TABS);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -200,7 +204,7 @@ function DeduplicationPageContent() {
         </Breadcrumb>
       <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Copy className="h-8 w-8 text-[#0b6d41]" />
@@ -210,7 +214,7 @@ function DeduplicationPageContent() {
             Find and merge duplicate admission leads
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <Button
             variant="outline"
             className="gap-2"
@@ -240,7 +244,7 @@ function DeduplicationPageContent() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -323,8 +327,8 @@ function DeduplicationPageContent() {
       </div>
 
       {/* Main Content */}
-      <Tabs defaultValue="duplicates">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="duplicates" className="gap-2">
             <Copy className="h-4 w-4" />
             Duplicate Groups ({isLoading ? '...' : dedupeStats.duplicateGroups})
@@ -644,7 +648,9 @@ function DeduplicationPageContent() {
 export default function DeduplicationPage() {
   return (
     <AdmissionErrorBoundary>
-      <DeduplicationPageContent />
+      <Suspense fallback={null}>
+        <DeduplicationPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

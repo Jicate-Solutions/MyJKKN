@@ -116,6 +116,11 @@ export async function POST(
       pedagogy: source.pedagogy,
       po_mappings: source.po_mappings,
       assessment_structure: source.assessment_structure,
+      concept_applications: source.concept_applications,
+      assessment_pattern: source.assessment_pattern,
+      capstone_project: source.capstone_project,
+      capstone_rubric: source.capstone_rubric,
+      llc_conference: source.llc_conference,
       // ── Denormalized legacy column (counselling_code is set by trigger) ──
       institution_code: src.institution_code ?? null,
       // ── Version / lineage ──

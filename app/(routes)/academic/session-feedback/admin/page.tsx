@@ -17,9 +17,10 @@
 // message — never a silent redirect (hard project rule, CLAUDE.md #27).
 // Spec: specs/post-class-feedback-attendance-gate-2026-06-15.md (admin lane)
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { AlertTriangle, Building2, Users, BarChart3, TrendingDown, Gauge } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+import { useQueryClient } from '@tanstack/react-query';
 import { format, subDays } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -54,8 +55,14 @@ import {
 } from '@/hooks/use-session-feedback';
 import { LoopActivityCard } from '../_components/loop-activity-card';
 import { FacilitatorStrengthsCard } from '../_components/facilitator-strengths-card';
+import { FacilitatorPulseCard } from '../_components/facilitator-pulse-card';
 import { LearnerTrajectoryCard } from '../_components/learner-trajectory-card';
 import { StrugglingNotesSentCard } from '../_components/struggling-notes-sent-card';
+import {
+  DashboardFilters,
+  type DashboardFilterState,
+} from '@/app/(routes)/academic/attendance/dashboard/_components/dashboard-filters';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
@@ -65,13 +72,11 @@ import type {
 
 const BRAND_GREEN = '#0b6d41';
 
-/** Color an understanding average: red < 3, amber < 3.5, green otherwise. */
-function avgColor(avg: number | null): string {
-  if (avg == null) return 'text-muted-foreground';
-  if (avg < 3) return 'text-red-600';
-  if (avg < 3.5) return 'text-amber-600';
-  return 'text-green-600';
-}
+/** Every figure on this page covers exactly this many days, inclusive of both
+ *  ends — the SAME constant + arithmetic as the attendance dashboard's Feedback
+ *  Confirmation tab, so the two surfaces can never describe different spans. */
+const WINDOW_DAYS = 30;
+
 
 /** Color a coverage %: red 0–24, amber 25–59, green 60+. */
 function coverageColor(pct: number): string {
@@ -131,24 +136,85 @@ function TableShell({
 }
 
 export default function AdminFeedbackDashboardPage() {
-  // Default range: last 30 days (inclusive of today) — matches the principal lane.
+  const qc = useQueryClient();
+
+  // The filter bar's state: date anchor + optionally one college.
+  const [filters, setFilters] = useState<DashboardFilterState>({
+    selectedDate: new Date(),
+  });
+
+  // Last WINDOW_DAYS days ending at the selected date. Depend on the date's
+  // time value so a stable Date reference doesn't recompute each render.
+  // subDays(end, WINDOW_DAYS - 1): WINDOW_DAYS days INCLUSIVE of both ends —
+  // the same arithmetic as the Feedback Confirmation tab (subDays(end, 30)
+  // would cover 31 days and re-open the "two spans, two totals" discrepancy).
+  const anchorMs = filters.selectedDate.getTime();
   const { from, to } = useMemo(() => {
-    const today = new Date();
+    const end = new Date(anchorMs);
     return {
-      from: format(subDays(today, 30), 'yyyy-MM-dd'),
-      to: format(today, 'yyyy-MM-dd'),
+      from: format(subDays(end, WINDOW_DAYS - 1), 'yyyy-MM-dd'),
+      to: format(end, 'yyyy-MM-dd'),
     };
-  }, []);
+  }, [anchorMs]);
+
+  // The college chosen in the filter bar. `undefined` = every college the
+  // caller is allowed to see (the RPCs already enforce that scope).
+  const selectedInstitutionId = filters.institutionId;
 
   const college = useAdminCollegeSummary(from, to);
   const faculty = useAdminFacultySummary(from, to);
-  const trend = useAdminTrend(from, to);
+  // Trend returns no institution column, so it cannot be narrowed client-side —
+  // the RPC takes the college as an argument instead (3-arg overload).
+  const trend = useAdminTrend(from, to, selectedInstitutionId);
   const coverage = useFacilitatorFeedbackCoverage(from, to);
 
-  const collegeRows = (college.data ?? []) as AdminCollegeSummaryRow[];
-  const facultyRows = (faculty.data ?? []) as AdminFacultySummaryRow[];
+  // Picker options come from the UNFILTERED college summary: exactly the
+  // colleges the server let this caller see (super admin = all with data in
+  // window, scoped leadership = own), so the picker can never widen scope.
+  const pickerInstitutions = useMemo(() => {
+    const rows = (college.data ?? []) as AdminCollegeSummaryRow[];
+    return rows
+      .filter((r) => r.institution_id)
+      .map((r) => ({
+        id: r.institution_id,
+        name: r.institution_name ?? 'Unknown college',
+      }));
+  }, [college.data]);
+
+  const handleFiltersChange = useCallback(
+    (f: DashboardFilterState) => setFilters(f),
+    [],
+  );
+  const handleRefresh = useCallback(() => {
+    qc.invalidateQueries();
+  }, [qc]);
+
+  // The remaining panels DO carry institution_id per row, so narrowing them
+  // here is a filter, never a widening — the server already decided what you
+  // may see. Memoized: these arrays feed the useMemo roll-ups below.
+  const collegeRows = useMemo(() => {
+    const rows = (college.data ?? []) as AdminCollegeSummaryRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [college.data, selectedInstitutionId]);
+
+  const facultyRows = useMemo(() => {
+    const rows = (faculty.data ?? []) as AdminFacultySummaryRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [faculty.data, selectedInstitutionId]);
+
+  const coverageRows = useMemo(() => {
+    const rows = (coverage.data ?? []) as FacilitatorCoverageRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [coverage.data, selectedInstitutionId]);
+
+  // Trend is narrowed server-side (it returns no institution column).
   const trendRows = (trend.data ?? []) as AdminTrendRow[];
-  const coverageRows = (coverage.data ?? []) as FacilitatorCoverageRow[];
 
   // Coverage headline: how many facilitators have collected ANY feedback, and what
   // fraction of all taught sessions are covered (the adoption gap, in one line).
@@ -176,11 +242,15 @@ export default function AdminFeedbackDashboardPage() {
     let responses = 0;
     let students = 0;
     let lowSessions = 0;
+    let lowFlagResponses = 0;
+    let lowFlagSessions = 0;
     let weighted = 0;
     for (const r of collegeRows) {
       responses += r.responses;
       students += r.students;
       lowSessions += r.low_sessions;
+      lowFlagResponses += r.low_flag_responses ?? 0;
+      lowFlagSessions += r.low_flag_sessions ?? 0;
       if (r.avg_understood != null) weighted += r.avg_understood * r.responses;
     }
     const avg = responses > 0 ? weighted / responses : null;
@@ -189,6 +259,8 @@ export default function AdminFeedbackDashboardPage() {
       responses,
       students,
       lowSessions,
+      lowFlagResponses,
+      lowFlagSessions,
       avg,
     };
   }, [collegeRows]);
@@ -213,6 +285,21 @@ export default function AdminFeedbackDashboardPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
+      {/* Filter bar: date anchor + college picker. Options are the caller's own
+          college-summary scope; the picker only appears when there is more than
+          one college to choose from (scoped leadership sees just the date). */}
+      <div className="mb-4">
+        <DashboardFilters
+          title="Feedback Filters"
+          showAcademicYear={false}
+          canViewAllInstitutions={pickerInstitutions.length > 1}
+          institutions={pickerInstitutions}
+          onFiltersChange={handleFiltersChange}
+          onRefresh={handleRefresh}
+          isLoading={college.isLoading}
+        />
+      </div>
+
       {/* Headline strip */}
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card>
@@ -233,12 +320,8 @@ export default function AdminFeedbackDashboardPage() {
         </Card>
         <Card>
           <CardContent className="flex flex-col gap-1 p-4">
-            <span className="text-xs text-muted-foreground">Avg understood</span>
-            <span
-              className={`text-2xl font-semibold tabular-nums ${avgColor(totals.avg)}`}
-            >
-              {totals.avg != null ? totals.avg.toFixed(2) : '—'}
-            </span>
+            <span className="text-xs text-muted-foreground">Understanding</span>
+            <UnderstandingBand avg={totals.avg} />
           </CardContent>
         </Card>
         <Card>
@@ -247,11 +330,24 @@ export default function AdminFeedbackDashboardPage() {
             <span className="text-2xl font-semibold tabular-nums text-red-600">
               {totals.lowSessions}
             </span>
+            {/* Second lens (Director, 2026-07-11): individual struggling voices.
+                A learner tapping 1-2/5 in an otherwise-fine class never moves the
+                whole-class counter above — without this line the two truths look
+                contradictory ("so many low flags, but only 4 low sessions"). */}
+            {totals.lowFlagResponses > 0 ? (
+              <span className="text-[11px] leading-snug text-muted-foreground">
+                {totals.lowFlagResponses.toLocaleString('en-IN')} individual low ratings across{' '}
+                {totals.lowFlagSessions.toLocaleString('en-IN')} sessions — routed to learner support notes
+              </span>
+            ) : null}
           </CardContent>
         </Card>
       </div>
 
-      <p className="mb-4 text-xs text-muted-foreground">Showing {from} to {to}</p>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Showing {from} to {to} ·{' '}
+        {selectedInstitutionId ? 'selected college' : 'all colleges in scope'}
+      </p>
 
       {/* College Summary */}
       <Card className="mb-6">
@@ -301,13 +397,7 @@ export default function AdminFeedbackDashboardPage() {
                       {r.students}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -375,8 +465,15 @@ export default function AdminFeedbackDashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* Row key MUST be institution+staff: the coverage RPC returns one
+                    row per (teacher x college taught), so cross-college teachers
+                    repeat the same staff_id. Duplicate React keys corrupt list
+                    reconciliation — picking a college left ZOMBIE rows from the
+                    unfiltered render in the DOM (a Pharmacy facilitator visibly
+                    listed under the Dental filter) while the headline counted the
+                    correctly filtered array. */}
                 {coverageRows.map((r) => (
-                  <TableRow key={r.staff_id}>
+                  <TableRow key={`${r.institution_id}-${r.staff_id}`}>
                     <TableCell className="font-medium">
                       {r.facilitator_name ?? (
                         <span className="italic text-muted-foreground">Unknown</span>
@@ -436,11 +533,12 @@ export default function AdminFeedbackDashboardPage() {
       {/* SCF self-improving-loop intelligence — streams #2–#4 (orchestrator-wired).
           Loop Activity panel (#4) · Facilitator Strengths board (#3c) · Learner
           Trajectory at-risk early-warning (#3a). from/to share the dashboard window. */}
-      <LoopActivityCard from={from} to={to} />
-      <FacilitatorStrengthsCard from={from} to={to} />
-      <LearnerTrajectoryCard from={from} to={to} />
+      <LoopActivityCard from={from} to={to} institutionId={selectedInstitutionId} />
+      <FacilitatorStrengthsCard from={from} to={to} institutionId={selectedInstitutionId} />
+      <FacilitatorPulseCard from={from} to={to} institutionId={selectedInstitutionId} />
+      <LearnerTrajectoryCard from={from} to={to} institutionId={selectedInstitutionId} />
       {/* "A support note went out" — leadership sees that a note was sent, never its text (#2 visibility). */}
-      <StrugglingNotesSentCard from={from} to={to} />
+      <StrugglingNotesSentCard from={from} to={to} institutionId={selectedInstitutionId} />
 
       {/* Faculty Summary */}
       <Card className="mb-6">
@@ -493,13 +591,7 @@ export default function AdminFeedbackDashboardPage() {
                       {r.responses}
                     </TableCell>
                     <TableCell className="text-right">
-                      <span
-                        className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                      >
-                        {r.avg_understood != null
-                          ? r.avg_understood.toFixed(2)
-                          : '—'}
-                      </span>
+                      <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
                     <TableCell className="text-right">
                       {r.low_sessions > 0 ? (
@@ -564,13 +656,7 @@ export default function AdminFeedbackDashboardPage() {
                         {r.students}
                       </TableCell>
                       <TableCell className="text-right">
-                        <span
-                          className={`font-semibold tabular-nums ${avgColor(r.avg_understood)}`}
-                        >
-                          {r.avg_understood != null
-                            ? r.avg_understood.toFixed(2)
-                            : '—'}
-                        </span>
+                        <UnderstandingBand avg={r.avg_understood} />
                       </TableCell>
                       <TableCell>
                         <div

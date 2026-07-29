@@ -1,0 +1,135 @@
+# MetaLoop manifest — DISCOVERY PASS 2026-07-13. Every fact below was verified
+# read-only against jicate/main (git show) and the prod DB (Mgmt API,
+# ref kvizhngldtiuufknvehv). No sim has been run for this loop yet — it has no
+# measure function to sim (see the omitted-sim note below), which matches the
+# registry's m='half'.
+# Re-verified 2026-07-13 (second discovery pass): loop_audits holds 5 rows
+# total — scf sim×3 (all measure-verified) + scf walk×1 (walk-verified) +
+# feeder sim×1 (measure-verified) — and ZERO rows for loop_key='metaloop' at
+# any layer; the metaloop has never carried a tested receipt (adversarially
+# re-verified 2026-07-13 post-#2017: same 5 rows, still zero metaloop).
+#
+# WHAT THIS LOOP IS (class=infrastructure, stack_tier=4 — a stack anchor, not a
+# goal loop): the loop that reviews the other loops. Its physical body:
+#   spine   — loop_registry / loop_edges / loop_audits
+#             (supabase/migrations/20260710233000_loop_registry_edges_audits.sql;
+#              all three tables verified live via information_schema.columns)
+#   review  — /admin/loops Control Tower + loop tower + wiring view
+#             (app/(routes)/admin/loops/page.tsx + _components/{loop-control-tower,
+#              loop-tower,loop-wiring,types}.tsx on jicate/main. Tower v2 (#2017,
+#              merged 2026-07-13 08:22 IST) replaced the tier bands with SIX RINGS
+#              partitioned by ratified key lists, NOT stack_tier: metaloop renders
+#              as a RegistryChip inside the '5 · System' ring (SYSTEM_KEYS =
+#              metaloop/iqac-meeting/institutional-audit/decisions) — there is no
+#              '4 · MetaLoop' band anymore. loop-wiring.tsx still centers the
+#              stack_tier=4 row and runs seam detection on measured_outcomes edges)
+#   measure — /api/cron/loops-regress (Sundays 07:53 IST, dispatcher row verified
+#             enabled+managed, last_status 'HTTP 200' on 2026-07-12) → runs
+#             LOOP_FNS: fn_loops_regress_scf() + fn_loops_regress_feeder()
+#             (feeder added 2026-07-13; both verified in pg_proc, both return
+#             TABLE(loop_key, verdict, no_change_lift, known_delta_lift))
+#             → writes loop_audits
+#   watch   — /api/cron/loop-watchdog (daily 09:23 IST, row verified enabled,
+#             'HTTP 200' 2026-07-13): silent/errored/disabled routines + bad
+#             verdicts → super-admin notification; vocabulary shared via
+#             lib/ai-routines/loop-governance.ts (isBadVerdict/isVerifiedVerdict)
+#
+# EDGES (verified rows in prod loop_edges, all is_draft=false):
+#   IN  measured_outcomes ← scf, induction-session, induction-playbook, mess, feeder
+#   IN  decisions         ← director  ("Fund / cull / pin decisions down the stack")
+#   OUT measured_outcomes → director  ("Reviewed loops → allocation")
+
+loop_key: metaloop
+name: MetaLoop — the loop that makes loops
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  # Signal enters as verdict rows written by the harness + the two governance
+  # crons (loop_audits: loop_key, layer sim|walk|full, verdict, evidence jsonb —
+  # columns verified). The loop's "actions" are registry state: gates jsonb,
+  # is_active (spawn/cull), routine_id — the rows the review changes.
+  input: loop_audits
+  action: loop_registry
+
+# sim: OMITTED — no measure function for the metaloop itself exists.
+#   Verified (re-swept 2026-07-13): pg_proc has no fn_metaloop_* / no metaloop
+#   entry in the regress route's LOOP_FNS (app/api/cron/loops-regress/route.ts
+#   lists only child loops: scf + feeder), and registry gates.m='half' says
+#   exactly this. fn_loops_regress_scf / fn_loops_regress_feeder are the CHILD
+#   loops' measurers RUN BY the metaloop, not measurers OF it. For a sim to exist,
+#   someone would have to build a fn (e.g. fn_metaloop_measure_review_outcomes)
+#   that scores whether loops CHANGE after a review verdict (gate flips /
+#   verdict-to-fix latency) against a baseline — until then, per the honesty
+#   rule, there is nothing to assert a known delta against. NEVER fake this
+#   with a direct INSERT into loop_audits: the watchdog pages every real super
+#   admin on any sim-failed/sim-error row (verified in loop-watchdog/route.ts).
+
+# confound: OMITTED — loop_audits has a verdict column but NO numeric outcome
+#   column (verified via information_schema.columns: id, loop_key, audited_at,
+#   layer, verdict, evidence, created_at), and loop_registry has neither. The
+#   not-tried-vs-tried falsification has no columns to run on.
+
+# feed_forward: OMITTED (gates.f='half') — the feed-forward is HUMAN: Director
+#   decisions flow down the director→metaloop 'decisions' edge and land as
+#   loop_registry gate/is_active edits made by hand. No reader fn exists
+#   (pg_proc verified). Evidence it half-works: gate states in the registry
+#   were updated from page.tsx literals to rows on 2026-07-10 (migration
+#   comment) — but there is no mechanical prover, so no Tier B block.
+
+walk:
+  # /admin/loops is super_admin-only twice over: MENU_PERMISSIONS
+  # '/admin/loops': 'super_admin' (lib/sidebarMenuLink.ts:451, jicate/main) AND
+  # a server-side profiles.is_super_admin gate before any read (page.tsx
+  # header). test.superadmin verified in prod profiles: is_super_admin=true,
+  # role='super_admin'. No other test persona can reach any hop.
+  personas:
+    superadmin: test.superadmin@jkkn.ac.in
+  hops:
+    - { as: superadmin, do: open_assert, page: /admin/loops,
+        expect: "tower v2 renders: '5 · System' ring carries the metaloop RegistryChip (plus iqac-meeting/institutional-audit/decisions chips and the machinery chips: 'latest regress' verdict + 'watchdog' status); '4 · Product' ring carries the 11 remaining registry chips (registry verified: 16 rows total = 14 active stack_tier=3 + metaloop t4 + director t5; ring membership is by SYSTEM_KEYS/OVERSIGHT_KEYS lists in loop-tower.tsx, NOT stack_tier); wiring view shows the metaloop node centered with 7 edges (5 measured_outcomes in, director decisions in, measured_outcomes out to director); NOT a silent redirect" }
+    - { as: superadmin, do: api_post, path: /api/admin/ai-routines/trigger,
+        body: { routineId: loops-regress },
+        assert: "http 200; the trigger WRAPS the cron's JSON: top level is {ok:true, routineId, name, status:200, elapsed_ms, result} and the cron payload sits under result → assert result.ok:true, result.ran:2, result.verified:2 — this turns the metaloop's real crank: super_admin gate → CRON_SECRET header hop → fn_loops_regress_scf + fn_loops_regress_feeder → TWO new loop_audits rows (loop_key in scf,feeder; layer='sim', verdict='measure-verified', evidence.runner='fn_loops_regress_<loop>'). Route verified: app/api/admin/ai-routines/trigger/route.ts, super_admin-gated, only registry routines with safeToManualTrigger=true — both governance routines are (lib/ai-routines/loop-governance.ts)" }
+    - { as: superadmin, do: open_assert, page: /admin/loops,
+        expect: "scf and feeder chips' 'tested <today IST>' badges reflect the fresh audit rows (RegistryChip in loop-tower.tsx renders latest loop_audits per key; isVerifiedVerdict closed set: measure-verified|mechanism-verified|walk-verified)" }
+    - { as: superadmin, do: api_post, path: /api/admin/ai-routines/trigger,
+        body: { routineId: loop-watchdog },
+        assert: "http 200; the cron payload sits under result (trigger wrapper, same as hop 2): result has scanned/silent/errored/disabled/bad_verdicts/notified fields (loop-watchdog/route.ts response shape). A healthy fleet returns result.notified=0 — silence is the pass state" }
+  forbidden:
+    # Both crons fan out REAL notifications to every real super admin (urgent/
+    # high priority) when anything is non-verified/unhealthy — a walk must never
+    # be used to "test" that fanout, and if hop 2 returns any verdict other than
+    # measure-verified the page-out that follows is REAL and CORRECT (treat as a
+    # release blocker, don't re-run to silence it).
+    - super-admin notification fanout (loops-regress failure alert / loop-watchdog findings alert)
+    - direct INSERTs into loop_audits with fabricated verdicts (paints the tower red + pages supers via the 26h watchdog sweep)
+    - flipping loop_registry.gates or is_active during a walk (that IS the loop's production action surface, Director-owned)
+  cleanup: |
+    -- Intentionally (almost) a no-op: the walk seeds NO sentinel rows. Hops 2/4
+    -- run the REAL governance crons; the loop_audits row hop 2 appends is a
+    -- truthful audit of scf, and loop_audits is an append-only log by design
+    -- ("manual re-runs appending extra rows is fine" — loops-regress route
+    -- header). Deleting it would erase a real receipt. Verify instead:
+    --   SELECT count(*) FROM loop_audits WHERE evidence->>'runner' IS NULL
+    --     AND audited_at > now() - interval '1 hour';   -- expect 0 hand-written rows
+    -- and confirm no notification was fanned out (notified=0 in both responses).
+  notes:
+    - >-
+      Tower v2 (#2017, 2026-07-13): the metaloop DOES have a RegistryChip now
+      (in the '5 · System' ring, via the ratified SYSTEM_KEYS list — ring
+      membership is NOT stack_tier). But with ZERO loop_audits rows for
+      loop_key='metaloop', the chip renders gate dots only — no 'tested' badge
+      (RegistryChip only shows one when latestAuditByKey has a row). Don't
+      assert a metaloop tested badge, it cannot exist until a metaloop audit
+      row does.
+    - >-
+      loop_registry/edges/audits RLS = SELECT for super/admin only, NO
+      authenticated write policies; writes are service-role only (migration
+      20260710233000). Harness audit rows go via Mgmt API / service role.
+    - >-
+      The watchdog's known limitation (route header, review #5) — an HTTP-200
+      no-op route stays invisible to it; positive liveness per loop comes only
+      from fn_loops_regress_<loop> coverage. Metaloop's own coverage gap is
+      exactly this manifest's omitted sim.
+
+registry_gates_hint: '{"g":"on","a":"on","m":"half","f":"half"}'

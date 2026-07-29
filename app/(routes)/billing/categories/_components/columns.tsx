@@ -5,7 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import type { BillingCategory, BillingCategoryFrequency } from '@/types/billing';
-import { billingKindLabel } from './billing-category-form';
+import { billingKindLabel, collectionTypeLabel } from './billing-category-form';
 import { CategoryRowActions } from './category-row-actions';
 
 const frequencyLabel: Record<BillingCategoryFrequency, string> = {
@@ -83,6 +83,65 @@ export const getColumns = ({
     )
   },
   {
+    accessorKey: 'collection_type',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Collection' />
+    ),
+    cell: ({ row }) => {
+      const isGovernment = row.original.collection_type === 'government';
+      return (
+        <Badge
+          variant={isGovernment ? 'outline' : 'secondary'}
+          className={
+            isGovernment
+              ? 'border-amber-500 text-amber-700 dark:text-amber-400'
+              : undefined
+          }
+        >
+          {collectionTypeLabel(row.original.collection_type)}
+        </Badge>
+      );
+    }
+  },
+  {
+    accessorKey: 'visible_to_learners',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Learner Portal' />
+    ),
+    cell: ({ row }) =>
+      row.original.visible_to_learners ? (
+        <Badge variant='secondary'>Visible</Badge>
+      ) : (
+        <Badge
+          variant='outline'
+          className='border-muted-foreground/40 text-muted-foreground'
+          title='Learners never see this fee in My Bills — Accounts still bill and collect it.'
+        >
+          Hidden
+        </Badge>
+      )
+  },
+  {
+    accessorKey: 'once_per_learner',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Duplicate Guard' />
+    ),
+    // Only the restricted state gets a badge. Most categories are unrestricted,
+    // so badging both would add noise to every row for no signal.
+    cell: ({ row }) =>
+      row.original.once_per_learner ? (
+        <Badge
+          variant='outline'
+          className='border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+          title='A learner can hold only one live bill in this category. Enforced in the database across every billing route.'
+        >
+          Once per learner
+        </Badge>
+      ) : (
+        <span className='text-muted-foreground text-sm'>—</span>
+      )
+  },
+  {
     accessorKey: 'frequency',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Frequency' />
@@ -90,13 +149,6 @@ export const getColumns = ({
     cell: ({ row }) => (
       <Badge variant='outline'>{frequencyLabel[row.original.frequency]}</Badge>
     )
-  },
-  {
-    accessorKey: 'amount',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Default Amount' />
-    ),
-    cell: ({ row }) => formatAmount(row.original.amount)
   },
   {
     accessorKey: 'is_active',

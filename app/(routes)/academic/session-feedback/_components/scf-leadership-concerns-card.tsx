@@ -34,6 +34,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useScfLeadershipConcerns } from '@/hooks/use-scf-leadership-concerns';
+import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -117,7 +118,7 @@ export function ScfLeadershipConcernsCard({ from, to }: { from?: string; to?: st
                   <TableCell className="text-sm">{r.faculty_email ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.responses ?? '—'}</TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {r.avg_understood != null ? Number(r.avg_understood).toFixed(2) : '—'}
+                    <UnderstandingBand avg={r.avg_understood} />
                   </TableCell>
                   <TableCell className="max-w-md text-xs text-muted-foreground">
                     {r.concern_summary ?? '—'}

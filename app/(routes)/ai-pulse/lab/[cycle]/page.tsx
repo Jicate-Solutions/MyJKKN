@@ -9,7 +9,8 @@
 // department's Gold Standard teams (capped at the gold_standard_count
 // policy). Selections persist ZERO-DDL into
 // startup_events.config.ai_pulse.gold_selections and feed the NAAC
-// Criterion 3.3.1 evidence export as "Faculty-selected" rows.
+// Attribute 9 (Research & Innovation Outcomes) evidence export as
+// "Faculty-selected" rows.
 //
 // Permission gates:
 //   - Page:        super_admin OR aiPulse:lab.score (explicit 403, rule #27)
@@ -18,7 +19,7 @@
 // Pattern source: app/(routes)/ai-pulse/admin/quiz/[cycle]/page.tsx
 // ============================================================================
 
-import { use } from 'react';
+import { Suspense, use } from 'react';
 import Link from 'next/link';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -92,7 +93,9 @@ export default function LabEvaluationPage({ params }: LabCyclePageProps) {
         </Link>
       </div>
 
-      <LabEvaluationConsole cycleId={cycle} canSelectGold={canSelectGold} />
+      <Suspense fallback={null}>
+        <LabEvaluationConsole cycleId={cycle} canSelectGold={canSelectGold} />
+      </Suspense>
     </ContentLayout>
   );
 }

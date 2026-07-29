@@ -321,6 +321,68 @@ export class AIResponseService {
   }
 
   /**
+   * Build the 11 placeholder variables the seeded `admission.ai_response`
+   * prompt_template expects (Max-lane registry job). Assembly is reused
+   * VERBATIM from buildResponsePrompt so the enqueued job produces the same
+   * drafts the direct Anthropic call did. Keys MUST match the {{...}}
+   * placeholder names exactly:
+   *   institution_name, lead_name, interested_programs, funnel_stage,
+   *   priority, source, recent_interactions, channel, intent,
+   *   counselor_name, custom_prompt
+   */
+  static buildResponsePayload(
+    input: GenerateResponseInput
+  ): Record<string, string> {
+    const { leadContext, channel, intent, customPrompt } = input;
+    const { lead, recentInteractions, counselorName, institutionName } =
+      leadContext;
+
+    const interested_programs =
+      lead.interested_programs && lead.interested_programs.length > 0
+        ? lead.interested_programs.join(', ')
+        : 'Not specified';
+
+    const recent_interactions =
+      recentInteractions && recentInteractions.length > 0
+        ? recentInteractions
+            .slice(0, 5)
+            .map(
+              (i) =>
+                `${i.type.toUpperCase()} (${i.direction}): ${i.summary} - ${new Date(
+                  i.timestamp
+                ).toLocaleDateString()}`
+            )
+            .join('; ')
+        : 'None recorded';
+
+    return {
+      institution_name: institutionName || 'an educational institution',
+      lead_name: lead.full_name,
+      interested_programs,
+      funnel_stage: this.formatStageName(lead.funnel_stage),
+      priority: lead.is_hot_lead ? 'Hot' : lead.is_priority ? 'Warm' : 'Cold',
+      source: lead.source || 'Unknown',
+      recent_interactions,
+      channel,
+      intent: this.formatIntentName(intent),
+      counselor_name: counselorName || 'your counselor',
+      custom_prompt:
+        customPrompt && customPrompt.trim() ? customPrompt.trim() : 'None'
+    };
+  }
+
+  /**
+   * Public wrapper so the server route can parse the Max drain's answer text
+   * with the same tolerant JSON parsing the direct-call path used.
+   */
+  static parseSuggestions(
+    answerText: string,
+    channel: CommunicationChannel
+  ): SuggestedResponse[] {
+    return this.parseResponseSuggestions(answerText, channel);
+  }
+
+  /**
    * Build the prompt for response generation
    */
   private static buildResponsePrompt(input: GenerateResponseInput): string {

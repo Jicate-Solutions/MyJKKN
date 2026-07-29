@@ -428,7 +428,7 @@ export function EventDetailClient({
           {/* Participants */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="text-lg">
                   Participants ({activeParticipants.length}
                   {event.max_participants ? ` / ${event.max_participants}` : ''})
@@ -437,6 +437,7 @@ export function EventDetailClient({
                   <Button
                     size="sm"
                     variant="outline"
+                    className="shrink-0"
                     onClick={handleBulkAttendance}
                     disabled={bulkMarkAttendance.isPending}
                   >

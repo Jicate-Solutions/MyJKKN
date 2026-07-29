@@ -39,7 +39,7 @@ export function LiveRunnerDetail({ eventId, bib, onClose }: LiveRunnerDetailProp
 
   return (
     <Sheet open={!!bib} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-[400px] sm:w-[480px] overflow-y-auto">
+      <SheetContent className="w-full sm:w-[480px] overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <span className="font-mono">BIB {bib}</span>

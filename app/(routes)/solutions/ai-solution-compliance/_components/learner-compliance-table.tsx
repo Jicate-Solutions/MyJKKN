@@ -204,12 +204,12 @@ export function LearnerComplianceTable({
                   <CardContent className='py-4'>
                     <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
                       {/* Left: Name and details */}
-                      <div className='flex items-start gap-3'>
-                        <div className='p-2 rounded-full bg-muted/50'>
+                      <div className='flex items-start gap-3 min-w-0'>
+                        <div className='p-2 rounded-full bg-muted/50 shrink-0'>
                           <UserCircle className='h-5 w-5 text-muted-foreground' />
                         </div>
-                        <div>
-                          <p className='font-semibold'>
+                        <div className='min-w-0'>
+                          <p className='font-semibold break-words'>
                             {learner.firstName} {learner.lastName}
                           </p>
                           <div className='flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground'>
@@ -227,7 +227,7 @@ export function LearnerComplianceTable({
                       </div>
 
                       {/* Right: Status and solution */}
-                      <div className='flex items-center gap-2 sm:gap-3'>
+                      <div className='flex flex-wrap items-center gap-2 sm:gap-3'>
                         {learner.solutionTitle && (
                           <span className='text-xs text-muted-foreground max-w-[150px] truncate'>
                             {learner.solutionTitle}

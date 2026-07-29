@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useBadges, useLearnerBadges } from '@/hooks/pde/use-pde';
 import { useAuth } from '@/hooks/use-auth';
+import type { PDEBadge, PDELearnerBadge } from '@/types/pde';
 import { BeatLoader } from 'react-spinners';
 import {
   Award,
@@ -43,28 +45,14 @@ const CATEGORY_CONFIG: Record<string, { label: string; icon: typeof Award; color
   special: { label: 'Special', icon: Sparkles, color: 'text-rose-600' },
 };
 
-// Type for badge data
-interface PDEBadge {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  icon_url?: string;
-  criteria?: string;
-  points_required?: number;
-}
+// Tab values (order matches TabsList: "All" + CATEGORY_CONFIG keys). Used for
+// URL-synced tabs so each category is deep-linkable / favoritable via ?tab=.
+const BADGE_TABS = ['all', 'capability', 'quest', 'social', 'streak', 'special'] as const;
 
-interface LearnerBadge {
-  id: string;
-  badge_id: string;
-  earned_at: string;
-  badge?: PDEBadge;
-}
-
-export default function BadgesPage() {
+function BadgesPageInner() {
   const { profile: user } = useAuth();
   const learnerId = user?.id;
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [activeCategory, setActiveCategory] = useTabParam('all', BADGE_TABS);
 
   const { data: allBadges, isLoading: loadingBadges } = useBadges();
   const { data: learnerBadges, isLoading: loadingLearner } = useLearnerBadges(learnerId);
@@ -73,8 +61,8 @@ export default function BadgesPage() {
 
   // Build earned badge ID set
   const earnedBadgeMap = useMemo(() => {
-    const map = new Map<string, LearnerBadge>();
-    (learnerBadges || []).forEach((lb: LearnerBadge) => {
+    const map = new Map<string, PDELearnerBadge>();
+    (learnerBadges || []).forEach((lb: PDELearnerBadge) => {
       map.set(lb.badge_id, lb);
     });
     return map;
@@ -82,13 +70,13 @@ export default function BadgesPage() {
 
   // Filter badges by category
   const filteredBadges = useMemo(() => {
-    const badges = (allBadges || []) as PDEBadge[];
+    const badges: PDEBadge[] = allBadges || [];
     if (activeCategory === 'all') return badges;
     return badges.filter((b) => b.category === activeCategory);
   }, [allBadges, activeCategory]);
 
   const earnedCount = learnerBadges?.length || 0;
-  const totalCount = (allBadges as PDEBadge[] | undefined)?.length || 0;
+  const totalCount = allBadges?.length || 0;
   const progressPercent = totalCount > 0 ? Math.round((earnedCount / totalCount) * 100) : 0;
 
   return (
@@ -174,7 +162,7 @@ export default function BadgesPage() {
                 {filteredBadges.map((badge) => {
                   const earned = earnedBadgeMap.get(badge.id);
                   const isEarned = !!earned;
-                  const catConfig = CATEGORY_CONFIG[badge.category];
+                  const catConfig = badge.category ? CATEGORY_CONFIG[badge.category] : undefined;
 
                   return (
                     <Card
@@ -219,7 +207,7 @@ export default function BadgesPage() {
                           </p>
                         ) : (
                           <p className="text-xs text-muted-foreground line-clamp-2">
-                            {badge.criteria || badge.description || 'Complete requirements to earn'}
+                            {badge.description || 'Complete requirements to earn'}
                           </p>
                         )}
 
@@ -239,5 +227,14 @@ export default function BadgesPage() {
         </Tabs>
       </div>
     </ContentLayout>
+  );
+}
+
+export default function BadgesPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <BadgesPageInner />
+    </Suspense>
   );
 }

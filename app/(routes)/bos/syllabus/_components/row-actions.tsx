@@ -19,10 +19,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet, FileText } from 'lucide-react';
+import { MoreHorizontal, Edit2, Copy, History, Trash2, FileDown, Loader2, FileSpreadsheet, FileText, FileCode2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
-import { generateCourseSyllabusPDF, extractPOKeys } from '@/lib/utils/bos/course-syllabus-pdf';
+import { generateCourseSyllabusPDF, extractPOKeys, type CourseSyllabusPDFData } from '@/lib/utils/bos/course-syllabus-pdf';
 import { generateCourseSyllabusDOCX } from '@/lib/utils/bos/course-syllabus-docx';
 import { exportSyllabusToXlsx } from './syllabus-actions';
 
@@ -35,10 +35,18 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
   course_code: string;
   course_name: string;
   coursePartLabel?: string;
+  /** Course master category (e.g. "Theory", "Practical", "Theory + Practical") —
+   *  decides whether the PDF prints the theory units, the practical experiments,
+   *  or both sections. */
+  courseCategory?: string;
+  /** Structured L-T-P-C from the course master (engineering CET header). */
+  workload?: { theory?: number; tutorial?: number; practical?: number; credit?: number };
 }> {
   let course_code = syllabus.course_code;
   let course_name = syllabus.course_name;
   let coursePartLabel: string | undefined;
+  let courseCategory: string | undefined;
+  let workload: { theory?: number; tutorial?: number; practical?: number; credit?: number } | undefined;
   try {
     let match: Record<string, unknown> | null = null;
     if (syllabus.course_id) {
@@ -71,11 +79,263 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
       const composed = (match.course_type_code as string | undefined)
         ?? (partOrType && level ? `${partOrType}-${level}` : (partOrType ?? undefined));
       if (composed) coursePartLabel = composed;
+      if (typeof match.course_category === 'string' && match.course_category) {
+        courseCategory = match.course_category;
+      }
+
+      const num = (v: unknown) => (v == null || v === '' ? undefined : Number(v));
+      workload = {
+        theory: num(match.theory_hours),
+        tutorial: num(match.tutorial_hours),
+        practical: num(match.practical_hours),
+        credit: num(match.credit ?? match.credits ?? match.course_credits),
+      };
     }
   } catch {
     // non-fatal — fall back to the stored snapshot
   }
-  return { course_code, course_name, coursePartLabel };
+  return { course_code, course_name, coursePartLabel, courseCategory, workload };
+}
+
+/**
+ * Decides which course-content sections the PDF should print, from the course
+ * master category. A combined "Theory + Practical" course prints BOTH (theory
+ * first). When the category is missing or names none of the three modes
+ * (e.g. "Field Work"), we fall back to the syllabus's own is_practical view
+ * flag — the same fallback the Content-tab editor uses — so nothing authored is
+ * dropped.
+ */
+function resolveContentModes(
+  courseCategory: string | undefined,
+  content: BosCourseSyllabus['course_content'],
+): { includeTheory: boolean; includePractical: boolean } {
+  const cat = (courseCategory || '').toLowerCase();
+  const namesAMode = cat.includes('theory') || cat.includes('practical') || cat.includes('project');
+  if (cat && namesAMode) {
+    return { includeTheory: cat.includes('theory'), includePractical: cat.includes('practical') };
+  }
+  const isPractical = !!content?.is_practical;
+  return { includeTheory: !isPractical, includePractical: isPractical };
+}
+
+/**
+ * Shared, cacheable context for {@link buildSyllabusPdfData}.
+ *
+ * A single-row download supplies nothing but the branding flags. A BULK export
+ * (see bulk-syllabi-download.tsx) additionally passes a taxonomy cache and a
+ * course resolver so that N syllabi cost ~O(boards) network round-trips instead
+ * of O(N) — without which an 800-course regulation would fire ~1600 requests.
+ */
+export interface SyllabusPdfContext {
+  institutionName?: string;
+  /** Arts-&-Science (CAS) institution → render unit content as a flowing paragraph. */
+  isCas?: boolean;
+  /** CET (Engineering) institution → always render the Engineering PDF format. */
+  isCet?: boolean;
+  /** Keyed `${regulation_id}|${institutions_id}|${board_id}` — one fetch per board. */
+  taxonomyCache?: Map<
+    string,
+    {
+      kValues?: Record<string, string>;
+      poKeys?: string[];
+      psoKeys?: string[];
+      taxonomyType?: string | null;
+    }
+  >;
+  /** Replaces the per-course COE round-trip with a caller-supplied lookup. */
+  resolveCourse?: (
+    syllabus: BosCourseSyllabus,
+  ) => Promise<Awaited<ReturnType<typeof resolveCourseForReport>>>;
+}
+
+/**
+ * Builds the complete {@link CourseSyllabusPDFData} for one syllabus.
+ *
+ * This is the SINGLE source of truth for what a syllabus PDF contains — the
+ * per-row download button and the bulk board-wise ZIP both call it, so a course
+ * exported in bulk is byte-for-byte the document you get by downloading it
+ * individually. Any variant/branding/content rule belongs here, never in a
+ * caller.
+ */
+export async function buildSyllabusPdfData(
+  syllabus: BosCourseSyllabus,
+  ctx: SyllabusPdfContext = {},
+): Promise<CourseSyllabusPDFData> {
+  const { institutionName, isCas = false, isCet = false, taxonomyCache, resolveCourse } = ctx;
+
+  let kValues: Record<string, string> | undefined;
+  let poKeys: string[] | undefined;
+  let psoKeys: string[] | undefined;
+  // 'finks' | 'blooms' | 'custom' | null — the framework configured for this
+  // regulation (board-scoped row first, regulation-wide fallback). Drives the
+  // v3.5 block gate below. null when no taxonomy row exists.
+  let taxonomyType: string | null = null;
+
+  if (syllabus.regulation_id) {
+    const cacheKey = `${syllabus.regulation_id}|${syllabus.institutions_id}|${syllabus.board_id ?? ''}`;
+    const cached = taxonomyCache?.get(cacheKey);
+    if (cached) {
+      ({ kValues, poKeys, psoKeys } = cached);
+      taxonomyType = cached.taxonomyType ?? null;
+    } else {
+      try {
+        // Pass the syllabus's own institution so the taxonomy resolves the
+        // SAME row the form's CO panel sees. Without it, a super-admin call
+        // falls back to the regulation row's institution_id, which can miss
+        // the configured (Fink's) taxonomy and default to Bloom's K-values.
+        const taxRes = await fetch(
+          `/api/bos/taxonomy/${syllabus.regulation_id}?institutionsId=${encodeURIComponent(syllabus.institutions_id)}${syllabus.board_id ? `&boardId=${encodeURIComponent(syllabus.board_id)}` : ''}`,
+        );
+        if (taxRes.ok) {
+          const taxonomy = await taxRes.json();
+          kValues = taxonomy.k_values;
+          poKeys = extractPOKeys(taxonomy.pos);
+          psoKeys = taxonomy.psos ? extractPOKeys(taxonomy.psos) : [];
+          taxonomyType = taxonomy.taxonomy_type ?? null;
+        }
+      } catch {
+        // taxonomy fetch failure is non-fatal; PDF generates without k-value legend
+      }
+      taxonomyCache?.set(cacheKey, { kValues, poKeys, psoKeys, taxonomyType });
+    }
+  }
+
+  // Engineering (Anna University / CET) courses use the CET syllabus wording
+  // AND the Engineering college banner/logo — even though they are managed
+  // under the A&S autonomous college's BoS. The hosting institution is NOT a
+  // reliable signal, so detect from the syllabus itself:
+  //   1. the syllabus is hosted under CET itself — every CET course uses this
+  //      format, and the code/stream heuristics below miss autonomous CET
+  //      codes such as "CP25C22" (letters inside the digit block), or
+  //   2. an explicit `stream` of "Engineering", or
+  //   3. an Anna University course code (2–3 letters + 4 digits, e.g.
+  //      "EC3354") — a shape A&S codes like "24UUCSDSE01" never match, so it
+  //      is a safe fallback when the Stream field was left blank.
+  const isEngineeringStream = /engineering/i.test(syllabus.stream ?? '');
+  const isAnnaUnivCode = /^[A-Z]{2,3}\d{4}$/.test((syllabus.course_code ?? '').trim());
+  const variant: 'default' | 'engineering' =
+    isCet || isEngineeringStream || isAnnaUnivCode ? 'engineering' : 'default';
+
+  // Force the Engineering header (name/accreditation/right logo) for the CET
+  // variant; otherwise resolve branding from the hosting institution's name.
+  const header = getInstitutionHeader(
+    variant === 'engineering' ? 'Engineering' : (institutionName ?? null),
+  );
+  const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
+  const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
+
+  // Resolve live course code/name + part (Core-I / Allied-II) from COE,
+  // anchored on the stable course_id so a COE rename is reflected.
+  const { course_code: liveCode, course_name: liveName, coursePartLabel, courseCategory, workload } =
+    await (resolveCourse ? resolveCourse(syllabus) : resolveCourseForReport(syllabus));
+  const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
+
+  // A&S prefixes course_name with course_type_code ("Major-I-Programming in
+  // Python"); engineering/CET AND pharmacy (COP) show the bare course name —
+  // PCI/Dr.MGR syllabi don't use the arts "Part-" prefix (avoids the
+  // redundant "Core CORE-…" title).
+  const isPharmacyDoc =
+    syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
+  const displayCourseName = variant === 'engineering' || isPharmacyDoc
+    ? liveName
+    : coursePartLabel
+      ? `${coursePartLabel}-${liveName}`
+      : liveName;
+
+  // LTPC isn't a structured column — the docx importer records it in notes
+  // as "LTPC: 3 1 0 4". Parse it for the engineering header (unused by A&S).
+  // Prefer the structured L-T-P-C from the course master; fall back to the
+  // "LTPC: 3 1 0 4" line the docx importer leaves in notes.
+  const ltpcFromCourse =
+    workload && (workload.theory != null || workload.credit != null)
+      ? {
+          l: workload.theory ?? '',
+          t: workload.tutorial ?? 0,
+          p: workload.practical ?? 0,
+          c: workload.credit ?? (syllabus.course_credits ?? ''),
+        }
+      : undefined;
+  const ltpcMatch = /LTPC[:\s]*([0-9]+)[\s/]+([0-9]+)[\s/]+([0-9]+)[\s/]+([0-9]+)/i.exec(syllabus.notes ?? '');
+  const ltpcFromNotes = ltpcMatch
+    ? { l: ltpcMatch[1], t: ltpcMatch[2], p: ltpcMatch[3], c: ltpcMatch[4] }
+    : undefined;
+  const ltpc = ltpcFromCourse ?? ltpcFromNotes;
+
+  // Total course periods ("30+30") for the CET per-unit hour markers and the
+  // TOTAL line, when the units don't carry their own "6+6". Parsed from notes
+  // ("TOTAL: 30+30 PERIODS" or "Periods: 30+30"); optional.
+  const totalHoursRaw = syllabus.course_content?.total_hours ?? '';
+  const periodsMatch =
+    /(\d+)\s*\+\s*(\d+)/.exec(totalHoursRaw) ??
+    /(\d+)\s*\+\s*(\d+)\s*PERIODS/i.exec(syllabus.notes ?? '') ??
+    /PERIODS?[:\s]*(\d+)\s*\+\s*(\d+)/i.exec(syllabus.notes ?? '');
+  const total_periods = periodsMatch
+    ? { theory: Number(periodsMatch[1]), tut: Number(periodsMatch[2]) }
+    : undefined;
+
+  // ── v3.5 block gate: CAS + Bloom's regulation → omit ────────────────────────
+  // The six JSONB blocks below (assessment structure, concept applications,
+  // assessment pattern, capstone project, capstone rubric, LLC conference) are
+  // the Fink's/Capstone apparatus introduced with the v3.5 syllabus format. They
+  // only make sense under a Fink's regulation; printing them on a Bloom's one
+  // (CAS R-2024 / R-2023) puts capstone and Learners-Led-Conference sections on
+  // a document whose outcomes are Bloom-coded.
+  //
+  // Scoped to CAS deliberately: CET R-2021/R-2025 are also Bloom's and carry a
+  // handful of these blocks, but changing those documents was not requested.
+  // Widen by dropping `isCas &&` if that turns out to be wanted too.
+  //
+  // Conservative on unknowns — a missing taxonomy row yields null, not 'blooms',
+  // so nothing authored is dropped when the framework simply isn't configured.
+  const skipV35Blocks = isCas && taxonomyType === 'blooms';
+
+  return {
+    variant,
+    // CAS (Arts & Science) prints unit content as one flowing paragraph per
+    // unit; engineering/other keep the stacked heading + per-chapter lines.
+    unitLayout: isCas && variant !== 'engineering' ? 'paragraph' : 'stacked',
+    ltpc,
+    total_periods,
+    institution_name: header.institution_name,
+    institution_address: header.institution_address,
+    institution_accreditation: header.institution_accreditation,
+    banner_lines: header.banner_lines,
+    institution_website: header.website,
+    logoImage: header.logoImage ?? '/logo.png',
+    rightLogoImage: header.rightLogoImage,
+    course_code: liveCode,
+    course_name: displayCourseName,
+    course_part: coursePartLabel,
+    total_hours: syllabus.total_hours ?? undefined,
+    contact_hours: syllabus.contact_hours ?? undefined,
+    credits: syllabus.course_credits ?? undefined,
+    // PCI/pharmacy Scope paragraph — printed above Course Objectives.
+    scope: syllabus.scope ?? undefined,
+    // COP (pharmacy): hide the Course Designer / BoS Chairman sign-off (temp).
+    hideSignature: isPharmacyDoc,
+    objectives: objectivesContent?.objectives ?? [],
+    clos: outcomesContent?.clos ?? [],
+    k_values: kValues,
+    units: contentModes.includeTheory ? (syllabus.course_content?.units ?? []) : [],
+    practical_topics: contentModes.includePractical
+      ? (syllabus.course_content?.topics ?? [])
+      : undefined,
+    number_practical_topics: syllabus.course_content?.number_practical_topics,
+    instruction: syllabus.course_content?.instruction,
+    textbooks: syllabus.textbooks?.primary ?? [],
+    references: syllabus.textbooks?.references ?? [],
+    web_resources: syllabus.web_resources?.resources ?? [],
+    pedagogy_methods: syllabus.pedagogy?.methods ?? [],
+    po_mappings: syllabus.po_mappings?.mappings ?? [],
+    po_keys: poKeys,
+    pso_keys: psoKeys,
+    assessment_structure: skipV35Blocks ? undefined : syllabus.assessment_structure,
+    concept_applications: skipV35Blocks ? undefined : syllabus.concept_applications,
+    assessment_pattern: skipV35Blocks ? undefined : syllabus.assessment_pattern,
+    capstone_project: skipV35Blocks ? undefined : syllabus.capstone_project,
+    capstone_rubric: skipV35Blocks ? undefined : syllabus.capstone_rubric,
+    llc_conference: skipV35Blocks ? undefined : syllabus.llc_conference,
+  };
 }
 
 // ── PDF Download Button ───────────────────────────────────────────────────────
@@ -83,9 +343,15 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
 export function SyllabusPdfDownloadButton({
   syllabus,
   institutionName,
+  isCas = false,
+  isCet = false,
 }: {
   syllabus: BosCourseSyllabus;
   institutionName?: string;
+  /** Arts-&-Science (CAS) institution → render unit content as a flowing paragraph. */
+  isCas?: boolean;
+  /** CET (Engineering) institution → always render the Engineering PDF format. */
+  isCet?: boolean;
 }) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
@@ -96,74 +362,11 @@ export function SyllabusPdfDownloadButton({
     setLoading(true);
     const tid = toast.loading(`Generating PDF for ${syllabus.course_code}…`);
     try {
-      let kValues: Record<string, string> | undefined;
-      let poKeys: string[] | undefined;
-      let psoKeys: string[] | undefined;
-
-      if (syllabus.regulation_id) {
-        try {
-          // Pass the syllabus's own institution so the taxonomy resolves the
-          // SAME row the form's CO panel sees. Without it, a super-admin call
-          // falls back to the regulation row's institution_id, which can miss
-          // the configured (Fink's) taxonomy and default to Bloom's K-values.
-          const taxRes = await fetch(
-            `/api/bos/taxonomy/${syllabus.regulation_id}?institutionsId=${encodeURIComponent(syllabus.institutions_id)}${syllabus.board_id ? `&boardId=${encodeURIComponent(syllabus.board_id)}` : ''}`,
-          );
-          if (taxRes.ok) {
-            const taxonomy = await taxRes.json();
-            kValues = taxonomy.k_values;
-            poKeys = extractPOKeys(taxonomy.pos);
-            psoKeys = taxonomy.psos ? extractPOKeys(taxonomy.psos) : [];
-          }
-        } catch {
-          // taxonomy fetch failure is non-fatal; PDF generates without k-value legend
-        }
-      }
-
-      const header = getInstitutionHeader(institutionName ?? null);
-      const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
-      const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
-
-      // Resolve live course code/name + part (Core-I / Allied-II) from COE,
-      // anchored on the stable course_id so a COE rename is reflected.
-      const { course_code: liveCode, course_name: liveName, coursePartLabel } =
-        await resolveCourseForReport(syllabus);
-
-      // Prefix course_name with course_type_code so the PDF reads as
-      // "Major-I-Programming in Python" (matches the course_mapping format).
-      const displayCourseName = coursePartLabel
-        ? `${coursePartLabel}-${liveName}`
-        : liveName;
-
-      generateCourseSyllabusPDF({
-        institution_name: header.institution_name,
-        institution_address: header.institution_address,
-        institution_accreditation: header.institution_accreditation,
-        logoImage: '/logo.png',
-        rightLogoImage: header.rightLogoImage,
-        course_code: liveCode,
-        course_name: displayCourseName,
-        course_part: coursePartLabel,
-        total_hours: syllabus.total_hours ?? undefined,
-        contact_hours: syllabus.contact_hours ?? undefined,
-        credits: syllabus.course_credits ?? undefined,
-        objectives: objectivesContent?.objectives ?? [],
-        clos: outcomesContent?.clos ?? [],
-        k_values: kValues,
-        units: syllabus.course_content?.units ?? [],
-        practical_topics: syllabus.course_content?.is_practical
-          ? (syllabus.course_content?.topics ?? [])
-          : undefined,
-        instruction: syllabus.course_content?.instruction,
-        textbooks: syllabus.textbooks?.primary ?? [],
-        references: syllabus.textbooks?.references ?? [],
-        web_resources: syllabus.web_resources?.resources ?? [],
-        pedagogy_methods: syllabus.pedagogy?.methods ?? [],
-        po_mappings: syllabus.po_mappings?.mappings ?? [],
-        po_keys: poKeys,
-        pso_keys: psoKeys,
-        assessment_structure: syllabus.assessment_structure,
-      });
+      // Everything about WHAT this PDF contains lives in buildSyllabusPdfData,
+      // which the bulk board-wise ZIP export shares — keeping the two exports
+      // from drifting apart.
+      const data = await buildSyllabusPdfData(syllabus, { institutionName, isCas, isCet });
+      generateCourseSyllabusPDF(data);
 
       toast.success('PDF downloaded', { id: tid });
     } catch (e) {
@@ -191,6 +394,60 @@ export function SyllabusPdfDownloadButton({
           </Button>
         </TooltipTrigger>
         <TooltipContent side='top'>Download Syllabus PDF</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ── v3.5 HTML Download Button ─────────────────────────────────────────────────
+// Downloads the branded v3.5 HTML document (green JKKN template, capstone
+// cards, LLC panel) from /api/bos/syllabus/[id]/export-pdf?format=v35 —
+// print-ready via the browser's print-to-PDF.
+export function SyllabusHtmlDownloadButton({ syllabus }: { syllabus: BosCourseSyllabus }) {
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const [loading, setLoading] = useState(false);
+
+  if (!isSuperAdmin && !canAccess('academic.bos-syllabus', 'view')) return null;
+
+  const handleClick = async () => {
+    setLoading(true);
+    const tid = toast.loading(`Generating v3.5 HTML for ${syllabus.course_code}…`);
+    try {
+      const res = await fetch(`/api/bos/syllabus/${syllabus.id}/export-pdf?format=v35`);
+      if (!res.ok) throw new Error('Failed to generate HTML');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${syllabus.course_code}-syllabus-v35.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('HTML downloaded', { id: tid });
+    } catch (e) {
+      toast.error((e as Error).message, { id: tid });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
+            onClick={handleClick}
+            disabled={loading}
+            aria-label={`Download v3.5 HTML for ${syllabus.course_code}`}
+          >
+            {loading
+              ? <Loader2 className='h-4 w-4 animate-spin' />
+              : <FileCode2 className='h-4 w-4' />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='top'>Download v3.5 HTML (print-ready)</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -242,11 +499,15 @@ export function SyllabusDocxDownloadButton({
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
-      const { course_code: liveCode, course_name: liveName, coursePartLabel } =
+      const { course_code: liveCode, course_name: liveName, coursePartLabel, courseCategory } =
         await resolveCourseForReport(syllabus);
+      const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
-      // Mirror the PDF: prefix course_name with course_type_code.
-      const displayCourseName = coursePartLabel
+      // Mirror the PDF: A&S prefixes course_name with course_type_code, but
+      // pharmacy (COP) uses the bare name (no "Core-" prefix).
+      const isPharmacyDoc =
+        syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
+      const displayCourseName = !isPharmacyDoc && coursePartLabel
         ? `${coursePartLabel}-${liveName}`
         : liveName;
 
@@ -262,13 +523,18 @@ export function SyllabusDocxDownloadButton({
         total_hours: syllabus.total_hours ?? undefined,
         contact_hours: syllabus.contact_hours ?? undefined,
         credits: syllabus.course_credits ?? undefined,
+        // PCI/pharmacy Scope paragraph — printed above Course Objectives.
+        scope: syllabus.scope ?? undefined,
+        // COP (pharmacy): hide the Course Designer / BoS Chairman sign-off (temp).
+        hideSignature: isPharmacyDoc,
         objectives: objectivesContent?.objectives ?? [],
         clos: outcomesContent?.clos ?? [],
         k_values: kValues,
-        units: syllabus.course_content?.units ?? [],
-        practical_topics: syllabus.course_content?.is_practical
+        units: contentModes.includeTheory ? (syllabus.course_content?.units ?? []) : [],
+        practical_topics: contentModes.includePractical
           ? (syllabus.course_content?.topics ?? [])
           : undefined,
+        number_practical_topics: syllabus.course_content?.number_practical_topics,
         instruction: syllabus.course_content?.instruction,
         textbooks: syllabus.textbooks?.primary ?? [],
         references: syllabus.textbooks?.references ?? [],
@@ -278,6 +544,11 @@ export function SyllabusDocxDownloadButton({
         po_keys: poKeys,
         pso_keys: psoKeys,
         assessment_structure: syllabus.assessment_structure,
+        concept_applications: syllabus.concept_applications,
+        assessment_pattern: syllabus.assessment_pattern,
+        capstone_project: syllabus.capstone_project,
+        capstone_rubric: syllabus.capstone_rubric,
+        llc_conference: syllabus.llc_conference,
       });
 
       toast.success('Word file downloaded', { id: tid });
@@ -398,8 +669,10 @@ export function DataTableRowActions<TData extends BosCourseSyllabus>({
     { board_id: syllabus.board_id ?? null, created_by: syllabus.created_by ?? null },
     profile?.id ?? null,
   );
+  // Edit / Create Revision: creator or board chairman (or super-admin).
   const canEdit = boardOwnership;
-  const canDelete = boardOwnership;
+  // Delete: SUPER-ADMIN ONLY (policy 2026-07-16). Creator/chairman cannot delete.
+  const canDelete = boardScope.isSuperAdmin;
 
   const [reviseDialogOpen, setReviseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

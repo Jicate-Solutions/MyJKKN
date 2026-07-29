@@ -142,7 +142,7 @@ const CDC_MODULES: ModuleCard[] = [
     href: '/cdc/exports',
     title: 'Reports & Exports',
     permModule: 'cdc.exports',
-    description: 'NAAC 5.2.1, AICTE annual, flex-generator. Downloadable CSV/XLSX with column picker.',
+    description: 'NAAC 8.2 (Graduate Progression), AICTE annual, flex-generator. Downloadable CSV/XLSX with column picker.',
     icon: FileDown,
     color: 'text-rose-600 bg-rose-50',
   },

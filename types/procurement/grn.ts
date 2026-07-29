@@ -69,6 +69,8 @@ export interface ProcurementGrnItem {
   /** Quantity ordered/invoiced but NOT delivered in this receipt. Informational only — not part of the match. */
   missing_quantity: number;
   is_chemical: boolean;
+  /** Set when this line's accepted qty was posted to the domain inventory (exactly-once claim; retry skips it). */
+  domain_posted_at: string | null;
   created_at: string;
 }
 

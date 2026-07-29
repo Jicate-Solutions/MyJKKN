@@ -35,6 +35,7 @@ export interface CarreAuditableModule {
 export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   // ── Applications ──────────────────────────────────────────────────────
   { key: 'application-hub', label: 'Application Hub' },
+  { key: 'my-kit', label: 'My Kit (Store Kits)' }, // participant surface of the IMS kit module — IMS itself stays excluded (stockroom ops)
   { key: 'applications', label: 'Applications' },
 
   // ── Academic & learning experiences ──────────────────────────────────
@@ -42,6 +43,7 @@ export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   { key: 'learn', label: 'Learning' },
   { key: 'vac', label: 'Value Added Courses' },
   { key: 'bos', label: 'Board of Studies' }, // borderline: faculty curriculum governance (participatory)
+  { key: 'foundation', label: 'Foundation Programme' }, // school students take diagnostics (participant-facing)
 
   // ── Learner-facing life on campus ─────────────────────────────────────
   { key: 'campus-living', label: 'Campus Living' }, // hostel / mess
@@ -53,6 +55,7 @@ export const CARRE_AUDITABLE_MODULES: CarreAuditableModule[] = [
   { key: 'events', label: 'Events' }, // incl. induction (/events/induction)
   { key: 'startup-studio', label: 'Startup Studio' },
   { key: 'solutions', label: 'Solution Hub' },
+  { key: 'improvement-board', label: 'Improvement Board' }, // MBA teaching-enterprise: Associates file improvement ideas (participant-facing)
 
   // ── Staff / faculty experiences ───────────────────────────────────────
   { key: 'faculty', label: 'Faculty' },
@@ -84,6 +87,7 @@ export const CARRE_EXCLUDED_MODULES: string[] = [
   'audit', // the audit tooling itself — a module never grades itself
   'audit-trail', // activity log
   'accreditation', // compliance paperwork, not a participant experience
+  'tracker', // open compliance/tracking board — a back-office follow-up surface, not a participant experience
   'system', // system settings
   'my-bug-reports', // bug tooling
   'bug-leaderboard', // bug tooling

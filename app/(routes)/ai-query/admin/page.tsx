@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +25,7 @@ import {
 import { ToolsOverview } from './_components/tools-overview';
 import { CategorySection } from './_components/category-section';
 import { ToolCard } from './_components/tool-card';
+import { CapabilityGapsTab } from './_components/capability-gaps-tab';
 import {
   TOOL_CATEGORIES,
   AI_QUERY_TOOLS_REGISTRY,
@@ -32,6 +33,9 @@ import {
   ToolCategory,
   ActionTier,
 } from '@/lib/config/ai-query-tools-config';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const AI_QUERY_ADMIN_TABS = ['categories', 'all', 'capability-gaps'] as const;
 
 function AccessDenied() {
   return (
@@ -68,7 +72,7 @@ function AIQueryToolsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedTier, setSelectedTier] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'categories' | 'all'>('categories');
+  const [viewMode, setViewMode] = useTabParam('categories', AI_QUERY_ADMIN_TABS);
 
   // Filter tools based on search and filters
   const filteredTools = AI_QUERY_TOOLS_REGISTRY.filter((tool) => {
@@ -111,6 +115,8 @@ function AIQueryToolsContent() {
           </Badge>
         </div>
 
+        {viewMode !== 'capability-gaps' && (
+          <>
         {/* Recent Improvements Banner */}
         <Card className="border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20">
           <CardContent className="pt-6">
@@ -217,12 +223,15 @@ function AIQueryToolsContent() {
             )}
           </CardContent>
         </Card>
+          </>
+        )}
 
         {/* View Mode Tabs */}
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'categories' | 'all')}>
-          <TabsList>
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'categories' | 'all' | 'capability-gaps')}>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="categories">By Category</TabsTrigger>
             <TabsTrigger value="all">All Tools</TabsTrigger>
+            <TabsTrigger value="capability-gaps">Capability Gaps</TabsTrigger>
           </TabsList>
 
           <TabsContent value="categories" className="space-y-8 mt-6">
@@ -258,6 +267,10 @@ function AIQueryToolsContent() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="capability-gaps" className="mt-6">
+            <CapabilityGapsTab />
+          </TabsContent>
         </Tabs>
       </div>
     </ContentLayout>
@@ -270,7 +283,10 @@ export default function AIQueryToolsPage() {
       fallback={<AccessDenied />}
       loading={<LoadingState />}
     >
-      <AIQueryToolsContent />
+      {/* Suspense boundary required: useTabParam() reads useSearchParams(). */}
+      <Suspense fallback={null}>
+        <AIQueryToolsContent />
+      </Suspense>
     </SuperAdminOnly>
   );
 }

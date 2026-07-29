@@ -78,7 +78,7 @@ export function SkillsInput({ skills, onChange }: SkillsInputProps) {
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
               Add next as
             </span>
-            <div className="flex rounded-md overflow-hidden border">
+            <div className="flex rounded-md border max-w-full overflow-x-auto [&>button]:shrink-0">
               <button
                 type="button"
                 onClick={() => setAddAs('required')}
@@ -113,7 +113,7 @@ export function SkillsInput({ skills, onChange }: SkillsInputProps) {
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider whitespace-nowrap">
               Proficiency
             </span>
-            <div className="flex rounded-md overflow-hidden border">
+            <div className="flex rounded-md border max-w-full overflow-x-auto [&>button]:shrink-0">
               {PROFICIENCY_LEVELS.map((p) => (
                 <button
                   key={p.value}

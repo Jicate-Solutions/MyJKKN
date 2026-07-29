@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosBoardScope,
   compositionScopeFilter,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/ta-da?meetingId= ────────────────────────────────────────────
@@ -15,7 +17,10 @@ export async function GET(request: NextRequest) {
     }
 
     const scope = await resolveBosBoardScope(user.id);
-    const scopeFilter = compositionScopeFilter(scope);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-ta-da.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
+    const scopeFilter = compositionScopeFilter(scope, canReadAllBos);
 
     // No BoS access at all → empty list (no DB hit).
     if (scopeFilter.kind === 'none') {
@@ -75,10 +80,17 @@ export async function GET(request: NextRequest) {
     // response shape minimal.
     const needsCompositionJoin =
       scopeFilter.kind === 'byComposition' || !!boardId;
+    // `meeting:` is a second, ALIASED embed of the same bos_meetings
+    // relationship (PostgREST allows this) carrying the convening council for
+    // the printed claim form; the unaliased !inner embed stays dedicated to
+    // filtering so the .eq('bos_meetings...') paths below keep working.
+    const meetingEmbed =
+      'meeting:bos_meetings ( id, meeting_type, committee:bos_committees ( name ) )';
     const selectClause = needsCompositionJoin
       ? `
         *,
         bos_meetings!inner ( composition_id, bos_compositions!inner ( board_id ) ),
+        ${meetingEmbed},
         member:bos_members (
           id, display_name, display_designation, display_institution, member_type,
           contact_no, email, staff_id,
@@ -88,6 +100,7 @@ export async function GET(request: NextRequest) {
       `
       : `
         *,
+        ${meetingEmbed},
         member:bos_members (
           id, display_name, display_designation, display_institution, member_type,
           contact_no, email, staff_id,
@@ -96,7 +109,9 @@ export async function GET(request: NextRequest) {
         expert:bos_external_experts ( id, name, title, designation, institution_name, email, contact_no )
       `;
 
-    let query = supabase
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb
       .from('bos_ta_da_claims')
       .select(selectClause)
       .order('created_at', { ascending: false });

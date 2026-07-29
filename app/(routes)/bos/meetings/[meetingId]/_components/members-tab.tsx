@@ -32,7 +32,10 @@ import {
 import {
   BosMeetingStatus,
   BOS_MEETING_STATUS_LABELS,
-  BOS_MEMBER_TYPE_LABELS,
+  bosCallLetterFilename,
+  bosMemberTypeLabel,
+  isBosChairmanRow,
+  isCouncilMeetingType,
 } from '@/types/bos';
 import { useBosMembersByComposition } from '@/hooks/bos/use-bos-members';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -58,12 +61,26 @@ interface MembersTabProps {
   meetingStatus: BosMeetingStatus;
   /** Meeting type — 'academic_council' flips the send gate to principal @ noticed. */
   meetingType?: string;
+  /**
+   * Convening council/committee of the meeting (bos_meetings.committee_id).
+   * When set, only that committee's members are listed/invited.
+   */
+  committeeId?: string | null;
 }
 
-export function MembersTab({ meetingId, compositionId, meetingStatus, meetingType }: MembersTabProps) {
+export function MembersTab({ meetingId, compositionId, meetingStatus, meetingType, committeeId }: MembersTabProps) {
   const queryClient = useQueryClient();
-  const { data: members = [], isLoading } = useBosMembersByComposition(compositionId);
+  const { data: allMembers = [], isLoading } = useBosMembersByComposition(compositionId);
   const scope = useBosBoardScope();
+
+  // Scope the list to the meeting's convening committee. Legacy compositions
+  // may have members with no committee assignment — fall back to the full
+  // composition rather than showing an empty member list.
+  const members = useMemo(() => {
+    if (!committeeId) return allMembers;
+    const scoped = allMembers.filter((m) => m.committee_id === committeeId);
+    return scoped.length > 0 ? scoped : allMembers;
+  }, [allMembers, committeeId]);
 
   // Per-member latest email status for THIS meeting, sourced from
   // bos_email_send_log. Members with no log row appear as "Not Sent".
@@ -90,10 +107,11 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
 
   // ── Permission + lifecycle gate ────────────────────────────────────────────
   // BoS: chairman (or super-admin) sends at 'expert_invited'.
-  // Academic Council: the principal (or super-admin) is the convener and sends
-  // the call letters at 'noticed' — they are NOT a bos_members chairman of the
-  // AC body, so the chairman check would wrongly lock them out.
-  const isAc = meetingType === 'academic_council';
+  // Council (Academic Council / Governing Body): the principal (or super-admin)
+  // is the convener and sends the call letters at 'noticed' — they are NOT a
+  // bos_members chairman of the council body, so the chairman check would
+  // wrongly lock them out.
+  const isAc = isCouncilMeetingType(meetingType);
   const notifyStatus = isAc ? NOTIFY_STATUS_AC : NOTIFY_STATUS_BOS;
   const canSend = isAc
     ? scope.isSuperAdmin || scope.isPrincipal
@@ -300,7 +318,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
                   </TableCell>
                   <TableCell className='text-sm font-medium'>
                     {m.display_name}
-                    {m.member_type === 'chairman' && (
+                    {isBosChairmanRow(m) && (
                       <Badge variant='secondary' className='ml-2 text-xs'>
                         Chairman
                       </Badge>
@@ -308,7 +326,10 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
                   </TableCell>
                   <TableCell>
                     <Badge variant='outline' className='text-xs'>
-                      {BOS_MEMBER_TYPE_LABELS[m.member_type] ?? m.member_type}
+                      {/* Selected catalog type (bos_member_types) first; the
+                          coarse category label only for legacy rows with no
+                          member_type_id. */}
+                      {m.member_type_rec?.name ?? bosMemberTypeLabel(m.member_type)}
                     </Badge>
                   </TableCell>
                   <TableCell className='text-sm text-muted-foreground'>
@@ -336,7 +357,7 @@ export function MembersTab({ meetingId, compositionId, meetingStatus, meetingTyp
                     <Button variant='outline' size='sm' className='h-8 gap-1.5' asChild>
                       <a
                         href={`/api/bos/meetings/${meetingId}/preview-pdf?memberId=${m.id}`}
-                        download={`bos-call-letter-${m.display_name.replace(/\s+/g, '-')}.pdf`}
+                        download={bosCallLetterFilename(meetingType, m.display_name)}
                         target='_blank'
                         rel='noopener noreferrer'
                         aria-label={`Download call letter PDF for ${m.display_name}`}

@@ -58,6 +58,12 @@ const looksFilled = (v: unknown) =>
 // seeded `admission_years` for that pair the field stays empty and this
 // rule triggers a "Please fill: Admission Year" toast that nudges the
 // student to contact admission.
+//
+// 2026-07-27: academic_year_id added on the same auto-fetch + read-only
+// pattern (resolved from the institution's active row covering today).
+// Section is deliberately NOT required here — section placement stays an
+// admission-staff decision made during onboarding, so the QR form never
+// asks the student for it.
 const REQUIRED_BY_SECTION: Record<Section, Array<{ key: string; label: string }>> = {
   basic: [
     { key: 'first_name', label: 'First Name' },
@@ -75,6 +81,7 @@ const REQUIRED_BY_SECTION: Record<Section, Array<{ key: string; label: string }>
     { key: 'semester_id',       label: 'Semester' },
     { key: 'quota_id',          label: 'Quota' },
     { key: 'admission_year_id', label: 'Admission Year' },
+    { key: 'academic_year_id',  label: 'Academic Year' },
   ],
   accommodation: [
     { key: 'accommodation_type', label: 'Accommodation Type' },
@@ -345,6 +352,7 @@ export function WizardShell({ token, learner, sectionProgress, expiresAt }: Prop
           <StepContactDetails
             lang={lang}
             data={data}
+            token={token}
             onContinue={(fields) => handleStepContinue('contact', fields)}
             onBack={() => setStep(1)}
             submitting={submitting}

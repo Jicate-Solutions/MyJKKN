@@ -49,7 +49,10 @@ import {
 import { StudentBillsTable } from './_components/student-bills-table';
 import { StudentTransactionHistory } from './_components/student-transaction-history';
 import { StudentReceiptsTable } from './_components/student-receipts-table';
+import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
+import { StudentRefundHistory } from './_components/student-refund-history';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
+import { isBillableBill } from '@/lib/billing/bill-status';
 import { toast } from 'react-hot-toast';
 
 export default function StudentBillingDetailPage() {
@@ -275,6 +278,19 @@ export default function StudentBillingDetailPage() {
     );
   }
 
+  // Task 12: sum of billing_student_bills.refunded_amount disbursed via the
+  // refund-request workflow (fn_disburse_refund_request) — separate from the
+  // legacy billing_refunds table already netted into summary.paid_amount.
+  const totalRefundedAmount = billingSummary.bills.reduce(
+    (sum, bill) => sum + Number(bill.refunded_amount ?? 0),
+    0
+  );
+
+  // summary.total_bills is a raw row count from the service and includes
+  // cancelled/superseded bills, so the card read "2 bills" for a learner with
+  // one live bill and one cancelled one.
+  const billableBillCount = billingSummary.bills.filter(isBillableBill).length;
+
   return (
     <ContentLayout title='Student Billing Details'>
       <div className='space-y-4 sm:space-y-6'>
@@ -347,14 +363,24 @@ export default function StudentBillingDetailPage() {
             </div>
           </div>
 
-          {/* Schedule Bill Button - Full width on mobile - Hidden for students */}
-          {!isStudent && canCreateBills && (
-            <Button asChild className='w-full sm:w-auto sm:self-start'>
-              <Link href={`/billing/schedule/new?student_id=${studentId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}>
-                <Plus className='mr-2 h-4 w-4' />
-                Schedule Bill
-              </Link>
-            </Button>
+          {/* Header Actions - Full width on mobile - Hidden for students */}
+          {!isStudent && (
+            <div className='flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:self-start'>
+              {canCreateBills && (
+                <Button asChild className='w-full sm:w-auto'>
+                  <Link href={`/billing/schedule/new?student_id=${studentId}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ''}`}>
+                    <Plus className='mr-2 h-4 w-4' />
+                    Schedule Bill
+                  </Link>
+                </Button>
+              )}
+              <RefundInitiateDialog
+                studentId={studentId}
+                institutionId={student.institution_id}
+                institutionName={student.institution?.name || 'Unknown Institution'}
+                studentName={[student.first_name, student.last_name].filter(Boolean).join(' ')}
+              />
+            </div>
           )}
         </div>
 
@@ -528,13 +554,21 @@ export default function StudentBillingDetailPage() {
               <IndianRupee className='h-4 w-4 text-blue-600' />
             </CardHeader>
             <CardContent>
+              {/* Void bills (cancelled AND superseded) are excluded. This
+                  previously excluded only superseded, so a cancelled bill still
+                  inflated Total Fees for an amount the learner does not owe. */}
               <div className='text-xl sm:text-2xl font-bold text-blue-600'>
                 {formatCurrency(
-                  billingSummary.bills.reduce((sum, bill) => sum + (bill.status !== 'superseded' ? bill.final_amount : 0), 0)
+                  billingSummary.bills.reduce(
+                    (sum, bill) => sum + (isBillableBill(bill) ? bill.final_amount : 0),
+                    0
+                  )
                 )}
               </div>
               <p className='text-xs text-muted-foreground'>
-                {billingSummary.summary.total_bills} bill{billingSummary.summary.total_bills !== 1 ? 's' : ''}
+                {/* Counted from the bill list rather than summary.total_bills,
+                    which is a raw row count and includes void bills. */}
+                {billableBillCount} bill{billableBillCount !== 1 ? 's' : ''}
               </p>
             </CardContent>
           </Card>
@@ -558,7 +592,8 @@ export default function StudentBillingDetailPage() {
                         ?.filter((r) => r.approval_status === 'processed')
                         .reduce((sum, r) => sum + r.refund_amount, 0) || 0;
 
-                    const netPaidAmount = billingSummary.summary.paid_amount;
+                    const netPaidAmount =
+                      billingSummary.summary.paid_amount - totalRefundedAmount;
                     const isFullyRefunded =
                       totalProcessedRefunds > 0 && netPaidAmount <= 0;
                     const hasRefunds = totalProcessedRefunds > 0;
@@ -658,6 +693,25 @@ export default function StudentBillingDetailPage() {
               <p className='text-xs text-muted-foreground'>Past due date</p>
             </CardContent>
           </Card>
+
+          {/* Task 12: only shown once a refund-workflow disbursement has
+           *  actually posted refunded_amount onto a bill. */}
+          {totalRefundedAmount > 0 && (
+            <Card className='hover:shadow-md transition-shadow'>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <CardTitle className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  Refunded
+                </CardTitle>
+                <IndianRupee className='h-4 w-4 text-red-600' />
+              </CardHeader>
+              <CardContent>
+                <div className='text-xl sm:text-2xl font-bold text-red-600'>
+                  {formatCurrency(totalRefundedAmount)}
+                </div>
+                <p className='text-xs text-muted-foreground'>Disbursed refunds</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Billing Details Tabs - Enhanced for Mobile */}
@@ -666,7 +720,7 @@ export default function StudentBillingDetailPage() {
             <Tabs defaultValue={initialTab} className='w-full'>
               {/* Tab Header with Filter */}
               <div className='flex flex-col gap-4 p-4 sm:p-6 bg-gray-50 dark:bg-gray-800 border-b'>
-                <TabsList className='grid w-full grid-cols-3'>
+                <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
                   <TabsTrigger value='bills' className='text-xs sm:text-sm'>
                     Bills
                   </TabsTrigger>
@@ -775,6 +829,9 @@ export default function StudentBillingDetailPage() {
             </Tabs>
           </CardContent>
         </Card>
+
+        {/* Refund Requests — only renders once this student has ≥1 request */}
+        <StudentRefundHistory studentId={studentId} />
 
         {/* Payment Selection Modal */}
         <PaymentSelectionModal

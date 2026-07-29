@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useMemo, useState } from 'react';
+import { Suspense, use, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -42,6 +42,7 @@ import { MembersTab } from './_components/members-tab';
 import { MinutesTab } from './_components/minutes-tab';
 
 import { useBosMeeting, useTransitionBosMeetingStatus } from '@/hooks/bos/use-bos-meetings';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
@@ -314,8 +315,20 @@ interface MeetingDetailPageProps {
   params: Promise<{ meetingId: string }>;
 }
 
-export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
+// Main tab group values (in TabsTrigger order). `minutes` is only rendered for
+// later statuses, but it's a valid deep-link target so it's included here.
+const MEETING_DETAIL_TABS = [
+  'agenda',
+  'attendance',
+  'members',
+  'documents',
+  'syllabus',
+  'minutes',
+] as const;
+
+function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
   const { meetingId } = use(params);
+  const [activeTab, setActiveTab] = useTabParam('agenda', MEETING_DETAIL_TABS);
   const router = useRouter();
   const { canAccess, isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
@@ -333,7 +346,15 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     total: number;
   } | null>(null);
 
-  const canEdit = isSuperAdmin || canAccess('academic.bos-meetings', 'edit');
+  // Board meetings use academic.bos-meetings.edit. Council-family meetings
+  // (Academic Council / Governing Body) are convened by principals who hold
+  // the dedicated *.manage keys instead — include those so Edit Schedule &
+  // Venue is visible to the people who can open those list pages.
+  const canEdit =
+    isSuperAdmin ||
+    canAccess('academic.bos-meetings', 'edit') ||
+    canAccess('academic.bos-academic-council', 'manage') ||
+    canAccess('academic.bos-governing-body', 'manage');
 
   // Open dialog for transitions that need extra metadata; fire directly otherwise
   const handleTransition = async () => {
@@ -463,7 +484,13 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
     );
   }
 
-  const isAcMeeting = meeting.meeting_type === 'academic_council';
+  // Council-family meetings (Academic Council + Governing Body) share the shorter
+  // principal-driven flow, labels, and status order. They differ only in their
+  // display label and dedicated edit sub-route.
+  const isGbMeeting = meeting.meeting_type === 'governing_body';
+  const isAcMeeting = meeting.meeting_type === 'academic_council' || isGbMeeting;
+  const councilLabel = isGbMeeting ? 'Governing Body' : 'Academic Council';
+  const councilEditBase = isGbMeeting ? '/bos/governing-body' : '/bos/academic-council';
   const nextStatus = meetingNextStatusMap(meeting.meeting_type)[meeting.status];
   const transitionLabels = isAcMeeting ? AC_TRANSITION_LABELS : TRANSITION_LABELS;
   const isDraft = meeting.status === 'draft';
@@ -538,13 +565,13 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
         title={meeting.meeting_title ?? `Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
         description={
           isAcMeeting
-            ? `Academic Council · ${meeting.academic_year}`
+            ? `${councilLabel} · ${meeting.academic_year}`
             : board
               ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}`
               : ''
         }
       >
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           {canEdit && (isDraft || meeting.status === 'principal_approved') && (
             <Button
               size='sm'
@@ -552,7 +579,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
               onClick={() =>
                 router.push(
                   isAcMeeting
-                    ? `/bos/academic-council/${meetingId}/edit`
+                    ? `${councilEditBase}/${meetingId}/edit`
                     : `/bos/meetings/${meetingId}/edit`,
                 )
               }
@@ -718,8 +745,8 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
       {/* ── Agenda & Attendance Tabs ─────────────────────────────────────── */}
       <Card>
         <CardContent className='p-4'>
-          <Tabs defaultValue='agenda'>
-            <TabsList className='mb-4'>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='agenda' className='gap-1.5'>
                 Agenda
                 {(meeting.agenda_item_count ?? 0) > 0 && (
@@ -755,6 +782,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 institutionsId={meeting.institutions_id}
                 canEdit={canEdit}
                 meetingStatus={meeting.status}
+                committeeId={meeting.committee_id}
               />
             </TabsContent>
 
@@ -764,6 +792,7 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
                 compositionId={meeting.composition_id}
                 meetingStatus={meeting.status}
                 meetingType={meeting.meeting_type}
+                committeeId={meeting.committee_id}
               />
             </TabsContent>
 
@@ -857,5 +886,15 @@ export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// useTabParam() reads useSearchParams(), so the page body must sit under a
+// <Suspense> boundary.
+export default function MeetingDetailPage({ params }: MeetingDetailPageProps) {
+  return (
+    <Suspense fallback={null}>
+      <MeetingDetailPageInner params={params} />
+    </Suspense>
   );
 }

@@ -27,7 +27,20 @@ import type {
   OpenPulseForLearner,
   PulseTotals,
   MyConfirmedAttendance,
+  PendingVerdictSuggestion,
+  MyLoopNote,
+  NoteResolutionCounts,
+  FacilitatorPulseRow,
+  MyPulseRow,
+  MarksCoverageResponse,
+  FreetextCarryCountsRow,
+  SessionResourceRow,
+  PostedSessionResource,
+  PostSessionResourceInput,
+  ClarificationRequestRow,
+  ClarificationOutcome,
 } from '@/types/session-feedback';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // Untyped client — session_feedback tables are not in the generated types yet.
 const getSupabase = (): any => createClientSupabaseClient();
@@ -64,6 +77,41 @@ export class SessionFeedbackService {
     return (data || []) as PendingSession[];
   }
 
+  /** The feedback-window length (hours) from the shared config lever
+   *  session_feedback.window_hours — the SAME row every server-side window fn
+   *  reads, so the UI hint and the enforcement can't drift apart. The caller's
+   *  own institution_id is resolved as the scope so a per-institution override
+   *  reads the same row the server enforces with (deep-review #1898 consensus
+   *  finding: a global-only read would drift under a tenant override and the
+   *  client race-guard would block still-valid submissions). Fail-soft to 48:
+   *  the server fns remain the source of truth. */
+  static async getFeedbackWindowHours(): Promise<number> {
+    const supabase = getSupabase();
+    let scopeId: string | null = null;
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth?.user?.id) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('institution_id')
+          .eq('id', auth.user.id)
+          .maybeSingle();
+        scopeId = (prof?.institution_id as string | null) ?? null;
+      }
+    } catch {
+      // fall through to the global-scope read
+    }
+    const { data, error } = await supabase.rpc('fn_get_policy_int', {
+      p_key: 'session_feedback.window_hours',
+      p_default: 48,
+      p_scope_id: scopeId,
+    });
+    const n = Number(data);
+    // <= 0 guards a misconfigured lever (0 would disable every row client-side).
+    if (error || data == null || Number.isNaN(n) || n <= 0) return 48;
+    return n;
+  }
+
   /** The caller learner's OWN confirmed-attendance snapshot (transparency, #7).
    *  Forward-only; NOT gated on attendance_coupling_enabled — a learner may always see
    *  their own number. Returns null when the caller is not a learner or has no in-scope marks. */
@@ -84,6 +132,35 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load carry-forward: ${error.message}`);
     return (data || []) as CarryforwardItem[];
+  }
+
+  /** Course-level counts of learners' free-text follow-ups for the CALLER's own
+   *  sessions (Senior Learner view). Counts only — never words, never names —
+   *  and a course appears ONLY at/above the >=3-distinct-learners privacy floor
+   *  (fn_scf_freetext_carry_counts enforces both server-side). */
+  static async getFreetextCarryCounts(): Promise<FreetextCarryCountsRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_freetext_carry_counts');
+    if (error) throw new Error(`Failed to load follow-up counts: ${error.message}`);
+    return (data || []) as FreetextCarryCountsRow[];
+  }
+
+  /** Answer one free-text follow-up (Yes/Partly/No; 'Seen' acknowledges praise).
+   *  Self-scoped server-side — only the item's own learner can answer it. */
+  static async answerFreetextCarry(
+    id: string,
+    answer: 'Yes' | 'Partly' | 'No' | 'Seen',
+  ): Promise<void> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_answer_freetext_carry', {
+      p_id: id,
+      p_answer: answer,
+    });
+    if (error) throw new Error(`Could not save your answer: ${error.message}`);
+    const result = data as { success?: boolean; error?: string } | null;
+    if (result && result.success === false) {
+      throw new Error(result.error ?? 'Could not save your answer.');
+    }
   }
 
   /** Per-session confirmation state (present-pending vs confirmed) in a date range. */
@@ -113,6 +190,65 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to submit feedback: ${error.message}`);
     return data as SessionFeedbackRow;
+  }
+
+  // ── Clarification requests (Lane C) — ask → self-reported outcome ──────────
+  // Substrate: 20260725133000_session_clarification_requests.sql. Reads go via
+  // RLS (a learner only ever sees their OWN rows); writes only via the RPCs.
+
+  /** The caller's own clarification request for one session, if any. */
+  static async getClarification(
+    attendanceDate: string,
+    periodId: string,
+  ): Promise<ClarificationRequestRow | null> {
+    const supabase = getSupabase();
+    // Deterministic single row even for broad-RLS viewers (leadership can see
+    // several learners' asks for one session — a bare maybeSingle() would
+    // throw on >1 row). Learners still only ever see their own row via RLS.
+    const { data, error } = await supabase
+      .from('session_clarification_requests')
+      .select('*')
+      .eq('attendance_date', attendanceDate)
+      .eq('period_id', periodId)
+      .order('asked_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to load clarification request: ${error.message}`);
+    return (data as ClarificationRequestRow) ?? null;
+  }
+
+  /** Record "I asked for a re-explanation of this session" (learner-only;
+   *  one per session — a second tap upserts, never duplicates). */
+  static async askClarification(
+    attendanceDate: string,
+    timetableId: string,
+    periodId: string,
+  ): Promise<ClarificationRequestRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_clarification_ask', {
+      p_attendance_date: attendanceDate,
+      p_timetable_id: timetableId,
+      p_period_id: periodId,
+    });
+    if (error) throw new Error(`Could not record your request: ${error.message}`);
+    return data as ClarificationRequestRow;
+  }
+
+  /** The SAME learner self-reports what happened after their ask — mirrors the
+   *  SCF verdict pattern (this is the learner's own record; nobody else writes it). */
+  static async reportClarificationOutcome(
+    attendanceDate: string,
+    periodId: string,
+    outcome: Exclude<ClarificationOutcome, 'pending'>,
+  ): Promise<ClarificationRequestRow> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_clarification_outcome', {
+      p_attendance_date: attendanceDate,
+      p_period_id: periodId,
+      p_outcome: outcome,
+    });
+    if (error) throw new Error(`Could not record what happened: ${error.message}`);
+    return data as ClarificationRequestRow;
   }
 
   /** Anonymized aggregate over the caller faculty's own sessions. */
@@ -259,6 +395,187 @@ export class SessionFeedbackService {
     return data === true;
   }
 
+
+  /**
+   * Facilitator Pulse — work-evidenced presence signals per facilitator
+   * (leadership-gated; fn_scf_facilitator_pulse raises for non-leadership).
+   * Presence signals only — no understanding scores, no ranks.
+   */
+  static async getFacilitatorPulse(
+    from: string,
+    to: string,
+  ): Promise<FacilitatorPulseRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_facilitator_pulse', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load facilitator pulse: ${error.message}`);
+    return (data ?? []) as FacilitatorPulseRow[];
+  }
+
+  /**
+   * My Pulse — the CALLER's own work-signals over the last 30 days
+   * (fn_scf_my_pulse: self-scoped by the caller's email, no leadership gate,
+   * always one row — zeros when no signal yet). Decorative surface: failures
+   * return null and the card simply doesn't render.
+   */
+  static async getMyPulse(): Promise<MyPulseRow | null> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_my_pulse');
+      if (error) {
+        logger.warn('academic/session-feedback', 'my-pulse load failed', error);
+        return null;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      return (row ?? null) as MyPulseRow | null;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'my-pulse load failed', err);
+      return null;
+    }
+  }
+
+  /**
+   * Signal 8 — marks coverage for the pulse roster (server route joins the
+   * COE exam-cycle data; same leadership gate as the pulse — the route calls
+   * fn_scf_facilitator_pulse with the caller's session). Decorative to the
+   * pulse board: failures return null and the column simply doesn't render.
+   */
+  static async getMarksCoverage(
+    from: string,
+    to: string,
+  ): Promise<MarksCoverageResponse | null> {
+    try {
+      const res = await fetch(
+        `/api/academic/session-feedback/marks-coverage?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      );
+      if (!res.ok) return null;
+      const body = (await res.json()) as MarksCoverageResponse;
+      return body.configured ? body : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Verdict-at-next-class: the latest UNVERDICTED improvement note addressed to
+   * the CALLER for this course, generated before today — i.e. today's class (the
+   * one just marked) happened AFTER the advice, so "did you try it?" is now
+   * answerable. Read is RLS-scoped (institution) + filtered to the caller's own
+   * faculty_email; fn_scf_set_verdict re-authorizes on write (defense in depth).
+   * This surface is decorative to attendance-marking, so failures LOG and return
+   * null — they must never block or noise the save flow.
+   */
+  static async getPendingVerdictSuggestion(
+    courseCode: string,
+  ): Promise<PendingVerdictSuggestion | null> {
+    try {
+      const supabase = getSupabase();
+      const { data: userData } = await supabase.auth.getUser();
+      const email: string | undefined = userData?.user?.email
+        ?.trim()
+        .toLowerCase();
+      if (!email || !courseCode) return null;
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { data, error } = await supabase
+        .from('scf_ai_suggestions')
+        .select(
+          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_measured_at',
+        )
+        .eq('domain', 'session_feedback')
+        .eq('kind', 'improvement')
+        .eq('course_code', courseCode)
+        .eq('faculty_email', email)
+        .is('human_verdict', null)
+        .lt('generated_at', todayStart.toISOString())
+        .order('generated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        logger.warn('academic/session-feedback', 'pending-verdict read failed', {
+          courseCode,
+          error: error.message,
+        });
+        return null;
+      }
+      return (data as PendingVerdictSuggestion | null) ?? null;
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'pending-verdict read threw', err);
+      return null;
+    }
+  }
+
+  /**
+   * All AI notes addressed to the CALLER, newest first — the faculty page's
+   * "Notes from your feedback loop" card. Unlike getPendingVerdictSuggestion
+   * (one course, unverdicted, pre-today), this is the full personal history:
+   * both kinds, verdicted or not, so a note is always findable after the
+   * one-tap attendance ask has passed. Decorative surface: failures LOG and
+   * return [] — never an error state on the faculty page.
+   */
+  static async getMyLoopNotes(limit = 20): Promise<MyLoopNote[]> {
+    try {
+      const supabase = getSupabase();
+      const { data: userData } = await supabase.auth.getUser();
+      const email = userData?.user?.email?.trim().toLowerCase();
+      if (!email) return [];
+
+      const { data, error } = await supabase
+        .from('scf_ai_suggestions')
+        .select(
+          'id, course_code, kind, suggestion, generated_at, input_avg_understood, outcome_avg_understood, outcome_lift, outcome_measured_at, outcome_unmeasurable_at, human_verdict, human_verdict_at',
+        )
+        .eq('domain', 'session_feedback')
+        .eq('faculty_email', email)
+        .order('generated_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        logger.warn('academic/session-feedback', 'my-loop-notes read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data as MyLoopNote[] | null) ?? [];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'my-loop-notes read threw', err);
+      return [];
+    }
+  }
+
+  /**
+   * Student-confirmed resolution aggregates for a set of notes — the loop's
+   * fourth witness. fn_scf_note_resolution_counts enforces the k>=3 anonymity
+   * floor server-side: notes with fewer than 3 votes simply return no row.
+   * Decorative surface: failures log and return [].
+   */
+  static async getNoteResolutionCounts(
+    suggestionIds: string[],
+  ): Promise<NoteResolutionCounts[]> {
+    if (suggestionIds.length === 0) return [];
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_note_resolution_counts', {
+        p_suggestion_ids: suggestionIds,
+      });
+      if (error) {
+        logger.warn('academic/session-feedback', 'resolution-counts read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data as NoteResolutionCounts[] | null) ?? [];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'resolution-counts read threw', err);
+      return [];
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Super-admin / institution-leadership all-college dashboard (aggregates only).
   // The RPCs raise for non-authorized callers; all three return ONLY aggregates
@@ -294,11 +611,19 @@ export class SessionFeedbackService {
   }
 
   /** Per-day understanding trend within scope. */
-  static async getAdminTrend(from: string, to: string): Promise<AdminTrendRow[]> {
+  static async getAdminTrend(
+    from: string,
+    to: string,
+    institutionId?: string | null,
+  ): Promise<AdminTrendRow[]> {
     const supabase = getSupabase();
+    // p_institution_id NARROWS within the caller's institution scope; it can
+    // never widen it. Always sent (null = all colleges in scope) so PostgREST
+    // resolves the 3-arg overload rather than the legacy 2-arg one.
     const { data, error } = await supabase.rpc('fn_scf_admin_trend', {
       p_from: from,
       p_to: to,
+      p_institution_id: institutionId ?? null,
     });
     if (error) throw new Error(`Failed to load understanding trend: ${error.message}`);
     return (data || []) as AdminTrendRow[];
@@ -311,11 +636,15 @@ export class SessionFeedbackService {
   static async getFacilitatorFeedbackCoverage(
     from: string,
     to: string,
+    institutionId?: string,
   ): Promise<FacilitatorCoverageRow[]> {
     const supabase = getSupabase();
+    // College narrowing happens server-side (NULL = all colleges in caller
+    // scope) so this card's correctness never depends on client filter state.
     const { data, error } = await supabase.rpc('fn_scf_facilitator_feedback_coverage', {
       p_from: from,
       p_to: to,
+      p_institution_id: institutionId ?? null,
     });
     if (error) throw new Error(`Failed to load facilitator coverage: ${error.message}`);
     return (data || []) as FacilitatorCoverageRow[];
@@ -362,5 +691,82 @@ export class SessionFeedbackService {
     if (error) throw new Error(`Failed to load pulse totals: ${error.message}`);
     const rows = (data || []) as PulseTotals[];
     return rows.length > 0 ? rows[0] : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pre-session materials (Rank 3a) — post a NotebookLM link/material for a
+  // session + log objective opens. All four flow through the SECURITY DEFINER
+  // RPCs in 20260801100000_scf_session_resources.sql (RLS-on tables, anon-locked).
+  // Authority for post/deactivate is _fn_curriculum_class_ctx(...require_manage):
+  // the RPC raises for a caller without manage rights on that session.
+  // ---------------------------------------------------------------------------
+
+  /** Post a material for a session (a Senior Learner of the course, or an
+   *  HOD/admin of the institution). Throws on failure so the caller sees the real
+   *  auth/validation error (e.g. another course's Senior Learner is rejected).
+   *  Returns the inserted row. */
+  static async postSessionResource(
+    input: PostSessionResourceInput,
+  ): Promise<PostedSessionResource> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_post_session_resource', {
+      p_timetable_id: input.timetableId,
+      p_attendance_date: input.attendanceDate,
+      p_period_id: input.periodId,
+      p_kind: input.kind ?? 'notebooklm',
+      p_title: input.title,
+      p_url: input.url,
+    });
+    if (error) throw new Error(error.message);
+    return data as PostedSessionResource;
+  }
+
+  /** Active materials for a session + the caller-learner's own `opened` flag and
+   *  the aggregate `open_count`. Authenticated read (class-shared study links, not
+   *  sensitive). Decorative on both surfaces — a read failure (including the RPC
+   *  not yet applied on prod) returns [] so neither page ever crashes. */
+  static async getResourcesForSession(
+    timetableId: string,
+    attendanceDate: string,
+    periodId: string,
+  ): Promise<SessionResourceRow[]> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_resources_for_session', {
+        p_timetable_id: timetableId,
+        p_attendance_date: attendanceDate,
+        p_period_id: periodId,
+      });
+      if (error) {
+        logger.warn('academic/session-feedback', 'resources-for-session read failed', {
+          error: error.message,
+        });
+        return [];
+      }
+      return (data || []) as SessionResourceRow[];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'resources-for-session read threw', err);
+      return [];
+    }
+  }
+
+  /** Learner logs an open of a material (idempotent upsert; increments the count
+   *  on re-open). Throws on failure — the UI fires the new-tab open regardless, so
+   *  the link still works even if the log call fails. */
+  static async logResourceOpen(resourceId: string): Promise<void> {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('fn_scf_log_resource_open', {
+      p_resource_id: resourceId,
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  /** Deactivate a mis-posted material (manage authority; the RPC raises otherwise). */
+  static async deactivateSessionResource(resourceId: string): Promise<void> {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('fn_scf_deactivate_session_resource', {
+      p_resource_id: resourceId,
+    });
+    if (error) throw new Error(error.message);
   }
 }

@@ -59,9 +59,9 @@ export function PromotionalMaterialsRepeater({
           {value.map((row, idx) => (
             <div
               key={idx}
-              className="grid grid-cols-12 gap-2 items-start border rounded-md p-2"
+              className="grid grid-cols-1 gap-2 items-start border rounded-md p-2 sm:grid-cols-12"
             >
-              <div className="col-span-5">
+              <div className="sm:col-span-5">
                 <Input
                   placeholder="Material name (e.g. Brochure)"
                   value={row.name}
@@ -69,7 +69,7 @@ export function PromotionalMaterialsRepeater({
                   disabled={disabled}
                 />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Input
                   type="number"
                   min={0}
@@ -83,7 +83,7 @@ export function PromotionalMaterialsRepeater({
                   disabled={disabled}
                 />
               </div>
-              <div className="col-span-4">
+              <div className="sm:col-span-4">
                 <Input
                   placeholder="Notes (optional)"
                   value={row.notes ?? ''}
@@ -91,7 +91,7 @@ export function PromotionalMaterialsRepeater({
                   disabled={disabled}
                 />
               </div>
-              <div className="col-span-1 flex justify-end">
+              <div className="flex justify-end sm:col-span-1">
                 <Button
                   type="button"
                   variant="ghost"

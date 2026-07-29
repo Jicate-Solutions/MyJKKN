@@ -129,9 +129,7 @@ const timetableFormSchema = z
     attendance_mode: z
       .enum(['period_wise', 'session_wise'])
       .default('period_wise'),
-    class_incharge_id: z.string().min(1, {
-      message: 'Please select a class incharge.'
-    })
+    class_incharge_id: z.string().optional()
   })
   .refine(
     (data) => {
@@ -168,6 +166,18 @@ const timetableFormSchema = z
     {
       message: 'Number of cycles is required for cycle-based timetables (1–52).',
       path: ['num_cycles']
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.attendance_mode === 'session_wise' && !data.class_incharge_id) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Please select a class incharge for day-wise attendance.',
+      path: ['class_incharge_id']
     }
   );
 

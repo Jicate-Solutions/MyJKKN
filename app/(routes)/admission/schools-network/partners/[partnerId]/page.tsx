@@ -164,7 +164,18 @@ function MemberSchoolsCard({ partnerId }: { partnerId: string }) {
                       {row.district ?? '—'}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {row.ownerName || (
+                      {row.ownerName ? (
+                        row.ownerUserId ? (
+                          <Link
+                            href={`/users/${row.ownerUserId}`}
+                            className="text-primary hover:underline"
+                          >
+                            {row.ownerName}
+                          </Link>
+                        ) : (
+                          row.ownerName
+                        )
+                      ) : (
                         <span className="text-amber-600">Unassigned</span>
                       )}
                     </TableCell>

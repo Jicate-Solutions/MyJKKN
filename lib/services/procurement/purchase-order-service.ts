@@ -246,7 +246,7 @@ export class ProcurementPurchaseOrderService {
     return data as ProcurementPurchaseOrder;
   }
 
-  /** Updates the document-format selection and free-entry field values for a PO. */
+  /** Updates the document-format selection, free-entry field values and classification tags for a PO. */
   static async updateDocumentFields(
     id: string,
     patch: {
@@ -254,6 +254,8 @@ export class ProcurementPurchaseOrderService {
       header_field_values?: Record<string, string>;
       footer_field_values?: Record<string, string>;
       terms_and_conditions?: string | null;
+      /** Library-resource tag — tagged POs auto-emit NAAC 3.1.1 evidence once approved (DB trigger, Wave 2D). */
+      is_library_resource?: boolean;
     }
   ): Promise<ProcurementPurchaseOrder> {
     try {

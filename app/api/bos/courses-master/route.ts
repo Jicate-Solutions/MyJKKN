@@ -9,9 +9,11 @@ import {
   resolveCoeInstitutionId,
   applyInstitutionScope,
   guardCourseInstitutionWrite,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { resolveBosInstitutionScope } from '@/lib/utils/bos/institution-scope';
-import { courseFormSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
+import { makeCourseFormSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
+import type { AcademicModel } from '@/types/bos';
 import type { BosCourseMaster, BosCourseListResponse } from '@/types/bos-courses';
 
 /**
@@ -56,6 +58,12 @@ export async function GET(request: NextRequest) {
     if (!hasAccess) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
+
+    // Read-only observer: a view-only role (no board membership, not principal)
+    // holding academic.bos-courses.view browses courses across all institutions,
+    // exactly like a super-admin's read path. hasAccess IS the view grant here.
+    const canReadAllBos = isBosReadAllObserver(boardScope, hasAccess);
+    const seeAll = scope.isSuperAdmin || canReadAllBos;
 
     const { searchParams } = new URL(request.url);
     const client = CoeRestClient.create();
@@ -187,8 +195,13 @@ export async function GET(request: NextRequest) {
     // Super-admins are not board-filtered. They may scope to one institution
     // via the institution_id query param, or omit it for an all-institutions
     // dump (the existing /api/v1/courses behaviour without institutions_id).
-    if (scope.isSuperAdmin) {
-      const effectiveInstitutionId = applyInstitutionScope(scope, searchParams.get('institution_id'));
+    if (seeAll) {
+      // Observer has no institution of its own, so scope only when an explicit
+      // institution_id is supplied; otherwise fall through to the all-institutions
+      // browse. Super-admin keeps applyInstitutionScope (identity for them).
+      const effectiveInstitutionId = scope.isSuperAdmin
+        ? applyInstitutionScope(scope, searchParams.get('institution_id'))
+        : (searchParams.get('institution_id') || null);
       if (!effectiveInstitutionId) {
         // "All Institutions" browse. Paginate the full catalog: COE sorts by
         // course_code so PG (24P*) precede UG (24U*); a single capped page is
@@ -402,7 +415,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const parsed = courseFormSchema.safeParse(body.form);
+    // Academic model (from the board) gates the schema strictness: year-based
+    // pharmacy/AHS courses (mgr_pharmd, mgr_ahs) carry no credits/hours/category,
+    // so the strict Anna schema would wrongly reject them.
+    const academic_model: AcademicModel = body.context?.academic_model ?? 'anna_univ';
+    const parsed = makeCourseFormSchema(academic_model).safeParse(body.form);
     if (!parsed.success) {
       return NextResponse.json(
         { error: 'Validation failed', details: parsed.error.issues },
@@ -458,6 +475,7 @@ export async function POST(request: NextRequest) {
       regulation_id,
       board_code,
       board_id,
+      academic_model,
     };
 
     // Pre-flight duplicate check — course_code must be unique per institution.

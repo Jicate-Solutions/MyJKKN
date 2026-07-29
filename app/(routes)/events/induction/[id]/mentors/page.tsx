@@ -18,6 +18,7 @@ import {
   type MentorMentee,
   type UnassignedFresher,
   type AssignablePeerMentor,
+  type MentorHelpfulnessCrosscheckRow,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   GraduationCap, ChevronDown, ChevronRight, ShieldCheck, X, UserPlus, Search,
-  Scale, CalendarClock, Users, CheckCircle2, Loader2, AlertTriangle,
+  Scale, CalendarClock, Users, CheckCircle2, Loader2, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
 
 export default function SeniorPeerMentorConsolePage() {
@@ -42,6 +43,7 @@ export default function SeniorPeerMentorConsolePage() {
   const [mentors, setMentors] = useState<FeedbackVolunteer[]>([]);
   const [mentees, setMentees] = useState<MentorMentee[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedFresher[]>([]);
+  const [crosscheck, setCrosscheck] = useState<MentorHelpfulnessCrosscheckRow[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [capacity, setCapacity] = useState(20);
   const [busy, setBusy] = useState<string | null>(null); // a label for the in-flight action
@@ -50,14 +52,16 @@ export default function SeniorPeerMentorConsolePage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [v, m, u] = await Promise.all([
+      const [v, m, u, c] = await Promise.all([
         InductionVolunteerService.listVolunteers(eventId),
         InductionVolunteerService.adminMentorMentees(eventId),
         InductionVolunteerService.adminUnassignedFreshers(eventId),
+        InductionVolunteerService.mentorHelpfulnessCrosscheck(eventId),
       ]);
       setMentors(v);
       setMentees(m);
       setUnassigned(u);
+      setCrosscheck(c);
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       if (/not authorized|permission denied|forbidden/i.test(msg)) setHidden(true);
@@ -349,6 +353,47 @@ export default function SeniorPeerMentorConsolePage() {
           })
         )}
       </div>
+
+      {/* Honesty cross-check — freshers' monthly "did your mentor help you?" rating
+          vs whether the mentor actually performed that month's check-in. This is
+          the measure of whether mentoring is REAL, not just polite ratings. */}
+      {crosscheck.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-primary" /> Fresher rating vs. mentor activity — honesty check
+            </CardTitle>
+            <CardDescription>
+              Each month, freshers rate how much their mentor helped them. A high rating with NO recorded check-in
+              activity from that mentor is flagged below — a fresher may be rating politely rather than accurately.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5 max-h-96 overflow-auto">
+            {crosscheck.map((r) => (
+              <div key={`${r.volunteer_id}-${r.session_id}`}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm ${
+                  r.flagged ? 'border-amber-400 bg-amber-50 dark:border-amber-500/60 dark:bg-amber-950/30' : ''
+                }`}>
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{r.mentor_name || 'Unnamed mentor'}</div>
+                  <div className="text-xs text-muted-foreground">{r.month_label} · {r.rating_count}/{r.group_size} rated</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant="outline" className="tabular-nums">avg {r.avg_rating ?? '—'}/5</Badge>
+                  <Badge variant={r.mentor_checked_in ? 'default' : 'secondary'}>
+                    {r.mentor_checked_in ? 'Mentor checked in' : 'No check-in recorded'}
+                  </Badge>
+                  {r.flagged && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-600 px-2 py-0.5 text-xs font-medium text-white">
+                      <ShieldAlert className="h-3 w-3" /> Flagged
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <p className="mt-4 text-xs text-muted-foreground">
         Mentors mark attendance &amp; collect feedback for their freshers from their own lane at{' '}

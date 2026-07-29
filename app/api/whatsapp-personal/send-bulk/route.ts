@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp-personal-message-service';
 import { personalSendBulkAPI } from '@/lib/whatsapp/personal-api-client';
+import { checkByowDeptAccess, byowAccessHttpStatus } from '@/lib/whatsapp/byow-authz';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -27,14 +28,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
   }
 
+  // Gate on the RESOLVED connection's department (the 'any' fallback can route a
+  // bulk send through a department the caller never named).
+  const access = await checkByowDeptAccess(user.id, whatsappConnection.department_id);
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: 'You do not have access to this department’s WhatsApp connection' },
+      { status: byowAccessHttpStatus(access) }
+    );
+  }
+
   const clientId = whatsappConnection.client_id || `dept-${whatsappConnection.department_id}`;
   const serviceUrl = whatsappConnection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
 
   let result: { success: boolean; results?: { phone: string; success: boolean; error?: string }[]; totalSent?: number; successCount?: number; failCount?: number };
   try {
     result = await personalSendBulkAPI(recipients, delay_ms || 1500, {
-      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      serviceUrl,
       apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      departmentId: clientId,
     });
   } catch (error) {
     result = { success: false, results: [] };

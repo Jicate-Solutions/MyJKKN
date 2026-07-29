@@ -13,6 +13,14 @@ interface SyllabusFiltersProps {
   onFilterChange: (key: string, value: string | undefined) => void;
   onClearFilters: () => void;
   isSuperAdmin?: boolean;
+  /**
+   * Renders the Institution dropdown for non-super-admins too — pass for
+   * read-all observers (holders of academic.bos-syllabus.view). Unlike
+   * super-admins they get no "All institutions" entry: clearing the param
+   * would just be re-seeded to their own institution by the auto-seed effect
+   * in syllabus-filters-client.tsx, so a concrete pick is required.
+   */
+  canPickInstitution?: boolean;
   currentValues?: {
     search?: string;
     boardId?: string;
@@ -26,18 +34,21 @@ export function SyllabusFilters({
   onFilterChange,
   onClearFilters,
   isSuperAdmin = false,
+  canPickInstitution = false,
   currentValues = {},
 }: SyllabusFiltersProps) {
   const [institutionOptions, setInstitutionOptions] = useState<{ id: string; name: string }[]>([]);
-  const [boardOptions, setBoardOptions] = useState<{ id: string; name: string }[]>([]);
-  const [regulationOptions, setRegulationOptions] = useState<{ id: string; name: string }[]>([]);
+  const [boardOptions, setBoardOptions] = useState<{ id: string; board_name?: string; display_name?: string }[]>([]);
+  const [regulationOptions, setRegulationOptions] = useState<{ id: string; title?: string }[]>([]);
   const institutionsAbortControllerRef = useRef<AbortController | null>(null);
   const boardsAbortControllerRef = useRef<AbortController | null>(null);
   const regulationsAbortControllerRef = useRef<AbortController | null>(null);
 
-  // Fetch institutions (for super admins)
+  // Fetch institutions (super admins + read-all observers — the
+  // /api/bos/institutions route authorizes observers server-side)
+  const showInstitutionFilter = isSuperAdmin || canPickInstitution;
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!showInstitutionFilter) return;
 
     if (institutionsAbortControllerRef.current) {
       institutionsAbortControllerRef.current.abort();
@@ -65,9 +76,12 @@ export function SyllabusFilters({
     return () => {
       institutionsAbortControllerRef.current?.abort();
     };
-  }, [isSuperAdmin]);
+  }, [showInstitutionFilter]);
 
-  // Fetch boards
+  // Fetch boards, scoped to the selected institution.
+  // The COE-backed /api/bos/boards route needs an institution to resolve a board
+  // list; for super-admins it returns [] until one is passed, so we forward the
+  // currently-selected institutionsId and refetch whenever it changes.
   useEffect(() => {
     if (boardsAbortControllerRef.current) {
       boardsAbortControllerRef.current.abort();
@@ -76,7 +90,11 @@ export function SyllabusFilters({
 
     const fetchBoards = async () => {
       try {
-        const res = await fetch('/api/bos/boards', {
+        const url = new URL('/api/bos/boards', window.location.origin);
+        if (currentValues.institutionsId) {
+          url.searchParams.set('institutionsId', currentValues.institutionsId);
+        }
+        const res = await fetch(url.toString(), {
           signal: boardsAbortControllerRef.current?.signal,
         });
         if (res.ok) {
@@ -95,7 +113,7 @@ export function SyllabusFilters({
     return () => {
       boardsAbortControllerRef.current?.abort();
     };
-  }, []);
+  }, [currentValues.institutionsId]);
 
   // Fetch regulations filtered by institution
   useEffect(() => {
@@ -131,19 +149,23 @@ export function SyllabusFilters({
     };
   }, [currentValues.institutionsId]);
 
-  const gridCols = isSuperAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-5';
+  const gridCols = showInstitutionFilter ? 'lg:grid-cols-6' : 'lg:grid-cols-5';
 
   return (
     <div className='space-y-4'>
       <div className={`grid grid-cols-1 md:grid-cols-2 ${gridCols} gap-4`}>
-        {/* Institution Filter (Super Admin Only) */}
-        {isSuperAdmin && (
+        {/* Institution Filter (Super Admin + read-all observers) */}
+        {showInstitutionFilter && (
           <div>
             <Label className='text-sm font-medium block mb-2'>Institution</Label>
             <SearchableSelect
               value={currentValues.institutionsId || 'all'}
               onValueChange={(val) => onFilterChange('institutionsId', val === 'all' ? undefined : val)}
-              options={[{ value: 'all', label: 'All institutions' }, ...institutionOptions.map(inst => ({ value: inst.id, label: inst.name }))]}
+              options={[
+                // Observers get no "All institutions" — see canPickInstitution doc.
+                ...(isSuperAdmin ? [{ value: 'all', label: 'All institutions' }] : []),
+                ...institutionOptions.map(inst => ({ value: inst.id, label: inst.name })),
+              ]}
               className='w-full'
               searchPlaceholder='Search institution…'
             />
@@ -156,7 +178,7 @@ export function SyllabusFilters({
           <SearchableSelect
             value={currentValues.boardId || 'all'}
             onValueChange={(val) => onFilterChange('boardId', val === 'all' ? undefined : val)}
-            options={[{ value: 'all', label: 'All boards' }, ...boardOptions.map(b => ({ value: b.id, label: b.name }))]}
+            options={[{ value: 'all', label: 'All boards' }, ...boardOptions.map(b => ({ value: b.id, label: b.display_name ?? b.board_name ?? '—' }))]}
             className='w-full'
             searchPlaceholder='Search board…'
           />
@@ -168,7 +190,7 @@ export function SyllabusFilters({
           <SearchableSelect
             value={currentValues.regulationId || 'all'}
             onValueChange={(val) => onFilterChange('regulationId', val === 'all' ? undefined : val)}
-            options={[{ value: 'all', label: 'All regulations' }, ...regulationOptions.map(reg => ({ value: reg.id, label: reg.name }))]}
+            options={[{ value: 'all', label: 'All regulations' }, ...regulationOptions.map(reg => ({ value: reg.id, label: reg.title ?? '—' }))]}
             className='w-full'
             searchPlaceholder='Search regulation…'
           />

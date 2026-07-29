@@ -29,6 +29,7 @@ import {
   Copy,
   HeartHandshake,
   Link2,
+  Lock,
   ShieldAlert,
   UserPlus,
   Users,
@@ -41,12 +42,20 @@ import {
   useCarreAudit,
   useCreateCarreInvite,
   useUpsertCarreScore,
+  useCarreItemEvidence,
+  useCarreParticipantRollup,
+  useCarreParticipantActivity,
 } from '@/hooks/audit';
-import { CareScoreSheet, type SheetValue } from '../_components/care-score-sheet';
+import {
+  CareScoreSheet,
+  type LiveEvidence,
+  type SheetValue,
+} from '../_components/care-score-sheet';
 import { CareSummaryStrip } from '../_components/care-summary-strip';
 import { CareResultsPanel } from '../_components/care-results-panel';
 import { careIndex } from '@/lib/services/audit/care-scoring-service';
 import { carreIndex } from '@/lib/services/audit/carre-scoring-service';
+import { SectionEyebrow, PhaseStepper } from '../../_components/redesign/kit';
 import type {
   CareAuditDetail,
   CareRpcDenial,
@@ -138,6 +147,24 @@ export default function CultureAuditDetailPage({
   const settingCode = isCarre
     ? (detail as CarreAuditDetail | null)?.snapshot?.setting_code
     : undefined;
+
+  // Live evidence + doctrine caps and the sealed k≥3 participant rollup —
+  // CARRE only; both RPCs self-gate (lead auditor / leadership) and return
+  // nothing for everyone else, so no page-level guard is needed.
+  const evidenceQ = useCarreItemEvidence(isCarre ? cycleId : undefined);
+  const rollupQ = useCarreParticipantRollup(isCarre ? cycleId : undefined);
+  // Cycle-level participation line — appears once >= 3 distinct learners have
+  // scored ANYTHING in the sealed lane, even before any per-item group hits k.
+  const activityQ = useCarreParticipantActivity(isCarre ? cycleId : undefined);
+  const evidenceByCode = useMemo(() => {
+    const map: Record<string, LiveEvidence> = {};
+    for (const row of evidenceQ.data ?? []) {
+      map[row.parameter_code] = { evidence: row.evidence, cap: row.cap };
+    }
+    return map;
+  }, [evidenceQ.data]);
+  const sealedRollup = rollupQ.data ?? [];
+  const sealedActivity = activityQ.data ?? null;
 
   async function handleScore(code: string, score: number) {
     if (!detail?.is_owner) return;
@@ -255,48 +282,61 @@ export default function CultureAuditDetailPage({
       />
 
       <div className="space-y-6 max-w-5xl">
-        {/* Header */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <HeartHandshake className="h-4 w-4 text-rose-600 flex-shrink-0" />
-                  <h2 className="text-lg font-semibold truncate">{d.cycle.name}</h2>
-                  <Badge variant="secondary" className="uppercase text-[10px]">
-                    {frameworkLabel} v{d.snapshot?.version ?? (isCarre ? '2.0' : '1.0')}
-                  </Badge>
-                  {isCarre && settingCode && (
-                    <Badge variant="outline" className="text-[10px]">
-                      {settingCode}
-                    </Badge>
-                  )}
-                </div>
+        {/* Header — eyebrow + heading + meta + phase spine */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                <HeartHandshake className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 space-y-1.5">
+                <SectionEyebrow>
+                  {frameworkLabel} v{d.snapshot?.version ?? (isCarre ? '2.0' : '1.0')}
+                  {isCarre && settingCode ? ` · ${settingCode}` : ''} · Culture audit
+                </SectionEyebrow>
+                <h1 className="truncate text-2xl font-semibold tracking-tight">
+                  {d.cycle.name}
+                </h1>
                 {d.cycle.audience && (
                   <p className="text-sm text-muted-foreground">{d.cycle.audience}</p>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  Owner: <span className="font-medium">{d.cycle.owner_name ?? '—'}</span>
-                  {' · '}Opened {formatDate(d.cycle.start_date)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <CalendarClock className="h-4 w-4 text-muted-foreground" />
-                <span>
-                  Re-audit {formatDate(d.cycle.re_audit_date)}
-                </span>
-                {overdue && (
-                  <Badge variant="outline" className="border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-                    Overdue
-                  </Badge>
-                )}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    Owner{' '}
+                    <span className="font-medium text-foreground">
+                      {d.cycle.owner_name ?? '—'}
+                    </span>
+                  </span>
+                  <span>Opened {formatDate(d.cycle.start_date)}</span>
+                  <span className="inline-flex items-center gap-1">
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    Re-audit {formatDate(d.cycle.re_audit_date)}
+                  </span>
+                  {overdue && (
+                    <Badge
+                      variant="outline"
+                      className="border-red-300 bg-red-50 text-[10px] text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+                    >
+                      Overdue
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          {/* Phase spine */}
+          <Card>
+            <CardContent className="py-4">
+              <PhaseStepper phase={d.cycle.phase} />
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Live pillar / index strip */}
-        <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
+        <section className="space-y-3">
+          <SectionEyebrow>Live score</SectionEyebrow>
+          <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
+        </section>
 
         {/* Second scorer */}
         <Card>
@@ -389,12 +429,82 @@ export default function CultureAuditDetailPage({
               parameters={d.snapshot?.parameters ?? []}
               values={sheetValues}
               settingCode={settingCode}
+              evidenceByCode={
+                isCarre && Object.keys(evidenceByCode).length > 0
+                  ? evidenceByCode
+                  : undefined
+              }
               onScore={(code, score) => void handleScore(code, score)}
               onNote={(code, note) => void handleNote(code, note)}
               disabled={!d.is_owner || d.cycle.phase === 'closed'}
             />
           </CardContent>
         </Card>
+
+        {/* Sealed participant voice — k≥3 aggregates only, never identities.
+            Renders when the cycle-level participation line exists (>= 3
+            distinct sealed scorers) OR any per-item group has hit k. */}
+        {isCarre && (sealedActivity !== null || sealedRollup.length > 0) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                Sealed participant voice
+                <Badge variant="outline" className="text-[10px]">
+                  k≥3 · identities sealed
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {sealedActivity && (
+                <p className="text-sm">
+                  <strong>{sealedActivity.scorers} learners</strong> have spoken
+                  through the sealed lane (
+                  {sealedActivity.items_scored}{' '}
+                  {sealedActivity.items_scored === 1 ? 'item' : 'items'} touched)
+                  — per-item medians appear once an item&apos;s lane (lived
+                  experience or observer) reaches 3 scorers.
+                  {sealedActivity.last_activity && (
+                    <span className="text-xs text-muted-foreground">
+                      {' '}
+                      Last activity {formatDate(sealedActivity.last_activity)}.
+                    </span>
+                  )}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Learners scored these items through the sealed lane. Only groups
+                with <strong>3 or more scorers</strong> appear — a lone voice can
+                never be isolated — and scorer identities are visible to no one
+                below the Director seal. This is measured participant experience;
+                it never overwrites your human score.
+              </p>
+              {sealedRollup.length > 0 && (
+                <div className="rounded-md border divide-y">
+                  {sealedRollup.map((r) => (
+                    <div
+                      key={`${r.parameter_code}-${r.lane}`}
+                      className="flex items-center gap-3 p-2.5 text-xs"
+                    >
+                      <span className="font-mono text-[11px] text-muted-foreground w-16 flex-shrink-0">
+                        {r.parameter_code.replace(/^CARR?E-/, '')}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {r.lane === 'own' ? 'lived experience' : 'observer'}
+                      </Badge>
+                      <span className="text-muted-foreground">
+                        {r.scorers} scorers
+                      </span>
+                      <span className="ml-auto font-semibold tabular-nums">
+                        median {Number(r.median_score)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Results + corrective moves (only once all owner scores exist) */}
         {complete && (

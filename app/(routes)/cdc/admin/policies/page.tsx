@@ -39,8 +39,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-import { usePermissions } from '@/hooks/use-permissions';
-import { useAuth } from '@/hooks/use-auth';
+import { useCdcAdmin } from '@/hooks/cdc/use-cdc-admin';
 import type { CdcPolicyRow, CdcPolicyCategory, CdcPolicyGroup } from '@/types/admin/cdc';
 
 // ── Category metadata ──────────────────────────────────────────────────────
@@ -108,7 +107,7 @@ const KEY_CONSEQUENCE: Record<string, string> = {
   'cdc.default_internship_skip_weekends': 'When ON, Saturday/Sunday do not count toward total internship duration for corporate internships.',
   'cdc.min_attendance_pct_for_internship_certificate': 'Learners below this percentage do not qualify for the internship completion certificate.',
   'cdc.parent_consent_required_under_age': 'Learners younger than this age must supply a parent consent URL in the internship willingness form. Set to 0 to disable.',
-  'cdc.naac_export_column_mapping': 'Column-mapping object for NAAC Criterion 5.2.1 exports. Update when NAAC publishes a new template.',
+  'cdc.naac_export_column_mapping': 'Column-mapping object for NAAC 8.2 — Graduate Progression (Binary framework) exports. Update when NAAC publishes a new template.',
   'cdc.aicte_export_column_mapping': 'Column-mapping object for AICTE Annual Return exports. Update when AICTE publishes a new template.',
   'cdc.aicte_include_internal_placements': 'When OFF, placements with JKKN-internal recruiters (e.g. JICATE Solutions) are excluded from the AICTE-reported placement %.',
 };
@@ -150,8 +149,7 @@ function displayValue(value: unknown): string {
 // ── Component ─────────────────────────────────────────────────────────────
 
 export default function CdcPoliciesPage() {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
-  const { profile } = useAuth();
+  const { isCdcAdmin, isSuperAdmin, isLoading: permsLoading } = useCdcAdmin();
 
   const [policies, setPolicies] = useState<CdcPolicyRow[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -159,7 +157,6 @@ export default function CdcPoliciesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const isCdcAdmin = isSuperAdmin || profile?.role === 'cdc_head';
 
   const load = useCallback(async () => {
     setLoading(true);

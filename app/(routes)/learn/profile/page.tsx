@@ -42,6 +42,7 @@ import {
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, format } from 'date-fns';
 import type { ReputationLevel, BadgeCategory, PDEBadge, PDELearnerBadge } from '@/types/pde';
+import { AgencyIndexCard } from '../_components/agency-index-card';
 
 // ============================================
 // Constants
@@ -397,25 +398,17 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Agency Index + Portfolio Link */}
+        {/* Agency Index + Portfolio Link.
+            The Agency Index half was an inline card reading reputation.agency_index —
+            a field on pde_reputation that nothing populates (the dead source PR #1815
+            called out), so it always rendered "--". Replaced with the live
+            AgencyIndexCard, own index only. */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Zap className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs text-muted-foreground">Agency Index</p>
-                  <p className="text-2xl font-bold">{(reputation as Record<string, unknown>)?.agency_index as number ?? '--'}</p>
-                </div>
-              </div>
-              <Progress value={((reputation as Record<string, unknown>)?.agency_index as number) ?? 0} className="h-1.5 mt-2" />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                How independently you direct AI tools as a Principal
-              </p>
-            </CardContent>
-          </Card>
+          {learnerId ? (
+            <AgencyIndexCard learnerId={learnerId} showTrend={false} className="h-full" />
+          ) : (
+            <Card />
+          )}
 
           <Card>
             <CardContent className="p-4 flex flex-col justify-center h-full">
@@ -479,14 +472,14 @@ export default function ProfilePage() {
                       )}>
                         #{entry.rank}
                       </span>
-                      <span className="flex-1 text-sm truncate">
+                      <span className="flex-1 min-w-0 text-sm truncate">
                         {entry.learner_name}
                         {isMe && <span className="text-xs text-primary ml-1">(You)</span>}
                       </span>
-                      <Badge variant="outline" className={cn('text-xs', entryLevel.color)}>
+                      <Badge variant="outline" className={cn('text-xs shrink-0', entryLevel.color)}>
                         {entryLevel.label}
                       </Badge>
-                      <span className="text-sm font-medium w-16 text-right">{entry.total_points} pts</span>
+                      <span className="text-sm font-medium w-16 text-right shrink-0">{entry.total_points} pts</span>
                     </div>
                   );
                 })}
@@ -496,11 +489,11 @@ export default function ProfilePage() {
                   <>
                     <div className="text-center text-xs text-muted-foreground py-1">...</div>
                     <div className="flex items-center gap-3 p-2 rounded-md bg-primary/5 border border-primary/20">
-                      <span className="w-8 text-center font-bold text-sm">#{myPosition}</span>
-                      <span className="flex-1 text-sm truncate">
+                      <span className="w-8 text-center font-bold text-sm shrink-0">#{myPosition}</span>
+                      <span className="flex-1 min-w-0 text-sm truncate">
                         {user?.full_name} <span className="text-xs text-primary ml-1">(You)</span>
                       </span>
-                      <span className="text-sm font-medium">{reputation?.total_points || 0} pts</span>
+                      <span className="text-sm font-medium shrink-0">{reputation?.total_points || 0} pts</span>
                     </div>
                   </>
                 )}

@@ -32,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -49,6 +50,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCreateAuditCycle, useSystemParameters } from '@/hooks/audit';
+import { filterParametersByFrameworks } from '@/lib/services/audit/framework-filter';
 import { cn } from '@/lib/utils';
 
 /**
@@ -61,10 +63,26 @@ export const navMeta = {
 } as const;
 
 
+// The bodies a cycle can be audited against. Order: the three JKKN audits
+// against by default, then CARRE + IQAC (which own real catalog content), then
+// the profession/other bodies.
+//
+// CARRE and IQAC are here because the freeze now genuinely filters by framework.
+// Without a chip to admit them, the 25 CARRE-* parameters and the two org-wide
+// checks (LOOP_HEALTH, EXAM_IA_AUDIT) could never enter a cycle again. Both
+// org-wide checks also carry a NAAC mapping, so IQAC is for auditing them on
+// their own; CARRE is the only way to reach the Culture pillars.
+//
+// NOTE: DCI / PCI / INC / NCTE / AICTE / QS currently map to ZERO parameters —
+// selecting them alone yields an empty cycle. They are offered because the
+// bodies are real and the catalog is expected to grow into them (see the
+// Compliance Unification Program, sh_accreditation_metrics).
 const FRAMEWORK_OPTIONS = [
   'NAAC',
   'NBA',
   'NIRF',
+  'CARRE',
+  'IQAC',
   'UGC',
   'QS',
   'AICTE',
@@ -126,6 +144,10 @@ export default function NewAuditCyclePage() {
   const router = useRouter();
   const { profile } = useAuth();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  // Scope mode for step 2. Default 'one' → a new audit targets a SINGLE college
+  // (Director decision). 'all' is the secondary, opt-in combined-audit path
+  // where institution_ids resolves to [] (all accessible via RLS).
+  const [scopeMode, setScopeMode] = useState<'one' | 'all'>('one');
 
   const {
     institutions,
@@ -153,7 +175,12 @@ export default function NewAuditCyclePage() {
       description: '',
       start_date: defaultStart,
       end_date: defaultEnd,
-      frameworks: ['NAAC', 'NBA', 'NIRF'],
+      // CARRE is default-ON deliberately. NAAC+NBA+NIRF cover 38 parameters and
+      // CARRE the other 25, so this default freezes all 63 — exactly what every
+      // cycle froze before the freeze started filtering. Dropping CARRE from the
+      // default would have silently removed the Culture pillars from every new
+      // institutional cycle (and they hold the only attestations logged so far).
+      frameworks: ['NAAC', 'NBA', 'NIRF', 'CARRE'],
       institution_ids: [],
       cosigner_roles: ['cao', 'ceo'],
     },
@@ -201,7 +228,19 @@ export default function NewAuditCyclePage() {
         'frameworks',
       ]);
     } else if (step === 2) {
-      valid = await form.trigger(['institution_ids']);
+      // One-college mode requires exactly one institution. All-colleges mode
+      // has no requirement (empty array = all accessible). The zod schema keeps
+      // institution_ids as an unconstrained string[]; the mode gate lives here.
+      if (scopeMode === 'one' && values.institution_ids.length !== 1) {
+        form.setError('institution_ids', {
+          type: 'manual',
+          message: 'Pick one college to audit',
+        });
+        valid = false;
+      } else {
+        form.clearErrors('institution_ids');
+        valid = true;
+      }
     } else if (step === 4) {
       valid = await form.trigger(['cosigner_roles']);
     }
@@ -295,6 +334,8 @@ export default function NewAuditCyclePage() {
                 form={form}
                 institutions={institutions}
                 isLoading={institutionsLoading}
+                scopeMode={scopeMode}
+                setScopeMode={setScopeMode}
               />
             )}
             {step === 3 && (
@@ -480,104 +521,162 @@ function StepScope({
   form,
   institutions,
   isLoading,
+  scopeMode,
+  setScopeMode,
 }: {
   form: ReturnType<typeof useForm<WizardValues>>;
   institutions: Array<{ id: string; name: string; counselling_code: string }>;
   isLoading: boolean;
+  scopeMode: 'one' | 'all';
+  setScopeMode: (mode: 'one' | 'all') => void;
 }) {
   const values = form.watch();
+  const errors = form.formState.errors;
+  const selectedId = values.institution_ids[0] ?? '';
 
-  function toggleInstitution(id: string) {
-    const current = values.institution_ids;
-    const next = current.includes(id)
-      ? current.filter((x) => x !== id)
-      : [...current, id];
-    form.setValue('institution_ids', next, { shouldValidate: true });
+  function handleModeChange(mode: 'one' | 'all') {
+    setScopeMode(mode);
+    if (mode === 'all') {
+      // All-colleges → empty array (resolved to all accessible at runtime).
+      form.setValue('institution_ids', [], { shouldValidate: false });
+      form.clearErrors('institution_ids');
+    } else {
+      // One-college → keep at most the first previously-chosen college.
+      const first = values.institution_ids[0];
+      form.setValue('institution_ids', first ? [first] : [], {
+        shouldValidate: false,
+      });
+    }
   }
 
-  function selectAll() {
-    form.setValue(
-      'institution_ids',
-      institutions.map((i) => i.id),
-      { shouldValidate: true },
-    );
-  }
-  function clearAll() {
-    form.setValue('institution_ids', [], { shouldValidate: true });
+  function selectInstitution(id: string) {
+    form.setValue('institution_ids', [id], { shouldValidate: true });
+    form.clearErrors('institution_ids');
   }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950">
-        <p className="flex items-start gap-2">
-          <Info className="h-4 w-4 flex-shrink-0 text-blue-600" />
-          <span>
-            Leave this empty to audit{' '}
-            <strong>all institutions you have access to</strong> (resolved at
-            runtime via RLS). Selecting specific institutions locks the cycle to
-            that subset.
-          </span>
-        </p>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="text-xs">
-          <strong>{values.institution_ids.length}</strong> selected
-          {values.institution_ids.length === 0 && (
-            <span className="ml-2 text-muted-foreground">
-              (empty = all accessible)
-            </span>
+      {/* Mode toggle — new audits default to ONE college */}
+      <RadioGroup
+        value={scopeMode}
+        onValueChange={(v) => handleModeChange(v as 'one' | 'all')}
+        className="grid gap-2 sm:grid-cols-2"
+      >
+        <label
+          htmlFor="scope-mode-one"
+          className={cn(
+            'flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm hover:bg-muted/40',
+            scopeMode === 'one' && 'border-primary bg-primary/5',
           )}
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={selectAll}>
-            Select all
-          </Button>
-          <Button size="sm" variant="ghost" onClick={clearAll}>
-            Clear
-          </Button>
-        </div>
-      </div>
+        >
+          <RadioGroupItem value="one" id="scope-mode-one" className="mt-0.5" />
+          <div>
+            <div className="font-medium">
+              One college{' '}
+              <span className="text-[10px] text-muted-foreground">
+                (default)
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Audit a single college. Recommended for most cycles.
+            </p>
+          </div>
+        </label>
+        <label
+          htmlFor="scope-mode-all"
+          className={cn(
+            'flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm hover:bg-muted/40',
+            scopeMode === 'all' && 'border-primary bg-primary/5',
+          )}
+        >
+          <RadioGroupItem value="all" id="scope-mode-all" className="mt-0.5" />
+          <div>
+            <div className="font-medium">All colleges</div>
+            <p className="text-xs text-muted-foreground">
+              Combined audit across every college you can access.
+            </p>
+          </div>
+        </label>
+      </RadioGroup>
 
-      {isLoading ? (
-        <div className="space-y-2">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
-      ) : institutions.length === 0 ? (
-        <div className="flex flex-col items-center py-6 text-center text-xs text-muted-foreground">
-          <Inbox className="h-6 w-6 mb-2" />
-          <p>No institutions accessible to your account.</p>
+      {scopeMode === 'all' ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs dark:border-blue-900 dark:bg-blue-950">
+          <p className="flex items-start gap-2">
+            <Info className="h-4 w-4 flex-shrink-0 text-blue-600" />
+            <span>
+              This cycle will audit{' '}
+              <strong>all institutions you have access to</strong> (resolved at
+              runtime via RLS). Switch to <strong>One college</strong> to lock
+              the cycle to a single college instead.
+            </span>
+          </p>
         </div>
       ) : (
-        <div className="max-h-80 overflow-y-auto rounded-md border divide-y">
-          {institutions.map((inst) => {
-            const checked = values.institution_ids.includes(inst.id);
-            return (
-              <label
-                key={inst.id}
-                className={cn(
-                  'flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/40',
-                  checked && 'bg-primary/5',
-                )}
-              >
-                <Checkbox
-                  checked={checked}
-                  onCheckedChange={() => toggleInstitution(inst.id)}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium">{inst.name}</div>
-                  {inst.counselling_code && (
-                    <div className="text-[11px] text-muted-foreground font-mono">
-                      {inst.counselling_code}
+        <>
+          <div className="text-xs">
+            {selectedId ? (
+              <span>
+                <strong>1</strong> college selected
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                Pick one college to audit.
+              </span>
+            )}
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : institutions.length === 0 ? (
+            <div className="flex flex-col items-center py-6 text-center text-xs text-muted-foreground">
+              <Inbox className="h-6 w-6 mb-2" />
+              <p>No institutions accessible to your account.</p>
+            </div>
+          ) : (
+            <RadioGroup
+              value={selectedId}
+              onValueChange={selectInstitution}
+              className="max-h-80 gap-0 divide-y overflow-y-auto rounded-md border"
+            >
+              {institutions.map((inst) => {
+                const checked = selectedId === inst.id;
+                return (
+                  <label
+                    key={inst.id}
+                    htmlFor={`scope-inst-${inst.id}`}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/40',
+                      checked && 'bg-primary/5',
+                    )}
+                  >
+                    <RadioGroupItem
+                      value={inst.id}
+                      id={`scope-inst-${inst.id}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium">{inst.name}</div>
+                      {inst.counselling_code && (
+                        <div className="text-[11px] text-muted-foreground font-mono">
+                          {inst.counselling_code}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </label>
-            );
-          })}
-        </div>
+                  </label>
+                );
+              })}
+            </RadioGroup>
+          )}
+
+          {errors.institution_ids && (
+            <p className="text-xs text-destructive">
+              {errors.institution_ids.message as string}
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -595,13 +694,10 @@ function StepSnapshot({
   systemParams: Array<{ code: string; name: string; parameter_group: number; framework_mapping: Record<string, string> }> | undefined;
   isLoading: boolean;
 }) {
-  const lowerFw = frameworks.map((f) => f.toLowerCase());
-  const relevant = (systemParams ?? []).filter((p) => {
-    const mappedBodies = Object.keys(p.framework_mapping ?? {}).map((k) =>
-      k.toLowerCase(),
-    );
-    return mappedBodies.some((b) => lowerFw.includes(b));
-  });
+  // Same predicate the freeze uses (AuditCycleService.transitionPhase) — this
+  // preview's count IS what will be frozen. It used to be a private copy here
+  // while the freeze filtered nothing, so the preview and reality disagreed.
+  const relevant = filterParametersByFrameworks(systemParams ?? [], frameworks);
 
   const byGroup = relevant.reduce<Record<number, typeof relevant>>((acc, p) => {
     const g = p.parameter_group;

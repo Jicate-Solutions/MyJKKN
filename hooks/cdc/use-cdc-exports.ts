@@ -150,7 +150,7 @@ export function useProofsZip() {
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const ts = new Date().toISOString().slice(0, 10);
-      downloadBlob(zipBlob, `naac_5_2_1_proofs_${ts}.zip`);
+      downloadBlob(zipBlob, `naac_8_2_proofs_${ts}.zip`);
 
       const message =
         failed.length > 0

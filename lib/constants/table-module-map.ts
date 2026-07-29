@@ -38,10 +38,37 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   // don't fit the per-module prefix below.
   social_facebook_logs: 'Social Facebook', // sibling to social_instagram_logs
   meta_campaigns: 'Social Ads', // ζ — sits alongside meta_ad_accounts/insights
+  // Foundation & Competitive-Exam Programme (2026-07-06): fp_* substrate plus
+  // the two exam_* catalog tables. Mapped explicitly (rather than via an
+  // `exam_` prefix) so the shared exam_* namespace can't swallow unrelated
+  // COE/exam tables. Module name matches the 'Foundation Programme' label in
+  // lib/permissions-audit/module-mappings.ts (foundation.* perms).
+  fp_students: 'Foundation Programme',
+  fp_cohorts: 'Foundation Programme',
+  fp_enrollments: 'Foundation Programme',
+  fp_items: 'Foundation Programme',
+  fp_assessments: 'Foundation Programme',
+  fp_assessment_items: 'Foundation Programme',
+  fp_attempts: 'Foundation Programme',
+  fp_responses: 'Foundation Programme',
+  fp_student_weakness: 'Foundation Programme',
+  fp_baselines: 'Foundation Programme',
+  fp_revision_plans: 'Foundation Programme',
+  exam_definitions: 'Foundation Programme',
+  exam_topic_map: 'Foundation Programme',
+  // Teaching-enterprise participant layer (2026-07-27): the cohort config table
+  // that replaced the hardcoded MBA enrolment predicate. Mapped explicitly
+  // rather than via a `teaching_` prefix so the generic word can't swallow
+  // unrelated future tables. Same module as improvement_* (improvement.* perms).
+  teaching_enterprise_cohorts: 'Improvement Board',
 };
 
 /** Prefix-to-module mapping checked in order; first match wins. */
 export const MODULE_PREFIXES: [string, string][] = [
+  ['reference_catalog', 'Reference'],
+  // Projects module tables (project_statuses, project_labels, …) — module
+  // registered 2026-07-12 with its first permission key (projects.view)
+  ['project_', 'Projects'],
   ['billing_', 'Billing'],
   ['learners_', 'Learners'],
   ['staff_plan', 'Academic'],
@@ -71,6 +98,7 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['hostel_', 'Campus Living'],
   ['mess_', 'Campus Living'],
   ['pde_', 'PDE Learning'],
+  ['improvement_', 'Improvement Board'], // MBA teaching-enterprise: improvement_ideas/areas/idea_activity
   ['cdc_', 'CDC'],
   // Internship Module — operational substrate for cycles, sites, preceptors,
   // vehicles, assignments, logbook, evaluations, attendance, incidents,

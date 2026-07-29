@@ -7,22 +7,32 @@
 export type BosExpertCategory =
   | 'university_nominee'
   | 'subject_expert'
+  | 'academic_expert'
   | 'industry_expert'
   | 'alumni'
-  | 'startup';
+  | 'startup'
+  | 'student'
+  // Faculty / Chairman can also be sourced from the external-expert directory
+  // (a faculty member or chairman brought in from another institution), so both
+  // are valid expert categories in addition to being member types.
+  | 'faculty_member'
+  | 'chairman';
 
 export type BosMemberType =
   | 'chairman'
   | 'internal_member'
+  | 'faculty_member'
   | 'university_nominee'
   | 'subject_expert'
+  | 'academic_expert'
   | 'industry_expert'
   | 'alumni'
   | 'startup'
   | 'hod'
   | 'facilitator'
   | 'principal'
-  | 'member_secretary';
+  | 'member_secretary'
+  | 'student';
 
 export type BosMeetingStatus =
   | 'draft'
@@ -34,7 +44,7 @@ export type BosMeetingStatus =
   | 'minutes_approved'
   | 'ratified';
 
-export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council';
+export type BosMeetingType = 'regular' | 'special' | 'emergency' | 'online' | 'hybrid' | 'academic_council' | 'governing_body';
 
 export type BosAttendanceStatus = 'present' | 'absent' | 'leave_of_absence';
 
@@ -70,16 +80,22 @@ export type BosClaimStatus = 'draft' | 'submitted' | 'approved' | 'paid';
 export const BOS_EXPERT_CATEGORY_LABELS: Record<BosExpertCategory, string> = {
   university_nominee: 'University Nominee',
   subject_expert: 'Subject Expert',
+  academic_expert: 'Academic Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
   startup: 'Startup',
+  student: 'Student',
+  faculty_member: 'Faculty Member',
+  chairman: 'Chairman',
 };
 
 export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   chairman: 'Chairman',
   internal_member: 'Member',
+  faculty_member: 'Faculty Member',
   university_nominee: 'University Nominee',
   subject_expert: 'Subject Expert',
+  academic_expert: 'Academic Expert',
   industry_expert: 'Industry Expert',
   alumni: 'Alumni',
   startup: 'Startup',
@@ -87,7 +103,34 @@ export const BOS_MEMBER_TYPE_LABELS: Record<BosMemberType, string> = {
   facilitator: 'Facilitator',
   principal: 'Principal',
   member_secretary: 'Member Secretary',
+  student: 'Student',
 };
+
+/**
+ * Display label for a member_type value. Catalog-driven rows store the
+ * bos_member_types.name verbatim — shown as-is; legacy enum values map
+ * through BOS_MEMBER_TYPE_LABELS.
+ */
+export function bosMemberTypeLabel(memberType: string | null | undefined): string {
+  if (!memberType) return '';
+  return (BOS_MEMBER_TYPE_LABELS as Record<string, string>)[memberType] ?? memberType;
+}
+
+/**
+ * Is this bos_members row a chairman seat? Mirrors the DB predicate in the
+ * 20260710150000 helper functions: legacy literal 'chairman' (case-insensitive,
+ * covering catalog rows named "Chairman" whose FK was later nulled) OR a
+ * linked catalog type whose base_type is 'chairman'.
+ */
+export function isBosChairmanRow(m: {
+  member_type?: string | null;
+  member_type_rec?: { base_type?: BosMemberType | string | null } | null;
+}): boolean {
+  return (
+    (m.member_type ?? '').toLowerCase() === 'chairman' ||
+    m.member_type_rec?.base_type === 'chairman'
+  );
+}
 
 export const BOS_MEETING_STATUS_LABELS: Record<BosMeetingStatus, string> = {
   draft: 'Draft',
@@ -107,7 +150,28 @@ export const BOS_MEETING_TYPE_LABELS: Record<BosMeetingType, string> = {
   online: 'Online',
   hybrid: 'Hybrid',
   academic_council: 'Academic Council',
+  governing_body: 'Governing Body',
 };
+
+/**
+ * Download / attachment filename for a per-member call-letter PDF.
+ * Prefix follows meeting_type so GB/AC notices are not labelled "bos-".
+ * e.g. governing-body-call-letter-Mrs-O-Isvarya-Lakshmi.pdf
+ */
+export function bosCallLetterFilename(
+  meetingType: string | null | undefined,
+  displayName: string,
+): string {
+  const prefix =
+    meetingType === 'governing_body'
+      ? 'governing-body-call-letter'
+      : meetingType === 'academic_council'
+        ? 'academic-council-call-letter'
+        : 'bos-call-letter';
+  const safeName =
+    displayName.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'member';
+  return `${prefix}-${safeName}.pdf`;
+}
 
 export const BOS_COURSE_REVIEW_ACTION_LABELS: Record<BosCourseReviewAction, string> = {
   approved: 'Approved',
@@ -158,11 +222,23 @@ export const BOS_MEETING_NEXT_STATUS: Record<BosMeetingStatus, BosMeetingStatus 
   ratified: null,
 };
 
-// ── Academic Council meeting state machine ───────────────────────────────────
-// AC meetings (meeting_type = 'academic_council') are convened by the principal,
-// so there is NO 'principal_approved' hop (the principal is the scheduler) and
-// NO 'ratified' terminal state (the AC is itself the ratifying body). Call
-// letters are sent at 'noticed'; there is no separate 'expert_invited' step.
+// ── Council-family meeting types ─────────────────────────────────────────────
+// Institution-level bodies convened by the principal — Academic Council and
+// Governing Body. They are modelled identically ("all as same"): the same
+// shorter status machine, the same principal-driven authorization, and the same
+// board-less composition. They are distinguished ONLY for listing, preparation,
+// and labels. Use this predicate anywhere a meeting could be either one.
+export const COUNCIL_MEETING_TYPES: BosMeetingType[] = ['academic_council', 'governing_body'];
+export function isCouncilMeetingType(t: string | null | undefined): boolean {
+  return t === 'academic_council' || t === 'governing_body';
+}
+
+// ── Academic Council / Governing Body meeting state machine ──────────────────
+// Council meetings (meeting_type = 'academic_council' | 'governing_body') are
+// convened by the principal, so there is NO 'principal_approved' hop (the
+// principal is the scheduler) and NO 'ratified' terminal state (the council is
+// itself the ratifying body). Call letters are sent at 'noticed'; there is no
+// separate 'expert_invited' step.
 //
 //   draft → noticed → completed → minutes_drafted → minutes_approved
 //
@@ -191,7 +267,7 @@ export const AC_MEETING_NEXT_STATUS: Partial<Record<BosMeetingStatus, BosMeeting
 export function meetingNextStatusMap(
   meetingType: string | null | undefined
 ): Partial<Record<BosMeetingStatus, BosMeetingStatus | null>> {
-  return meetingType === 'academic_council'
+  return isCouncilMeetingType(meetingType)
     ? AC_MEETING_NEXT_STATUS
     : BOS_MEETING_NEXT_STATUS;
 }
@@ -231,6 +307,53 @@ export interface BosProgrammeSpecificOutcome {
   institutions_id: string;
   regulation_id: string;
   programme_code: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+// ── Institution-level master PO/PSO (bos_master_pos / bos_master_psos /
+// bos_board_psos, migration 20260710170000). Different axis from the
+// regulation-scoped BosProgrammeOutcome above — see /bos/po-pso.
+
+export interface BosMasterPo {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  po_code: string;           // PO1, PO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+export interface BosMasterPso {
+  id: string;
+  institutions_id: string;
+  regulation_id: string;
+  pso_code: string;          // PSO1, PSO2, …
+  description?: string | null;
+  sort_order: number;
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at: string;
+}
+
+/** Board-level PSO override row. board_id is a COE board UUID (no local FK). */
+export interface BosBoardPso {
+  id: string;
+  board_id: string;
+  institutions_id: string;
+  regulation_id: string;
+  board_code?: string | null;
+  board_name?: string | null;
   pso_code: string;          // PSO1, PSO2, …
   description?: string | null;
   sort_order: number;
@@ -312,6 +435,19 @@ export interface BosUnit {
   unit_title: string;
   chapters: BosChapter[];
   remarks?: string;
+  /** Period marker "theory+tutorial" (e.g. "6+6"); engineering/CET syllabi. */
+  hours?: string;
+  // ── Nursing (inc_nursing) per-unit outline columns ──────────────────
+  // Optional; populated only for nursing syllabi. Engineering/CAS renderers
+  // ignore them, so existing rows are unaffected.
+  /** Nursing "Learning Outcomes" column for this unit. */
+  learning_outcomes?: string[];
+  /** Nursing "Teaching/Learning Activities" column for this unit. */
+  teaching_activities?: string[];
+  /** Nursing "Assessment Methods" column for this unit. */
+  assessment_methods?: string[];
+  /** Nursing hour-type marker for the unit, e.g. "3 (T)" → 'theory'. */
+  hour_type?: 'theory' | 'practical';
 }
 
 // Practical-paper topic: a numbered heading (e.g. "MAJOR PRACTICALS") that may
@@ -348,10 +484,20 @@ export interface BosCourseContentData {
   // the invariant that exactly one of units/topics/project_units is populated.
   is_practical?: boolean;
   topics?: BosPracticalTopic[];
+  /**
+   * PDF/exports: whether to print the inline experiment number (e.g. "1. Zener
+   * diode …") on each practical sub-topic and heading. Defaults to ON when
+   * absent so existing syllabi keep their current numbered output; unchecking
+   * the "Number experiments" toggle in the Content tab stores `false` and the
+   * exports drop the inline prefix (the S.No column still numbers the rows).
+   */
+  number_practical_topics?: boolean;
   // Project-mode: group-based project work rules and guidelines
   is_project?: boolean;
   project_units?: BosProjectUnit[];
   instruction?: string;
+  /** Course total periods "theory+tutorial" (e.g. "30+30"); engineering/CET. */
+  total_hours?: string;
 }
 
 // ── Textbooks & References ────────────────────────────────────────────
@@ -408,6 +554,11 @@ export interface BosSyllabusContent {
   pedagogy?: BosPedagogyData;
   po_mappings?: BosPOMappingsData;
   assessment_structure?: BosAssessmentStructure;
+  concept_applications?: BosConceptApplicationsData;
+  assessment_pattern?: BosAssessmentPatternData;
+  capstone_project?: BosCapstoneProjectData;
+  capstone_rubric?: BosCapstoneRubricData;
+  llc_conference?: BosLlcConferenceData;
 }
 
 // ── Assessment Structure (v1.2) ──────────────────────────────────────────────
@@ -436,12 +587,245 @@ export interface BosAssessmentStructure {
   capstones?: BosCapstone[];
 }
 
+// ── Fink's Formative + Capstone blocks (v3.5) ────────────────────────────────
+// Five dedicated JSONB columns on bos_course_syllabi (20260709 migration),
+// separating what v1.2 crammed into assessment_structure.
+
+// One formative activity row of "Concept Applications (Formative Learning
+// Activities)" — anchored to a unit/lab task, shaped by a Fink's dimension.
+export interface BosConceptApplication {
+  id?: string;
+  sno?: number;
+  unit: string;              // e.g. "Word Tasks 1-2"
+  finks_dimension: string;   // e.g. "Foundational Knowledge", "Caring"
+  task: string;
+  deliverable_notes: string; // deliverable + 3-4 sentence reflection prompt
+}
+
+export interface BosConceptApplicationsData {
+  intro_note?: string;
+  activities?: BosConceptApplication[];
+}
+
+// One internal-component row of the "Assessment Pattern" table.
+export interface BosAssessmentPatternComponent {
+  id?: string;
+  sno?: number;
+  component: string; // e.g. "CIA I, CIA II & Model Examination"
+  marks: number;
+}
+
+export interface BosAssessmentPatternData {
+  internal_marks?: number;  // e.g. 30
+  external_marks?: number;  // e.g. 70
+  components?: BosAssessmentPatternComponent[];
+  activities_note?: string; // "* Activities: Assignment / Case study / …"
+  note?: string;            // formative-vs-summative footnote
+}
+
+// One "choose ONE of FIVE" capstone option card.
+export interface BosCapstoneOption {
+  id?: string;
+  option_no?: number;
+  title: string;    // e.g. "The Document Kit for a Real Event"
+  primary?: string; // PRIMARY (AI-proof) deliverable
+  support?: string; // ~400-word reflection brief
+  llc?: string;     // what is demonstrated live at the LLC
+}
+
+export interface BosCapstoneProjectData {
+  intro_note?: string;
+  options?: BosCapstoneOption[];
+}
+
+// One criterion row of the common capstone rubric.
+export interface BosCapstoneRubricCriterion {
+  id?: string;
+  sno?: number;
+  criterion: string;
+  marks: number;
+}
+
+export interface BosCapstoneRubricData {
+  total_marks?: number; // e.g. 10
+  note?: string;        // "10 marks · common to all 5 options"
+  criteria?: BosCapstoneRubricCriterion[];
+}
+
+// End-of-course Learners Led Conference description block.
+export interface BosLlcConferenceData {
+  title?: string;
+  subtitle?: string;   // "cohort audience · faculty + Senior Learner facilitate…"
+  description?: string;
+}
+
+// ── Academic model discriminator (multi-institution BoS) ─────────────
+// Distinguishes the structurally-different syllabus shapes BoS now carries.
+//   anna_univ  — engineering (CET) / arts-science (CAS): semester, CO-PO-PSO,
+//                Bloom's/Fink's taxonomy. The original model.
+//   mgr_ahs    — Allied Health Sciences (Dr. MGR Medical Univ): year/paper,
+//                exam-scheme + internship, no CO-PO.
+//   mgr_pharmd — Pharm.D (Dr. MGR Medical Univ): reuses the mgr_ahs shape
+//                (year → subject → lecture-topic tree, exam-scheme, internship).
+//   pci_pharm  — B.Pharm (Pharmacy Council of India, CBCS): semester + credits
+//                + coded courses + Unit I–V content, but NO CO-PO-PSO/Bloom.
+//   inc_nursing — B.Sc Nursing (Indian Nursing Council reg, TNMGRMU exam):
+//                semester + credits + coded courses, Theory/Lab/Clinical workload
+//                split, per-unit outline, a PARALLEL clinical outline, and CO →
+//                10 INC core-competency mapping INSTEAD of CO-PO-PSO/Bloom.
+export type AcademicModel = 'anna_univ' | 'mgr_ahs' | 'mgr_pharmd' | 'pci_pharm' | 'inc_nursing';
+
+// ── Exam scheme (PCI / Dr. MGR) ──────────────────────────────────────
+// Replaces the Anna CO-PO/Bloom assessment blocks for pharmacy/AHS models.
+export interface BosExamSchemeComponent {
+  name: string;                 // "Internal Assessment", "End Semester (Theory)", "Practical", "Oral / Viva"
+  max?: number | null;          // maximum marks (null when the source omits it)
+  min?: number | null;          // pass minimum (null when the source omits it)
+  duration_hours?: number | null;
+  sub?: { name: string; max?: number | null }[]; // e.g. IA → Continuous + Sessional
+}
+
+export interface BosExamQuestionSection {
+  name: string;                 // "MCQ/Objective", "Long Answers (2 of 3)", ...
+  marks?: number | null;
+}
+
+export interface BosExamQuestionPattern {
+  variant?: string;             // "75" | "50" | "35" (PCI paper variant)
+  duration_hours?: number | null;
+  sections?: BosExamQuestionSection[];
+  total_marks?: number | null;
+}
+
+export interface BosExamScheme {
+  components?: BosExamSchemeComponent[];
+  total_marks?: number | null;
+  pass_pct?: number | null;
+  distinction_pct?: number | null;
+  question_pattern?: BosExamQuestionPattern;   // PCI theory blueprint (B.Pharm)
+  notes?: string;
+}
+
+// ── Internship / Residency postings (Pharm.D 6th year, AHS internships) ──
+export interface BosInternshipPosting {
+  area: string;                 // "General Medicine", "Specialty department"
+  duration?: string;            // "6 months", "2 months"
+  repeat?: number;              // e.g. 3 (× three specialty departments)
+  skills?: string[];            // optional in-service skill checklist
+}
+
+export interface BosInternshipPostings {
+  total_duration?: string;      // "12 months"
+  postings?: BosInternshipPosting[];
+  notes?: string;
+}
+
+// ── AHS / Pharm.D content tree (year → subject → flat lecture topics) ──
+// Deliberately distinct from BosCourseContentData (Unit I–V) so neither
+// renderer has to guess which shape it is looking at.
+export interface BosAhsSubject {
+  subject_no?: string;          // "1.1", "2.5" (source numbering; no course code)
+  title: string;                // "Human Anatomy and Physiology"
+  lecture_hours?: number | null;
+  mode?: 'flat' | 'units';
+  topics?: string[];            // flat "LECTURE WISE PROGRAM" topic list
+  units?: { unit_no: string; topics: string[] }[];
+  reference_books?: string[];
+}
+
+export interface BosAhsContent {
+  intro?: string;               // "INTRODUCTION/OBJECTIVES" paragraph
+  academic_year?: number;       // 1..5 (Pharm.D)
+  subjects?: BosAhsSubject[];
+}
+
+// ── Nursing (INC / TNMGRMU) content shapes ───────────────────────────
+// Distinct from the Anna CO-PO/Bloom model. A nursing course carries a
+// Theory / Lab-Skill-Lab / Clinical workload split, a per-unit theory outline
+// (the extra optional fields on BosUnit below), a PARALLEL clinical outline,
+// and CO → 10 INC core-competency mapping instead of CO-PO-PSO.
+
+/** Theory / Lab-Skill-Lab / Clinical credits + contact hours (+ clinical weeks). */
+export interface BosNursingWorkloadPart {
+  credits?: number | null;
+  hours?: number | null;        // contact hours (per semester, may exceed 40)
+  weeks?: number | null;        // clinical only — placement duration in weeks
+}
+export interface BosNursingWorkload {
+  theory?: BosNursingWorkloadPart;
+  practical?: BosNursingWorkloadPart;   // Lab / Skill-Lab
+  clinical?: BosNursingWorkloadPart;
+}
+
+/** One row of the parallel clinical outline table. */
+export interface BosClinicalOutlineUnit {
+  clinical_unit?: string;              // "1", "2" (or a heading)
+  duration_weeks?: number | null;
+  learning_outcomes?: string[];
+  procedural_competencies?: string[];  // Procedural Competencies / Clinical Skills
+  clinical_requirements?: string[];
+  assessment_methods?: string[];
+}
+/** One skill-lab / practicum competency (pre-clinical simulation training). */
+export interface BosPracticumSkill {
+  sno?: string;
+  competency: string;
+  mode?: string;              // "Role Play", "Simulator/Standardized patient", …
+}
+export interface BosClinicalOutlineData {
+  units?: BosClinicalOutlineUnit[];
+  /** Skill-lab practicum competencies (the practical/skill-lab hours). */
+  practicum_skills?: BosPracticumSkill[];
+  notes?: string;
+}
+
+/** CO → 10 INC core-competency mapping (replaces po_mappings for nursing). */
+export interface BosCoreCompetency {
+  id: number;                          // 1..10
+  label: string;                       // "Patient centered care", …
+}
+export interface BosCompetencyMapping {
+  co_id: string;                       // "C1", "CO1"
+  competencies: number[];              // core-competency ids this CO maps to
+}
+export interface BosCompetencyMappingsData {
+  core_competencies?: BosCoreCompetency[];
+  mappings?: BosCompetencyMapping[];
+}
+
 export interface BosCourseSyllabus {
   id: string;
   institutions_id: string;
   board_id: string;
   regulation_id?: string;
   composition_id?: string;
+  /**
+   * Discriminator for the syllabus shape. Defaults to 'anna_univ' so every
+   * pre-existing engineering/CAS row is unaffected. Persisted on the row at
+   * creation (resolved from the selected BoS board) — never re-derived on read.
+   */
+  academic_model?: AcademicModel;
+  /** B.Pharm 1..8 (semester model). Null for year-based models. */
+  semester?: number;
+  /** Pharm.D 1..5 (year model). Null for semester-based models. */
+  academic_year?: number;
+  /** B.Pharm "Scope" paragraph (a course-level scope statement). */
+  scope?: string;
+  /** PCI / Dr. MGR exam scheme — replaces CO-PO/Bloom assessment for pharmacy. */
+  exam_scheme?: BosExamScheme;
+  /** Pharm.D internship/residency postings (6th year). */
+  internship_postings?: BosInternshipPostings;
+  /** Pharm.D year → subject → lecture-topic tree (mgr_pharmd / mgr_ahs). */
+  ahs_content?: BosAhsContent;
+  // ── Nursing (inc_nursing) ───────────────────────────────────────────
+  /** Nursing DESCRIPTION paragraph. */
+  course_description?: string;
+  /** Nursing Theory / Lab / Clinical credits+hours (+clinical weeks). */
+  nursing_workload?: BosNursingWorkload;
+  /** Nursing parallel clinical outline (coexists with course_content). */
+  clinical_outline?: BosClinicalOutlineData;
+  /** Nursing CO → 10 INC core-competency mapping (replaces po_mappings). */
+  competency_mappings?: BosCompetencyMappingsData;
   /**
    * Stable COE course id (BosCourseMaster.id) — the canonical link to the COE
    * course. course_code/course_name below are fallback display snapshots that
@@ -453,6 +837,12 @@ export interface BosCourseSyllabus {
   course_credits?: number;
   total_hours?: number;
   contact_hours?: number;
+
+  // NAAC-2024 coverage tags
+  /** NAAC metric 1.4 — skill/apprenticeship-focused course */
+  is_skill_based?: boolean;
+  /** NAAC metric 1.6 — contains Indian Knowledge System content */
+  is_iks?: boolean;
 
   // Versioning
   version_number: number;
@@ -469,6 +859,11 @@ export interface BosCourseSyllabus {
   pedagogy?: BosPedagogyData;
   po_mappings?: BosPOMappingsData;
   assessment_structure?: BosAssessmentStructure;
+  concept_applications?: BosConceptApplicationsData;
+  assessment_pattern?: BosAssessmentPatternData;
+  capstone_project?: BosCapstoneProjectData;
+  capstone_rubric?: BosCapstoneRubricData;
+  llc_conference?: BosLlcConferenceData;
 
   // Metadata
   created_by: string; // User ID
@@ -703,6 +1098,13 @@ export interface BosComposition {
    * time) plus principal-added members. See 20260706b_bos_academic_council.sql.
    */
   is_academic_council?: boolean;
+  /**
+   * True when this composition represents the institution-level Governing Body.
+   * Modelled identically to is_academic_council (board-less, principal-driven);
+   * distinguished only for listing, preparation, and labels.
+   * See 20260724120000_bos_governing_body.sql.
+   */
+  is_governing_body?: boolean;
   term_start_date: string;
   term_end_date: string;
   academic_year: string;
@@ -760,6 +1162,13 @@ export interface BosCommittee {
   created_by?: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Enriched on the paginated master-list GET only: the owning composition's
+   * title (null for unassigned template rows). Lets the /bos/committees "All"
+   * view distinguish otherwise-identical committee instances across
+   * compositions. Not a stored column.
+   */
+  composition_title?: string | null;
 }
 
 export type CreateBosCommitteeDto = Omit<
@@ -805,11 +1214,18 @@ export interface BosMember {
    * rows created before committees existed — rendered as the "General" group.
    */
   committee_id?: string | null;
-  member_type: BosMemberType;
   /**
-   * FK to bos_member_types (institution-wise, table-driven). member_type
-   * stays as the behaviour key — it equals the type's base_type at insert
-   * time. NULL on rows created before the table existed and not backfilled.
+   * The SELECTED member type. For catalog-driven rows this is the
+   * bos_member_types.name verbatim (e.g. 'Nominated by the Governing Body');
+   * legacy rows (member_type_id NULL) carry the old BosMemberType enum value.
+   * Behaviour (chairman auth, staff-vs-expert, TA/DA) derives from the
+   * catalog row's base_type via member_type_id — NOT from this string.
+   * The static DB CHECK was dropped by 20260710150000.
+   */
+  member_type: string;
+  /**
+   * FK to bos_member_types (institution-wise, table-driven). NULL on rows
+   * created before the table existed and not backfilled.
    */
   member_type_id?: string | null;
   staff_id?: string;
@@ -829,7 +1245,21 @@ export interface BosMember {
   address?: string;
   contact_no?: string;
   email?: string;
+  /**
+   * Display rank across the WHOLE composition (1..n, contiguous). Meeting
+   * notices, minutes and attendance sheets ORDER BY this.
+   */
   sort_order: number;
+  /**
+   * Serial number WITHIN this member's type group in its committee — restarts
+   * at 1 per group (Faculty Members 1,2,3,4; Chairman 1). This is the number
+   * the roster card shows and the per-category S.No a report prints.
+   *
+   * Both ranks are maintained server-side by the `bos_renumber_member_order`
+   * DB function, which the member API calls after every insert/update/delete/
+   * reorder. Never write either column directly from a client.
+   */
+  group_position?: number;
   is_active: boolean;
   joined_date?: string;
   left_date?: string;
@@ -837,10 +1267,53 @@ export interface BosMember {
   updated_at: string;
   // Joined
   expert?: BosExternalExpert;
+  /**
+   * Joined from bos_member_types via member_type_id. Display consumers show
+   * this name (the type the user actually selected in Add Member) and fall
+   * back to BOS_MEMBER_TYPE_LABELS[member_type] for legacy rows. NULL when
+   * member_type_id is null or the reader's RLS can't see bos_member_types.
+   */
+  member_type_rec?: { id: string; name: string; base_type: BosMemberType } | null;
 }
 
-export type CreateBosMemberDto = Omit<BosMember, 'id' | 'created_at' | 'updated_at' | 'expert'>;
+export type CreateBosMemberDto = Omit<
+  BosMember,
+  'id' | 'created_at' | 'updated_at' | 'expert' | 'member_type_rec' | 'sort_order'
+> & {
+  /**
+   * Display rank within the composition. Omit it — POST /api/bos/members
+   * appends the new member at the end (existing count + 1). Sending 0 would
+   * pin every new member to the top of the roster, which is how the whole
+   * table ended up unordered before the Reorder controls existed.
+   */
+  sort_order?: number;
+};
 export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
+
+/**
+ * Result of POST /api/bos/members/refresh — the manual "pull latest details
+ * from staff / external-expert record" action on a composition's roster.
+ *
+ * The display_* columns are point-in-time snapshots on purpose (past meeting
+ * notices and minutes must keep the designation the member held then), so this
+ * only ever runs when an operator presses Refresh.
+ */
+export interface BosMemberRefreshResult {
+  /** Rows whose snapshot differed from the source and were rewritten. */
+  updated: number;
+  /** Rows already matching their source row. */
+  unchanged: number;
+  /** Rows with no source link, or whose staff/expert record no longer exists. */
+  skipped: number;
+  /** Rows the writer was not permitted to update (RLS returned no rows). */
+  failed: number;
+  /** Field-level diff of everything that changed, for the summary toast. */
+  changes: {
+    id: string;
+    display_name: string | null;
+    fields: { field: string; from: string | null; to: string | null }[];
+  }[];
+}
 
 // ── Meeting Minutes (rich content) ────────────────────────────────────────────
 
@@ -855,6 +1328,14 @@ export type UpdateBosMemberDto = Partial<CreateBosMemberDto>;
  */
 export interface BosMinutesChangeLogEntry {
   id: string; // client-generated UUID for stable React keys
+  /**
+   * Academic Council meetings only: the board the picked course belongs to.
+   * Drives the cascading Board → Course pickers in the Minutes tab; regular
+   * BoS meetings never set it (their courses are already board-scoped).
+   * board_name is a display snapshot for exports.
+   */
+  board_id?: string | null;
+  board_name?: string | null;
   syllabus_id?: string | null;
   syllabus_code?: string | null;
   unit?: string | null;
@@ -911,11 +1392,31 @@ export interface BosMeeting {
    * 20260521_add_board_type_to_bos_compositions_meetings.sql.
    */
   board_type?: string | null;
+  /**
+   * Regulation the meeting's syllabi are scoped to. Optional: there is no
+   * regulation_id column on bos_meetings today, so this is undefined at runtime
+   * for every meeting. The Syllabus and Minutes tabs read it to narrow the
+   * syllabus picker and both guard against undefined (the filter is simply not
+   * applied when it's absent). Kept on the interface so those reads type-check
+   * and so the field is already correct if a regulation_id column is later
+   * added to bos_meetings (the detail GET selects `*`).
+   */
+  regulation_id?: string | null;
   composition_id: string;
   meeting_number: number;
   academic_year: string;
   meeting_title?: string;
   meeting_type: BosMeetingType;
+  /**
+   * Convening council/committee of the composition (bos_committees). Each
+   * council/committee carries its own TA/DA remuneration rates, and the
+   * meeting's member list is drawn from this committee's members
+   * (bos_members.committee_id). BoS meetings pick it in the scheduling form;
+   * AC meetings auto-attach to the AC body's default 'Academic Council'
+   * committee. NULL only for pre-committee legacy rows the 20260710 backfills
+   * couldn't attribute unambiguously.
+   */
+  committee_id?: string | null;
   status: BosMeetingStatus;
   scheduled_date?: string;
   scheduled_time?: string;
@@ -948,6 +1449,8 @@ export interface BosMeeting {
   // Joined
   board?: { board_code: string; board_name: string };
   composition?: { composition_title: string };
+  /** Embedded convening committee (via committee_id FK) — list/detail GETs. */
+  committee?: { id: string; name: string } | null;
   attendee_count?: number;
   agenda_item_count?: number;
   // Embedded via the FK constraint bos_meetings_principal_approved_by_fkey;
@@ -971,6 +1474,7 @@ export type CreateBosMeetingDto = Omit<
   | 'updated_at'
   | 'board'
   | 'composition'
+  | 'committee'
   | 'attendee_count'
   | 'agenda_item_count'
 > & {
@@ -1072,6 +1576,30 @@ export interface BosCourseReview {
   created_at: string;
 }
 
+// ── TA/DA Rate Settings ───────────────────────────────────────────────────────
+
+/**
+ * Configurable per-council / per-member-type claim rates (bos_ta_da_rates,
+ * 20260710130000). Keyed by committee NAME (a council kind — every
+ * composition's 'Curriculum Development Cell' shares one rate set) and the
+ * member-type NAME from the institution's bos_member_types catalog (e.g.
+ * 'Subject Expert', 'Controller of the Examinations'). Claim generation
+ * resolves a member's catalog name via bos_members.member_type_id, falling
+ * back to the coarse enum label for unlinked members; a type with no active
+ * row uses the flat SOP constants in lib/utils/bos/ta-da-rates.ts.
+ */
+export interface BosTaDaRate {
+  id: string;
+  institutions_id: string;
+  committee_name: string;
+  member_type: string;
+  honorarium_amount: number;
+  ta_per_km: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── TA/DA Claim ───────────────────────────────────────────────────────────────
 
 export interface BosTaDaClaim {
@@ -1113,6 +1641,17 @@ export interface BosTaDaClaim {
   // Joined
   member?: BosMember;
   expert?: BosExternalExpert;
+  /**
+   * Embedded parent meeting (aliased, claims GET) — carries the convening
+   * council so the printed claim form can say "Claim Form for <council> of"
+   * / "Position in <council>". committee is null for pre-committee legacy
+   * meetings; meeting_type distinguishes Academic Council ones.
+   */
+  meeting?: {
+    id: string;
+    meeting_type?: string | null;
+    committee?: { name: string } | null;
+  } | null;
 }
 
 // ── Document ──────────────────────────────────────────────────────────────────

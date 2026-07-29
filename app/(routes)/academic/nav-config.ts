@@ -154,6 +154,12 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'Question Papers',
+      icon: 'FileText',
+      href: '/academic/question-papers',
+      matchPaths: ['/academic/question-papers'],
+    },
+    {
       label: 'Assessment',
       icon: 'GraduationCap',
       href: '/academic/internal-marks',
@@ -177,6 +183,11 @@ const config: ModuleNavConfig = {
           label: 'Attendance vs Marks',
           icon: 'Scale',
           href: '/academic/internal-marks/attendance-insight',
+        },
+        {
+          label: 'Exam IA Audit',
+          icon: 'ClipboardCheck',
+          href: '/academic/internal-marks/exam-audit',
         },
         {
           label: 'Internal Marks Report',

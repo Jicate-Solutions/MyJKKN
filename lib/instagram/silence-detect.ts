@@ -1,13 +1,22 @@
 /**
  * lib/instagram/silence-detect.ts
  *
- * Daily silence-detection core for connected Instagram accounts.
+ * Weekly (Monday) silence-detection core for connected Instagram accounts.
  *
  * Reads ig_accounts rows where last_post_at is older than the configured
  * threshold (default 30 days, tunable via platform_policies key
  * `ig.alert_dormant_after_days`) and dispatches one in-app notification
- * per silent account per day to the account's connected_by user (when
+ * per silent account per weekly run to the account's connected_by user (when
  * present) plus all super admins.
+ *
+ * Cadence (2026-07-16): the Vercel cron fires WEEKLY on Monday (`23 7 * * 1`),
+ * not daily. Concentrating every still-silent account's alert onto the same
+ * Monday lets the inbox roll them into ONE "N departments are silent" digest
+ * instead of scattering them across the week as each account's own re-alert
+ * window elapses. The per-account `ig.silence_realert_days` throttle (default
+ * 7) still applies: at a 7-day Monday-to-Monday gap the suppression test is a
+ * strict `<`, so each still-silent account is let through exactly once per
+ * weekly run. Keep `ig.silence_realert_days` <= 7 or accounts skip some Mondays.
  *
  * Why these two keys vs a new `ig.silence_threshold_days`:
  *   `ig.dormancy_threshold_days` (default 14) — classifies the account as
@@ -337,7 +346,10 @@ export async function runSilenceDetect(
     }
 
     const idempotencyKey = `ig-silence-${ig_user_id}-${dayKey}`;
-    const title = 'Instagram account is silent';
+    // Self-identifying title: the inbox rolls these rows up into ONE stacked
+    // entry (keyed on metadata.event = 'ig_silence_alert'), so each occurrence
+    // must name its own account or the expanded rollup is 35 identical lines.
+    const title = `Instagram @${username || ig_user_id} is silent`;
     const lastClause = last
       ? `Last post was ${daysSilent} day${daysSilent === 1 ? '' : 's'} ago`
       : 'No post has been recorded yet';

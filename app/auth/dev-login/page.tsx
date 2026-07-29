@@ -43,6 +43,24 @@ function safeNext(raw: string | null): string {
   return raw;
 }
 
+/**
+ * Parse the URL fragment into params.
+ *
+ * A URL has only ONE fragment — everything after the first '#'. Supabase
+ * appends its own '#access_token=...&refresh_token=...' to whatever redirect_to
+ * it was given, so a redirect_to that already carries '#next=/foo' yields:
+ *
+ *   #next=/foo#access_token=eyJ...&refresh_token=...
+ *
+ * URLSearchParams splits on '&', not '#', so `next` would swallow the token and
+ * `access_token` would come back null — setSession never runs and the exchange
+ * fails silently. Treat any further '#' as a param separator so both survive.
+ */
+function readHashParams(): URLSearchParams | null {
+  if (typeof window === 'undefined' || !window.location.hash) return null;
+  return new URLSearchParams(window.location.hash.slice(1).replace(/#/g, '&'));
+}
+
 function DevLoginWorker() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,17 +78,15 @@ function DevLoginWorker() {
     // Hash is preferred because it survives Supabase's allow-list strict-match
     // for redirect_to (a query string would cause access_denied/otp_expired).
     // Query param kept for backwards-compat with older bookmarked links.
-    const hashParams = typeof window !== 'undefined' && window.location.hash
-      ? new URLSearchParams(window.location.hash.slice(1))
-      : null;
+    const hashParams = readHashParams();
     const nextPath = safeNext(
       (hashParams?.get('next')) ?? searchParams.get('next')
     );
 
     const run = async () => {
       // Path 1: hash fragment (#access_token=...&refresh_token=...)
-      if (typeof window !== 'undefined' && window.location.hash) {
-        const hash = new URLSearchParams(window.location.hash.slice(1));
+      const hash = readHashParams();
+      if (hash) {
         const accessToken = hash.get('access_token');
         const refreshToken = hash.get('refresh_token');
 

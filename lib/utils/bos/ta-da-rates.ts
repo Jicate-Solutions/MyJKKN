@@ -70,3 +70,38 @@ export function computeClaimAmounts(input: ComputeClaimInput): ClaimAmounts {
     total: honorarium + travel,
   };
 }
+
+/** Configured rate row shape (subset of bos_ta_da_rates the resolver needs). */
+export interface TaDaRateOverride {
+  honorarium_amount: number;
+  ta_per_km: number;
+}
+
+/**
+ * Rate-settings-aware variant of computeClaimAmounts (20260710130000).
+ *
+ * When the meeting's council/committee has a configured rate row for the
+ * member's type (bos_ta_da_rates), that row wins:
+ *   • Honorarium: the configured amount, regardless of internal/external.
+ *   • Travel:     round-trip distance × configured ta_per_km. Distance only
+ *     exists for external experts, so internal members still get 0 travel.
+ * With no rate row (null) the legacy flat-SOP computeClaimAmounts applies —
+ * institutions that never configure rates see no behavior change.
+ */
+export function computeClaimAmountsWithRate(
+  rate: TaDaRateOverride | null | undefined,
+  input: ComputeClaimInput,
+): ClaimAmounts {
+  if (!rate) return computeClaimAmounts(input);
+
+  const honorarium = Number(rate.honorarium_amount) || 0;
+  const perKm = Number(rate.ta_per_km) || 0;
+  const travel =
+    input.oneWayKm && input.oneWayKm > 0 ? input.oneWayKm * 2 * perKm : 0;
+
+  return {
+    honorarium,
+    travel,
+    total: honorarium + travel,
+  };
+}

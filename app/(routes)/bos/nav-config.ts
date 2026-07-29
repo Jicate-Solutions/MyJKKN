@@ -58,6 +58,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/compositions'],
     },
     {
+      label: 'PO & PSO',
+      icon: 'Target',
+      href: '/bos/po-pso',
+      matchPaths: ['/bos/po-pso'],
+    },
+    {
       label: 'Syllabus',
       icon: 'BookOpen',
       href: '/bos/syllabus',
@@ -74,6 +80,12 @@ const config: ModuleNavConfig = {
       icon: 'Landmark',
       href: '/bos/academic-council',
       matchPaths: ['/bos/academic-council'],
+    },
+    {
+      label: 'Governing Body',
+      icon: 'Building2',
+      href: '/bos/governing-body',
+      matchPaths: ['/bos/governing-body'],
     },
     {
       label: 'TA/DA Claims',

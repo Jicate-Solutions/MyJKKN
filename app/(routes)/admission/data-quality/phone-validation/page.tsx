@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useTabParam } from '@/hooks/use-tab-param';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -56,12 +57,15 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePhoneValidationStats, useInvalidPhones, usePhoneIssueBreakdown } from "@/hooks/admission/use-data-quality";
 
+const PHONE_VALIDATION_TABS = ["invalid", "breakdown"] as const;
+
 function PhoneValidationPageContent() {
   const [isValidating, setIsValidating] = useState(false);
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterIssue, setFilterIssue] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
+  const [activeTab, setActiveTab] = useTabParam("invalid", PHONE_VALIDATION_TABS);
 
   const { data: phoneStats, isLoading: statsLoading, refetch: refetchStats } = usePhoneValidationStats();
   const { data: invalidPhones, isLoading: phonesLoading, refetch: refetchPhones } = useInvalidPhones({ search: searchTerm, issueFilter: filterIssue });
@@ -149,7 +153,7 @@ function PhoneValidationPageContent() {
         </Breadcrumb>
       <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Phone className="h-8 w-8 text-[#0b6d41]" />
@@ -159,7 +163,7 @@ function PhoneValidationPageContent() {
             Validate and clean phone numbers for admission leads
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <Button
             variant="outline"
             className="gap-2"
@@ -189,7 +193,7 @@ function PhoneValidationPageContent() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -258,8 +262,8 @@ function PhoneValidationPageContent() {
       </div>
 
       {/* Main Content */}
-      <Tabs defaultValue="invalid">
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
           <TabsTrigger value="invalid" className="gap-2">
             <PhoneOff className="h-4 w-4" />
             Invalid Numbers ({stats.invalid + stats.missing})
@@ -490,9 +494,12 @@ function PhoneValidationPageContent() {
 }
 
 export default function PhoneValidationPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <PhoneValidationPageContent />
+      <Suspense fallback={null}>
+        <PhoneValidationPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

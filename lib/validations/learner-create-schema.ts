@@ -106,6 +106,7 @@ export const createLearnerSchema = z
     transport_stop_id: z.string().uuid().nullable().optional().or(z.literal('')),
     last_school: z.string().optional(),
     last_school_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    post_office_id: z.string().uuid().nullable().optional().or(z.literal('')),
     board_of_study: z.string().optional(),
     tenth_max_marks: z.union([z.string(), z.number()]).optional(),
     tenth_obtained_marks: z.union([z.string(), z.number()]).optional(),
@@ -145,6 +146,7 @@ export function createLearnerWithDefaults(
     board_of_study: parsed.board_of_study ?? '',
     // Blank uuid → null so the insert never sends '' for an FK (Postgres 22P02).
     last_school_id: parsed.last_school_id || null,
+    post_office_id: parsed.post_office_id || null,
     hostel_category_id: parsed.hostel_category_id || null,
     mess_category_id: parsed.mess_category_id || null,
     transport_route_id: parsed.transport_route_id || null,

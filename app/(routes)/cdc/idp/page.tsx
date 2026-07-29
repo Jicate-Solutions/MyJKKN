@@ -298,11 +298,11 @@ export default function IdpListPage() {
                   <Link key={r.id} href={`/cdc/idp/${r.id}`}>
                     <Card className="hover:border-blue-300 transition-colors cursor-pointer">
                       <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
                           <CardTitle className="text-base font-medium">
                             {(r.learner as { name?: string } | null)?.name ?? 'Unknown learner'}
                           </CardTitle>
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-wrap items-center gap-2">
                             {(() => {
                               const meta = IDP_STATUS_META[r.submission_status ?? 'draft'];
                               return meta ? (

@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCdcAdmin } from '@/hooks/cdc/use-cdc-admin';
 import type { CdcCronJobStatus } from '@/types/admin/cdc';
 
 const JOB_LABELS: Record<string, { label: string; description: string }> = {
@@ -35,7 +35,7 @@ const JOB_LABELS: Record<string, { label: string; description: string }> = {
 };
 
 export default function CdcCronStatusPage() {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
+  const { isCdcAdmin, isLoading: permsLoading } = useCdcAdmin();
   const [jobs, setJobs] = useState<CdcCronJobStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +67,7 @@ export default function CdcCronStatusPage() {
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!isCdcAdmin) {
     return (
       <ContentLayout title="CDC Cron Status">
         <Alert variant="destructive">

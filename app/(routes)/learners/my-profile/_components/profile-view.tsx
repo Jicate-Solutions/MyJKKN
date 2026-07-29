@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { InfoField } from './info-field';
+import { ViewOnMapLink } from '@/components/learners/view-on-map-link';
 import { formatDate } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
-import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
+import { useRouteById, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import {
   Pencil,
   User,
@@ -60,9 +61,8 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
 
   // Resolve the Day-Scholar transport route + boarding-point names.
   const transportRouteId = (learner as any).transport_route_id as string | undefined;
-  const { routes: allRoutes } = useActiveRoutes();
+  const { route: routeObj } = useRouteById(transportRouteId);
   const { stops: routeStops } = useRouteStops(transportRouteId);
-  const routeObj = allRoutes.find((r) => r.id === transportRouteId);
   const routeName = routeObj
     ? `${routeObj.route_number} - ${routeObj.route_name}`
     : undefined;
@@ -406,6 +406,10 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
                   icon={MapPin}
                 />
                 </div>
+                <ViewOnMapLink
+                  postOfficeId={learner.post_office_id}
+                  pincode={learner.permanent_address_pin_code}
+                />
                
               </div>
             </div>

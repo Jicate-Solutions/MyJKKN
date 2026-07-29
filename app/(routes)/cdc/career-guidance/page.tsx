@@ -20,6 +20,9 @@ import { useGenerateCareerGuidance, useSavedCareerGuidance } from '@/hooks/cdc/u
 import { Sparkles, Loader2, CheckCircle2, CircleDashed, Target, Wrench, ListChecks, Database, Compass, History } from 'lucide-react';
 import type { CareerGuidanceResult } from '@/types/cdc/career-guidance';
 
+// Runs on the AI Max lane — enqueue + drain typically finishes in ~35s.
+const EXPECTED_SECONDS = 35;
+
 function CareerGuidanceContent() {
   const [learnerId, setLearnerId] = useState('');
   // Freshly generated this session (overrides any saved report).
@@ -32,6 +35,17 @@ function CareerGuidanceContent() {
   // learner's saved report (if any) surfaces. savedReport refetches on its own
   // (query key carries learnerId).
   useEffect(() => { setGenerated(null); }, [learnerId]);
+
+  // Live elapsed-seconds counter while the Max-lane job runs — gives the
+  // counsellor a visible timer against the ~35s expected time instead of an
+  // opaque spinner during the server-side long-poll.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!generate.isPending) { setElapsed(0); return; }
+    setElapsed(0);
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [generate.isPending]);
 
   async function handleGenerate() {
     if (!learnerId) return;
@@ -100,7 +114,10 @@ function CareerGuidanceContent() {
               )}
             </div>
             {generate.isPending && (
-              <p className="text-xs text-muted-foreground">Reading the student&apos;s record and asking the AI — this takes a few seconds.</p>
+              <p className="text-xs text-muted-foreground">
+                Reading the student&apos;s record and asking the AI on the Max lane — about {EXPECTED_SECONDS}s.
+                {' '}<span className="font-medium tabular-nums">{elapsed}s elapsed{elapsed > EXPECTED_SECONDS ? ' — almost there…' : ''}</span>
+              </p>
             )}
             {isSaved && !generate.isPending && (
               <p className="text-xs text-muted-foreground">Showing the last saved report. Click <span className="font-medium">Regenerate guidance</span> to refresh it from the student&apos;s current record.</p>

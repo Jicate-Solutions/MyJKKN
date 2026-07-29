@@ -253,6 +253,7 @@ export async function getCoeCurrentTerm(
 export interface CoeInstitutionBridgeRow {
   id: string;
   institution_code: string;
+  name?: string | null;
   myjkkn_institution_ids: string[];
 }
 
@@ -267,11 +268,12 @@ export async function getAllCoeInstitutions(): Promise<CoeInstitutionBridgeRow[]
   const coe = createCoeDbClient();
   const { data, error } = await coe
     .from('institutions')
-    .select('id, institution_code, myjkkn_institution_ids');
+    .select('id, institution_code, name, myjkkn_institution_ids');
   if (error) throw new Error(`COE institutions list read failed: ${error.message}`);
   return (data ?? []).map((r) => ({
     id: r.id as string,
     institution_code: r.institution_code as string,
+    name: (r.name as string | null) ?? null,
     myjkkn_institution_ids: (r.myjkkn_institution_ids as string[] | null) ?? [],
   }));
 }
@@ -333,6 +335,41 @@ export async function getCoeFinalSummary(
   return (data ?? []) as CoeFinalCourseSummary[];
 }
 
+/**
+ * The ENTIRE final-marks summary view (every institution × session × course),
+ * paged explicitly — the COE PostgREST caps a response at ~1000 rows and the
+ * view holds 1,415+ rows (2026-07-26), so an unpaged read silently truncates.
+ * Used by the nightly COE pass-percentage mirror cron, which aggregates
+ * per-course rows up to institution × session pass percentages. Ordering is
+ * pinned so paging is stable.
+ */
+export async function getCoeFinalSummaryAll(): Promise<CoeFinalCourseSummary[]> {
+  const coe = createCoeDbClient();
+  const pageSize = 1000;
+  const out: CoeFinalCourseSummary[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('final_marks_summary_view')
+      .select(
+        'institution_code, institution_name, session_code, session_name, ' +
+          'program_code, program_name, course_code, course_name, ' +
+          'total_students, published_count, passed_count, failed_count, ' +
+          'avg_internal_percentage, avg_external_percentage, pass_percentage',
+      )
+      .order('institution_code', { ascending: true })
+      .order('session_code', { ascending: true })
+      .order('course_code', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE final_marks_summary_view read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeFinalCourseSummary[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
 /** Per-session registration/scheduling statistics for one COE institution. */
 export async function getCoeSessionStatistics(
   coeInstitutionId?: string,
@@ -357,6 +394,59 @@ export interface CoeCiaStudentDetail {
   total_internal_marks: number | null;
   max_internal_marks: number | null;
   marks_status: string | null;
+}
+
+/** One COE declared-result row per student × course (final_marks_detailed_view),
+ *  used by the CO/PO attainment loop to compute per-course attainment proxies. */
+export interface CoeFinalStudentDetail {
+  student_id: string | null;
+  course_code: string | null;
+  course_name: string | null;
+  program_code: string | null;
+  internal_marks_obtained: number | null;
+  internal_marks_maximum: number | null;
+  external_marks_obtained: number | null;
+  external_marks_maximum: number | null;
+  total_marks_obtained: number | null;
+  total_marks_maximum: number | null;
+  percentage: number | null;
+  is_pass: boolean | null;
+}
+
+/**
+ * Per-student, per-course declared results for one session + COE institution
+ * (from `final_marks_detailed_view`; filtered by `institutions_id` — the view
+ * carries the COE institution UUID, not the code). Pages explicitly like
+ * `getCoeCiaStudentDetail` (COE PostgREST caps responses at ~1000 rows).
+ */
+export async function getCoeFinalStudentDetail(
+  sessionCode: string,
+  coeInstitutionId: string,
+): Promise<CoeFinalStudentDetail[]> {
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, course_code, course_name, program_code, ' +
+    'internal_marks_obtained, internal_marks_maximum, ' +
+    'external_marks_obtained, external_marks_maximum, ' +
+    'total_marks_obtained, total_marks_maximum, percentage, is_pass';
+  const pageSize = 1000;
+  const out: CoeFinalStudentDetail[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('final_marks_detailed_view')
+      .select(cols)
+      .eq('session_code', sessionCode)
+      .eq('institutions_id', coeInstitutionId)
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE final_marks_detailed_view read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeFinalStudentDetail[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
 }
 
 /**
@@ -386,10 +476,151 @@ export async function getCoeCiaStudentDetail(
       .eq('is_active', true)
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`COE cia_marks_detailed_view read failed: ${error.message}`);
-    const rows = (data ?? []) as CoeCiaStudentDetail[];
+    const rows = (data ?? []) as unknown as CoeCiaStudentDetail[];
     out.push(...rows);
     if (rows.length < pageSize) break;
     from += pageSize;
   }
   return out;
+}
+
+// ── Exam IA Audit (2026-07-13) ───────────────────────────────────────────────
+// The Registrar's audit joins COE's university-bound records against MyJKKN's
+// continuous data. These reads pull the RAW provenance columns the summary
+// views hide: who entered each CIA row, when, in which round, and whether the
+// attendance component was ever filled — the "as per JKKN data or some other
+// data" fingerprint. Server-side only (service creds), scope-gated by the
+// caller's fn_exam_audit_access() result in the API route.
+
+/** Raw cia_marks provenance — one row per student × course entry. */
+export interface CoeCiaProvenanceRow {
+  student_id: string | null;
+  program_id: string | null;
+  course_id: string | null;
+  cia_round: number | null;
+  created_by: string | null;
+  faculty_id: string | null;
+  submission_date: string | null;
+  created_at: string | null;
+  is_verified: boolean | null;
+  is_approved: boolean | null;
+  attendance_marks: number | null;
+  max_attendance_marks: number | null;
+  total_internal_marks: number | null;
+  max_internal_marks: number | null;
+  internal_percentage: number | null;
+}
+
+/** Raw cia_marks provenance for a set of examination_session ids (one code can
+ *  span several session rows) within one COE institution. Paged (~1000 cap). */
+export async function getCoeCiaProvenance(
+  sessionIds: string[],
+  coeInstitutionId: string,
+): Promise<CoeCiaProvenanceRow[]> {
+  if (sessionIds.length === 0) return [];
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, program_id, course_id, cia_round, created_by, faculty_id, ' +
+    'submission_date, created_at, is_verified, is_approved, attendance_marks, ' +
+    'max_attendance_marks, total_internal_marks, max_internal_marks, internal_percentage';
+  const pageSize = 1000;
+  const out: CoeCiaProvenanceRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('cia_marks')
+      .select(cols)
+      .in('examination_session_id', sessionIds)
+      .eq('institutions_id', coeInstitutionId)
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE cia_marks read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeCiaProvenanceRow[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+/** One exam registration — the universe of students the university expects. */
+export interface CoeExamRegistrationRow {
+  student_id: string | null;
+  student_name: string | null;
+  stu_register_no: string | null;
+  program_code: string | null;
+  course_code: string | null;
+  registration_status: string | null;
+}
+
+/** Registrations for a session code within one COE institution. Paged. */
+export async function getCoeExamRegistrations(
+  sessionCode: string,
+  coeInstitutionId: string,
+): Promise<CoeExamRegistrationRow[]> {
+  const coe = createCoeDbClient();
+  const cols =
+    'student_id, student_name, stu_register_no, program_code, course_code, registration_status';
+  const pageSize = 1000;
+  const out: CoeExamRegistrationRow[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await coe
+      .from('exam_registrations')
+      .select(cols)
+      .eq('session_code', sessionCode)
+      .eq('institutions_id', coeInstitutionId)
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`COE exam_registrations read failed: ${error.message}`);
+    const rows = (data ?? []) as unknown as CoeExamRegistrationRow[];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+/** Program id → code/name bridge for one COE institution. */
+export interface CoeProgramRef {
+  id: string;
+  program_code: string | null;
+  program_name: string | null;
+}
+
+export async function getCoePrograms(
+  coeInstitutionId: string,
+): Promise<CoeProgramRef[]> {
+  const coe = createCoeDbClient();
+  const { data, error } = await coe
+    .from('programs')
+    .select('id, program_code, program_name')
+    .eq('institutions_id', coeInstitutionId);
+  if (error) throw new Error(`COE programs read failed: ${error.message}`);
+  return (data ?? []) as CoeProgramRef[];
+}
+
+/** CIA settings (the assessment RUBRIC: rounds + components + entry windows)
+ *  for a set of examination_session ids, read from cia_entry_settings.cia_rounds
+ *  — the SAME canonical shape `/api/v1/cia-settings` serves (types/internal-marks
+ *  CiaSettings/CiaRound/CiaComponent; consumed by the entry grid, round picker
+ *  and my-marks). The table additionally scopes by a program_codes ARRAY, which
+ *  the REST shape flattens — carried through here so callers can match programs. */
+export type CoeCiaSettingsRow = import('@/types/internal-marks').CiaSettings & {
+  program_codes?: string[] | null;
+};
+
+export async function getCoeCiaSettings(
+  coeInstitutionId: string,
+  sessionIds: string[],
+): Promise<CoeCiaSettingsRow[]> {
+  if (sessionIds.length === 0) return [];
+  const coe = createCoeDbClient();
+  const { data, error } = await coe
+    .from('cia_entry_settings')
+    .select('id, setting_name, examination_session_id, program_codes, cia_rounds, use_course_max, is_active')
+    .eq('institutions_id', coeInstitutionId)
+    .in('examination_session_id', sessionIds)
+    .eq('is_active', true);
+  if (error) throw new Error(`COE cia_entry_settings read failed: ${error.message}`);
+  return (data ?? []) as CoeCiaSettingsRow[];
 }

@@ -1,0 +1,165 @@
+# Director's allocation loop manifest — DISCOVERY PASS re-verified 2026-07-13
+# (no sim/walk has been executed against this manifest yet; every fact below
+# carries its receipt: a prod-DB query via Mgmt API or a file read from
+# jicate/main). A sibling copy exists on jicate/main at
+# .claude/loop-manifests/director.yaml; this file supersedes it on 3 points it
+# got stale on (edge draft-flags, tower ring text, loop_audits state) — each
+# correction is marked [CORRECTED] below with the fresh receipt.
+#
+# WHAT THIS LOOP IS (registry row, verified live 2026-07-13): stack_tier=5,
+# loop_class=infrastructure, domain=governance — "Set goals, allocate, cull —
+# decisions flow down; measured outcomes flow up." It is a STACK ANCHOR, not a
+# goal loop (migration 20260710233000_loop_registry_edges_audits.sql line 160
+# seeds it under the comment "stack anchors (not goal loops; give the wiring
+# view its upper bands)"). The human at the top IS the mechanism: measured
+# outcomes reach the Director through /admin/loops (tower + wiring,
+# jicate/main app/(routes)/admin/loops/), and decisions flow down as
+# loop_registry/gates edits (service-role only — no write RLS on loop_registry),
+# config flips, and PRs. Receipts for real allocation decisions: #1958's 8
+# Director decisions, the D2 gate flip, and the tower's Oversight-ring blurb
+# (loop-tower.tsx ~line 429) listing verbatim "nudges switched off, model pins,
+# the Max-lane night chain, the hard feedback gate, no-limit spine minting".
+#
+# Distinct from loop_key='decisions' ("Director Decisions Verdict"): that
+# sibling loop owns fn_decision_outcome_check + the director_decisions grading
+# lane (see manifests/decisions.yaml). This manifest references that substrate
+# only where the two loops share it (the decision-logging lane), and says so
+# at each point.
+loop_key: director
+name: Director's allocation loop
+prod_ref: kvizhngldtiuufknvehv
+
+tables:
+  # Where measured outcomes enter the Director's view: loop_audits rows are
+  # the harness verdicts the tower shows per ring chip (columns verified in
+  # prod: id, loop_key, audited_at, layer, verdict, evidence, created_at).
+  # [CORRECTED 2026-07-13] Current rows: scf x4 (3 sim measure-verified +
+  # 1 walk-verified) AND feeder x1 (sim measure-verified 2026-07-13 02:22 UTC)
+  # — the older claim "only scf rows exist" is stale. Still ZERO director rows.
+  # Secondary inputs, same page: loop_registry.gates (health chips) and the
+  # live counts /admin/loops/page.tsx pulls per card.
+  input: loop_audits
+  # Where allocation decisions live AS DATA: director_decisions (schema
+  # verified via information_schema 2026-07-13 — alternatives jsonb,
+  # chosen_alternative_idx, predicted_outcome, outcome_metric_query jsonb,
+  # outcome_due_at, actual_outcome_value numeric, prediction_correct boolean,
+  # verdict_notes, visibility CHECK = 'private_to_director'; RLS = self-only
+  # auth.uid() = director_user_id for SELECT/INSERT/UPDATE, verified in
+  # pg_policy: director_decisions_{select,insert,update}_self).
+  # Fill-rate (re-verified 2026-07-13): 4 rows TOTAL, 1 distinct director,
+  # ALL dated 2026-04-25 (the spec's seed decisions); 2 pending_outcome,
+  # 2 outcome_recorded — and BOTH graded rows have prediction_correct=false.
+  # No new decisions logged in ~11 weeks — the decision-logging lane is
+  # fuel-starved.
+  # The OTHER action surface is loop_registry itself (fund/cull = is_active,
+  # pin = gates edits) — service-role writes only, done in Director interviews
+  # via Mgmt API, not through any UI.
+  action: director_decisions
+
+# sim: OMITTED — honestly. No measure function exists for THIS loop.
+# Verified by pg_proc sweep 2026-07-13 (proname ILIKE '%director%' /
+# '%decision%' / '%alloc%' / '%loop%'): the only related fns are
+# fn_decision_outcome_check + fn_decision_resolve_metric (they belong to
+# loop_key='decisions' — sim them THERE, not here),
+# fn_arps_log_director_action (loop_key='arps'),
+# fn_director_decisions_set_updated_at (a trigger helper), and
+# fn_loops_regress_scf / fn_loops_regress_feeder (no fn_loops_regress_director
+# exists). Registry gates.m='half' agrees. For a director sim to exist,
+# someone would need to build an allocation-outcome measurer (e.g.
+# fn_director_measure_allocation_outcomes) that grades each fund/cull/pin
+# registry change against a pre-registered metric — until then, regress
+# coverage for this loop is vacuous by design and MUST NOT be faked against
+# the decisions loop's fn.
+
+confound:
+  # Outcome + verdict columns DO exist on the decision lane:
+  # actual_outcome_value (numeric) + prediction_correct (boolean) +
+  # verdict_notes — verified via information_schema 2026-07-13.
+  # CAVEAT: this substrate is shared with loop_key='decisions'; a confound
+  # verdict here is about the Director's PREDICTION CALIBRATION, not about
+  # whether allocations caused outcomes.
+  verdict_column: prediction_correct
+  query: |
+    SELECT status, prediction_correct, count(*) AS n,
+           round(avg(actual_outcome_value),2) AS avg_outcome
+    FROM director_decisions
+    GROUP BY 1, 2 ORDER BY 1, 2;
+  min_rows: 10
+  # Current fuel = 4 rows (2 graded, both prediction_correct=false) — BELOW
+  # min_rows. Expected report until more decisions are logged:
+  # "insufficient fuel", never a calibration claim.
+
+# feed_forward: OMITTED as an automated block — the F gate is 'on' because the
+# feed-forward is HUMAN: the Director demonstrably changes the next allocation
+# after seeing measured outcomes (receipts: the 2026-07-10 registry migration
+# itself was a Director-interview decision; #1958's 8 decisions; the
+# Oversight-ring blurb's "nudges switched off, model pins, the Max-lane night
+# chain"). There is no reader fn to trigger and no API that generates the next
+# decision — proving F here means citing decision receipts, not calling an
+# endpoint.
+
+walk:
+  personas:
+    # Persona gate re-verified 2026-07-13 against prod profiles:
+    # test.superadmin has role='super_admin' AND is_super_admin=true — passes
+    # the page gate (page.tsx:165: profile.is_super_admin===true ||
+    # profile.role==='super_admin'); MENU_PERMISSIONS '/admin/loops' ->
+    # 'super_admin' (lib/sidebarMenuLink.ts:451).
+    superadmin: test.superadmin@jkkn.ac.in
+    # test.hod: role='hod', is_super_admin=false (verified) — negative check;
+    # must see the explicit restriction fallback, not a silent redirect.
+    hod: test.hod@jkkn.ac.in
+  hops:
+    # [CORRECTED 2026-07-13] The tower renders the Director as Ring
+    # '6 · Oversight' / name 'The Director' (loop-tower.tsx:425-427), NOT
+    # "5 · Allocation" as the jicate/main manifest copy says — ring membership
+    # is by ratified key lists (OVERSIGHT_KEYS = {'director'}, line 89), NOT
+    # loop_registry.stack_tier ("Director corrections, ratified 2026-07-12",
+    # header line 8). The director registry chip renders inside that ring.
+    - { as: superadmin, do: open_assert, page: /admin/loops,
+        expect: "Ring '6 · Oversight' / 'The Director' renders at the top of the tower with the director registry chip (gates g/a/f on, m half) and NO 'tested' line (zero director loop_audits rows — hollow, not healthy)" }
+    # [CORRECTED 2026-07-13] loop_edges re-verified: ALL THREE director edges
+    # are now is_draft=false (ai-pulse->director/escalations went firm; the
+    # jicate/main manifest copy still calls it draft). Edge dash on the wiring
+    # view = isSeam || is_draft (loop-wiring.tsx:335), so the metaloop->
+    # director edge STILL renders dashed — as a SEAM, not a draft: darkEdges =
+    # measured_outcomes edges whose SOURCE gates.m !== 'on' (lines 252-260),
+    # and metaloop gates.m='half' (verified). Downstream consumers dim
+    # (lines 273-284; seam sources excluded), so the director node renders
+    # DIMMED and the '⚠ Open seam' banner (lines 296-301) names
+    # 'MetaLoop — the loop that makes loops' (possibly among other emitters).
+    # That is the seam logic working, not a bug.
+    - { as: superadmin, do: open_assert, page: /admin/loops?view=wiring,
+        expect: "director node top-center (positions: stack_tier=5 row at DIRECTOR_CY, loop-wiring.tsx:206,245); 3 edges drawn: metaloop→director measured_outcomes DASHED+seam-red with director DIMMED while metaloop m!='on', director→metaloop decisions solid, ai-pulse→director escalations solid; Open-seam banner names MetaLoop" }
+    - { as: superadmin, do: sql_read, via: mgmt_api,
+        detail: "SELECT from_key,to_key,what_flows,is_draft FROM loop_edges WHERE from_key='director' OR to_key='director'",
+        assert_db: "exactly 3 rows, ALL is_draft=false: metaloop→director/measured_outcomes, director→metaloop/decisions, ai-pulse→director/escalations — verified state 2026-07-13" }
+    - { as: hod, do: open_assert, page: /admin/loops,
+        expect: "explicit 'This page is restricted to super administrators' message (page.tsx:171 — permission-UX rule: never a silent redirect)" }
+    # OPTIONAL, prod-write, gate per-run: the decision lane has NO UI or API
+    # surface on jicate/main (grep 2026-07-13: director_decisions appears in
+    # runtime code ONLY in admin/loops/page.tsx:216-218,880-881 and the
+    # decisions-verdict-check cron; the rest is specs/ + supabase/ SQL).
+    # Walking it therefore means an impersonated SQL INSERT (RLS insert_self
+    # passes for any authed user inserting director_user_id = own uid). If
+    # run: outcome_due_at MUST be far-future so the decisions-verdict-check
+    # cron (daily 04:00 UTC = 09:30 IST, route header) never grades the
+    # sentinel and never emits a dashboard work item.
+    - { as: superadmin, do: sql_insert, via: mgmt_api_impersonated, optional: true,
+        detail: "INSERT sentinel director_decisions row, title 'ZZAUDIT …', director_user_id = superadmin's own profile id, outcome_due_at = now()+interval '10 years'",
+        assert_db: "row visible ONLY to its director_user_id (RLS self-only, verified in pg_policy); tower 'decisions tracked' count +1 on reload (page.tsx:216)" }
+  forbidden:
+    - dashboard work-item verdict notifications (fn_decision_outcome_check emits fn_create_dashboard_work_item to the decision owner — never seed a due sentinel; cron route header confirms idempotency key 'decision_verdict:<id>:<date>')
+    - loop_audits rows with non-verified verdicts written casually (loop-watchdog cron, daily 09:23 IST, notifies super admins on non-verified audits — /loops SKILL.md wires section)
+    - any edit to loop_registry gates/is_active during a walk (that IS a Director allocation decision — walks observe, they do not allocate)
+  cleanup: |
+    DELETE FROM director_decisions WHERE title LIKE 'ZZAUDIT%';
+    -- verify in a SEPARATE call: sentinel count = 0; total back to pre-walk
+    -- baseline (4 rows as of 2026-07-13; compare sentinel count, not totals).
+  notes:
+    - "DISCOVERED TRAP (reported, not hotfixed — verified BOTH sides 2026-07-13): /admin/loops/page.tsx:218 counts director_decisions .eq('status','graded') for the decisions card's 'graded' tile, but the CHECK constraint vocabulary is pending_outcome|outcome_recorded|reversed|superseded (pg_constraint: director_decisions_status_check) — 'graded' is an invented enum value, so that tile reads 0 forever; the 2 really-graded rows have status='outcome_recorded'. The invented-enum bug class (feedback_match_real_status_enum_vocabulary_not_invented). Also flagged in manifests/decisions.yaml."
+    - "loop_audits has NO director rows yet (scf + feeder only, verified 2026-07-13) — the tower shows no last-tested state for this ring; that is accurate, not broken."
+    - "b2a_decision_log (app/api/b2a/memory/decisions/route.ts on jicate/main) is a DIFFERENT table/lane (agent memory, API-key auth) — do not confuse it with director_decisions."
+    - "The jicate/main copy of this manifest (.claude/loop-manifests/director.yaml) is one discovery-pass older: it claims ai-pulse→director is draft (now firm), tower band '5 · Allocation' (tower ratified to '6 · Oversight' 2026-07-12), and scf-only loop_audits (feeder row landed 2026-07-13). If syncing back to the repo, carry these corrections."
+
+registry_gates_hint: '{"g":"on","a":"on","m":"half","f":"on"}'  # verified live 2026-07-13

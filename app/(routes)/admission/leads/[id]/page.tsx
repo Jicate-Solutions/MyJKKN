@@ -2,7 +2,8 @@
 
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useEffect, useMemo } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
+import { useTabParam } from '@/hooks/use-tab-param';
 import { useAuth } from '@/hooks/use-auth';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -49,6 +50,7 @@ import { ConsultantAttributionCard } from './_components/consultant-attribution-
 import { ActivityTab } from './_components/tabs/activity-tab';
 import { CallsTab } from './_components/tabs/calls-tab';
 import { CommunicationTab } from './_components/tabs/communication-tab';
+import { AISuggestedResponses } from '@/components/admission/ai-suggested-responses';
 import { DetailsTab } from './_components/tabs/details-tab';
 import { JourneyTab } from './_components/tabs/journey-tab';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
@@ -167,6 +169,8 @@ function LeadDetailSkeleton() {
   );
 }
 
+const LEAD_DETAIL_TABS = ['activity', 'calls', 'communication', 'details', 'journey'] as const;
+
 function LeadDetailPageContent() {
   const { options: leadSources } = useActiveLeadSources();
   // Dynamic stage list from admission_statuses — used for the stage selector
@@ -177,26 +181,14 @@ function LeadDetailPageContent() {
   const router = useRouter();
   const leadId = params.id as string;
 
-  // Active detail tab — controlled + persisted to ?tab= so (a) inactive tabs are
-  // NOT mounted: Radix mounts every TabsContent's children eagerly, firing each
-  // tab's data hooks on load (Calls + Journey both call useLeadCallLogs, plus the
-  // heavy VoiceMemoPanel / journey aggregation), and (b) the chosen tab survives
-  // a tab-refocus / back-navigation instead of snapping back to Activity.
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'activity';
-    const t = new URLSearchParams(window.location.search).get('tab');
-    return t && ['activity', 'calls', 'communication', 'details', 'journey'].includes(t)
-      ? t
-      : 'activity';
-  });
-  const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', value);
-      window.history.replaceState(null, '', url.toString());
-    }
-  };
+  // Active detail tab — URL-synced via ?tab= through the shared useTabParam hook
+  // so (a) inactive tabs are NOT mounted: Radix mounts every TabsContent's
+  // children eagerly, firing each tab's data hooks on load (Calls + Journey both
+  // call useLeadCallLogs, plus the heavy VoiceMemoPanel / journey aggregation),
+  // (b) the chosen tab survives a tab-refocus / back-navigation instead of
+  // snapping back to Activity, and (c) each tab is deep-linkable and favoritable
+  // (the global navbar star reads ?tab=).
+  const [activeTab, handleTabChange] = useTabParam('activity', LEAD_DETAIL_TABS);
 
   const [newTag, setNewTag] = useState('');
   const [showTagDialog, setShowTagDialog] = useState(false);
@@ -900,14 +892,14 @@ function LeadDetailPageContent() {
 
   // (Edit-form admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
-  // Clear admission_year_id when primary program changes (old value stale)
-  useEffect(() => {
-    setEditForm((prev) =>
-      prev.admission_year_id
-        ? { ...prev, admission_year_id: '' }
-        : prev
-    );
-  }, [editPrimaryProgramId]);
+  // NOTE (2026-07-25): the effect that cleared admission_year_id whenever the
+  // primary program changed is gone. It dated from when admission_years carried
+  // a per-program dimension; that was dropped 2026-06-05 (admission years are
+  // institution-wide now), so program had stopped invalidating the cohort.
+  // Worse, openEditDialog() sets editForm.admission_year_id and
+  // editPrimaryProgramId in the same batch — so the effect fired on every dialog
+  // open and blanked the cohort it had just loaded, writing NULL back on save.
+  // Institution changes still clear it, in handleEditChange below.
 
   // Toggle for alternative programs — excludes the chosen primary.
   const toggleEditAlternativeProgram = (programId: string) => {
@@ -996,6 +988,13 @@ function LeadDetailPageContent() {
   const handleEditSubmit = async () => {
     if (!lead || !editForm.first_name.trim() || !editForm.phone.trim()) {
       toast.error('First name and phone are required');
+      return;
+    }
+    // Required since 2026-07-25 — mirrors the create form. The picker pre-fills
+    // the institution's current cohort, so this only fires when the institution
+    // has no admission years configured or the user cleared it.
+    if (!editForm.admission_year_id) {
+      toast.error('Admission year is required');
       return;
     }
     const selectedState = indianStates.find((s) => s.id === editForm.state);
@@ -1495,28 +1494,43 @@ function LeadDetailPageContent() {
 
                 <TabsContent value="communication" className="mt-4">
                   {activeTab === 'communication' && (
-                    <CommunicationTab
-                      leadFullName={lead?.full_name}
-                      leadPhone={lead?.phone}
-                      leadEmail={lead?.email}
-                      leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
-                      leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
-                      leadProgramName={lead?.program?.program_name || ''}
-                      waConnected={!!waStatus?.connected}
-                      commLoading={commLoading}
-                      communicationHistory={communicationHistory}
-                      templateAttachment={templateAttachment}
-                      setTemplateAttachment={setTemplateAttachment}
-                      channelTemplates={channelTemplates}
-                      selectedTemplateId={selectedTemplateId}
-                      setSelectedTemplateId={setSelectedTemplateId}
-                      setSendChannel={setSendChannel}
-                      setSendMessage={setSendMessage}
-                      sendMessage={sendMessage}
-                      isSending={isSending}
-                      handleSendPersonalWA={handleSendPersonalWA}
-                      replaceVariables={replaceVariables}
-                    />
+                    <div className="space-y-4">
+                      <CommunicationTab
+                        leadFullName={lead?.full_name}
+                        leadPhone={lead?.phone}
+                        leadEmail={lead?.email}
+                        leadFirstNamePart={lead?.full_name?.split(' ')[0] || ''}
+                        leadLastNamePart={lead?.full_name?.split(' ').slice(1).join(' ') || ''}
+                        leadProgramName={lead?.program?.program_name || ''}
+                        waConnected={!!waStatus?.connected}
+                        commLoading={commLoading}
+                        communicationHistory={communicationHistory}
+                        templateAttachment={templateAttachment}
+                        setTemplateAttachment={setTemplateAttachment}
+                        channelTemplates={channelTemplates}
+                        selectedTemplateId={selectedTemplateId}
+                        setSelectedTemplateId={setSelectedTemplateId}
+                        setSendChannel={setSendChannel}
+                        setSendMessage={setSendMessage}
+                        sendMessage={sendMessage}
+                        isSending={isSending}
+                        handleSendPersonalWA={handleSendPersonalWA}
+                        replaceVariables={replaceVariables}
+                      />
+                      {/* AI reply drafts (Max lane). "Use This" only fills the
+                          compose box above — it never sends. */}
+                      {lead && (
+                        <AISuggestedResponses
+                          lead={lead}
+                          counselorName={lead.counselor?.name}
+                          institutionName={institutionName}
+                          defaultChannel="whatsapp"
+                          onSelectResponse={(response) => {
+                            setSendMessage(response.content);
+                          }}
+                        />
+                      )}
+                    </div>
                   )}
                 </TabsContent>
 
@@ -2203,7 +2217,7 @@ function LeadDetailPageContent() {
                 {/* Personal Info */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="edit-first_name">First Name *</Label>
                       <Input
@@ -2289,7 +2303,7 @@ function LeadDetailPageContent() {
                       className="mt-1"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label>State</Label>
                       <Select value={editForm.state} onValueChange={(v) => handleEditChange('state', v)}>
@@ -2344,7 +2358,7 @@ function LeadDetailPageContent() {
                 {/* Parent / Guardian */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Parent / Guardian</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="edit-parent_name">Parent Name</Label>
                       <Input
@@ -2379,13 +2393,15 @@ function LeadDetailPageContent() {
                 {/* Academic & Interest */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <AdmissionYearSelect
                         institutionId={editProgramsInstitutionId}
                         value={editForm.admission_year_id}
                         onChange={(v) => handleEditChange('admission_year_id', v)}
                         id="edit-admission_year"
+                        autoSelectCurrent
+                        required
                       />
                     </div>
                     <div>
@@ -2659,9 +2675,12 @@ function LeadDetailPageContent() {
 }
 
 export default function LeadDetailPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
   return (
     <AdmissionErrorBoundary>
-      <LeadDetailPageContent />
+      <Suspense fallback={null}>
+        <LeadDetailPageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

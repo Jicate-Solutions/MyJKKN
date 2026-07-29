@@ -44,6 +44,7 @@ const ENROLLMENT_SELECT = `
   *,
   registration:event_registrations(
     team_name,
+    problem_idea,
     team_code,
     institution_id,
     owner_id,
@@ -557,6 +558,7 @@ export class SF100Service extends BaseService {
     const rows = (data || []).map((row: any) => ({
       ...row,
       team_name: row.registration?.team_name ?? null,
+      problem_idea: row.registration?.problem_idea ?? null,
       college: row.registration?.institution?.name ?? null,
     }));
     return {
@@ -584,7 +586,10 @@ export class SF100Service extends BaseService {
     }
     if (status === 'removed') {
       updatePayload.removed_at = now;
-      updatePayload.removed_by = updatedBy || 'system';
+      // Same uuid bug as the stall path: removed_by is uuid REFERENCES profiles(id),
+      // so the 'system' string fallback made every actor-less removal throw. NULL is
+      // the correct "no profile behind this action" value.
+      updatePayload.removed_by = updatedBy || null;
     }
 
     const { error } = await this.supabase
@@ -610,6 +615,95 @@ export class SF100Service extends BaseService {
       .eq('id', enrollmentId);
 
     if (error) throw new Error('Failed to withdraw enrollment: ' + error.message);
+  }
+
+  /**
+   * Update the editable team details for an enrollment: the team NAME and the
+   * PROBLEM statement. Both fields live on the single `event_registrations` row
+   * (keyed by the enrollment's `registration_id`), NOT on `sf100_enrollments`.
+   *
+   * AUTHORIZATION — enforced entirely by RLS (no role check duplicated here):
+   * `event_registrations` has its own UPDATE policy
+   * (`supabase/setup/03_policies.sql` → "event_registrations_update"):
+   *   owner_id = auth.uid()  OR  super_admin/admin/administrator.
+   * This service runs under the CALLER's authenticated client (withAuth →
+   * runWithClient), so the DB decides. IMPORTANT: that policy is USING-only, so
+   * a denied UPDATE returns ZERO rows with NO error — Postgres raises 42501 only
+   * on a WITH CHECK violation, never on a USING filter-out. We therefore treat a
+   * 0-row result as an authorization failure and return `null`; the route maps
+   * that to an explicit 403 (never a silent success).
+   *
+   * @returns the updated registration row, or `null` when the UPDATE matched no
+   *   row (caller is neither owner nor admin).
+   * @throws an Error tagged `notFound` when the enrollment can't be resolved.
+   */
+  static async updateTeamDetails(
+    enrollmentId: string,
+    data: { team_name?: string; problem_idea?: string },
+    _actorId?: string
+  ): Promise<{ id: string; team_name: string | null; problem_idea: string | null } | null> {
+    // 1. Resolve the enrollment's registration_id — team_name + problem_idea
+    //    live on event_registrations, one hop away from the enrollment.
+    const { data: enrollment, error: resolveError } = await this.supabase
+      .from('sf100_enrollments')
+      .select('registration_id')
+      .eq('id', enrollmentId)
+      .single();
+
+    if (resolveError) {
+      if (resolveError.code === 'PGRST116') {
+        const notFound: any = new Error('Enrollment not found');
+        notFound.notFound = true;
+        throw notFound;
+      }
+      throw new Error('Failed to resolve enrollment: ' + resolveError.message);
+    }
+
+    const registrationId = (enrollment as any)?.registration_id;
+    if (!registrationId) {
+      const notFound: any = new Error('Enrollment has no linked registration');
+      notFound.notFound = true;
+      throw notFound;
+    }
+
+    // 2. Build a trimmed payload; ignore undefined fields.
+    const payload: Record<string, any> = {};
+    if (data.team_name !== undefined) {
+      // event_registrations.team_name is NOT NULL — callers must guard blanks
+      // (the route returns 400 for an empty name); we still trim defensively.
+      payload.team_name = data.team_name.trim();
+    }
+    if (data.problem_idea !== undefined) {
+      // problem_idea is nullable — an emptied field clears back to NULL.
+      const trimmed = data.problem_idea.trim();
+      payload.problem_idea = trimmed.length === 0 ? null : trimmed;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      throw new Error('No team fields provided to update');
+    }
+
+    // 3. UPDATE under the caller's RLS. `.select()` returns the updated rows.
+    const { data: updated, error } = await this.supabase
+      .from('event_registrations')
+      .update(payload)
+      .eq('id', registrationId)
+      .select('id, team_name, problem_idea');
+
+    if (error) {
+      // Preserve the Postgres error code so withAuth maps 42501 → 403.
+      const wrapped: any = new Error('Failed to update team details: ' + error.message);
+      wrapped.code = error.code;
+      throw wrapped;
+    }
+
+    // RLS USING-denial → 0 rows, no error. The registration is guaranteed to
+    // exist (FK from the resolved enrollment), so 0 rows == not owner/admin.
+    if (!updated || updated.length === 0) {
+      return null;
+    }
+
+    return updated[0] as { id: string; team_name: string | null; problem_idea: string | null };
   }
 
   // =========================================================================
@@ -1309,7 +1403,7 @@ export class SF100Service extends BaseService {
     const rosterIds = await this.resolveRosterEnrollmentIds(programId);
     let stallQuery = this.supabase
       .from('sf100_enrollments')
-      .select('id, status, last_check_in_at, enrolled_at, registration:event_registrations(team_name, owner_id)')
+      .select('id, status, last_check_in_at, enrolled_at, stall_grace_until, registration:event_registrations(team_name, owner_id)')
       .in('status', ['active', 'warning', 'probation']);
     stallQuery = rosterIds ? stallQuery.in('id', rosterIds) : stallQuery.eq('program_id', programId);
     const { data: enrollments, error } = await stallQuery;
@@ -1326,6 +1420,17 @@ export class SF100Service extends BaseService {
     };
 
     for (const enrollment of enrollments || []) {
+      // Admin grace window (spec §11C extension / §14D pause): while it is open this
+      // team is exempt from escalation. Used after a period when the team COULD NOT
+      // check in (e.g. the write-path outage fixed by PR #2030) so a platform fault
+      // is never charged to the team. Weekly reminders deliberately still fire.
+      if (
+        enrollment.stall_grace_until &&
+        new Date(enrollment.stall_grace_until).getTime() > now.getTime()
+      ) {
+        continue;
+      }
+
       const lastActivity = enrollment.last_check_in_at || enrollment.enrolled_at;
       const daysSinceCheckIn = Math.floor(
         (now.getTime() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
@@ -1363,7 +1468,12 @@ export class SF100Service extends BaseService {
           updatePayload.probation_sent_at = nowIso;
         } else if (newStatus === 'removed') {
           updatePayload.removed_at = nowIso;
-          updatePayload.removed_by = 'system';
+          // removed_by is uuid REFERENCES profiles(id) — the literal string 'system'
+          // is invalid uuid syntax, so the UPDATE threw and the row was skipped: teams
+          // silently stuck on probation forever, never removed, no stall_removal
+          // notification. A system action has no profile, so leave it NULL; the actor
+          // is recorded in status_reason below.
+          updatePayload.removed_by = null;
         }
 
         const { error: updateError } = await this.supabase
@@ -1405,6 +1515,105 @@ export class SF100Service extends BaseService {
     }
 
     return result;
+  }
+
+  /**
+   * Weekly reminder: notify the leader of every active team that has NOT checked
+   * in within the last 7 days. Fired by the Sunday cron (/api/cron/sf100-weekly-reminder).
+   * Recipient = team owner (registration.owner_id), matching runStallCheck.
+   * Roster + thresholds resolved from the cohort spine with a sf100_programs fallback.
+   */
+  static async runWeeklyReminders(
+    programId: string
+  ): Promise<{ total_checked: number; reminded: number }> {
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let q = this.supabase
+      .from('sf100_enrollments')
+      .select('id, last_check_in_at, enrolled_at, registration:event_registrations(team_name, owner_id)')
+      .in('status', ['active', 'warning', 'probation']);
+    q = rosterIds ? q.in('id', rosterIds) : q.eq('program_id', programId);
+    const { data: enrollments, error } = await q;
+    if (error) throw new Error('Failed to fetch enrollments for weekly reminder: ' + error.message);
+
+    const now = Date.now();
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    let reminded = 0;
+    for (const e of enrollments || []) {
+      const last = e.last_check_in_at ? new Date(e.last_check_in_at).getTime() : null;
+      // Skip teams that already checked in this week — the reminder is a nudge for
+      // the silent, not noise for the active.
+      if (last != null && now - last < WEEK_MS) continue;
+      const ownerId = (e.registration as any)?.owner_id;
+      if (!ownerId) continue;
+      await this.createNotification({
+        enrollment_id: e.id,
+        recipient_id: ownerId,
+        type: 'weekly_reminder',
+        title: 'Weekly check-in due',
+        body: "Your team hasn't checked in this week. Submit a quick check-in to keep your momentum and stay active.",
+        metadata: { last_check_in_at: e.last_check_in_at ?? null },
+      });
+      reminded += 1;
+    }
+    return { total_checked: enrollments?.length ?? 0, reminded };
+  }
+
+  /**
+   * Deadline warning: at exactly 30 and 7 days before the program hard deadline,
+   * notify every active team's leader. Fired by the daily cron
+   * (/api/cron/sf100-accountability). The exact-day match sends each warning once.
+   */
+  static async runDeadlineWarnings(
+    programId: string
+  ): Promise<{ total_checked: number; warned: number; days_until: number | null }> {
+    // hard_deadline: cohort config (canonical) → sf100_programs fallback.
+    const cohortRow = await this.resolveCohortRow(programId);
+    let hardDeadline: string | null =
+      (cohortRow?.config?.hard_deadline as string | undefined) ?? null;
+    if (!hardDeadline) {
+      const { data: program } = await this.supabase
+        .from('sf100_programs')
+        .select('hard_deadline')
+        .eq('id', programId)
+        .maybeSingle();
+      hardDeadline = program?.hard_deadline ?? null;
+    }
+    if (!hardDeadline) return { total_checked: 0, warned: 0, days_until: null };
+
+    const now = new Date();
+    const deadline = new Date(`${hardDeadline}T00:00:00Z`);
+    const daysUntil = Math.ceil(
+      (deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    // Only fire on the two milestone days (spec §10). Other days: no-op.
+    if (daysUntil !== 30 && daysUntil !== 7) {
+      return { total_checked: 0, warned: 0, days_until: daysUntil };
+    }
+
+    const rosterIds = await this.resolveRosterEnrollmentIds(programId);
+    let q = this.supabase
+      .from('sf100_enrollments')
+      .select('id, registration:event_registrations(team_name, owner_id)')
+      .in('status', ['active', 'warning', 'probation']);
+    q = rosterIds ? q.in('id', rosterIds) : q.eq('program_id', programId);
+    const { data: enrollments, error } = await q;
+    if (error) throw new Error('Failed to fetch enrollments for deadline warning: ' + error.message);
+
+    let warned = 0;
+    for (const e of enrollments || []) {
+      const ownerId = (e.registration as any)?.owner_id;
+      if (!ownerId) continue;
+      await this.createNotification({
+        enrollment_id: e.id,
+        recipient_id: ownerId,
+        type: 'deadline_warning',
+        title: `Deadline in ${daysUntil} days`,
+        body: `Solve for 100 ends in ${daysUntil} days. Keep logging your paid users and check-ins to finish strong.`,
+        metadata: { days_until: daysUntil, hard_deadline: hardDeadline },
+      });
+      warned += 1;
+    }
+    return { total_checked: enrollments?.length ?? 0, warned, days_until: daysUntil };
   }
 
   // =========================================================================
@@ -2414,9 +2623,12 @@ export class SF100Service extends BaseService {
     const { data: notification, error: insertErr } = await this.supabase
       .from('notifications')
       .insert({
-        type: 'startup_studio',
         title: params.title,
-        message: params.message,
+        body: params.message,
+        category: 'startup_studio',
+        kind: 'work_item',
+        created_by: params.userIds[0],
+        targeting: { type: 'user', user_ids: params.userIds },
         metadata: {
           source: 'startup_studio_notify',
           event_type: params.eventType,

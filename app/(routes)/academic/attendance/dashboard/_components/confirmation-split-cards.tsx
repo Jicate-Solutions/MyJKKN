@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { UserCheck, Clock, AlertTriangle, Info } from 'lucide-react';
 import {
   Card,
@@ -9,7 +10,10 @@ import {
 } from '@/components/ui/card';
 import { useConfirmationSplit } from '@/hooks/academic/use-attendance-dashboard';
 import { cn } from '@/lib/utils';
-import type { DashboardFilterState } from './dashboard-filters';
+import {
+  toHierarchyFilter,
+  type DashboardFilterState
+} from './dashboard-filters';
 
 interface ConfirmationSplitCardsProps {
   userInstitutionId?: string;
@@ -17,6 +21,10 @@ interface ConfirmationSplitCardsProps {
   selectedDate?: Date;
   filters?: DashboardFilterState;
   refreshTrigger?: number;
+  /** Rolling window for the split. Defaults to the hook's 14 days (Statistics
+   *  tab). The Feedback Confirmation tab passes 30 so these cards cover the same
+   *  span as the college tables below them. The caption renders this value. */
+  windowDays?: number;
 }
 
 /**
@@ -32,18 +40,27 @@ export function ConfirmationSplitCards({
   canViewAllInstitutions,
   selectedDate = new Date(),
   filters,
-  refreshTrigger = 0
+  refreshTrigger = 0,
+  windowDays: windowDaysProp
 }: ConfirmationSplitCardsProps) {
   const queryInstitutionId =
     filters?.institutionId ||
     (canViewAllInstitutions ? undefined : userInstitutionId);
+
+  // Same narrowing as the stat cards above, so the split can't describe a wider
+  // population than the numbers it sits under. The rollup RPC has no
+  // degree/semester params, so those two levels narrow the cards above but not
+  // this split.
+  const hierarchy = useMemo(() => toHierarchyFilter(filters), [filters]);
 
   const { gateMode, windowHours, windowDays, split, isLoading, isError } =
     useConfirmationSplit(
       queryInstitutionId,
       canViewAllInstitutions,
       selectedDate,
-      refreshTrigger
+      refreshTrigger,
+      windowDaysProp,
+      hierarchy
     );
 
   // Resolve state before rendering, in order — this avoids two failure modes:

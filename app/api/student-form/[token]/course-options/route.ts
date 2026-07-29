@@ -35,6 +35,7 @@ type Filters = {
   stop_id?: string;
   district?: string;
   search?: string;
+  pincode?: string;
 };
 
 type Kind =
@@ -43,12 +44,15 @@ type Kind =
   | 'degrees'
   | 'programs'
   | 'semesters'
+  | 'sections'
   | 'department'
   | 'admission_year'
+  | 'academic_year'
   | 'routes'
   | 'route_stops'
   | 'school_districts'
   | 'schools'
+  | 'postal_lookup'
   | 'names';
 
 export async function POST(
@@ -170,6 +174,25 @@ export async function POST(
         return NextResponse.json({ data: data ?? [] });
       }
 
+      case 'sections': {
+        // Sections under one semester. Added 2026-07-27 so the wizard can
+        // resolve section "A" of the Freshers semester for FIRST YEAR admits.
+        // The student never picks from this list — the client matches 'A' and
+        // renders it read-only — but returning the full set keeps the endpoint
+        // shaped like the other cascading kinds.
+        if (!filters.semester_id) {
+          return NextResponse.json({ data: [] });
+        }
+        const { data, error } = await (svc as any)
+          .from('sections')
+          .select('id, section_name, semester_id')
+          .eq('semester_id', filters.semester_id)
+          .eq('is_active', true)
+          .order('section_name', { ascending: true });
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? [] });
+      }
+
       case 'department': {
         // Lookup the department row for a given program_id. Used by the
         // wizard to display the auto-derived department name as read-only.
@@ -213,6 +236,34 @@ export async function POST(
           .eq('institution_id', filters.institution_id)
           .eq('year', currentYear)
           .eq('is_active', true)
+          .maybeSingle();
+        if (error) throw error;
+        return NextResponse.json({ data: data ?? null });
+      }
+
+      case 'academic_year': {
+        // Auto-resolve the institution's CURRENT academic year for the
+        // student-form's read-only Academic Year field (2026-07-27). Mirrors
+        // the admission_year case above: locked in the UI, but submitted with
+        // the course section so the learner lands in the right cohort.
+        //
+        // The filter is is_active AND today inside [start_date, end_date] —
+        // NOT is_active alone. academic_years has no is_current flag (unlike
+        // admission_years), and institutions keep several rows flagged active
+        // at once: at the time of writing, 38 of 42 rows are is_active across
+        // 12 institutions, so is_active alone matches ~3 rows per institution
+        // and maybeSingle() would fail. Adding the date window narrows it to
+        // exactly one row for every institution.
+        if (!filters.institution_id) {
+          return NextResponse.json({ data: null });
+        }
+        const { data, error } = await (svc as any)
+          .from('academic_years')
+          .select('id, academic_year_name, start_date, end_date')
+          .eq('institution_id', filters.institution_id)
+          .eq('is_active', true)
+          .lte('start_date', new Date().toISOString().slice(0, 10))
+          .gte('end_date', new Date().toISOString().slice(0, 10))
           .maybeSingle();
         if (error) throw error;
         return NextResponse.json({ data: data ?? null });
@@ -274,6 +325,28 @@ export async function POST(
         const { data, error, count } = await q;
         if (error) throw error;
         return NextResponse.json({ data: data ?? [], total: count ?? 0 });
+      }
+
+      case 'postal_lookup': {
+        // Post offices for a 6-digit pincode — powers the address section's
+        // district auto-fill + optional post-office pick. Mirrors
+        // PostalCodeService.lookupPincode for the public form.
+        const pin = (filters.pincode ?? '').trim();
+        if (!/^[0-9]{6}$/.test(pin)) {
+          return NextResponse.json({ data: { offices: [], districts: [] } });
+        }
+        const { data, error } = await (svc as any)
+          .from('postal_codes')
+          .select('*')
+          .eq('pincode', pin)
+          .eq('is_active', true)
+          .order('office_name', { ascending: true });
+        if (error) throw error;
+        const offices = data ?? [];
+        const districts = [
+          ...new Map(offices.map((o: any) => [o.district_id, o])).values(),
+        ].map((o: any) => ({ district: o.district, district_id: o.district_id }));
+        return NextResponse.json({ data: { offices, districts } });
       }
 
       case 'names': {

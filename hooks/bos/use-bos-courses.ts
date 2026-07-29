@@ -8,6 +8,7 @@ import type {
   BosBulkImportResponse,
 } from '@/types/bos-courses';
 import type { CourseFormInput } from '@/lib/services/bos/courses-schemas';
+import type { AcademicModel } from '@/types/bos';
 import { useAuth } from '@/hooks/use-auth';
 
 export interface CourseFilters {
@@ -34,9 +35,14 @@ interface MutateContext {
   institution_code: string;
   regulation_code: string;
   regulation_id?: string;
+  /** COE board UUID — the server verifies it against the caller's boardsOf. */
+  board_id?: string;
   /** Human-readable board code — resolved client-side from the picked board_id
    *  so the server can persist both keys without a second lookup. */
   board_code?: string;
+  /** Academic model resolved from the board (COP: B.Pharm vs Pharm.D). Drives
+   *  the pharmacy/AHS payload branch in toCoeCreatePayload. */
+  academic_model?: AcademicModel;
 }
 
 // User-scoped cache root — mirrors use-bos-board-scope / use-bos-compositions.

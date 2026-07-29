@@ -329,13 +329,23 @@ export async function GET(req: NextRequest) {
           .filter(Boolean);
 
         if (passerIds.length > 0) {
+          // notifications real columns: title/body/created_by/targeting/kind
+          // are NOT NULL — there is NO type/message column. The prior insert
+          // used {type, message} (both non-existent) so it threw at runtime and
+          // the ack notification was never delivered. body carries the message
+          // text; created_by anchors to the first passer (all are valid
+          // profiles.id); targeting + the existing user_notifications fan-out
+          // below deliver it to every passer's bell.
           const { data: notification, error: notifErr } = await (supabase as any)
             .from('notifications')
             .insert({
-              type: 'ai_pulse',
               title: `Engaged — ${cycle.name ?? 'AI Pulse cycle'}`,
-              message:
+              body:
                 'You passed all engagement gates this week — joined on time, stayed to the end, and passed the quiz. That counts toward your streak. Well done.',
+              created_by: passerIds[0],
+              targeting: { type: 'user', user_ids: passerIds },
+              category: 'dashboard:ai_pulse',
+              kind: 'work_item',
               metadata: {
                 source: 'ai_pulse_engagement_acknowledgment',
                 cycle_id: cycle.id,
@@ -402,5 +412,20 @@ export async function GET(req: NextRequest) {
 
   console.log('[cron/ai-pulse-tick]', summary);
 
-  return NextResponse.json({ ok: true, summary });
+  // Top-level numeric keys so ai-routine-dispatcher's summarize() can report
+  // what this run actually did. It reads ONLY top-level keys from a fixed
+  // allowlist (generated/measured/skipped/created/sent/processed/...), so the
+  // numbers nested under `summary` were invisible and the Control Tower showed
+  // a bare "HTTP 200". `summary` is kept unchanged for existing consumers.
+  return NextResponse.json({
+    ok: true,
+    processed: summary.institutions_processed,
+    created: summary.created,
+    skipped: summary.existed,
+    sent: acknowledgments.reduce(
+      (n, a) => n + (a.action === 'acknowledged' ? (a.passers ?? 0) : 0),
+      0,
+    ),
+    summary,
+  });
 }

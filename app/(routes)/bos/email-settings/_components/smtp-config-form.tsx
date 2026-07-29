@@ -35,6 +35,8 @@ interface SmtpConfigRow {
   smtp_password_encrypted: string;
   sender_email: string;
   sender_name: string;
+  ac_sender_email: string | null;
+  ac_sender_name: string | null;
   default_cc_emails: string[] | null;
   is_active: boolean;
 }
@@ -51,6 +53,8 @@ const EMPTY_FORM = {
   smtp_password: '',
   sender_email: '',
   sender_name: 'Controller of Examinations',
+  ac_sender_email: '',
+  ac_sender_name: '',
   default_cc_csv: '',
   is_active: true,
 };
@@ -94,6 +98,8 @@ export function SmtpConfigForm({ institutionsId }: SmtpConfigFormProps) {
         smtp_password: row.smtp_password_encrypted ?? '',
         sender_email: row.sender_email ?? '',
         sender_name: row.sender_name ?? 'Controller of Examinations',
+        ac_sender_email: row.ac_sender_email ?? '',
+        ac_sender_name: row.ac_sender_name ?? '',
         default_cc_csv: (row.default_cc_emails ?? []).join(', '),
         is_active: row.is_active ?? true,
       });
@@ -166,6 +172,8 @@ export function SmtpConfigForm({ institutionsId }: SmtpConfigFormProps) {
           smtp_password: form.smtp_password,
           sender_email: form.sender_email,
           sender_name: form.sender_name,
+          ac_sender_email: form.ac_sender_email,
+          ac_sender_name: form.ac_sender_name,
           default_cc_emails: ccList.length > 0 ? ccList : undefined,
           is_active: form.is_active,
         }),
@@ -412,6 +420,46 @@ export function SmtpConfigForm({ institutionsId }: SmtpConfigFormProps) {
               Active — only active rows are used for sends
             </Label>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Academic Council sender override */}
+      <Card>
+        <CardHeader>
+          <CardTitle className='text-sm font-semibold'>Academic Council Sender (optional)</CardTitle>
+          <CardDescription className='text-xs'>
+            Overrides the From: address for <strong>Academic Council</strong> notices only. Uses the
+            same SMTP server and credentials above — just a different sender identity. Leave blank to
+            send AC notices from the sender identity above. Board of Studies emails always use the
+            sender above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='space-y-4'>
+          <div className='grid gap-4 md:grid-cols-2'>
+            <div className='space-y-2'>
+              <Label htmlFor='ac_sender_email'>AC Sender Email</Label>
+              <Input
+                id='ac_sender_email'
+                type='email'
+                value={form.ac_sender_email}
+                onChange={(e) => setForm((f) => ({ ...f, ac_sender_email: e.target.value }))}
+                placeholder='academic.council@jkkn.ac.in'
+              />
+            </div>
+            <div className='space-y-2'>
+              <Label htmlFor='ac_sender_name'>AC Sender Name</Label>
+              <Input
+                id='ac_sender_name'
+                value={form.ac_sender_name}
+                onChange={(e) => setForm((f) => ({ ...f, ac_sender_name: e.target.value }))}
+                placeholder='Academic Council — JKKN'
+              />
+            </div>
+          </div>
+          <p className='text-[11px] text-muted-foreground'>
+            Note: the SMTP provider must allow this address as a permitted sender / send-as alias for
+            the authenticated account above, or the send may be rejected or rewritten.
+          </p>
         </CardContent>
       </Card>
 

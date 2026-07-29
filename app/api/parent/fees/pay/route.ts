@@ -6,6 +6,10 @@ import {
   parentErrorResponse,
 } from '@/lib/utils/parent-access';
 import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-service';
+import {
+  getLearnerHiddenCategoryIds,
+  isBillLearnerVisible,
+} from '@/lib/utils/billing/learner-visibility';
 import { parentPortalBaseUrl } from '@/lib/utils/parent-url';
 import type { PayPayload } from '@/types/parent-portal';
 
@@ -40,12 +44,27 @@ export async function POST(req: NextRequest) {
     // Defense: every bill must belong to THIS learner before we initiate.
     const { data: owned } = await db
       .from('billing_student_bills')
-      .select('id')
+      .select('id, item_category_id')
       .eq('student_id', learnerId)
       .in('id', billIds);
     const ownedIds = new Set((owned ?? []).map((b) => b.id));
     if (billIds.some((id) => !ownedIds.has(id))) {
       return NextResponse.json({ error: 'One or more bills are not for this learner.' }, { status: 403 });
+    }
+
+    // Defense: a bill in a learner-hidden category is never offered on the
+    // parent portal, so a request for one can only be a hand-crafted id. This
+    // route is service-role, so nothing else would stop it.
+    const hiddenCategoryIds = await getLearnerHiddenCategoryIds(db);
+    if (
+      (owned ?? []).some(
+        (b) => !isBillLearnerVisible(b.item_category_id, hiddenCategoryIds)
+      )
+    ) {
+      return NextResponse.json(
+        { error: 'One or more bills cannot be paid online. Please contact the accounts office.' },
+        { status: 403 }
+      );
     }
 
     const base = parentPortalBaseUrl(); // e.g. http://localhost:3000/parent

@@ -23,6 +23,8 @@ export interface LoopClosureRow {
   my_next_date: string | null;        // 'YYYY-MM-DD'
   my_understanding_rose: boolean;     // my_next_understood > my_prior_understood (the learner's OWN win)
   my_delta: number | null;            // my_next_understood - my_prior_understood (null until a later session)
+  suggestion_id: string | null;       // the winning note behind the_change — target for the resolution vote
+  my_resolution_vote: 'better' | 'same' | 'worse' | null; // the learner's explicit confirm (null = not yet asked/answered)
 }
 
 /** fn_scf_my_struggling_note — the calling learner's most-recent AI-written support note.
@@ -34,4 +36,14 @@ export interface StrugglingNoteRow {
   course_name: string | null;
   note: string;          // the AI-written supportive note (shown to the learner only)
   generated_at: string;  // ISO timestamp the note was generated
+  // Nullable: during the deploy→migrate gap the old fn shape omits id — the
+  // card gates the tap row on it (deep-review #1902 r2 LOW, honest typing).
+  id: string | null;
+  reached_out: boolean | null; // the learner's own one-tap follow-up; null = not answered
+}
+
+/** The caller's OWN senior peer mentor from their induction group (mentee side).
+ *  Used by the support-note card to point at a real person (2026-07-09). */
+export interface MyMentorRow {
+  mentor_name: string;
 }

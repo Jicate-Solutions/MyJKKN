@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { BosAttendanceStatus } from '@/types/bos';
-import { computeClaimAmounts } from '@/lib/utils/bos/ta-da-rates';
+import {
+  BosAttendanceStatus,
+  bosMemberTypeLabel,
+} from '@/types/bos';
+import {
+  computeClaimAmountsWithRate,
+  TaDaRateOverride,
+} from '@/lib/utils/bos/ta-da-rates';
 import { resolveBosBoardScope } from '@/lib/utils/bos/bos-access';
 
 // Mirror of the helper in /api/bos/meetings/[id]/route.ts — CAS sibling
@@ -228,7 +234,10 @@ type AttendeeRow = {
   attendance_status: BosAttendanceStatus;
   ta_da_eligible: boolean;
   member: {
+    staff_id: string | null;
     expert_id: string | null;
+    member_type: string | null;
+    member_type_id: string | null;
   } | null;
 };
 
@@ -251,11 +260,73 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       institutions_id,
       attendance_status,
       ta_da_eligible,
-      member:bos_members ( expert_id )
+      member:bos_members ( staff_id, expert_id, member_type, member_type_id )
     `)
     .eq('meeting_id', meetingId);
 
   if (attErr) throw attErr;
+
+  // Per-council rate settings (bos_ta_da_rates, 20260710130000): resolve the
+  // meeting's convening committee name and load the institution's configured
+  // rates for it, keyed by the MEMBER-TYPE NAME from the bos_member_types
+  // catalog (lower-cased). Missing rows (or a whole missing configuration)
+  // fall back to the flat SOP constants inside computeClaimAmountsWithRate —
+  // so this lookup failing must never block claim generation, hence the
+  // defensive try/catch.
+  const ratesByMemberType = new Map<string, TaDaRateOverride>();
+  const memberTypeNameById = new Map<string, string>();
+  try {
+    const { data: meetingRow } = await admin
+      .from('bos_meetings')
+      .select('institutions_id, committee:bos_committees ( name )')
+      .eq('id', meetingId)
+      .maybeSingle();
+    const committeeName =
+      (meetingRow?.committee as unknown as { name?: string } | null)?.name ?? null;
+    const meetingInstitutionId =
+      (meetingRow as { institutions_id?: string | null } | null)?.institutions_id ?? null;
+
+    if (committeeName && meetingInstitutionId) {
+      // CAS-aware: rate rows may be stored under either Aided/SF sibling UUID.
+      const instIds = await casExpandedIds(admin, meetingInstitutionId, []);
+      const { data: rateRows } = await admin
+        .from('bos_ta_da_rates')
+        .select('member_type, honorarium_amount, ta_per_km')
+        .in('institutions_id', instIds)
+        .ilike('committee_name', committeeName) // case-insensitive exact match
+        .eq('is_active', true);
+      for (const r of (rateRows ?? []) as Array<{
+        member_type: string;
+        honorarium_amount: number;
+        ta_per_km: number;
+      }>) {
+        ratesByMemberType.set(r.member_type.trim().toLowerCase(), r);
+      }
+    }
+
+    // Resolve each attendee's catalog type name (bos_members.member_type_id →
+    // bos_member_types.name). Only needed when rates are configured at all.
+    if (ratesByMemberType.size > 0) {
+      const typeIds = [
+        ...new Set(
+          ((attendees ?? []) as unknown as AttendeeRow[])
+            .map((a) => a.member?.member_type_id)
+            .filter((id): id is string => !!id)
+        ),
+      ];
+      if (typeIds.length > 0) {
+        const { data: typeRows } = await admin
+          .from('bos_member_types')
+          .select('id, name')
+          .in('id', typeIds);
+        for (const t of (typeRows ?? []) as Array<{ id: string; name: string }>) {
+          memberTypeNameById.set(t.id, t.name);
+        }
+      }
+    }
+  } catch (rateErr) {
+    console.warn('[bos/attendance] rate-settings lookup failed, using SOP defaults:', rateErr);
+  }
 
   const { data: existingClaims, error: claimErr } = await admin
     .from('bos_ta_da_claims')
@@ -290,10 +361,13 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
   // Per the 2026-05-21 SOP refinement: ANY present member receives a claim.
   // ta_da_eligible is no longer a gate — the column is preserved for
   // historical/reporting reasons, but auto-claim generation runs purely off
-  // attendance status. computeClaimAmounts() already encodes the per-role
-  // shape (external = honorarium + TA, internal = honorarium only) using
-  // the member.expert_id discriminator, so no additional flag is needed
-  // to decide who gets what.
+  // attendance status. Amounts come from the council's configured rate row
+  // for the member's type when one exists (ratesByMemberType above), else
+  // computeClaimAmountsWithRate falls back to the flat SOP shape (external =
+  // honorarium + TA, internal = honorarium only). Internal-vs-external:
+  // staff_id WINS — a member with a staff record is internal (no TA, no
+  // distance needed) even when an expert record is also linked as a display
+  // snapshot source; only expert-only members are external.
   for (const a of (attendees ?? []) as unknown as AttendeeRow[]) {
     const isPresent = a.attendance_status === 'present';
     const shouldHaveClaim = isPresent;
@@ -301,11 +375,25 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
 
     if (shouldHaveClaim) {
       if (existing) continue; // idempotent — leave the existing claim alone
-      const isExternal = a.member?.expert_id != null;
+      const isExternal = a.member?.staff_id == null && a.member?.expert_id != null;
       const oneWayKm = isExternal && a.member?.expert_id
         ? distancesByExpertId.get(a.member.expert_id) ?? null
         : null;
-      const amounts = computeClaimAmounts({
+      // Rate key: the member's catalog type name; members not linked to the
+      // catalog (member_type_id null) fall back to the member_type value —
+      // for legacy rows that's the enum mapped through its display label
+      // (matches the seeded catalog names 'Member', 'Subject Expert', …),
+      // for catalog rows it's already the type name verbatim (20260710150000).
+      // No match → SOP constants via computeClaimAmountsWithRate.
+      const catalogName = a.member?.member_type_id
+        ? memberTypeNameById.get(a.member.member_type_id)
+        : undefined;
+      const labelFallback = a.member?.member_type
+        ? bosMemberTypeLabel(a.member.member_type)
+        : undefined;
+      const rateKey = (catalogName ?? labelFallback ?? '').trim().toLowerCase();
+      const rate = rateKey ? ratesByMemberType.get(rateKey) ?? null : null;
+      const amounts = computeClaimAmountsWithRate(rate, {
         isExternal,
         oneWayKm,
       });

@@ -14,8 +14,14 @@ import {
   BosProgrammeSpecificOutcome,
   BosPOMappingsData,
   BosPoMapping,
+  BosConceptApplicationsData,
+  BosAssessmentPatternData,
+  BosCapstoneProjectData,
+  BosCapstoneRubricData,
+  BosLlcConferenceData,
 } from '@/types/bos';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -32,6 +38,17 @@ import {
   type ImportWarning,
   type ImportSummaryCounts,
 } from '@/components/bos/syllabus-import-issues-dialog';
+import {
+  PharmacyScopeCard,
+  PharmacyExamSchemeCard,
+  PharmacyInternshipCard,
+} from '@/components/bos/syllabus-pharmacy-tabs';
+import {
+  resolveAcademicModel,
+  isPharmacyModel,
+  modelHasOutcomes,
+} from '@/lib/services/bos/academic-model';
+import type { AcademicModel } from '@/types/bos';
 
 interface Institution { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; display_name?: string; }
 interface Regulation { id: string; title: string; regulation_code: string; regulation_year?: string; }
@@ -56,6 +73,42 @@ const DEFAULT_ASSESSMENT_STRUCTURE = {
   concept_applications_note: '',
   exhibition_note: '',
   capstones: [] as Array<{ title: string; subject?: string; artifacts?: string; give_back?: string }>,
+};
+
+// ── v3.5 Fink's formative + Capstone defaults — seeded for new syllabi. ──────
+// Pattern / rubric / LLC text are the standard v3.5 boilerplate (editable);
+// the course-specific blocks (concept applications, capstone options) start
+// empty so faculty author them per course.
+const DEFAULT_ASSESSMENT_PATTERN: BosAssessmentPatternData = {
+  internal_marks: 30,
+  external_marks: 70,
+  components: [
+    { sno: 1, component: 'CIA I, CIA II & Model Examination', marks: 15 },
+    { sno: 2, component: 'Activities*', marks: 5 },
+    { sno: 3, component: 'Capstone Project (see below)', marks: 10 },
+  ],
+  activities_note:
+    '* Activities: Assignment / Case study / Field survey / PPT / Group discussion / Subject Viva / Report Writing / Mind map / Flow chart / Model making / Debate / Surprise test / Open book test.',
+  note: "The Concept Applications are formative Fink's-shaped practice. The summative Fink's assessment is the Capstone Project (10 marks).",
+};
+
+const DEFAULT_CAPSTONE_RUBRIC: BosCapstoneRubricData = {
+  total_marks: 10,
+  note: '10 marks · common to all capstone options',
+  criteria: [
+    { sno: 1, criterion: 'Specificity of lived engagement (not generic; named places, named people, real measurements, real data)', marks: 2 },
+    { sno: 2, criterion: 'Quality of disciplinary craft (course-appropriate technique — reasoning, measurement rigour, code, analysis — in service of the subject)', marks: 3 },
+    { sno: 3, criterion: 'Honest self-reflection (pre-conceptions named, shift documented, courage in saying what is hard)', marks: 2 },
+    { sno: 4, criterion: 'Continuing commitment OR ethical care (subject consent, give-back, named follow-through where applicable)', marks: 2 },
+    { sno: 5, criterion: 'Authentic voice + LLC presentation (clarity, ownership, ability to answer questions; AI use declared if any — Humans are Principals, AI are Agents)', marks: 1 },
+  ],
+};
+
+const DEFAULT_LLC_CONFERENCE: BosLlcConferenceData = {
+  title: 'End-of-Course Learners Led Conference',
+  subtitle: 'cohort audience · faculty + Senior Learner facilitate · no outside guest required',
+  description:
+    "In the final fortnight of the semester, the cohort convenes a Learners Led Conference — JKKN's established learner-run session format — in which every Learner presents their Capstone: a 5–7 minute talk showing what they made, measured, built, or found (the object, the data table, the hand-drawn graph, the running program, the quoted voice, the photograph of the named place) and answering two or three questions from peers and faculty. The Learner is the Principal of the session. Faculty and the Senior Learner facilitate and assess the presentation dimension of the Capstone rubric.",
 };
 
 interface SyllabusFormProps {
@@ -121,6 +174,11 @@ function buildDuplicateSeed(src: BosCourseSyllabus): Partial<BosCourseSyllabus> 
     pedagogy: src.pedagogy ?? { methods: [] },
     po_mappings: src.po_mappings ?? { mappings: [] },
     assessment_structure: src.assessment_structure ?? undefined,
+    concept_applications: src.concept_applications ?? undefined,
+    assessment_pattern: src.assessment_pattern ?? undefined,
+    capstone_project: src.capstone_project ?? undefined,
+    capstone_rubric: src.capstone_rubric ?? undefined,
+    llc_conference: src.llc_conference ?? undefined,
     // Provenance: which syllabus this copy was duplicated from.
     revised_from_syllabus_id: src.id,
   };
@@ -213,6 +271,11 @@ export function SyllabusForm({
           pedagogy: { methods: [] },
           po_mappings: { mappings: [] },
           assessment_structure: DEFAULT_ASSESSMENT_STRUCTURE,
+          concept_applications: { intro_note: '', activities: [] },
+          assessment_pattern: DEFAULT_ASSESSMENT_PATTERN,
+          capstone_project: { intro_note: '', options: [] },
+          capstone_rubric: DEFAULT_CAPSTONE_RUBRIC,
+          llc_conference: DEFAULT_LLC_CONFERENCE,
         }
   );
 
@@ -236,6 +299,67 @@ export function SyllabusForm({
     formData.institutions_id || undefined,
     formData.board_id || undefined,
   );
+
+  // v3.5 tab gating: the Assessment and Capstone & LLC tabs are Fink's-framework
+  // sections. They only appear when the resolved board taxonomy is Fink's; on
+  // Bloom's (or no taxonomy configured) the flow ends at PO Mappings, which
+  // becomes the final-save tab.
+  // TEMP (2026-07-22): both tabs hidden for ALL boards on request while the
+  // v3.5 sections are not in use. Underlying data/columns are untouched —
+  // flip HIDE_FINKS_TABS to false to restore them.
+  const HIDE_FINKS_TABS = true;
+  const isFinksBoard = !HIDE_FINKS_TABS && taxonomy?.taxonomy_type === 'finks';
+
+  // If the taxonomy resolves to non-Fink's while the user sits on a Fink's-only
+  // tab (e.g. regulation/board changed mid-edit), bounce back to PO Mappings —
+  // otherwise the hidden panel leaves a blank form body.
+  useEffect(() => {
+    if (!isFinksBoard && (activeTab === 'assessment' || activeTab === 'capstone')) {
+      setActiveTab('mappings');
+    }
+  }, [isFinksBoard, activeTab]);
+
+  // ── Academic model (COP pharmacy support) ─────────────────────────────
+  // COP hosts BOTH B.Pharm (pci_pharm) and Pharm.D (mgr_pharmd) as separate
+  // BoS boards, so the model is resolved from the SELECTED BOARD (name/code),
+  // not the institution_code. Computed live from the board; injected into the
+  // save payload (never stored in formData so a board change re-resolves).
+  // While the board list is still loading on an edit, trust the persisted
+  // academic_model so pharmacy tabs don't flicker to the Anna set.
+  const selectedBoardMeta = useMemo(
+    () => boards.find((b) => b.id === formData.board_id),
+    [boards, formData.board_id],
+  );
+  const institutionCode = useMemo(
+    () => institutions.find((i) => i.id === formData.institutions_id)?.institution_code,
+    [institutions, formData.institutions_id],
+  );
+  const academicModel: AcademicModel = useMemo(() => {
+    if (!selectedBoardMeta && existingSyllabus?.academic_model) {
+      return existingSyllabus.academic_model;
+    }
+    return resolveAcademicModel({
+      institutionCode,
+      boardId: formData.board_id,
+      boardName: selectedBoardMeta?.board_name,
+      boardCode: selectedBoardMeta?.board_code,
+    });
+  }, [selectedBoardMeta, existingSyllabus?.academic_model, institutionCode, formData.board_id]);
+
+  const isPharmacy = isPharmacyModel(academicModel);
+  const isBPharm = academicModel === 'pci_pharm';
+  const isPharmD = academicModel === 'mgr_pharmd';
+  // Pharmacy models carry no CO/PO/PSO/Bloom — hide those tabs entirely.
+  const showOutcomeTabs = modelHasOutcomes(academicModel);
+
+  // If the user is parked on an outcome tab when the model resolves to a
+  // pharmacy model (board changed mid-edit), bounce to a visible tab so the
+  // body isn't blank.
+  useEffect(() => {
+    if (isPharmacy && ['clo', 'pedagogy', 'mappings'].includes(activeTab)) {
+      setActiveTab('content');
+    }
+  }, [isPharmacy, activeTab]);
 
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
@@ -274,6 +398,16 @@ export function SyllabusForm({
   );
   const courseOptions = coursesData?.data ?? [];
 
+  // Course category (Theory / Practical / Project / Theory + Practical / …) of
+  // the currently-selected course. Drives which Content-Type tabs are enabled in
+  // the Content tab. Resolved by matching the saved/selected course_code against
+  // the (institution + regulation + board)-scoped course list. When the course
+  // isn't in the list (synthetic-option fallback on edit) this is undefined and
+  // ContentEditor leaves all tabs enabled rather than blocking the user.
+  const selectedCourseCategory = (courseOptions.find(
+    (c) => c.course_code === formData.course_code,
+  ) as any)?.course_category as string | undefined;
+
   // Read sessionStorage handoff from the list page Import button — runs once
   // on mount, consume-and-delete so a refresh doesn't replay the data.
   useEffect(() => {
@@ -309,6 +443,7 @@ export function SyllabusForm({
       if (s.objectives) parts.push(`${s.objectives} objectives`);
       if (s.clos) parts.push(`${s.clos} COs`);
       if (s.units) parts.push(`${s.units} units`);
+      if (s.practical_topics) parts.push(`${s.practical_topics} practical topics`);
       if (s.textbooks) parts.push(`${s.textbooks} textbooks`);
       if (s.references) parts.push(`${s.references} references`);
       if (s.web_resources) parts.push(`${s.web_resources} web resources`);
@@ -391,6 +526,7 @@ export function SyllabusForm({
       if (summary.objectives) parts.push(`${summary.objectives} objectives`);
       if (summary.clos) parts.push(`${summary.clos} COs`);
       if (summary.units) parts.push(`${summary.units} units`);
+      if (summary.practical_topics) parts.push(`${summary.practical_topics} practical topics`);
       if (summary.textbooks) parts.push(`${summary.textbooks} textbooks`);
       if (summary.references) parts.push(`${summary.references} references`);
       if (summary.web_resources) parts.push(`${summary.web_resources} web resources`);
@@ -493,6 +629,52 @@ export function SyllabusForm({
       fetchInstitutions();
     }
   }, [isSuperAdmin]);
+
+  // Edit path: the syllabus may reference an institution that the COE-driven
+  // /api/bos/institutions list omits (e.g. an engineering college whose MyJKKN
+  // UUID isn't mapped into any COE institution's myjkkn_institution_ids). Without
+  // a matching option the Institution SearchableSelect shows only its
+  // placeholder — even though formData.institutions_id is set — which reads as
+  // "institution missing". Resolve the name from the MyJKKN institutions table
+  // and inject a display-only option so the record's institution shows and is
+  // retained on save. The server still authorises the write via guardSyllabusEdit.
+  useEffect(() => {
+    if (!isEditingProp && !syllabusProp) return;
+    const instId = formData.institutions_id;
+    if (!instId) return;
+    if (institutions.some((i) => i.id === instId || i.myjkkn_institution_ids?.includes(instId))) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/institutions');
+        if (!res.ok) return;
+        const json = await res.json();
+        const rows = (json?.data ?? []) as Array<{ id: string; name: string; display_name?: string }>;
+        const match = rows.find((r) => r.id === instId);
+        if (cancelled || !match) return;
+        setInstitutions((prev) =>
+          prev.some((i) => i.id === instId)
+            ? prev
+            : [
+                ...prev,
+                {
+                  id: instId,
+                  name: match.display_name || match.name,
+                  // Left blank so the composition fetch keeps using the
+                  // institutionsId fallback (unchanged from the no-option case).
+                  institution_code: '',
+                  myjkkn_institution_ids: [instId],
+                },
+              ],
+        );
+      } catch {
+        /* non-fatal — dropdown simply stays on its placeholder */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditingProp, syllabusProp, institutions, formData.institutions_id]);
 
   // Fetch boards
   useEffect(() => {
@@ -771,11 +953,16 @@ export function SyllabusForm({
     }
 
     try {
+      // Inject the resolved academic model so pharmacy/AHS rows persist their
+      // discriminator (it's computed from the board, not stored in formData, so
+      // a board change always re-resolves). Anna rows get 'anna_univ' — a no-op
+      // vs the DB default.
+      const payload = { ...formData, academic_model: academicModel };
       if (isEditing && currentSyllabusId) {
-        const result = await updateMutation.mutateAsync(formData as UpdateBosSyllabusDto);
+        const result = await updateMutation.mutateAsync(payload as UpdateBosSyllabusDto);
         onSuccess?.(result);
       } else {
-        const result = await createMutation.mutateAsync(formData as CreateBosSyllabusDto);
+        const result = await createMutation.mutateAsync(payload as CreateBosSyllabusDto);
         onSuccess?.(result);
       }
     } catch (error) {
@@ -855,16 +1042,96 @@ export function SyllabusForm({
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         {/* Clone popup shows only Basic Info — hide the tab chrome entirely. */}
         {!compact && (
-          <TabsList className="grid w-full grid-cols-8">
+          <TabsList
+            className={`grid w-full ${
+              isPharmacy ? 'grid-cols-6' : isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'
+            }`}
+          >
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
+            {/* B.Pharm carries a "Scope" paragraph before Objectives. */}
+            {isBPharm && <TabsTrigger value="scope">Scope</TabsTrigger>}
             <TabsTrigger value="objectives">Objectives</TabsTrigger>
-            <TabsTrigger value="clo">Course Outcomes</TabsTrigger>
-            <TabsTrigger value="content">Content</TabsTrigger>
+            {/* Outcome tabs (CO/PO/PSO, Pedagogy) — Anna models only; pharmacy has none. */}
+            {showOutcomeTabs && <TabsTrigger value="clo">Course Outcomes</TabsTrigger>}
+            <TabsTrigger value="content">{isPharmD ? 'Lecture Topics' : 'Content'}</TabsTrigger>
             <TabsTrigger value="resources">Resources</TabsTrigger>
-            <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>
-            <TabsTrigger value="mappings">PO Mappings</TabsTrigger>
-            <TabsTrigger value="assessment">Assessment</TabsTrigger>
+            {showOutcomeTabs && <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>}
+            {showOutcomeTabs && <TabsTrigger value="mappings">PO Mappings</TabsTrigger>}
+            {/* Pharmacy exam scheme (PCI / Dr. MGR) replaces the outcome mapping. */}
+            {isPharmacy && <TabsTrigger value="exam">Exam Scheme</TabsTrigger>}
+            {/* Pharm.D 6th-year internship postings. */}
+            {isPharmD && <TabsTrigger value="internship">Internship</TabsTrigger>}
+            {/* Fink's-only tabs — Bloom's boards end the flow at PO Mappings */}
+            {isFinksBoard && (
+              <>
+                <TabsTrigger value="assessment">Assessment</TabsTrigger>
+                <TabsTrigger value="capstone">Capstone &amp; LLC</TabsTrigger>
+              </>
+            )}
           </TabsList>
+        )}
+
+        {/* ── Pharmacy (COP) tabs — pci_pharm (B.Pharm) / mgr_pharmd (Pharm.D) ── */}
+        {isBPharm && (
+          <TabsContent value="scope" className="space-y-4">
+            <PharmacyScopeCard
+              value={formData.scope}
+              onChange={(v) => updateField('scope', v)}
+            />
+          </TabsContent>
+        )}
+        {isPharmacy && (
+          <TabsContent value="exam" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Program placement</CardTitle>
+                <CardDescription>
+                  {isBPharm
+                    ? 'Which semester this course belongs to (B.Pharm 1–8).'
+                    : 'Which academic year this subject belongs to (Pharm.D 1–5).'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {isBPharm && (
+                  <div>
+                    <label className="text-xs text-muted-foreground">Semester (1–8)</label>
+                    <Input
+                      inputMode="numeric"
+                      value={formData.semester ?? ''}
+                      onChange={(e) =>
+                        updateField('semester', e.target.value === '' ? undefined : Number(e.target.value))
+                      }
+                    />
+                  </div>
+                )}
+                {isPharmD && (
+                  <div>
+                    <label className="text-xs text-muted-foreground">Academic year (1–5)</label>
+                    <Input
+                      inputMode="numeric"
+                      value={formData.academic_year ?? ''}
+                      onChange={(e) =>
+                        updateField('academic_year', e.target.value === '' ? undefined : Number(e.target.value))
+                      }
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <PharmacyExamSchemeCard
+              value={formData.exam_scheme}
+              onChange={(v) => updateField('exam_scheme', v)}
+              showQuestionPattern={isBPharm}
+            />
+          </TabsContent>
+        )}
+        {isPharmD && (
+          <TabsContent value="internship" className="space-y-4">
+            <PharmacyInternshipCard
+              value={formData.internship_postings}
+              onChange={(v) => updateField('internship_postings', v)}
+            />
+          </TabsContent>
         )}
 
         {/* Basic Information */}
@@ -1195,6 +1462,31 @@ export function SyllabusForm({
                   placeholder="e.g., Engineering, Pharmacy"
                 />
               </div>
+              {/* NAAC-2024 coverage tags — counted live for metrics 1.4 / 1.6 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="is_skill_based"
+                    checked={formData.is_skill_based ?? false}
+                    onCheckedChange={(v) => updateField('is_skill_based', v === true)}
+                  />
+                  <label htmlFor="is_skill_based" className="text-sm font-medium cursor-pointer">
+                    Skill/apprenticeship-focused course
+                    <span className="ml-1 text-xs text-muted-foreground">(NAAC 1.4)</span>
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="is_iks"
+                    checked={formData.is_iks ?? false}
+                    onCheckedChange={(v) => updateField('is_iks', v === true)}
+                  />
+                  <label htmlFor="is_iks" className="text-sm font-medium cursor-pointer">
+                    Contains Indian Knowledge System content
+                    <span className="ml-1 text-xs text-muted-foreground">(NAAC 1.6)</span>
+                  </label>
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Notes</label>
                 <Textarea
@@ -1321,6 +1613,8 @@ export function SyllabusForm({
               <ContentEditor
                 content={formData.course_content as any}
                 onChange={(val) => updateField('course_content', val)}
+                courseCode={formData.course_code}
+                courseCategory={selectedCourseCategory}
               />
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setActiveTab('clo')}>
@@ -1431,19 +1725,38 @@ export function SyllabusForm({
                 <Button type="button" variant="outline" onClick={() => setActiveTab('pedagogy')}>
                   Back
                 </Button>
-                <Button
-                  type="button"
-                  onClick={() => handleSaveAndNext('assessment')}
-                  disabled={isLoading}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  {isLoading ? 'Saving...' : 'Save & Next'}
-                </Button>
+                {isFinksBoard ? (
+                  <Button
+                    type="button"
+                    onClick={() => handleSaveAndNext('assessment')}
+                    disabled={isLoading}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isLoading ? 'Saving...' : 'Save & Next'}
+                  </Button>
+                ) : (
+                  // Bloom's boards: PO Mappings is the last tab — final save here.
+                  <Button
+                    type="submit"
+                    disabled={isLoading}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {isLoading
+                      ? 'Saving...'
+                      : isEditing
+                        ? 'Update Syllabus'
+                        : isDuplicate
+                          ? 'Create Clone'
+                          : 'Create Syllabus'}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Fink's-only panels — hidden entirely for Bloom's / unconfigured boards */}
+        {isFinksBoard && (<>
         {/* Assessment Structure (v1.2) */}
         <TabsContent value="assessment" className="space-y-4">
           <Card>
@@ -1464,6 +1777,93 @@ export function SyllabusForm({
                   Back
                 </Button>
                 <Button
+                  type="button"
+                  onClick={() => handleSaveAndNext('capstone')}
+                  disabled={isLoading}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isLoading ? 'Saving...' : 'Save & Next'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Fink's Formative + Capstone (v3.5) */}
+        <TabsContent value="capstone" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Concept Applications (Formative Learning Activities)</CardTitle>
+              <CardDescription>
+                Fink&apos;s-shaped formative activities anchored to the course units —
+                not separately graded; may credit toward the Activities row
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ConceptApplicationsEditor
+                value={formData.concept_applications}
+                onChange={(val) => updateField('concept_applications', val)}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Assessment Pattern</CardTitle>
+              <CardDescription>Internal / External split and internal component rows</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AssessmentPatternEditor
+                value={formData.assessment_pattern}
+                onChange={(val) => updateField('assessment_pattern', val)}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Capstone Project</CardTitle>
+              <CardDescription>
+                Choose ONE of FIVE — AI-proof primary deliverable, ~400-word support,
+                presented at the Learners Led Conference
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CapstoneProjectEditor
+                value={formData.capstone_project}
+                onChange={(val) => updateField('capstone_project', val)}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Capstone Rubric</CardTitle>
+              <CardDescription>Common to all capstone options</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CapstoneRubricEditor
+                value={formData.capstone_rubric}
+                onChange={(val) => updateField('capstone_rubric', val)}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>End-of-Course Learners Led Conference</CardTitle>
+              <CardDescription>The cohort-facing session where every Capstone is presented</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <LlcConferenceEditor
+                value={formData.llc_conference}
+                onChange={(val) => updateField('llc_conference', val)}
+              />
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button type="button" variant="outline" onClick={() => setActiveTab('assessment')}>
+                  Back
+                </Button>
+                <Button
                   type="submit"
                   disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700"
@@ -1480,6 +1880,7 @@ export function SyllabusForm({
             </CardContent>
           </Card>
         </TabsContent>
+        </>)}
         </>)}
       </Tabs>
       </fieldset>
@@ -1693,6 +2094,492 @@ function AssessmentEditor({ assessment, onChange }: {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── v3.5 Fink's Formative + Capstone editors ─────────────────────────────────
+
+// Concept Applications (Formative Learning Activities): intro note + one row
+// per unit-anchored, Fink's-dimension-shaped activity.
+function ConceptApplicationsEditor({ value, onChange }: {
+  value?: BosConceptApplicationsData;
+  onChange: (val: BosConceptApplicationsData) => void;
+}) {
+  const data = value ?? {};
+  const activities = data.activities ?? [];
+  const update = (patch: Partial<BosConceptApplicationsData>) => onChange({ ...data, ...patch });
+
+  const addActivity = () =>
+    update({
+      activities: [
+        ...activities,
+        { sno: activities.length + 1, unit: '', finks_dimension: '', task: '', deliverable_notes: '' },
+      ],
+    });
+  const updateActivity = (idx: number, field: 'unit' | 'finks_dimension' | 'task' | 'deliverable_notes', val: string) =>
+    update({ activities: activities.map((a, i) => (i === idx ? { ...a, [field]: val } : a)) });
+  const removeActivity = (idx: number) =>
+    update({
+      activities: activities.filter((_, i) => i !== idx).map((a, i) => ({ ...a, sno: i + 1 })),
+    });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium mb-1">Intro note</label>
+        <Textarea
+          value={data.intro_note ?? ''}
+          onChange={(e) => update({ intro_note: e.target.value })}
+          placeholder="e.g., Five short Fink's-shaped activities anchored to the lab experiments, conducted as formative learning during the semester…"
+          rows={3}
+        />
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Activities
+          </h4>
+          <Button type="button" variant="outline" size="sm" onClick={addActivity} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add Activity
+          </Button>
+        </div>
+        <div className="space-y-3">
+          {activities.map((act, idx) => (
+            <Card key={act.id ?? idx} className="border-muted">
+              <CardContent className="pt-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-8 shrink-0 text-sm text-muted-foreground">{act.sno ?? idx + 1}</span>
+                  <Input
+                    value={act.unit}
+                    onChange={(e) => updateActivity(idx, 'unit', e.target.value)}
+                    placeholder="Unit — e.g., Word Tasks 1-2"
+                    className="flex-1"
+                  />
+                  <Input
+                    value={act.finks_dimension}
+                    onChange={(e) => updateActivity(idx, 'finks_dimension', e.target.value)}
+                    placeholder="Fink's dimension — e.g., Foundational Knowledge"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeActivity(idx)}
+                    className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                    aria-label="Remove activity"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Task</label>
+                  <Textarea
+                    value={act.task}
+                    onChange={(e) => updateActivity(idx, 'task', e.target.value)}
+                    placeholder="The activity brief — what the Learner does with THEIR real content"
+                    rows={2}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Deliverable &amp; notes</label>
+                  <Textarea
+                    value={act.deliverable_notes}
+                    onChange={(e) => updateActivity(idx, 'deliverable_notes', e.target.value)}
+                    placeholder="The evidence + the 3-4 sentence reflection prompt"
+                    rows={2}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {activities.length === 0 && (
+            <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground text-center">
+              No activities yet — add one per unit.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Assessment Pattern: internal/external split + internal component rows.
+function AssessmentPatternEditor({ value, onChange }: {
+  value?: BosAssessmentPatternData;
+  onChange: (val: BosAssessmentPatternData) => void;
+}) {
+  const data = value ?? {};
+  const components = data.components ?? [];
+  const internal = data.internal_marks ?? 0;
+  const total = components.reduce((s, c) => s + (Number(c.marks) || 0), 0);
+  const update = (patch: Partial<BosAssessmentPatternData>) => onChange({ ...data, ...patch });
+
+  const addComponent = () =>
+    update({ components: [...components, { sno: components.length + 1, component: '', marks: 0 }] });
+  const updateComponent = (idx: number, field: 'component' | 'marks', val: string) =>
+    update({
+      components: components.map((c, i) =>
+        i === idx ? { ...c, [field]: field === 'marks' ? Number(val) || 0 : val } : c,
+      ),
+    });
+  const removeComponent = (idx: number) =>
+    update({
+      components: components.filter((_, i) => i !== idx).map((c, i) => ({ ...c, sno: i + 1 })),
+    });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium mb-1">Internal marks</label>
+          <Input
+            type="number"
+            value={data.internal_marks ?? ''}
+            onChange={(e) => update({ internal_marks: Number(e.target.value) || 0 })}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">External marks</label>
+          <Input
+            type="number"
+            value={data.external_marks ?? ''}
+            onChange={(e) => update({ external_marks: Number(e.target.value) || 0 })}
+          />
+        </div>
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Internal Components
+          </h4>
+          <Button type="button" variant="outline" size="sm" onClick={addComponent} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add Component
+          </Button>
+        </div>
+        <div className="rounded-md border divide-y">
+          <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 text-xs font-medium text-muted-foreground">
+            <span className="w-8 shrink-0">S.No</span>
+            <span className="flex-1">Component</span>
+            <span className="w-20 shrink-0 text-right">Marks</span>
+            <span className="w-8 shrink-0" />
+          </div>
+          {components.map((c, idx) => (
+            <div key={c.id ?? idx} className="flex items-start gap-2 px-3 py-2">
+              <span className="w-8 shrink-0 pt-2 text-sm text-muted-foreground">{c.sno ?? idx + 1}</span>
+              <Textarea
+                value={c.component}
+                onChange={(e) => updateComponent(idx, 'component', e.target.value)}
+                placeholder="Component description"
+                rows={2}
+                className="flex-1"
+              />
+              <Input
+                type="number"
+                value={c.marks ?? ''}
+                onChange={(e) => updateComponent(idx, 'marks', e.target.value)}
+                className="w-20 shrink-0"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => removeComponent(idx)}
+                className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                aria-label="Remove component"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          {components.length === 0 && (
+            <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+              No components yet — add one.
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2 px-3 py-2 bg-muted/30">
+            <span className="text-xs font-medium text-muted-foreground">Total Internal</span>
+            <span className={`text-sm font-semibold ${total === internal ? 'text-green-600' : 'text-amber-600'}`}>
+              {total}
+            </span>
+            {total !== internal && (
+              <span className="text-xs text-amber-600">(should be {internal})</span>
+            )}
+          </div>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Activities note</label>
+        <Textarea
+          value={data.activities_note ?? ''}
+          onChange={(e) => update({ activities_note: e.target.value })}
+          placeholder="* Activities: Assignment / Case study / Field survey / PPT / Group discussion…"
+          rows={2}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Note</label>
+        <Textarea
+          value={data.note ?? ''}
+          onChange={(e) => update({ note: e.target.value })}
+          placeholder="e.g., The Concept Applications are formative practice; the summative Fink's assessment is the Capstone Project."
+          rows={2}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Capstone Project: intro note + "choose ONE of FIVE" option cards.
+function CapstoneProjectEditor({ value, onChange }: {
+  value?: BosCapstoneProjectData;
+  onChange: (val: BosCapstoneProjectData) => void;
+}) {
+  const data = value ?? {};
+  const options = data.options ?? [];
+  const update = (patch: Partial<BosCapstoneProjectData>) => onChange({ ...data, ...patch });
+
+  const addOption = () =>
+    update({
+      options: [...options, { option_no: options.length + 1, title: '', primary: '', support: '', llc: '' }],
+    });
+  const updateOption = (idx: number, field: 'title' | 'primary' | 'support' | 'llc', val: string) =>
+    update({ options: options.map((o, i) => (i === idx ? { ...o, [field]: val } : o)) });
+  const removeOption = (idx: number) =>
+    update({
+      options: options.filter((_, i) => i !== idx).map((o, i) => ({ ...o, option_no: i + 1 })),
+    });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium mb-1">Intro note</label>
+        <Textarea
+          value={data.intro_note ?? ''}
+          onChange={(e) => update({ intro_note: e.target.value })}
+          placeholder="e.g., choose ONE of FIVE — Solo · 10 marks (Internal) · spans the semester · presented at the end-of-course Learners Led Conference…"
+          rows={3}
+        />
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Options
+          </h4>
+          <Button type="button" variant="outline" size="sm" onClick={addOption} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add Option
+          </Button>
+        </div>
+        <div className="space-y-3">
+          {options.map((opt, idx) => (
+            <Card key={opt.id ?? idx} className="border-muted">
+              <CardContent className="pt-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs font-semibold text-muted-foreground">
+                    Option {opt.option_no ?? idx + 1}
+                  </span>
+                  <Input
+                    value={opt.title}
+                    onChange={(e) => updateOption(idx, 'title', e.target.value)}
+                    placeholder='Title — e.g., "The Document Kit for a Real Event"'
+                    className="flex-1 font-medium"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeOption(idx)}
+                    className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                    aria-label="Remove option"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Primary (AI-proof)</label>
+                  <Textarea
+                    value={opt.primary ?? ''}
+                    onChange={(e) => updateOption(idx, 'primary', e.target.value)}
+                    placeholder="The real measured object / named-source deliverable an AI cannot fabricate"
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Support (~400 words)</label>
+                  <Textarea
+                    value={opt.support ?? ''}
+                    onChange={(e) => updateOption(idx, 'support', e.target.value)}
+                    placeholder="What the short reflection covers"
+                    rows={2}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">LLC demonstration</label>
+                  <Textarea
+                    value={opt.llc ?? ''}
+                    onChange={(e) => updateOption(idx, 'llc', e.target.value)}
+                    placeholder="What is shown live at the Learners Led Conference"
+                    rows={2}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {options.length === 0 && (
+            <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground text-center">
+              No options yet — add the FIVE capstone options.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Capstone Rubric: criterion rows common to all capstone options.
+function CapstoneRubricEditor({ value, onChange }: {
+  value?: BosCapstoneRubricData;
+  onChange: (val: BosCapstoneRubricData) => void;
+}) {
+  const data = value ?? {};
+  const criteria = data.criteria ?? [];
+  const rubricTotal = data.total_marks ?? 0;
+  const total = criteria.reduce((s, c) => s + (Number(c.marks) || 0), 0);
+  const update = (patch: Partial<BosCapstoneRubricData>) => onChange({ ...data, ...patch });
+
+  const addCriterion = () =>
+    update({ criteria: [...criteria, { sno: criteria.length + 1, criterion: '', marks: 0 }] });
+  const updateCriterion = (idx: number, field: 'criterion' | 'marks', val: string) =>
+    update({
+      criteria: criteria.map((c, i) =>
+        i === idx ? { ...c, [field]: field === 'marks' ? Number(val) || 0 : val } : c,
+      ),
+    });
+  const removeCriterion = (idx: number) =>
+    update({
+      criteria: criteria.filter((_, i) => i !== idx).map((c, i) => ({ ...c, sno: i + 1 })),
+    });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium mb-1">Total marks</label>
+          <Input
+            type="number"
+            value={data.total_marks ?? ''}
+            onChange={(e) => update({ total_marks: Number(e.target.value) || 0 })}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Note</label>
+          <Input
+            value={data.note ?? ''}
+            onChange={(e) => update({ note: e.target.value })}
+            placeholder="e.g., 10 marks · common to all 5 options"
+          />
+        </div>
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Criteria
+          </h4>
+          <Button type="button" variant="outline" size="sm" onClick={addCriterion} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add Criterion
+          </Button>
+        </div>
+        <div className="rounded-md border divide-y">
+          <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 text-xs font-medium text-muted-foreground">
+            <span className="w-8 shrink-0">S.No</span>
+            <span className="flex-1">Criterion</span>
+            <span className="w-20 shrink-0 text-right">Marks</span>
+            <span className="w-8 shrink-0" />
+          </div>
+          {criteria.map((c, idx) => (
+            <div key={c.id ?? idx} className="flex items-start gap-2 px-3 py-2">
+              <span className="w-8 shrink-0 pt-2 text-sm text-muted-foreground">{c.sno ?? idx + 1}</span>
+              <Textarea
+                value={c.criterion}
+                onChange={(e) => updateCriterion(idx, 'criterion', e.target.value)}
+                placeholder="Criterion description"
+                rows={2}
+                className="flex-1"
+              />
+              <Input
+                type="number"
+                value={c.marks ?? ''}
+                onChange={(e) => updateCriterion(idx, 'marks', e.target.value)}
+                className="w-20 shrink-0"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => removeCriterion(idx)}
+                className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                aria-label="Remove criterion"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          {criteria.length === 0 && (
+            <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+              No criteria yet — add one.
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2 px-3 py-2 bg-muted/30">
+            <span className="text-xs font-medium text-muted-foreground">Total</span>
+            <span className={`text-sm font-semibold ${total === rubricTotal ? 'text-green-600' : 'text-amber-600'}`}>
+              {total}
+            </span>
+            {total !== rubricTotal && (
+              <span className="text-xs text-amber-600">(should be {rubricTotal})</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// End-of-Course Learners Led Conference: title / subtitle / description block.
+function LlcConferenceEditor({ value, onChange }: {
+  value?: BosLlcConferenceData;
+  onChange: (val: BosLlcConferenceData) => void;
+}) {
+  const data = value ?? {};
+  const update = (patch: Partial<BosLlcConferenceData>) => onChange({ ...data, ...patch });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium mb-1">Title</label>
+        <Input
+          value={data.title ?? ''}
+          onChange={(e) => update({ title: e.target.value })}
+          placeholder="End-of-Course Learners Led Conference"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Subtitle</label>
+        <Input
+          value={data.subtitle ?? ''}
+          onChange={(e) => update({ subtitle: e.target.value })}
+          placeholder="cohort audience · faculty + Senior Learner facilitate · no outside guest required"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Description</label>
+        <Textarea
+          value={data.description ?? ''}
+          onChange={(e) => update({ description: e.target.value })}
+          placeholder="How the conference runs, who facilitates, and what each Learner presents"
+          rows={5}
+        />
       </div>
     </div>
   );
@@ -1931,9 +2818,36 @@ function CloEditor({ clos, kValues, onChange }: any) {
   );
 }
 
-function ContentEditor({ content, onChange }: any) {
+function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
   const isPractical = !!content?.is_practical;
   const isProject = !!content?.is_project;
+  const activeMode: 'theory' | 'practical' | 'project' = isProject
+    ? 'project'
+    : isPractical
+    ? 'practical'
+    : 'theory';
+
+  // Which Content-Type tabs the course category permits. The category strings
+  // ("Theory", "Practical", "Project", "Theory + Practical", "Theory + Project",
+  // "Group Project", …) are matched by substring so combined types light up both
+  // tabs. Non-content categories ("Non Academic", "Field Work", "Community
+  // Service") match nothing → we fall back to enabling everything rather than
+  // stranding the user with no editable tab. The currently-active mode is always
+  // kept enabled so existing data can never be hidden behind a disabled tab.
+  const allowedModes = (() => {
+    const c = (courseCategory || '').toLowerCase();
+    const modes = {
+      theory: c.includes('theory'),
+      practical: c.includes('practical'),
+      project: c.includes('project'),
+    };
+    if (!c || (!modes.theory && !modes.practical && !modes.project)) {
+      modes.theory = modes.practical = modes.project = true;
+    }
+    modes[activeMode] = true;
+    return modes;
+  })();
+
   const units = content?.units || [];
   const topics: {
     number: number;
@@ -1969,37 +2883,33 @@ function ContentEditor({ content, onChange }: any) {
   }, []);
 
   const switchToMode = (targetMode: 'theory' | 'practical' | 'project') => {
-    if (targetMode === 'theory' && !isPractical && !isProject) return;
-    if (targetMode === 'practical' && isPractical) return;
-    if (targetMode === 'project' && isProject) return;
+    // Guard: never enter a mode the course category disallows.
+    if (!allowedModes[targetMode]) return;
+    // No-op if we're already there.
+    if (targetMode === activeMode) return;
 
+    // Switching mode ONLY flips the two view flags. Each mode's data lives under
+    // its own key (theory→units, practical→topics, project→project_units), so we
+    // spread `...content` to keep ALL of them intact. This is what fixes the
+    // data-loss bug: cycling Theory→Practical→Project→Theory no longer wipes the
+    // keys the previous switch didn't name.
     if (targetMode === 'theory') {
-      // From Practical or Project → Theory
-      if (isPractical) {
-        const chapters = topics.map((t, i) => ({
-          chapter_number: i + 1,
-          title: t.title,
-          sections: '',
-        }));
-        onChange({ is_practical: false, is_project: false, units: [{ unit_id: 'I', unit_title: '', chapters }] });
-      } else {
-        onChange({ is_practical: false, is_project: false, units: projectUnits.length > 0 ? [{ unit_id: 'I', unit_title: '', chapters: [] }] : units });
-      }
+      onChange({ ...content, is_practical: false, is_project: false });
     } else if (targetMode === 'practical') {
-      // From Theory or Project → Practical
-      if (!isPractical && !isProject) {
+      // Seed practical topics from theory chapters ONLY when practical has no
+      // topics yet — a one-time convenience that never overwrites existing
+      // topics and never drops units/project_units.
+      const patch: any = { ...content, is_practical: true, is_project: false };
+      if (!topics.length && units.length) {
         const allChapters = units.flatMap((u: any) => u.chapters || []);
-        const flatTopics = allChapters.map((ch: any, i: number) => ({
+        patch.topics = allChapters.map((ch: any, i: number) => ({
           number: i + 1,
           title: ch.title || '',
         }));
-        onChange({ is_practical: true, is_project: false, topics: flatTopics.length > 0 ? flatTopics : [] });
-      } else if (isProject) {
-        onChange({ is_practical: true, is_project: false, topics: [] });
       }
-    } else if (targetMode === 'project') {
-      // From Theory or Practical → Project
-      onChange({ is_practical: false, is_project: true, project_units: [] });
+      onChange(patch);
+    } else {
+      onChange({ ...content, is_practical: false, is_project: true });
     }
   };
 
@@ -2171,46 +3081,41 @@ function ContentEditor({ content, onChange }: any) {
   return (
     <div className="space-y-4">
       {/* ── Mode toggle ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Content Type</span>
         <div className="flex rounded-lg border bg-muted/40 p-0.5 text-sm gap-0.5">
-          <button
-            type="button"
-            onClick={() => switchToMode('theory')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              !isPractical && !isProject
-                ? 'bg-white dark:bg-card shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <BookText className="h-3.5 w-3.5" />
-            Theory
-          </button>
-          <button
-            type="button"
-            onClick={() => switchToMode('practical')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              isPractical
-                ? 'bg-white dark:bg-card shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <FlaskConical className="h-3.5 w-3.5" />
-            Practical
-          </button>
-          <button
-            type="button"
-            onClick={() => switchToMode('project')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
-              isProject
-                ? 'bg-white dark:bg-card shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            Project
-          </button>
+          {([
+            { mode: 'theory' as const, label: 'Theory', Icon: BookText, active: !isPractical && !isProject },
+            { mode: 'practical' as const, label: 'Practical', Icon: FlaskConical, active: isPractical },
+            { mode: 'project' as const, label: 'Project', Icon: BookOpen, active: isProject },
+          ]).map(({ mode, label, Icon, active }) => {
+            const enabled = allowedModes[mode];
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => switchToMode(mode)}
+                disabled={!enabled}
+                title={enabled ? undefined : `This course type does not include a ${label} component`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all text-xs font-medium ${
+                  active
+                    ? 'bg-white dark:bg-card shadow-sm text-foreground'
+                    : enabled
+                    ? 'text-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground/40 cursor-not-allowed'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            );
+          })}
         </div>
+        {courseCategory ? (
+          <span className="text-[11px] text-muted-foreground">
+            {courseCode ? <span className="font-mono">{courseCode}</span> : null} · {courseCategory}
+          </span>
+        ) : null}
       </div>
 
       {isProject ? (
@@ -2324,6 +3229,22 @@ function ContentEditor({ content, onChange }: any) {
       ) : isPractical ? (
         /* ── Practical mode ──────────────────────────────────────── */
         <div className="space-y-2">
+          {/* PDF numbering toggle — when checked (default), the exported
+              "List of Experiments" prints the inline number ("1. Zener diode
+              …") on each experiment; unchecking drops the prefix (the S.No
+              column still numbers the rows). Stored on course_content so the
+              PDF/DOCX/HTML exporters can read it. */}
+          <label className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={content?.number_practical_topics !== false}
+              onChange={(e) =>
+                onChange({ ...content, number_practical_topics: e.target.checked })
+              }
+            />
+            Number experiments in PDF (print “1.”, “2.” … before each experiment)
+          </label>
           {topics.map((topic, idx) => (
             <div key={idx} className="flex items-start gap-2.5 group">
               <span className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
@@ -2411,6 +3332,14 @@ function ContentEditor({ content, onChange }: any) {
                   value={unit.unit_title}
                   onChange={(e) => updateUnit(unitIdx, 'unit_title', e.target.value)}
                   className="h-7 flex-1 border-0 bg-transparent px-0 text-sm font-semibold focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50"
+                />
+                {/* Hours (e.g. "9 + 3") — optional, not required for any unit. */}
+                <Input
+                  placeholder="Hours"
+                  value={unit.hours || ''}
+                  onChange={(e) => updateUnit(unitIdx, 'hours', e.target.value)}
+                  title="Hours (optional, e.g. 9 + 3)"
+                  className="h-7 w-20 shrink-0 rounded-md border bg-background px-2 text-center text-sm font-semibold tabular-nums placeholder:font-normal placeholder:text-muted-foreground/50"
                 />
                 <button
                   type="button"
@@ -2535,6 +3464,19 @@ function ContentEditor({ content, onChange }: any) {
           >
             <Plus className="h-4 w-4" /> Add Unit
           </button>
+
+          {/* Total Hours — mirrors the PDF's bottom-right "TOTAL: 30+30 PERIODS".
+              Optional: a course-content total, not required to save. */}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total Hours</span>
+            <Input
+              placeholder="e.g. 30 + 30"
+              value={content.total_hours || ''}
+              onChange={(e) => onChange({ ...content, total_hours: e.target.value })}
+              title="Total Hours (optional, e.g. 30 + 30)"
+              className="h-7 w-28 shrink-0 rounded-md border bg-background px-2 text-center text-sm font-semibold tabular-nums placeholder:font-normal placeholder:text-muted-foreground/50"
+            />
+          </div>
 
           {/* Instructions — displayed after all units */}
           <div className="px-4 py-3 space-y-2">
@@ -2851,13 +3793,32 @@ function PedagogyEditor({ methods, onChange }: any) {
   );
 }
 
+// Stored values stay 'L'/'M'/'H' (JSONB + exports depend on them); only the
+// DISPLAYED label varies by institution type:
+//   • Engineering (non-CAS, e.g. CET) → numeric 1/2/3  (ALIGNMENT_LEVELS.label)
+//   • CAS (Arts & Science, Aided+SF pair) → letters L/M/H (the value itself)
+// The `label` field below is the engineering/numeric form; labelFor() in the
+// editor picks numeric vs letters using scope.isCAS.
 const ALIGNMENT_LEVELS = [
-  { value: '' as const,  label: '-', bg: 'bg-gray-50',     text: 'text-gray-400',   desc: 'No Mapping' },
-  { value: 'L' as const, label: 'L', bg: 'bg-yellow-100',  text: 'text-yellow-700', desc: 'Low' },
-  { value: 'M' as const, label: 'M', bg: 'bg-orange-100',  text: 'text-orange-700', desc: 'Medium' },
-  { value: 'H' as const, label: 'H', bg: 'bg-green-100',   text: 'text-green-700',  desc: 'High' },
+  { value: '' as const,  label: '-', bg: 'bg-gray-50',     text: 'text-gray-400',   desc: 'No Correlation' },
+  { value: 'L' as const, label: '1', bg: 'bg-yellow-100',  text: 'text-yellow-700', desc: 'Low' },
+  { value: 'M' as const, label: '2', bg: 'bg-orange-100',  text: 'text-orange-700', desc: 'Medium' },
+  { value: 'H' as const, label: '3', bg: 'bg-green-100',   text: 'text-green-700',  desc: 'High' },
 ] as const;
 type AlignmentLevel = '' | 'L' | 'M' | 'H';
+
+// Canonicalize a stored correlation value to 'L'/'M'/'H'. Records may hold
+// EITHER letters ('H'/'M'/'L') or numeric strings ('3'/'2'/'1') depending on
+// how they were created — the docx importer writes numbers straight from
+// engineering curriculum PDFs, while the editor writes letters. Without this,
+// a numerically-stored mapping renders as an all-"–" (no correlation) table.
+const normalizeLevel = (v: unknown): AlignmentLevel => {
+  const s = String(v ?? '').trim().toUpperCase();
+  if (s === 'H' || s === '3') return 'H';
+  if (s === 'M' || s === '2') return 'M';
+  if (s === 'L' || s === '1') return 'L';
+  return '';
+};
 
 interface PoMappingsEditorProps {
   mappings: BosPOMappingsData | undefined;
@@ -2891,8 +3852,8 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
     const m: Record<string, Record<string, AlignmentLevel>> = {};
     for (const mapping of (mappings?.mappings ?? [])) {
       m[mapping.co_id] = {
-        ...Object.fromEntries(Object.entries(mapping.pos  ?? {}).map(([k, v]) => [k, v as AlignmentLevel])),
-        ...Object.fromEntries(Object.entries(mapping.psos ?? {}).map(([k, v]) => [k, v as AlignmentLevel])),
+        ...Object.fromEntries(Object.entries(mapping.pos  ?? {}).map(([k, v]) => [k, normalizeLevel(v)])),
+        ...Object.fromEntries(Object.entries(mapping.psos ?? {}).map(([k, v]) => [k, normalizeLevel(v)])),
       };
     }
     return m;
@@ -2978,8 +3939,8 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
     const newMappings: BosPoMapping[] = courseOutcomes.map(clo => {
       const key = `CO${clo.clo_number}`;
       const cell = updatedMatrix[key] ?? {};
-      const poEntries  = Object.fromEntries(pos.filter(p => cell[p.po_code]).map(p => [p.po_code,  cell[p.po_code]])) as Record<string, 'H' | 'M' | 'L'>;
-      const psoEntries = Object.fromEntries(psos.filter(p => cell[p.pso_code]).map(p => [p.pso_code, cell[p.pso_code]])) as Record<string, 'H' | 'M' | 'L'>;
+      const poEntries  = Object.fromEntries(pos.filter(p => cell[p.po_code]).map(p => [p.po_code,  serializeLevel(cell[p.po_code])])) as Record<string, 'H' | 'M' | 'L'>;
+      const psoEntries = Object.fromEntries(psos.filter(p => cell[p.pso_code]).map(p => [p.pso_code, serializeLevel(cell[p.pso_code])])) as Record<string, 'H' | 'M' | 'L'>;
       return { co_id: key, pos: poEntries, psos: psoEntries };
     });
 
@@ -2988,6 +3949,17 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
 
   const getCellLevel = (coCode: string, outcomeCode: string): AlignmentLevel =>
     (matrix[coCode]?.[outcomeCode] as AlignmentLevel) ?? '';
+
+  // Display label per institution type. CAS colleges (Aided+SF pair → isCAS)
+  // notate correlation as L/M/H; engineering (single-row, e.g. CET) as 1/2/3.
+  const labelFor = (level: typeof ALIGNMENT_LEVELS[number]): string =>
+    level.value === '' ? level.label : scope.isCAS ? level.value : level.label;
+
+  // Persist in the institution's own notation so the raw-printing PDF/DOCX
+  // exporters stay correct: CAS stores letters (L/M/H), engineering stores
+  // numbers (1/2/3). Reads are tolerant of both via normalizeLevel().
+  const serializeLevel = (level: AlignmentLevel): string =>
+    level === '' ? '' : scope.isCAS ? level : { L: '1', M: '2', H: '3' }[level];
 
   if (!boardId || !regulationId) {
     return <p className="text-sm text-muted-foreground">Select a board and regulation to load programme outcomes.</p>;
@@ -3074,7 +4046,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
                             onClick={() => handleCellClick(coCode, po.po_code)}
                             title={`${coCode} → ${po.po_code}: ${style.desc}`}
                           >
-                            <span className={`text-xs font-bold ${style.text}`}>{style.label}</span>
+                            <span className={`text-xs font-bold ${style.text}`}>{labelFor(style)}</span>
                           </td>
                         );
                       })}
@@ -3088,7 +4060,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
                             onClick={() => handleCellClick(coCode, pso.pso_code)}
                             title={`${coCode} → ${pso.pso_code}: ${style.desc}`}
                           >
-                            <span className={`text-xs font-bold ${style.text}`}>{style.label}</span>
+                            <span className={`text-xs font-bold ${style.text}`}>{labelFor(style)}</span>
                           </td>
                         );
                       })}
@@ -3104,7 +4076,7 @@ function PoMappingsEditor({ mappings, regulationId, institutionsIds, boardId, bo
             {ALIGNMENT_LEVELS.map(level => (
               <div key={level.value || 'none'} className="flex items-center gap-2">
                 <div className={`w-7 h-7 rounded border flex items-center justify-center ${level.bg}`}>
-                  <span className={`text-xs font-bold ${level.text}`}>{level.label}</span>
+                  <span className={`text-xs font-bold ${level.text}`}>{labelFor(level)}</span>
                 </div>
                 <span className="text-xs text-muted-foreground">{level.desc}</span>
               </div>

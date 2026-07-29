@@ -75,7 +75,18 @@ export async function GET(req: NextRequest) {
   const enabledValue = enabledRow?.value_jsonb;
   const enabled = enabledValue === true || enabledValue === 'true';
   if (!enabled) {
-    return NextResponse.json({ ok: true, enabled: false, skipped: true });
+    // The master switch is off, so this run does nothing. Without a top-level
+    // numeric the dispatcher reported a bare "HTTP 200" — a green light on a
+    // dead pipe. `processed: 0` makes the no-op legible in the Control Tower.
+    // (`skipped: true` here is a BOOLEAN flag, not a count; summarize() ignores
+    // non-numeric values, so it is left untouched for existing consumers.)
+    return NextResponse.json({
+      ok: true,
+      processed: 0,
+      created: 0,
+      enabled: false,
+      skipped: true,
+    });
   }
 
   // -- 2. Resolve target cycles ------------------------------------------
@@ -143,5 +154,14 @@ export async function GET(req: NextRequest) {
 
   logger.info(MODULE, 'cron run complete', summary);
 
-  return NextResponse.json({ ok: true, summary });
+  // Top-level numeric keys for ai-routine-dispatcher's summarize() — it reads
+  // only top-level allowlisted numerics, never `summary.totals.*`.
+  return NextResponse.json({
+    ok: true,
+    processed: summary.cycles_processed,
+    candidates: summary.totals.found,
+    created: summary.totals.inserted,
+    skipped: summary.totals.skipped,
+    summary,
+  });
 }

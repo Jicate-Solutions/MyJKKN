@@ -60,7 +60,10 @@ export class BillingCategoryService {
             frequency: data.frequency,
             kind: data.kind,
             description: data.description?.trim() || null,
-            is_active: data.is_active ?? true
+            is_active: data.is_active ?? true,
+            visible_to_learners: data.visible_to_learners ?? true,
+            once_per_learner: data.once_per_learner ?? false,
+            collection_type: data.collection_type
           }
         ])
         .select('*')
@@ -120,6 +123,11 @@ export class BillingCategoryService {
       if (data.description !== undefined)
         updateData.description = data.description?.trim() || null;
       if (data.is_active !== undefined) updateData.is_active = data.is_active;
+      if (data.visible_to_learners !== undefined)
+        updateData.visible_to_learners = data.visible_to_learners;
+      if (data.once_per_learner !== undefined)
+        updateData.once_per_learner = data.once_per_learner;
+      if (data.collection_type) updateData.collection_type = data.collection_type;
 
       const { data: category, error } = await (this.supabase
         .from('billing_categories') as any)
@@ -147,6 +155,43 @@ export class BillingCategoryService {
       console.error('[billing/categories] Error updating category:', error);
       throw error;
     }
+  }
+
+  /**
+   * How many learners already hold more than one live bill for this category.
+   *
+   * Drives the warning shown before turning "Once per learner" on: 9 categories
+   * are currently in violation, and enabling the flag does NOT retroactively
+   * clean them up — it only blocks new bills. Showing the number up front is
+   * what stops that being a silent surprise later.
+   *
+   * Backed by a SECURITY DEFINER RPC because the flag is global to the
+   * category: an RLS-scoped count would under-report for an institution-scoped
+   * user and give false confidence that the category is clean.
+   */
+  static async getDuplicateConflicts(categoryId: string): Promise<{
+    learnersWithDuplicates: number;
+    extraBills: number;
+    extraValue: number;
+  }> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'billing_category_duplicate_conflicts',
+      { p_category_id: categoryId }
+    );
+
+    if (error) {
+      console.error('[billing/categories] Error checking duplicate conflicts:', error);
+      throw error;
+    }
+
+    // RETURNS TABLE gives an array; a category with no bills yields one
+    // all-zero row rather than an empty set, but guard for both.
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      learnersWithDuplicates: Number(row?.learners_with_duplicates ?? 0),
+      extraBills: Number(row?.extra_bills ?? 0),
+      extraValue: Number(row?.extra_value ?? 0)
+    };
   }
 
   /**
@@ -228,7 +273,17 @@ export class BillingCategoryService {
     filters: BillingCategoryFilters = {}
   ): Promise<BillingCategoryListResponse> {
     try {
-      const { search, frequency, isActive, page = 1, limit = 10, sortBy, sortOrder } = filters;
+      const {
+        search,
+        frequency,
+        isActive,
+        collectionType,
+        visibleToLearners,
+        page = 1,
+        limit = 10,
+        sortBy,
+        sortOrder
+      } = filters;
 
       let query = (this.supabase as any)
         .from('billing_categories')
@@ -246,10 +301,19 @@ export class BillingCategoryService {
         query = query.eq('is_active', isActive);
       }
 
+      if (collectionType) {
+        query = query.eq('collection_type', collectionType);
+      }
+
+      if (visibleToLearners !== undefined) {
+        query = query.eq('visible_to_learners', visibleToLearners);
+      }
+
       // Whitelist sortable columns (guards against arbitrary order-by injection from
       // the DataTable). Default to category_name asc — the prior fixed behaviour.
       const SORTABLE = new Set([
-        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at'
+        'category_name', 'kind', 'frequency', 'amount', 'is_active', 'created_at',
+        'collection_type', 'visible_to_learners', 'once_per_learner'
       ]);
       const orderColumn = sortBy && SORTABLE.has(sortBy) ? sortBy : 'category_name';
       const ascending = orderColumn === 'category_name' ? sortOrder !== 'desc' : sortOrder === 'asc';

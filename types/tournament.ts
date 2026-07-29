@@ -6,11 +6,62 @@
 // Created: 2026-06-22 (Sports Tournament PR1).
 
 import type { SportLevel } from '@/types/health-sports';
-import type { Event } from '@/types/events';
+import type { Event, EventStatus } from '@/types/events';
 
 // ============================================================================
 // Enums & Constants
 // ============================================================================
+
+// ─── Tournament status model (2026-07-15) ───────────────────────────────────
+// A tournament deliberately uses only TWO of the shared EventStatus values:
+//   'draft' — closed. The public register page blocks 'draft', so Draft is what
+//             closes registration (it replaces Cancel for tournaments).
+//   'live'  — open for registration; surfaced to students. Labelled "Active".
+//
+// The other EventStatus values (planning / preparation / execution / post_event
+// / archived / cancelled) are NOT removed: `events` is shared with marathon,
+// induction, startup-studio and others that still use them, and they remain in
+// the events_status_check constraint. Tournaments simply never offer them.
+//
+// IMPORTANT: do NOT gate tournament transitions on EVENT_STATUS_TRANSITIONS —
+// its draft entry is ['planning','cancelled'], so draft→live would be rejected
+// ("Invalid status transition"). Gate on TOURNAMENT_STATUS_TRANSITIONS below.
+// (Front-end-only status changes that miss a server-side allow-list are a known
+// recurring bug class in this repo.)
+
+/** The DB value a tournament stores while it is open. Shown to users as "Active". */
+export const TOURNAMENT_ACTIVE_STATUS = 'live' as const satisfies EventStatus;
+
+/** The only two statuses a tournament may be set to. */
+export const TOURNAMENT_STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
+  { value: TOURNAMENT_ACTIVE_STATUS, label: 'Active' },
+] as const satisfies readonly { value: EventStatus; label: string }[];
+
+/**
+ * Tournament-only transitions. Legacy rows (created before the 2-state model)
+ * are tolerated so they can be moved onto it rather than being stranded.
+ */
+export const TOURNAMENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
+  draft: ['live'],
+  live: ['draft'],
+  planning: ['draft', 'live'],
+  preparation: ['draft', 'live'],
+  execution: ['draft', 'live'],
+  post_event: ['draft', 'live'],
+  archived: ['draft', 'live'],
+  cancelled: ['draft', 'live'],
+};
+
+/** Draft vs Active — every non-draft tournament status reads as Active. */
+export function tournamentStatusLabel(status: string): string {
+  return status === 'draft' ? 'Draft' : 'Active';
+}
+
+/** True when the tournament is open (i.e. anything that isn't a draft). */
+export function isTournamentActive(status: string): boolean {
+  return status !== 'draft';
+}
 
 /** How a division's matches are organised. Matches the DB CHECK constraint. */
 export type TournamentFormat = 'knockout' | 'round_robin' | 'league' | 'pools_ko';
@@ -231,13 +282,20 @@ export interface CreateEntryDto {
   // (organizer collects cash and marks paid later); omitted for free divisions.
   payment_mode?: 'online' | 'offline';
   notes?: string | null;
+
+  // Answers to this tournament's custom registration fields (Dynamic Form Builder).
+  custom_fields?: Record<string, unknown> | null;
 }
 
-/** Result of a register call: the created entry, plus a payment link when online. */
+/** Result of a register call: the created entry, plus Razorpay order details when a payment was initiated. */
 export interface RegisterEntryResult {
   entry: TournamentEntry;
   payment_url?: string | null;
   transaction_id?: string | null;
+  razorpay_order_id?: string | null;
+  razorpay_key_id?: string | null;
+  amount_paise?: number | null;
+  customer?: { name?: string; email?: string; phone?: string } | null;
 }
 
 export interface UpdateEntryDto {
@@ -246,6 +304,140 @@ export interface UpdateEntryDto {
   status?: EntryStatus;
   final_rank?: number | null;
   notes?: string | null;
+}
+
+// ============================================================================
+// Dynamic Registration Form Builder
+// ============================================================================
+
+/** A registration form field's input type. Independent of Admission's own
+ * FormFieldType union by design (decision #6: independent schema, not a
+ * shared cross-module table) — kept as an identical value set for consistency. */
+export type FormFieldType =
+  | 'text'
+  | 'number'
+  | 'phone'
+  | 'email'
+  | 'select'
+  | 'multi_select'
+  | 'date'
+  | 'textarea'
+  | 'file'
+  | 'checkbox'
+  | 'radio';
+
+export const FORM_FIELD_TYPES: { value: FormFieldType; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'email', label: 'Email' },
+  { value: 'select', label: 'Dropdown (single choice)' },
+  { value: 'multi_select', label: 'Dropdown (multiple choice)' },
+  { value: 'date', label: 'Date' },
+  { value: 'textarea', label: 'Long text' },
+  { value: 'file', label: 'File upload' },
+  { value: 'checkbox', label: 'Checkbox' },
+  { value: 'radio', label: 'Radio (single choice)' },
+];
+
+export interface FormFieldOption {
+  label: string;
+  value: string;
+}
+
+/** Conditional visibility: show this field only when `field` (another field_key
+ * on the same form) satisfies `op` against `value`. */
+export interface FormFieldCondition {
+  field: string;
+  op: 'eq' | 'neq' | 'contains' | 'not_empty' | 'empty';
+  value: string;
+}
+
+export interface EventRegistrationFormField {
+  id: string;
+  section_id: string;
+  event_id: string;
+  field_key: string;
+  field_label: string;
+  field_type: FormFieldType;
+  is_required: boolean;
+  display_order: number;
+  placeholder: string | null;
+  help_text: string | null;
+  min_length: number | null;
+  max_length: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  pattern: string | null;
+  options: FormFieldOption[] | null;
+  condition: FormFieldCondition | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventRegistrationFormSection {
+  id: string;
+  form_id: string;
+  event_id: string;
+  title: string;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+  fields?: EventRegistrationFormField[];
+}
+
+export interface EventRegistrationForm {
+  id: string;
+  event_id: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  sections?: EventRegistrationFormSection[];
+}
+
+export interface CreateFormSectionDto {
+  title: string;
+  display_order?: number;
+}
+
+export interface UpdateFormSectionDto {
+  title?: string;
+  display_order?: number;
+}
+
+export interface CreateFormFieldDto {
+  section_id: string;
+  field_key: string;
+  field_label: string;
+  field_type: FormFieldType;
+  is_required?: boolean;
+  display_order?: number;
+  placeholder?: string | null;
+  help_text?: string | null;
+  min_length?: number | null;
+  max_length?: number | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  pattern?: string | null;
+  options?: FormFieldOption[] | null;
+  condition?: FormFieldCondition | null;
+}
+
+export interface UpdateFormFieldDto {
+  field_key?: string;
+  field_label?: string;
+  field_type?: FormFieldType;
+  is_required?: boolean;
+  display_order?: number;
+  placeholder?: string | null;
+  help_text?: string | null;
+  min_length?: number | null;
+  max_length?: number | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  pattern?: string | null;
+  options?: FormFieldOption[] | null;
+  condition?: FormFieldCondition | null;
 }
 
 // ============================================================================

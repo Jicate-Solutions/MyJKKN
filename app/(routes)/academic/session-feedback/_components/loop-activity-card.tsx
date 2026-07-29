@@ -86,7 +86,17 @@ function KindBadge({ kind }: { kind: LoopActivityRecentSuggestion['kind'] }) {
   );
 }
 
-export function LoopActivityCard({ from, to }: { from?: string; to?: string }) {
+export function LoopActivityCard({
+  from,
+  to,
+  institutionId,
+}: {
+  from?: string;
+  to?: string;
+  /** Narrow to one college. Omitted by the session-feedback admin lane, which
+   *  has no college picker; supplied by the attendance dashboard's filter bar. */
+  institutionId?: string | null;
+}) {
   // Default range: last 30 days (inclusive of today) — matches the admin lane.
   const range = useMemo(() => {
     if (from && to) return { from, to };
@@ -94,7 +104,11 @@ export function LoopActivityCard({ from, to }: { from?: string; to?: string }) {
     return { from: format(subDays(today, 30), 'yyyy-MM-dd'), to: format(today, 'yyyy-MM-dd') };
   }, [from, to]);
 
-  const { data, isLoading, isError, error } = useLoopActivity(range.from, range.to);
+  const { data, isLoading, isError, error } = useLoopActivity(
+    range.from,
+    range.to,
+    institutionId,
+  );
   const a = data as LoopActivity | null;
 
   return (

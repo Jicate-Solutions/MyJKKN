@@ -32,10 +32,16 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', 'gender'],
   'religion': ['Religion', 'religion'],
+  // FK-backed fields ship as a paired "<Field> ID" + readable label column.
+  // The ID column wins; the label resolves to the same FK. Must stay in sync
+  // with the identical block in bulk-edit-preview/route.ts.
+  'community_category_id': ['Community ID', 'community_category_id'],
   'community': ['Community', 'community'],
+  'caste_id': ['Caste ID', 'caste_id'],
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  'admission_year_id': ['Admission Year ID', 'admission_year_id'],
   'admission_year': ['Admission Year', 'admission_year'],
 
   // SECTION 2: Parent/Guardian Information
@@ -103,6 +109,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'counseling_number': ['Counseling Number', 'counseling_number'],
 
   // SECTION 9: Accommodation Details
+  'accommodation_type_id': ['Accommodation Type ID', 'accommodation_type_id'],
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
@@ -113,6 +120,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   // SECTION 11: Student Specific
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
+  'quota_id': ['Quota ID', 'quota_id'],
   'quota': ['Quota', 'quota'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
@@ -384,23 +392,15 @@ export async function POST(request: NextRequest) {
         sanitizedData.program_id = mappedData.program_id;
       }
 
-      // Admission year — Phase D dropped the integer column; the year value
-      // from the Excel cell is used only to resolve the admission_year_id FK.
-      // Institution is fixed by the existing profile (bulk-edit cannot retarget).
+      // Admission year — Phase D dropped the integer column; the cell is used
+      // only to resolve the admission_year_id FK. Resolution happens in
+      // BulkLearnerEditService against the LEARNER's institution, not the
+      // uploader's: gating on profile.institution_id here meant a super admin
+      // (institution_id = null) silently never updated admission year, and
+      // requiring a resolved program_id made it depend on an unrelated column.
+      // Passing the raw value through also keeps preview and write symmetric.
       if (mappedData.admission_year != null && mappedData.admission_year !== '') {
-        const yearInt = Number(mappedData.admission_year);
-        if (Number.isFinite(yearInt) && sanitizedData.program_id && profile.institution_id) {
-          const { resolveAdmissionYearId } = await import(
-            '@/lib/services/admission/resolve-admission-year'
-          );
-          (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
-            supabase as any,
-            {
-              year: yearInt,
-              institutionId: profile.institution_id,
-            }
-          );
-        }
+        sanitizedData.admission_year = mappedData.admission_year;
       }
 
       // Semester (resolve name to ID if name provided)
@@ -581,6 +581,14 @@ export async function POST(request: NextRequest) {
       if (mappedData.accommodation_type) {
         sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
       }
+      // FK-backed "<Field> ID" cells pass through UNTOUCHED — sanitizeValue()
+      // upper-cases, which would mangle a uuid. The service resolves these and
+      // the matching label columns to the same FK column.
+      if (mappedData.community_category_id) sanitizedData.community_category_id = mappedData.community_category_id;
+      if (mappedData.caste_id) sanitizedData.caste_id = mappedData.caste_id;
+      if (mappedData.quota_id) sanitizedData.quota_id = mappedData.quota_id;
+      if (mappedData.accommodation_type_id) sanitizedData.accommodation_type_id = mappedData.accommodation_type_id;
+      if (mappedData.admission_year_id) sanitizedData.admission_year_id = mappedData.admission_year_id;
       if (mappedData.bus_required !== undefined && mappedData.bus_required !== '') {
         const b = String(mappedData.bus_required).trim().toLowerCase();
         if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;

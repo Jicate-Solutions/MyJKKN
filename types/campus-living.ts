@@ -742,6 +742,20 @@ export interface CreateHostelRoomDTO {
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;
 
+// Condition-check photos — Drive-backed (not Supabase Storage), 1-to-many
+// against hostel_rooms. See hostel_room_condition_photos migration.
+export interface HostelRoomConditionPhoto {
+  id: string;
+  room_id: string;
+  drive_file_id: string;
+  file_url: string;
+  file_name: string;
+  file_size_bytes: number;
+  mime_type: string;
+  uploaded_by: string;
+  uploaded_at: string;
+}
+
 export interface RoomFilters {
   block_id?: string;
   floor?: number;
@@ -825,19 +839,41 @@ export interface MarkableResidentAllocation {
   room_id: string | null;
   bed_id: string | null;
   block: { id: string; name: string | null; code: string | null } | null;
-  room: { id: string; room_number: string | null; floor: number | null } | null;
+  room: {
+    id: string;
+    room_number: string | null;
+    floor: number | null;
+    category_id: string | null;
+    category: { id: string; name: string; sort_order: number | null } | null;
+  } | null;
   bed: { id: string; bed_number: string | null } | null;
   /** Joined learner profile — used to synthesise rows for allocated
    *  learners that have no hostel_residents record yet. */
-  learner?: { id: string; full_name: string | null; email: string | null } | null;
+  learner?: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    institution_id: string | null;
+    avatar_url: string | null;
+  } | null;
 }
 
 export interface MarkableResident {
   id: string;
   profile_id: string;
   id_proof_number: string | null;
-  profile: { id: string; full_name: string | null; email: string | null } | null;
+  profile: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    institution_id: string | null;
+    avatar_url: string | null;
+  } | null;
   allocation: MarkableResidentAllocation | null;
+  /** Learner photo from learners_profiles.student_photo_url, merged in via the
+   *  get_markable_resident_photos RPC (profiles.avatar_url is NULL for ~all
+   *  students). Falls back to initials when absent. */
+  student_photo_url: string | null;
 }
 
 export interface CreateHostelAttendanceDTO {

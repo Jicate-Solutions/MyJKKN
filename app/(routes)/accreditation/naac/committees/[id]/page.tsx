@@ -61,6 +61,7 @@ import {
   Trash2,
   ExternalLink,
   Shield,
+  Network,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -74,6 +75,7 @@ import {
 } from '@/hooks/accreditation/use-naac-committees';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CommitteeMemberRole } from '@/lib/services/accreditation/accreditation-committee-service';
+import { MeetingsSection } from './_components/meetings-section';
 import { toast } from 'sonner';
 
 const ROLE_LABELS: Record<CommitteeMemberRole, string> = {
@@ -96,8 +98,7 @@ const ROLE_ACCENT: Record<CommitteeMemberRole, string> = {
 
 interface ProfileLite {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
+  full_name: string | null;
   email: string | null;
   role: string | null;
   institution_id: string | null;
@@ -111,7 +112,7 @@ function useProfileLookup(userIds: string[]) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email, role, institution_id')
+        .select('id, full_name, email, role, institution_id')
         .in('id', userIds);
       if (error) throw error;
       return ((data ?? []) as ProfileLite[]).reduce<Record<string, ProfileLite>>(
@@ -162,6 +163,8 @@ export default function NAACCommitteeDetailPage({
   const canView = isSuperAdmin || can('accreditation.naac.committees.view');
   const canManageMembers =
     isSuperAdmin || can('accreditation.naac.committees.members.manage');
+  const canManageMeetings =
+    isSuperAdmin || can('accreditation.naac.committees.meetings.manage');
   const canEdit = isSuperAdmin || can('accreditation.naac.committees.edit');
   const canDelete = isSuperAdmin || can('accreditation.naac.committees.delete');
 
@@ -249,6 +252,8 @@ export default function NAACCommitteeDetailPage({
                       <Building2 className="h-3.5 w-3.5" />
                       {institution.iqac_code ? `[${institution.iqac_code}] ` : ''}
                       {institution.name}
+                      {committee.committee_type === 'cluster' &&
+                        ' · filing location'}
                     </span>
                   )}
                 </div>
@@ -282,10 +287,18 @@ export default function NAACCommitteeDetailPage({
           </CardContent>
         </Card>
 
+        {/* Cluster scope — only for councils that span institutions */}
+        {committee.committee_type === 'cluster' && (
+          <ClusterScopeCard
+            memberInstitutionIds={committee.member_institution_ids ?? []}
+            filedUnderLabel={institution?.name ?? null}
+          />
+        )}
+
         {/* Members */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-5 w-5" />
                 Members
@@ -377,6 +390,9 @@ export default function NAACCommitteeDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {/* Meetings — Loop Review (IQAC Meeting Loop, PR 2/3) */}
+        <MeetingsSection committee={committee} canManage={canManageMeetings} />
       </div>
     </ContentLayout>
   );
@@ -384,8 +400,121 @@ export default function NAACCommitteeDetailPage({
 
 function profileName(p: ProfileLite | undefined): string | null {
   if (!p) return null;
-  const parts = [p.first_name, p.last_name].filter(Boolean);
-  return parts.length ? parts.join(' ') : p.email ?? null;
+  return p.full_name?.trim() || (p.email ?? null);
+}
+
+// ----------------------------------------------------------------------------
+// Cluster scope card — a cluster council (the Cluster Academic Council spans
+// every college and both schools) is held by several institutions at once. Its
+// institution_id is only where the row is FILED so RLS can reach it, never who
+// owns it. Without this card the page rendered a cluster council identically to
+// a single-institution committee: no roster, no span, no explanation of why it
+// sits under one institution. Wording and colour match the "Cluster councils"
+// section on the committees hub so the two surfaces agree.
+//
+// Mounted only when committee_type === 'cluster', so every other committee
+// keeps its existing render path and issues no extra query.
+// ----------------------------------------------------------------------------
+
+interface ClusterMemberInstitution {
+  id: string;
+  name: string;
+  iqac_code: string | null;
+}
+
+function ClusterScopeCard({
+  memberInstitutionIds,
+  filedUnderLabel,
+}: {
+  memberInstitutionIds: string[];
+  filedUnderLabel: string | null;
+}) {
+  const { data: memberInstitutions, isLoading } = useQuery({
+    queryKey: [
+      'institutions',
+      'cluster-roster',
+      [...memberInstitutionIds].sort().join(','),
+    ],
+    queryFn: async (): Promise<ClusterMemberInstitution[]> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('institutions')
+        .select('id, name, iqac_code')
+        .in('id', memberInstitutionIds)
+        .order('name');
+      if (error) throw error;
+      return (data ?? []) as ClusterMemberInstitution[];
+    },
+    enabled: memberInstitutionIds.length > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const resolved = memberInstitutions ?? [];
+  // The roster is a plain uuid[]; institutions the viewer's RLS hides simply do
+  // not come back. Say so rather than letting the count disagree with the list.
+  const unresolvedCount = memberInstitutionIds.length - resolved.length;
+
+  return (
+    <Card className="border-2 border-amber-300 bg-amber-50/40 dark:bg-amber-950/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Network className="h-5 w-5 text-amber-600" />
+          Cluster council
+        </CardTitle>
+        <p className="mt-2 text-sm font-medium">
+          {memberInstitutionIds.length > 0
+            ? `Spans ${memberInstitutionIds.length} institution${
+                memberInstitutionIds.length === 1 ? '' : 's'
+              }`
+            : 'Cluster roster not recorded'}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {memberInstitutionIds.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            This council is marked as a cluster, but no member institutions are
+            recorded against it yet.
+          </p>
+        ) : isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {resolved.map((inst) => (
+              <div
+                key={inst.id}
+                className="flex items-start gap-2 rounded-lg border bg-card p-2.5 text-sm"
+              >
+                <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span>
+                  {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
+                  {inst.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isLoading && unresolvedCount > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {unresolvedCount} further institution
+            {unresolvedCount === 1 ? ' is' : 's are'} on this roster but outside
+            what you can see, so{' '}
+            {unresolvedCount === 1 ? 'its name is' : 'their names are'} not
+            listed here.
+          </p>
+        )}
+
+        <p className="flex items-start gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+          <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Filed under {filedUnderLabel ?? 'an institution row'} — a filing
+            location, not an owner. The council belongs to every institution it
+            spans.
+          </span>
+        </p>
+      </CardContent>
+    </Card>
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -418,9 +547,9 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb
         .from('profiles')
-        .select('id, first_name, last_name, email, role, institution_id')
+        .select('id, full_name, email, role, institution_id')
         .or(
-          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`,
+          `full_name.ilike.%${q}%,email.ilike.%${q}%`,
         )
         .limit(10);
       if (error) throw error;

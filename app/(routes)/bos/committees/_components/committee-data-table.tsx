@@ -57,7 +57,12 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
   // tables can't see direct setQueryData writes.
   const invalidateKey = useDataTableRefreshOnInvalidate(bosCommitteeKeys.all);
   const [localBump, setLocalBump] = useState(0);
-  const refetchKey = `${invalidateKey}-${localBump}`;
+  // Master-list view toggle. 'template' (default) keeps the historical
+  // templates-only list (composition_id IS NULL); 'all' also lists every
+  // composition's committees, labelled by composition. The view is part of the
+  // refetchKey so switching re-runs the fetchDataFn against the new scope.
+  const [view, setView] = useState<'template' | 'all'>('template');
+  const refetchKey = `${invalidateKey}-${localBump}-${view}`;
   const bumpRefetch = useCallback(() => setLocalBump((n) => n + 1), []);
 
   // Institution options for the super-admin picker + CAS filter expansion.
@@ -101,8 +106,14 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
   }, []);
 
   const columns = useMemo(
-    () => getColumns({ canManage, onEdit: handleEdit, onChanged: bumpRefetch }),
-    [canManage, handleEdit, bumpRefetch]
+    () =>
+      getColumns({
+        canManage,
+        showComposition: view === 'all',
+        onEdit: handleEdit,
+        onChanged: bumpRefetch,
+      }),
+    [canManage, view, handleEdit, bumpRefetch]
   );
 
   const fetchData = useCallback(
@@ -117,10 +128,11 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
         const qs = new URLSearchParams({
           page: String(params.page),
           limit: String(params.limit),
-          // This master page manages institution-level TEMPLATE committees only.
-          // Per-composition committees are managed inside each composition
+          // 'template' (default) — institution-level template committees only
+          // (composition_id IS NULL). 'all' — also every composition's
+          // committees, each labelled by its composition
           // (20260706_bos_committees_per_composition.sql).
-          scope: 'template',
+          scope: view,
         });
         if (params.search) qs.set('search', params.search);
         if (params.sort_by) qs.set('sortBy', params.sort_by);
@@ -160,7 +172,7 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
         throw error;
       }
     },
-    [search, allInstitutions]
+    [search, allInstitutions, view]
   );
 
   const handleBulkDeleteClick = (
@@ -198,7 +210,29 @@ export function CommitteeDataTable({ search }: CommitteeDataTableProps) {
     selectedRows: unknown[];
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
+      {/* Templates-only vs. all-committees view. Templates are the reusable
+          blueprints; "All" also surfaces every composition's committees. */}
+      <div className='flex items-center rounded-md border p-0.5'>
+        <Button
+          type='button'
+          onClick={() => setView('template')}
+          variant={view === 'template' ? 'secondary' : 'ghost'}
+          size='sm'
+          className='h-7 px-2 text-xs'
+        >
+          Templates
+        </Button>
+        <Button
+          type='button'
+          onClick={() => setView('all')}
+          variant={view === 'all' ? 'secondary' : 'ghost'}
+          size='sm'
+          className='h-7 px-2 text-xs'
+        >
+          All
+        </Button>
+      </div>
       {canManage && (
         <Button
           onClick={() => {

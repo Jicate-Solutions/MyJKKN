@@ -1,6 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { resolveBosAccess, readableInstitutionIds } from '@/lib/utils/bos/bos-access';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBosBoardScope, readableInstitutionIds, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 import { buildSyllabusWorkbook } from '@/lib/utils/bos/syllabus-xlsx';
 import type { BosCourseSyllabus } from '@/types/bos';
 
@@ -24,12 +24,17 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid syllabus ID' }, { status: 400 });
     }
 
-    const scope = await resolveBosAccess(user.id);
+    const scope = await resolveBosBoardScope(user.id);
+    // View-only observer tier: holder of the view grant who sits on no board reads all institutions (never widens writes).
+    const hasView = await hasBosPermission(user.id, 'academic.bos-syllabus.view');
+    const canReadAllBos = isBosReadAllObserver(scope, hasView);
 
-    let query = supabase.from('bos_course_syllabi').select('*').eq('id', id);
+    // Observer bypasses board-scoped RLS via service-role; route-level authz above is the source of truth.
+    const readDb = canReadAllBos ? createServiceRoleClient() : supabase;
+    let query = readDb.from('bos_course_syllabi').select('*').eq('id', id);
 
     // CAS-aware filter â€” see syllabus/[id]/route.ts for rationale.
-    const allowedIds = readableInstitutionIds(scope);
+    const allowedIds = readableInstitutionIds(scope, canReadAllBos);
     if (allowedIds !== null) {
       if (allowedIds.length === 0) {
         return NextResponse.json({ error: 'Syllabus not found' }, { status: 404 });

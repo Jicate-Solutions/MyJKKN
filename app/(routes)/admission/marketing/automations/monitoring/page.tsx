@@ -89,7 +89,7 @@ function CampaignMonitoringDashboardContent() {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {/* Connection Status */}
               <div className="flex items-center gap-2 text-sm text-muted-foreground mr-2">
                 <div

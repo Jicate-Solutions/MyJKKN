@@ -58,6 +58,7 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 import Anthropic from '@anthropic-ai/sdk';
 import { resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
 import {
@@ -69,6 +70,7 @@ import {
   type SubmitBatchRequest,
   type SubmitBatchResult,
 } from '@/lib/services/platform/ai-clients/batch';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,24 @@ import {
 // resolveChatModel(FEATURE_KEY), which never throws (hardcoded fallback on any
 // config failure).
 const FEATURE_KEY = 'induction.generate_playbook';
+// ₹0 Max-lane migration (§B): the ai_job_types row (seeded 20260713160000) + the
+// flip-back switch. 'jobs' → enqueue on the #1998 registry; 'direct' → legacy paid.
+const JOB_TYPE = FEATURE_KEY;
+const GENERATION_LANE_KEY = 'loops.induction_generate_playbook.generation_lane';
+
+/** Read the generation-lane switch as a cron (fn_get_policy at global scope, no
+ *  auth.uid). Fail-safe to 'direct' (the proven paid path) on any read error. */
+async function readGenerationLane(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): Promise<'jobs' | 'direct'> {
+  try {
+    const { data, error } = await admin.rpc('fn_get_policy', { p_key: GENERATION_LANE_KEY, p_scope_id: null });
+    if (error) return 'direct';
+    return data === 'jobs' ? 'jobs' : 'direct';
+  } catch {
+    return 'direct';
+  }
+}
 const BATCH_CAP = 25; // max cohorts to process per run; excess is logged
 // MAX_COLLECT_ATTEMPTS (the stuck-job cap) is imported from ai-clients/batch so
 // the collect-error path and this domain-record path share one threshold.
@@ -243,7 +263,16 @@ function parsePlaybookMessage(
       .replace(/^```(?:json)?\s*/i, '')
       .replace(/\s*```$/i, '')
       .trim();
-    const playbook = JSON.parse(jsonStr) as Record<string, unknown>;
+    // Tolerant extraction (2026-07-09): slice the outermost {...} when the
+    // model wraps the object in prose/trailing text (maiden Max-chain receipt).
+    let playbook: Record<string, unknown>;
+    try {
+      playbook = JSON.parse(jsonStr) as Record<string, unknown>;
+    } catch {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no JSON object in model output');
+      playbook = JSON.parse(m[0]) as Record<string, unknown>;
+    }
     return { playbook, modelUsed: message.model };
   } catch (err) {
     console.error('[cron/induction-generate-playbook] AI generation failed:', err);
@@ -265,10 +294,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
+  // Runner-aware Max-lane deferral: when the maxlane:induction-generate-playbook
+  // schedule row owns this routine (max_only pin, or enabled + fresh heartbeat),
+  // the Max twin runs this generator on the runner box — stand down this run.
+  // Fail-open: any schedules-read problem and the cloud generator runs normally.
+  // Harmless either way (per-cohort record is idempotent), but deferring keeps
+  // the twin the primary lane.
   const started = Date.now();
   const admin = createServiceRoleClient();
   const mode = request.nextUrl.searchParams.get('mode');
   const isCollectOnly = mode === 'collect';
+
+  // ₹0 Max-lane migration (§B): 'jobs' (default after PR) = the cron enqueues each
+  // cohort playbook onto the #1998 ai_jobs registry (generic Windows seat drain,
+  // ₹0); 'direct' = legacy (defer to manifest twin + paid batch). Flip-back.
+  const lane = await readGenerationLane(admin);
+
+  // Manifest-twin deferral applies ONLY on 'direct'. On 'jobs' the cron feeds
+  // ai_jobs itself. Overlap is idempotency-safe: fn_induction_record_loop_suggestion
+  // upserts on the per-cohort unique index — whichever lane records first wins.
+  if (lane === 'direct' && (await shouldDeferToMaxLane('induction-generate-playbook'))) {
+    console.log('[cron/induction-generate-playbook] deferred to Max manifest twin (direct lane)');
+    return NextResponse.json({
+      ok: true,
+      generation_lane: lane,
+      generated: 0,
+      skipped: 0,
+      measured: null,
+      deferred_to_max_lane: true,
+    });
+  }
 
   const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
   const aiAvailable = Boolean(apiKey);
@@ -279,6 +334,7 @@ export async function GET(request: NextRequest) {
   // Result counters.
   let generated = 0; // playbooks RECORDED this run (during collect)
   let skipped = 0;
+  let enqueued = 0; // jobs-lane: cohort playbooks enqueued on the ₹0 Max lane
   // Async telemetry.
   let collectedJobs = 0;
   let recorded = 0;
@@ -369,6 +425,48 @@ export async function GET(request: NextRequest) {
           jobErr
         );
       }
+    }
+  }
+
+  // =====================================================================
+  // JOBS-LANE COLLECT (₹0 Max lane) — drain done ai_jobs and record via the
+  // IDENTICAL fn_induction_record_loop_suggestion (byte-parity). Runs whenever
+  // jobs may exist (no Anthropic key needed). fn_ai_collect_claim stamps
+  // delivered_at → each result records at most once; a record failure is logged
+  // and the weekly run regenerates the cohort (idempotent upsert).
+  // =====================================================================
+  if (lane === 'jobs') {
+    try {
+      const items = await collectJobsLane(admin, [JOB_TYPE], BATCH_CAP);
+      for (const item of items) {
+        collectedJobs++;
+        const ctx = item.context as unknown as GenContext;
+        if (!ctx?.institution_id || !ctx?.academic_year_id) continue;
+        const { playbook, modelUsed } = parsePlaybookMessage(item.message);
+        if (playbook === null) {
+          skipped++;
+          continue;
+        }
+        const { error: recErr } = await admin.rpc('fn_induction_record_loop_suggestion', {
+          p_institution_id: ctx.institution_id,
+          p_academic_year_id: ctx.academic_year_id,
+          p_window_from: ctx.window_from,
+          p_window_to: ctx.window_to,
+          p_input_score: ctx.priorScore ?? null,
+          p_suggestion: playbook,
+          p_model: modelUsed,
+        });
+        if (recErr) {
+          console.error(
+            `[cron/induction-generate-playbook] jobs-lane record failed for ${ctx.institution_id}/${ctx.academic_year_id}:`, recErr,
+          );
+        } else {
+          generated++;
+          recorded++;
+        }
+      }
+    } catch (e) {
+      console.error('[cron/induction-generate-playbook] jobs-lane collect failed:', e);
     }
   }
 
@@ -509,11 +607,33 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ₹0 Max lane: enqueue each cohort playbook as an ai_job. The in-flight guard
+    // is fn_ai_enqueue_system's dedupe (a cohort already queued → skipped); the
+    // prompt is the SAME assembled prompt buildPlaybookParams produced. No key needed.
+    if (lane === 'jobs' && requests.length > 0) {
+      for (const r of requests) {
+        const system = typeof r.params.system === 'string' ? r.params.system : '';
+        const userContent = r.params.messages?.[0]?.content;
+        const user = typeof userContent === 'string' ? userContent : JSON.stringify(userContent);
+        const gctx = r.context as unknown as GenContext;
+        const res = await enqueueJobsLane(admin, {
+          jobType: JOB_TYPE,
+          prompt: `${system}\n\n${user}`,
+          context: r.context,
+          // dedupeKey is always set by the request builder; the fallback mirrors
+          // genDedupeKey's format (feature|generate|institution|academic_year).
+          dedupeKey: r.dedupeKey ?? `${FEATURE_KEY}|generate|${gctx.institution_id}|${gctx.academic_year_id}`,
+        });
+        if (res.ok) enqueued++;
+        else if (res.reason === 'in_flight') skipped++;
+        else { console.warn(`[cron/induction-generate-playbook] jobs-lane enqueue failed (${res.reason})`); skipped++; }
+      }
+    }
     // 6) In-flight guard: drop any cohort whose batch is already outstanding
     //    (submitted-not-yet-collected) — prevents re-submit + re-bill in the
     //    submit→collect window that the hasPlaybook skip (recorded rows only)
     //    cannot see.
-    if (aiAvailable && requests.length > 0) {
+    else if (aiAvailable && requests.length > 0) {
       const keys = requests.map((r) => r.dedupeKey).filter((k): k is string => !!k);
       const inflight = await partitionInFlight(FEATURE_KEY, keys);
       const fresh = requests.filter((r) => !(r.dedupeKey && inflight.has(r.dedupeKey)));
@@ -531,8 +651,9 @@ export async function GET(request: NextRequest) {
         console.error('[cron/induction-generate-playbook] submit failed:', e);
         skipped += fresh.length;
       }
-    } else if (!aiAvailable) {
-      // No key → nothing submitted (generation skipped), but the verifier still runs.
+    } else if (!aiAvailable && lane !== 'jobs') {
+      // No key AND not on the jobs lane → nothing submitted (generation skipped),
+      // but the verifier still runs.
       console.warn(
         '[cron/induction-generate-playbook] no API key — skipping submission but still running the verifier'
       );
@@ -566,12 +687,14 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     mode: isCollectOnly ? 'collect' : 'submit',
+    generation_lane: lane,
     cohorts: cohortsCount,
     capped: cappedCount,
     // Numeric keys read by ai-routine-dispatcher.summarize() — reflect what was
     // RECORDED this run (during collect). On the weekly submit run these count what
     // the collect-first phase drained from previously-submitted batches.
     generated,
+    enqueued,
     skipped,
     measured,
     ai_available: aiAvailable,

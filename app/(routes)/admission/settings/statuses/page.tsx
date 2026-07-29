@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -46,7 +47,9 @@ function StatusesPageContent() {
             </p>
           </div>
 
-          <StatusesDataTable />
+          <Suspense fallback={null}>
+            <StatusesDataTable />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>

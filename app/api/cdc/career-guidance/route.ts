@@ -1,52 +1,72 @@
 // app/api/cdc/career-guidance/route.ts
 // AI Career Guidance (BUG-004057) — counsellor tool.
-// POST { learnerId } → aggregate the learner's career-relevant data and call
-// Claude to produce career paths / skill gaps / next steps, plus a list of
-// missing data to record. Empty CDC sources (OBE marks, placements,
-// internships, training) are surfaced as gaps rather than hidden.
+// POST { learnerId } → aggregate the learner's career-relevant data and ask the
+// AI (via the #1998 Max lane) to produce career paths / skill gaps / next steps,
+// plus a list of missing data to record. Empty CDC sources (OBE marks,
+// placements, internships, training) are surfaced as gaps rather than hidden.
 //
 // Privacy: only career-relevant, non-sensitive fields are sent to the model.
 // Identity/financial/contact PII (aadhar, income, parent details, address,
 // mobile, email) is deliberately NOT included in the prompt.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// MAX-LANE CONVERSION (2026-07-13): this route no longer calls Anthropic
+// directly. It assembles the SAME learner data block as before and enqueues a
+// `cdc.career_guidance` job on the generic AI-jobs registry (fn_ai_enqueue),
+// whose prompt_template + tool_set live in ai_job_types (seeded by
+// 20260713000300_seed_staff_ai_job_types.sql), then long-polls fn_ai_job_status
+// for the drain's result — mirroring the proven reference
+// app/api/work-pulse/translate/route.ts. The seeded prompt carries the full
+// career-counsellor instructions and a single {{learner_data}} placeholder, so
+// the payload is exactly { learner_data: <assembled data block> }. The job runs
+// with NO tools (all data is provided) on the Claude Max subscription (₹0 API);
+// usage recording happens on the runner side. Auth, institution scoping, the
+// cdc.view gate, the response shape (CareerGuidanceResult) and the saved-report
+// persist are all preserved so the page keeps working unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+// Long-poll the ai_jobs Max lane (the generic seat/Windows drain claims ~every
+// minute). 300 lets the poll window below finish before a hard-kill.
+export const maxDuration = 300;
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   createApiInstitutionFilter,
   applyInstitutionFilterToQuery,
 } from '@/lib/auth/api-institution-filter';
-import Anthropic from '@anthropic-ai/sdk';
-import {
-  resolveChatModel,
-  recordChatCall,
-} from '@/lib/services/platform/ai-clients/chat';
 import type {
   CareerGuidanceResult, CareerGuidanceSignal, CareerGuidance,
 } from '@/types/cdc/career-guidance';
 
-// Model resolves at runtime from ai_model_config (feature_key below);
-// resolveChatModel never throws — hardcoded fallback on any config failure.
-const FEATURE_KEY = 'cdc.career_guidance';
+// Registry job type — its prompt_template ({{learner_data}}) + tool_set live in
+// ai_job_types (seeded row 'cdc.career_guidance'). We send ONLY the payload.
+const JOB_TYPE = 'cdc.career_guidance';
 
+// Poll cadence — mirrors app/api/work-pulse/translate/route.ts (proven consumer).
+const POLL_MS = 2_500;
+const UNCLAIMED_DEADLINE_MS = 120_000; // give up if never claimed (drain offline)
+const TOTAL_DEADLINE_MS = 285_000; // kept < maxDuration (300s) so we respond first
 
-const SYSTEM_PROMPT = `You are a career-counselling assistant for the Career Development Centre (CDC) of an Indian higher-education group. A counsellor has selected one student and wants guidance to discuss with them.
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-Use ONLY the data provided. Ground every suggestion in that data. Where key data is missing, still give useful guidance at the program/year level, and list the missing data in "dataToImprove" so the CDC knows what to record for sharper future guidance. Be concrete and India-context aware (placements, higher studies, government exams, entrepreneurship as relevant).
-
-Government-job readiness: many Tamil Nadu learners aim for government jobs rather than private employment. When the data shows a government-job aspiration OR enrolment in government-exam coaching, make the readiness path concrete in "nextSteps": name the relevant exam family (TNPSC Group 2/4, RRB NTPC, IBPS/SBI banking, SSC, or TN Police/TNUSRB) that fits the learner's degree and interests, and give exam-preparation actions (which shared subjects to start — general knowledge, aptitude, reasoning, current affairs, language eligibility — and the domain subjects specific to their target exam). Also surface relevant government-scholarship framing (e.g. National Scholarship Portal / state post-matric schemes) where it helps a government-aspiring learner fund preparation. Do NOT invent specific deadlines, cut-offs, or eligibility numbers — keep scholarship guidance directional and tell the counsellor to confirm current details with the CDC office.
-
-Return ONLY valid JSON — no markdown, no code fences, no commentary — matching exactly:
-{
-  "summary": "2-3 sentence overview of where this student stands and the headline recommendation",
-  "careerPaths": [ { "title": "short role/path name", "why": "one line grounded in their data" } ],
-  "skillGaps": [ "specific skill or gap to close" ],
-  "nextSteps": [ "concrete action the student/counsellor can take this term" ],
-  "dataToImprove": [ "data the CDC should record to make this guidance sharper" ]
+/** Read the model's answer text out of the drain's result jsonb. The generic
+ *  runner returns { answer } (same contract ai-query/translate read); we also
+ *  tolerate a few plausible shapes so a completed result never falls silently
+ *  to null. */
+function extractAnswer(result: unknown): string | null {
+  if (typeof result === 'string') return result.trim() || null;
+  if (result && typeof result === 'object') {
+    const o = result as Record<string, unknown>;
+    for (const key of ['answer', 'text', 'result', 'output']) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+    }
+  }
+  return null;
 }
-Give 3-5 careerPaths, 3-6 skillGaps, 3-6 nextSteps.`;
 
 // Scalar text/numeric → trimmed string, or null when blank.
 function scalarText(v: unknown): string | null {
@@ -144,6 +164,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await connection();
   try {
     const { learnerId } = await req.json().catch(() => ({ learnerId: undefined }));
     if (!learnerId || typeof learnerId !== 'string') {
@@ -352,35 +373,84 @@ ${missing}${govtBlock}
 
 Generate the career guidance JSON now.`;
 
-    const apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'AI is not configured (missing API key).' }, { status: 503 });
+    // ── AI invocation via the Max lane ──────────────────────────────────────
+    // The assembled `userPrompt` IS the learner data block; the seeded
+    // prompt_template supplies the system instructions and a {{learner_data}}
+    // placeholder. Enqueue with ONLY the payload — fn_ai_enqueue resolves the
+    // job spec (prompt_template + tool_set) from ai_job_types and gates on
+    // allow_rule (permission:cdc.view). The session client is used so the
+    // enqueue is auth.uid()-scoped.
+    const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+      p_job_type: JOB_TYPE,
+      p_payload: { learner_data: userPrompt },
+    });
+    if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+      const errText = typeof enq?.error === 'string' ? enq.error : '';
+      // Seed not applied / feature disabled → treat as "unavailable, try later".
+      if (errText === 'unknown or disabled job_type') {
+        return NextResponse.json(
+          { error: 'AI guidance is not available right now. Please try again later.' },
+          { status: 503 }
+        );
+      }
+      if (errText === 'too many in-flight jobs of this type') {
+        return NextResponse.json(
+          { error: 'A guidance request is already in progress. Please wait for it to finish.' },
+          { status: 429 }
+        );
+      }
+      console.error('[cdc/career-guidance] enqueue failed:', enqError ?? enq);
+      return NextResponse.json(
+        { error: 'Could not start AI guidance. Please try again.' },
+        { status: 502 }
+      );
     }
 
-    // Resolved after the cheap-exit paths (403/404/503) — never throws.
-    const { model_id: modelId } = await resolveChatModel(FEATURE_KEY);
-
-    const anthropic = new Anthropic({ apiKey });
-    const aiStartedAt = Date.now();
-    let message;
-    try {
-      message = await anthropic.messages.create({
-        model: modelId,
-        max_tokens: 2000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
+    const jobId = enq.job_id;
+    const startedAt = Date.now();
+    let text: string | null = null;
+    let modelUsed: string | null = null;
+    let jobFailed = false;
+    while (Date.now() - startedAt < TOTAL_DEADLINE_MS) {
+      await sleep(POLL_MS);
+      const { data: st, error: stError } = await supabase.rpc('fn_ai_job_status', {
+        p_job_id: jobId,
       });
-    } catch (e) {
-      console.error('[cdc/career-guidance] Anthropic call failed:', e);
-      // Record the failed invocation (internally non-throwing), keep the 502.
-      await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, null, e);
+      if (stError || !st || typeof st.status !== 'string') continue;
+      if (st.status === 'done') {
+        const res = (st as { result?: unknown }).result;
+        text = extractAnswer(res);
+        if (res && typeof res === 'object') {
+          const m = (res as Record<string, unknown>).model;
+          if (typeof m === 'string' && m.trim()) modelUsed = m.trim();
+        }
+        break;
+      }
+      if (st.status === 'error' || st.status === 'canceled' || st.status === 'not_found') {
+        jobFailed = true;
+        break;
+      }
+      // Never claimed within the unclaimed window → the drain is offline.
+      if (st.status === 'pending' && Date.now() - startedAt > UNCLAIMED_DEADLINE_MS) {
+        break;
+      }
+    }
+
+    if (jobFailed) {
       return NextResponse.json({ error: 'AI request failed. Please try again.' }, { status: 502 });
     }
-    await recordChatCall(FEATURE_KEY, 'anthropic', modelId, aiStartedAt, message);
+    if (text === null) {
+      // Timed out / drain offline. The job may still finish on the runner; the
+      // counsellor can retry (a saved report from a prior run still shows).
+      return NextResponse.json(
+        { error: 'AI guidance did not finish in time. Please try again in a moment.' },
+        { status: 503 }
+      );
+    }
 
-    const text = message.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text).join('').trim();
+    // Model actually used, when the runner reports it; else a Max-lane label so
+    // saved reports stay truthful.
+    const reportModel = modelUsed ?? 'max-lane';
 
     let guidance: CareerGuidance;
     try {
@@ -397,9 +467,9 @@ Generate the career guidance JSON now.`;
       completenessPct,
       guidance,
       generatedAt: new Date().toISOString(),
-      // Actual model echoed by the API — keeps saved reports truthful even if
-      // the config row changes between resolve and response.
-      model: message.model,
+      // Model reported by the runner (when available), else a Max-lane label —
+      // keeps saved reports truthful without a direct-API round-trip.
+      model: reportModel,
     };
 
     // Persist the LATEST report (overwrite previous — one row per learner, per the
@@ -413,7 +483,7 @@ Generate the career guidance JSON now.`;
           institution_id: (p.institution_id as string | null) ?? null,
           result,
           completeness_pct: completenessPct,
-          model: message.model,
+          model: reportModel,
           generated_at: result.generatedAt,
           generated_by: user.id,
           updated_at: new Date().toISOString(),

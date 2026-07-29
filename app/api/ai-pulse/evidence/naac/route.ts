@@ -2,7 +2,7 @@
 // ============================================================================
 // GET /api/ai-pulse/evidence/naac
 //
-// Returns the IQAC NAAC Criterion 3.3.1 evidence preview as JSON.
+// Returns the IQAC NAAC Attribute 9 (Research & Innovation Outcomes) evidence preview as JSON.
 //
 // Query params:
 //   from              ISO date YYYY-MM-DD (optional — defaults to last 90 days)

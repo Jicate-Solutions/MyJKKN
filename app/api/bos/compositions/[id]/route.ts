@@ -31,7 +31,8 @@ export async function GET(
         *,
         members:bos_members (
           *,
-          expert:bos_external_experts ( id, name, title, category, institution_name )
+          expert:bos_external_experts ( id, name, title, category, institution_name ),
+          member_type_rec:bos_member_types ( id, name, base_type )
         )
         `
       )

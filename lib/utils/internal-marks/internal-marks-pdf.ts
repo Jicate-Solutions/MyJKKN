@@ -1,5 +1,6 @@
 ﻿import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { computeSchemeTotals } from '@/lib/utils/bos/course-scheme-totals'
 
 // â”€â”€â”€ Number to words â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Single source of truth per COE integration spec Â§7.5: digit-by-digit ALL CAPS.
@@ -518,6 +519,12 @@ export interface BosClaimPDFData {
 	rightLogoImage?: string
 
 	bos_subject: string   // "Board of Studies of ___" subject line
+	/**
+	 * Convening council/committee of the meeting (e.g. 'Academic Council',
+	 * 'Curriculum Development Cell'). Drives the "Claim Form for <council> of"
+	 * title and the "Position in <council>" row. Falls back to 'BOS'.
+	 */
+	council_name?: string
 	claim_date: string    // formatted e.g. "11/05/2026"
 
 	member_name: string
@@ -552,7 +559,8 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 	currentY += 2
 	doc.setFont('times', 'normal')
 	doc.setFontSize(10)
-	const subjectLabel = 'Claim Form for BOS of '
+	const councilName = data.council_name?.trim() || 'BOS'
+	const subjectLabel = `Claim Form for ${councilName} of `
 	const datePart = `Date: ${data.claim_date}`
 	doc.text(subjectLabel + data.bos_subject, MARGIN, currentY)
 	doc.text(datePart, pageWidth - MARGIN, currentY, { align: 'right' })
@@ -567,7 +575,7 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 		['Name of the BOS Member', data.member_name],
 		['Designation', data.designation ?? ''],
 		['Institution / Company', data.college_address ?? ''],
-		['Position in BOS', data.position_in_bos ?? ''],
+		[`Position in ${councilName}`, data.position_in_bos ?? ''],
 		['Mobile No', data.mobile ?? ''],
 		['Mail id', data.email ?? ''],
 		['Amount: Honorarium', `Rs.${data.honorarium.toFixed(2)}`],
@@ -634,38 +642,9 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 		},
 	})
 
-	// Extra breathing room above the signature block (2026-05-21): the prior
-	// +14mm felt cramped after the NEFT table, especially when the table is
-	// near the bottom of the page. +30mm pushes the signature labels into
-	// their own visual zone without forcing a new page (the overflow guard
-	// below paginates if it would).
-	let sigY = ((doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? currentY + 60) + 30
-
-	// â”€â”€ Signature section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-	if (sigY + 20 > A4_HEIGHT - 15) {
-		doc.addPage()
-		sigY = MARGIN + 10
-	}
-
-	const sigLabels = [
-		['Signature of the BOS', 'Member with Date'],
-		['Signature of the Board', 'Chairman'],
-		['Signature of the', 'Principal'],
-	]
-	const sigW = tableWidth / 3
-
-	// Signature row (2026-05-21): removed the horizontal line above each label
-	// — the empty space itself is the affordance for a physical signature, the
-	// line above the printed label was redundant. Labels are bold so the row
-	// visually anchors the bottom of the page.
-	doc.setFont('times', 'bold')
-	doc.setFontSize(9)
-	sigLabels.forEach((lines, i) => {
-		const cx = MARGIN + i * sigW + sigW / 2
-		lines.forEach((ln, li) => {
-			doc.text(ln, cx, sigY + 5 + li * 4.5, { align: 'center' })
-		})
-	})
+	// Signature block (BOS Member / Board Chairman / Principal) removed
+	// 2026-07-10 per request — the form ends at the NEFT table; physical
+	// signatures are collected on the office copy, not this printout.
 
 	// â”€â”€ Footer timestamp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	const footerY = A4_HEIGHT - 6
@@ -699,6 +678,10 @@ export interface CourseSchemeReportRow {
 	internal_max_mark: number
 	external_max_mark: number
 	total_max_mark: number
+	// Elective group order (COE course_mapping.group_order). Every option is
+	// printed, but rows sharing a group_order count ONCE in the semester
+	// totals - the learner takes one of them. Null/undefined = ungrouped.
+	group_order?: number | null
 }
 
 export interface CourseSchemeReportSemester {
@@ -839,15 +822,10 @@ export function generateCourseSchemeReportPDF(data: CourseSchemeReportData): str
 		doc.text(sem.semester_label, pageWidth / 2, currentY + 4, { align: 'center' })
 		currentY += lblH + 1
 
-		const totals = sem.courses.reduce(
-			(acc, c) => ({
-				credits:   acc.credits   + (c.credit          ?? 0),
-				theory:    acc.theory    + (c.theory_hours    ?? 0),
-				practical: acc.practical + (c.practical_hours ?? 0),
-				marks:     acc.marks     + (c.total_max_mark  ?? 0),
-			}),
-			{ credits: 0, theory: 0, practical: 0, marks: 0 },
-		)
+		// Grouped (elective) courses collapse to a single count across credits,
+		// hours and marks. Same helper the on-screen semester table uses, so the
+		// printed scheme can never disagree with what the editor sees.
+		const totals = computeSchemeTotals(sem.courses)
 
 		const bodyRows = sem.courses.map((c) => [
 			c.course_part_master ?? '-',
@@ -882,7 +860,7 @@ export function generateCourseSchemeReportPDF(data: CourseSchemeReportData): str
 				{ content: String(totals.credits),                   styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
 				{ content: String(totals.theory),                    styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
 				{ content: String(totals.practical),                 styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
-				{ content: String(totals.theory + totals.practical), styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
+				{ content: String(totals.hours),                     styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },
 				{ content: '', styles: { fillColor: [230, 230, 230] } },
 				{ content: '', styles: { fillColor: [230, 230, 230] } },
 				{ content: String(totals.marks), styles: { halign: 'center', fontStyle: 'bold', fillColor: [230, 230, 230] } },

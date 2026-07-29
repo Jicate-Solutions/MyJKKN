@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { UpdateBosMeetingDto } from '@/types/bos';
+import { UpdateBosMeetingDto, isCouncilMeetingType } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionWrite,
   guardAcademicCouncilWrite,
+  guardGoverningBodyWrite,
 } from '@/lib/utils/bos/bos-access';
 
 // Service-role helper: expand the caller's primary institution to the full CAS
@@ -81,6 +82,7 @@ export async function GET(
             expert_id
           )
         ),
+        committee:bos_committees ( id, name ),
         principal_approved_by_staff:staff!bos_meetings_principal_approved_by_fkey (
           id,
           profile_id,
@@ -126,6 +128,23 @@ export async function GET(
       const boardMap = await fetchCoeBoardMaps([meetingRowForBoard.institutions_id]);
       const b = boardMap.get(meetingRowForBoard.board_id);
       if (b) board = { board_code: b.board_code, board_name: b.board_name, board_type: b.board_type };
+    }
+
+    // Roster order: PostgREST returns an embedded to-many in no guaranteed
+    // order, so the meeting's Members / Attendance tabs listed people
+    // arbitrarily while the notice PDF (which orders by sort_order) listed them
+    // by roster rank. Sorted here so both agree. Ties fall back to name.
+    const compForOrder = (data as unknown as {
+      bos_compositions?: {
+        bos_members?: { sort_order?: number | null; display_name?: string | null }[];
+      } | null;
+    }).bos_compositions;
+    if (compForOrder?.bos_members) {
+      compForOrder.bos_members.sort(
+        (a, b) =>
+          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+          (a.display_name ?? '').localeCompare(b.display_name ?? '')
+      );
     }
 
     const flattened = {
@@ -208,12 +227,14 @@ export async function PUT(
     const scope = await resolveBosBoardScope(user.id);
 
     // Authz. For a BoS meeting the editor must be a board member of the
-    // composition (guardCompositionWrite denies principals/non-members). For an
-    // Academic Council meeting the principal is the convener and owns the
-    // record, so authorize via guardAcademicCouncilWrite instead.
-    if (meetingRow.meeting_type === 'academic_council') {
-      const denyAc = guardAcademicCouncilWrite(scope, meetingRow.institutions_id);
-      if (denyAc) return NextResponse.json({ error: denyAc }, { status: 403 });
+    // composition (guardCompositionWrite denies principals/non-members). For a
+    // council meeting (Academic Council / Governing Body) the principal is the
+    // convener and owns the record, so authorize via the council write-gate.
+    if (isCouncilMeetingType(meetingRow.meeting_type)) {
+      const denyCouncil = meetingRow.meeting_type === 'governing_body'
+        ? guardGoverningBodyWrite(scope, meetingRow.institutions_id)
+        : guardAcademicCouncilWrite(scope, meetingRow.institutions_id);
+      if (denyCouncil) return NextResponse.json({ error: denyCouncil }, { status: 403 });
     } else {
       const denyComp = guardCompositionWrite(scope, meetingRow.composition_id);
       if (denyComp) return NextResponse.json({ error: denyComp }, { status: 403 });
@@ -250,6 +271,11 @@ export async function PUT(
       actual_end_time: isDraft ? (body.actual_end_time || null) : undefined,
       ratified_date: isDraft ? (body.ratified_date || null) : undefined,
       venue: isDraft ? (body.venue || null) : undefined,
+      // Convening council/committee — '' (cleared form field) → null; left
+      // undefined (and stripped below) when the client didn't send the field,
+      // so partial updates never wipe an existing attribution.
+      committee_id:
+        body.committee_id === undefined ? undefined : body.committee_id || null,
       notes: body.notes ? body.notes : null,
       updated_at: new Date().toISOString(),
     };

@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -16,6 +17,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMentorRollups } from '@/hooks/cdc/use-cdc-mentor-rollups';
 import { ArrowLeft, Activity } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+import { useTabParam } from '@/hooks/use-tab-param';
+
+const MENTOR_ROLLUPS_TABS = ['mentors', 'mentees'] as const;
 
 function fmtMinutes(min: number): string {
   if (!min) return '0m';
@@ -27,8 +31,9 @@ function fmtDate(d: string | null): string {
   return d ? new Date(d).toLocaleDateString() : '—';
 }
 
-export default function MentorRollupsPage() {
+function MentorRollupsPageInner() {
   const { data, isLoading, error } = useMentorRollups();
+  const [activeTab, setActiveTab] = useTabParam('mentors', MENTOR_ROLLUPS_TABS);
 
   return (
     <PermissionGuard module="cdc.mentors" action="view">
@@ -74,7 +79,7 @@ export default function MentorRollupsPage() {
           )}
 
           {!isLoading && !error && data && (
-            <Tabs defaultValue="mentors" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList>
                 <TabsTrigger value="mentors">
                   Mentors ({data.peerMentors.length + data.industryMentors.length})
@@ -200,5 +205,14 @@ export default function MentorRollupsPage() {
         </div>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+export default function MentorRollupsPage() {
+  // Suspense boundary required: useTabParam() reads useSearchParams().
+  return (
+    <Suspense fallback={null}>
+      <MentorRollupsPageInner />
+    </Suspense>
   );
 }

@@ -10,7 +10,10 @@
 // Four signals per cycle (default map below; the live map is the
 // `pde_bridge_signal_map` policy row so it stays tunable without a deploy):
 //   1. engaged_live_session    — ai_pulse_live_attendance row passing the
-//                                4-AND gate → 'embodied', status 'scored'
+//                                4-AND gate → 'embodied', status 'scored',
+//                                weighted_score = quiz_score × weight_multiplier
+//                                (0.25 default — attendance is worth strictly
+//                                less than an artifact; Director 2026-07-10)
 //   2. domain_sync_submitted   — event_submissions with text/non-IG proof
 //                                → 'problem_finding', status 'submitted'
 //   3. gold_selected           — submission id in config.ai_pulse.
@@ -102,6 +105,15 @@ export interface SignalMapEntry {
   status: string;
   /** engaged_live_session only — polls leg of the 4-AND gate. */
   min_polls_responded?: number;
+  /**
+   * engaged_live_session only — discount applied to `raw_score` (the 0-100
+   * quiz score) to produce `weighted_score`. Attending + passing the quiz is
+   * worth strictly less than producing an artifact, so this is bounded to
+   * [0, 1]: it may only ever shrink the contribution, never inflate it.
+   * Director decision 2026-07-10. Tunable via the `pde_bridge_signal_map`
+   * policy row — see the validator in resolveSignalMap.
+   */
+  weight_multiplier?: number;
 }
 
 export type SignalMap = Record<AiPulseBridgeSignal, SignalMapEntry>;
@@ -118,6 +130,7 @@ export const DEFAULT_SIGNAL_MAP: SignalMap = {
     evidence_type: 'engagement_record',
     status: 'scored',
     min_polls_responded: 3,
+    weight_multiplier: 0.25,
   },
   domain_sync_submitted: {
     category_key: 'problem_finding',
@@ -246,9 +259,29 @@ export function resolveSignalMap(policyValue: unknown): SignalMap {
     if (signal === 'engaged_live_session') {
       const n = asNumber(e.min_polls_responded, NaN);
       if (Number.isFinite(n) && n >= 0) target.min_polls_responded = n;
+      // Out-of-range values fall back to the default rather than clamping: a
+      // policy row reading `25` is a fat-fingered `0.25`, not a request to
+      // award every attendee a full Agency Index.
+      const w = asNumber(e.weight_multiplier, NaN);
+      if (Number.isFinite(w) && w >= 0 && w <= 1) target.weight_multiplier = w;
     }
   }
   return merged;
+}
+
+/**
+ * Pure helper (exported for unit-testing the discount without a DB).
+ *
+ * A missing quiz score stays `null`, never `0`. pde-agency-live-service treats
+ * ANY non-null `weighted_score` as a scored demonstration, so a `0` here would
+ * suppress its snapshot fallback and pin an engaged-but-unquizzed learner at an
+ * Agency Index of zero.
+ */
+export function engagementWeightedScore(
+  quizScore: number | null,
+  multiplier: number,
+): number | null {
+  return quizScore === null ? null : quizScore * multiplier;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -327,6 +360,7 @@ export class AiPulsePdeBridgeService {
     try {
       const entry = signalMap.engaged_live_session;
       const minPolls = entry.min_polls_responded ?? 3;
+      const weightMultiplier = entry.weight_multiplier ?? 0.25;
       const { data: attRows, error: attErr } = await sb
         .from('ai_pulse_live_attendance')
         .select('profile_id, institution_id, engagement_signals')
@@ -382,7 +416,7 @@ export class AiPulsePdeBridgeService {
             engagement_signals: sig,
           },
           raw_score: quizScore,
-          weighted_score: null,
+          weighted_score: engagementWeightedScore(quizScore, weightMultiplier),
           passed: true,
           scored_at: nowISO,
           submitted_at: null,

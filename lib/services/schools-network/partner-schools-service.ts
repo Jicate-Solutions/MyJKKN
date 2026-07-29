@@ -22,7 +22,7 @@ const LOG = 'schools-network/partner-schools';
 
 function mapRow(
   row: ProgramPartnerSchoolRow,
-  ownerName: string | null
+  owner: { name: string; userId: string } | null
 ): ProgramPartnerSchool {
   // PostgREST may hand back a to-one embed as an object OR a single-element
   // array depending on version — normalise so the name never silently drops.
@@ -38,7 +38,8 @@ function mapRow(
     domainUrl: row.domain_url,
     brandingDone: row.branding_done,
     nanMudhalvan: row.nan_mudhalvan,
-    ownerName,
+    ownerName: owner?.name || null,
+    ownerUserId: owner?.userId ?? null,
     updatedAt: row.updated_at,
   };
 }
@@ -66,7 +67,7 @@ export class ProgramPartnerSchoolsService {
     // Owner name per school: school_jkkn_owners.jkkn_user_id FKs auth.users,
     // so resolve names via the batch helper (same reason as profile-names.ts).
     const schoolIds = rows.map((r) => r.school_id);
-    const ownerBySchool = new Map<string, string>();
+    const ownerBySchool = new Map<string, { name: string; userId: string }>();
     if (schoolIds.length > 0) {
       const { data: owners } = await supabase
         .from('school_jkkn_owners')
@@ -86,13 +87,16 @@ export class ProgramPartnerSchoolsService {
         .sort((a, b) => (a.assigned_at < b.assigned_at ? 1 : -1))
         .forEach((o) => {
           if (!ownerBySchool.has(o.school_id)) {
-            ownerBySchool.set(o.school_id, names.get(o.jkkn_user_id) ?? '');
+            ownerBySchool.set(o.school_id, {
+              name: names.get(o.jkkn_user_id) ?? '',
+              userId: o.jkkn_user_id,
+            });
           }
         });
     }
 
     const mapped = rows
-      .map((r) => mapRow(r, ownerBySchool.get(r.school_id) || null))
+      .map((r) => mapRow(r, ownerBySchool.get(r.school_id) ?? null))
       .sort((a, b) => (a.schoolName ?? '').localeCompare(b.schoolName ?? ''));
 
     return { rows: mapped, total: mapped.length, error: null };

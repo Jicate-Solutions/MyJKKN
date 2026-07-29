@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { resolveBosBoardScope, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/reports/composition?compositionId= ──────────────────────────
 export async function GET(request: NextRequest) {
@@ -17,14 +18,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'compositionId is required' }, { status: 400 });
     }
 
+    // Read-only observer: holds the reports view grant but sits on no board —
+    // may READ any institution's composition report. Service-role bypasses the
+    // board-scoped RLS that would otherwise 404 this caller. VIEW ONLY.
+    const scope = await resolveBosBoardScope(user.id);
+    const canReadAllBos = isBosReadAllObserver(
+      scope,
+      await hasBosPermission(user.id, 'academic.bos-reports.view')
+    );
+    const db = canReadAllBos ? createServiceRoleClient() : supabase;
+
     const [{ data: composition, error: compErr }, { data: members, error: memErr }] =
       await Promise.all([
-        supabase
+        db
           .from('bos_compositions')
           .select('*')
           .eq('id', compositionId)
           .single(),
-        supabase
+        db
           .from('bos_members')
           .select('*')
           .eq('composition_id', compositionId)

@@ -23,9 +23,9 @@
 //      (rubber-stamping). flag_type: 'random_poll_response_pattern'.
 //      Data source: ai_pulse_poll_responses (substrate optional → no flags
 //      when absent/empty).
-//   4. Rotation gaming — a learner drawn (times_participated > 0) while far
-//      from the front of their section's queue (queue_position above a slack
-//      threshold), which violates front-of-queue fairness.
+//   4. Rotation gaming — QUARANTINED 2026-07-12 (see §5c): flood-by-design
+//      + wrong identity domain. Would-have-been rows are counted
+//      (detector4_quarantined) but NO candidates are generated.
 //      flag_type: 'rotation_gaming'. Data source: ai_pulse_rotation_state.
 //   5. Excuse frequency outlier — a learner whose excused-absence count in
 //      the scan window exceeds a threshold (default 3). flag_type:
@@ -42,6 +42,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
 
 interface PolicyRow {
   config_key: string;
@@ -88,6 +89,21 @@ export async function GET(req: NextRequest) {
   const queryOk = querySecret === cronSecret;
   if (!headerOk && !queryOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Runner-aware Max-lane deferral: when the maxlane:ai-pulse-anomaly-scan
+  // schedule row is enabled AND the runner heartbeat is fresh, the Max twin
+  // owns this scan — stand down this run. Fail-open: any schedules-read
+  // problem and the cloud scan runs normally. Harmless either way — the scan
+  // is dedupe-idempotent — but deferring keeps the twin the primary lane.
+  if (await shouldDeferToMaxLane('ai-pulse-anomaly-scan')) {
+    console.log('[cron/ai-pulse-anomaly-scan] deferred to Max lane — runner heartbeat fresh');
+    return NextResponse.json({
+      ok: true,
+      processed: 0,
+      flagged: 0,
+      deferred_to_max_lane: true,
+    });
   }
 
   const supabase = createServiceRoleClient();
@@ -159,6 +175,8 @@ export async function GET(req: NextRequest) {
   if (cycleIds.length === 0) {
     return NextResponse.json({
       ok: true,
+      processed: 0,
+      flagged: 0,
       summary: {
         cycles_scanned: 0,
         flags_created: 0,
@@ -359,37 +377,36 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // -- 5c. Detector 4: rotation gaming -------------------------------------
-  // Queue fairness: learners are drawn from the FRONT of their section's
-  // queue. A learner who has been drawn (times_participated > 0) while sitting
-  // far down the queue (queue_position > rotation_fairness_slack) violates
-  // that ordering — a possible manual override / gaming. rotation_state is
-  // section-keyed (no cycle_id), so flags anchor to the latest cycle.
+  // -- 5c. Detector 4: rotation gaming — ⛔ QUARANTINED (2026-07-12) --------
+  // Mirrors the Max-lane runner brain quarantine of 2026-07-12. Do NOT
+  // re-enable without a redesign. Two proven faults (prod receipts
+  // 2026-07-12; ai_pulse_anomaly_flags had ZERO rows ever):
+  //   1. WRONG IDENTITY DOMAIN — ai_pulse_rotation_state.profile_id holds
+  //      learners_profiles.id values (identity chain: profiles.learner_id →
+  //      learners_profiles.id), NOT profiles.id. Feeding them into
+  //      target_user_id (FK REFERENCES profiles(id)) made ALL ~1,830 inserts
+  //      fail with 23503 on every run.
+  //   2. FLOOD BY DESIGN — participation pushes a learner to the BACK of the
+  //      queue, so `times_participated > 0 AND queue_position > slack(12)`
+  //      flags nearly every past participant (1,784 distinct learners on
+  //      2026-07-12). Even with correct ids this is noise, not signal.
+  // A redesign needs draw-time position capture (or ordering-violation
+  // detection) plus a sane slack. Until then: the policy read
+  // (rotation_fairness_slack, above) is kept, and the would-have-been rows
+  // are COUNTED (surfaced top-level as detector4_quarantined) so the flood
+  // stays visible — but no candidates are generated.
+  let detector4Quarantined = 0;
   if (anchorCycleId) {
     try {
-      const { data: stateRows } = await (supabase as any)
+      const { count: rotationCount, error: rotationError } = await (
+        supabase as any
+      )
         .from('ai_pulse_rotation_state')
-        .select('profile_id, queue_position, times_participated, section_id')
+        .select('profile_id', { count: 'exact', head: true })
         .gt('times_participated', 0)
         .gt('queue_position', rotationFairnessSlack);
-      for (const s of (stateRows || []) as any[]) {
-        if (!s.profile_id) continue;
-        candidates.push({
-          startup_event_id: anchorCycleId,
-          flag_type: 'rotation_gaming',
-          target_user_id: s.profile_id,
-          signal_value:
-            typeof s.queue_position === 'number' ? s.queue_position : null,
-          signal_threshold: rotationFairnessSlack,
-          details_json: {
-            detector: 'drawn_from_back_of_queue',
-            section_id: s.section_id ?? null,
-            queue_position: s.queue_position ?? null,
-            times_participated: s.times_participated ?? null,
-            policy_key: 'rotation_fairness_slack',
-          },
-        });
-      }
+      if (rotationError) throw new Error(rotationError.message);
+      detector4Quarantined = rotationCount ?? 0;
     } catch (e) {
       errors.push(
         `detector_4_rotation_gaming: ${e instanceof Error ? e.message : String(e)}`
@@ -468,11 +485,76 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // -- 5e. Identity guard (2026-07-12, mirrors the Max-lane runner brain) --
+  // target_user_id is FK REFERENCES profiles(id), but some substrates carry
+  // learners_profiles.id values (identity chain: profiles.learner_id →
+  // learners_profiles.id). Resolve every non-null candidate id BEFORE insert:
+  //   • already a profiles.id          → keep as-is
+  //   • matches a profiles.learner_id  → translate to that profiles.id
+  //                                      (counted in identity_mapped)
+  //   • neither                        → skip the insert (counted in
+  //     identity_errors). Do NOT null the FK for these detectors — a null
+  //     target would break per-target idempotency and the review UX.
+  // Detector 5's intentional null target_user_id passes through untouched.
+  let identityMapped = 0;
+  let identityErrors = 0;
+  const profileIdSet = new Set<string>();
+  const learnerToProfile = new Map<string, string>();
+  const targetIds = Array.from(
+    new Set(
+      candidates
+        .map((c) => c.target_user_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+  const ID_CHUNK = 200;
+  for (let i = 0; i < targetIds.length; i += ID_CHUNK) {
+    const chunk = targetIds.slice(i, i + ID_CHUNK);
+    const [byId, byLearner] = await Promise.all([
+      (supabase as any).from('profiles').select('id').in('id', chunk),
+      (supabase as any)
+        .from('profiles')
+        .select('id, learner_id')
+        .in('learner_id', chunk),
+    ]);
+    if (byId.error) {
+      errors.push(`identity_guard_profiles_by_id: ${byId.error.message}`);
+    }
+    if (byLearner.error) {
+      errors.push(
+        `identity_guard_profiles_by_learner: ${byLearner.error.message}`
+      );
+    }
+    for (const p of (byId.data || []) as any[]) profileIdSet.add(p.id);
+    for (const p of (byLearner.data || []) as any[]) {
+      if (p.learner_id) learnerToProfile.set(p.learner_id, p.id);
+    }
+  }
+  const insertable: FlagInsert[] = [];
+  for (const candidate of candidates) {
+    const tid = candidate.target_user_id;
+    if (!tid) {
+      insertable.push(candidate); // detector 5's null FK is intentional
+      continue;
+    }
+    if (profileIdSet.has(tid)) {
+      insertable.push(candidate); // already a profiles.id
+      continue;
+    }
+    const mapped = learnerToProfile.get(tid);
+    if (mapped) {
+      identityMapped += 1;
+      insertable.push({ ...candidate, target_user_id: mapped });
+      continue;
+    }
+    identityErrors += 1; // unresolvable in either identity domain → skip
+  }
+
   // -- 6. Idempotent insert -------------------------------------------------
   let created = 0;
   let skipped = 0;
 
-  for (const candidate of candidates) {
+  for (const candidate of insertable) {
     const key = flagKey(candidate);
     if (openKeys.has(key)) {
       skipped += 1;
@@ -498,10 +580,33 @@ export async function GET(req: NextRequest) {
     flags_created: created,
     flags_skipped_existing: skipped,
     insert_errors: errors.length,
+    identity_mapped: identityMapped,
+    identity_errors: identityErrors,
+    detector4_quarantined: detector4Quarantined,
     elapsed_ms: Date.now() - startedAt,
   };
 
   console.log('[cron/ai-pulse-anomaly-scan]', summary);
 
-  return NextResponse.json({ ok: true, summary, errors });
+  // Top-level numeric keys for ai-routine-dispatcher's summarize(): it reads
+  // only top-level allowlisted numerics, so these were invisible under `summary`
+  // and the Control Tower reported a bare "HTTP 200". `summary` kept as-is.
+  // 2026-07-12: insert_errors / identity_mapped / identity_errors /
+  // detector4_quarantined hoisted top-level the same way — insert failures
+  // were previously swallowed into `errors[]` inside a 200 response, so the
+  // dispatcher reported "flagged 0" daily while EVERY insert 23503'd and the
+  // flags table stayed empty.
+  return NextResponse.json({
+    ok: true,
+    processed: summary.cycles_scanned,
+    candidates: summary.candidates,
+    flagged: summary.flags_created,
+    skipped: summary.flags_skipped_existing,
+    insert_errors: summary.insert_errors,
+    identity_mapped: identityMapped,
+    identity_errors: identityErrors,
+    detector4_quarantined: detector4Quarantined,
+    summary,
+    errors,
+  });
 }

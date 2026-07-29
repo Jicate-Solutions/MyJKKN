@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { format } from 'date-fns';
 import { useActiveHostelCategories } from '@/hooks/campus-living/use-hostel-categories';
 import { useActiveMessCategories } from '@/hooks/campus-living/use-mess-categories';
-import { useActiveRoutes, useRouteStops } from '@/hooks/tms/use-route-lookup';
+import { useRouteById, useRouteStops } from '@/hooks/tms/use-route-lookup';
 import {
   UserCheck,
   GraduationCap,
@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import { ViewOnMapLink } from '@/components/learners/view-on-map-link';
 import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
 import { useQuery } from '@tanstack/react-query';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -75,9 +76,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
 
   // Resolve the Day-Scholar transport route + boarding-point names.
   const transportRouteId = (learner as any).transport_route_id as string | undefined;
-  const { routes: allRoutes } = useActiveRoutes();
+  const { route: routeObj } = useRouteById(transportRouteId);
   const { stops: routeStops } = useRouteStops(transportRouteId);
-  const routeObj = allRoutes.find((r) => r.id === transportRouteId);
   const routeName = routeObj
     ? `${routeObj.route_number} - ${routeObj.route_name}`
     : undefined;
@@ -786,6 +786,10 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                         Pincode
                       </h4>
                       <p className="text-sm">{learner.permanent_address_pin_code || 'Not specified'}</p>
+                      <ViewOnMapLink
+                        postOfficeId={learner.post_office_id}
+                        pincode={learner.permanent_address_pin_code}
+                      />
                     </div>
                   </div>
                 </div>

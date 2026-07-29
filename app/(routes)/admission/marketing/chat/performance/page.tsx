@@ -111,7 +111,7 @@ function CounselorPerformanceContent() {
       <ContentLayout title="Counselor Performance">
         <div className="space-y-6">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem><BreadcrumbLink href="/">Dashboard</BreadcrumbLink></BreadcrumbItem>
@@ -123,7 +123,7 @@ function CounselorPerformanceContent() {
                 <BreadcrumbItem><BreadcrumbPage>Counselor Performance</BreadcrumbPage></BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Input
                 type="date"
                 value={dateFrom}

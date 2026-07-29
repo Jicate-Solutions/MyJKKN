@@ -15,10 +15,12 @@ import {
   useUnreadNotifications,
   useMarkAsRead,
   useMarkAllAsRead,
-  useDeleteAllRead
+  useDeleteAllRead,
+  UNREAD_PREVIEW_LIMIT
 } from '@/hooks/notification/use-notifications';
 import { useAuth } from '@/hooks/use-auth';
 import { NotificationItem } from './notification-item';
+import { collapseDuplicates } from '@/lib/notifications/collapse-duplicates';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
 import {
@@ -31,14 +33,23 @@ import {
 export function NotificationBell() {
   const router = useRouter();
   const { profile: user } = useAuth();
-  const { data: notifications = [], isLoading } = useUnreadNotifications(
-    user?.id
-  );
+  const { data, isLoading } = useUnreadNotifications(user?.id);
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteAllRead = useDeleteAllRead();
 
-  const unreadCount = notifications.length;
+  // `notifications` is a PREVIEW (the few rows this dropdown renders), so its
+  // length is not the unread tally. The tally comes from a real COUNT query on
+  // GET /api/notifications (`unread_count`, global by contract). Until
+  // 2026-07-15 the bell fetched every unread row fully joined, on a 30s poll,
+  // just to read `.length` — an array length standing in for a COUNT.
+  const notifications = data?.notifications ?? [];
+  // Fold near-duplicate repeats (e.g. 20 hourly "AI runner appears down") into a
+  // single row with a count — exactly like the full inbox. The bell was rendering
+  // every raw copy, drowning out everything else. Display-only: clicking still
+  // opens the representative.
+  const foldedNotifications = collapseDuplicates(notifications);
+  const unreadCount = data?.unreadCount ?? 0;
 
   const handleNotificationClick = async (
     notificationId: string,
@@ -82,11 +93,17 @@ export function NotificationBell() {
           <Button variant='ghost' size='icon' className='relative'>
             <Bell className='h-5 w-5' />
             {unreadCount > 0 && (
+              // Real number, no '9+' cap: a director with 257 unread was shown
+              // '9+', which reads as "about ten" and hides the actual backlog.
+              // The badge grows into a pill instead of clipping — the old fixed
+              // h-5 w-5 square could not hold three digits. tabular-nums keeps
+              // the width from jittering as the count ticks; the ring separates
+              // it from the bell glyph underneath.
               <Badge
                 variant='destructive'
-                className='absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs'
+                className='absolute -top-1 -right-1 h-5 min-w-[1.25rem] w-auto flex items-center justify-center rounded-full px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background'
               >
-                {unreadCount > 9 ? '9+' : unreadCount}
+                {unreadCount}
               </Badge>
             )}
           </Button>
@@ -168,18 +185,32 @@ export function NotificationBell() {
 
             {!isLoading && notifications.length > 0 && (
               <div className='divide-y'>
-                {notifications.slice(0, 5).map((notification) => (
-                  <NotificationItem
-                    key={notification.id}
-                    notification={notification}
-                    onClick={() =>
-                      handleNotificationClick(
-                        notification.id,
-                        notification.action_url
-                      )
-                    }
-                  />
-                ))}
+                {foldedNotifications
+                  .slice(0, UNREAD_PREVIEW_LIMIT)
+                  .map((notification) => {
+                    const stackCount = notification.__stackCount || 1;
+                    return (
+                      <div key={notification.id} className='relative'>
+                        <NotificationItem
+                          notification={notification}
+                          onClick={() =>
+                            handleNotificationClick(
+                              notification.id,
+                              notification.action_url
+                            )
+                          }
+                        />
+                        {stackCount > 1 && (
+                          <Badge
+                            variant='secondary'
+                            className='absolute right-3 top-3 text-[10px] px-1.5 py-0 pointer-events-none'
+                          >
+                            ×{stackCount}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </ScrollArea>

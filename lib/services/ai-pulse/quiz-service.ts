@@ -25,6 +25,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { assertQuizIntegrity } from './quiz-integrity';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -183,6 +184,11 @@ export class QuizService {
    * Read-modify-write on the config column to avoid clobbering sibling keys.
    */
   static async saveQuiz(cycleId: string, payload: QuizPayload): Promise<QuizPayload> {
+    // Refuse a quiz a knowledge-free respondent could pass. Throws with every
+    // blocking reason at once so the author fixes them in one pass.
+    // See quiz-integrity.ts for why shape validation alone is insufficient.
+    assertQuizIntegrity(payload.questions, payload.pass_threshold_live);
+
     const { data: row, error: readErr } = await (this.supabase as any)
       .from('startup_events')
       .select('config')

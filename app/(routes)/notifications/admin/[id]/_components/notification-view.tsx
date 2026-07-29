@@ -187,7 +187,7 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
     if (notification.creator?.full_name) {
       return notification.creator.full_name;
     }
-    return notification.creator?.email || notification.created_by;
+    return notification.creator?.email || 'System';
   };
 
   return (
@@ -240,7 +240,20 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
           </div>
           <div className='flex items-center gap-2'>
             <Calendar className='h-3 w-3' />
-            <span>{format(new Date(notification.sent_at), 'PPPp')}</span>
+            {(() => {
+              const sentDate = notification.sent_at ? new Date(notification.sent_at) : null;
+              if (sentDate && !isNaN(sentDate.getTime())) {
+                return <span>{format(sentDate, 'PPPp')}</span>;
+              }
+              const created = notification.created_at ? new Date(notification.created_at) : null;
+              return (
+                <span>
+                  {created && !isNaN(created.getTime())
+                    ? `Created ${format(created, 'PPPp')}`
+                    : 'Not sent yet'}
+                </span>
+              );
+            })()}
           </div>
         </CardFooter>
       </Card>
