@@ -45,6 +45,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [refetchKey, setRefetchKey] = useState(0);
 
   const canCreate =
     isSuperAdmin || canAccess('organizations.sections', 'create');
@@ -135,6 +136,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
 
       // Refresh the table
       router.refresh();
+      setRefetchKey((prev) => prev + 1);
 
       setShowDeleteDialog(false);
       setSelectedForDelete([]);
@@ -314,7 +316,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
       <DataTable
         key={refreshTrigger}
         fetchDataFn={fetchData}
-        getColumns={() => getColumns(adapt) as any}
+        getColumns={() => getColumns(adapt, () => setRefetchKey((prev) => prev + 1)) as any}
         exportConfig={{
           entityName: 'sections',
           columnMapping: {},
@@ -329,6 +331,7 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
           enableRowSelection: true
         }}
         renderToolbarContent={renderCustomToolbar}
+        refetchKey={refetchKey}
       />
 
       {/* Delete Confirmation Dialog */}
