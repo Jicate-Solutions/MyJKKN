@@ -92,10 +92,12 @@ export function OutgoingRequestsView({ storeId, institutionId }: OutgoingRequest
                 <div className="min-w-0">
                   <div className="font-medium text-sm">{t.indent_number}</div>
                   <div className="text-xs text-muted-foreground truncate">
-                    {t.destination_store?.name
-                      ? `To: ${t.destination_store.name}`
-                      : t.destination_institution?.institution_name
-                        ? `To: ${t.destination_institution.institution_name}`
+                    {/* These are MY requests, so the counterpart is the supplier
+                        the goods come FROM — not a "To:". */}
+                    {t.supplying_store?.name
+                      ? `From: ${t.supplying_store.name}`
+                      : t.counterpart_institution?.name
+                        ? `From: ${t.counterpart_institution.name}`
                         : '—'}
                     {' · '}{t.purpose}
                   </div>

@@ -14,7 +14,6 @@ import {
   useConfirmImsShipmentReceipt,
 } from '@/hooks/ims/use-ims-transfers';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
-import { useImsStore } from '@/hooks/ims';
 import { usePermissions } from '@/hooks/use-permissions';
 import { INDENT_STATUS_CONFIG, INDENT_URGENCY_CONFIG } from '@/types/ims';
 import { toast } from 'sonner';
@@ -31,8 +30,6 @@ export default function TransferDetailPage({ params }: { params: Promise<{ id: s
 function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { storeId } = useImsStoreContext();
-  const { data: currentStore } = useImsStore(storeId ?? '');
-  const isCentralStore = currentStore?.is_central_supply_store ?? false;
   const { userProfile, canAccess, isSuperAdmin } = usePermissions();
   const canDispatch = isSuperAdmin || canAccess('ims.transfers', 'dispatch');
   const canReceive = isSuperAdmin || canAccess('ims.transfers', 'receive');
@@ -65,14 +62,30 @@ function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }
   const preparingShipment = shipments?.find(s => s.status === 'preparing');
   const dispatchedShipment = shipments?.find(s => s.status === 'dispatched');
 
+  // Who am I in this transfer? Gate the actions on POSITION, not on a store flag.
+  // The old code keyed off `is_central_supply_store`, which meant two ordinary
+  // stores could approve a transfer that could then never be shipped, and a
+  // central store could never receive one.
+  //
+  // Mind the inverted columns: `supplying_store` (= destination_store_id) ships,
+  // `requesting_store` (= source_store_id) receives.
+  const supplyingStoreId = transfer.supplying_store?.id ?? transfer.destination_store_id;
+  const requestingStoreId = transfer.requesting_store?.id ?? transfer.source_store_id;
+  const isSupplier = !!storeId && storeId === supplyingStoreId;
+  const isReceiver = !!storeId && storeId === requestingStoreId;
+
   const handleCreateShipment = async () => {
     if (!storeId) return;
     try {
       await createShipment.mutateAsync({
         request_id: id,
+        // I am the supplier, so goods leave MY store and travel to the
+        // requesting store. The previous code passed transfer.destination_*
+        // here — that is the SUPPLIER side, so every shipment was created with
+        // destination == source and the goods never arrived.
         source_store_id: storeId,
-        destination_institution_id: transfer.destination_institution_id!,
-        destination_store_id: transfer.destination_store_id ?? undefined,
+        destination_institution_id: transfer.institution_id,
+        destination_store_id: requestingStoreId ?? undefined,
         items: transfer.items?.map(i => ({
           item_id: i.item_id,
           request_item_id: i.id,
@@ -80,8 +93,8 @@ function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }
         })) ?? [],
       });
       toast.success('Shipment created — ready to pack.');
-    } catch {
-      toast.error('Failed to create shipment.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create shipment.');
     }
   };
 
@@ -135,14 +148,21 @@ function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }
         <Card>
           <CardHeader><CardTitle className="text-sm">Transfer Route</CardTitle></CardHeader>
           <CardContent className="text-sm space-y-1">
+            {/* Physical direction: goods leave the SUPPLYING store (destination_store_id)
+                and arrive at the REQUESTING store (source_store_id). The labels used to
+                be the wrong way round on top of columns that never loaded. */}
             <div>
               <span className="text-muted-foreground">From: </span>
-              {transfer.source_store?.name ?? 'Unknown'}
+              {transfer.supplying_store?.name ?? '—'}
+              {transfer.supplying_store?.is_central_supply_store ? ' (Warehouse)' : ''}
             </div>
             <div>
               <span className="text-muted-foreground">To: </span>
-              {transfer.destination_institution?.institution_name ?? '—'}
-              {transfer.destination_store ? ` · ${transfer.destination_store.name}` : ''}
+              {transfer.requesting_store?.name ?? '—'}
+              {transfer.request_scope === 'inter_institution' &&
+                transfer.counterpart_institution?.name
+                ? ` · ${transfer.counterpart_institution.name}`
+                : ''}
             </div>
           </CardContent>
         </Card>
@@ -186,17 +206,17 @@ function TransferDetailPageInner({ params }: { params: Promise<{ id: string }> }
 
         {/* Contextual Action Buttons */}
         <div className="flex gap-3">
-          {isCentralStore && transfer.status === 'approved' && !preparingShipment && canDispatch && (
+          {isSupplier && transfer.status === 'approved' && !preparingShipment && canDispatch && (
             <Button onClick={handleCreateShipment} disabled={createShipment.isPending}>
               {createShipment.isPending ? 'Creating...' : 'Create Shipment'}
             </Button>
           )}
-          {isCentralStore && preparingShipment && canDispatch && (
+          {isSupplier && preparingShipment && canDispatch && (
             <Button onClick={handleDispatch} disabled={dispatch.isPending}>
               {dispatch.isPending ? 'Dispatching...' : 'Mark Dispatched'}
             </Button>
           )}
-          {!isCentralStore && dispatchedShipment && canReceive && (
+          {isReceiver && dispatchedShipment && canReceive && (
             <Button onClick={handleConfirmReceipt} disabled={confirmReceipt.isPending}>
               {confirmReceipt.isPending ? 'Confirming...' : 'Confirm Receipt'}
             </Button>

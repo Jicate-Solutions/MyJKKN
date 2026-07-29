@@ -30,6 +30,8 @@ export interface ImsImportResult {
   totalRows: number;
   errors: ImsImportError[];
   duplicateCodes?: string[];
+  /** Present when the file's Distribution sheet forwarded stock to other stores. */
+  distributionNote?: string;
 }
 
 /** A single row parsed from the Excel file, after Zod validation. */
@@ -70,6 +72,27 @@ export interface ImsUnitRow {
   id: string;
   name: string;
   abbreviation: string;
+}
+
+/**
+ * A store the warehouse may forward stock to. Feeds the import template's
+ * Distribution dropdown, so the sheet can only ever offer stores that actually
+ * exist in the institution.
+ */
+export interface ImsDestinationStoreRow {
+  id: string;
+  name: string;
+  code: string;
+  is_central_supply_store: boolean;
+}
+
+/** One line of the import file's optional "Distribution" sheet. */
+export interface ImsDistributionRow {
+  row_number: number;
+  item_code: string;
+  /** Raw cell text, normally "Store Name (CODE)" from the dropdown. */
+  store_label: string;
+  quantity: number;
 }
 
 /** Shape returned by getItemsForSelect — used by useImsItemsForSelect and the indent form (Teammate C). */
@@ -129,11 +152,18 @@ export class ImsInventoryService {
         query = query.eq('is_active', filters.is_active);
       }
 
-      // Primary: store_id; Fallback: institution_id
-      if (filters.store_id) {
-        query = query.eq('store_id', filters.store_id);
-      } else if (filters.institution_id) {
+      // The CATALOG is institution-scoped, not store-scoped: ims_items is
+      // UNIQUE (institution_id, code), so an item code exists once per
+      // institution regardless of how many stores it is stocked in.
+      // ims_items.store_id is only a stamp of which store created the row.
+      // Filtering on it would make an operating store's catalog empty, because
+      // every item carries the warehouse's store_id — so a store could never
+      // see (or request) an item the warehouse had just sent it.
+      // Stock, in contrast, IS per-store and stays store-scoped below.
+      if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+      } else if (filters.store_id) {
+        query = query.eq('store_id', filters.store_id);
       }
 
       // Pagination
@@ -157,6 +187,8 @@ export class ImsInventoryService {
           .select('item_id, current_quantity, available_quantity, opening_quantity')
           .in('item_id', itemIds);
 
+        // Stock is genuinely per-store (ims_stock_summary is UNIQUE(item_id, store_id)),
+        // so when a store is active we show ONLY that store's balance.
         if (filters.store_id) {
           stockQuery = stockQuery.eq('store_id', filters.store_id);
         } else if (filters.institution_id) {
@@ -164,16 +196,21 @@ export class ImsInventoryService {
         }
 
         const { data: stockData } = await stockQuery;
-        const stockMap = new Map(
-          (stockData || []).map((s) => [
-            s.item_id,
-            {
-              current_quantity: s.current_quantity,
-              available_quantity: s.available_quantity,
-              opening_quantity: s.opening_quantity ?? 0,
-            },
-          ])
-        );
+        // Without a store filter an item can return one row PER store, so a
+        // plain Map would silently keep whichever row arrived last. Accumulate
+        // instead: the institution-wide view is the sum across its stores.
+        const stockMap = new Map<
+          string,
+          { current_quantity: number; available_quantity: number; opening_quantity: number }
+        >();
+        for (const s of stockData || []) {
+          const prev = stockMap.get(s.item_id);
+          stockMap.set(s.item_id, {
+            current_quantity: (prev?.current_quantity ?? 0) + (s.current_quantity ?? 0),
+            available_quantity: (prev?.available_quantity ?? 0) + (s.available_quantity ?? 0),
+            opening_quantity: (prev?.opening_quantity ?? 0) + (s.opening_quantity ?? 0),
+          });
+        }
         enrichedData = enrichedData.map((item) => ({
           ...item,
           stock: stockMap.get(item.id) || null,
@@ -327,10 +364,14 @@ export class ImsInventoryService {
         .eq('is_active', true)
         .order('name');
 
-      if (storeId) {
-        query = query.eq('store_id', storeId);
-      } else if (institutionId) {
+      // Institution-scoped for the same reason as getItems: the catalog is
+      // shared across an institution's stores. storeId is kept in the signature
+      // (every caller already passes it) but is only a fallback for the rare
+      // case where the institution is not yet resolved.
+      if (institutionId) {
         query = query.eq('institution_id', institutionId);
+      } else if (storeId) {
+        query = query.eq('store_id', storeId);
       }
 
       const { data, error } = await query;

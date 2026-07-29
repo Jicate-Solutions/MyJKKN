@@ -1,7 +1,8 @@
 // app/(routes)/ims/inventory/items/_components/bulk-import-dialog.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useImsStoresByInstitution } from '@/hooks/ims/use-ims-stores';
 import {
   Dialog,
   DialogContent,
@@ -48,6 +49,7 @@ interface ImportResult {
   totalRows: number;
   errors: ImportError[];
   duplicateCodes?: string[];
+  distributionNote?: string;
 }
 
 // ============================================================================
@@ -80,6 +82,22 @@ export function BulkImportDialog({
 
   // ── Guard: store context required (IMS multi-store model) ────────────────
   const hasContext = !!storeId;
+
+  // ── Guard: uploads are pinned to the institution's warehouse ──────────────
+  // Full inventory enters at the warehouse and is forwarded to operating stores
+  // from there. The API refuses a non-warehouse import; mirror that here so the
+  // user is told BEFORE picking a file rather than after a 10 MB round-trip.
+  const { data: stores } = useImsStoresByInstitution(open ? institutionId : null);
+  const { isWarehouse, warehouseName } = useMemo(() => {
+    // Until stores load, assume OK — the API is the real guard, and blocking on
+    // an unresolved list would flash a false warning on every open.
+    if (!stores || stores.length === 0) return { isWarehouse: true, warehouseName: null };
+    const warehouse = stores.find((s) => s.is_central_supply_store);
+    return {
+      isWarehouse: !storeId || !warehouse || warehouse.id === storeId,
+      warehouseName: warehouse?.name ?? null,
+    };
+  }, [stores, storeId]);
 
   // ── File handling ─────────────────────────────────────────────────────────
   const handleFileSelect = (selected: File | null) => {
@@ -192,6 +210,7 @@ export function BulkImportDialog({
             ? [{ row: 0, message: `Server error: ${raw.error}${raw.message ? ` — ${raw.message}` : ''}` }]
             : [],
         duplicateCodes: raw.duplicateCodes,
+        distributionNote: raw.distributionNote,
       };
       setResult(data);
 
@@ -248,6 +267,19 @@ export function BulkImportDialog({
             </Alert>
           )}
 
+          {/* Warehouse guard — the API refuses this too; shown here first */}
+          {hasContext && !isWarehouse && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Imports go to the warehouse</AlertTitle>
+              <AlertDescription>
+                {warehouseName
+                  ? `Inventory is uploaded once into "${warehouseName}" and forwarded to this store from there. Switch to ${warehouseName} to import.`
+                  : 'This institution has no warehouse yet. Mark one store as the warehouse in IMS Settings → Stores.'}
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Template download */}
           <div className="flex justify-end">
             <Button
@@ -262,7 +294,7 @@ export function BulkImportDialog({
           </div>
 
           {/* Upload zone */}
-          {!result && hasContext && (
+          {!result && hasContext && isWarehouse && (
             <div
               className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
                 dragActive
@@ -357,6 +389,12 @@ export function BulkImportDialog({
                         <span>Errors found</span>
                       </div>
                     )}
+                    {result.distributionNote && (
+                      <div className="mt-2 rounded-md border border-teal-600/30 bg-teal-600/10 px-3 py-2 text-xs">
+                        <span className="font-medium">Distribution: </span>
+                        {result.distributionNote}
+                      </div>
+                    )}
                     {result.duplicateCodes && result.duplicateCodes.length > 0 && (
                       <div className="text-xs mt-2 text-muted-foreground">
                         Duplicate codes skipped:{' '}
@@ -423,7 +461,7 @@ export function BulkImportDialog({
                 </Button>
                 <Button
                   onClick={handleImport}
-                  disabled={!file || importing || !hasContext}
+                  disabled={!file || importing || !hasContext || !isWarehouse}
                 >
                   {importing ? (
                     <>
@@ -457,7 +495,7 @@ export function BulkImportDialog({
           </div>
 
           {/* Instructions (shown before results) */}
-          {!result && hasContext && (
+          {!result && hasContext && isWarehouse && (
             <div className="border rounded-lg p-4 bg-muted/50">
               <h4 className="text-sm font-medium mb-2">Quick Instructions:</h4>
               <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
