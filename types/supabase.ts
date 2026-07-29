@@ -12870,6 +12870,162 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_receipts_voided: {
+        Row: {
+          accountant_id: string | null
+          cancel_request_id: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          institution_id: string | null
+          items_snapshot: Json
+          payer_contact: string | null
+          payer_name: string | null
+          payment_amount: number | null
+          payment_mode: string | null
+          payment_paid_date: string | null
+          payment_reference_number: string | null
+          payment_remarks: string | null
+          receipt_date: string | null
+          receipt_number: string
+          student_id: string | null
+          updated_at: string | null
+          void_reason: string
+          voided_at: string
+          voided_by: string | null
+        }
+        Insert: {
+          accountant_id?: string | null
+          cancel_request_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id: string
+          institution_id?: string | null
+          items_snapshot?: Json
+          payer_contact?: string | null
+          payer_name?: string | null
+          payment_amount?: number | null
+          payment_mode?: string | null
+          payment_paid_date?: string | null
+          payment_reference_number?: string | null
+          payment_remarks?: string | null
+          receipt_date?: string | null
+          receipt_number: string
+          student_id?: string | null
+          updated_at?: string | null
+          void_reason: string
+          voided_at?: string
+          voided_by?: string | null
+        }
+        Update: {
+          accountant_id?: string | null
+          cancel_request_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          items_snapshot?: Json
+          payer_contact?: string | null
+          payer_name?: string | null
+          payment_amount?: number | null
+          payment_mode?: string | null
+          payment_paid_date?: string | null
+          payment_reference_number?: string | null
+          payment_remarks?: string | null
+          receipt_date?: string | null
+          receipt_number?: string
+          student_id?: string | null
+          updated_at?: string | null
+          void_reason?: string
+          voided_at?: string
+          voided_by?: string | null
+        }
+        Relationships: []
+      }
+      billing_receipt_cancel_requests: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_notes: string | null
+          id: string
+          institution_id: string | null
+          reason: string
+          receipt_id: string
+          receipt_snapshot: Json
+          request_number: string
+          requested_at: string
+          requested_by: string | null
+          status: string
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id?: string | null
+          reason: string
+          receipt_id: string
+          receipt_snapshot?: Json
+          request_number: string
+          requested_at?: string
+          requested_by?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id?: string | null
+          reason?: string
+          receipt_id?: string
+          receipt_snapshot?: Json
+          request_number?: string
+          requested_at?: string
+          requested_by?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_receipt_cancel_request_actions: {
+        Row: {
+          action_type: string
+          actor_id: string | null
+          actor_role_name: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          request_id: string
+        }
+        Insert: {
+          action_type: string
+          actor_id?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id: string
+        }
+        Update: {
+          action_type?: string
+          actor_id?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id?: string
+        }
+        Relationships: []
+      }
       billing_refunds: {
         Row: {
           approval_status: string | null

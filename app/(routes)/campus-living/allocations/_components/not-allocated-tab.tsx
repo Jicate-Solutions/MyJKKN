@@ -288,7 +288,7 @@ export function NotAllocatedTab() {
           onOpenChange={setShowAdvFilters}
         />
         <p className="text-xs text-muted-foreground">
-          These students aren&apos;t in a room yet, so Block, floor and
+          These learners aren&apos;t in a room yet, so Block, floor and
           program/semester filters hide them — they&apos;re matched only by
           institution, search, and a boys/girls Type filter (via the
           learner&apos;s gender).

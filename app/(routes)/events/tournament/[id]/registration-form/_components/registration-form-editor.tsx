@@ -292,8 +292,26 @@ function FieldRow({
 
 // ── Editor ───────────────────────────────────────────────────────────────────
 
-export function RegistrationFormEditor({ eventId }: { eventId: string }) {
+export function RegistrationFormEditor({
+  eventId,
+  variant = 'tournament',
+  backHref,
+}: {
+  eventId: string;
+  /**
+   * Which event this builder is editing. 'tournament' shows the built-in
+   * division / roster / entry-fee panels; 'general' hides them, because a
+   * lecture or cultural programme has no such fields — advertising them would
+   * promise registrants a form that does not exist. Defaults to 'tournament'
+   * so the original caller is unchanged.
+   */
+  variant?: 'tournament' | 'general';
+  /** Where "Back" returns to. Defaults to the tournament detail page. */
+  backHref?: string;
+}) {
   const router = useRouter();
+  const isTournament = variant === 'tournament';
+  const backTo = backHref ?? `/events/tournament/${eventId}`;
   const { data: form, isLoading } = useRegistrationForm(eventId);
   const save = useSaveRegistrationForm(eventId);
 
@@ -457,7 +475,7 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
       {/* Sticky action bar */}
       <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/95 px-3 py-2.5 backdrop-blur">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/events/tournament/${eventId}`)}>
+          <Button variant="ghost" size="sm" onClick={() => router.push(backTo)}>
             <ArrowLeft className="mr-1 h-4 w-4" /> Back
           </Button>
           <div className="flex items-center gap-2">
@@ -487,24 +505,34 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        Add custom questions learners answer when they register, on top of the standard
-        division / name / roster / contact fields every tournament already collects. These apply
-        to all divisions in this tournament.
-      </p>
-      <p className="text-sm text-muted-foreground">
-        Payment is not a field here — each division carries its own{' '}
-        <span className="font-medium text-foreground">Entry Fee</span>, editable from the
-        tournament page. Set it above ₹0 and the registration form collects it online
-        automatically.
-      </p>
+      {isTournament ? (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Add custom questions learners answer when they register, on top of the standard
+            division / name / roster / contact fields every tournament already collects. These apply
+            to all divisions in this tournament.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Payment is not a field here — each division carries its own{' '}
+            <span className="font-medium text-foreground">Entry Fee</span>, editable from the
+            tournament page. Set it above ₹0 and the registration form collects it online
+            automatically.
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Build the questions attendees answer when they register for this event. Unlike a
+          tournament, nothing is collected automatically — every question here is one you add.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* ── Builder ── */}
         <div className="space-y-4">
           {/* Pinned above the sections: what the form already collects, so an
-              organizer does not re-create a built-in field as a custom one. */}
-          <StandardFieldsCard />
+              organizer does not re-create a built-in field as a custom one.
+              Tournament-only — a general event collects nothing by default. */}
+          {isTournament && <StandardFieldsCard />}
 
           {sections.length === 0 && (
             <Card>
@@ -564,12 +592,15 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Preview — what registrants will see
           </p>
-          {/* Unconditional: the standard fields are collected whether or not
-              custom fields are enabled, so this heading would otherwise lie. */}
-          <StandardFieldsPreview />
+          {/* Unconditional for tournaments: the standard fields are collected
+              whether or not custom fields are enabled, so this heading would
+              otherwise lie. A general event has no standard fields to show. */}
+          {isTournament && <StandardFieldsPreview />}
           {!isEnabled && (
             <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-              Custom fields are turned off — learners will only see the standard fields.
+              {isTournament
+                ? 'Custom fields are turned off — learners will only see the standard fields.'
+                : 'Custom fields are turned off — this form collects nothing.'}
             </p>
           )}
           {isEnabled && previewSections.length === 0 && (

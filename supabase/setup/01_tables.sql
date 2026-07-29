@@ -6411,3 +6411,84 @@ REVOKE ALL ON public.payment_audit_logs FROM anon, authenticated;
 
 COMMENT ON TABLE public.payment_audit_logs IS
   'Payment security audit trail (verification, manipulation, replay, webhook, receipt). No FKs by design: an audit write must never fail.';
+
+-- Archive of voided billing receipts (mig 20260729_billing_receipt_void).
+-- A void MOVES the row here rather than flagging it in place: 26 functions read
+-- billing_receipts and ~20 sum payment_amount directly, so a `voided_at` flag
+-- would need filtering in every one of them and a single miss overstates
+-- collections. Safe only because generate_receipt_number() uses a sequence, not
+-- MAX(receipt_number), so a number can never be reused.
+CREATE TABLE IF NOT EXISTS public.billing_receipts_voided (
+  id                       uuid PRIMARY KEY,
+  receipt_number           text NOT NULL,
+  receipt_date             date,
+  student_id               uuid,
+  institution_id           uuid,
+  payment_mode             text,
+  payment_reference_number text,
+  payment_amount           numeric,
+  payment_paid_date        date,
+  payer_name               text,
+  payer_contact            text,
+  accountant_id            uuid,
+  payment_remarks          text,
+  created_by               uuid,
+  created_at               timestamptz,
+  updated_at               timestamptz,
+  items_snapshot           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  voided_at                timestamptz NOT NULL DEFAULT now(),
+  voided_by                uuid,
+  void_reason              text NOT NULL
+);
+-- Supabase default-grants new public tables to anon; RLS is not a substitute.
+REVOKE ALL ON TABLE public.billing_receipts_voided FROM anon, PUBLIC;
+
+-- Receipt cancellation approval (mig 20260729_receipt_cancellation_approval).
+-- NOTE receipt_id has NO foreign key on purpose: approving a request DELETEs
+-- that receipt, and an FK (this repo defaults to NO ACTION) would make approval
+-- fail with 23503. receipt_snapshot preserves the receipt's identity instead.
+CREATE SEQUENCE IF NOT EXISTS public.billing_receipt_cancel_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.billing_receipt_cancel_requests (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_number   text NOT NULL UNIQUE,
+  receipt_id       uuid NOT NULL,
+  institution_id   uuid,
+  student_id       uuid,
+  receipt_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  reason           text NOT NULL,
+  status           text NOT NULL DEFAULT 'pending_approval'
+                   CHECK (status IN ('pending_approval','approved','declined','withdrawn','failed')),
+  requested_by     uuid,
+  requested_at     timestamptz NOT NULL DEFAULT now(),
+  decided_by       uuid,
+  decided_at       timestamptz,
+  decision_notes   text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+-- At most ONE open request per receipt, so two people noticing the same
+-- duplicate cannot get it approved twice.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_open_per_receipt
+  ON public.billing_receipt_cancel_requests (receipt_id)
+  WHERE status = 'pending_approval';
+
+CREATE TABLE IF NOT EXISTS public.billing_receipt_cancel_request_actions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id      uuid NOT NULL
+                  REFERENCES public.billing_receipt_cancel_requests(id) ON DELETE CASCADE,
+  action_type     text NOT NULL
+                  CHECK (action_type IN ('requested','approved','declined','withdrawn','failed')),
+  actor_id        uuid,
+  actor_role_name text,
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.billing_receipts_voided
+  ADD COLUMN IF NOT EXISTS cancel_request_id uuid;
+
+REVOKE ALL ON TABLE public.billing_receipt_cancel_requests FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_receipt_cancel_request_actions FROM anon, PUBLIC;
+REVOKE ALL ON SEQUENCE public.billing_receipt_cancel_number_seq FROM anon, PUBLIC;

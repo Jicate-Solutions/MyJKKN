@@ -18,7 +18,10 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useBillingDashboardMetrics } from '@/hooks/billing/use-billing-reports';
+import {
+  useBillingDashboardMetrics,
+  useStudentYearBreakdown
+} from '@/hooks/billing/use-billing-reports';
 import { useCollectionSplit } from '@/hooks/billing/use-billing-analytics';
 import { ReportFilters } from './_components/report-filters';
 import type { BillingReportFilters } from '@/types/billing-schedule';
@@ -58,6 +61,10 @@ function BillingReportsPageInner() {
     error: metricsError,
     refetch: refetchMetrics
   } = useBillingDashboardMetrics(filters);
+
+  // Year-wise split of the Total Students / amount cards. Separate query: the
+  // dashboard RPC returns grand totals only.
+  const { breakdown: yearWiseStudents } = useStudentYearBreakdown(filters);
 
   // Management vs Government split — served by the analytics RPC rather than
   // re-aggregated client-side here, since the attribution walks
@@ -203,6 +210,7 @@ function BillingReportsPageInner() {
                 loading={metricsLoading}
                 canExport={canExportReports}
                 split={collectionSplit.data}
+                yearWiseStudents={yearWiseStudents}
               />
             )}
           </TabsContent>
