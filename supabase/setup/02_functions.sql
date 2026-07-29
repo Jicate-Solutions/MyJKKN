@@ -24122,12 +24122,14 @@ BEGIN
     RAISE EXCEPTION 'Receipt % not found (already voided or deleted)', p_receipt_id;
   END IF;
 
+  -- NOT is_admin(): that also matches profiles.role IN ('admin','super_admin',
+  -- 'administrator'), which would let a non-super-admin void a receipt outright
+  -- and skip the cancellation approval flow entirely.
   IF NOT (
     is_super_admin()
-    OR is_admin()
     OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(v_inst))
   ) THEN
-    RAISE EXCEPTION 'Not authorized to void receipts for this institution';
+    RAISE EXCEPTION 'Only a super admin can void a receipt directly - raise a cancellation request instead';
   END IF;
 
   RETURN QUERY SELECT * FROM public._fn_exec_receipt_void(p_receipt_id, p_reason, NULL);
