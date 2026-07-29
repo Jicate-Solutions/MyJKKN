@@ -199,6 +199,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_cfg            jsonb;
+  v_row_active     boolean;
   v_enabled        boolean;
   v_min_gap        int;
   v_floor          numeric;
@@ -226,14 +227,26 @@ DECLARE
   v_id        uuid;
 BEGIN
   -- ---- config (missing row => documented defaults) -------------------------
-  SELECT pp.value INTO v_cfg
+  -- is_active is read, NOT filtered on. A MISSING row means "fresh database" and
+  -- falls through to the documented defaults (feature on). A row that is PRESENT
+  -- but deliberately deactivated means an operator turned this off, and must
+  -- silence the feature — filtering it out in the WHERE would have made
+  -- is_active=false read as "no row" and therefore DEFAULT BACK ON, which is the
+  -- wrong direction for a kill switch.
+  SELECT pp.value, COALESCE(pp.is_active, true)
+    INTO v_cfg, v_row_active
   FROM public.platform_policies pp
   WHERE pp.policy_key = 'classroom_practice.l2'
     AND pp.scope_type = 'global'
     AND pp.scope_id IS NULL
-    AND COALESCE(pp.is_active, true)
   LIMIT 1;
 
+  IF v_cfg IS NOT NULL AND NOT COALESCE(v_row_active, true) THEN
+    RETURN jsonb_build_object('item', NULL, 'reason', 'disabled');
+  END IF;
+
+  -- COALESCE only replaces NULL, never false — an explicit enabled=false
+  -- survives this line and disables the feature below.
   v_enabled        := COALESCE((v_cfg ->> 'enabled')::boolean, true);
   v_min_gap        := COALESCE((v_cfg ->> 'min_gap_days_per_item')::int, 10);
   v_floor          := COALESCE((v_cfg ->> 'backoff_answer_rate_floor')::numeric, 0.2);

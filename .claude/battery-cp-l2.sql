@@ -12,17 +12,49 @@
 -- write below — synthetic catalog rows, a synthetic leave decision, impressions
 -- — rolls back with the transaction.
 --
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ROLE DISCIPLINE — READ THIS BEFORE EDITING. It caused every failure in the
+-- 2026-07-29 rehearsal (5 FAIL + 2 NULL), all of them battery defects that
+-- looked exactly like product bugs:
+--
+--   • ADMIN  = PERFORM set_config('role','none',true)
+--       Required for EVERY direct table read or write. carre_micro_impressions
+--       is sealed (RLS SELECT = super admin only) and platform_policies has RLS
+--       too. As the learner, a SELECT silently returns ZERO rows and an UPDATE
+--       silently matches ZERO rows — no error either way.
+--       Failure mode 1: T4's config UPDATE ran as the learner, changed nothing,
+--       so the kill switch was never flipped and the RPC correctly kept
+--       serving. T4a below now asserts the UPDATE's ROW_COUNT so this can never
+--       again be mistaken for a broken kill switch.
+--       Failure mode 2: T6/T7/T8/T13/T14 read the sealed table as the learner,
+--       got 0/NULL, and in T8 the NULL parameter_code poisoned T9's
+--       `code <> v_txt` (NULL never matches) so nothing was deactivated and an
+--       untouched item was legitimately offered.
+--
+--   • LEARNER = PERFORM set_config('role','authenticated',true)
+--       ONLY for calling the RPCs — that is the surface under test. The single
+--       deliberate exception is T18's visibility probe, which reads the sealed
+--       table AS THE LEARNER precisely to assert it returns zero rows.
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- EXPECTED OUTPUT: 22 result rows, or 23 when the CP-% catalog rows had to be
+-- synthesised (the extra row is the NOTE). Every row must read PASS. A row with
+-- pass = NULL is a BUG IN THIS FILE (a NULL crept into an assertion), not a
+-- product result — treat it as a failure and fix the assertion inputs.
+--
 -- Coverage:
 --   T0  scaffolding found (Present session WITH an assigned senior learner)
 --   T1  table + RLS on + anon fully revoked + authenticated SELECT-only
 --   T2  all three RPCs revoked from anon
 --   T3  config row present and complete
+--   T4a the kill-switch UPDATE actually hit its row (guards T4's honesty)
 --   T4  enabled=false silences the feature (the rollback switch)
---   T5  no CP catalog rows => no item (tolerates the sibling migration absent)
+--   T4b a PRESENT-but-deactivated policy row also silences (not default-on)
+--   T5  no active CP catalog rows => no item (tolerates the sibling absent)
 --   T6  an item is offered once catalog rows exist, and it is RECORDED
 --   T7  invariant 1 — a second call for the SAME session offers nothing
---   T8  invariant 4 — rotation picks the least-recently-offered item
---   T9  invariant 4 — every item inside min_gap => deck_cooling, nothing offered
+--   T8  invariant 4 — rotation avoids the just-offered item
+--   T9  invariant 4 — every item inside min_gap => deck_cooling
 --   T10 invariant 5 — CP-C1 excluded with no decided leave, included with one
 --   T11 invariant 6 — auto-backoff fires below the answer-rate floor
 --   T12 answer RPC refuses another learner's impression (ownership)
@@ -55,7 +87,7 @@ DECLARE
   v_score smallint; v_skip boolean;
   v_c     text;
 BEGIN
-  -- ══ T0 scaffolding ═══════════════════════════════════════════════════════
+  -- ══ T0 scaffolding (runs as the connecting role — RLS not in play) ════════
   -- A recent session where a learner with an auth profile is Present AND the
   -- period carries an assigned_faculty.faculty_email (no email => by design the
   -- feature offers nothing, so such a session cannot exercise the deck).
@@ -157,7 +189,8 @@ BEGIN
   INSERT INTO _r VALUES ('T3 config row complete', v_cnt = 1, format('rows=%s', v_cnt));
 
   -- Seed synthetic CP catalog rows if the sibling migration has not landed, so
-  -- the deck tests are deterministic either way.
+  -- the deck tests are deterministic either way. Codes match the real catalog
+  -- (CP-C1..CP-E2); only the wording is placeholder.
   SELECT count(*) INTO v_cnt FROM public.audit_parameter_catalog WHERE code LIKE 'CP-%';
   IF v_cnt = 0 THEN
     v_seeded := true;
@@ -169,29 +202,57 @@ BEGIN
       ('CP-E1','Time respected',5,'Did this session start and end on time?','hod',true,false);
   END IF;
 
-  -- ══ Become the learner ═══════════════════════════════════════════════════
-  PERFORM set_config('request.jwt.claims',
-    json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
-  PERFORM set_config('role', 'authenticated', true);
-
-  -- ══ T4 rollback switch ═══════════════════════════════════════════════════
+  -- ══ T4a/T4 the rollback switch ═══════════════════════════════════════════
+  -- ADMIN: platform_policies has RLS. As the learner this UPDATE matches zero
+  -- rows SILENTLY, which is exactly how the 2026-07-29 rehearsal made a working
+  -- kill switch look broken. Assert the row count so that can never recur.
+  PERFORM set_config('role', 'none', true);
   UPDATE public.platform_policies
      SET value = jsonb_set(value, '{enabled}', 'false'::jsonb)
    WHERE policy_key = 'classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  GET DIAGNOSTICS v_cnt = ROW_COUNT;
+  -- Clean slate: T4 must not be able to inherit an impression from anywhere.
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+
+  INSERT INTO _r VALUES ('T4a kill-switch UPDATE hit its row', v_cnt = 1,
+    format('rows_updated=%s (0 => the switch was never flipped; T4 below is then meaningless)', v_cnt));
+
+  -- LEARNER: call the RPC.
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_l1_profile, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
 
   v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
   INSERT INTO _r VALUES ('T4 enabled=false silences',
     v_res -> 'item' = 'null'::jsonb AND v_res ->> 'reason' = 'disabled',
     v_res::text);
 
+  -- ══ T4b deactivating the policy ROW is also a kill switch ════════════════
+  -- An operator may reach for is_active=false rather than enabled=false. A row
+  -- that is present but deactivated must silence the feature — it must NOT read
+  -- as "no row" and default back ON.
+  PERFORM set_config('role', 'none', true);
   UPDATE public.platform_policies
-     SET value = jsonb_set(value, '{enabled}', 'true'::jsonb)
+     SET value = jsonb_set(value, '{enabled}', 'true'::jsonb), is_active = false
+   WHERE policy_key = 'classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+  INSERT INTO _r VALUES ('T4b deactivated policy row also silences',
+    v_res -> 'item' = 'null'::jsonb AND v_res ->> 'reason' = 'disabled',
+    v_res::text);
+
+  PERFORM set_config('role', 'none', true);
+  UPDATE public.platform_policies
+     SET is_active = true
    WHERE policy_key = 'classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
 
-  -- ══ T5 no catalog rows => no item ════════════════════════════════════════
-  -- Deactivate every CP row briefly (as owner) to prove the tolerate-absence path.
-  PERFORM set_config('role', 'none', true);
+  -- ══ T5 no ACTIVE catalog rows => no item ═════════════════════════════════
+  -- ADMIN: deactivate every CP row to prove the tolerate-absence path. Also
+  -- clear impressions so the reason cannot be already_offered instead.
   UPDATE public.audit_parameter_catalog SET is_active = false WHERE code LIKE 'CP-%';
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
   PERFORM set_config('role', 'authenticated', true);
 
   v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
@@ -201,13 +262,18 @@ BEGIN
 
   PERFORM set_config('role', 'none', true);
   UPDATE public.audit_parameter_catalog SET is_active = true WHERE code LIKE 'CP-%';
+  DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
   PERFORM set_config('role', 'authenticated', true);
 
   -- ══ T6 an item is offered AND recorded ═══════════════════════════════════
   v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
   v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
+
+  PERFORM set_config('role', 'none', true);          -- ADMIN to read the seal
   SELECT count(*) INTO v_cnt FROM public.carre_micro_impressions
    WHERE id = v_imp AND learner_id = v_l1_lp AND answered_at IS NULL AND skipped = false;
+  PERFORM set_config('role', 'authenticated', true);
+
   INSERT INTO _r VALUES ('T6 item offered + recorded',
     v_imp IS NOT NULL AND v_cnt = 1
     AND (v_res -> 'item' ->> 'question') IS NOT NULL,
@@ -215,64 +281,75 @@ BEGIN
 
   -- ══ T7 invariant 1 — one item per submission ═════════════════════════════
   v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
+
+  PERFORM set_config('role', 'none', true);          -- ADMIN to read the seal
   SELECT count(*) INTO v_cnt FROM public.carre_micro_impressions
    WHERE learner_id = v_l1_lp AND attendance_date = v_date AND period_id = v_period;
+  PERFORM set_config('role', 'authenticated', true);
+
   INSERT INTO _r VALUES ('T7 one item per submission',
     v_res -> 'item' = 'null'::jsonb AND v_res ->> 'reason' = 'already_offered' AND v_cnt = 1,
     format('%s rows_for_session=%s', v_res::text, v_cnt));
 
   -- ══ T8/T9 rotation ═══════════════════════════════════════════════════════
   IF v_date2 IS NOT NULL THEN
-    -- Age the first impression past the gap so the deck is live again, and
-    -- record which item it was.
-    SELECT parameter_code INTO v_txt FROM public.carre_micro_impressions WHERE id = v_imp;
+    -- ADMIN: read which item was offered, then age it past the gap so the deck
+    -- is live again. Reading v_txt as the learner returns NULL and silently
+    -- breaks T9's `code <> v_txt` filter — the 2026-07-29 CP-E1 failure.
     PERFORM set_config('role', 'none', true);
+    SELECT parameter_code INTO v_txt FROM public.carre_micro_impressions WHERE id = v_imp;
     UPDATE public.carre_micro_impressions
        SET offered_at = now() - INTERVAL '400 days'
      WHERE id = v_imp;
     PERFORM set_config('role', 'authenticated', true);
 
-    v_res := public.fn_scf_micro_next_item(v_date2, v_tt2, v_period2);
-    INSERT INTO _r VALUES ('T8 rotation avoids the just-offered item',
-      v_res -> 'item' IS NOT NULL
-      AND v_res -> 'item' ->> 'code' IS DISTINCT FROM v_txt,
-      format('first=%s next=%s', v_txt, v_res -> 'item' ->> 'code'));
+    IF v_txt IS NULL THEN
+      -- Fail loudly rather than let a NULL poison the next two assertions.
+      INSERT INTO _r VALUES ('T8 rotation avoids the just-offered item', false,
+        'could not read the offered parameter_code (admin read failed) — T9 skipped');
+      INSERT INTO _r VALUES ('T9 min_gap => deck_cooling', false, 'skipped: T8 precondition failed');
+    ELSE
+      v_res := public.fn_scf_micro_next_item(v_date2, v_tt2, v_period2);
+      INSERT INTO _r VALUES ('T8 rotation avoids the just-offered item',
+        v_res -> 'item' IS NOT NULL
+        AND v_res -> 'item' ->> 'code' IS DISTINCT FROM v_txt,
+        format('first=%s next=%s', v_txt, v_res -> 'item' ->> 'code'));
 
-    -- Narrow the deck to exactly ONE item, one this learner saw MOMENTS ago,
-    -- and free up session 2 again. Every candidate is then inside min_gap, so
-    -- the only correct answer is deck_cooling. (Leaving any never-offered item
-    -- active would legitimately be picked — NULLS FIRST — and prove nothing.)
-    PERFORM set_config('role', 'none', true);
-    UPDATE public.carre_micro_impressions SET offered_at = now() WHERE id = v_imp;
-    DELETE FROM public.carre_micro_impressions
-     WHERE learner_id = v_l1_lp AND attendance_date = v_date2 AND period_id = v_period2;
-    UPDATE public.audit_parameter_catalog SET is_active = false
-     WHERE code LIKE 'CP-%' AND code <> v_txt;
-    PERFORM set_config('role', 'authenticated', true);
+      -- Narrow the deck to exactly ONE item, one this learner saw MOMENTS ago,
+      -- and free up session 2 again. Every candidate is then inside min_gap, so
+      -- the only correct answer is deck_cooling. (Leaving any never-offered
+      -- item active would legitimately be picked — NULLS FIRST — proving
+      -- nothing.)
+      PERFORM set_config('role', 'none', true);
+      UPDATE public.carre_micro_impressions SET offered_at = now() WHERE id = v_imp;
+      DELETE FROM public.carre_micro_impressions
+       WHERE learner_id = v_l1_lp AND attendance_date = v_date2 AND period_id = v_period2;
+      UPDATE public.audit_parameter_catalog SET is_active = false
+       WHERE code LIKE 'CP-%' AND code <> v_txt;
+      PERFORM set_config('role', 'authenticated', true);
 
-    v_res := public.fn_scf_micro_next_item(v_date2, v_tt2, v_period2);
-    INSERT INTO _r VALUES ('T9 min_gap => deck_cooling',
-      v_res -> 'item' = 'null'::jsonb AND v_res ->> 'reason' = 'deck_cooling',
-      v_res::text);
+      v_res := public.fn_scf_micro_next_item(v_date2, v_tt2, v_period2);
+      INSERT INTO _r VALUES ('T9 min_gap => deck_cooling',
+        v_res -> 'item' = 'null'::jsonb AND v_res ->> 'reason' = 'deck_cooling',
+        v_res::text);
 
-    PERFORM set_config('role', 'none', true);
-    UPDATE public.audit_parameter_catalog SET is_active = true WHERE code LIKE 'CP-%';
-    PERFORM set_config('role', 'authenticated', true);
+      PERFORM set_config('role', 'none', true);
+      UPDATE public.audit_parameter_catalog SET is_active = true WHERE code LIKE 'CP-%';
+      PERFORM set_config('role', 'authenticated', true);
+    END IF;
   ELSE
     INSERT INTO _r VALUES ('T8 rotation avoids the just-offered item', true,
-      'SKIPPED — no second session for this learner+senior learner (predicate-level only)');
+      'SKIPPED — no second session for this learner+senior learner');
     INSERT INTO _r VALUES ('T9 min_gap => deck_cooling', true, 'SKIPPED — same reason');
   END IF;
 
   -- ══ T10 relevance gate for CP-C1 ═════════════════════════════════════════
-  -- Clear this learner's impressions so the deck is wide open, then compare
-  -- candidate sets with and without a decided leave. Asserted at predicate
-  -- level (the same clause the RPC uses) so it holds regardless of which item
-  -- rotation happens to pick.
+  -- Asserted at predicate level (the same clause the RPC uses) so it holds
+  -- regardless of which item rotation happens to pick. ADMIN throughout: the
+  -- reads must reflect the real table, not this learner's RLS view.
   PERFORM set_config('role', 'none', true);
   DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
   DELETE FROM public.leave_onduty_applications WHERE learner_id = v_l1_lp;
-  PERFORM set_config('role', 'authenticated', true);
 
   SELECT EXISTS (
     SELECT 1 FROM public.leave_onduty_applications loa
@@ -280,20 +357,19 @@ BEGIN
       AND loa.updated_at >= now() - make_interval(days => 60)
   ) INTO v_ok;
 
-  PERFORM set_config('role', 'none', true);
   INSERT INTO public.leave_onduty_applications
     (learner_id, institution_id, category, sub_category, application_date,
      start_date, end_date, period_type, reason, status)
   VALUES
     (v_l1_lp, v_inst, 'leave', 'battery-synthetic', CURRENT_DATE - 5,
      CURRENT_DATE - 5, CURRENT_DATE - 5, 'fullday', 'battery synthetic row', 'approved');
-  PERFORM set_config('role', 'authenticated', true);
 
   SELECT EXISTS (
     SELECT 1 FROM public.leave_onduty_applications loa
     WHERE loa.learner_id = v_l1_lp AND loa.status IN ('approved','rejected')
       AND loa.updated_at >= now() - make_interval(days => 60)
   ) INTO v_skip;
+  PERFORM set_config('role', 'authenticated', true);
 
   INSERT INTO _r VALUES ('T10 CP-C1 relevance gate flips on a decided leave',
     v_ok = false AND v_skip = true,
@@ -329,8 +405,8 @@ BEGIN
     json_build_object('sub', v_l2_profile, 'role', 'authenticated')::text, true);
   v_res := public.fn_scf_micro_answer(v_imp2, 3, false);
   INSERT INTO _r VALUES ('T12 foreign impression refused',
-    COALESCE((v_res ->> 'success')::boolean, true) = false,
-    v_res::text);
+    v_imp2 IS NOT NULL AND COALESCE((v_res ->> 'success')::boolean, true) = false,
+    format('impression=%s %s', v_imp2, v_res::text));
 
   -- back to the owner
   PERFORM set_config('request.jwt.claims',
@@ -338,14 +414,19 @@ BEGIN
 
   -- ══ T13 answer once ══════════════════════════════════════════════════════
   v_res := public.fn_scf_micro_answer(v_imp2, 3, false);
+  v_ok := COALESCE((v_res ->> 'success')::boolean, false);
+
+  PERFORM set_config('role', 'none', true);          -- ADMIN to read the seal
   SELECT score, skipped INTO v_score, v_skip
     FROM public.carre_micro_impressions WHERE id = v_imp2;
-  v_ok := COALESCE((v_res ->> 'success')::boolean,false) AND v_score = 3 AND v_skip = false;
+  PERFORM set_config('role', 'authenticated', true);
+
+  v_ok := v_ok AND v_score = 3 AND v_skip = false;
 
   v_res := public.fn_scf_micro_answer(v_imp2, 1, false);
   INSERT INTO _r VALUES ('T13 score recorded, second answer refused',
-    v_ok AND COALESCE((v_res ->> 'success')::boolean, true) = false,
-    format('first_ok=%s score=%s second=%s', v_ok, v_score, v_res::text));
+    COALESCE(v_ok, false) AND COALESCE((v_res ->> 'success')::boolean, true) = false,
+    format('first_ok=%s score=%s skipped=%s second=%s', v_ok, v_score, v_skip, v_res::text));
 
   -- ══ T14 skip is a recorded answer ════════════════════════════════════════
   IF v_date2 IS NOT NULL THEN
@@ -353,36 +434,43 @@ BEGIN
     v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
     IF v_imp IS NOT NULL THEN
       v_res := public.fn_scf_micro_answer(v_imp, NULL, true);
+
+      PERFORM set_config('role', 'none', true);      -- ADMIN to read the seal
       SELECT score, skipped INTO v_score, v_skip
         FROM public.carre_micro_impressions WHERE id = v_imp;
+      PERFORM set_config('role', 'authenticated', true);
+
       INSERT INTO _r VALUES ('T14 skip recorded',
-        COALESCE((v_res ->> 'success')::boolean,false) AND v_skip = true AND v_score IS NULL,
+        COALESCE((v_res ->> 'success')::boolean,false)
+        AND COALESCE(v_skip,false) = true AND v_score IS NULL,
         format('skipped=%s score=%s', v_skip, v_score));
     ELSE
-      INSERT INTO _r VALUES ('T14 skip recorded', true, 'SKIPPED — no item offered on 2nd session');
+      INSERT INTO _r VALUES ('T14 skip recorded', false,
+        format('no item offered on the 2nd session: %s', v_res::text));
     END IF;
   ELSE
     INSERT INTO _r VALUES ('T14 skip recorded', true, 'SKIPPED — no second session');
   END IF;
 
   -- ══ T17/T18/T19 sealed comment ═══════════════════════════════════════════
-  -- Clear the deck and force the invite cadence to 1 so the very next answer
-  -- must invite. Proves the RPC READS the config rather than hardcoding 8.
+  -- Force the invite cadence to 1 so the very next answer must invite. Proves
+  -- the RPC READS the config rather than hardcoding 8.
   PERFORM set_config('role', 'none', true);
   DELETE FROM public.carre_micro_impressions WHERE learner_id = v_l1_lp;
   UPDATE public.platform_policies
      SET value = jsonb_set(value, '{comment_invite_every_n_answers}', '1'::jsonb)
    WHERE policy_key = 'classroom_practice.l2' AND scope_type='global' AND scope_id IS NULL;
+  GET DIAGNOSTICS v_cnt = ROW_COUNT;
   PERFORM set_config('role', 'authenticated', true);
 
   v_res := public.fn_scf_micro_next_item(v_date, v_tt, v_period);
   v_imp := NULLIF(v_res -> 'item' ->> 'impression_id','')::uuid;
 
-  IF v_imp IS NULL THEN
+  IF v_imp IS NULL OR v_cnt <> 1 THEN
     INSERT INTO _r VALUES ('T17 comment invite honours config cadence', false,
-      format('no item offered: %s', v_res::text));
-    INSERT INTO _r VALUES ('T18 comment stored + sealed from the learner', false, 'no item');
-    INSERT INTO _r VALUES ('T19 one comment maximum', false, 'no item');
+      format('cadence_rows_updated=%s offer=%s', v_cnt, v_res::text));
+    INSERT INTO _r VALUES ('T18 comment stored + sealed from the learner', false, 'precondition failed');
+    INSERT INTO _r VALUES ('T19 one comment maximum', false, 'precondition failed');
   ELSE
     v_res := public.fn_scf_micro_answer(v_imp, 4, false);
     INSERT INTO _r VALUES ('T17 comment invite honours config cadence',
@@ -394,12 +482,13 @@ BEGIN
     v_c := 'battery sealed line for the Principal';
     v_res := public.fn_scf_micro_answer(v_imp, NULL, false, v_c);
 
-    -- The learner who WROTE it still cannot read the table back: RLS is
-    -- super-admin-only, so their own SELECT returns zero rows.
+    -- DELIBERATE learner-role read: the learner who WROTE the comment must not
+    -- be able to read the table back. This is the ONE place the battery reads
+    -- the sealed table as the learner, and it asserts ZERO rows.
     SELECT count(*) INTO v_cnt
       FROM public.carre_micro_impressions WHERE id = v_imp;
 
-    PERFORM set_config('role', 'none', true);
+    PERFORM set_config('role', 'none', true);        -- ADMIN to confirm storage
     SELECT sealed_comment INTO v_txt
       FROM public.carre_micro_impressions WHERE id = v_imp;
     PERFORM set_config('role', 'authenticated', true);
@@ -465,6 +554,8 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 RESET ROLE;
-SELECT test, CASE WHEN pass THEN 'PASS' ELSE 'FAIL' END AS result, detail FROM _r ORDER BY test;
-SELECT count(*) FILTER (WHERE NOT pass) AS failures, count(*) AS total FROM _r;
+SELECT test, CASE WHEN pass IS NULL THEN 'NULL-BUG' WHEN pass THEN 'PASS' ELSE 'FAIL' END AS result,
+       detail
+FROM _r ORDER BY test;
+SELECT count(*) FILTER (WHERE pass IS NOT TRUE) AS failures, count(*) AS total FROM _r;
 -- Runner decides: ROLLBACK for a rehearsal.
