@@ -68,7 +68,14 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
         filters.transport ?? 'any',
         filters.gender ?? null,
         filters.coverage_state ?? 'not_generated',
-        filters.include_non_billing_institutions ?? false
+        filters.include_non_billing_institutions ?? false,
+        // The academic hierarchy narrows harder than anything else here, so
+        // omitting these would strand the user on a page that no longer exists.
+        filters.degree_id ?? null,
+        filters.department_id ?? null,
+        filters.program_id ?? null,
+        filters.semester_id ?? null,
+        filters.section_id ?? null
       ]),
     [
       filters.academic_year_id,
@@ -79,7 +86,12 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
       filters.transport,
       filters.gender,
       filters.coverage_state,
-      filters.include_non_billing_institutions
+      filters.include_non_billing_institutions,
+      filters.degree_id,
+      filters.department_id,
+      filters.program_id,
+      filters.semester_id,
+      filters.section_id
     ]
   );
 

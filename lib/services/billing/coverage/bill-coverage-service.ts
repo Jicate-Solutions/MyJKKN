@@ -64,7 +64,17 @@ export class BillCoverageService extends BaseService {
       // Transport is a separate dimension from accommodation — the two compose.
       p_transport: filters.transport ?? 'any',
       // null = any gender. GENDER_UNSET selects learners with a blank gender.
-      p_gender: filters.gender ?? null
+      p_gender: filters.gender ?? null,
+      // Academic hierarchy. Set here in baseParams, which feeds BOTH the summary
+      // and the learners query — putting them only on the learners call would
+      // leave the KPI cards counting a wider population than the table shows.
+      // `??` not `||`: '' would flow through as a real uuid parameter and match
+      // zero rows.
+      p_degree_id: filters.degree_id ?? null,
+      p_department_id: filters.department_id ?? null,
+      p_program_id: filters.program_id ?? null,
+      p_semester_id: filters.semester_id ?? null,
+      p_section_id: filters.section_id ?? null
     };
   }
 
