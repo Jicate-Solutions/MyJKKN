@@ -44,6 +44,17 @@ export interface BillCoverageFilters {
   billing_category_id?: string | null;
   /** Hostel / Day Scholar / Paying Guest / Not Applicable — from accommodation_types. */
   accommodation_type_ids?: string[] | null;
+  /**
+   * Academic hierarchy: degree → department → programme → semester → section.
+   * The UI cascades them (each level's options are narrowed by the one above),
+   * but they are filtered INDEPENDENTLY in SQL — a learner row carries every
+   * level, so the deepest selected one is what actually narrows the result.
+   */
+  degree_id?: string | null;
+  department_id?: string | null;
+  program_id?: string | null;
+  semester_id?: string | null;
+  section_id?: string | null;
   transport?: TransportFilter;
   /** 'MALE' | 'FEMALE' | GENDER_UNSET | null (any). Compared case-insensitively. */
   gender?: string | null;

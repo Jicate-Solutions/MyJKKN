@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAcademicHierarchyFilters } from '@/hooks/organization/use-academic-hierarchy-filters';
 import { useBillingCategories } from '@/hooks/billing/use-billing-categories';
 import type { BillCoverageFilters } from '@/types/billing-coverage';
 import { LEARNER_SCOPE_DEFAULT, GENDER_UNSET } from '@/types/billing-coverage';
@@ -55,6 +56,39 @@ export function CoverageFilterBar({
     staleTime: 30 * 60 * 1000
   });
 
+  // Degree → Department → Programme → Semester → Section. Each level's options
+  // are loaded from the level above, so only reachable combinations are offered.
+  const hierarchy = useAcademicHierarchyFilters({
+    institution_id: selectedInstitutionId,
+    degree_id: filters.degree_id ?? undefined,
+    department_id: filters.department_id ?? undefined,
+    program_id: filters.program_id ?? undefined,
+    semester_id: filters.semester_id ?? undefined
+  });
+
+  /**
+   * Build the filter patch for a hierarchy change: the new value plus every
+   * descendant cleared, as ONE object. It must be applied in a single onChange —
+   * calling onChange per level would let each write clobber the previous one.
+   *
+   * Two translations from the shared hook's shape:
+   *  - it clears with `undefined`, which a spread merge would drop and leave the
+   *    stale child in place; BillCoverageFilters clears with `null`.
+   *  - it emits `institution_id`, but coverage scopes by `institution_ids[]`.
+   */
+  const cascadePatch = (
+    key: 'institution_id' | 'degree_id' | 'department_id' | 'program_id' | 'semester_id' | 'section_id',
+    value?: string
+  ): Partial<BillCoverageFilters> => {
+    const raw = hierarchy.cascadeClear(key, value);
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (k === 'institution_id') continue;
+      patch[k] = v ?? null;
+    }
+    return patch as Partial<BillCoverageFilters>;
+  };
+
   const selectedAccommodationId = filters.accommodation_type_ids?.[0];
 
   const statuses = filters.lifecycle_statuses ?? [...LEARNER_SCOPE_DEFAULT];
@@ -79,9 +113,10 @@ export function CoverageFilterBar({
             value={selectedInstitutionId ?? ALL}
             onValueChange={(v) =>
               onChange({
-                institution_ids: v === ALL ? null : [v],
-                // The previous year belongs to the previous institution.
-                academic_year_id: null
+                // Clears academic year AND the whole degree→section chain: the
+                // previous year and programme belong to the previous institution.
+                ...cascadePatch('institution_id', v === ALL ? undefined : v),
+                institution_ids: v === ALL ? null : [v]
               })
             }
             disabled={institutionsLoading}
@@ -127,6 +162,129 @@ export function CoverageFilterBar({
               Pick an institution to choose a specific year
             </p>
           )}
+        </div>
+
+        {/* Degree → Department → Programme → Semester → Section.
+            Each is disabled until its parent is chosen, so the dropdown can
+            only ever offer combinations that actually exist. */}
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Degree</Label>
+          <Select
+            value={filters.degree_id ?? ALL}
+            onValueChange={(v) =>
+              onChange(cascadePatch('degree_id', v === ALL ? undefined : v))
+            }
+            disabled={!selectedInstitutionId || hierarchy.loading.degrees}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any degree' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any degree</SelectItem>
+              {hierarchy.degrees.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!selectedInstitutionId && (
+            <p className='text-[11px] text-muted-foreground'>
+              Pick an institution first
+            </p>
+          )}
+        </div>
+
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Department</Label>
+          <Select
+            value={filters.department_id ?? ALL}
+            onValueChange={(v) =>
+              onChange(cascadePatch('department_id', v === ALL ? undefined : v))
+            }
+            disabled={!filters.degree_id || hierarchy.loading.departments}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any department' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any department</SelectItem>
+              {hierarchy.departments.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Programme</Label>
+          <Select
+            value={filters.program_id ?? ALL}
+            onValueChange={(v) =>
+              onChange(cascadePatch('program_id', v === ALL ? undefined : v))
+            }
+            disabled={!filters.department_id || hierarchy.loading.programs}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any programme' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any programme</SelectItem>
+              {hierarchy.programs.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Semester</Label>
+          <Select
+            value={filters.semester_id ?? ALL}
+            onValueChange={(v) =>
+              onChange(cascadePatch('semester_id', v === ALL ? undefined : v))
+            }
+            disabled={!filters.program_id || hierarchy.loading.semesters}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any semester' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any semester</SelectItem>
+              {hierarchy.semesters.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Section</Label>
+          <Select
+            value={filters.section_id ?? ALL}
+            onValueChange={(v) =>
+              onChange(cascadePatch('section_id', v === ALL ? undefined : v))
+            }
+            disabled={!filters.semester_id || hierarchy.loading.sections}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any section' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any section</SelectItem>
+              {hierarchy.sections.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Billing category */}
