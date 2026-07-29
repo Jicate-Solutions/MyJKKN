@@ -16,7 +16,6 @@ import { ComparisonTab } from './comparison-tab';
 import { UnifiedAccessMapTab } from './unified-access-map-tab';
 import { RlsAuditTab } from './rls-audit-tab';
 import { ExportReportsTab } from './export-reports-tab';
-import { AIDebuggerTab } from './ai-debugger-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
 import { ModuleAccessTab } from './module-access-tab';
 import { ComplianceReportButton } from './compliance-report-button';
@@ -32,6 +31,14 @@ import { useTabParam } from '@/hooks/use-tab-param';
  * it first. Dropping it from this list also makes a stale ?tab=ask deep-link
  * fall back to DEFAULT_TAB instead of opening a broken pane. Re-add here, in
  * TabsList and in TabsContent once the tab has a working backend.
+ *
+ * 'ai-debug' (the AI Debugger pane) was removed 2026-07-29 for the same reason:
+ * it posts to that same dead Gemini route. Its two other endpoints do not save
+ * it — /matrix only fills a role dropdown that feeds the dead chat, and
+ * /ai-debug/run-sql executes SQL held in `executingSql`, which is set ONLY from
+ * an AI response, so handleExecuteSql returns at its first line while the chat
+ * is down. The whole pane is therefore inert in production. Same re-add path:
+ * restore here, in TabsList and in TabsContent once the backend works.
  */
 const TAB_VALUES = [
   'activity',
@@ -43,7 +50,6 @@ const TAB_VALUES = [
   'matrix',
   'comparison',
   'export',
-  'ai-debug',
 ] as const;
 
 const DEFAULT_TAB = 'activity';
@@ -107,7 +113,7 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
-          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-10 lg:gap-0 lg:overflow-visible'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-9 lg:gap-0 lg:overflow-visible'>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
             <TabsTrigger value='module-access'>Module → Roles</TabsTrigger>
@@ -117,7 +123,6 @@ export function PermissionsAuditClient() {
             <TabsTrigger value='matrix'>Permission Matrix</TabsTrigger>
             <TabsTrigger value='comparison'>Comparison</TabsTrigger>
             <TabsTrigger value='export'>Export</TabsTrigger>
-            <TabsTrigger value='ai-debug'>AI Debugger</TabsTrigger>
           </TabsList>
 
           <TabsContent value='activity'>
@@ -154,10 +159,6 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='export'>
             <ExportReportsTab />
-          </TabsContent>
-
-          <TabsContent value='ai-debug'>
-            <AIDebuggerTab />
           </TabsContent>
         </Tabs>
       </div>
