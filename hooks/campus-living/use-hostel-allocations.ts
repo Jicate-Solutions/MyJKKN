@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { hostelBedKeys } from '@/hooks/campus-living/use-hostel-beds';
+import { hostelAttendanceKeys } from '@/hooks/campus-living/use-hostel-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import type {
   HostelAllocation,
@@ -148,6 +149,10 @@ export function useTransferAllocation() {
       queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
       queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
       queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
+      // Attendance's markable-residents list also embeds each resident's
+      // room/bed — without this it kept showing the pre-transfer room until
+      // its 5-minute cache expired or a hard refresh forced a refetch.
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
       toast.success('Allocation transferred');
     },
     onError: (error: Error) => {
