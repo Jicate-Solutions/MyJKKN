@@ -81,8 +81,13 @@ BEGIN
   WHERE ns.nspname = 'public'
     AND rel.relname = 'carre_micro_impressions'
     AND con.contype = 'u'
+    -- attname is type `name`, so an uncast array_agg yields name[] and there is
+    -- no name[] = text[] operator (42883). Cast in BOTH the aggregate and the
+    -- ORDER BY: `name` sorts under C collation while `text` uses the database
+    -- collation, so casting only one side could reorder the array on some
+    -- databases and silently fail to match.
     AND (
-      SELECT array_agg(a.attname ORDER BY a.attname)
+      SELECT array_agg(a.attname::text ORDER BY a.attname::text)
       FROM unnest(con.conkey) k
       JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k
     ) = ARRAY['attendance_date','learner_id','period_id']

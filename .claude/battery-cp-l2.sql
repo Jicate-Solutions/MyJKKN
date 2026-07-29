@@ -607,7 +607,9 @@ BEGIN
   JOIN pg_class rel    ON rel.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = rel.relnamespace
   WHERE ns.nspname='public' AND rel.relname='carre_micro_impressions' AND con.contype='u'
-    AND (SELECT array_agg(a.attname ORDER BY a.attname)
+    -- ::text on both the aggregate and the ORDER BY — attname is type `name`,
+    -- and there is no name[] = text[] operator (42883).
+    AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text)
          FROM unnest(con.conkey) k
          JOIN pg_attribute a ON a.attrelid=con.conrelid AND a.attnum=k)
         = ARRAY['attendance_date','learner_id','period_id','timetable_id'];
