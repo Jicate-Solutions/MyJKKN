@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
 import { useTournament } from '@/hooks/events/use-tournaments';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
-import { RegistrationFormEditor } from './_components/registration-form-editor';
+import { RegistrationFormEditor } from '@/components/events/shared/registration-form/registration-form-editor';
 
 export default function TournamentRegistrationFormPage() {
   const params = useParams();

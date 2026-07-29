@@ -292,7 +292,14 @@ function FieldRow({
 
 // ── Editor ───────────────────────────────────────────────────────────────────
 
-export function RegistrationFormEditor({ eventId }: { eventId: string }) {
+export function RegistrationFormEditor({
+  eventId,
+  backHref,
+}: {
+  eventId: string;
+  /** Where "Back" goes. Defaults to the tournament detail page so the original caller is unchanged. */
+  backHref?: string;
+}) {
   const router = useRouter();
   const { data: form, isLoading } = useRegistrationForm(eventId);
   const save = useSaveRegistrationForm(eventId);
@@ -457,7 +464,11 @@ export function RegistrationFormEditor({ eventId }: { eventId: string }) {
       {/* Sticky action bar */}
       <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/95 px-3 py-2.5 backdrop-blur">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/events/tournament/${eventId}`)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push(backHref ?? `/events/tournament/${eventId}`)}
+          >
             <ArrowLeft className="mr-1 h-4 w-4" /> Back
           </Button>
           <div className="flex items-center gap-2">

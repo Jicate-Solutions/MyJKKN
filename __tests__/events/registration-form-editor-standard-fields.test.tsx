@@ -15,7 +15,7 @@ vi.mock('@/hooks/events/use-tournament-registration-form', () => ({
   useSaveRegistrationForm: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
-import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
+import { RegistrationFormEditor } from '@/components/events/shared/registration-form/registration-form-editor';
 
 afterEach(() => cleanup());
 

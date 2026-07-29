@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   StandardFieldsCard,
   StandardFieldsPreview,
-} from '@/app/(routes)/events/tournament/[id]/registration-form/_components/standard-fields-card';
+} from '@/components/events/shared/registration-form/standard-fields-card';
 
 afterEach(() => cleanup());
 

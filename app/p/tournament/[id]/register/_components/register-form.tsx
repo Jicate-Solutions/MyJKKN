@@ -386,7 +386,7 @@ export function RegisterForm({
 
   // KEEP IN SYNC: the standard fields below are mirrored, read-only, in the
   // organizer's form builder — see standard-fields-card.tsx under
-  // app/(routes)/events/tournament/[id]/registration-form/_components/.
+  // components/events/shared/registration-form/.
   // Adding, removing or renaming a field here means updating STANDARD_FIELDS
   // there, or the builder will describe a form that no longer exists.
   return (
