@@ -562,12 +562,17 @@ export interface ClarificationRequestRow {
 }
 
 /** One session's re-explanation asks, for the Senior Learner who led it
- *  (fn_scf_clarification_sessions_for_me, last 30 days). COUNT-ONLY by
- *  construction: a date, a course label and five integers — the RPC never
- *  returns who asked, and never a timestamp finer than the date.
- *  `still_open` counts asks the learner has not yet reported back on. */
+ *  (fn_scf_clarification_sessions_for_me, last 30 IST days). COUNT-ONLY by
+ *  construction: a date, a timetable slot key, a course label and integers —
+ *  the RPC never returns who asked, and never a timestamp finer than the date.
+ *  `still_open` counts asks the learner has not yet reported back on.
+ *
+ *  The `*_30d` fields are UNBOUNDED 30-day totals repeated on every row: the
+ *  row list is capped at 50 sessions, so summing the rows would under-report a
+ *  heavy teaching load. Headline figures must read these, never a row sum. */
 export interface ClarificationSessionCountsRow {
   attendance_date: string;      // 'YYYY-MM-DD'
+  period_id: string;            // timetable slot key — a session, not a person
   course_code: string;          // '—' when the session carries none
   course_name: string | null;
   asks: number;
@@ -575,4 +580,8 @@ export interface ClarificationSessionCountsRow {
   re_explained: number;
   refused: number;
   unanswered: number;
+  /** Every attributed ask in the last 30 days, ignoring the 50-row cap. */
+  asked_30d: number;
+  /** Of those, still awaiting the learner's own outcome report. */
+  still_open_30d: number;
 }

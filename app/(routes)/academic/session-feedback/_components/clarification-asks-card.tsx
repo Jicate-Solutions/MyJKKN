@@ -18,12 +18,25 @@
 // Every word here must read as an invitation to revisit a topic, never as an
 // accusation, and never as a queue someone is failing to clear.
 //
+// NO SMALL-COUNT SUPPRESSION, deliberately. The sibling
+// fn_scf_freetext_carry_counts hides courses below a >=3-learner floor, and
+// review asked for the same here. We do NOT, because:
+//   • a lead must see that ONE ask exists in order to act on it — hiding it
+//     breaks the exact loop this card was built to close, and a single
+//     unanswered ask is the case most worth revisiting;
+//   • the payload is a low-stakes REQUEST ("please go over that again"), not a
+//     score, complaint, or evaluation of the lead — the freetext floor guards
+//     learners' written CONCERNS, a different risk class;
+//   • the learner self-reports the outcome knowing this loop exists.
+// The claim is corrected instead: "No names are stored or shown" is exactly
+// true, where "never identifiable" would not be in a four-person elective.
+//
 // Renders NOTHING when there are no asks — a quiet surface that earns its
 // place only when there is a real signal (same doctrine as the free-text
 // carry-counts card next to it).
 
 import { useQuery } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { HelpCircle } from 'lucide-react';
 import {
   Card,
@@ -37,6 +50,9 @@ import { SessionFeedbackService } from '@/lib/services/session-feedback-service'
 
 const BRAND = '#0b6d41';
 const MAX_ROWS = 10;
+/** Mirrors the LIMIT in fn_scf_clarification_sessions_for_me. At this many
+ *  rows the list is truncated server-side and no total can be asserted. */
+const SERVER_ROW_CAP = 50;
 
 export function ClarificationAsksCard() {
   const { data: rows = [] } = useQuery({
@@ -47,8 +63,11 @@ export function ClarificationAsksCard() {
 
   if (rows.length === 0) return null;
 
-  const stillOpen = rows.reduce((n, r) => n + (r.still_open || 0), 0);
-  const totalAsks = rows.reduce((n, r) => n + (r.asks || 0), 0);
+  // Headline reads the RPC's UNBOUNDED 30-day scalars, never a sum over the
+  // rows: the row list is capped server-side, so summing it would quietly
+  // under-report anyone teaching more than 50 sessions with asks.
+  const stillOpen = rows[0].still_open_30d;
+  const totalAsks = rows[0].asked_30d;
   const visible = rows.slice(0, MAX_ROWS);
 
   return (
@@ -61,8 +80,8 @@ export function ClarificationAsksCard() {
         <CardDescription>
           A learner asking again is the system working — a two-minute revisit at
           the start of the next session usually closes the loop. No names are
-          ever shown. Learners report the outcome themselves, so an ask stays
-          open until they answer.
+          stored or shown. Learners report the outcome themselves, so an ask
+          stays open until they answer.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -92,13 +111,18 @@ export function ClarificationAsksCard() {
               </tr>
             </thead>
             <tbody>
-              {visible.map((r) => (
+              {visible.map((r, i) => (
                 <tr
-                  key={`${r.attendance_date}-${r.course_code}`}
+                  // Rows are per SESSION, so the key must carry period_id —
+                  // two periods of one course on one day are two rows.
+                  key={`${r.attendance_date}-${r.period_id}-${r.course_code}-${i}`}
                   className="border-b last:border-0"
                 >
                   <td className="py-1.5 pr-3 whitespace-nowrap">
-                    {format(new Date(r.attendance_date), 'd MMM')}
+                    {/* parseISO, not new Date(): 'YYYY-MM-DD' through the Date
+                        constructor is UTC midnight and renders the previous day
+                        in any negative-offset browser. */}
+                    {format(parseISO(r.attendance_date), 'd MMM')}
                   </td>
                   <td className="py-1.5 pr-3">
                     <span className="font-medium">{r.course_code}</span>
@@ -133,7 +157,12 @@ export function ClarificationAsksCard() {
 
         {rows.length > MAX_ROWS ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            Showing the {MAX_ROWS} most recent of {rows.length} sessions with asks.
+            {/* The RPC itself caps at 50 rows, so at exactly 50 we cannot claim
+                a total — say "at least" rather than state a number that may be
+                short. The headline above is unbounded either way. */}
+            Showing the {MAX_ROWS} most recent of{' '}
+            {rows.length >= SERVER_ROW_CAP ? `at least ${rows.length}` : rows.length}{' '}
+            sessions with asks.
           </p>
         ) : null}
       </CardContent>
