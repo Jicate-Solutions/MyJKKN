@@ -560,3 +560,19 @@ export interface ClarificationRequestRow {
   created_at: string;
   updated_at: string;
 }
+
+/** One session's re-explanation asks, for the Senior Learner who led it
+ *  (fn_scf_clarification_sessions_for_me, last 30 days). COUNT-ONLY by
+ *  construction: a date, a course label and five integers — the RPC never
+ *  returns who asked, and never a timestamp finer than the date.
+ *  `still_open` counts asks the learner has not yet reported back on. */
+export interface ClarificationSessionCountsRow {
+  attendance_date: string;      // 'YYYY-MM-DD'
+  course_code: string;          // '—' when the session carries none
+  course_name: string | null;
+  asks: number;
+  still_open: number;
+  re_explained: number;
+  refused: number;
+  unanswered: number;
+}

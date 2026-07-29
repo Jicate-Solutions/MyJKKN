@@ -39,6 +39,7 @@ import type {
   PostSessionResourceInput,
   ClarificationRequestRow,
   ClarificationOutcome,
+  ClarificationSessionCountsRow,
 } from '@/types/session-feedback';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -249,6 +250,25 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Could not record what happened: ${error.message}`);
     return data as ClarificationRequestRow;
+  }
+
+  /** The read side of Lane C, for the person who LED the sessions: per-session
+   *  counts of re-explanation asks over the last 30 days. Self-scoped and
+   *  count-only server-side — the RPC cannot return who asked. Decorative
+   *  surface: any failure resolves to [] so the card simply doesn't render. */
+  static async getMyClarificationSessions(): Promise<ClarificationSessionCountsRow[]> {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.rpc('fn_scf_clarification_sessions_for_me');
+      if (error) {
+        logger.warn('academic/session-feedback', 'clarification session counts load failed', error);
+        return [];
+      }
+      return (data || []) as ClarificationSessionCountsRow[];
+    } catch (err) {
+      logger.warn('academic/session-feedback', 'clarification session counts load failed', err);
+      return [];
+    }
   }
 
   /** Anonymized aggregate over the caller faculty's own sessions. */
