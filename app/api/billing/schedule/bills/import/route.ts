@@ -12,6 +12,7 @@ import type {
   ImportResult,
   ImportSuccessRow
 } from '@/lib/utils/mappings/student-bill-excel-mappings';
+import { resolveStudentBillColumns } from '@/lib/utils/mappings/student-bill-excel-mappings';
 import {
   isOncePerLearnerViolation,
   oncePerLearnerMessage
@@ -24,17 +25,23 @@ import {
  * is treated as one self-contained bill. Validation runs row-by-row;
  * valid rows commit even when other rows fail (partial-success contract).
  *
- * Excel columns:
- *   A Roll Number      (required)  → resolves to learners_profiles.id + institution_id
- *   B Billing Category (required)  → resolves to billing_categories.id
- *   C Bill Description (optional)
- *   D Due Date         (required)  → ISO yyyy-mm-dd
- *   E Billing Amount   (required)  → number ≥ 0
- *   F Remarks          (optional)
- *   G Academic Year    (optional)  → resolves to academic_years.id, scoped to
- *                                    the student's institution; blank → NULL
+ * Columns are matched by HEADER TEXT (see STUDENT_BILL_HEADER_ALIASES), not by
+ * position, so sheets may gain or reorder columns freely:
+ *   Roll Number      (required)  → resolves to learners_profiles.id + institution_id
+ *   Academic Year    (required)  → resolves to academic_years.id, scoped to the
+ *                                  student's institution
+ *   Billing Category (required)  → resolves to billing_categories.id
+ *   Due Date         (required)  → ISO yyyy-mm-dd
+ *   Billing Amount   (required)  → number ≥ 0
+ *   Institution      (optional)  → cross-checked against the learner's own
+ *                                  institution; drives the template's cascading
+ *                                  Academic Year dropdown
+ *   First/Last Name  (optional)  → reference only; names the learner in reports
+ *   Bill Description (optional)
+ *   Remarks          (optional)
  *
- * Response: { success, successCount, errorCount, totalRows, errors[] }
+ * Response: always ImportResult — { success, successCount, errorCount,
+ * totalRows, errors[], successes[] } — including on failure.
  */
 
 // ----------------------------------------------------------------------
@@ -47,7 +54,14 @@ const billRowSchema = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Due date must be yyyy-mm-dd'),
   billing_amount: z.number().nonnegative('Billing amount must be ≥ 0'),
   remarks: z.string().optional().nullable(),
-  academic_year_name: z.string().optional().nullable()
+  // Required as of 2026-07-29. Previously optional (blank → NULL), but only
+  // 62 of 10,990 production bills ever had a null academic year, so blanks
+  // were mistakes rather than a used workflow.
+  academic_year_name: z.string().min(1, 'Academic year is required'),
+  // Optional. Drives the template's cascading Academic Year dropdown; when
+  // present it is cross-checked against the learner's real institution so a
+  // mismatched pick is caught instead of silently failing year resolution.
+  institution_name: z.string().optional().nullable()
 });
 
 type CleanedRow = z.infer<typeof billRowSchema>;
@@ -55,6 +69,27 @@ type CleanedRow = z.infer<typeof billRowSchema>;
 // ----------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------
+
+/**
+ * Every failure exit returns an ImportResult-shaped body, not a bare
+ * `{ error }`. The dialog types the response as ImportResult and reads
+ * `result.errors` — six exits used to return a shape without it, which crashed
+ * the dialog on `result.errors.length` AND discarded the very message that
+ * explained the failure. Keep the HTTP status honest, keep the body renderable.
+ */
+function failure(message: string, status: number, field?: string) {
+  return NextResponse.json<ImportResult>(
+    {
+      success: false,
+      successCount: 0,
+      errorCount: 1,
+      totalRows: 0,
+      errors: [{ row: 0, field, message }],
+      successes: []
+    },
+    { status }
+  );
+}
 
 function cellToString(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -126,22 +161,37 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return failure(
+        'Your session has expired or is not valid. Refresh the page, sign in again, and re-upload.',
+        401
+      );
     }
 
     // -- File ----------------------------------------------------------
     const formData = await request.formData();
     const file = formData.get('file');
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+      return failure('No file was received by the server. Please pick the file again.', 400);
     }
 
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
+
+    // Pick the data sheet BY NAME. Taking SheetNames[0] breaks as soon as a
+    // sheet is reordered or the file is re-saved by a tool that moves
+    // "Instructions" to the front — and the resulting "file is empty" error
+    // points nowhere near the real cause.
+    const NON_DATA_SHEETS = new Set(['lists', 'instructions']);
+    const sheetName =
+      workbook.SheetNames.find((n) => n.trim().toLowerCase() === 'bills') ??
+      workbook.SheetNames.find((n) => !NON_DATA_SHEETS.has(n.trim().toLowerCase())) ??
+      workbook.SheetNames[0];
+    const sheet = sheetName ? workbook.Sheets[sheetName] : undefined;
     if (!sheet) {
-      return NextResponse.json({ error: 'No sheet found in workbook' }, { status: 400 });
+      return failure(
+        'No readable sheet found in this workbook. Expected a sheet named "Bills".',
+        400
+      );
     }
 
     // Parse to AOA so we can keep row indices honest with respect to header row
@@ -153,15 +203,45 @@ export async function POST(request: NextRequest) {
     });
 
     if (rows.length < 2) {
-      return NextResponse.json(
-        { error: 'File is empty or contains only a header row' },
-        { status: 400 }
+      return failure(
+        `Sheet "${sheetName}" has a header row but no data rows. Add at least one bill row below the header and re-upload.`,
+        400
+      );
+    }
+
+    // Resolve columns by HEADER TEXT, not position. This is what lets the
+    // template gain columns (First Name / Last Name) without shifting every
+    // field one to the right in sheets already in circulation.
+    const col = resolveStudentBillColumns((rows[0] ?? []) as unknown[]);
+
+    const REQUIRED_COLUMNS: Array<[string, string]> = [
+      ['roll_number', 'Roll Number'],
+      // Required since 2026-07-29. Caught at header level so a sheet without
+      // the column fails once with a clear message, rather than every row
+      // failing individually with "Academic year is required".
+      ['academic_year_name', 'Academic Year'],
+      ['billing_category_name', 'Billing Category'],
+      ['due_date', 'Due Date'],
+      ['billing_amount', 'Billing Amount']
+    ];
+    const missingColumns = REQUIRED_COLUMNS.filter(([field]) => col[field] === undefined);
+    if (missingColumns.length > 0) {
+      return failure(
+        `Sheet "${sheetName}" is missing required column${missingColumns.length > 1 ? 's' : ''}: ` +
+          `${missingColumns.map(([, label]) => `"${label}"`).join(', ')}. ` +
+          'Download a fresh template, or check the header row spelling.',
+        400
       );
     }
 
     const dataRows = rows.slice(1); // drop header
     const errors: ImportError[] = [];
-    const cleanedRows: Array<{ rowNumber: number; cleaned: CleanedRow }> = [];
+    const cleanedRows: Array<{
+      rowNumber: number;
+      cleaned: CleanedRow;
+      /** First+Last as typed in the sheet — names the learner when the roll doesn't resolve. */
+      sheetLearnerName: string;
+    }> = [];
     // Count every non-blank row once so totalRows reconciles with
     // successes + failures regardless of which stage a row dies in.
     let attemptedRowCount = 0;
@@ -178,22 +258,36 @@ export async function POST(request: NextRequest) {
       if (isBlank) continue;
       attemptedRowCount++;
 
+      // Read through the resolved header map. A column the sheet doesn't carry
+      // reads as null rather than silently picking up its neighbour's value.
+      const cell = (field: string): unknown =>
+        col[field] === undefined ? null : cells[col[field]] ?? null;
+
       const parsed = {
-        roll_number: cellToString(cells[0]),
-        billing_category_name: cellToString(cells[1]),
-        bill_description: cellToString(cells[2]) || undefined,
-        due_date: cellToISODate(cells[3]) ?? '',
-        billing_amount: cellToNumber(cells[4]),
-        remarks: cellToString(cells[5]) || undefined,
-        academic_year_name: cellToString(cells[6]) || undefined
+        roll_number: cellToString(cell('roll_number')),
+        billing_category_name: cellToString(cell('billing_category_name')),
+        bill_description: cellToString(cell('bill_description')) || undefined,
+        due_date: cellToISODate(cell('due_date')) ?? '',
+        billing_amount: cellToNumber(cell('billing_amount')),
+        remarks: cellToString(cell('remarks')) || undefined,
+        academic_year_name: cellToString(cell('academic_year_name')),
+        institution_name: cellToString(cell('institution_name')) || undefined
       };
+
+      // Name as typed in the sheet. Used to identify the learner in error
+      // reports when the roll number doesn't resolve to a DB record.
+      const sheetLearnerName = [cellToString(cell('first_name')), cellToString(cell('last_name'))]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
 
       if (parsed.billing_amount === null) {
         errors.push({
           row: rowNumber,
           field: 'Billing Amount',
           message: 'Billing amount is missing or not a number.',
-          roll_number: parsed.roll_number || undefined
+          roll_number: parsed.roll_number || undefined,
+          student_name: sheetLearnerName || undefined
         });
         continue;
       }
@@ -209,13 +303,14 @@ export async function POST(request: NextRequest) {
             row: rowNumber,
             field: issue.path.join('.') || undefined,
             message: issue.message,
-            roll_number: parsed.roll_number || undefined
+            roll_number: parsed.roll_number || undefined,
+            student_name: sheetLearnerName || undefined
           });
         }
         continue;
       }
 
-      cleanedRows.push({ rowNumber, cleaned: validation.data });
+      cleanedRows.push({ rowNumber, cleaned: validation.data, sheetLearnerName });
     }
 
     if (cleanedRows.length === 0) {
@@ -284,11 +379,30 @@ export async function POST(request: NextRequest) {
         institutionIds.length ? institutionIds : ['00000000-0000-0000-0000-000000000000']
       );
     const acadYearByInstName = new Map<string, string>();
+    // Valid year names per institution, used to make the rejection message
+    // actionable ("… available: 2024-2025, 2025-2026") instead of a dead end.
+    const acadYearNamesByInst = new Map<string, string[]>();
     (acadYears ?? []).forEach((y: any) => {
-      acadYearByInstName.set(
-        `${y.institution_id}::${String(y.academic_year_name).trim().toLowerCase()}`,
-        y.id
-      );
+      const name = String(y.academic_year_name).trim();
+      acadYearByInstName.set(`${y.institution_id}::${name.toLowerCase()}`, y.id);
+      const list = acadYearNamesByInst.get(y.institution_id) ?? [];
+      if (!list.includes(name)) list.push(name);
+      acadYearNamesByInst.set(y.institution_id, list);
+    });
+
+    // Institution name -> id, for validating the (optional) Institution column
+    // against the learner the roll number actually resolved to. Names are
+    // unique across the 14 institutions, so a name is a safe key —
+    // counselling_code is NOT (both Arts & Science colleges share "CAS").
+    const { data: institutionRows } = await supabase
+      .from('institutions')
+      .select('id, name');
+    const institutionIdByName = new Map<string, string>();
+    const institutionNameById = new Map<string, string>();
+    (institutionRows ?? []).forEach((i: any) => {
+      if (!i.name) return;
+      institutionIdByName.set(String(i.name).trim().toLowerCase(), i.id);
+      institutionNameById.set(i.id, String(i.name));
     });
 
     const { data: categories } = await supabase
@@ -334,12 +448,9 @@ export async function POST(request: NextRequest) {
 
         if (existingError) {
           console.error('[bills/import] Duplicate pre-check failed:', existingError);
-          return NextResponse.json(
-            {
-              error: 'Failed to check for existing bills',
-              message: existingError.message
-            },
-            { status: 500 }
+          return failure(
+            `Failed to check for existing bills: ${existingError.message}`,
+            500
           );
         }
         (existing ?? []).forEach((b: any) =>
@@ -359,14 +470,15 @@ export async function POST(request: NextRequest) {
     // so successes can be echoed back — and named — after the batch insert.
     const pendingSuccesses: ImportSuccessRow[] = [];
 
-    for (const { rowNumber, cleaned } of cleanedRows) {
+    for (const { rowNumber, cleaned, sheetLearnerName } of cleanedRows) {
       const studentMatch = studentByRoll.get(cleaned.roll_number);
       if (!studentMatch) {
         errors.push({
           row: rowNumber,
           field: 'Roll Number',
           message: `No student found with roll number "${cleaned.roll_number}".`,
-          roll_number: cleaned.roll_number
+          roll_number: cleaned.roll_number,
+          student_name: sheetLearnerName || undefined
         });
         continue;
       }
@@ -375,7 +487,8 @@ export async function POST(request: NextRequest) {
           row: rowNumber,
           field: 'Roll Number',
           message: `Roll number "${cleaned.roll_number}" matches multiple students — please disambiguate before importing.`,
-          roll_number: cleaned.roll_number
+          roll_number: cleaned.roll_number,
+          student_name: sheetLearnerName || undefined
         });
         continue;
       }
@@ -388,6 +501,40 @@ export async function POST(request: NextRequest) {
           student_name: studentMatch.name
         });
         continue;
+      }
+
+      // Institution column is advisory — the roll number is what identifies the
+      // learner. But if it was filled in and disagrees, say so plainly: it
+      // means the wrong row was picked, and the academic year chosen from that
+      // institution's dropdown would fail resolution a few lines below with a
+      // far less obvious message.
+      if (cleaned.institution_name) {
+        const claimedId = institutionIdByName.get(
+          cleaned.institution_name.trim().toLowerCase()
+        );
+        if (!claimedId) {
+          errors.push({
+            row: rowNumber,
+            field: 'Institution',
+            message: `Institution "${cleaned.institution_name}" does not exist. Pick one from the dropdown.`,
+            roll_number: cleaned.roll_number,
+            student_name: studentMatch.name || sheetLearnerName || undefined
+          });
+          continue;
+        }
+        if (claimedId !== studentMatch.institution_id) {
+          errors.push({
+            row: rowNumber,
+            field: 'Institution',
+            message:
+              `This row says "${cleaned.institution_name}", but roll number "${cleaned.roll_number}" ` +
+              `belongs to "${institutionNameById.get(studentMatch.institution_id) ?? 'another institution'}". ` +
+              'Fix the Institution cell (and re-pick the Academic Year, which depends on it).',
+            roll_number: cleaned.roll_number,
+            student_name: studentMatch.name || sheetLearnerName || undefined
+          });
+          continue;
+        }
       }
 
       const categoryId = categoryByName.get(cleaned.billing_category_name);
@@ -429,24 +576,27 @@ export async function POST(request: NextRequest) {
         claimedInThisSheet.add(pairKey);
       }
 
-      // Resolve the optional academic year against this student's institution.
-      // Blank → null ("Unspecified"); a non-blank, unmatched name rejects the row.
-      let academicYearId: string | null = null;
-      if (cleaned.academic_year_name) {
-        const resolved = acadYearByInstName.get(
-          `${studentMatch.institution_id}::${cleaned.academic_year_name.trim().toLowerCase()}`
-        );
-        if (!resolved) {
-          errors.push({
-            row: rowNumber,
-            field: 'Academic Year',
-            message: `Academic year "${cleaned.academic_year_name}" not found for this student's institution.`,
-            roll_number: cleaned.roll_number,
-            student_name: studentMatch.name
-          });
-          continue;
-        }
-        academicYearId = resolved;
+      // Resolve the academic year against this student's institution. Years are
+      // per-institution and the sets differ sharply between colleges, so a name
+      // valid elsewhere is still rejected here.
+      const academicYearId = acadYearByInstName.get(
+        `${studentMatch.institution_id}::${cleaned.academic_year_name.trim().toLowerCase()}`
+      );
+      if (!academicYearId) {
+        const available = acadYearNamesByInst.get(studentMatch.institution_id) ?? [];
+        errors.push({
+          row: rowNumber,
+          field: 'Academic Year',
+          message:
+            `Academic year "${cleaned.academic_year_name}" does not exist for ` +
+            `"${institutionNameById.get(studentMatch.institution_id) ?? "this student's institution"}". ` +
+            (available.length > 0
+              ? `Available: ${available.slice().sort().join(', ')}.`
+              : 'That institution has no academic years set up yet — create one first.'),
+          roll_number: cleaned.roll_number,
+          student_name: studentMatch.name
+        });
+        continue;
       }
 
       const totalAmount = cleaned.billing_amount; // quantity defaults to 1, no tax in this flow
@@ -542,9 +692,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[billing/schedule/bills/import] Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: 'Failed to process import', message: errorMessage },
-      { status: 500 }
-    );
+    return failure(`Failed to process import: ${errorMessage}`, 500);
   }
 }
