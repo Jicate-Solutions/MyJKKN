@@ -158,6 +158,31 @@
 -- `NOT (NULL OR false)` is NULL and `IF NULL THEN` does not fire. is_super_admin()
 -- is already explicit-boolean, so this is belt-and-braces, not a fix.
 --
+-- IS auth.uid() THE RIGHT THING TO COMPARE AGAINST? — checked, not assumed.
+-- All three tables key user_id by FK to profiles(id), NOT to auth.users(id), so
+-- comparing against auth.uid() is only correct if those coincide. CLAUDE.md
+-- asserts "auth.users.id == profiles.id (1:1)", and on production that is NOT
+-- universally true — measured 2026-07-30:
+--     profiles                                    7,225
+--     auth.users                                  6,985
+--     profiles whose id is NOT an auth user       1,241
+--     auth users with NO profile of the same id   1,001
+--     user_notifications keyed to a non-auth id  16,250  (of 169,543)
+--
+-- It does not reach these guards, and the reason is worth stating plainly: the
+-- guard compares p_user_id against auth.uid(), and both routes pass
+-- auth.getUser().id — which IS auth.uid(). The two sides are the same value by
+-- construction, whatever profiles holds. The guard is therefore a strict no-op
+-- on the legitimate path for every caller, including the 1,001.
+--
+-- What the mismatch does affect is pre-existing and untouched here: for a person
+-- whose profile is keyed differently, `WHERE user_id = p_user_id` already finds
+-- nothing today and the route already returns "Notification not found for this
+-- user". 2,700 mandatory-acknowledgment rows sit in that state right now. That
+-- is a data-integrity defect worth its own investigation; it is deliberately NOT
+-- fixed here, because changing which id the lookup uses would alter behaviour
+-- for 153,293 working rows in a migration whose job is to close an IDOR.
+--
 -- Super admins are allowed through deliberately, and this widens nothing:
 -- user_notifications already carries "Super admins can manage all user
 -- notifications" FOR ALL, so an administrator can already perform the
@@ -403,6 +428,16 @@ GRANT  EXECUTE ON FUNCTION public.log_ai_query(uuid, uuid, text, text, text[], i
 --    replacement keeps a signed-in person able to log their OWN query, which is
 --    the only direct-insert case that could ever be legitimate.
 -- ---------------------------------------------------------------------------
+-- RLS must be ON for the replacement policy to mean anything. It IS on today
+-- (verified live 2026-07-30), so this is an assertion, not a change — but a
+-- policy is only a rule while RLS is enabled, and a self-only WITH CHECK on a
+-- table with RLS off is silently inert: `authenticated` keeps its direct INSERT
+-- grant and can forge rows with any user_id, which is the exact threat this
+-- migration closes. Stating it here means the protection cannot be undone by a
+-- later ALTER TABLE ... DISABLE without the regression guard in section 6
+-- catching it.
+ALTER TABLE public.ai_query_logs ENABLE ROW LEVEL SECURITY;
+
 DROP POLICY IF EXISTS "System can insert query logs" ON public.ai_query_logs;
 
 DROP POLICY IF EXISTS "Users can insert their own query logs" ON public.ai_query_logs;
@@ -486,6 +521,16 @@ BEGIN
                        'log_ai_query');
   IF v_count <> 4 THEN
     v_bad := v_bad || format(E'\n  expected 4 target functions, found %s', v_count);
+  END IF;
+
+  -- 6b-ii. RLS must be ON, or the self-only INSERT policy below is inert and
+  --        authenticated's direct INSERT grant forges rows unchallenged.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+     WHERE c.relname = 'ai_query_logs' AND c.relrowsecurity
+  ) THEN
+    v_bad := v_bad || E'\n  ai_query_logs has RLS DISABLED — the self-only INSERT policy would be inert';
   END IF;
 
   -- 6c. No permissive blanket INSERT may remain on the audit trail.
