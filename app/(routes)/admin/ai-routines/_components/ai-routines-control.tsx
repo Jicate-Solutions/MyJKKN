@@ -51,6 +51,19 @@ const HEARTBEAT_ROW_ID = 'maxlane:poller-heartbeat';
 // 2-min pulse cadence → 10 silent minutes = 5 missed beats = engine down.
 const HEARTBEAT_STALE_MINUTES = 10;
 
+// House convention on the Max-lane box: a CONTINUOUS drain has no clock time,
+// so its `maxlane:<id>` row carries minute_of_day = 0 purely as a flag. 0 is the
+// column DEFAULT — it means "a time was never set", NOT "run at midnight". Live
+// rows using it this way: maxlane:chat-drain and maxlane:voice-memo-sentiment,
+// both drained every minute by the runner rather than fired once a night.
+// Genuinely-scheduled Max-lane batches deliberately sit on real clock minutes
+// (00:30, 01:30, 05:50, 22:00, 23:45 …), so nothing scheduled at true midnight
+// is misread here. Without this, fmtTime(0) rendered the false line
+// "Every day at 00:00 IST", implying a nightly batch on a continuous lane.
+function isContinuousMaxLaneDrain(row: ScheduleRow): boolean {
+  return row.minute_of_day === 0;
+}
+
 function fmtAge(ageMin: number): string {
   if (ageMin < 1) return 'under a minute';
   if (ageMin < 60) return `${ageMin}m`;
@@ -316,7 +329,7 @@ function RoutineRow({
                 </span>
               )}
               {r.maxLane ? (
-                <MaxLaneNote />
+                <MaxLaneNote schedule={maxSchedule} />
               ) : !r.callsClaude ? (
                 <span className="text-xs text-muted-foreground">
                   rules-based — no AI calls, so there&apos;s nothing to shift to the Max lane
@@ -336,10 +349,17 @@ function RoutineRow({
                   <CalendarClock className="h-3.5 w-3.5" />
                   Max lane:{' '}
                   {maxSchedule.enabled ? (
-                    <>
-                      {fmtDays(maxSchedule.days_of_week)} at{' '}
-                      <span className="font-medium text-foreground">{fmtTime(maxSchedule.minute_of_day)} IST</span>
-                    </>
+                    isContinuousMaxLaneDrain(maxSchedule) ? (
+                      // minute_of_day=0 is the continuous-drain flag, not a time.
+                      <span className="font-medium text-foreground">
+                        continuous — drained every minute
+                      </span>
+                    ) : (
+                      <>
+                        {fmtDays(maxSchedule.days_of_week)} at{' '}
+                        <span className="font-medium text-foreground">{fmtTime(maxSchedule.minute_of_day)} IST</span>
+                      </>
+                    )
                   ) : (
                     <span className="text-amber-600 dark:text-amber-400">paused</span>
                   )}

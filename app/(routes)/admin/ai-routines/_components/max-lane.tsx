@@ -105,11 +105,55 @@ function statusText(request: MaxLaneRequest): string {
   }
 }
 
-/** One-line muted note shown near the schedule line on Max-lane cards. */
-export function MaxLaneNote() {
+/**
+ * What MaxLaneNote needs off the routine's `maxlane:<id>` schedule row.
+ *
+ * `max_only` is not declared on the exported `ScheduleRow` type, but it IS
+ * delivered to the browser: GET /api/admin/ai-routines/schedule calls
+ * fn_ai_routine_schedules_list, which is `RETURNS SETOF ai_routine_schedules`
+ * over `SELECT *` — every column ships. Declared optional here so a plain
+ * ScheduleRow satisfies this shape without touching the shared type.
+ */
+export type MaxLaneNoteSchedule = {
+  enabled: boolean;
+  max_only?: boolean | null;
+};
+
+/**
+ * One-line muted note shown near the schedule line on Max-lane cards.
+ *
+ * The text is DERIVED from the row, never hardcoded, because the two modes mean
+ * OPPOSITE things operationally (see lib/services/platform/max-lane-deferral.ts):
+ *
+ *   • max_only = true  → shouldDeferToMaxLane returns true UNCONDITIONALLY. The
+ *     cloud/API path always stands down, so there is NO fallback cron: if the
+ *     Max lane is down, the run is simply skipped.
+ *   • max_only = false → heartbeat-gated. The cloud cron is a live backup and
+ *     reclaims the work the moment the runner pulse goes stale.
+ *   • no row / paused  → the guard's `if (!laneRow?.enabled) return false`
+ *     short-circuits, so the cloud cron is what actually runs this routine.
+ *
+ * This used to be a fixed "Max lane: scheduled + fallback API cron" string on
+ * every card. On production 13 of the 14 enabled `maxlane:%` rows are
+ * max_only=true, so that string was false on 13 of 14 cards — and misleading in
+ * the dangerous direction: it promised an admin that a dead Max lane would be
+ * covered by a cloud cron when the run is actually just dropped.
+ */
+export function MaxLaneNote({ schedule }: { schedule?: MaxLaneNoteSchedule }) {
+  let text: string;
+  if (!schedule) {
+    text = 'Max lane: not scheduled — runs on the API cron';
+  } else if (!schedule.enabled) {
+    text = 'Max lane: paused — runs on the API cron';
+  } else if (schedule.max_only === true) {
+    text = 'Max lane only — no API fallback';
+  } else {
+    text = 'Max lane: scheduled + fallback API cron';
+  }
+
   return (
     <span className="flex items-center gap-1 text-muted-foreground/80">
-      <Zap className="h-3.5 w-3.5" /> Max lane: scheduled + fallback API cron
+      <Zap className="h-3.5 w-3.5" /> {text}
     </span>
   );
 }
