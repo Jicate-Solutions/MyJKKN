@@ -119,6 +119,7 @@ DECLARE
     v_picked           NUMERIC;
     v_single_batch     UUID;
     v_batch_count      INTEGER;
+    v_has_batches      INTEGER;
 BEGIN
     -- ── Authorisation ────────────────────────────────────────────────────────
     -- SECURITY DEFINER bypasses RLS, so this function is responsible for the
@@ -329,8 +330,20 @@ BEGIN
         v_single_batch := NULL;
         v_batch_count  := 0;
 
+        -- Does this item keep batches at this store at all? That single question
+        -- decides which of two regimes applies, and it has to be asked BEFORE the
+        -- pick, because the pick excludes expired stock and would otherwise be
+        -- indistinguishable from "this store doesn't do batches".
+        SELECT COUNT(*) INTO v_has_batches
+          FROM public.ims_stock_batches b
+         WHERE b.item_id = v_item_id
+           AND b.store_id = p_store_id
+           AND COALESCE(b.quantity_available, 0) > 0;
+
         FOR v_pick IN
-            SELECT * FROM public.ims_pick_fefo_batches(v_item_id, p_store_id, v_qty)
+            -- TRUE = skip expired batches. The POS dispenses stock, so an expired
+            -- batch is not sellable inventory (20260730140000).
+            SELECT * FROM public.ims_pick_fefo_batches(v_item_id, p_store_id, v_qty, TRUE)
         LOOP
             UPDATE public.ims_stock_batches
                SET quantity_available = quantity_available - v_pick.take_qty,
@@ -360,6 +373,23 @@ BEGIN
             v_batch_count  := v_batch_count + 1;
             v_single_batch := v_pick.batch_id;
         END LOOP;
+
+        -- Two regimes, and the distinction is what stops expired stock being sold:
+        --
+        --  * Store keeps NO batches for this item (v_has_batches = 0) — the JKKN
+        --    Pharmacy case, 440 stock rows and zero batches. The summary IS the
+        --    stock record, so the line is booked as one unbatched ledger row.
+        --
+        --  * Store DOES keep batches — then batches are the source of truth, and a
+        --    shortfall means the only remaining stock is expired. Without this the
+        --    unbatched-remainder path below would happily absorb it and sell the
+        --    expired units anyway, defeating the whole control.
+        IF v_has_batches > 0 AND v_picked < v_qty THEN
+            RAISE EXCEPTION
+              'Only % of % units of % are within expiry. The rest is expired stock and cannot be sold — write it off first.',
+              v_picked, v_qty, v_item_name
+              USING ERRCODE = 'P0002';
+        END IF;
 
         -- Whatever the batches could not cover is still real stock that left the
         -- shelf, so it gets a ledger row with no batch. This is the normal path

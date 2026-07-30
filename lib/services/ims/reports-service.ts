@@ -20,11 +20,12 @@ import { getStockStatus } from '@/types/ims';
 
 // ─── Raw row types for Supabase join results ────────────────────────────
 
-/** getDashboardStats / getAlertSummary: stock_summary joined with item reorder_level */
+/** getDashboardStats: stock_summary joined with item reorder_level + is_active */
 type RawStockWithReorderRow = {
   current_quantity: number;
+  available_quantity: number | null;
   total_value: number;
-  item: { reorder_level: number; max_stock_level: number } | null;
+  item: { reorder_level: number; max_stock_level: number; is_active: boolean } | null;
 };
 
 /** getStockLevels: stock_summary joined with full item + nested unit & category */
@@ -46,7 +47,8 @@ type RawStockLevelRow = {
 type RawExpiringBatchRow = {
   item_id: string;
   batch_number: string | null;
-  quantity: number;
+  /** Live shelf balance. Deliberately not `quantity`, which is the as-received amount. */
+  quantity_available: number;
   expiry_date: string;
   item: { id: string; name: string; code: string } | null;
 };
@@ -132,7 +134,8 @@ type RawUpiSaleRow = {
 /** getAlertSummary: stock_summary joined with item reorder_level only */
 type RawStockWithReorderOnlyRow = {
   current_quantity: number;
-  item: { reorder_level: number } | null;
+  available_quantity: number | null;
+  item: { reorder_level: number; is_active: boolean } | null;
 };
 
 // ─── Service ─────────────────────────────────────────────────────────────
@@ -192,13 +195,17 @@ export class ImsReportsService {
             .select('id', { count: 'exact', head: true })
         ).eq('is_active', true),
 
-        // Stock data for value and low/out-of-stock counts
+        // Stock data for value and low/out-of-stock counts.
+        // is_active is pulled so retired items can be excluded from the alert
+        // counts below — otherwise a deactivated item still carrying stock is
+        // reported as "out of stock" forever, and the counts stop reconciling with
+        // the Total Items figure (which IS filtered on is_active).
         applyFilter(
           this.supabase
             .from('ims_stock_summary')
             .select(
-              `current_quantity, total_value,
-               item:ims_items(reorder_level, max_stock_level)`
+              `current_quantity, available_quantity, total_value,
+               item:ims_items(reorder_level, max_stock_level, is_active)`
             )
         ),
 
@@ -219,7 +226,10 @@ export class ImsReportsService {
           .gte('created_at', dayStart)
           .lte('created_at', dayEnd),
 
-        // Expiring within 30 days
+        // Expiring within 30 days.
+        // quantity_available, NOT quantity: `quantity` is the as-received amount
+        // and never moves, so a batch sold down to nothing kept being counted as
+        // "expiring soon" forever. quantity_available is the live shelf balance.
         applyFilter(
           this.supabase
             .from('ims_stock_batches')
@@ -227,7 +237,7 @@ export class ImsReportsService {
         )
           .not('expiry_date', 'is', null)
           .lte('expiry_date', thirtyDaysFromNow.toISOString().split('T')[0])
-          .gt('quantity', 0),
+          .gt('quantity_available', 0),
       ]);
 
       const stockData = (stockResult.data || []) as RawStockWithReorderRow[];
@@ -237,10 +247,19 @@ export class ImsReportsService {
       let outOfStockCount = 0;
 
       for (const s of stockData) {
+        // A retired item is not something anyone can act on, so counting it as an
+        // alert is noise. Total Items above already filters on is_active.
+        if (s.item && s.item.is_active === false) continue;
+
         const reorderLevel = s.item?.reorder_level || 0;
-        if (s.current_quantity <= 0) {
+        // available_quantity, not current_quantity: stock reserved for an approved
+        // transfer is not on the shelf, so "do I need to reorder?" should be asked
+        // of what is actually sellable.
+        const onHand = s.available_quantity ?? s.current_quantity ?? 0;
+
+        if (onHand <= 0) {
           outOfStockCount++;
-        } else if (s.current_quantity <= reorderLevel) {
+        } else if (onHand <= reorderLevel) {
           lowStockCount++;
         }
       }
@@ -341,7 +360,11 @@ export class ImsReportsService {
       let expiringQuery = this.supabase
         .from('ims_stock_batches')
         .select(
-          `item_id, batch_number, quantity, expiry_date,
+          // quantity_available is the live shelf balance; `quantity` is what was
+          // originally received and never changes. Reporting the latter told the
+          // store a fully-sold batch still had its opening quantity sitting on the
+          // shelf about to expire.
+          `item_id, batch_number, quantity_available, expiry_date,
            item:ims_items(id,name,code)`
         );
 
@@ -355,7 +378,7 @@ export class ImsReportsService {
       const { data, error } = await expiringQuery
         .not('expiry_date', 'is', null)
         .lte('expiry_date', futureDate.toISOString().split('T')[0])
-        .gt('quantity', 0)
+        .gt('quantity_available', 0)
         .order('expiry_date', { ascending: true });
 
       if (error) throw error;
@@ -372,7 +395,8 @@ export class ImsReportsService {
           item_name: b.item?.name || '',
           item_code: b.item?.code || '',
           batch_number: b.batch_number || '',
-          quantity: b.quantity,
+          // What is actually left on the shelf, not what was received.
+          quantity: b.quantity_available,
           expiry_date: b.expiry_date,
           days_until_expiry: daysUntil,
         };
@@ -892,7 +916,10 @@ export class ImsReportsService {
    */
   static async getAlertSummary(storeId: string, institutionId?: string): Promise<ImsAlertSummary> {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // IST business date. `toISOString()` rolls over at 05:30 IST, so for 5.5 hours
+      // each morning a batch expiring today was still counted as "expiring soon"
+      // rather than expired.
+      const today = istBusinessDate();
       const thirtyDays = new Date();
       thirtyDays.setDate(thirtyDays.getDate() + 30);
 
@@ -907,10 +934,15 @@ export class ImsReportsService {
         applyScope(
           this.supabase
             .from('ims_stock_summary')
-            .select('current_quantity, item:ims_items(reorder_level)')
+            .select(
+              'current_quantity, available_quantity, item:ims_items(reorder_level, is_active)'
+            )
         ),
 
-        // Expiring within 30 days (but not yet expired)
+        // Expiring within 30 days (but not yet expired).
+        // quantity_available is the live shelf balance — `quantity` is the
+        // as-received amount and never moves, so a sold-out batch stayed in this
+        // count indefinitely.
         applyScope(
           this.supabase
             .from('ims_stock_batches')
@@ -919,9 +951,11 @@ export class ImsReportsService {
           .not('expiry_date', 'is', null)
           .gt('expiry_date', today)
           .lte('expiry_date', thirtyDays.toISOString().split('T')[0])
-          .gt('quantity', 0),
+          .gt('quantity_available', 0),
 
-        // Already expired
+        // Already expired and still on the shelf. Since 20260730140000 these units
+        // are unsellable, so this count is now a write-off worklist rather than a
+        // warning.
         applyScope(
           this.supabase
             .from('ims_stock_batches')
@@ -929,7 +963,7 @@ export class ImsReportsService {
         )
           .not('expiry_date', 'is', null)
           .lte('expiry_date', today)
-          .gt('quantity', 0),
+          .gt('quantity_available', 0),
       ]);
 
       let outOfStock = 0;
@@ -937,10 +971,15 @@ export class ImsReportsService {
 
       const alertRows = (stockResult.data || []) as RawStockWithReorderOnlyRow[];
       for (const s of alertRows) {
+        // Same reasoning as getDashboardStats: a retired item is not actionable.
+        if (s.item && s.item.is_active === false) continue;
+
         const reorderLevel = s.item?.reorder_level || 0;
-        if (s.current_quantity <= 0) {
+        const onHand = s.available_quantity ?? s.current_quantity ?? 0;
+
+        if (onHand <= 0) {
           outOfStock++;
-        } else if (s.current_quantity <= reorderLevel) {
+        } else if (onHand <= reorderLevel) {
           lowStock++;
         }
       }
