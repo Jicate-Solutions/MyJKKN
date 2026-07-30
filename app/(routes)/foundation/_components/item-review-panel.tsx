@@ -36,12 +36,24 @@ interface ItemReviewPanelProps {
 export function ItemReviewPanel({ examDefinitionId }: ItemReviewPanelProps) {
   const { canAccess, userProfile } = usePermissions();
   const canReview = canAccess('foundation', 'items.manage');
+  // fp_items carries the answer keys, so reading the bank is permission-gated.
+  // Someone may hold cohorts.view without it — they still see their own reports.
+  const canSeeBank =
+    canAccess('foundation', 'items.view') || canReview;
   const viewerId = userProfile?.id ?? null;
 
-  const { data: items, isLoading: itemsLoading } = useItems(examDefinitionId);
-  const { data: flags, isLoading: flagsLoading } = useItemFlags({
-    examDefinitionId,
-  });
+  const {
+    data: items,
+    isLoading: itemsLoading,
+    isError: itemsError,
+  } = useItems(canSeeBank ? examDefinitionId : null);
+
+  // The exam filter reaches through an inner join on fp_items, so it would
+  // silently drop the reports of anyone who cannot read the bank. Drop the
+  // filter for them instead of dropping their rows.
+  const { data: flags, isLoading: flagsLoading } = useItemFlags(
+    canSeeBank ? { examDefinitionId } : {},
+  );
 
   const openFlags = useMemo(
     () => (flags ?? []).filter((f) => f.status === 'open'),
@@ -74,6 +86,7 @@ export function ItemReviewPanel({ examDefinitionId }: ItemReviewPanelProps) {
         canReview={canReview}
       />
 
+      {!canSeeBank ? null : (
       <div>
         <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           <ListChecks className="h-3.5 w-3.5" />
@@ -85,6 +98,12 @@ export function ItemReviewPanel({ examDefinitionId }: ItemReviewPanelProps) {
 
         {itemsLoading ? (
           <Skeleton className="h-40 w-full rounded-xl" />
+        ) : itemsError ? (
+          // Never let a failed read read as "there is nothing here".
+          <div className="rounded-xl border border-dashed border-destructive/40 p-8 text-center text-sm text-muted-foreground">
+            The question bank could not be loaded. It was not empty — the read
+            failed.
+          </div>
         ) : !items || items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
             No questions in the bank for this exam yet.
@@ -127,6 +146,7 @@ export function ItemReviewPanel({ examDefinitionId }: ItemReviewPanelProps) {
           </ul>
         )}
       </div>
+      )}
     </div>
   );
 }
