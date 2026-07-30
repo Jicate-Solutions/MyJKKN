@@ -26,6 +26,17 @@ import { Activity, AlertTriangle, Layers, RefreshCw, TrendingDown, TrendingUp } 
 
 const STUCK_HINT_MINUTES = 10;
 
+// A job that has sat PENDING (never claimed) this long means no worker is
+// polling its lane — the drain for it is down, not merely slow. Deliberately
+// well past the 1-minute drain cadence + the ~5-minute requeue sweep, so a
+// normal backlog never trips it.
+//
+// WHY THIS EXISTS (2026-07-29): lanes that "wait rather than pay" fail SILENTLY
+// by design — voice-memo sentiment stops tagging and nothing visibly breaks, so
+// a dead drain can go unnoticed for days. Depth alone cannot show it (a healthy
+// queue is also deep); AGE of the oldest unclaimed job is the honest signal.
+const LANE_STALLED_MINUTES = 15;
+
 type Queue = {
   read_at: string;
   depth: { pending: number; in_flight: number };
@@ -90,6 +101,14 @@ export function QueueHealthCard() {
     timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit',
   });
 
+  // Job types whose OLDEST pending job has aged past the stall threshold —
+  // i.e. nothing has claimed it, so that lane's worker is down.
+  const readAtMs = new Date(q.read_at).getTime();
+  const stalled = (q.by_type ?? [])
+    .map((t) => ({ ...t, mins: Math.round((readAtMs - new Date(t.oldest).getTime()) / 60_000) }))
+    .filter((t) => Number.isFinite(t.mins) && t.mins >= LANE_STALLED_MINUTES)
+    .sort((a, b) => b.mins - a.mins);
+
   return (
     <div className="space-y-3 rounded-lg border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -116,6 +135,32 @@ export function QueueHealthCard() {
         <Tile label="Failed / hr" value={errored} tone={errored > 0 ? 'bad' : 'good'}
               sub={done + errored > 0 ? `${failPct}% of attempts` : undefined} />
       </div>
+
+      {/* Nothing is picking this up — a lane whose worker is down. Silent-failure
+          lanes (the ones that wait rather than fall back to a paid provider)
+          surface here or nowhere. */}
+      {stalled.length > 0 ? (
+        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm dark:border-amber-900/60 dark:bg-amber-950/30">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0">
+            <p className="font-medium text-amber-800 dark:text-amber-300">
+              Nothing is picking this work up
+            </p>
+            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+              {stalled.map((t) => (
+                <li key={t.job_type} className="truncate">
+                  <span className="font-medium text-foreground">{t.job_type}</span> — {t.pending} waiting,
+                  oldest {t.mins} min unclaimed
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-xs text-muted-foreground">
+              A job waiting this long has never been claimed, so the worker for its lane is most likely
+              stopped. Work is not lost — it resumes as soon as that worker is back.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {/* Direction — the pair, never depth alone. */}
       <div className="flex items-start gap-2 rounded-md bg-muted/50 p-2.5 text-sm">

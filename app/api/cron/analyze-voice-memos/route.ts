@@ -390,9 +390,46 @@ export async function GET(request: NextRequest) {
   // Runs every tick regardless of deferral so in-flight jobs from a prior
   // (deferred) run are always drained. fn_ai_collect_claim is exactly-once
   // (FOR UPDATE SKIP LOCKED + delivered_at), so a job is delivered here at most
-  // once; a parse/write miss leaves the row 'analyzing' and orphan-recovery
-  // re-enqueues a fresh job on the next tick (dedupeKey), self-healing.
+  // once; a parse/write miss CHARGES ONE ATTEMPT and leaves the row 'analyzing'
+  // so orphan-recovery re-enqueues a fresh job next tick (dedupeKey).
+  //
+  // POISON-ROW CAP (2026-07-29): the charge above is load-bearing. Without it a
+  // memo the model can never parse (bad audio, truncated recording) is
+  // re-enqueued every ~4 min FOREVER, quietly burning free-lane capacity — the
+  // exact shape of the 2026-07-03 incident that wasted 162K transcription calls.
+  // Charging an attempt here mirrors the direct path's MAX_ANALYZE_ATTEMPTS
+  // budget: at the cap the row is parked 'failed' and the candidate sweep's
+  // `.lt('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)` filter stops re-picking
+  // it. Only UNUSABLE output is charged — a successful parse never is.
   let collectedSentiment = 0;
+  let sentimentParkedFailed = 0;
+
+  /** Charge one attempt for unusable drain output; park the row at the cap. */
+  const chargeSentimentMiss = async (callLogId: string, why: string) => {
+    const { data: row } = await supabase
+      .from('admission_call_logs')
+      .select('memo_analyze_attempts')
+      .eq('id', callLogId)
+      .maybeSingle();
+    const next = ((row?.memo_analyze_attempts as number | null) ?? 0) + 1;
+    const parked = next >= MAX_ANALYZE_ATTEMPTS;
+    if (parked) sentimentParkedFailed++;
+    await supabase
+      .from('admission_call_logs')
+      .update({
+        memo_analyze_attempts: next,
+        // At the cap park as 'failed' (visible in the monitor, never re-swept).
+        // Below it stay 'analyzing' so orphan recovery re-enqueues after the
+        // 4-min guard.
+        memo_analyze_status: parked ? 'failed' : 'analyzing',
+        updated_at: nowIso(),
+      })
+      .eq('id', callLogId);
+    console.warn(
+      `[cron/analyze-voice-memos] max-sentiment miss ${callLogId} (${why}) attempt ${next}/${MAX_ANALYZE_ATTEMPTS}${parked ? ' — PARKED failed' : ''}`,
+    );
+  };
+
   try {
     const done = await collectJobsLane(supabase, ['voice_memo.sentiment']);
     for (const item of done) {
@@ -400,9 +437,17 @@ export async function GET(request: NextRequest) {
         typeof item.context.call_log_id === 'string' ? item.context.call_log_id : null;
       const block = item.message?.content?.[0];
       const rawText = block && block.type === 'text' ? block.text : null;
-      if (!callLogId || !rawText) continue; // no target/text → row stays 'analyzing'
+      // No call_log_id → nothing to charge or write against; skip.
+      if (!callLogId) continue;
+      if (!rawText) {
+        await chargeSentimentMiss(callLogId, 'empty drain output');
+        continue;
+      }
       const parsed = parseSentimentJson(rawText);
-      if (!parsed) continue;
+      if (!parsed) {
+        await chargeSentimentMiss(callLogId, 'unparseable JSON');
+        continue;
+      }
       const analysis = normalizeAnalysis(parsed);
       const { error: writeErr } = await supabase
         .from('admission_call_logs')
@@ -967,6 +1012,7 @@ export async function GET(request: NextRequest) {
       max_lane_deferred: maxLaneDeferred,
       sentiment_deferred: sentimentDeferred,
       collected_sentiment: collectedSentiment,
+      sentiment_parked_failed: sentimentParkedFailed,
       transcribe_skipped: transcribeSkipped,
       claim_missed: claimMissed,
       transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
@@ -992,6 +1038,7 @@ export async function GET(request: NextRequest) {
     max_lane_deferred: maxLaneDeferred,
     sentiment_deferred: sentimentDeferred,
     collected_sentiment: collectedSentiment,
+    sentiment_parked_failed: sentimentParkedFailed,
     transcribe_skipped: transcribeSkipped,
     claim_missed: claimMissed,
     transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
