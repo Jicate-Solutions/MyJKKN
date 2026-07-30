@@ -4,6 +4,7 @@
 // Import this file ONLY from API routes / Server Actions — never from hooks or
 // client components, otherwise the build will fail with a next/headers error.
 
+import { createHash } from 'crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   buildUnitDisplay,
@@ -483,7 +484,11 @@ export class ImsInventoryServiceServer {
       const batchItems = stockItems.filter((item) => item.batch_number);
       if (batchItems.length > 0) {
         try {
-          const todayIso = new Date().toISOString().split('T')[0];
+          // Local date, NOT UTC. entry_date is a sort key for FEFO, and
+          // toISOString() is UTC: for an IST user importing between midnight and
+          // 05:30 the UTC date is still yesterday, so the batch sorts ahead of
+          // stock that genuinely arrived earlier. en-CA renders as YYYY-MM-DD.
+          const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           const batches = batchItems.map((item) => ({
             item_id: insertedCodeMap.get(item.code.toUpperCase()),
             batch_number: item.batch_number,
@@ -562,9 +567,9 @@ export class ImsInventoryServiceServer {
     warehouseStoreId: string,
     institutionId: string | null,
     userId: string
-  ): Promise<{ errors: ImsImportError[]; dispatched: number; storesServed: number }> {
+  ): Promise<{ errors: ImsImportError[]; dispatched: number; storesServed: number; skipped: number }> {
     const errors: ImsImportError[] = [];
-    if (rows.length === 0) return { errors, dispatched: 0, storesServed: 0 };
+    if (rows.length === 0) return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = (await createServerSupabaseClient()) as any;
@@ -578,7 +583,7 @@ export class ImsInventoryServiceServer {
 
     if (storeErr) {
       errors.push({ row: 0, field: 'store', message: `Could not read stores: ${storeErr.message}` });
-      return { errors, dispatched: 0, storesServed: 0 };
+      return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
     }
 
     // Match on the code inside "Name (CODE)", falling back to a plain name or
@@ -608,7 +613,7 @@ export class ImsInventoryServiceServer {
 
     if (itemErr) {
       errors.push({ row: 0, field: 'item_code', message: `Could not read items: ${itemErr.message}` });
-      return { errors, dispatched: 0, storesServed: 0 };
+      return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
     }
 
     const itemByCode = new Map<string, string>();
@@ -666,17 +671,70 @@ export class ImsInventoryServiceServer {
     }
 
     // ── Dispatch: one push transfer per destination store ────────────────────
+    //
+    // Re-uploading a file must not send the stock twice. There is no natural
+    // idempotency key, so derive one from the content that defines the transfer
+    // — warehouse, destination and the exact item/quantity set — and stamp it
+    // into the request's purpose. A repeat upload produces the same key and is
+    // skipped. The window is bounded to 24h because distributing the same
+    // quantities to the same store on a LATER day is a legitimate restock, not
+    // a duplicate; within one day it is almost always a double submit or a retry
+    // after one store in the file failed.
     let dispatched = 0;
     let storesServed = 0;
+    let skipped = 0;
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     for (const [destStoreId, bucket] of grouped) {
       const lines = [...bucket.lines.entries()].map(([item_id, quantity]) => ({ item_id, quantity }));
+
+      const key = createHash('sha256')
+        .update(
+          [
+            warehouseStoreId,
+            destStoreId,
+            ...lines.map((l) => `${l.item_id}:${l.quantity}`).sort(),
+          ].join('|')
+        )
+        .digest('hex')
+        .slice(0, 12);
+
+      // Columns are INVERTED on ims_indent_requests: source_store_id is the
+      // RECEIVER and destination_store_id is the SUPPLYING warehouse.
+      const { data: priorPush, error: priorErr } = await supabase
+        .from('ims_indent_requests')
+        .select('indent_number')
+        .eq('initiation_mode', 'push')
+        .eq('destination_store_id', warehouseStoreId)
+        .eq('source_store_id', destStoreId)
+        .like('purpose', `%[${key}]%`)
+        .gte('created_at', since)
+        .limit(1);
+
+      // A failed lookup must not silently disable the guard, but it also must
+      // not block a legitimate distribution — dispatch and say what happened.
+      if (priorErr) {
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Could not check whether ${bucket.store.name} was already sent this exact list (${priorErr.message}). Sending anyway — check ${bucket.store.name} for a duplicate transfer.`,
+        });
+      } else if (priorPush && priorPush.length > 0) {
+        skipped += 1;
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Skipped ${bucket.store.name}: this exact list was already sent there in the last 24 hours as ${priorPush[0].indent_number}. Re-uploading does not send it again. If you really want to send more, change the quantities or wait 24 hours.`,
+        });
+        continue;
+      }
 
       const { error: pushErr } = await supabase.rpc('ims_create_push_transfer', {
         p_warehouse_store_id: warehouseStoreId,
         p_dest_store_id: destStoreId,
         p_actor: userId,
-        p_purpose: 'Distributed from inventory upload',
+        p_purpose: `Distributed from inventory upload [${key}]`,
         p_lines: lines,
         p_dispatch_now: true,
       });
@@ -696,6 +754,6 @@ export class ImsInventoryServiceServer {
       storesServed += 1;
     }
 
-    return { errors, dispatched, storesServed };
+    return { errors, dispatched, storesServed, skipped };
   }
 }

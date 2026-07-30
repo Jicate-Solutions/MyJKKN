@@ -440,30 +440,47 @@ export async function POST(request: NextRequest) {
 
     // ── Optional Distribution sheet ──────────────────────────────────────────
     // Runs only after items exist, so a row can distribute stock this very
-    // upload just created via Opening Stock. Skipped entirely when the item
-    // insert failed — there would be nothing to send, and the store-level
-    // errors would bury the real cause.
+    // upload just created via Opening Stock.
+    //
+    // Gated on the sheet having rows, NOT on successCount. The Item Code column
+    // explicitly accepts "an item that already exists", so a file that only
+    // distributes existing stock inserts nothing at all — successCount 0 — and
+    // the old gate silently forwarded nothing while reporting no error, leaving
+    // the user to believe the stock had moved.
+    //
+    // Only a genuine item-insert FAILURE suppresses distribution: there would be
+    // nothing to send and the per-store errors would bury the real cause.
     const distErrors: ImsImportError[] = [];
     let distributionNote: string | null = null;
 
-    if (result.successCount > 0 && storeId) {
-      const distRows = parseDistributionSheet(workbook);
+    const itemInsertFailed =
+      parsedRows.length > 0 && result.successCount === 0 && result.errors.length > 0;
 
-      if (distRows.length > 0) {
-        const dist = await ImsInventoryServiceServer.distributeFromWarehouse(
-          distRows,
-          storeId,
-          institutionId,
-          user.id
+    const distRows = storeId ? parseDistributionSheet(workbook) : [];
+
+    if (distRows.length > 0 && storeId && !itemInsertFailed) {
+      const dist = await ImsInventoryServiceServer.distributeFromWarehouse(
+        distRows,
+        storeId,
+        institutionId,
+        user.id
+      );
+      distErrors.push(...dist.errors);
+
+      const noteParts: string[] = [];
+      if (dist.storesServed > 0) {
+        noteParts.push(
+          `Sent ${dist.dispatched} item line(s) to ${dist.storesServed} store(s). ` +
+            `Each store now confirms receipt to take the stock into its own inventory.`
         );
-        distErrors.push(...dist.errors);
-
-        if (dist.storesServed > 0) {
-          distributionNote =
-            `Sent ${dist.dispatched} item line(s) to ${dist.storesServed} store(s). ` +
-            `Each store now confirms receipt to take the stock into its own inventory.`;
-        }
       }
+      if (dist.skipped > 0) {
+        noteParts.push(
+          `${dist.skipped} store(s) were skipped because this exact list was already ` +
+            `sent to them in the last 24 hours.`
+        );
+      }
+      if (noteParts.length > 0) distributionNote = noteParts.join(' ');
     }
 
     // Merge parse-level errors with service-level errors
