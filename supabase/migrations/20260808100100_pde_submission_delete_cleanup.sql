@@ -49,9 +49,28 @@
 --      The only correct behaviour is to RECOMPUTE from the attempts that remain,
 --      and to delete the row only when none remain.
 --
+-- CONCURRENCY: the recompute takes a FOR UPDATE lock on the capability row
+--   before computing the surviving best. Without it, two attempts for the same
+--   learner deleted concurrently would each still see the other's soon-deleted
+--   row on a READ COMMITTED snapshot, and the later UPDATE would write a best
+--   score pointing at an already-deleted attempt — reintroducing the very
+--   inflated, dangling score this trigger removes.
+--
 -- SAFETY: the cleanup trigger can never block a delete. Its body is wrapped in
 --   an exception handler that raises a WARNING and lets the DELETE stand. A
---   cleanup failure must not make a submission undeletable.
+--   cleanup failure must not make a submission undeletable. This is a conscious
+--   trade: a failed recompute (lock timeout, unexpected data) leaves the stale
+--   capability row in place and reports it only as a WARNING in the Postgres
+--   log. Blocking the DELETE instead would make an attempt permanently
+--   undeletable, which is strictly worse; the verification query in the PR body
+--   detects any row that did survive.
+--
+-- ON DELETE CASCADE on pde_engagement_events is intentional, not an oversight:
+--   removing what a deleted attempt spawned is the stated purpose of this
+--   change. It does mean an admin correcting an attempt also erases that
+--   attempt's clinical_case_completed telemetry. SET NULL would preserve the
+--   event as an unattributed row, but that contradicts the requirement and
+--   leaves exactly the orphan this migration exists to eliminate.
 --
 -- The passing threshold is read straight from platform_policies, mirroring
 --   fn_get_policy_clinical_reasoning('scoring.passing_threshold_pct', 60)
@@ -111,13 +130,12 @@ SECURITY INVOKER
 SET search_path = public
 AS $fn$
 DECLARE
-  v_raw text;
+  v_raw  text;
+  v_link uuid;
 BEGIN
-  IF NEW.source_submission_id IS NOT NULL THEN
-    RETURN NEW;
-  END IF;
-
   v_raw := NEW.metadata ->> 'submission_id';
+
+  -- Metadata names no attempt: leave whatever the writer supplied untouched.
   IF v_raw IS NULL THEN
     RETURN NEW;
   END IF;
@@ -131,9 +149,22 @@ BEGIN
 
   -- Only link to a submission that exists, so the FK can never reject a write
   -- that succeeds today.
-  SELECT s.id INTO NEW.source_submission_id
+  SELECT s.id INTO v_link
     FROM public.pde_submissions s
    WHERE s.id = v_raw::uuid;
+
+  IF v_link IS NOT NULL THEN
+    -- Re-derived on every write, NOT only when the column is still NULL. An
+    -- UPDATE that repoints metadata->>'submission_id' at a different attempt
+    -- must move the FK with it; leaving the old value would let a later delete
+    -- cascade away an event that now names another submission entirely.
+    NEW.source_submission_id := v_link;
+  ELSIF TG_OP = 'UPDATE'
+        AND (OLD.metadata ->> 'submission_id') IS DISTINCT FROM v_raw THEN
+    -- Metadata was repointed at an attempt that does not exist: the previous
+    -- link no longer describes this row, so it must not survive.
+    NEW.source_submission_id := NULL;
+  END IF;
 
   RETURN NEW;
 END;
@@ -171,7 +202,7 @@ DECLARE
   v_threshold_raw  text;
   v_was_case       boolean := false;
   v_pointed_at_old boolean := false;
-  v_has_row        boolean := false;
+  v_lc_id          uuid;
   v_best_id        uuid;
   v_best_attempt   integer;
   v_best_score     numeric;
@@ -186,12 +217,19 @@ BEGIN
     RETURN OLD;
   END IF;
 
-  SELECT EXISTS (
-    SELECT 1 FROM public.pde_learner_capabilities lc
-     WHERE lc.learner_id = OLD.learner_id
-       AND lc.capability_id = v_capability_id
-  ) INTO v_has_row;
-  IF NOT v_has_row THEN
+  -- FOR UPDATE, not a bare EXISTS: two attempts for the same learner deleted
+  -- concurrently would each, on a READ COMMITTED snapshot, still see the other's
+  -- soon-to-be-deleted row, and the later UPDATE would write a best score
+  -- pointing at an already-deleted attempt — reintroducing the exact inflated,
+  -- dangling score this trigger exists to remove. Taking the row lock first
+  -- serialises the two recomputes; the loser's best-attempt query then runs
+  -- against a fresh snapshot that already excludes the winner's deleted row.
+  SELECT lc.id INTO v_lc_id
+    FROM public.pde_learner_capabilities lc
+   WHERE lc.learner_id = OLD.learner_id
+     AND lc.capability_id = v_capability_id
+     FOR UPDATE;
+  IF v_lc_id IS NULL THEN
     RETURN OLD;
   END IF;
 
