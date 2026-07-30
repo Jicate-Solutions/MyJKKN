@@ -71,6 +71,21 @@ export function useClassroomCompare(cycleId: string | undefined) {
   });
 }
 
+/**
+ * Sealed learner comments — Principal & Director only, batch-revealed on the
+ * same completed window as the scores. `enabled` should already exclude the
+ * cycle owner (the server refuses them anyway); a locked result renders nothing.
+ */
+export function useClassroomSealedComments(cycleId: string | undefined) {
+  return useQuery({
+    queryKey: [...carreAuditKeys.all, 'sealed-comments', cycleId ?? ''] as const,
+    queryFn: () => CarreAuditService.getClassroomSealedComments(cycleId!),
+    enabled: !!cycleId,
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+}
+
 /** Type-ahead over team members for the Classroom Practice form. */
 export function useTeacherSearch(q: string) {
   return useQuery({

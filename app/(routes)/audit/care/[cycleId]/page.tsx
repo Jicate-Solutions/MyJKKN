@@ -56,6 +56,7 @@ import { CareSummaryStrip } from '../_components/care-summary-strip';
 import {
   ClassroomCompareCard,
   ClassroomPillarStrip,
+  ClassroomSealedCommentsCard,
 } from '../_components/classroom-practice-panel';
 import { CareResultsPanel } from '../_components/care-results-panel';
 import { careIndex } from '@/lib/services/audit/care-scoring-service';
@@ -489,6 +490,19 @@ export default function CultureAuditDetailPage({
           <ClassroomCompareCard
             parameters={snapshotParameters}
             compare={compareQ.data}
+          />
+        )}
+
+        {/* Classroom Practice sealed comments — Principal & Director only.
+            NOT mounted for the cycle's owner: the server refuses them anyway
+            (owner_never_reads_comments, before any role check), but not even
+            issuing the request keeps the owner's network tab as quiet as
+            their screen. The card renders nothing for anyone else the server
+            turns away, so leadership visibility is decided server-side only. */}
+        {isClassroom && !d.is_owner && (
+          <ClassroomSealedCommentsCard
+            cycleId={cycleId}
+            parameters={snapshotParameters}
           />
         )}
 
