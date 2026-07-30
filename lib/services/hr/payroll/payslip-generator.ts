@@ -110,21 +110,40 @@ export class PayslipGenerator {
       return { generated: 0, skipped: 0, errors: [], totals: { gross: 0, deductions: 0, net: 0 } };
     }
 
-    // 3b. Load designation/cadre mapping from hr_staff_details (separate query, not an embed)
+    // 3b. Load designation/cadre mapping from hr_staff_details (separate query, not an embed).
+    //
+    // Chunked deliberately. A single `.in()` over a whole institution has two silent
+    // failure modes: PostgREST caps the rows it returns, so a big institution would
+    // truncate and the missing people would be misreported as "no HR record"; and the
+    // `in.(...)` list inflates the query string (156 ids already costs ~5.8KB), which a
+    // proxy can reject outright. Chunking removes both without changing the result.
     const staffIds = (staffList as StaffPayInfo[]).map((s) => s.id);
-    const { data: hrDetails, error: hrDetailsErr } = await (supabase as any)
-      .from('hr_staff_details')
-      .select('staff_id, designation_id, cadre_id')
-      .in('staff_id', staffIds);
-
-    if (hrDetailsErr) throw new Error(`Failed to load HR team member details: ${hrDetailsErr.message}`);
-
+    const HR_DETAILS_CHUNK = 100;
     const hrMappingByStaffId = new Map<string, StaffHrMapping>();
-    for (const d of (hrDetails ?? [])) {
-      hrMappingByStaffId.set(d.staff_id, {
-        designation_id: d.designation_id ?? null,
-        cadre_id: d.cadre_id ?? null,
-      });
+    let hrDetailsError: string | null = null;
+
+    for (let i = 0; i < staffIds.length; i += HR_DETAILS_CHUNK) {
+      const { data: hrDetails, error: hrDetailsErr } = await (supabase as any)
+        .from('hr_staff_details')
+        .select('staff_id, designation_id, cadre_id')
+        .in('staff_id', staffIds.slice(i, i + HR_DETAILS_CHUNK));
+
+      // Degrade the way the staff query above does, rather than throwing. A transient
+      // read failure should still hand HR a reportable skip list instead of killing the
+      // whole run — throwing here would reintroduce the failure mode this fix removes.
+      if (hrDetailsErr) {
+        hrDetailsError = hrDetailsErr.message;
+        break;
+      }
+
+      // staff_id is the PRIMARY KEY of hr_staff_details, so one row per person: no
+      // last-write-wins ambiguity in this Map.
+      for (const d of (hrDetails ?? [])) {
+        hrMappingByStaffId.set(d.staff_id, {
+          designation_id: d.designation_id ?? null,
+          cadre_id: d.cadre_id ?? null,
+        });
+      }
     }
 
     // 4. Load pay scales for the institution (keyed by designation_id)
@@ -182,8 +201,12 @@ export class PayslipGenerator {
         result.errors.push({
           staff_id: staff.id,
           name,
-          // Backing table for this reason is hr_staff_details.
-          reason: 'No HR record for this team member — create one and set designation/cadre',
+          // Backing table for this reason is hr_staff_details. Distinguish "the record is
+          // genuinely absent" from "we could not read the records at all" — the first is
+          // HR's to fix, the second is a retry.
+          reason: hrDetailsError
+            ? `HR records could not be read (${hrDetailsError}) — rerun once resolved`
+            : 'No HR record for this team member — create one and set designation/cadre',
         });
         continue;
       }
