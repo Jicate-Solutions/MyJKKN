@@ -49,6 +49,16 @@ BEGIN;
 --     as the boundary.
 --
 --  6. LOW — the picker's sessions_90d counted across every institution.
+--
+--  7. Found by the 2026-07-30 prod rehearsal (SQLSTATE 23503), not by review:
+--     audit_cycles.lead_auditor_id and created_by reference auth.users(id), but
+--     public.profiles contains rows with NO matching auth.users row. Opening a
+--     cycle on such a person raised a raw foreign-key error instead of a clean
+--     denial — a rule #27 violation that a HOD would have hit through the
+--     picker, which happily returned those profiles. Both ends are fixed: the
+--     picker no longer offers a person who cannot own a cycle, and the create
+--     RPC refuses one with a named reason if it is passed anyway.
+--     Self-open is unaffected either way: auth.uid() always has an auth row.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -125,6 +135,14 @@ BEGIN
   IF v_owner_role IS NULL OR v_owner_role IN ('student', 'learner') THEN
     RETURN jsonb_build_object('success', false, 'reason', 'teacher_not_staff',
       'detail', 'A Classroom Practice cycle can only be opened on a team member.');
+  END IF;
+
+  -- lead_auditor_id and created_by both reference auth.users. A profiles row
+  -- without a login cannot own a cycle, and without this guard the INSERT below
+  -- raises a bare 23503 instead of something a human can act on.
+  IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_owner) THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'teacher_no_login_account',
+      'detail', 'This team member has no login account yet, so a cycle cannot be owned by them. Ask IT to complete their account first.');
   END IF;
 
   -- The drip attributes every learner answer by email. Without one, no voice
@@ -272,6 +290,10 @@ BEGIN
     AND (p.full_name ILIKE '%' || v_q || '%' ESCAPE '\'
          OR p.email  ILIKE '%' || v_q || '%' ESCAPE '\')
     AND (v_cross OR p.institution_id = v_institution)
+    -- Only people who can actually OWN a cycle: lead_auditor_id references
+    -- auth.users, so a profiles row with no login is not a valid choice and
+    -- must not be offered (prod rehearsal 2026-07-30, SQLSTATE 23503).
+    AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
   ORDER BY p.full_name
   LIMIT 10;
 END;
@@ -281,7 +303,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_carre_search_teachers(text) FROM anon, PUBL
 GRANT  EXECUTE ON FUNCTION public.fn_carre_search_teachers(text) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.fn_carre_search_teachers IS
-  'Team-member picker for the Classroom Practice form. Returns profiles.id (NOT staff.id — audit_cycles.lead_auditor_id references auth.users). Institution-scoped unless super admin/admin; min 2-char query; max 10 rows. sessions_90d counts the candidate''s session-feedback exhaust WITHIN THEIR OWN INSTITUTION — never summed across the estate.';
+  'Team-member picker for the Classroom Practice form. Returns profiles.id (NOT staff.id — audit_cycles.lead_auditor_id references auth.users). Institution-scoped unless super admin/admin; min 2-char query; max 10 rows. sessions_90d counts the candidate''s session-feedback exhaust WITHIN THEIR OWN INSTITUTION — never summed across the estate. Only profiles with an auth.users row are returned: lead_auditor_id references auth.users, so a login-less profile cannot own a cycle and must not be offerable.';
 
 -- ----------------------------------------------------------------------------
 -- 3. fn_classroom_practice_compare — the HIGH plus three of the LOWs.
@@ -463,6 +485,17 @@ NOTIFY pgrst, 'reload schema';
 -- the self-scores and every synthetic impression. Every learner voice below is
 -- synthetic (gen_random_uuid learner ids against the owner's own email).
 --
+-- FK DISCIPLINE (prod rehearsal 2026-07-30, SQLSTATE 23503): this battery
+-- FABRICATES NO IDENTITIES — it selects real ones. audit_cycles.lead_auditor_id
+-- and created_by reference auth.users(id), and public.profiles contains rows
+-- with no matching auth.users row, so every actor that ends up as an owner or
+-- as the JWT sub of a create call is now chosen WITH an auth.users row.
+-- Nothing is inserted into auth.users: a SELECT filter is the smaller act, and
+-- writing to Supabase's auth schema — even inside a rolled-back transaction —
+-- is not something a rehearsal should do.
+-- The synthetic learner ids stay synthetic: carre_micro_impressions.learner_id
+-- carries NO foreign key (verified against the sibling's table definition).
+--
 -- Identity simulation is the pattern proven in .claude/battery-lane-d.sql.
 -- Assertions that need a real audit.cycle.view holder PROBE for one and report
 -- SKIP (not PASS) when prod has none in the needed tenancy.
@@ -477,6 +510,8 @@ DECLARE
   v_other_inst   uuid;  v_other_member uuid;
   v_viewer_same  uuid;  v_viewer_cross uuid;
   v_learner      uuid;
+  v_no_login     uuid;   -- a profiles row with no auth.users row
+  v_no_login_q   text;   -- a search term that would match them
   v_cycle        uuid;
   v_snap         jsonb;
   v_codes        text[];
@@ -496,18 +531,34 @@ BEGIN
   SELECT id INTO v_lead FROM profiles WHERE email = 'test.superadmin@jkkn.ac.in';
   IF v_lead IS NULL THEN RAISE EXCEPTION 'preflight: test.superadmin@jkkn.ac.in missing'; END IF;
 
-  SELECT id, lower(email), institution_id INTO v_owner, v_owner_email, v_owner_inst
-  FROM profiles
-  WHERE COALESCE(role,'') NOT IN ('','student','learner','super_admin','admin','administrator')
-    AND COALESCE(is_super_admin,false) = false
-    AND email IS NOT NULL AND institution_id IS NOT NULL
+  SELECT p.id, lower(p.email), p.institution_id INTO v_owner, v_owner_email, v_owner_inst
+  FROM profiles p
+  WHERE COALESCE(p.role,'') NOT IN ('','student','learner','super_admin','admin','administrator')
+    AND COALESCE(p.is_super_admin,false) = false
+    AND p.email IS NOT NULL AND p.institution_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)   -- owns the cycle
   LIMIT 1;
-  IF v_owner IS NULL THEN RAISE EXCEPTION 'preflight: no non-leadership team member with email+institution'; END IF;
+  IF v_owner IS NULL THEN
+    RAISE EXCEPTION 'preflight: no non-leadership team member with email+institution+login';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_lead) THEN
+    RAISE EXCEPTION 'preflight: test.superadmin has no auth.users row (it becomes created_by)';
+  END IF;
 
-  SELECT id, institution_id INTO v_other_member, v_other_inst
-  FROM profiles
-  WHERE COALESCE(role,'') NOT IN ('','student','learner','super_admin','admin','administrator')
-    AND institution_id IS NOT NULL AND institution_id <> v_owner_inst
+  -- h03 actually INSERTS a cycle owned by this person, so they need a login too.
+  SELECT p.id, p.institution_id INTO v_other_member, v_other_inst
+  FROM profiles p
+  WHERE COALESCE(p.role,'') NOT IN ('','student','learner','super_admin','admin','administrator')
+    AND p.institution_id IS NOT NULL AND p.institution_id <> v_owner_inst
+    AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
+  LIMIT 1;
+
+  -- A team member WITHOUT a login: the exact prod shape that raised 23503.
+  SELECT p.id, split_part(COALESCE(p.email, p.full_name, 'zzzz'), '@', 1)
+    INTO v_no_login, v_no_login_q
+  FROM profiles p
+  WHERE COALESCE(p.role,'') NOT IN ('','student','learner')
+    AND NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
   LIMIT 1;
 
   SELECT id INTO v_learner FROM profiles WHERE COALESCE(role,'') IN ('student','learner') LIMIT 1;
@@ -576,6 +627,36 @@ BEGIN
   ELSE
     INSERT INTO _r VALUES ('h02_create_for_other_cross_tenant_refused', NULL,
       'SKIP: no team member in a different institution');
+  END IF;
+
+  -- ── h02b: a login-less team member is refused with a NAMED reason ────────
+  -- Before this fix the INSERT raised a bare 23503 and the whole rehearsal
+  -- aborted; a HOD picking that person would have seen a raw database error.
+  IF v_no_login IS NOT NULL THEN
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v_lead, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    v := fn_carre_create_classroom_audit('[HARDEN] login-less target', v_no_login);
+    EXECUTE 'RESET ROLE';
+    INSERT INTO _r VALUES ('h02b_login_less_target_named_denial',
+      (v ->> 'success')::boolean IS FALSE
+        AND v ->> 'reason' = 'teacher_no_login_account', v::text);
+
+    -- ...and the picker never offers them in the first place.
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v_owner, 'role','authenticated')::text, true);
+    PERFORM set_config('role','authenticated', true);
+    SELECT count(*) INTO n
+      FROM fn_carre_search_teachers(v_no_login_q) t
+     WHERE t.profile_id = v_no_login;
+    EXECUTE 'RESET ROLE';
+    INSERT INTO _r VALUES ('h02c_picker_excludes_login_less', n = 0,
+      format('picker rows matching the login-less person for query %L: %s (expect 0)',
+             v_no_login_q, n));
+  ELSE
+    INSERT INTO _r VALUES ('h02b_login_less_target_named_denial', NULL,
+      'SKIP: no login-less team member in this database');
+    INSERT INTO _r VALUES ('h02c_picker_excludes_login_less', NULL, 'SKIP: as h02b');
   END IF;
 
   -- ── h03: super-admin may still open cross-institution ────────────────────

@@ -37,6 +37,16 @@
 --     as the boundary.
 --
 --  6. LOW — the picker's sessions_90d counted across every institution.
+--
+--  7. Found by the 2026-07-30 prod rehearsal (SQLSTATE 23503), not by review:
+--     audit_cycles.lead_auditor_id and created_by reference auth.users(id), but
+--     public.profiles contains rows with NO matching auth.users row. Opening a
+--     cycle on such a person raised a raw foreign-key error instead of a clean
+--     denial — a rule #27 violation that a HOD would have hit through the
+--     picker, which happily returned those profiles. Both ends are fixed: the
+--     picker no longer offers a person who cannot own a cycle, and the create
+--     RPC refuses one with a named reason if it is passed anyway.
+--     Self-open is unaffected either way: auth.uid() always has an auth row.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -113,6 +123,14 @@ BEGIN
   IF v_owner_role IS NULL OR v_owner_role IN ('student', 'learner') THEN
     RETURN jsonb_build_object('success', false, 'reason', 'teacher_not_staff',
       'detail', 'A Classroom Practice cycle can only be opened on a team member.');
+  END IF;
+
+  -- lead_auditor_id and created_by both reference auth.users. A profiles row
+  -- without a login cannot own a cycle, and without this guard the INSERT below
+  -- raises a bare 23503 instead of something a human can act on.
+  IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_owner) THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'teacher_no_login_account',
+      'detail', 'This team member has no login account yet, so a cycle cannot be owned by them. Ask IT to complete their account first.');
   END IF;
 
   -- The drip attributes every learner answer by email. Without one, no voice
@@ -260,6 +278,10 @@ BEGIN
     AND (p.full_name ILIKE '%' || v_q || '%' ESCAPE '\'
          OR p.email  ILIKE '%' || v_q || '%' ESCAPE '\')
     AND (v_cross OR p.institution_id = v_institution)
+    -- Only people who can actually OWN a cycle: lead_auditor_id references
+    -- auth.users, so a profiles row with no login is not a valid choice and
+    -- must not be offered (prod rehearsal 2026-07-30, SQLSTATE 23503).
+    AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)
   ORDER BY p.full_name
   LIMIT 10;
 END;
@@ -269,7 +291,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_carre_search_teachers(text) FROM anon, PUBL
 GRANT  EXECUTE ON FUNCTION public.fn_carre_search_teachers(text) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.fn_carre_search_teachers IS
-  'Team-member picker for the Classroom Practice form. Returns profiles.id (NOT staff.id — audit_cycles.lead_auditor_id references auth.users). Institution-scoped unless super admin/admin; min 2-char query; max 10 rows. sessions_90d counts the candidate''s session-feedback exhaust WITHIN THEIR OWN INSTITUTION — never summed across the estate.';
+  'Team-member picker for the Classroom Practice form. Returns profiles.id (NOT staff.id — audit_cycles.lead_auditor_id references auth.users). Institution-scoped unless super admin/admin; min 2-char query; max 10 rows. sessions_90d counts the candidate''s session-feedback exhaust WITHIN THEIR OWN INSTITUTION — never summed across the estate. Only profiles with an auth.users row are returned: lead_auditor_id references auth.users, so a login-less profile cannot own a cycle and must not be offerable.';
 
 -- ----------------------------------------------------------------------------
 -- 3. fn_classroom_practice_compare — the HIGH plus three of the LOWs.
