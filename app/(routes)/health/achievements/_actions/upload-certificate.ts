@@ -273,13 +273,22 @@ export async function uploadCertificate(
   // but the tick does not survive it. Migration 20260808110100 makes the same
   // reset unbypassable in the database; until it is applied this is what keeps
   // a verified row honest.
+  //
+  // The reset is UNCONDITIONAL, deliberately, and not driven by the `verified`
+  // this action read a moment ago. Reading it and then branching on it is a
+  // time-of-check/time-of-use race: an IQAC officer verifying in the window
+  // between the read and this write would leave the branch writing only
+  // certificate_url, and the tick would survive over the swapped document —
+  // exactly the failure the guard above exists to prevent, just harder to hit.
+  // Writing false every time closes that window with no lock and no re-read: on
+  // a row that was never verified it is a no-op (the column is already false),
+  // and on one verified concurrently it does the right thing, because the tick
+  // was made against a document that no longer exists. This is also precisely
+  // what the trigger does once the migration is applied, so the two halves state
+  // the same invariant rather than two nearly-identical ones.
   const { error: linkErr } = await (admin as any)
     .from('health_sports_achievements')
-    .update(
-      wasVerified
-        ? { certificate_url: path, verified: false, verified_by: null }
-        : { certificate_url: path },
-    )
+    .update({ certificate_url: path, verified: false, verified_by: null })
     .eq('id', achievementId);
   if (linkErr) {
     return {
