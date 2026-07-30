@@ -28,9 +28,14 @@ import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { PersonPicker } from './person-picker';
 
-type ArtifactType = 'organogram' | 'sop' | 'workflow';
+type ArtifactType = 'organogram' | 'sop' | 'workflow' | 'policy';
 /** Content key holding the picked person's team member id, alongside `holder`. */
 const HOLDER_ID_KEY = 'holder_staff_id';
+/** Assigning a role holder is an officer action; so is signing off a policy. */
+const ASSIGN_PERMISSION = 'improvement.area_role.assign';
+const POLICY_PERMISSION = 'improvement.area_policy.approve';
+/** Placeholder text the AI emits for a role nobody has been named for yet. */
+const UNFILLED_HOLDER = /^\s*\[[^\]]*\]\s*$/;
 interface Assignment {
   role_type: string;
   staff_id: string | null;
@@ -50,11 +55,13 @@ const LABEL: Record<ArtifactType, string> = {
   organogram: 'Organogram',
   sop: 'Standard Operating Procedure',
   workflow: 'Workflow',
+  policy: 'Department Policy',
 };
 const LIST_KEY: Record<ArtifactType, string> = {
   organogram: 'roles',
   sop: 'steps',
   workflow: 'stages',
+  policy: 'clauses',
 };
 // `long` marks a free-text description field. Those hold a sentence or more, so
 // a single-line input truncated them mid-word ("Document which library resources,
@@ -76,6 +83,10 @@ const FIELDS: Record<
     { key: 'name', label: 'Stage' },
     { key: 'action', label: 'What happens', long: true },
   ],
+  policy: [
+    { key: 'title', label: 'Clause' },
+    { key: 'text', label: 'What the policy says', long: true },
+  ],
 };
 
 function asArray(v: unknown): Record<string, unknown>[] {
@@ -93,6 +104,18 @@ function errMsg(e: unknown): string {
 /** Role titles are edited free-hand — match them the way the database does. */
 function normTitle(v: unknown): string {
   return str(v).trim().toLowerCase();
+}
+/**
+ * The AI fills every unnamed role with a bracketed placeholder ("[Manager to
+ * complete]"). Rendered as-is it reads like a person's name, so an unfilled role
+ * looks assigned. Anything bracketed, or empty, is nobody.
+ */
+function isUnfilledHolder(v: unknown): boolean {
+  const s = str(v).trim();
+  return s === '' || UNFILLED_HOLDER.test(s);
+}
+function displayHolder(v: unknown): string {
+  return isUnfilledHolder(v) ? 'Not assigned yet' : str(v).trim();
 }
 
 export function EditArtifactDialog({
@@ -113,28 +136,51 @@ export function EditArtifactDialog({
   // an editable picker or a read-only value, so a manager is never shown a control whose
   // save would be rejected.
   const [canAssign, setCanAssign] = useState(false);
+  // A department policy is an official institution document: signing one off is
+  // reserved for the CEO / CAO / EAO. The DB enforces it; this decides whether the
+  // dialog offers an Approve button or a plain read-only view, so a manager is
+  // never shown a control whose save would be rejected.
+  const [canApprovePolicy, setCanApprovePolicy] = useState(false);
   // Why the current holders could not be read, if they could not. Approving while
   // this is set would sync the AI draft's placeholders over what is actually
   // recorded — end-dating real holders — so approve refuses until it clears.
   const [holdersError, setHoldersError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || artifactType !== 'organogram') {
+    if (!open) {
       setCanAssign(false);
+      setCanApprovePolicy(false);
       return;
     }
+    // Both checks read the VALUE of the key (user_has_permission compares the
+    // stored boolean) — an unticked box in Role Management is key-present-false.
+    const needed: string[] = [];
+    if (artifactType === 'organogram') needed.push(ASSIGN_PERMISSION);
+    if (artifactType === 'policy') needed.push(POLICY_PERMISSION);
+    if (needed.length === 0) {
+      setCanAssign(false);
+      setCanApprovePolicy(false);
+      return;
+    }
+
     let cancelled = false;
     const supabase = createClientSupabaseClient() as unknown as {
       rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
     };
-    supabase
-      .rpc('user_has_permission', { permission_name: 'improvement.area_role.assign' })
-      .then(({ data }) => {
-        if (!cancelled) setCanAssign(data === true);
-      })
-      .catch(() => {
-        if (!cancelled) setCanAssign(false);
+    Promise.all(
+      needed.map((permission_name) =>
+        supabase
+          .rpc('user_has_permission', { permission_name })
+          .then(({ data }) => data === true)
+          .catch(() => false),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      needed.forEach((key, i) => {
+        if (key === ASSIGN_PERMISSION) setCanAssign(results[i]);
+        if (key === POLICY_PERMISSION) setCanApprovePolicy(results[i]);
       });
+    });
     return () => {
       cancelled = true;
     };
@@ -177,7 +223,10 @@ export function EditArtifactDialog({
           rs.map((r) => {
             const a = byTitle.get(normTitle(r.title));
             if (!a) return r;
-            return { ...r, holder: a.holder_name ?? '', [HOLDER_ID_KEY]: a.staff_id ?? '' };
+            // A standing row whose "holder" is still the AI's bracketed placeholder
+            // means nobody was ever named — carry it back as empty, not as a name.
+            const name = isUnfilledHolder(a.holder_name) ? '' : (a.holder_name ?? '');
+            return { ...r, holder: name, [HOLDER_ID_KEY]: a.staff_id ?? '' };
           }),
         );
       })
@@ -244,6 +293,19 @@ export function EditArtifactDialog({
           .map((r) => ({
             role_type: str(r.title).trim(),
             staff_id: str(r[HOLDER_ID_KEY]).trim() || null,
+            // Send the placeholder THROUGH, unchanged. It must not become a holder —
+            // fn_mba_dept_role_assignment_set rejects it outright, and
+            // fn_mba_dept_role_assignments_sync reads it as "leave this role alone",
+            // keeping the role in the sync's keep-list so any real holder stays put.
+            //
+            // Blanking it here instead looks tidier and is destructive: a null holder
+            // means "the manager deliberately cleared this", which drops the role out
+            // of the keep-list and end-dates its genuine holder. Measured against the
+            // live function, same failed-overlay case:
+            //   placeholder sent through  ->  is_current=true   holder safe
+            //   placeholder blanked       ->  is_current=false  holder end-dated
+            // isUnfilledHolder stays a DISPLAY concern (see displayHolder) — the
+            // screen shows "Not assigned yet", the database still sees the truth.
             holder_note: str(r[HOLDER_ID_KEY]).trim() ? null : str(r.holder).trim() || null,
           }))
           .filter((a) => a.role_type !== '');
@@ -268,18 +330,23 @@ export function EditArtifactDialog({
   }
 
   const fields = FIELDS[artifactType];
+  // Officers own the policy. Everyone else gets the same dialog, read-only —
+  // mirroring how the organogram's holder picker is gated.
+  const readOnly = artifactType === 'policy' && !canApprovePolicy;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            Review &amp; approve — {areaLabel} · {LABEL[artifactType]}
+            {readOnly ? 'Review' : 'Review & approve'} — {areaLabel} · {LABEL[artifactType]}
           </DialogTitle>
           <DialogDescription>
-            Fill in the real details, then approve. For the organogram, search MyJKKN by
-            name or email to pick the person who holds each role — the choice is saved and
-            comes back the next time this playbook is drafted.
+            {readOnly
+              ? 'This is the proposed policy. Only the CEO, CAO or Executive Administrative Officer can edit and sign it off, or upload the real document in its place.'
+              : artifactType === 'policy'
+                ? 'Read each clause, correct anything that is wrong, then sign it off. If the department already has a real policy document, upload that instead — an uploaded document always takes precedence over a draft.'
+                : 'Fill in the real details, then approve. For the organogram, search MyJKKN by name or email to pick the person who holds each role — the choice is saved and comes back the next time this playbook is drafted.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -297,6 +364,7 @@ export function EditArtifactDialog({
                       value={str(row[f.key])}
                       onChange={(e) => updateRow(i, f.key, e.target.value)}
                       rows={3}
+                      readOnly={readOnly}
                       className="min-h-16 resize-y text-sm"
                     />
                   ) : f.people ? (
@@ -316,55 +384,64 @@ export function EditArtifactDialog({
                         className="bg-muted/40 text-muted-foreground flex h-8 items-center rounded-md border px-2 text-sm"
                         title="Only the CEO, CAO or Executive Administrative Officer can assign a role holder"
                       >
-                        {str(row[f.key]).trim() || 'Not assigned yet'}
+                        {displayHolder(row[f.key])}
                       </div>
                     )
                   ) : (
                     <Input
                       value={str(row[f.key])}
                       onChange={(e) => updateRow(i, f.key, e.target.value)}
+                      readOnly={readOnly}
                       className="h-8 text-sm"
                     />
                   )}
                 </div>
               ))}
-              <button
-                type="button"
-                aria-label="Remove this row"
-                onClick={() => removeRow(i)}
-                className="text-muted-foreground hover:text-destructive absolute right-1.5 top-1.5"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  aria-label="Remove this row"
+                  onClick={() => removeRow(i)}
+                  className="text-muted-foreground hover:text-destructive absolute right-1.5 top-1.5"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
           ))}
           {rows.length === 0 && (
             <p className="text-muted-foreground text-sm">
-              Nothing here yet — add the first item below, or approve as-is.
+              {readOnly
+                ? 'Nothing here yet.'
+                : 'Nothing here yet — add the first item below, or approve as-is.'}
             </p>
           )}
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addRow}>
-            <Plus className="mr-1 h-3 w-3" />
-            Add row
-          </Button>
+          {!readOnly && (
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addRow}>
+              <Plus className="mr-1 h-3 w-3" />
+              Add row
+            </Button>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </Button>
-          <Button
-            className="bg-emerald-600 hover:bg-emerald-700"
-            onClick={approve}
-            disabled={saving || (artifactType === 'organogram' && holdersError !== null)}
-            title={
-              artifactType === 'organogram' && holdersError
-                ? `The current role holders could not be read (${holdersError}). Close and reopen this dialog.`
-                : undefined
-            }
-          >
-            {saving ? 'Approving…' : 'Approve'}
-          </Button>
+          {!readOnly && (
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={approve}
+              disabled={saving || (artifactType === 'organogram' && holdersError !== null)}
+              title={
+                artifactType === 'organogram' && holdersError
+                  ? `The current role holders could not be read (${holdersError}). Close and reopen this dialog.`
+                  : undefined
+              }
+            >
+              {saving ? 'Approving…' : artifactType === 'policy' ? 'Sign off' : 'Approve'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
