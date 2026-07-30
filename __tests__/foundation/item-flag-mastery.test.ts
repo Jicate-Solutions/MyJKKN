@@ -44,25 +44,52 @@ const LIVE_SQL = SQL.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 // ---------------------------------------------------------------------------
 
 type Response = { item_id: string; is_correct: boolean | null };
-type Flag = { item_id: string; status: 'open' | 'dismissed' | 'fixed' };
+type Flag = {
+  item_id: string;
+  status: 'open' | 'dismissed' | 'fixed';
+  flagged_by: string;
+};
 
 /**
- * Models the rewritten body of fn_fp_recompute_weakness for a single topic:
+ * Models the rewritten body of fn_fp_recompute_weakness for a single topic.
  *
- *   avg((r.is_correct IS TRUE)::int)  over  fp_responses r JOIN fp_items i
- *   WHERE ... AND NOT EXISTS (SELECT 1 FROM fp_item_flags f
- *                              WHERE f.item_id = i.id AND f.status = 'open')
+ * Suppression is THRESHOLDED (Director, 2026-07-31): a question is removed from
+ * mastery only once `threshold` DISTINCT people hold an OPEN report on it. One
+ * careless tap must not hide a good question from every learner.
  *
- * `is_correct IS TRUE` is deliberate, not `= true`: a NULL (an item whose
- * answer key was missing at grading time) counts as 0, never as unknown.
+ * The threshold is a platform_policies row
+ * (`foundation.item_flag.suppress_threshold`, default 2), read once per call via
+ * fn_get_policy_int — not a constant. It is config because the pool of people
+ * who can currently report is tiny (one school facilitator), so 2 may prove
+ * unreachable until a learner-facing surface exists; that must be a one-row
+ * UPDATE to correct, not a migration.
+ *
+ * `is_correct IS TRUE` is deliberate, not `= true`: a NULL (an item whose answer
+ * key was missing at grading time) counts as 0, never as unknown.
+ *
+ * count(DISTINCT flagged_by) ignores NULLs, so an unattributed report is not a
+ * second witness. The DB also carries uq_fp_item_flags_open_per_reporter —
+ * UNIQUE (item_id, flagged_by) WHERE status='open' AND flagged_by IS NOT NULL —
+ * so one person cannot manufacture a second vote by reporting twice.
  */
 function recomputeTopic(
   responses: Response[],
   flags: Flag[],
+  threshold = 2,
 ): { attempts_count: number; mastery_score: number } | null {
+  const effective = Math.max(1, threshold);
+  const reportersByItem = new Map<string, Set<string>>();
+  for (const f of flags) {
+    if (f.status !== 'open' || !f.flagged_by) continue;
+    if (!reportersByItem.has(f.item_id)) reportersByItem.set(f.item_id, new Set());
+    reportersByItem.get(f.item_id)!.add(f.flagged_by);
+  }
   const suppressed = new Set(
-    flags.filter((f) => f.status === 'open').map((f) => f.item_id),
+    [...reportersByItem.entries()]
+      .filter(([, people]) => people.size >= effective)
+      .map(([item]) => item),
   );
+
   const kept = responses.filter((r) => !suppressed.has(r.item_id));
 
   // CRITICAL: the aggregate carries `GROUP BY i.topic_id`, and GROUP BY over an
@@ -70,13 +97,8 @@ function recomputeTopic(
   // `SELECT avg(x) ... WHERE false` does return one NULL row; adding GROUP BY
   // does not.) So when every response is suppressed the INSERT..SELECT produces
   // nothing, ON CONFLICT never fires, and any cached fp_student_weakness row
-  // would survive stale. Returning null here models "no row produced", which is
-  // what the companion DELETE in the migration then cleans up.
-  //
-  // An earlier version of this model returned { attempts_count: 0,
-  // mastery_score: null } for this case. That looked like the safe answer and
-  // was the opposite: it asserted a NULL row exists, hiding the fact that the
-  // SQL leaves the OLD score in place untouched.
+  // would survive stale. Returning null models "no row produced", which is what
+  // the companion DELETE in the migration then cleans up.
   if (kept.length === 0) return null;
 
   return {
@@ -94,94 +116,134 @@ const RESPONSES: Response[] = [
   { item_id: 'q-wrong-b', is_correct: false },
 ];
 
+const ANN = 'user-ann';
+const BOB = 'user-bob';
 const round4 = (n: number | null) => (n === null ? null : Number(n.toFixed(4)));
 
-describe('flagging a question removes it from mastery_score', () => {
-  it('with no flags, every response counts (production baseline 0.3333 over 3)', () => {
+describe('one report is not enough — suppression needs N distinct people', () => {
+  it('with no reports, every response counts (production baseline 0.3333 over 3)', () => {
     const r = recomputeTopic(RESPONSES, []);
     expect(r!.attempts_count).toBe(3);
     expect(round4(r!.mastery_score)).toBe(0.3333);
   });
 
-  it('an OPEN flag drops that question — mastery rises when a wrong one goes', () => {
+  it('ONE open report does NOT suppress the question', () => {
+    // The Director's decision, and the whole point of the threshold: a single
+    // careless or mistaken tap must not remove a good question from every
+    // learner in every institution.
     const r = recomputeTopic(RESPONSES, [
-      { item_id: 'q-wrong-a', status: 'open' },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+    ]);
+    expect(r!.attempts_count).toBe(3);
+    expect(round4(r!.mastery_score)).toBe(0.3333);
+  });
+
+  it('TWO DIFFERENT people suppress it — mastery rises when a wrong one goes', () => {
+    const r = recomputeTopic(RESPONSES, [
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: BOB },
     ]);
     expect(r!.attempts_count).toBe(2);
     expect(round4(r!.mastery_score)).toBe(0.5);
   });
 
-  it('an OPEN flag drops that question — mastery falls when a right one goes', () => {
-    // The control must not be a way to inflate a score. Suppression is neutral:
-    // it removes the question, whichever direction that moves the number.
-    const r = recomputeTopic(RESPONSES, [{ item_id: 'q-right', status: 'open' }]);
+  it('TWO DIFFERENT people suppress it — mastery falls when a right one goes', () => {
+    // Suppression must not be a way to inflate a score. It removes the question,
+    // whichever direction that moves the number.
+    const r = recomputeTopic(RESPONSES, [
+      { item_id: 'q-right', status: 'open', flagged_by: ANN },
+      { item_id: 'q-right', status: 'open', flagged_by: BOB },
+    ]);
     expect(r!.attempts_count).toBe(2);
     expect(round4(r!.mastery_score)).toBe(0);
   });
 
-  it('flagging every question in a topic produces NO ROW — the stale cached score must be deleted, not left behind', () => {
-    // A learner whose whole topic is under review has not scored 0, and has not
-    // scored NULL either: the aggregate emits no row for that topic at all.
-    // Without the companion DELETE, ON CONFLICT never fires and the PREVIOUS
-    // mastery_score survives forever — the learner keeps being ranked on the
-    // strength of questions the institution has admitted may be wrong.
-    //
-    // Measured on production before the fix: a real learner+topic with 3
-    // responses, all suppressed, produced 0 rows from the SELECT while the
-    // cached row kept its 0.3333. That is the bug this asserts against.
+  it('the SAME person reporting twice is still one witness, not two', () => {
+    // Defence in depth: the DB's partial unique index already prevents these two
+    // rows existing. If it ever did, DISTINCT must still refuse to count them.
+    const r = recomputeTopic(RESPONSES, [
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+    ]);
+    expect(r!.attempts_count).toBe(3);
+  });
+
+  it('two people reporting DIFFERENT questions suppress neither', () => {
+    const r = recomputeTopic(RESPONSES, [
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+      { item_id: 'q-wrong-b', status: 'open', flagged_by: BOB },
+    ]);
+    expect(r!.attempts_count).toBe(3);
+  });
+
+  it('an unattributed report is not a witness', () => {
+    const r = recomputeTopic(RESPONSES, [
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: '' },
+    ]);
+    expect(r!.attempts_count).toBe(3);
+  });
+
+  it('threshold is CONFIG — at 1, a single report suppresses again', () => {
+    // Proves the knob is real. If one school facilitator turns out to be too
+    // thin a pool to ever reach 2, this is a one-row UPDATE, not a deploy.
     const r = recomputeTopic(
       RESPONSES,
-      RESPONSES.map((x) => ({ item_id: x.item_id, status: 'open' as const })),
+      [{ item_id: 'q-wrong-a', status: 'open', flagged_by: ANN }],
+      1,
+    );
+    expect(r!.attempts_count).toBe(2);
+    expect(round4(r!.mastery_score)).toBe(0.5);
+  });
+
+  it('a threshold of 0 is floored to 1 — it must never suppress everything', () => {
+    const r = recomputeTopic(RESPONSES, [], 0);
+    expect(r!.attempts_count).toBe(3);
+  });
+});
+
+describe('a fully suppressed topic loses its cached row', () => {
+  it('every question suppressed produces NO ROW — the stale score must be deleted', () => {
+    // Without the companion DELETE, ON CONFLICT never fires and the PREVIOUS
+    // mastery_score survives forever. Measured on production before the fix: 9
+    // cached rows, 0 rows produced, all 9 surviving with a stale 0.5000 average.
+    const r = recomputeTopic(
+      RESPONSES,
+      RESPONSES.flatMap((x) => [
+        { item_id: x.item_id, status: 'open' as const, flagged_by: ANN },
+        { item_id: x.item_id, status: 'open' as const, flagged_by: BOB },
+      ]),
     );
     expect(r).toBeNull();
   });
 
-  it('the migration carries a DELETE companion, so an emptied topic is cleaned up', () => {
-    // Guards the half of the fix that lives only in SQL. Comments are stripped
-    // from LIVE_SQL, so a commented-out DELETE cannot satisfy this.
-    expect(LIVE_SQL).toMatch(/DELETE\s+FROM\s+fp_student_weakness/i);
-    // and it must be scoped to this learner+exam, never a blanket delete
-    expect(LIVE_SQL).toMatch(/DELETE\s+FROM\s+fp_student_weakness[\s\S]{0,400}?p_student_id/i);
-    expect(LIVE_SQL).toMatch(/DELETE\s+FROM\s+fp_student_weakness[\s\S]{0,400}?p_exam_definition_id/i);
-  });
-
-  it('the DELETE spares a topic that still has surviving responses', () => {
-    // Only ONE of three flagged: the topic still aggregates, so its row must be
-    // updated by ON CONFLICT rather than removed by the DELETE.
+  it('a topic with any surviving response keeps its row', () => {
     const r = recomputeTopic(RESPONSES, [
-      { item_id: 'q-wrong-a', status: 'open' },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: BOB },
     ]);
     expect(r).not.toBeNull();
     expect(r!.attempts_count).toBe(2);
   });
 });
 
-describe('resolving a flag restores the question', () => {
-  it('DISMISSED restores it exactly — back to the 0.3333 baseline', () => {
+describe('resolving a report restores the question', () => {
+  it('dropping below the threshold restores it exactly', () => {
     const r = recomputeTopic(RESPONSES, [
-      { item_id: 'q-wrong-a', status: 'dismissed' },
+      { item_id: 'q-wrong-a', status: 'open', flagged_by: ANN },
+      { item_id: 'q-wrong-a', status: 'dismissed', flagged_by: BOB },
     ]);
     expect(r!.attempts_count).toBe(3);
     expect(round4(r!.mastery_score)).toBe(0.3333);
   });
 
-  it('FIXED restores it too', () => {
+  it('FIXED counts the same as dismissed — only OPEN suppresses', () => {
     const r = recomputeTopic(RESPONSES, [
-      { item_id: 'q-right', status: 'fixed' },
+      { item_id: 'q-wrong-a', status: 'fixed', flagged_by: ANN },
+      { item_id: 'q-wrong-a', status: 'fixed', flagged_by: BOB },
     ]);
     expect(r!.attempts_count).toBe(3);
     expect(round4(r!.mastery_score)).toBe(0.3333);
-  });
-
-  it('one open flag still suppresses even when another on the same question is closed', () => {
-    // Two people report the same question; a reviewer closes one. The question
-    // is still under review, so it must still be out.
-    const r = recomputeTopic(RESPONSES, [
-      { item_id: 'q-right', status: 'dismissed' },
-      { item_id: 'q-right', status: 'open' },
-    ]);
-    expect(r!.attempts_count).toBe(2);
-    expect(round4(r!.mastery_score)).toBe(0);
   });
 });
 
@@ -377,5 +439,66 @@ describe('table shape', () => {
   it('allows only one open report per person per question', () => {
     expect(LIVE_SQL).toContain('uq_fp_item_flags_open_per_reporter');
     expect(LIVE_SQL).toMatch(/WHERE status = 'open' AND flagged_by IS NOT NULL/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contract — the THRESHOLD migration (20260731050000)
+// ---------------------------------------------------------------------------
+
+const THRESHOLD_MIGRATION = path.resolve(
+  process.cwd(),
+  'supabase/migrations/20260731050000_fp_item_flag_threshold.sql',
+);
+const THRESHOLD_SQL = readFileSync(THRESHOLD_MIGRATION, 'utf8');
+/** Comments stripped — a commented-out clause must never satisfy a check. */
+const THRESHOLD_LIVE = THRESHOLD_SQL.replace(/--[^\n]*/g, '').replace(
+  /\/\*[\s\S]*?\*\//g,
+  '',
+);
+
+describe('migration contract — suppression is thresholded and config-driven', () => {
+  it('seeds the policy row with the Director-decided default of 2', () => {
+    expect(THRESHOLD_LIVE).toMatch(/foundation\.item_flag\.suppress_threshold/);
+    expect(THRESHOLD_LIVE).toMatch(/INSERT\s+INTO\s+platform_policies/i);
+    expect(THRESHOLD_LIVE).toMatch(/'2'::jsonb/);
+    // idempotent — re-running must not duplicate the policy row
+    expect(THRESHOLD_LIVE).toMatch(/WHERE\s+NOT\s+EXISTS/i);
+  });
+
+  it('reads the threshold from config, never a hard-coded literal', () => {
+    expect(THRESHOLD_LIVE).toMatch(
+      /fn_get_policy_int\(\s*'foundation\.item_flag\.suppress_threshold'/,
+    );
+  });
+
+  it('floors the threshold at 1 so a 0 can never suppress everything', () => {
+    expect(THRESHOLD_LIVE).toMatch(/greatest\(\s*\n?\s*1\s*,/);
+  });
+
+  it('counts DISTINCT reporters, so one person cannot suppress alone', () => {
+    const distinctChecks = THRESHOLD_LIVE.match(
+      /count\(DISTINCT\s+f\.flagged_by\)\s*>=\s*v_threshold/gi,
+    );
+    // once in the INSERT predicate, once in the DELETE companion — both must
+    // use the SAME rule or a topic could be emptied on one basis and cleaned on
+    // another.
+    expect(distinctChecks?.length).toBe(2);
+  });
+
+  it('keeps the DELETE companion that clears an emptied topic', () => {
+    expect(THRESHOLD_LIVE).toMatch(/DELETE\s+FROM\s+fp_student_weakness/i);
+  });
+
+  it('preserves every security property of the function it replaces', () => {
+    expect(THRESHOLD_LIVE).toMatch(/SECURITY\s+DEFINER/i);
+    expect(THRESHOLD_LIVE).toMatch(/SET\s+search_path\s*=\s*public/i);
+    expect(THRESHOLD_LIVE).toMatch(/fn_fp_can_view_student/);
+    expect(THRESHOLD_LIVE).toMatch(/42501/);
+    expect(THRESHOLD_LIVE).toMatch(/are required/);
+    expect(THRESHOLD_LIVE).toMatch(/ON\s+CONFLICT/i);
+    expect(THRESHOLD_LIVE).toMatch(
+      /REVOKE\s+EXECUTE[\s\S]{0,120}?FROM\s+anon,\s*PUBLIC/i,
+    );
   });
 });

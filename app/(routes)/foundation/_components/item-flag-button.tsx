@@ -51,7 +51,7 @@ export function ItemFlagButton({ itemId, existingFlag }: ItemFlagButtonProps) {
     try {
       await raise.mutateAsync({ itemId, reason: reason.trim() || null });
       toast.success(
-        'Reported. This question is taken out of mastery scoring from the next recalculation onward, and stays out until someone reviews it.',
+        'Reported. A question stops counting toward mastery scores once enough different people have reported it — one report on its own does not remove it.',
       );
       setReason('');
       setOpen(false);
@@ -84,10 +84,11 @@ export function ItemFlagButton({ itemId, existingFlag }: ItemFlagButtonProps) {
           <DialogHeader>
             <DialogTitle>Report a problem with this question</DialogTitle>
             <DialogDescription>
-              Say what looks wrong. The question is taken out of everyone&apos;s
-              mastery scoring from the next recalculation onward, and stays out
-              until someone reviews it. Scores already on record do not change
-              until they are recalculated.
+              Say what looks wrong. Your report is recorded straight away. A
+              question only stops counting toward mastery scores once enough
+              different people have reported the same one, and that change takes
+              effect from the next recalculation — scores already on record do
+              not move until then.
             </DialogDescription>
           </DialogHeader>
 
