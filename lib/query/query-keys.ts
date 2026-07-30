@@ -51,6 +51,11 @@ export const queryKeys = {
       [...queryKeys.schoolMaster.all, 'list', filters] as const,
     detail: (id: string) => [...queryKeys.schoolMaster.all, 'detail', id] as const,
   },
+  academicTree: {
+    all: ['academic-tree'] as const,
+    byInstitution: (institutionId: string) =>
+      [...queryKeys.academicTree.all, institutionId] as const,
+  },
   calendar: {
     all: ['calendar'] as const,
     items: (query: unknown) => ['calendar', 'items', query] as const,
