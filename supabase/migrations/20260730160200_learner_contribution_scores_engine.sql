@@ -112,12 +112,29 @@ CREATE POLICY lcs_service_all ON public.learner_contribution_scores
 -- active learner has a NULL institution (0 of 4,342), so this is latent rather
 -- than live — which is exactly why it must be closed now, while it costs one
 -- clause instead of an incident. A row with no institution is readable by super
--- admin / admin only.
+-- admin only.
+--
+-- `is_admin()` is deliberately ABSENT, and its absence is the point. It is a
+-- GLOBAL role-name check with no institution scoping —
+--   EXISTS (SELECT 1 FROM profiles WHERE id = user_id
+--           AND (is_super_admin OR role IN ('admin','super_admin','administrator')))
+-- — so as a standalone OR branch it ignores institution_id entirely and lets any
+-- profile carrying one of those legacy role names read EVERY institution's rows.
+-- This repo has already ruled that exact shape a multi-tenant leak TWICE and
+-- removed it in production:
+--   20260703160000_close_admission_pii_is_admin_leak.sql
+--   20260731000000_fix_student_attendance_rls_is_admin_leak.sql
+-- Measured on prod 2026-07-30: THREE accounts (1 'admin', 2 'administrator')
+-- carry is_super_admin = false and would have read all 4,342 learners' rows
+-- across all 14 institutions through that branch. This table holds exactly the
+-- per-institution learner PII those two migrations were protecting, so it ships
+-- with the corrected pattern rather than adding a third instance of the defect.
+-- Access is: super admin, OR (holds the permission AND the row's institution is
+-- in scope).
 CREATE POLICY lcs_admin_select ON public.learner_contribution_scores
   FOR SELECT TO authenticated
   USING (
     COALESCE(is_super_admin(), false)
-    OR COALESCE(is_admin(), false)
     OR (
       COALESCE(user_has_permission('learners.contribution.view'), false)
       AND institution_id IS NOT NULL
