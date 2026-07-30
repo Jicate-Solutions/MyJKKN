@@ -44,6 +44,11 @@ export const basicStaffSchema = z.object({
   category_id: z.string().min(1, 'Category is required'),
   role_key: z.string().min(1, 'Role is required'),
   institution_id: z.string().min(1, 'Institution is required'),
+  // Where the person actually works, when that differs from who pays them —
+  // e.g. the CEO and the EAO are paid by Engineering but work at Main Office,
+  // and the bus drivers and hostel staff work across the whole campus.
+  // Empty means "same as the paying institution", which is true for most staff.
+  working_institution_id: z.string().optional().nullable(),
   // Department is now conditionally required based on category.is_teaching (see superRefine below)
   department_id: z.string().optional().nullable(),
   is_active: z.boolean().default(true),

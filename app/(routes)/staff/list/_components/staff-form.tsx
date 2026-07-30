@@ -94,6 +94,14 @@ function buildDefaults(staff?: Staff) {
     category_id: staff?.category_id || '',
     role_key: (staff as any)?.role_key || '',
     institution_id: staff?.institution_id || '',
+    // Pre-filled with the paying institution for a NEW joiner (Director decision
+    // 2026-07-30) — true for the vast majority, and HR only changes it for the
+    // handful of central staff. On an EXISTING record we show what is stored,
+    // including blank, so an untouched record is never silently rewritten.
+    working_institution_id:
+      (staff as any)?.working_institution_id ??
+      (staff ? undefined : staff?.institution_id) ??
+      '',
     department_id: staff?.department_id || '',
     is_active: staff?.is_active ?? true,
     // 2026-05-15: view-only / labour staff flag. Defaults true (login user).
@@ -137,6 +145,10 @@ function buildDefaults(staff?: Staff) {
   };
 }
 
+// Radix forbids an empty-string <SelectItem> value (and a CI gate enforces it),
+// so "no selection" needs a sentinel. Stored as NULL, not as this string.
+const NONE_VALUE = '__same_as_billing__';
+
 const staffFieldOrder: Array<keyof FormValues> = [
   'first_name',
   'last_name',
@@ -158,6 +170,7 @@ const staffFieldOrder: Array<keyof FormValues> = [
   'category_id',
   'role_key',
   'institution_id',
+  'working_institution_id',
   'department_id',
   'is_active'
 ];
@@ -524,7 +537,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         // Institution email is optional for ALL staff (BUG-003989/3980/3962).
         // Normalize blank to undefined so the service receives null instead
         // of '' which would collide on the UNIQUE index.
-        institution_email: values.institution_email || undefined
+        institution_email: values.institution_email || undefined,
+        // Blank means "works at the same place that pays them". Must go to the
+        // database as NULL — '' is not a valid uuid and would error on save.
+        working_institution_id: values.working_institution_id || null
       };
 
       if (isEditing && staff) {
@@ -1054,7 +1070,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             );
             return (
               <FormItem data-field='institution_id'>
-                <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
+                <FormLabel>Institution — salary paid by <span className='text-destructive'>*</span></FormLabel>
                 <Select
                   onValueChange={field.onChange}
                   value={field.value}
@@ -1086,6 +1102,55 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                     Your role is scoped to a single institution.
                   </p>
                 )}
+              </FormItem>
+            );
+          }}
+        />
+
+        {/* Where the person actually works, when that differs from who pays them.
+            The CEO and the EAO are paid by Engineering but work at Main Office;
+            bus drivers and hostel workers serve the whole campus. Optional —
+            blank means "same as above", true for most team members. This field
+            is for reporting only and changes nobody's access; permissions
+            continue to come from the paying institution above. */}
+        <FormField
+          control={form.control}
+          name='working_institution_id'
+          render={({ field }) => {
+            const selectedWorking = institutions.find((i) => i.id === field.value);
+            return (
+              <FormItem data-field='working_institution_id'>
+                <FormLabel>Works at</FormLabel>
+                <Select
+                  onValueChange={(v) => field.onChange(v === NONE_VALUE ? '' : v)}
+                  value={field.value || NONE_VALUE}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      {selectedWorking ? (
+                        <span className='line-clamp-1 text-left'>
+                          {selectedWorking.name}
+                        </span>
+                      ) : (
+                        <SelectValue placeholder='Same as above' />
+                      )}
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value={NONE_VALUE}>Same as above</SelectItem>
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+                <p className='text-xs text-muted-foreground'>
+                  Only set this when someone works somewhere other than the college
+                  that pays them — for example central team members based at Main
+                  Office.
+                </p>
               </FormItem>
             );
           }}
