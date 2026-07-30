@@ -7,7 +7,11 @@
 -- Reproduces what is ALREADY RUNNING on production. The function body below was
 -- captured with pg_get_functiondef and is byte-for-byte the deployed body.
 -- Every statement is guarded (IF NOT EXISTS / CREATE OR REPLACE / DROP POLICY IF
--- EXISTS / INSERT ... WHERE NOT EXISTS), so re-running is a no-op against prod.
+-- EXISTS / INSERT ... WHERE NOT EXISTS), so re-running is safe.
+--
+-- ONE DELIBERATE DELTA FROM LIVE: the function REVOKE at the bottom now also
+-- removes `authenticated`, which production currently grants. That one statement
+-- changes production privileges; everything else is a no-op. Rationale at the line.
 --
 -- The counterpart to compute_learner_risk_assessment: risk asks who is falling
 -- behind, this asks who is carrying more than their share. Admin-only —
@@ -114,11 +118,11 @@ REVOKE ALL ON TABLE public.learner_contribution_scores FROM anon, PUBLIC;
 -- 3. Config seeds (idempotent; will not clobber a retuned value)
 -- ---------------------------------------------------------------------------
 INSERT INTO public.platform_policies
-  (policy_key, scope_type, scope_id, value, data_type, classification, is_system, description)
+  (policy_key, scope_type, scope_id, value, data_type, classification, is_system, is_active, description)
 SELECT
   'learner_contribution.weights', 'global', NULL,
   '{"events_participation": 30, "events_leadership": 20, "career_development": 20, "pde_demonstrations": 15, "induction_engagement": 15}'::jsonb,
-  'object', 'major', true,
+  'object', 'major', true, true,
   'Weights for each learner contribution dimension (must sum to 100). Editable by Director.'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.platform_policies
@@ -126,11 +130,11 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO public.platform_policies
-  (policy_key, scope_type, scope_id, value, data_type, classification, is_system, description)
+  (policy_key, scope_type, scope_id, value, data_type, classification, is_system, is_active, description)
 SELECT
   'learner_contribution.tier_thresholds', 'global', NULL,
   '{"emerging": 5, "steady": 18, "strong": 30, "exceptional": 40}'::jsonb,
-  'object', 'major', true,
+  'object', 'major', true, true,
   'Contribution score thresholds. Percentile-calibrated 2026-07-30 (p50/p75/p90/p95). Recalibrate as participation broadens.'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.platform_policies
@@ -268,5 +272,8 @@ BEGIN
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.compute_learner_contribution_score(date) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.compute_learner_contribution_score(date) TO authenticated, service_role;
+-- authenticated revoked for the same reason as the risk engine: this writes a row
+-- per active learner and has no caller anywhere in jicate/main or pg_cron. The
+-- explicit REVOKE is required because CREATE OR REPLACE preserves the live ACL.
+REVOKE EXECUTE ON FUNCTION public.compute_learner_contribution_score(date) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.compute_learner_contribution_score(date) TO service_role;

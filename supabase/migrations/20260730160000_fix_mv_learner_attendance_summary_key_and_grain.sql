@@ -5,8 +5,13 @@
 -- ============================================================================
 --
 -- This file reproduces what is ALREADY RUNNING on production. It is committed so
--- the repository stops lying about the deployed shape. Re-running it is safe: the
--- end state is byte-identical to what is live today.
+-- the repository stops lying about the deployed shape. The view definition is
+-- byte-identical to live and re-running it is safe.
+--
+-- TWO DELIBERATE DELTAS FROM LIVE, both at the bottom of this file and both
+-- tightenings: `anon` and `authenticated` are revoked on the view. Applying this
+-- migration therefore DOES change production privileges. See the SECURITY note
+-- below and the comment above the REVOKE. Nothing else here is a change.
 --
 -- The definition below was taken verbatim from prod:
 --     SELECT definition FROM pg_matviews WHERE matviewname='mv_learner_attendance_summary';
@@ -146,5 +151,15 @@ CREATE INDEX IF NOT EXISTS idx_mlas_institution
 
 -- Both anon AND PUBLIC. Revoking anon alone is a silent no-op whenever the grant
 -- was inherited from PUBLIC rather than held directly.
-REVOKE ALL ON TABLE public.mv_learner_attendance_summary FROM anon, PUBLIC;
-GRANT SELECT ON TABLE public.mv_learner_attendance_summary TO authenticated, service_role;
+--
+-- `authenticated` is revoked too, and that IS a tightening against live state.
+-- A materialized view is relkind='m' and CANNOT carry an RLS policy, so a grant
+-- to `authenticated` is necessarily cross-tenant: any logged-in user of any one
+-- college could read all 3,527 learners' attendance across all 14 institutions.
+-- Nothing needs it — a repo-wide search of jicate/main finds no reader outside
+-- migrations and generated types, and no pg_cron job touches it. The one function
+-- that reads it is SECURITY DEFINER and reaches it as its owner regardless.
+-- service_role is kept for server-side operational access; it bypasses RLS by
+-- design and never ships to a browser.
+REVOKE ALL ON TABLE public.mv_learner_attendance_summary FROM anon, PUBLIC, authenticated;
+GRANT SELECT ON TABLE public.mv_learner_attendance_summary TO service_role;

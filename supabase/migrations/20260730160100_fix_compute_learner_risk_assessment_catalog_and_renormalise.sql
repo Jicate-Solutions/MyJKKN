@@ -10,7 +10,11 @@
 -- The body below is byte-for-byte the deployed body with ONE exception: two stray
 -- scaffolding comments the original applier left at the top ("Re-declare the full
 -- function body..." / "We'll extract just the function...") are removed. No
--- executable line differs, so re-running this is a true no-op against prod.
+-- executable line differs.
+--
+-- ONE DELIBERATE DELTA FROM LIVE: the REVOKE at the bottom now also removes
+-- `authenticated`, which production currently grants. Applying this migration
+-- therefore DOES change production privileges. Rationale is at that line.
 --
 -- Depends on 20260730160000 (the materialized-view repair) for its attendance
 -- dimension, but does not require it: the guard degrades cleanly if the view is
@@ -480,5 +484,16 @@ $function$;
 
 -- Both anon AND PUBLIC: anon inherits PUBLIC's default EXECUTE grant, so revoking
 -- anon alone leaves the function callable by the public anon key.
-REVOKE EXECUTE ON FUNCTION public.compute_learner_risk_assessment(date) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.compute_learner_risk_assessment(date) TO authenticated, service_role;
+--
+-- `authenticated` is revoked too, and that IS a tightening against live state
+-- (prod currently carries authenticated=X). This function opens by DELETEing
+-- every row for the target date and then loops all 4,342 active learners, so an
+-- EXECUTE grant to every logged-in user is both a data-destruction primitive and
+-- a trivial denial-of-service. Nothing calls it: a repo-wide search of
+-- jicate/main finds no caller outside migrations and generated types, and no
+-- pg_cron job invokes it. It is run by a server-side operator, which is
+-- service_role. Note CREATE OR REPLACE preserves an existing ACL, so simply
+-- omitting authenticated from the GRANT would NOT close the live grant — the
+-- explicit REVOKE is required.
+REVOKE EXECUTE ON FUNCTION public.compute_learner_risk_assessment(date) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.compute_learner_risk_assessment(date) TO service_role;
