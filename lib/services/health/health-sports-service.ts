@@ -14,13 +14,20 @@ import type {
 const supabase = createClientSupabaseClient();
 
 // ----------------------------------------------------------------------------
-// Tournament permission — two-party approval (2026-07-30)
+// Tournament permission — PER-COLLEGE approval (2026-07-30, Director D6)
 //
-// The Physical Director FILES for the whole squad; the PRINCIPAL approves.
-// `step3_principal_*` is THE approval step. Steps 1 (sports coordinator),
-// 2 (HOD) and 4 (PE director) are not part of the path and carry the explicit
-// status 'not_required' — never 'approved', which would fabricate an approval
-// nobody gave, and never 'pending', which would read as awaited forever.
+// The Physical Director FILES for the whole squad; each participating college's
+// PRINCIPAL approves their own learners. A mixed-college squad is allowed
+// (FORZAHS is a Paramedical event, so Pharmacy + Nursing + Allied Health can
+// travel together), so the decision cannot live in a single `step3_principal_*`
+// column set — it lives in health_tournament_permission_approvals, one row per
+// (request, college). The request is approved only when EVERY row is approved.
+//
+// `step3_principal_*` and `overall_status` are now DERIVED mirrors maintained by
+// a database trigger. Nothing in this file writes them, and the database
+// actively rejects any attempt to: an approval can only come from the approvals
+// table. Steps 1 (sports coordinator), 2 (HOD) and 4 (PE director) have no
+// approver and carry 'not_required'.
 //
 // These widened shapes live here rather than in types/health-sports.ts so the
 // 'not_required' state and the squad-roster fields stay scoped to this flow.
@@ -28,6 +35,31 @@ const supabase = createClientSupabaseClient();
 
 /** Step status including the "nobody approves this step" state. */
 export type TournamentStepStatus = ApprovalStatus | 'not_required';
+
+/** One college's decision on one request (D6). */
+export interface TournamentCollegeApproval {
+  approval_id: string;
+  permission_id: string;
+  institution_id: string;
+  institution_name: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_at: string | null;
+  notes: string | null;
+  last_nudged_at: string | null;
+  /** The parent request's derived status, so a cancelled trip never reads as awaited. */
+  overall_status?: string;
+  cancelled_at?: string | null;
+}
+
+/** A squad member as the SIGNED-IN caller is allowed to see them (D6). */
+export interface TournamentVisibleSquadMember {
+  learner_id: string;
+  name: string | null;
+  roll_number: string | null;
+  sport: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+}
 
 /**
  * One participating learner on a squad request.
@@ -65,6 +97,10 @@ export interface TournamentPermissionRecord
   step3_approved_at: string | null;
   step3_notes: string | null;
   travel_details: string | null;
+  /** D10 — set when the trip was called off. The record is kept; it just counts for nothing. */
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancellation_reason?: string | null;
   /** Present when the query embedded the nominated learner. */
   learners_profiles?: {
     id: string;
@@ -97,18 +133,36 @@ export interface SquadRequestInput {
 }
 
 /**
- * Steps nobody decides. Written explicitly on every insert so a row is never
- * born claiming an approval it does not have, and never sits pending on a step
- * that has no approver.
+ * The steps nobody decides are DELIBERATELY NOT NAMED on insert.
+ *
+ * Writing 'not_required' here would break the learner request form that works
+ * on production today: the CHECK constraints are still
+ * pending|approved|rejected until the migration in this PR is applied, so the
+ * insert would fail with 23514 the moment this code shipped. Omitting the
+ * columns lets the column DEFAULT decide — 'pending' before the migration,
+ * 'not_required' after it — so the code cannot disagree with the constraint in
+ * either direction. Code that never names a value can never contradict a CHECK.
  */
-const UNUSED_STEP_STATUSES = {
-  step1_sports_coordinator_status: 'not_required' as const,
-  step2_hod_status: 'not_required' as const,
-  step4_pe_director_status: 'not_required' as const,
-};
-
 const PERMISSION_SELECT =
   '*, learners_profiles!health_tournament_permissions_learner_id_fkey(id, first_name, last_name, roll_number, institution_id)';
+
+/**
+ * Make a typed search term safe to interpolate into a PostgREST `.or()` string.
+ *
+ * `.or()` takes ONE string whose grammar uses `,` to separate conditions and
+ * `()` to group them, so a learner typing `Kumar, R` or a name containing `)`
+ * produces a filter PostgREST parses as syntax and rejects with a 400 — the
+ * picker just breaks, with no clue why. `.` and `%` matter too: `.` separates
+ * column.operator.value and `%` is the LIKE wildcard.
+ *
+ * Dropped rather than escaped: PostgREST's quoting rules differ per position
+ * and none of these characters carries meaning in a name search, so removing
+ * them narrows nothing a user would notice while making the string
+ * unambiguous.
+ */
+function sanitiseOrFilterTerm(query: string): string {
+  return query.replace(/[(),.*%\\"']/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 export class HealthSportsService {
   // --------------------------------------------------------------------------
@@ -254,9 +308,9 @@ export class HealthSportsService {
     const { data, error } = await (supabase as any)
       .from('health_tournament_permissions').insert({
         ...request, learner_id: learnerId, overall_status: 'pending',
-        // Only the Principal decides. The other three steps are stamped
-        // not_required rather than pending — see UNUSED_STEP_STATUSES.
-        ...UNUSED_STEP_STATUSES,
+        // Steps 1/2/4 are left to their column defaults on purpose — see the
+        // note above PERMISSION_SELECT. Naming them here is what would break
+        // this form on production before the migration is applied.
         step3_principal_status: 'pending',
       }).select('*').single();
     if (error) throw error;
@@ -293,7 +347,6 @@ export class HealthSportsService {
         justification: input.justification,
         team_members: input.members,
         overall_status: 'pending',
-        ...UNUSED_STEP_STATUSES,
         step3_principal_status: 'pending',
       }).select(PERMISSION_SELECT).single();
     if (error) throw error;
@@ -301,19 +354,65 @@ export class HealthSportsService {
   }
 
   /**
-   * Requests the signed-in approver still has to decide.
+   * The approval rows the signed-in caller may actually decide — their OWN
+   * college's and no other (D6).
    *
-   * Row visibility is RLS's job — `health_tournament_permissions_approver`
-   * admits a caller holding `health.sports.approve`. This filter is only about
-   * WHICH stage, never about WHO.
+   * Deliberately an RPC and not a filtered table read. Whether a caller may act
+   * for a college depends on their role's institution_scope AND their
+   * user_institution_access grants, neither of which the browser can evaluate,
+   * so a client-side filter would either under-show or — as the previous
+   * version of this feature did — show another college's request and leave the
+   * separation to the UI.
    */
-  static async getPermissionsAwaitingApproval(): Promise<TournamentPermissionRecord[]> {
+  static async getMyCollegeApprovals(): Promise<TournamentCollegeApproval[]> {
+    const { data, error } = await (supabase as any).rpc('fn_health_tournament_my_approvals');
+    if (error) throw error;
+    return (data || []) as TournamentCollegeApproval[];
+  }
+
+  /** Full records for a set of requests. RLS decides which of them come back. */
+  static async getPermissionsByIds(ids: string[]): Promise<TournamentPermissionRecord[]> {
+    if (ids.length === 0) return [];
     const { data, error } = await (supabase as any)
       .from('health_tournament_permissions').select(PERMISSION_SELECT)
-      .eq('step3_principal_status', 'pending')
+      .in('id', ids)
       .order('start_date', { ascending: true });
     if (error) throw error;
     return (data || []) as TournamentPermissionRecord[];
+  }
+
+  /** Every college's decision on one request, for the "who are we waiting on" strip. */
+  static async getCollegeApprovals(permissionIds: string[]): Promise<TournamentCollegeApproval[]> {
+    if (permissionIds.length === 0) return [];
+    const { data, error } = await (supabase as any)
+      .from('health_tournament_permission_approvals')
+      .select('id, permission_id, institution_id, status, approved_at, notes, last_nudged_at, institutions(name)')
+      .in('permission_id', permissionIds);
+    if (error) throw error;
+    return ((data || []) as any[]).map((r) => ({
+      approval_id: r.id,
+      permission_id: r.permission_id,
+      institution_id: r.institution_id,
+      institution_name: r.institutions?.name ?? null,
+      status: r.status,
+      approved_at: r.approved_at,
+      notes: r.notes,
+      last_nudged_at: r.last_nudged_at,
+    })) as TournamentCollegeApproval[];
+  }
+
+  /**
+   * The squad as the SIGNED-IN caller may see it (D6).
+   *
+   * An approver gets only their own college's learners. RLS is row-scoped and
+   * cannot hand two Principals different `team_members` from the same row, so
+   * the roster is read through the database rather than off the record.
+   */
+  static async getVisibleSquad(permissionId: string): Promise<TournamentVisibleSquadMember[]> {
+    const { data, error } = await (supabase as any)
+      .rpc('fn_health_tournament_visible_squad', { p_permission_id: permissionId });
+    if (error) throw error;
+    return (data || []) as TournamentVisibleSquadMember[];
   }
 
   /** Requests this team member filed on a squad's behalf, newest first. */
@@ -347,46 +446,65 @@ export class HealthSportsService {
     );
   }
 
-  /** Requests already decided, newest decision first. */
-  static async getDecidedPermissions(
-    decision: 'approved' | 'rejected'
-  ): Promise<TournamentPermissionRecord[]> {
-    const { data, error } = await (supabase as any)
-      .from('health_tournament_permissions').select(PERMISSION_SELECT)
-      .eq('step3_principal_status', decision)
-      .order('step3_approved_at', { ascending: false });
+  /**
+   * Record one college's decision (D6).
+   *
+   * Writes the approvals row and NOTHING else. `overall_status` and the
+   * `step3_*` mirror are derived by the database, which becomes 'approved' only
+   * once EVERY participating college has approved — and which rejects any
+   * attempt to write them from here. The approver's identity is stamped from
+   * `auth.uid()` server-side, so it cannot be supplied or forged by the client.
+   */
+  static async decideCollegeApproval(
+    approvalId: string,
+    decision: 'approved' | 'rejected',
+    notes?: string
+  ): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_tournament_permission_approvals')
+      .update({ status: decision, notes: notes?.trim() || null })
+      .eq('id', approvalId);
     if (error) throw error;
-    return (data || []) as TournamentPermissionRecord[];
   }
 
   /**
-   * Record an approver's decision on one step.
+   * D9 — send a reminder to a college that has not decided.
    *
-   * `decision` defaults to 'approved' so the original call shape still means
-   * what it meant. `overall_status` follows step 3 because step 3 is the only
-   * step anyone decides: a rejection ends the request immediately, and an
-   * approval completes it — the old code only ever completed at step 4, which
-   * no longer has an approver.
+   * This is the ONLY remedy for a late decision. Nothing anywhere approves on a
+   * Principal's behalf: a fabricated approval in the record is worse than a
+   * late one. Rate-limited server-side to one per college per 12 hours, and it
+   * fails loudly rather than quietly reaching nobody when that college has no
+   * approver at all.
    */
-  static async approvePermissionStep(
-    id: string,
-    step: 1 | 2 | 3 | 4,
-    approvedBy: string,
-    notes?: string,
-    decision: 'approved' | 'rejected' = 'approved'
+  static async nudgeApprover(permissionId: string, institutionId: string): Promise<number> {
+    const { data, error } = await (supabase as any)
+      .rpc('fn_health_tournament_nudge_approver', {
+        p_permission_id: permissionId,
+        p_institution_id: institutionId,
+      });
+    if (error) throw error;
+    return typeof data === 'number' ? data : 0;
+  }
+
+  /**
+   * D10 — call a trip off, or put it back on.
+   *
+   * The record is KEPT either way: the approval trail is audit evidence. A
+   * cancelled request counts for nothing in participation or accreditation
+   * reads, and reinstating restores its REAL state rather than a remembered
+   * approval.
+   */
+  static async setPermissionCancelled(
+    permissionId: string,
+    cancelled: boolean,
+    reason?: string
   ): Promise<void> {
-    const field = `step${step}_${['sports_coordinator', 'hod', 'principal', 'pe_director'][step - 1]}_status`;
-    const update: any = {
-      [field]: decision,
-      [`step${step}_approved_by`]: approvedBy,
-      [`step${step}_approved_at`]: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    if (notes) update[`step${step}_notes`] = notes;
-    if (decision === 'rejected') update.overall_status = 'rejected';
-    else if (step === 3) update.overall_status = 'approved';
     const { error } = await (supabase as any)
-      .from('health_tournament_permissions').update(update).eq('id', id);
+      .rpc('fn_health_tournament_set_cancelled', {
+        p_permission_id: permissionId,
+        p_cancelled: cancelled,
+        p_reason: reason?.trim() || null,
+      });
     if (error) throw error;
   }
 
@@ -401,7 +519,7 @@ export class HealthSportsService {
     institutionId: string | null,
     query: string
   ): Promise<SquadCandidate[]> {
-    const term = query.trim();
+    const term = sanitiseOrFilterTerm(query);
     if (term.length < 2) return [];
     let q = (supabase as any)
       .from('learners_profiles')

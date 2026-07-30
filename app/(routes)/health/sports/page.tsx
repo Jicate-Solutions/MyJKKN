@@ -1050,9 +1050,16 @@ function RequestPermissionModal({
 // Those three steps therefore carry the explicit status 'not_required' and are
 // rendered greyed and struck through. They must never read as "pending" (work
 // awaited from nobody) and must never read as "approved" (an approval no human
-// gave). Rows created before this change still carry 'pending' there; the
-// renderer treats anything non-decisive as not-required so a learner is never
-// shown a step that will never move.
+// gave).
+//
+// READ THE STORED VALUE. An earlier version returned 'not_required' for steps
+// 1/2/4 unconditionally, ignoring what the row actually held, while the shared
+// ApprovalPath component in _components/tournament-permission-ui.tsx read the
+// real value — so the same request rendered differently on two screens. If a
+// row ever does carry a real decision on one of those steps (a request filed
+// before this change, or a future path that revives a step), hiding it would be
+// the same class of lie as inventing one. Only a genuinely absent decision maps
+// to 'not_required'.
 const APPROVAL_STEP_LABELS = [
   'Sports Coordinator',
   'HOD',
@@ -1067,8 +1074,19 @@ function approvalStepStatus(
   perm: HealthTournamentPermission,
   step: number
 ): ApprovalStatus | 'not_required' {
-  if (step !== DECISIVE_STEP_INDEX) return 'not_required';
-  return perm.step3_principal_status;
+  const stored = [
+    perm.step1_sports_coordinator_status,
+    perm.step2_hod_status,
+    perm.step3_principal_status,
+    perm.step4_pe_director_status,
+  ][step] as ApprovalStatus | 'not_required' | null | undefined;
+
+  if (step === DECISIVE_STEP_INDEX) return stored ?? 'pending';
+  // A non-decisive step is "not required" only when nothing was ever recorded
+  // against it — which, before the migration widens the CHECK, is the legacy
+  // default 'pending'.
+  if (!stored || stored === 'not_required' || stored === 'pending') return 'not_required';
+  return stored;
 }
 
 function overallStatusBadge(status: HealthTournamentPermission['overall_status']) {

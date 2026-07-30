@@ -1,11 +1,17 @@
 'use client';
 
 /**
- * The Principal's decision on one tournament-permission request.
+ * The Principal's decision on ONE COLLEGE's part of a tournament-permission
+ * request (D6).
  *
- * Writes through HealthSportsService.approvePermissionStep(id, 3, ...) — step 3
- * is THE approval step in the Director-locked two-party path. A rejection
- * requires a note, because a squad told "no" with no reason has nothing to fix.
+ * Writes the approvals row for that college and nothing else — the request's
+ * overall status is derived by the database and becomes approved only once
+ * every participating college has approved. The approver's identity is stamped
+ * server-side from the signed-in session, so this dialog neither sends nor can
+ * forge it.
+ *
+ * A rejection requires a note, because a squad told "no" with no reason has
+ * nothing to fix.
  */
 
 import { useState } from 'react';
@@ -24,7 +30,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { HealthSportsService } from '@/lib/services/health/health-sports-service';
-import type { TournamentPermissionRecord } from '@/lib/services/health/health-sports-service';
+import type {
+  TournamentCollegeApproval,
+  TournamentPermissionRecord,
+} from '@/lib/services/health/health-sports-service';
 import {
   dateRange,
   isSchemaNotApplied,
@@ -34,16 +43,17 @@ import {
 
 export function DecideDialog({
   request,
+  approval,
   decision,
-  approverProfileId,
   onClose,
   onDecided,
 }: {
   request: TournamentPermissionRecord | null;
+  /** The caller's OWN college row — the only one they may decide. */
+  approval: TournamentCollegeApproval | null;
   decision: 'approved' | 'rejected';
-  approverProfileId: string;
   onClose: () => void;
-  onDecided: (id: string) => void;
+  onDecided: (approvalId: string) => void;
 }) {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -55,23 +65,21 @@ export function DecideDialog({
   const noteMissing = rejecting && note.trim().length === 0;
 
   async function submit() {
-    if (!request || noteMissing) return;
+    if (!request || !approval || noteMissing) return;
     setSaving(true);
     setFailure(null);
     try {
-      await HealthSportsService.approvePermissionStep(
-        request.id,
-        3,
-        approverProfileId,
-        note.trim() || undefined,
-        decision
+      await HealthSportsService.decideCollegeApproval(
+        approval.approval_id,
+        decision,
+        note.trim() || undefined
       );
       toast.success(
         rejecting
-          ? 'Request rejected — the squad can see your reason.'
-          : 'Request approved. The squad may travel.'
+          ? 'Rejected for your college — the squad can see your reason.'
+          : 'Approved for your college. The squad travels once every college has approved.'
       );
-      onDecided(request.id);
+      onDecided(approval.approval_id);
       setNote('');
       onClose();
     } catch (err) {
@@ -99,14 +107,23 @@ export function DecideDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {rejecting ? 'Reject this request' : 'Approve this request'}
+            {rejecting
+              ? 'Reject for your college'
+              : 'Approve for your college'}
           </DialogTitle>
           <DialogDescription>
             {request ? (
               <>
                 {request.tournament_name} · {levelLabel(request.tournament_level)} ·{' '}
-                {dateRange(request.start_date, request.end_date)} ·{' '}
-                {request.team_members?.length ?? 0} in squad
+                {dateRange(request.start_date, request.end_date)}
+                {approval?.institution_name ? (
+                  <>
+                    <br />
+                    You are deciding for{' '}
+                    <span className="font-medium">{approval.institution_name}</span> only.
+                    Other colleges on this squad are decided by their own Principals.
+                  </>
+                ) : null}
               </>
             ) : null}
           </DialogDescription>

@@ -27,13 +27,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { FilePlus2, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'sonner';
 import { HealthSportsService } from '@/lib/services/health/health-sports-service';
-import type { TournamentPermissionRecord } from '@/lib/services/health/health-sports-service';
+import type {
+  TournamentCollegeApproval,
+  TournamentPermissionRecord,
+} from '@/lib/services/health/health-sports-service';
 import {
   FailureNotice,
   NoAccessNotice,
   NoApproverNotice,
   RequestCard,
+  readFailure,
 } from '../_components/tournament-permission-ui';
 import { FileSquadDialog } from './_components/file-squad-dialog';
 
@@ -44,10 +49,12 @@ export default function SquadRequestsPage() {
   const { can, isSuperAdmin, isLoading: permsLoading } = usePermissions();
 
   const [rows, setRows] = useState<TournamentPermissionRecord[]>([]);
+  const [approvals, setApprovals] = useState<TournamentCollegeApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [approverExists, setApproverExists] = useState<boolean | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [nudgingId, setNudgingId] = useState<string | null>(null);
 
   const gatesLoading = authLoading || permsLoading;
   const mayFile = isSuperAdmin || can(FILE_KEY);
@@ -60,13 +67,80 @@ export default function SquadRequestsPage() {
     try {
       const data = await HealthSportsService.getPermissionsFiledBy(profileId);
       setRows(data);
+      // D6/D9 — one line per participating college, so the filer can see WHO is
+      // still being waited on rather than a single opaque "pending".
+      setApprovals(
+        await HealthSportsService.getCollegeApprovals(data.map((r) => r.id))
+      );
     } catch (err) {
       setRows([]);
+      setApprovals([]);
       setLoadError(err);
     } finally {
       setLoading(false);
     }
   }, [profileId]);
+
+  /**
+   * D9 — chase a Principal who has not decided. This is the ONLY remedy: no
+   * path anywhere approves on their behalf, however close the trip is.
+   */
+  const nudge = useCallback(async (a: TournamentCollegeApproval) => {
+    setNudgingId(a.approval_id);
+    try {
+      const reached = await HealthSportsService.nudgeApprover(
+        a.permission_id,
+        a.institution_id
+      );
+      toast.success(
+        `Reminder sent to ${reached} approver${reached === 1 ? '' : 's'} at ${
+          a.institution_name ?? 'that college'
+        }.`
+      );
+      setApprovals((prev) =>
+        prev.map((r) =>
+          r.approval_id === a.approval_id
+            ? { ...r, last_nudged_at: new Date().toISOString() }
+            : r
+        )
+      );
+    } catch (err) {
+      // The server says exactly why — already decided, already reminded, or no
+      // approver exists at all. Never a generic "try again" (CLAUDE.md #27).
+      toast.error(readFailure(err).message);
+    } finally {
+      setNudgingId(null);
+    }
+  }, []);
+
+  /**
+   * D10 — call a trip off, or put it back on.
+   *
+   * Never deletes: the approval trail is audit evidence and an accreditation
+   * reader must be able to see that the Principal did approve a trip that later
+   * did not happen. The request simply stops counting.
+   */
+  const toggleCancelled = useCallback(
+    async (perm: TournamentPermissionRecord) => {
+      const turningOff = !perm.cancelled_at;
+      try {
+        await HealthSportsService.setPermissionCancelled(
+          perm.id,
+          turningOff,
+          turningOff ? 'Called off by the person who filed it' : undefined
+        );
+        toast.success(
+          turningOff
+            ? 'Trip called off. The record and its approvals are kept, but it counts for nothing.'
+            : 'Trip reinstated. It is back to whatever the Principals have actually decided.'
+        );
+        await load();
+      } catch (err) {
+        toast.error(readFailure(err).message);
+      }
+    },
+    [load]
+  );
 
   useEffect(() => {
     if (gatesLoading || !mayFile) return;
@@ -160,7 +234,29 @@ export default function SquadRequestsPage() {
                 </CardContent>
               </Card>
             ) : (
-              rows.map((perm) => <RequestCard key={perm.id} perm={perm} />)
+              rows.map((perm) => (
+                <RequestCard
+                  key={perm.id}
+                  perm={perm}
+                  approvals={approvals.filter((a) => a.permission_id === perm.id)}
+                  onNudge={nudge}
+                  nudgingId={nudgingId}
+                  actions={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={
+                        perm.cancelled_at
+                          ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                          : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }
+                      onClick={() => void toggleCancelled(perm)}
+                    >
+                      {perm.cancelled_at ? 'Trip is back on' : 'Call this trip off'}
+                    </Button>
+                  }
+                />
+              ))
             )}
           </>
         )}

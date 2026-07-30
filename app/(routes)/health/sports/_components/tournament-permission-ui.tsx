@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   AlertCircle,
+  BellRing,
   CheckCircle2,
   Clock,
   XCircle,
@@ -25,13 +26,16 @@ import {
   Users,
   ShieldAlert,
   UserX,
+  Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SPORT_LEVELS } from '@/types/health-sports';
 import type {
+  TournamentCollegeApproval,
   TournamentPermissionRecord,
   TournamentSquadMember,
   TournamentStepStatus,
+  TournamentVisibleSquadMember,
 } from '@/lib/services/health/health-sports-service';
 
 // ---------------------------------------------------------------------------
@@ -56,23 +60,30 @@ export function readFailure(err: unknown): { message: string; code: string | nul
 }
 
 /**
- * Both failures below mean exactly one thing here — the migration that makes
- * this a two-party approval has not been applied to this environment:
+ * Every failure below means exactly one thing here — the migration that makes
+ * this a per-college approval has not been applied to this environment:
  *
- *   42703 undefined_column      reading `filed_by_profile_id` before it exists
- *   23514 check_violation on a  writing 'not_required' to step 1 / 2 / 4 before
- *         step*_status CHECK    their CHECK constraints have been widened
+ *   42703 undefined_column    reading `filed_by_profile_id` before it exists
+ *   42P01 undefined_table     reading health_tournament_permission_approvals
+ *   42883 undefined_function  calling fn_health_tournament_my_approvals
+ *   PGRST202 / PGRST205       PostgREST's own "no such function / relation in
+ *                             the schema cache", which is what the browser
+ *                             actually receives for the two above
+ *   23514 check_violation on  writing a status the CHECK has not been widened
+ *         a step*_status      for yet
  *
- * Telling the reader "please try again" for either is the silent-failure trap in
- * a new costume: retrying can never succeed, so the message must name the
- * pending database change instead. Verified against the live error strings
- * (2026-07-30) rather than guessed.
+ * Telling the reader "please try again" for any of them is the silent-failure
+ * trap in a new costume: retrying can never succeed, so the message must name
+ * the pending database change instead. The codes are the ones the live database
+ * actually returned during this PR's validation, not guesses.
  */
 export function isSchemaNotApplied(code: string | null, message: string): boolean {
-  if (code === '42703' || /does not exist/i.test(message)) return true;
+  if (code === '42703' || code === '42P01' || code === '42883') return true;
+  if (code === 'PGRST202' || code === 'PGRST205') return true;
+  if (/does not exist|schema cache/i.test(message)) return true;
   return (
     (code === '23514' || /check constraint/i.test(message)) &&
-    /step[124]_|sports_coordinator_sta|hod_status|pe_director_status/i.test(message)
+    /step[124]_|sports_coordinator_sta|hod_status|pe_director_status|overall_status/i.test(message)
   );
 }
 
@@ -158,18 +169,127 @@ export function OverallStatusBadge({ status }: { status: string }) {
     approved: 'bg-green-100 text-green-700 border-green-200',
     rejected: 'bg-red-100 text-red-700 border-red-200',
     completed: 'bg-blue-100 text-blue-700 border-blue-200',
+    // D10 — never styled as approved or rejected. A called-off trip is its own
+    // state: the approval it was given is still real, it simply did not happen.
+    cancelled: 'bg-slate-200 text-slate-600 border-slate-300',
     pending: 'bg-amber-100 text-amber-700 border-amber-200',
   };
   const label: Record<string, string> = {
     approved: 'Approved',
     rejected: 'Rejected',
     completed: 'Completed',
-    pending: 'Awaiting Principal',
+    cancelled: 'Cancelled',
+    pending: 'Awaiting approval',
   };
   return (
     <Badge className={cn('text-xs hover:bg-inherit', map[status] ?? map.pending)}>
-      {label[status] ?? 'Awaiting Principal'}
+      {label[status] ?? 'Awaiting approval'}
     </Badge>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// D6 — the per-college approval strip
+// ---------------------------------------------------------------------------
+
+/**
+ * Who has decided, and who is still being waited on — by college.
+ *
+ * A mixed-college squad needs one line per participating college, because each
+ * Principal decides only their own learners and the trip is approved only when
+ * all of them have. A single "Principal: pending" chip cannot say "Pharmacy
+ * approved, Nursing has not answered", which is the thing the person filing
+ * actually needs to know.
+ *
+ * D9 — the waiting line always NAMES who is being waited on. It never counts
+ * down to an automatic approval, because there is no such thing here.
+ */
+export function CollegeApprovalStrip({
+  approvals,
+  onNudge,
+  nudgingId,
+}: {
+  approvals: TournamentCollegeApproval[];
+  onNudge?: (a: TournamentCollegeApproval) => void;
+  nudgingId?: string | null;
+}) {
+  if (!approvals || approvals.length === 0) {
+    return (
+      <Alert className="border-amber-200 bg-amber-50">
+        <AlertCircle className="h-4 w-4 text-amber-600" />
+        <AlertTitle className="text-amber-900">No college could be identified as the approver</AlertTitle>
+        <AlertDescription className="text-sm text-amber-900">
+          None of the learners on this request has a college recorded, so there is nobody
+          to ask. This request will stay pending — it is deliberately NOT approved
+          automatically. Ask an administrator to check the learner records.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  const waiting = approvals.filter((a) => a.status === 'pending');
+
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-slate-400">
+        Approval by college — every college must approve its own learners
+      </p>
+      <div className="space-y-1.5">
+        {approvals.map((a) => (
+          <div
+            key={a.approval_id}
+            className={cn(
+              'flex flex-wrap items-center justify-between gap-2 rounded-lg border px-2.5 py-2',
+              a.status === 'approved'
+                ? 'border-green-200 bg-green-50'
+                : a.status === 'rejected'
+                  ? 'border-red-200 bg-red-50'
+                  : 'border-amber-200 bg-amber-50'
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <StepIcon status={a.status} />
+              <span className="truncate text-xs font-medium text-slate-700">
+                {a.institution_name ?? 'Unnamed college'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'text-[10px] uppercase tracking-wide',
+                  a.status === 'approved'
+                    ? 'text-green-700'
+                    : a.status === 'rejected'
+                      ? 'text-red-600'
+                      : 'text-amber-700'
+                )}
+              >
+                {a.status === 'pending' ? 'Waiting for the Principal' : a.status}
+              </span>
+              {a.status === 'pending' && onNudge ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 gap-1 px-2 text-[11px]"
+                  disabled={nudgingId === a.approval_id}
+                  onClick={() => onNudge(a)}
+                >
+                  <BellRing className="h-3 w-3" />
+                  {a.last_nudged_at ? 'Remind again' : 'Send reminder'}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      {waiting.length > 0 ? (
+        <p className="mt-2 text-xs text-slate-500">
+          Waiting for the Principal of{' '}
+          {waiting.map((a) => a.institution_name ?? 'an unnamed college').join(', ')}. Nothing
+          is approved until they decide — a reminder is the only way to move this along.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -256,7 +376,14 @@ function StepIcon({ status }: { status: TournamentStepStatus }) {
  * each member is listed with their own learner id present in the data — never
  * summarised as a headcount.
  */
-export function SquadRoster({ members }: { members: TournamentSquadMember[] }) {
+export function SquadRoster({
+  members,
+  scoped,
+}: {
+  members: (TournamentSquadMember | TournamentVisibleSquadMember)[];
+  /** True when the list was scoped to the viewer's own college (D6). */
+  scoped?: boolean;
+}) {
   if (!members || members.length === 0) {
     return (
       <p className="text-xs text-slate-400">
@@ -268,7 +395,8 @@ export function SquadRoster({ members }: { members: TournamentSquadMember[] }) {
     <div>
       <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-400">
         <Users className="h-3.5 w-3.5" />
-        Squad — {members.length} {members.length === 1 ? 'learner' : 'learners'}
+        {scoped ? 'Your college on this squad' : 'Squad'} — {members.length}{' '}
+        {members.length === 1 ? 'learner' : 'learners'}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {members.map((m) => (
@@ -284,6 +412,12 @@ export function SquadRoster({ members }: { members: TournamentSquadMember[] }) {
           </span>
         ))}
       </div>
+      {scoped ? (
+        <p className="mt-1.5 text-[11px] text-slate-400">
+          You are shown your own college&apos;s learners only. Other colleges on this squad
+          are approved by their own Principals.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -295,12 +429,25 @@ export function SquadRoster({ members }: { members: TournamentSquadMember[] }) {
 export function RequestCard({
   perm,
   actions,
+  approvals,
+  squad,
+  squadScoped,
+  onNudge,
+  nudgingId,
 }: {
   perm: TournamentPermissionRecord;
   actions?: React.ReactNode;
+  /** D6 — one row per participating college. Omit to fall back to the legacy strip. */
+  approvals?: TournamentCollegeApproval[];
+  /** D6 — the roster the viewer is allowed to see. Omit to show the stored roster. */
+  squad?: TournamentVisibleSquadMember[];
+  squadScoped?: boolean;
+  onNudge?: (a: TournamentCollegeApproval) => void;
+  nudgingId?: string | null;
 }) {
+  const cancelled = Boolean(perm.cancelled_at);
   return (
-    <Card>
+    <Card className={cancelled ? 'opacity-90' : undefined}>
       <CardContent className="space-y-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -340,9 +487,29 @@ export function RequestCard({
           </div>
         ) : null}
 
-        <SquadRoster members={perm.team_members ?? []} />
+        {cancelled ? (
+          <div className="flex items-start gap-2 rounded-lg border border-slate-300 bg-slate-100 p-2.5">
+            <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+            <p className="text-xs text-slate-700">
+              <span className="font-medium">This trip was called off.</span> The record and
+              its approval trail are kept as evidence, but it counts for nothing in
+              participation or accreditation. It can be put back on if the trip is back on.
+              {perm.cancellation_reason ? ` Reason: ${perm.cancellation_reason}` : ''}
+            </p>
+          </div>
+        ) : null}
 
-        <ApprovalPath perm={perm} />
+        <SquadRoster members={squad ?? perm.team_members ?? []} scoped={squadScoped} />
+
+        {approvals ? (
+          <CollegeApprovalStrip
+            approvals={approvals}
+            onNudge={cancelled ? undefined : onNudge}
+            nudgingId={nudgingId}
+          />
+        ) : (
+          <ApprovalPath perm={perm} />
+        )}
 
         {perm.step3_notes ? (
           <div className="rounded-lg bg-slate-50 p-2.5">
