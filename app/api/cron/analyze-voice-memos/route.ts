@@ -378,6 +378,11 @@ function classifyFailure(err: unknown): 'ratelimit' | 'transient' | 'permanent' 
     if (m) status = Number(m[1]);
   }
   if (status === 429 || /quota|rate.?limit/i.test(msg)) return 'ratelimit';
+  // 413 / "request too large" — the file itself is over the provider limit.
+  // Deliberately checked AFTER ratelimit so a 429 is never mistaken for it.
+  if (status === 413 || /request too large|file too large|payload too large/i.test(msg)) {
+    return 'permanent';
+  }
   return 'transient';
 }
 
