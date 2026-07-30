@@ -551,8 +551,10 @@ function ManageBoards() {
                         {blocked ? (
                           <>
                             <p>
-                              Work is already filed against this board, and
-                              deleting it would destroy that work permanently:
+                              Work is already filed against this board, so it
+                              cannot be deleted — deleting it would destroy that
+                              work, and the server refuses rather than allow
+                              that. What is attached:
                             </p>
                             <ul className="list-inside list-disc space-y-0.5">
                               {attached.map((d) => (
