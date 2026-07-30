@@ -28,9 +28,18 @@ interface StaffPayInfo {
   id: string;
   first_name: string;
   last_name: string;
+  institution_id: string;
+}
+
+/**
+ * designation_id / cadre_id live on hr_staff_details, NOT on staff.
+ * Loaded as a separate lookup (never an `!inner` embed) because a large share of
+ * staff rows have no hr_staff_details row at all — those people must still appear
+ * in the run and be reported as skipped, not silently dropped.
+ */
+interface StaffHrMapping {
   designation_id: string | null;
   cadre_id: string | null;
-  institution_id: string;
 }
 
 interface PayScale {
@@ -92,13 +101,30 @@ export class PayslipGenerator {
     // 3. Load active staff for the institution
     const { data: staffList, error: staffErr } = await supabase
       .from('staff')
-      .select('id, first_name, last_name, designation_id, cadre_id, institution_id')
+      .select('id, first_name, last_name, institution_id')
       .eq('institution_id', period.institution_id)
       .eq('is_active', true);
 
     if (staffErr) throw new Error(`Failed to load staff: ${staffErr.message}`);
     if (!staffList || staffList.length === 0) {
       return { generated: 0, skipped: 0, errors: [], totals: { gross: 0, deductions: 0, net: 0 } };
+    }
+
+    // 3b. Load designation/cadre mapping from hr_staff_details (separate query, not an embed)
+    const staffIds = (staffList as StaffPayInfo[]).map((s) => s.id);
+    const { data: hrDetails, error: hrDetailsErr } = await (supabase as any)
+      .from('hr_staff_details')
+      .select('staff_id, designation_id, cadre_id')
+      .in('staff_id', staffIds);
+
+    if (hrDetailsErr) throw new Error(`Failed to load HR staff details: ${hrDetailsErr.message}`);
+
+    const hrMappingByStaffId = new Map<string, StaffHrMapping>();
+    for (const d of (hrDetails ?? [])) {
+      hrMappingByStaffId.set(d.staff_id, {
+        designation_id: d.designation_id ?? null,
+        cadre_id: d.cadre_id ?? null,
+      });
     }
 
     // 4. Load pay scales for the institution (keyed by designation_id)
@@ -148,17 +174,39 @@ export class PayslipGenerator {
 
     for (const staff of staffList as StaffPayInfo[]) {
       const name = `${staff.first_name} ${staff.last_name}`.trim();
+      const hrMapping = hrMappingByStaffId.get(staff.id);
+
+      // Distinguish the three blockers so HR can work the backlog by reason.
+      if (!hrMapping) {
+        result.skipped++;
+        result.errors.push({
+          staff_id: staff.id,
+          name,
+          reason: 'No HR staff record (hr_staff_details) — create one and set designation/cadre',
+        });
+        continue;
+      }
+
+      if (!hrMapping.designation_id && !hrMapping.cadre_id) {
+        result.skipped++;
+        result.errors.push({
+          staff_id: staff.id,
+          name,
+          reason: 'HR staff record exists but designation and cadre are both unset',
+        });
+        continue;
+      }
 
       // Find pay scale (try designation first, then cadre)
-      const scale = (staff.designation_id ? scaleByDesignation.get(staff.designation_id) : null)
-        ?? (staff.cadre_id ? scaleByCadre.get(staff.cadre_id) : null);
+      const scale = (hrMapping.designation_id ? scaleByDesignation.get(hrMapping.designation_id) : null)
+        ?? (hrMapping.cadre_id ? scaleByCadre.get(hrMapping.cadre_id) : null);
 
       if (!scale) {
         result.skipped++;
         result.errors.push({
           staff_id: staff.id,
           name,
-          reason: 'No pay scale configured for designation/cadre',
+          reason: 'No pay scale configured for this designation/cadre',
         });
         continue;
       }
