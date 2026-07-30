@@ -27,7 +27,8 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { ScanEye } from 'lucide-react';
+import { Lock, ScanEye } from 'lucide-react';
+import { useClassroomSealedComments } from '@/hooks/audit';
 import {
   classroomPillarScores,
   type ClassroomPillarScore,
@@ -35,6 +36,7 @@ import {
 import type {
   ClassroomCompareItem,
   ClassroomCompareResult,
+  ClassroomSealedComment,
 } from '@/lib/services/audit/carre-audit-service';
 import type { ScoreSheetParameter } from './care-score-sheet';
 
@@ -123,6 +125,12 @@ export function ClassroomCompareCard({
   const selfScored = unlocked ? unlocked.self_scored : (compare?.self_scored ?? 0);
   const selfComplete = totalItems > 0 && selfScored >= totalItems;
 
+  // Batch-reveal cadence, named by the server (config-driven: weekly for
+  // classes >= ~20 distinct learners, monthly below — the Director's default,
+  // adjustable with no deploy). Fallback 'week' keeps pre-cadence responses
+  // rendering honestly.
+  const windowUnit = compare?.window_unit ?? 'week';
+
   return (
     <Card>
       <CardHeader>
@@ -151,8 +159,8 @@ export function ClassroomCompareCard({
             />
             <GateRow
               done={false}
-              label="Learner voices reveal when the week completes"
-              detail="Answers from the current week are held back. A median that moves as replies arrive is a live scoreboard, and a scoreboard is what turns an honest instrument into a performance."
+              label={`Learner voices reveal when the ${windowUnit} completes`}
+              detail={`Answers from the current ${windowUnit} are held back. A median that moves as replies arrive is a live scoreboard, and a scoreboard is what turns an honest instrument into a performance.`}
             />
             <GateRow
               done={false}
@@ -225,6 +233,89 @@ export function ClassroomCompareCard({
               </p>
             )}
           </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Sealed learner comments — PRINCIPAL & DIRECTOR ONLY (ratified decision 3).
+ * The server refuses the cycle's owner before any role check: the person the
+ * comments describe never reads them, even holding admin or principal. This
+ * component renders NOTHING for anyone the server turns away, so mounting it
+ * is safe on any viewer — visibility is decided in exactly one place.
+ *
+ * Comments batch-reveal on the SAME config-driven completed window as the
+ * scores (fn_classroom_practice_window_cutoff): a comment written this week
+ * cannot be timed back to a submission. No identity, no fine timestamps —
+ * a window label, an item code, and the words.
+ */
+export function ClassroomSealedCommentsCard({
+  cycleId,
+  parameters,
+}: {
+  cycleId: string;
+  parameters: ScoreSheetParameter[];
+}) {
+  const q = useClassroomSealedComments(cycleId);
+  const nameByCode = new Map(parameters.map((p) => [p.code, p.name]));
+
+  if (!q.data || q.data.locked) return null;
+
+  const { comments, window_unit } = q.data;
+
+  // Group by window label (already batch-cut server-side).
+  const byWindow = new Map<string, ClassroomSealedComment[]>();
+  for (const c of comments) {
+    const list = byWindow.get(c.window_label) ?? [];
+    list.push(c);
+    byWindow.set(c.window_label, list);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <Lock className="h-4 w-4" />
+          Sealed comments
+          <Badge variant="outline" className="text-[10px]">
+            Principal &amp; Director only
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          {
+            'Learners are occasionally invited to add one sealed line after answering a practice question. The Senior Learner never sees these — never with a name, and only after a '
+          }
+          {window_unit}
+          {' completes, so timing can never unmask a voice.'}
+        </p>
+
+        {comments.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No sealed comments in any completed {window_unit} yet.
+          </p>
+        ) : (
+          [...byWindow.entries()].map(([label, list]) => (
+            <div key={label} className="space-y-1.5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {window_unit === 'week' ? 'Week of' : 'Month of'} {label}
+              </p>
+              <div className="divide-y rounded-md border">
+                {list.map((c, i) => (
+                  <div key={`${label}-${i}`} className="space-y-1 p-2.5 text-xs">
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {shortCode(c.code)}
+                      {nameByCode.has(c.code) ? ` · ${nameByCode.get(c.code)}` : ''}
+                    </span>
+                    <p>&ldquo;{c.comment}&rdquo;</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
         )}
       </CardContent>
     </Card>

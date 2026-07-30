@@ -137,6 +137,8 @@ export type ClassroomCompareResult =
         | 'not_authenticated';
       item_count?: number;
       self_scored?: number;
+      /** 'week' | 'month' — named even while locked so the gate copy is honest. */
+      window_unit?: 'week' | 'month';
     }
   | {
       locked: false;
@@ -144,7 +146,40 @@ export type ClassroomCompareResult =
       self_scored: number;
       /** Impressions offered on or after this instant are held back. */
       week_cutoff: string;
+      /** Same instant, honestly named: the config-driven batch-reveal cutoff. */
+      window_cutoff?: string;
+      /** 'week' | 'month' — Director default (2026-07-30): weekly for classes
+       *  of >= 20 distinct learners, monthly below; platform_policies
+       *  classroom_practice.reveal changes it with no deploy. */
+      window_unit?: 'week' | 'month';
+      window_learners?: number;
       items: ClassroomCompareItem[];
+    };
+
+/** One sealed learner comment, batch-revealed to Principal & Director only.
+ *  Carries NO identity and no timestamp finer than the window label. */
+export interface ClassroomSealedComment {
+  window_label: string;
+  code: string;
+  comment: string;
+}
+
+export type ClassroomSealedCommentsResult =
+  | {
+      locked: true;
+      reason:
+        | 'owner_never_reads_comments'
+        | 'principal_or_director_only'
+        | 'forbidden'
+        | 'not_found'
+        | 'not_authenticated'
+        | 'unavailable';
+    }
+  | {
+      locked: false;
+      window_unit: 'week' | 'month';
+      window_cutoff: string;
+      comments: ClassroomSealedComment[];
     };
 
 export interface CarreTeacherOption {
@@ -264,6 +299,28 @@ export class CarreAuditService {
     );
     if (error) throw error;
     return data as ClassroomCompareResult;
+  }
+
+  /**
+   * Sealed learner comments from the drip — PRINCIPAL & DIRECTOR ONLY. The
+   * cycle's owner is refused server-side before any role check (the person
+   * described never reads these), and comments batch-reveal on the SAME
+   * config-driven completed window as the scores. Defensive: any transport
+   * failure resolves to a locked shape, so the card simply doesn't render.
+   */
+  static async getClassroomSealedComments(
+    cycleId: string,
+  ): Promise<ClassroomSealedCommentsResult> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_classroom_practice_sealed_comments',
+        { p_cycle_id: cycleId },
+      );
+      if (error) return { locked: true, reason: 'unavailable' };
+      return (data ?? { locked: true, reason: 'unavailable' }) as ClassroomSealedCommentsResult;
+    } catch {
+      return { locked: true, reason: 'unavailable' };
+    }
   }
 
   /**
