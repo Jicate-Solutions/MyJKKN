@@ -1089,8 +1089,22 @@ function approvalStepStatus(
   return stored;
 }
 
-function overallStatusBadge(status: HealthTournamentPermission['overall_status']) {
+// Typed `string`, not HealthTournamentPermission['overall_status'], deliberately:
+// D10 adds 'cancelled', which that union does not carry, and without a case for
+// it a called-off trip falls to the default and renders "Pending" — telling the
+// learner their request is still being considered when it is not. Reading the
+// value honestly matters more here than pinning the type to a union that is
+// already behind the database.
+function overallStatusBadge(status: string) {
   switch (status) {
+    // D10 — a called-off trip is its own state. Never "Pending" (nobody is
+    // deciding), never "Approved" (it did not happen).
+    case 'cancelled':
+      return (
+        <Badge className="bg-slate-200 text-slate-600 hover:bg-slate-200 border-slate-300 text-xs">
+          Called off
+        </Badge>
+      );
     case 'approved':
       return (
         <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200 text-xs">
