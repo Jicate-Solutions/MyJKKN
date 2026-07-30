@@ -214,6 +214,20 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
 const NON_ENGLISH_ALERT_SOURCE = 'rcltp-question-generate-non-english';
 const NON_ENGLISH_SCAN_CAP = 25;
 
+/**
+ * 'ta' is not a plain word. Decision 7 asks that the person be told PLAINLY, so
+ * render the language code as its name where the runtime can, and fall back to
+ * the raw code rather than losing the sentence.
+ */
+function languageName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(code);
+    return name && name !== code ? name : code;
+  } catch {
+    return code;
+  }
+}
+
 interface NonEnglishPassage {
   id: string;
   title: string;
@@ -329,7 +343,7 @@ async function reportNonEnglishPassages(admin: Admin, dry: boolean) {
       const outcome = await fanoutNotification(admin, {
         title: 'This reading passage needs its questions written by hand',
         body:
-          `"${passage.title}" is saved in ${passage.language}. The overnight helper only drafts ` +
+          `"${passage.title}" is saved in ${languageName(passage.language)}. The overnight helper only drafts ` +
           'comprehension questions for English passages, so it will never pick this one up and ' +
           'no questions will appear for it on their own. Add them under Reading (RCLTP) → ' +
           'Content Authoring, or save an English version of the passage.',
