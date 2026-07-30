@@ -366,8 +366,11 @@ export default async function LearnersCouncilDashboard({
                   </div>
                 </Link>
               )}
+              {/* ?tab=review lands the reviewer on the pending-review queue.
+                  Without it the link opened the proposer's own list — a dead end
+                  for someone told they have approvals waiting. */}
               {liveData.awaitingApprovalEvents > 0 && (
-                <Link href="/learners-council/events/proposals">
+                <Link href="/learners-council/events/proposals?tab=review">
                   <div className="flex items-center justify-between p-3 rounded-lg border bg-white hover:bg-orange-50 transition-colors">
                     <div className="flex items-center gap-2">
                       <CalendarCheck className="h-4 w-4 text-orange-600" />
