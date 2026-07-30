@@ -545,7 +545,57 @@ export interface PostSessionResourceInput {
 // OWN trace of "I asked for a re-explanation of this session" and — self-
 // reported by the SAME learner — what happened. Writes only via the two RPCs.
 
-export type ClarificationOutcome = 'pending' | 're_explained' | 'refused' | 'unanswered';
+export type ClarificationOutcome =
+  | 'pending'
+  | 're_explained'
+  | 'refused'
+  | 'unanswered'
+  /** The "did it help?" follow-up's honest "Not really" — covered again but it
+   *  did not land ('refused' means the lead refused: a different fact). */
+  | 'not_helped'
+  /** System-only (fn_clarification_term_close): the term ended without a
+   *  report. Excluded from all rates, counted against no one. Never client-
+   *  writable — the RPC rejects it from learners. */
+  | 'term_ended_unreported';
+
+/** The subset a learner may self-report (fn_clarification_outcome). */
+export type ReportableClarificationOutcome = Exclude<
+  ClarificationOutcome,
+  'pending' | 'term_ended_unreported'
+>;
+
+// ── Two-sided close (spec: clarification-act-two-sided-close-2026-07-30) ─────
+// The Senior Learner records the ACT; the learner keeps the VERDICT. Acts are
+// CONTEXT, NEVER EVIDENCE — recording one cannot improve any score anywhere.
+
+export type ClarificationActType =
+  | 're_explained_in_session'
+  | 'helped_one_on_one'
+  | 'shared_material'
+  | 'planned_next_session';
+
+/** Result of fn_scf_clarification_act — defensive, never a thrown error. */
+export interface ClarificationActResult {
+  success: boolean;
+  reason?: string;
+  acts?: number;
+  last_act_type?: ClarificationActType | null;
+  last_acted_at?: string | null;
+  open_after_act?: boolean;
+}
+
+/** The one "did it help?" follow-up due for the calling learner
+ *  (fn_clarification_followup_pending — oldest pending ask with a newer act). */
+export interface ClarificationFollowupAsk {
+  attendance_date: string;
+  period_id: string;
+  course_code: string | null;
+  course_name: string | null;
+  asked_on: string;
+  act_type: ClarificationActType;
+  acted_on: string;
+  note: string | null;
+}
 
 export interface ClarificationRequestRow {
   id: string;
@@ -580,6 +630,16 @@ export interface ClarificationSessionCountsRow {
   re_explained: number;
   refused: number;
   unanswered: number;
+  /** Learners who said the revisit did not land ("Not really"). Mismatch
+   *  substrate — rendered help-first, never accusatory. */
+  not_helped: number;
+  /** The lead's OWN act state for this session (two-sided close). Context,
+   *  never evidence. `open_after_act` = a pending ask is NEWER than the latest
+   *  act, so the session-row is honestly open again (spec decision 5). */
+  acts: number;
+  last_act_type: ClarificationActType | null;
+  last_acted_at: string | null;
+  open_after_act: boolean;
   /** Every attributed ask in the last 30 days, ignoring the 50-row cap. */
   asked_30d: number;
   /** Of those, still awaiting the learner's own outcome report. */
