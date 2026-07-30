@@ -41,6 +41,20 @@ export interface CarreSnapshot {
   /** The setting this audit is scoped to — selects the evidence anchor shown. */
   setting_code: SettingCode;
   parameters: CarreSnapshotParameter[];
+  /**
+   * Which catalog was frozen. Absent on a standard 25-item CARRE cycle;
+   * 'CLASSROOM_PRACTICE' on a 13-item per-Senior-Learner cycle, which renders a
+   * different sheet (per-pillar medians, no /100 index, sealed compare card).
+   */
+  catalog?: 'CLASSROOM_PRACTICE' | null;
+  /** Classroom Practice only: profiles.id of the person whose practice this is. */
+  teacher_profile_id?: string | null;
+  /**
+   * Classroom Practice only: the address the SCF drip attributes answers by,
+   * resolved from profiles.email and FROZEN at cycle creation — a later profile
+   * email change cannot re-point a running cycle at someone else's voices.
+   */
+  teacher_email?: string | null;
 }
 
 export interface CarreScoreRow {
@@ -95,6 +109,52 @@ export interface CarreRpcDenial {
   detail?: string;
 }
 
+/**
+ * One row of the Classroom Practice owner picker. `sessions_90d` counts the
+ * session-feedback rows attributable to this person in the last 90 days — the
+ * exhaust the roster gate reads. Zero means no learner could be admitted to
+ * their sheet yet, which the form warns about rather than discovering later.
+ */
+/**
+ * One item of the owner-side compare. `learner_median` is null whenever
+ * `voices` is below the k-floor of 3 — the count is still reported so the owner
+ * can see answers are accumulating without any single one being identifiable.
+ */
+export interface ClassroomCompareItem {
+  code: string;
+  self_score: number | null;
+  voices: number;
+  learner_median: number | null;
+}
+
+export type ClassroomCompareResult =
+  | {
+      locked: true;
+      reason:
+        | 'self_score_incomplete'
+        | 'forbidden'
+        | 'not_found'
+        | 'not_authenticated';
+      item_count?: number;
+      self_scored?: number;
+    }
+  | {
+      locked: false;
+      item_count: number;
+      self_scored: number;
+      /** Impressions offered on or after this instant are held back. */
+      week_cutoff: string;
+      items: ClassroomCompareItem[];
+    };
+
+export interface CarreTeacherOption {
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  role: string | null;
+  sessions_90d: number;
+}
+
 export type CarreRpcResult<T> = T | CarreRpcDenial;
 
 // ============================================================================
@@ -128,6 +188,20 @@ export class CarreAuditService {
     return (data ?? []) as CarreAuditListItem[];
   }
 
+  /**
+   * Is the caller the lead auditor of this CARRE cycle? Cheap EXISTS check used
+   * by the audit module's page guard to admit a cycle's own owner, who is
+   * authorized by every fn_carre_* RPC but need hold no audit.cycle.view.
+   * Never throws on a denial — a false answer simply means "not the owner".
+   */
+  static async isCycleOwner(cycleId: string): Promise<boolean> {
+    const { data, error } = await (this.supabase as any).rpc('fn_carre_is_cycle_owner', {
+      p_cycle_id: cycleId,
+    });
+    if (error) return false;
+    return data === true;
+  }
+
   /** Owner / leadership full view (cycle + snapshot + all scores + invite). */
   static async getAudit(cycleId: string): Promise<CarreRpcResult<CarreAuditDetail>> {
     const { data, error } = await (this.supabase as any).rpc('fn_carre_get_audit', {
@@ -152,6 +226,57 @@ export class CarreAuditService {
     });
     if (error) throw error;
     return data;
+  }
+
+  /**
+   * Opens a 13-item Classroom Practice cycle (the per-Senior-Learner catalog).
+   * `teacherId` omitted = open one on yourself; naming someone else requires
+   * audit leadership and is refused server-side otherwise.
+   */
+  static async createClassroomAudit(input: {
+    name: string;
+    teacherId?: string | null;
+    reAuditDate?: string | null; // YYYY-MM-DD
+  }): Promise<CarreRpcResult<{ success: true; cycle_id: string }>> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_carre_create_classroom_audit',
+      {
+        p_name: input.name,
+        p_teacher_id: input.teacherId ?? null,
+        p_re_audit_date: input.reAuditDate ?? null,
+      },
+    );
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * The owner-side reveal: own score beside the sealed learner median per
+   * item, read from the SCF drip. Every gate is server-side — this call just
+   * reports which lock is holding.
+   */
+  static async getClassroomCompare(
+    cycleId: string,
+  ): Promise<ClassroomCompareResult> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_classroom_practice_compare',
+      { p_cycle_id: cycleId },
+    );
+    if (error) throw error;
+    return data as ClassroomCompareResult;
+  }
+
+  /**
+   * Type-ahead over team members for the Classroom Practice form. Returns
+   * profiles.id (the audit cycle's owner column references auth.users, so a
+   * staff-table id would not work). Institution-scoped server-side.
+   */
+  static async searchTeachers(q: string): Promise<CarreTeacherOption[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_carre_search_teachers', {
+      p_q: q,
+    });
+    if (error) throw error;
+    return (data ?? []) as CarreTeacherOption[];
   }
 
   /** Owner mints (or re-reads) the second-scorer invite link token. */

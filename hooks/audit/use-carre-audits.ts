@@ -45,6 +45,42 @@ export function useCreateCarreAudit() {
   });
 }
 
+/** Opens a 13-item Classroom Practice cycle (the per-Senior-Learner catalog). */
+export function useCreateClassroomAudit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      teacherId?: string | null;
+      reAuditDate?: string | null;
+    }) => CarreAuditService.createClassroomAudit(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: carreAuditKeys.list() }),
+  });
+}
+
+/**
+ * Teacher-side compare (own score vs sealed learner median). Re-fetched when a
+ * self-score lands, since the 13th one is what releases the reveal.
+ */
+export function useClassroomCompare(cycleId: string | undefined) {
+  return useQuery({
+    queryKey: [...carreAuditKeys.all, 'compare', cycleId ?? ''] as const,
+    queryFn: () => CarreAuditService.getClassroomCompare(cycleId!),
+    enabled: !!cycleId,
+    staleTime: 60 * 1000,
+  });
+}
+
+/** Type-ahead over team members for the Classroom Practice form. */
+export function useTeacherSearch(q: string) {
+  return useQuery({
+    queryKey: [...carreAuditKeys.all, 'senior-learner-search', q] as const,
+    queryFn: () => CarreAuditService.searchTeachers(q),
+    enabled: q.trim().length >= 2,
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useUpsertCarreScore() {
   const qc = useQueryClient();
   return useMutation({
@@ -57,6 +93,8 @@ export function useUpsertCarreScore() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: carreAuditKeys.detail(vars.cycleId) });
       qc.invalidateQueries({ queryKey: carreAuditKeys.list() });
+      // The last self-score is what unlocks the compare — refresh it.
+      qc.invalidateQueries({ queryKey: [...carreAuditKeys.all, 'compare', vars.cycleId] });
     },
   });
 }
