@@ -3,10 +3,10 @@
 // The measured half of the Cluster Academic Council page.
 //
 // One call to fn_cac_measured_metrics() returns every institution × metric pair
-// that has real substrate — a minority of the CEO's forty-eight. The rest
-// are absent from the response ON PURPOSE: the catalog already
-// records why each one has no number, and inventing empty rows here would let
-// the screen show a zero it cannot defend.
+// that has real substrate — a minority of the CEO's forty-eight. The rest are
+// absent from the response ON PURPOSE: the catalog already records why each one
+// has no number, and inventing empty rows here would let the screen show a zero
+// it cannot defend.
 //
 // The function takes no arguments. That is not an oversight to be "improved"
 // later by passing an institution id — it is the security property. Every leak
