@@ -364,6 +364,38 @@ $function$;
 
 
 -- ---------------------------------------------------------------------------
+-- 4b. Re-assert the ACL on all four, explicitly.
+--
+--     CREATE OR REPLACE preserves an existing function's privileges, so in
+--     principle nothing above changed them. This block does not rely on that.
+--     The `REVOKE ... FROM anon, PUBLIC` is stated because PostgreSQL grants
+--     EXECUTE to PUBLIC on every new function and Supabase's ALTER DEFAULT
+--     PRIVILEGES grants anon directly — two separate paths, and revoking only
+--     `anon` would be a silent no-op against the PUBLIC half.
+--
+--     `authenticated` is GRANTED, not revoked, and that is the whole point of
+--     this migration: every caller is session-bound and runs as that role.
+--     `service_role` is re-granted because the guard's NULL branch (see header)
+--     depends on trusted backend callers still being able to execute.
+--
+--     This also matches the ACL read live on 2026-07-30 — postgres |
+--     authenticated | service_role, with no anon entry — so it asserts the
+--     status quo rather than changing it.
+-- ---------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.acknowledge_notification(uuid, uuid)  FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.acknowledge_notification(uuid, uuid)  TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.check_ai_query_rate_limit(uuid)       FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.check_ai_query_rate_limit(uuid)       TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.increment_ai_query_count(uuid)        FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.increment_ai_query_count(uuid)        TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.log_ai_query(uuid, uuid, text, text, text[], integer, boolean, text, inet, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.log_ai_query(uuid, uuid, text, text, text[], integer, boolean, text, inet, text) TO authenticated, service_role;
+
+
+-- ---------------------------------------------------------------------------
 -- 5. ai_query_logs — close the unauthenticated write path
 --
 --    The app never used this policy (its writes arrive via log_ai_query, which
@@ -417,6 +449,7 @@ BEGIN
            p.prosecdef,
            has_function_privilege('anon',          p.oid, 'EXECUTE') AS anon_e,
            has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authed_e,
+           has_function_privilege('service_role',  p.oid, 'EXECUTE') AS svc_e,
            pg_get_functiondef(p.oid) LIKE '%auth.uid()%'             AS has_guard
       FROM pg_proc p
       JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
@@ -433,6 +466,9 @@ BEGIN
     END IF;
     IF NOT r.authed_e THEN
       v_bad := v_bad || format(E'\n  %s lost authenticated EXECUTE — its caller is session-bound and would break', r.proname);
+    END IF;
+    IF NOT r.svc_e THEN
+      v_bad := v_bad || format(E'\n  %s lost service_role EXECUTE — the guard NULL branch assumes trusted backend callers keep it', r.proname);
     END IF;
     IF NOT r.has_guard THEN
       v_bad := v_bad || format(E'\n  %s has no auth.uid() check in its body', r.proname);
