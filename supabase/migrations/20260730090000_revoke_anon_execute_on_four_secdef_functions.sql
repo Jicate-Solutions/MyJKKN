@@ -1,0 +1,82 @@
+-- 20260730090000_revoke_anon_execute_on_four_secdef_functions.sql
+-- ============================================================================
+-- APPLY STATUS: ALREADY APPLIED to production (kvizhngldtiuufknvehv) on
+-- 2026-07-30, on an explicit Director decision, to close a live leak and three
+-- unauthenticated write paths. This file is the record. All statements are
+-- idempotent.
+--
+-- 1. fn_hostel_unallocated_candidates — A CONFIRMED LIVE LEAK, not a theory.
+--    Called over HTTPS with nothing but the public anon key and an institution
+--    id, it returned 49 learners: first_name, last_name, full_name, email,
+--    gender, program_name, semester_name, academic_year_name. SECURITY DEFINER,
+--    so RLS never applied; no internal permission check; the institution id came
+--    from the caller, so any of the 14 could be requested.
+--      before:  POST /rest/v1/rpc/fn_hostel_unallocated_candidates  -> 200, 49 rows
+--      after :  401 {"code":"42501","message":"permission denied for function ..."}
+--
+-- 2. tms_approve_transport_vacate  — writes; an APPROVAL action, callable by a
+--                                    stranger. No app code calls it at all.
+-- 3. procurement_next_number       — writes; allocates official document numbers.
+-- 4. fn_deactivate_ended_timetables — writes; UPDATE public.timetables SET
+--                                    is_active = false. A maintenance job with no
+--                                    arguments and no guard. Found while sizing
+--                                    the class, after the first three.
+--
+--    None were fired to prove the point: invoking a write against production to
+--    demonstrate a vulnerability is not a test, it is the incident. The grant,
+--    SECDEF, and the absent guard are sufficient evidence.
+--
+-- WHY `FROM anon, PUBLIC` AND NOT `FROM anon` — this is the part that matters
+--    None of these four had an `anon=X` entry in their ACL. Their ACLs read:
+--        =X/postgres | postgres=X/postgres | authenticated=X/postgres | service_role=X/postgres
+--    The leading `=X/postgres` is the grant to PUBLIC — PostgreSQL grants EXECUTE
+--    to PUBLIC on every new function by default, and that is how anon reached
+--    them. `REVOKE EXECUTE ... FROM anon` alone would have removed a grant that
+--    did not exist, changed nothing, and reported success. For functions the
+--    PUBLIC half of the CLAUDE.md rule is load-bearing, unlike tables where
+--    Supabase grants per-role.
+--
+--    Revoking PUBLIC is safe here precisely because `authenticated` and
+--    `service_role` hold their own direct grants, verified before applying.
+--
+-- LOGGED-IN USE VERIFIED INTACT, not assumed:
+--    /campus-living/allocations rendered as test.superadmin after the revoke and
+--    still shows 579 Allocated · 117 Not Allocated · 26 Ready to allocate ·
+--    91 Incomplete — the Not-Allocated figures are produced by
+--    fn_hostel_unallocated_candidates, so the authenticated path still works.
+--    /campus-living/residents likewise still lists 696 residents.
+--
+-- LEFT OPEN DELIBERATELY: nine anon-executable SECDEF functions are public by
+--    design — poll voting and reading by slug, the public routing form and its
+--    submission, event certificate verification, token-gated calendar and shared
+--    record, tournament results by access code and public scoreboard. Their
+--    callers have no account to log in with. Each is recorded with its reason in
+--    scripts/ci/anon-exposure-functions.json.
+-- ============================================================================
+
+REVOKE EXECUTE ON FUNCTION public.fn_hostel_unallocated_candidates(uuid)     FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.tms_approve_transport_vacate(uuid, uuid)   FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.procurement_next_number(uuid, text, date)  FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_deactivate_ended_timetables()           FROM anon, PUBLIC;
+
+-- ============================================================================
+-- VERIFICATION (run in a SEPARATE call — the Management API wraps a batch in one
+-- transaction, so an in-batch check proves nothing).
+--
+--   SELECT p.proname,
+--          has_function_privilege('anon', p.oid, 'EXECUTE')          AS anon_exec,
+--          has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth_exec,
+--          has_function_privilege('service_role', p.oid, 'EXECUTE')  AS svc_exec
+--   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--   WHERE n.nspname = 'public' AND p.proname IN
+--     ('fn_hostel_unallocated_candidates','tms_approve_transport_vacate',
+--      'procurement_next_number','fn_deactivate_ended_timetables');
+--
+-- Observed after apply: anon_exec = false on all four; auth_exec and svc_exec
+-- still true. Re-probed over HTTPS with the real anon key: 401 permission denied
+-- for both the leaking read and the timetable write.
+--
+-- PREVENTION: scripts/ci/check-anon-exposure-live.mjs now sweeps SECDEF functions
+-- as well as tables and views, and escalates a grandfathered function to a hard
+-- failure if it writes AND has no permission check — the exact shape of items 2-4.
+-- ============================================================================

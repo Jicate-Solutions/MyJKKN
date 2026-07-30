@@ -54,6 +54,29 @@ const row = (over: Partial<Row> & { name: string }): Row => ({
   kind: 'r', rls_on: false, rows: 0, identity_cols: '', ...over,
 });
 
+type Fn = { name: string; args: string; writes_data: boolean; has_guard: boolean };
+type FnEntry = { name: string; status: 'approved' | 'grandfathered'; writes_data?: boolean; reason: string };
+
+/** Drive the FUNCTION half: fixture functions + fixture function allow-list. */
+function runFns(fns: Fn[], entries: FnEntry[], extra: string[] = []): { code: number; out: string } {
+  const rowsFile = path.join(dir, `rows-${Math.random().toString(36).slice(2)}.json`);
+  const allowFile = path.join(dir, `allow-${Math.random().toString(36).slice(2)}.json`);
+  const fnFile = path.join(dir, `fns-${Math.random().toString(36).slice(2)}.json`);
+  const fnAllowFile = path.join(dir, `fnallow-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(rowsFile, '[]', 'utf8');
+  writeFileSync(allowFile, JSON.stringify({ relations: [] }), 'utf8');
+  writeFileSync(fnFile, JSON.stringify(fns), 'utf8');
+  writeFileSync(fnAllowFile, JSON.stringify({ functions: entries }), 'utf8');
+  const r = spawnSync('node', [SCRIPT,
+    '--fixture', rowsFile, '--allowlist', allowFile,
+    '--fn-fixture', fnFile, '--fn-allowlist', fnAllowFile, ...extra], { encoding: 'utf8' });
+  return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+}
+
+const fn = (over: Partial<Fn> & { name: string }): Fn => ({
+  args: 'p_id uuid', writes_data: false, has_guard: false, ...over,
+});
+
 beforeAll(() => { dir = mkdtempSync(path.join(tmpdir(), 'anon-exposure-')); });
 afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 
@@ -180,5 +203,65 @@ describe('check-anon-exposure-live gate', () => {
       code = (e as { status?: number }).status ?? 1;
     }
     expect(code).toBe(1);
+  });
+
+  // --- function half ---------------------------------------------------------
+
+  it('FAILS an anon-executable SECDEF function nobody approved', () => {
+    // The real 2026-07-30 shape: caller-supplied scope id, no guard, SECDEF.
+    const { code, out } = runFns(
+      [fn({ name: 'fn_hostel_unallocated_candidates', args: 'p_institution_id uuid' })],
+      [],
+    );
+    expect(code).toBe(1);
+    expect(out).toContain('fn_hostel_unallocated_candidates');
+    expect(out).toContain('no guard');
+  });
+
+  it('PASSES an approved public function silently', () => {
+    const { code } = runFns(
+      [fn({ name: 'fn_get_active_poll', args: 'p_slug text' })],
+      [{ name: 'fn_get_active_poll', status: 'approved', reason: 'public poll by slug' }],
+    );
+    expect(code).toBe(0);
+  });
+
+  it('ESCALATES a grandfathered function that WRITES with no permission check', () => {
+    const { code, out } = runFns(
+      [fn({ name: 'fn_wipe_things', writes_data: true, has_guard: false })],
+      [{ name: 'fn_wipe_things', status: 'grandfathered', reason: 'never ruled on' }],
+    );
+    expect(code).toBe(1);
+    expect(out).toContain('fn_wipe_things');
+    expect(out).toContain('WRITE');
+  });
+
+  it('does NOT escalate a grandfathered writer that HAS a permission check', () => {
+    // generate_hr_leave_balances raises on user_has_permission() before touching a
+    // row. Failing on it would make the gate permanently red for a safe function,
+    // and a permanently red gate gets ignored.
+    const { code } = runFns(
+      [fn({ name: 'generate_hr_leave_balances', writes_data: true, has_guard: true })],
+      [{ name: 'generate_hr_leave_balances', status: 'grandfathered', reason: 'guarded' }],
+    );
+    expect(code).toBe(0);
+  });
+
+  it('reports a stale function entry that is no longer anon-executable', () => {
+    const { code, out } = runFns(
+      [],
+      [{ name: 'fn_hostel_unallocated_candidates', status: 'grandfathered', reason: 'locked 2026-07-30' }],
+    );
+    expect(code).toBe(0);
+    expect(out).toContain('no longer anon-executable');
+  });
+
+  it('does NOT query live functions during a relations-only fixture run', () => {
+    // A fixture of table rows says nothing about functions; reaching out to live
+    // state mid-test would mix production into a unit test.
+    const { code, out } = run([row({ name: 'castes', rows: 1069 })],
+      [{ name: 'castes', status: 'approved', reason: 'admission intake' }]);
+    expect(code).toBe(0);
+    expect(out).toContain('0 executable by the anon key');
   });
 });
