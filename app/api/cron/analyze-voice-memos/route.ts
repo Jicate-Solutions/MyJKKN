@@ -43,6 +43,7 @@
 // Updated: 2026-05-09 (multi-provider via ai_model_config).
 // Updated: 2026-05-22 (language-code normalization + Sarvam + orphan recovery).
 // Updated: 2026-07-12 (provider rate-limit cooldown gate — skip doomed probes).
+// Updated: 2026-07-30 (measured transcription ceiling; Groq quota-413 reclassified).
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
