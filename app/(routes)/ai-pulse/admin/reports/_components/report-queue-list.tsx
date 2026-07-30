@@ -94,7 +94,8 @@ export function ReportQueueList() {
     return (
       <div className='rounded-md border border-destructive bg-destructive/10 p-4 text-sm text-destructive'>
         Could not load the review queue. Confirm you hold the{' '}
-        <code className='font-mono'>aiPulse:lab.score</code> permission and reload.
+        <code className='font-mono'>aiPulse:anomaly.review</code> permission and
+        reload.
       </div>
     );
   }

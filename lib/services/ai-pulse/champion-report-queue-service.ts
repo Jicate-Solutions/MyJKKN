@@ -12,17 +12,25 @@
 //
 //   READ   fn_ai_pulse_champion_report_queue(p_limit)
 //            builds with >= 1 report, not yet disqualified, not yet cleared.
-//            SECURITY DEFINER + runtime guard (super admin OR aiPulse:lab.score)
-//            + institution-scoped. ai_pulse_prompt_build_reports is RLS-deny-all
-//            with no policies, so this RPC is the ONLY read path to the flags.
+//            SECURITY DEFINER + runtime guard (super admin OR the designated
+//            champion key aiPulse:anomaly.review) + institution-scoped.
+//            ai_pulse_prompt_build_reports is RLS-deny-all with no policies, so
+//            this RPC is the ONLY read path to the flags.
 //
 //   HIDE   fn_ai_pulse_disqualify_prompt_build(p_build_id, p_reason)   [existing]
 //   KEEP   fn_ai_pulse_clear_prompt_build_reports(p_build_id)          [existing]
 //
-// Both decision RPCs already existed and already carry the same champion guard —
-// this service only calls them. No new write path was added, and no new state
-// column: a decision writes disqualified_at or report_cleared_at, which is what
-// drops the row out of the queue on the next read.
+// Both decision RPCs already existed — this service only calls them. No new
+// write path was added, and no new state column: a decision writes
+// disqualified_at or report_cleared_at, which is what drops the row out of the
+// queue on the next read.
+//
+// PERMISSION NOTE (Director's retarget, 2026-08-04): the two decision RPCs were
+// gated on the Monday-Lab scoring key alone, so a designated champion holding
+// only aiPulse:anomaly.review could have read this queue and then had BOTH
+// buttons raise 42501. Migration 20260804120000 section 3 WIDENS both to accept
+// either key (the scoring key is kept — the graduated-library moderation path
+// still depends on it), so read and write now agree.
 //
 // Type note: none of the ai_pulse_* RPCs are in the generated Supabase types, so
 // the client is cast to `any` — same convention as shared-library-service /

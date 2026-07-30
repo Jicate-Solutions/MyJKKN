@@ -147,8 +147,26 @@ GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_topic_peer_prompts(text, uuid, int
 -- AUTHOR NAME is returned on purpose. A champion cannot make a moderation call
 -- on an anonymous body of text — repeated offenders, context, and the "is this a
 -- real complaint" judgement all need the author. This surface is permission-
--- gated (aiPulse:lab.score) and institution-scoped, NOT campus-wide; the
+-- gated (aiPulse:anomaly.review) and institution-scoped, NOT campus-wide; the
 -- learner-facing feed/library stay anonymised.
+--
+-- WHICH PERMISSION — DIRECTOR'S RETARGET (2026-08-04)
+-- --------------------------------------------------
+--   "Only the 3 designated AI Pulse champions should open the moderation page
+--    and decide on reported prompts."
+-- So the gate is aiPulse:anomaly.review, NOT aiPulse:lab.score. Measured live
+-- BY VALUE (a key present with value false is NOT granted):
+--   * role ai_pulse_champion — the purpose-built champion role, 3 members —
+--     holds anomaly.review = TRUE and lab.score = FALSE. Gated on lab.score
+--     this page was unopenable by the designated cohort except through their
+--     incidental super-admin bypass.
+--   * lab.score = TRUE for ~587 staff per the roles that hold it. Gating here
+--     on it would have exposed learner names + reported prompt text to all of
+--     them, and would have made "grant Monday-Lab peer-scoring power" the
+--     prerequisite for becoming a moderator.
+-- anomaly.review is also what the sibling champion console
+-- /ai-pulse/admin/anomalies already enforces, so the two moderation surfaces
+-- now share one grantable key.
 --
 -- INSTITUTION SCOPE: role_has_institution_access(b.institution_id) — house rule
 -- for any read of a table carrying institution_id, and load-bearing here because
@@ -177,7 +195,7 @@ BEGIN
   END IF;
   -- COALESCE'd because a NULL from either helper would make `NOT (a OR b)` NULL,
   -- the IF fall through, and the guard silently open.
-  IF NOT COALESCE(is_super_admin() OR user_has_permission('aiPulse:lab.score'), false) THEN
+  IF NOT COALESCE(is_super_admin() OR user_has_permission('aiPulse:anomaly.review'), false) THEN
     RAISE EXCEPTION 'Not allowed: only a champion can review reported prompts.' USING ERRCODE = '42501';
   END IF;
 
@@ -214,4 +232,86 @@ REVOKE EXECUTE ON FUNCTION public.fn_ai_pulse_champion_report_queue(integer) FRO
 GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_champion_report_queue(integer) TO authenticated;
 
 COMMENT ON FUNCTION public.fn_ai_pulse_champion_report_queue(integer) IS
-  'AI Pulse moderation #3: reported prompt-builds awaiting a champion decision (>=1 report, not yet disqualified, not yet cleared). Champion-only (aiPulse:lab.score OR super admin), institution-scoped. Decisions are written by the existing fn_ai_pulse_disqualify_prompt_build (HIDE) / fn_ai_pulse_clear_prompt_build_reports (KEEP).';
+  'AI Pulse moderation #3: reported prompt-builds awaiting a champion decision (>=1 report, not yet disqualified, not yet cleared). Champion-only (aiPulse:anomaly.review OR super admin), institution-scoped. Decisions are written by fn_ai_pulse_disqualify_prompt_build (HIDE) / fn_ai_pulse_clear_prompt_build_reports (KEEP), both widened below to accept the same key.';
+
+-- ---------------------------------------------------------------------------
+-- 3. The two DECISION RPCs — guard WIDENED to accept the champion key.
+-- ---------------------------------------------------------------------------
+-- WHY THIS SECTION EXISTS (it is not optional):
+-- Retargeting only the queue READ (section 2) would have produced a decorative,
+-- broken page. The two buttons on /ai-pulse/admin/reports call these two
+-- PRE-EXISTING RPCs, and both are gated on aiPulse:lab.score alone. A champion
+-- holding anomaly.review but NOT lab.score could then open the queue and have
+-- BOTH actions RAISE 42501. That is latent today only because all 3 current
+-- champions happen to also be super admins — the bypass, not the design.
+--
+-- WIDEN, DO NOT MOVE. Both keys are accepted:
+--     is_super_admin() OR lab.score OR anomaly.review
+-- lab.score is deliberately KEPT. The graduated-LIBRARY moderation path already
+-- depends on these same two RPCs under lab.score; removing it would break
+-- moderation that works in production today (and is out of scope here). This is
+-- therefore a documented WIDENING of two live functions, not a re-gate.
+--
+-- SILENT-REVERT GUARD: both bodies below were pulled from the LIVE production
+-- definitions with pg_get_functiondef() immediately before this edit. The ONLY
+-- change to either is the single guard line (now COALESCE'd, per the house rule
+-- that a NULL from a permission helper makes NOT(a OR b) evaluate to NULL and
+-- the guard fall silently OPEN). Every other line is byte-for-byte live.
+-- ---------------------------------------------------------------------------
+
+-- HIDE — a champion removes the prompt from the feed permanently.
+CREATE OR REPLACE FUNCTION public.fn_ai_pulse_disqualify_prompt_build(p_build_id uuid, p_reason text DEFAULT NULL::text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501';
+    END IF;
+    IF NOT COALESCE(is_super_admin()
+                    OR user_has_permission('aiPulse:lab.score')
+                    OR user_has_permission('aiPulse:anomaly.review'), false) THEN
+        RAISE EXCEPTION 'Not allowed: only a champion can disqualify a build.' USING ERRCODE = '42501';
+    END IF;
+
+    UPDATE ai_pulse_prompt_builds
+    SET disqualified_at     = now(),
+        disqualified_by     = auth.uid(),
+        disqualified_reason = left(nullif(btrim(coalesce(p_reason,'')),''), 500),
+        updated_at          = now()
+    WHERE id = p_build_id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_ai_pulse_disqualify_prompt_build(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_disqualify_prompt_build(uuid, text) TO authenticated;
+
+-- KEEP — a champion clears the reports and the prompt stays in the feed.
+CREATE OR REPLACE FUNCTION public.fn_ai_pulse_clear_prompt_build_reports(p_build_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501';
+    END IF;
+    IF NOT COALESCE(is_super_admin()
+                    OR user_has_permission('aiPulse:lab.score')
+                    OR user_has_permission('aiPulse:anomaly.review'), false) THEN
+        RAISE EXCEPTION 'Not allowed: only a champion can clear reports on a build.' USING ERRCODE = '42501';
+    END IF;
+
+    UPDATE ai_pulse_prompt_builds
+    SET report_cleared_at = now(),
+        report_cleared_by = auth.uid(),
+        updated_at        = now()
+    WHERE id = p_build_id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_ai_pulse_clear_prompt_build_reports(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_clear_prompt_build_reports(uuid) TO authenticated;
