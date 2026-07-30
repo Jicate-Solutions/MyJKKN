@@ -32,9 +32,25 @@ interface ProfilesFiltersProps {
   statusFilter?: 'active' | 'inactive' | 'exited';
 }
 
+// Every query-string key owned by the Advanced Filters panel. Search and clear
+// must agree on this list exactly — when they drifted apart, a "cleared" filter
+// could survive in the URL and reappear on the next page load.
+const FILTER_PARAM_KEYS = [
+  'institution_id',
+  'degree_id',
+  'department_id',
+  'program_id',
+  'semester_id',
+  'section_id',
+  'academic_year_id',
+  'gender',
+  'is_profile_complete'
+] as const;
+
 export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();
   const router = useRouter();
@@ -102,9 +118,7 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
       const params = new URLSearchParams(currentSearchParams.toString());
 
       // Clear all filter-specific params first, then re-set active ones
-      const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id',
-        'semester_id', 'section_id', 'academic_year_id', 'gender', 'is_profile_complete'];
-      filterKeys.forEach(key => params.delete(key));
+      FILTER_PARAM_KEYS.forEach((key) => params.delete(key));
 
       // Add all local filters to params
       Object.entries(localFilters).forEach(([key, value]) => {
@@ -131,8 +145,20 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
   };
 
   // Handle clear filters
+  //
+  // This deliberately does a FULL page navigation instead of router.push().
+  // Three DataTables live on this page (Active/Inactive/Exited tabs) and each
+  // keeps its own URL state, rebuilding the query string from a snapshot of the
+  // params. After a soft clear, one of them could re-write the address bar from
+  // its pre-clear snapshot: the panel looked empty, but the filters were still
+  // in the URL and every one of them came back on refresh. A hard navigation
+  // tears those clients down, so the cleared URL is the one that survives and
+  // the page comes back in a true starting state.
   const handleClear = () => {
-    // Clear all local state filters
+    setIsClearing(true);
+
+    // Clear local state too, so the panel empties immediately while the
+    // browser is still working through the reload.
     setLocalFilters({
       institution_id: undefined,
       degree_id: undefined,
@@ -149,17 +175,23 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
     const params = new URLSearchParams(currentSearchParams.toString());
 
     // Remove only filter-specific params
-    const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id',
-      'semester_id', 'section_id', 'academic_year_id', 'gender', 'is_profile_complete'];
-    filterKeys.forEach(key => params.delete(key));
+    FILTER_PARAM_KEYS.forEach((key) => params.delete(key));
 
     params.set('page', '1');
 
-    router.push(`/learners/profiles?${params.toString()}`);
     setIsSearching(false);
+
+    const query = params.toString();
+    window.location.assign(`/learners/profiles${query ? `?${query}` : ''}`);
   };
 
-  // Sync localFilters with searchParams when URL changes
+  // Sync localFilters with searchParams when URL changes.
+  //
+  // Depend on the individual values, NOT the searchParams object: the parent
+  // rebuilds that object on every render (safeParse(...).data ?? {...}), so an
+  // object dependency re-ran this effect on renders where nothing in the URL
+  // had actually changed — wiping dropdown picks the user had made but not yet
+  // submitted with "Search Learners".
   useEffect(() => {
     setLocalFilters({
       institution_id: searchParams.institution_id || undefined,
@@ -172,7 +204,17 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
       gender: searchParams.gender || undefined,
       is_profile_complete: searchParams.is_profile_complete || undefined
     });
-  }, [searchParams]);
+  }, [
+    searchParams.institution_id,
+    searchParams.degree_id,
+    searchParams.department_id,
+    searchParams.program_id,
+    searchParams.semester_id,
+    searchParams.section_id,
+    searchParams.academic_year_id,
+    searchParams.gender,
+    searchParams.is_profile_complete
+  ]);
 
   // Fetch degrees when institution changes
   useEffect(() => {
@@ -694,13 +736,26 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
 
             {/* Search and Clear Filters Buttons */}
             <div className='flex flex-wrap gap-2 justify-between pt-2'>
-              <Button variant='outline' onClick={handleClear}>
-                <RotateCcw className='mr-2 h-4 w-4' />
-                Clear All Filters
+              <Button
+                variant='outline'
+                onClick={handleClear}
+                disabled={isClearing}
+              >
+                {isClearing ? (
+                  <>
+                    <div className='mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className='mr-2 h-4 w-4' />
+                    Clear All Filters
+                  </>
+                )}
               </Button>
               <Button
                 onClick={handleSearch}
-                disabled={isSearching}
+                disabled={isSearching || isClearing}
                 className='ml-auto'
               >
                 {isSearching ? (

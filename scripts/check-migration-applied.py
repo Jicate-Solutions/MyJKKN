@@ -468,32 +468,46 @@ def extract_grants(body):
                     # check is batched into one `union all`, one missing object
                     # aborts the WHOLE query — the gate then reports an operational
                     # error instead of the gap it exists to find. to_regprocedure()
-                    # returns NULL instead, the row drops out, and coalesce gives
-                    # false. Absence is still reported, by the object-existence
-                    # check this same migration emits for the CREATE statement.
+                    # returns NULL instead and the row drops out.
+                    #
+                    # The `is not null` conjunct is equally load-bearing, and for a
+                    # different reason. A REVOKE check wants `false`, so an absent
+                    # object would give coalesce(NULL,false)=false → the assertion
+                    # passes VACUOUSLY and the gate reports OK having verified
+                    # nothing. It is not enough to say "the CREATE existence check
+                    # catches that" — existence checks are emitted only FROM CREATE
+                    # statements, so a REVOKE/GRANT-ONLY migration (hardening an
+                    # object created by an earlier migration) emits none at all.
+                    # That is exactly the migration class most worth gating.
+                    # Requiring the object to resolve makes an absent target read as
+                    # MISSING for both GRANT and REVOKE.
                     expr = (
+                        f"(to_regprocedure({ident}) is not null and "
                         "coalesce((select coalesce(array_to_string(p.proacl, ','), '=X/owner') "
-                        f"~ '(^|,)=[a-zA-Z]*X' from pg_proc p where p.oid = to_regprocedure({ident})), false) = {want}"
+                        f"~ '(^|,)=[a-zA-Z]*X' from pg_proc p where p.oid = to_regprocedure({ident})), false) = {want})"
                     )
                 else:
-                    # Same reason: has_function_privilege(role, text, ...) raises
-                    # 42883 when the function is absent. Resolve through pg_proc
-                    # via to_regprocedure() so a missing object yields no row.
+                    # Same two reasons: has_function_privilege(role, text, ...)
+                    # raises 42883 when the function is absent, and a REVOKE check
+                    # would otherwise pass vacuously on a missing object.
                     expr = (
+                        f"(to_regprocedure({ident}) is not null and "
                         f"coalesce((select has_function_privilege({lit(role)}, p.oid, 'EXECUTE') "
-                        f"from pg_proc p where p.oid = to_regprocedure({ident})), false) = {want}"
+                        f"from pg_proc p where p.oid = to_regprocedure({ident})), false) = {want})"
                     )
             else:
                 ident = lit(f"{schema}.{obj}")
                 if is_public:
                     expr = (
+                        f"(to_regclass({ident}) is not null and "
                         "coalesce((select array_to_string(c.relacl, ',') ~ '(^|,)=[a-zA-Z]' "
-                        f"from pg_class c where c.oid = to_regclass({ident})), false) = {want}"
+                        f"from pg_class c where c.oid = to_regclass({ident})), false) = {want})"
                     )
                 else:
                     expr = (
+                        f"(to_regclass({ident}) is not null and "
                         f"coalesce((select has_table_privilege({lit(role)}, c.oid, {lit(priv)}) "
-                        f"from pg_class c where c.oid = to_regclass({ident})), false) = {want}"
+                        f"from pg_class c where c.oid = to_regclass({ident})), false) = {want})"
                     )
             checks.append(
                 Check(

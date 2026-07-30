@@ -16,16 +16,31 @@ import { ComparisonTab } from './comparison-tab';
 import { UnifiedAccessMapTab } from './unified-access-map-tab';
 import { RlsAuditTab } from './rls-audit-tab';
 import { ExportReportsTab } from './export-reports-tab';
-import { AIDebuggerTab } from './ai-debugger-tab';
-import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
 import { ModuleAccessTab } from './module-access-tab';
 import { ComplianceReportButton } from './compliance-report-button';
 import { useTabParam } from '@/hooks/use-tab-param';
 
-/** All valid tab values — used to sanitize the ?tab= URL param. */
+/**
+ * All valid tab values — used to sanitize the ?tab= URL param.
+ *
+ * 'ask' was removed 2026-07-26. Its backend
+ * (/api/users/permissions-audit/ai-debug) is hardcoded to Gemini and returns
+ * "GEMINI_API_KEY not configured in environment" in production, so the box was
+ * a dead control — and it was the DEFAULT landing tab, so every super-admin hit
+ * it first. Dropping it from this list also makes a stale ?tab=ask deep-link
+ * fall back to DEFAULT_TAB instead of opening a broken pane. Re-add here, in
+ * TabsList and in TabsContent once the tab has a working backend.
+ *
+ * 'ai-debug' (the AI Debugger pane) was removed 2026-07-29 for the same reason:
+ * it posts to that same dead Gemini route. Its two other endpoints do not save
+ * it — /matrix only fills a role dropdown that feeds the dead chat, and
+ * /ai-debug/run-sql executes SQL held in `executingSql`, which is set ONLY from
+ * an AI response, so handleExecuteSql returns at its first line while the chat
+ * is down. The whole pane is therefore inert in production. Same re-add path:
+ * restore here, in TabsList and in TabsContent once the backend works.
+ */
 const TAB_VALUES = [
-  'ask',
   'activity',
   'unified',
   'module-access',
@@ -35,10 +50,9 @@ const TAB_VALUES = [
   'matrix',
   'comparison',
   'export',
-  'ai-debug',
 ] as const;
 
-const DEFAULT_TAB = 'ask';
+const DEFAULT_TAB = 'activity';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -99,8 +113,7 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className='w-full'>
-          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-11 lg:gap-0 lg:overflow-visible'>
-            <TabsTrigger value='ask'>Ask</TabsTrigger>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-9 lg:gap-0 lg:overflow-visible'>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
             <TabsTrigger value='module-access'>Module → Roles</TabsTrigger>
@@ -110,12 +123,7 @@ export function PermissionsAuditClient() {
             <TabsTrigger value='matrix'>Permission Matrix</TabsTrigger>
             <TabsTrigger value='comparison'>Comparison</TabsTrigger>
             <TabsTrigger value='export'>Export</TabsTrigger>
-            <TabsTrigger value='ai-debug'>AI Debugger</TabsTrigger>
           </TabsList>
-
-          <TabsContent value='ask'>
-            <AskTab />
-          </TabsContent>
 
           <TabsContent value='activity'>
             <ActivityTimelineTab />
@@ -151,10 +159,6 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='export'>
             <ExportReportsTab />
-          </TabsContent>
-
-          <TabsContent value='ai-debug'>
-            <AIDebuggerTab />
           </TabsContent>
         </Tabs>
       </div>
