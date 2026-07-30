@@ -1249,6 +1249,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/profile': 'health.profile.view',
   '/health/leaderboard': 'health.leaderboard.view',
   '/health/sports': 'health.sports.view',
+  // Approver inbox (2026-07-30). Gated on .approve, NOT .view — the Principal
+  // decides tournament permission but is not a sports-profile viewer
+  // (health.sports.view is false for that role), so reusing .view would hide
+  // the inbox from the only person who can act on it.
+  '/health/sports/approvals': 'health.sports.approve',
+  // Filing desk (2026-07-30). Separate route from the inbox because the two
+  // parties hold DIFFERENT keys — one route can carry only one permission here,
+  // and merging them would hide whichever surface the viewer is not gated for.
+  '/health/sports/squad-requests': 'health.sports.file_request',
   '/health/fitness': 'health.fitness.view',
   '/health/training': 'health.training.view',
   '/health/achievements': 'health.achievements.view',
@@ -2844,6 +2853,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/profile', label: 'My Health Profile', active: pathname === '/health/profile' },
             { href: '/health/leaderboard', label: 'Leaderboard', active: pathname === '/health/leaderboard' },
             { href: '/health/sports', label: 'Sports Profile', active: pathname === '/health/sports' },
+            { href: '/health/sports/squad-requests', label: 'Squad Requests', active: pathname === '/health/sports/squad-requests' },
+            { href: '/health/sports/approvals', label: 'Tournament Permissions', active: pathname === '/health/sports/approvals' },
             { href: '/health/fitness', label: 'Fitness Tests', active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/') },
             { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },
