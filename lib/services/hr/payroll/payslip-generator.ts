@@ -149,11 +149,22 @@ export class PayslipGenerator {
     // This runs on the caller's RLS-scoped client, and hr_staff_details is tenant-gated
     // by `hr_organization_id = auth_hr_organization_id()`, which reads the caller's row
     // in user_hr_access. An operator without such a row gets ZERO rows and NO error.
-    // So an empty map is ambiguous — it means either "nobody here has a record" or
-    // "you are not allowed to see them" — and the two demand opposite actions. Never
-    // tell HR to create a record in the ambiguous case: if the record already exists,
-    // the create fails on hr_staff_details' primary key and the worklist is a dead end.
-    const hrDetailsUnreadable = hrMappingByStaffId.size === 0 && staffIds.length > 0;
+    //
+    // An empty result is therefore ambiguous — "nobody here has a record yet" and "you
+    // are not allowed to see them" look identical — and the two demand OPPOSITE actions.
+    // Do not infer which it is from emptiness: a brand-new organisation legitimately has
+    // no records, and telling its HR team to stop creating them would dead-end go-live.
+    // Ask directly instead. Only runs in the already-degenerate case, so it costs nothing
+    // on a normal run.
+    let hrDetailsUnreadable = false;
+    if (hrMappingByStaffId.size === 0 && staffIds.length > 0) {
+      const [{ data: hrOrgId }, { data: isSuperAdmin }] = await Promise.all([
+        (supabase as any).rpc('auth_hr_organization_id'),
+        (supabase as any).rpc('is_super_admin'),
+      ]);
+      // A super admin bypasses the policy, so an empty result for them is genuinely empty.
+      hrDetailsUnreadable = !isSuperAdmin && !hrOrgId;
+    }
 
     // 4. Load pay scales for the institution (keyed by designation_id)
     const { data: payScales } = await (supabase as any)
