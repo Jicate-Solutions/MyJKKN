@@ -39,8 +39,11 @@
 //     back to system administrators when that school has no active head or when
 //     nothing owns the material. Both paths run through the single resolver in
 //     lib/services/rcltp/notify-targets.ts and report `via` so an operator can
-//     tell the two apart. This changed WHO hears — the 3-night threshold, the
-//     weekly repeat and the idempotency key are deliberately unchanged.
+//     tell the two apart. This changed WHO hears — the 3-night threshold and the
+//     weekly repeat are deliberately unchanged. The idempotency key gained the
+//     drought's start date, because once WHO can differ between droughts a key
+//     scoped only to the night count back-fills a stale notice onto the new
+//     recipient (see reportEmptyStreak).
 //   • non-English material → the person who added it (rcltp_passages.created_by),
 //     told plainly that AI drafting does not cover that language and the
 //     questions need writing by hand. Keyed on the passage id, so one passage
@@ -149,6 +152,17 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
     (nights - EMPTY_ALERT_AFTER_NIGHTS) % EMPTY_ALERT_REPEAT_NIGHTS === 0;
   if (!due) return { checked: true, nights, alerted: false };
 
+  // The key has to identify THIS drought, not just how many nights in we are.
+  // `last` is the drought's start — the moment the sweep last had something to
+  // do — so the UTC date of it is stable for the whole drought and changes the
+  // instant a stage-1 job resets the streak. Keying on nights alone meant a
+  // SECOND drought reaching night 3 collided with the first drought's row:
+  // fanoutNotification's idempotency pre-check would find it and fan the OLD,
+  // weeks-stale notification out to the NEW recipient, while reportEmptyStreak
+  // reported alerted:true. Harmless when every notice went to the same 14
+  // administrators; a real mis-dated delivery now that WHO can change.
+  const streakStartedOn = new Date(last).toISOString().slice(0, 10);
+
   // Director decision 2 + 3 (2026-07-28): the head of the school whose reading
   // material is missing, falling back to system administrators when that school
   // has no active head or nothing owns the material. This replaces the shipped
@@ -172,6 +186,7 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
     return {
       checked: true,
       nights,
+      streak_started_on: streakStartedOn,
       alerted: false,
       would_notify: userIds.length,
       via: targets.via,
@@ -191,9 +206,10 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
     kind: 'work_item',
     priority: 'normal',
     category: 'rcltp',
-    idempotencyKey: `rcltp-qgen-empty-${nights}`,
+    idempotencyKey: `rcltp-qgen-empty-${streakStartedOn}-${nights}`,
     metadata: {
       nights_empty: nights,
+      streak_started_on: streakStartedOn,
       recipient_path: targets.via,
       institution_id: targets.institutionId,
       route: 'rcltp-question-generate',
@@ -204,6 +220,7 @@ async function reportEmptyStreak(admin: Admin, dry: boolean) {
   return {
     checked: true,
     nights,
+    streak_started_on: streakStartedOn,
     alerted: outcome.notified > 0 || outcome.skipped === 'idempotent',
     recipients: userIds.length,
     via: targets.via,
@@ -257,14 +274,19 @@ interface NonEnglishPassage {
  * sends nothing until one is added. Verify what it WOULD send with ?dry=1.
  */
 async function reportNonEnglishPassages(admin: Admin, dry: boolean) {
+  // Select ALL, filter by coverage, THEN cap — the same shape as
+  // findCandidatePassages() above, and for the same reason. Capping the RAW
+  // scan would starve the tail permanently: a passage that has already been
+  // notified still matches the raw filter, so it holds its place in the window
+  // for ever and passage 26 onward would never be reached on any night. The cap
+  // has to sit AFTER the ones with nothing left to say are dropped.
   const { data, error } = await admin
     .from('rcltp_passages')
     .select('id, title, language, institution_id, created_by')
     .eq('is_active', true)
     .eq('status', 'approved')
     .neq('language', 'en')
-    .order('created_at', { ascending: true })
-    .limit(NON_ENGLISH_SCAN_CAP);
+    .order('created_at', { ascending: true });
   if (error) {
     console.error('[cron/rcltp-question-generate] non-English scan failed:', error.message);
     return { checked: false, reason: 'scan failed' };
@@ -286,7 +308,7 @@ async function reportNonEnglishPassages(admin: Admin, dry: boolean) {
     return { checked: false, reason: 'coverage read failed' };
   }
   const coveredIds = new Set((covered ?? []).map((r: { passage_id: string }) => r.passage_id));
-  const pending = rows.filter((r) => !coveredIds.has(r.id));
+  const pending = rows.filter((r) => !coveredIds.has(r.id)).slice(0, NON_ENGLISH_SCAN_CAP);
 
   const summary = {
     checked: true,

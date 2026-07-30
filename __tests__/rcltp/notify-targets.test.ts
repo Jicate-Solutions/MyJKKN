@@ -244,4 +244,156 @@ describe('resolveRcltpProgrammeInstitutionId', () => {
     });
     await expect(resolveRcltpProgrammeInstitutionId(admin)).resolves.toBeNull();
   });
+
+  // -------------------------------------------------------------------------
+  // The filter must answer the SAME question as the sweep it reports on.
+  // findCandidatePassages() looks at is_active AND status='approved' AND
+  // language='en'; anything looser names a different school.
+  // -------------------------------------------------------------------------
+  describe('agrees with the sweep about which passages count', () => {
+    // Newest first. The draft was typed most recently — which is exactly what
+    // the empty-night notice tells people to go and do — and it belongs to a
+    // DIFFERENT school from the one whose approved English bank is in drought.
+    const BANK = [
+      {
+        institution_id: 'other-school',
+        is_active: true,
+        status: 'draft',
+        language: 'en',
+        created_at: '2026-07-30',
+      },
+      {
+        institution_id: 'other-school',
+        is_active: true,
+        status: 'approved',
+        language: 'ta',
+        created_at: '2026-07-29',
+      },
+      {
+        institution_id: 'school-in-drought',
+        is_active: true,
+        status: 'approved',
+        language: 'en',
+        created_at: '2026-07-01',
+      },
+    ];
+
+    /** Applies the eq filters the resolver actually sent, newest first. */
+    function bankHandler(filters: Record<string, unknown>) {
+      const rows = BANK.filter(
+        (r) =>
+          (filters['eq:is_active'] === undefined || r.is_active === filters['eq:is_active']) &&
+          (filters['eq:status'] === undefined || r.status === filters['eq:status']) &&
+          (filters['eq:language'] === undefined || r.language === filters['eq:language']) &&
+          r.institution_id !== null,
+      ).sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      return { data: rows, error: null };
+    }
+
+    it("a newer DRAFT at another school does not steal the notice", async () => {
+      const { admin } = makeAdmin({ rcltp_passages: bankHandler });
+      await expect(resolveRcltpProgrammeInstitutionId(admin)).resolves.toBe('school-in-drought');
+    });
+
+    it('sends the same three filters the sweep uses', async () => {
+      const { admin, calls } = makeAdmin({ rcltp_passages: bankHandler });
+      await resolveRcltpProgrammeInstitutionId(admin);
+      expect(calls[0]?.filters['eq:is_active']).toBe(true);
+      expect(calls[0]?.filters['eq:status']).toBe('approved');
+      expect(calls[0]?.filters['eq:language']).toBe('en');
+      expect(calls[0]?.filters['not:institution_id:is']).toBeNull();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scale — PostgREST puts .in() values in the query string, so an unchunked
+// candidate list makes the request URL too long and the read fails outright
+// (fetch failed). Because every read here logs and continues, that failure is
+// SILENT: heads resolve empty and every notice falls to administrators while
+// reporting a clean fallback. A 5-id test cannot see any of this.
+// ---------------------------------------------------------------------------
+describe('resolveRcltpNotifyTargets at production scale', () => {
+  const IN_FILTER_CHUNK = 150;
+  const CANDIDATES = Array.from({ length: 515 }, (_, i) => `user-${String(i).padStart(3, '0')}`);
+  // Heads deliberately spread across every chunk boundary, including the last
+  // short one, so dropping any chunk changes the answer.
+  const HEADS_AT_INSTITUTION = new Set([
+    CANDIDATES[0],
+    CANDIDATES[149],
+    CANDIDATES[150],
+    CANDIDATES[300],
+    CANDIDATES[514],
+  ]);
+
+  it('completes, chunks every .in(), and merges all 515 candidates without dropping one', async () => {
+    const { admin, calls } = makeAdmin({
+      custom_roles: () => ({ data: [HEAD_ROLE, OTHER_ROLE], error: null }),
+      user_roles: () => ({
+        data: CANDIDATES.map((id) => ({ user_id: id })),
+        error: null,
+      }),
+      profiles: (f) => {
+        const ids = f['in:id'] as string[] | undefined;
+        if (ids) {
+          return {
+            data: ids
+              .filter((id) => HEADS_AT_INSTITUTION.has(id))
+              .map((id) => ({ id, is_super_admin: false })),
+            error: null,
+          };
+        }
+        if (f['in:role']) {
+          // The same person, wired the legacy way too — proves de-duplication
+          // survives the merge.
+          return { data: [{ id: CANDIDATES[0], is_super_admin: false }], error: null };
+        }
+        return { data: [], error: null };
+      },
+    });
+
+    const result = await resolveRcltpNotifyTargets(admin, { institutionId: 'inst-1' });
+
+    expect(result.via).toBe('head');
+    expect([...result.userIds].sort()).toEqual([...HEADS_AT_INSTITUTION].sort());
+    expect(result.userIds.length).toBe(new Set(result.userIds).size);
+
+    // 515 ids arrived as 4 requests, none of them over the chunk size.
+    const idScans = calls.filter((c) => c.table === 'profiles' && c.filters['in:id']);
+    expect(idScans.length).toBe(Math.ceil(CANDIDATES.length / IN_FILTER_CHUNK));
+    for (const scan of idScans) {
+      expect((scan.filters['in:id'] as string[]).length).toBeLessThanOrEqual(IN_FILTER_CHUNK);
+    }
+    // Every candidate was actually asked about — no silent truncation.
+    const asked = idScans.flatMap((c) => c.filters['in:id'] as string[]);
+    expect(asked.length).toBe(CANDIDATES.length);
+    expect(new Set(asked).size).toBe(CANDIDATES.length);
+  });
+
+  it('one failed chunk does not lose the heads found in the others', async () => {
+    let scan = 0;
+    const { admin } = makeAdmin({
+      custom_roles: () => ({ data: [HEAD_ROLE], error: null }),
+      user_roles: () => ({ data: CANDIDATES.map((id) => ({ user_id: id })), error: null }),
+      profiles: (f) => {
+        const ids = f['in:id'] as string[] | undefined;
+        if (!ids) return { data: [], error: null };
+        scan++;
+        if (scan === 2) return { data: null, error: { message: 'fetch failed' } };
+        return {
+          data: ids
+            .filter((id) => HEADS_AT_INSTITUTION.has(id))
+            .map((id) => ({ id, is_super_admin: false })),
+          error: null,
+        };
+      },
+    });
+
+    const result = await resolveRcltpNotifyTargets(admin, { institutionId: 'inst-1' });
+    expect(result.via).toBe('head');
+    // Chunk 2 covers ids 150-299 and held CANDIDATES[150]; the rest still arrive.
+    expect([...result.userIds].sort()).toEqual(
+      [CANDIDATES[0], CANDIDATES[149], CANDIDATES[300], CANDIDATES[514]].sort(),
+    );
+  });
 });

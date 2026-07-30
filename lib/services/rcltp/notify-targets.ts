@@ -102,12 +102,38 @@ async function rolesGranting(admin: Admin, permission: string): Promise<Granting
 }
 
 /**
+ * PostgREST puts `.in()` values in the QUERY STRING, so a large list becomes a
+ * URL long enough for the request to be rejected outright — `fetch failed`, not
+ * a Postgres error, so it does not even arrive as a row-level problem.
+ *
+ * This is not hypothetical. `rcltp.config.manage` is held by roles carrying 515
+ * distinct users in production today; a single `.in()` over them is ~19 KB of
+ * query string and fails every time. And because every read below LOGS AND
+ * CONTINUES rather than throwing, that failure is silent: resolveHeads returns
+ * empty, the caller falls through to `via: 'admin_fallback'`, and decision 2's
+ * head is never told while the JSON reports a clean fallback. Chunking keeps
+ * each URL small — 150 ids ≈ 6 KB, well inside every limit in the path.
+ *
+ * Same constant and helper as lib/services/rcltp/review-chaser.ts, which hit
+ * this first; do not invent a second shape for it.
+ */
+const IN_FILTER_CHUNK = 150;
+
+function chunk<T>(values: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+  return out;
+}
+
+/**
  * Active, non-super-admin profiles at `institutionId` holding `permission`.
  *
  * Both assignment routes are read, because the platform supports both: the
  * many-to-many `user_roles` table AND the legacy single `profiles.role` column
  * that the multi-role migration kept for backwards compatibility. Reading only
  * one of them would miss whichever way that school's head happens to be wired.
+ *
+ * Every `.in()` here is chunked — see IN_FILTER_CHUNK.
  */
 async function resolveHeads(
   admin: Admin,
@@ -118,11 +144,8 @@ async function resolveHeads(
   if (roleIds.length === 0 && roleKeys.length === 0) return [];
 
   const candidateIds = new Set<string>();
-  if (roleIds.length > 0) {
-    const { data, error } = await admin
-      .from('user_roles')
-      .select('user_id')
-      .in('role_id', roleIds);
+  for (const ids of chunk(roleIds, IN_FILTER_CHUNK)) {
+    const { data, error } = await admin.from('user_roles').select('user_id').in('role_id', ids);
     if (error) {
       console.error('[rcltp/notify-targets] user_roles scan failed:', error.message);
     } else {
@@ -134,11 +157,11 @@ async function resolveHeads(
 
   const heads = new Set<string>();
 
-  if (candidateIds.size > 0) {
+  for (const ids of chunk(Array.from(candidateIds), IN_FILTER_CHUNK)) {
     const { data, error } = await admin
       .from('profiles')
       .select('id, is_super_admin')
-      .in('id', Array.from(candidateIds))
+      .in('id', ids)
       .eq('institution_id', institutionId)
       .eq('is_active', true);
     if (error) {
@@ -150,11 +173,11 @@ async function resolveHeads(
     }
   }
 
-  if (roleKeys.length > 0) {
+  for (const keys of chunk(roleKeys, IN_FILTER_CHUNK)) {
     const { data, error } = await admin
       .from('profiles')
       .select('id, is_super_admin')
-      .in('role', roleKeys)
+      .in('role', keys)
       .eq('institution_id', institutionId)
       .eq('is_active', true);
     if (error) {
@@ -232,9 +255,19 @@ export async function resolveRcltpNotifyTargets(
  * The overnight empty-night notice has no passage to key from — its whole point
  * is that there was nothing to work on. The only signal available for "whose
  * reading material is missing" is the passage bank itself, so this returns the
- * institution of the most recently added active passage. A school with no
- * passages at all yields null, which resolveRcltpNotifyTargets turns into the
- * administrator fallback — exactly decision 3.
+ * institution of the most recently added passage THE SWEEP WOULD CONSIDER. A
+ * school with no such passages yields null, which resolveRcltpNotifyTargets
+ * turns into the administrator fallback — exactly decision 3.
+ *
+ * THE FILTER HERE MUST MATCH findCandidatePassages() — is_active AND
+ * status='approved' AND language='en'. Filtering on is_active alone answered a
+ * different question from the sweep it reports on: the content console saves a
+ * new passage as a DRAFT, which is exactly what this notice asks people to go
+ * and do, so the first draft typed at ANY school would become "the most recent
+ * active passage" and redirect the notice to that school's head — while the
+ * school actually in drought heard nothing. Non-English passages are excluded
+ * for the same reason: the sweep never looks at them, so they cannot be the
+ * reason it found nothing.
  *
  * LIMITATION, stated plainly: with more than one school running the programme
  * this names the most recently active one, not all of them. Today only Nattraja
@@ -247,6 +280,8 @@ export async function resolveRcltpProgrammeInstitutionId(admin: Admin): Promise<
     .from('rcltp_passages')
     .select('institution_id')
     .eq('is_active', true)
+    .eq('status', 'approved')
+    .eq('language', 'en')
     .not('institution_id', 'is', null)
     .order('created_at', { ascending: false })
     .limit(1);
