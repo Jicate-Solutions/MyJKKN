@@ -176,7 +176,16 @@ BEGIN
       -- Narrowing to 'failed' does two jobs: it makes the action idempotent, and
       -- it refuses to resurrect a build whose status was set by anything other
       -- than an AI rejection.
-      AND safety_status = 'failed';
+      AND safety_status = 'failed'
+      -- TENANT BOUNDARY (added 2026-07-31, pre-apply review). This function is
+      -- SECURITY DEFINER, so RLS is bypassed, and it is GRANTed to every
+      -- authenticated caller — the permission check above proves the caller is
+      -- SOME institution's champion, never that they are THIS build's champion.
+      -- Without this predicate a champion could publish another college's prompt
+      -- into that college's feed: a cross-tenant WRITE on a multi-tenant estate.
+      -- The read queue and the health RPC in this same file already scope this
+      -- way; the write must not be the one surface that does not.
+      AND role_has_institution_access(institution_id);
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'That prompt is no longer awaiting release.' USING ERRCODE = 'P0002';
