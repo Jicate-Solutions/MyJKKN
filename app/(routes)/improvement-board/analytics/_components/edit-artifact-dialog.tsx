@@ -293,12 +293,20 @@ export function EditArtifactDialog({
           .map((r) => ({
             role_type: str(r.title).trim(),
             staff_id: str(r[HOLDER_ID_KEY]).trim() || null,
-            // Never persist the AI's "[Manager to complete]" as if it were a name —
-            // that is how a role nobody holds ends up reading as assigned.
-            holder_note:
-              str(r[HOLDER_ID_KEY]).trim() || isUnfilledHolder(r.holder)
-                ? null
-                : str(r.holder).trim() || null,
+            // Send the placeholder THROUGH, unchanged. It must not become a holder —
+            // fn_mba_dept_role_assignment_set rejects it outright, and
+            // fn_mba_dept_role_assignments_sync reads it as "leave this role alone",
+            // keeping the role in the sync's keep-list so any real holder stays put.
+            //
+            // Blanking it here instead looks tidier and is destructive: a null holder
+            // means "the manager deliberately cleared this", which drops the role out
+            // of the keep-list and end-dates its genuine holder. Measured against the
+            // live function, same failed-overlay case:
+            //   placeholder sent through  ->  is_current=true   holder safe
+            //   placeholder blanked       ->  is_current=false  holder end-dated
+            // isUnfilledHolder stays a DISPLAY concern (see displayHolder) — the
+            // screen shows "Not assigned yet", the database still sees the truth.
+            holder_note: str(r[HOLDER_ID_KEY]).trim() ? null : str(r.holder).trim() || null,
           }))
           .filter((a) => a.role_type !== '');
         const { error: syncError } = await supabase.rpc('fn_mba_dept_role_assignments_sync', {
@@ -418,29 +426,18 @@ export function EditArtifactDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-<<<<<<< HEAD
             {readOnly ? 'Close' : 'Cancel'}
-=======
-            Cancel
-          </Button>
-          <Button
-            className="bg-emerald-600 hover:bg-emerald-700"
-            onClick={approve}
-            disabled={saving || (artifactType === 'organogram' && holdersError !== null)}
-            title={
-              artifactType === 'organogram' && holdersError
-                ? `The current role holders could not be read (${holdersError}). Close and reopen this dialog.`
-                : undefined
-            }
-          >
-            {saving ? 'Approving…' : 'Approve'}
->>>>>>> jicate/main
           </Button>
           {!readOnly && (
             <Button
               className="bg-emerald-600 hover:bg-emerald-700"
               onClick={approve}
-              disabled={saving}
+              disabled={saving || (artifactType === 'organogram' && holdersError !== null)}
+              title={
+                artifactType === 'organogram' && holdersError
+                  ? `The current role holders could not be read (${holdersError}). Close and reopen this dialog.`
+                  : undefined
+              }
             >
               {saving ? 'Approving…' : artifactType === 'policy' ? 'Sign off' : 'Approve'}
             </Button>
