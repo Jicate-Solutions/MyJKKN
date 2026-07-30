@@ -651,6 +651,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
+  // Multi-step Excel upload reached from a button on bulk-create. Same key as
+  // its parent — it creates bills, it just reviews them first.
+  '/billing/schedule/bulk-create/upload': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
