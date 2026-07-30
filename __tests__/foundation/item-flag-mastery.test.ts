@@ -301,6 +301,14 @@ describe('permission model in the policies', () => {
     expect(p).toContain('public.is_super_admin()');
   });
 
+  it('the delete policy can actually fire — the table grant carries DELETE', () => {
+    // A policy without the matching table grant is unreachable, and "super
+    // admin only" then silently means "nobody, ever".
+    expect(LIVE_SQL).toContain(
+      'GRANT  SELECT, INSERT, UPDATE, DELETE ON TABLE public.fp_item_flags TO authenticated;',
+    );
+  });
+
   it('reuses permission keys that already exist in the catalogue', () => {
     // A page or policy that requires a key absent from permissions.ts is a key
     // nobody can ever grant through Role Management.

@@ -65,7 +65,11 @@ CREATE TRIGGER trg_fp_item_flags_touch
 -- Supabase's default privileges GRANT ALL on every new public table to anon,
 -- which ships inside every page bundle. Revoke before anything else.
 REVOKE ALL ON TABLE public.fp_item_flags FROM anon, PUBLIC;
-GRANT  SELECT, INSERT, UPDATE ON TABLE public.fp_item_flags TO authenticated;
+-- DELETE is granted at the table so the super-admin-only DELETE policy below can
+-- actually fire. Without it that policy is unreachable and "only a super admin
+-- may delete" would quietly mean "nobody may, ever" — a rule that reads as a
+-- capability but is really a dead statement.
+GRANT  SELECT, INSERT, UPDATE, DELETE ON TABLE public.fp_item_flags TO authenticated;
 
 ALTER TABLE public.fp_item_flags ENABLE ROW LEVEL SECURITY;
 
@@ -111,8 +115,9 @@ CREATE POLICY fp_item_flags_resolve ON public.fp_item_flags
     OR public.user_has_permission('foundation.items.manage')
   );
 
--- DELETE: no grant at all — flags are an audit trail; resolution is a status
--- change, not an erasure.
+-- DELETE: super admin only, as an escape hatch for junk rows. Closing a report
+-- is a status change, never an erasure — the row is the record that somebody
+-- looked at the question.
 CREATE POLICY fp_item_flags_delete ON public.fp_item_flags
   FOR DELETE TO authenticated
   USING (public.is_super_admin());
