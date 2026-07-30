@@ -15,7 +15,7 @@
 --   to be deleted by hand.
 --
 -- KEY DISCOVERY — the link already exists, just not as a column
---   Both children already carry the submission id inside JSONB:
+--   Both dependent tables already carry the submission id inside JSONB:
 --     pde_engagement_events.metadata           ->> 'submission_id'
 --     pde_learner_capabilities.demonstration_evidence ->> 'submission_id'
 --   So this migration needs no change to any route. It owns migrations only.
