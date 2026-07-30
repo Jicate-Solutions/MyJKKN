@@ -60,9 +60,16 @@ function shortDate(d: string | null): string {
 }
 
 function pct(part: number, whole: number): string {
-  if (!whole) return '—';
+  // A negative denominator (a net-credit population) would render a misleading
+  // negative "collected %" rather than an obviously-absent one.
+  if (!whole || whole < 0) return '—';
   return `${((part / whole) * 100).toFixed(1)}%`;
 }
+
+/** Bills with no category still have to land somewhere. The KPI count and the
+ *  category table MUST bucket them identically, or the page contradicts itself:
+ *  one live bill currently has a null category. */
+const UNCATEGORISED = 'Uncategorised';
 
 /** Some live bills carry a NULL description with a category set, so fall back
  *  rather than printing a blank line in a financial document. */
@@ -142,7 +149,7 @@ function computeStats(groups: LearnerGroup[]) {
       total += b.total_amount ?? 0;
       paid += b.paid_amount ?? 0;
       pending += b.pending_amount ?? 0;
-      if (b.category_name) categories.add(b.category_name);
+      categories.add(b.category_name || UNCATEGORISED);
     }
   }
 
@@ -164,7 +171,7 @@ function computeCategoryStats(groups: LearnerGroup[]): CategoryStat[] {
 
   for (const g of groups) {
     for (const b of g.bills) {
-      const key = b.category_name || 'Uncategorised';
+      const key = b.category_name || UNCATEGORISED;
       let e = map.get(key);
       if (!e) {
         e = {
@@ -384,7 +391,13 @@ export function generateCoverageBillsPdf(opts: CoverageBillsPdfOptions): jsPDF {
           [
             { content: 'All categories', styles: { fontStyle: 'bold' as const } },
             { content: String(stats.bills), styles: { fontStyle: 'bold' as const } },
-            { content: String(stats.withBills), styles: { fontStyle: 'bold' as const } },
+            // Distinct, so it is deliberately LESS than the column above it: a
+            // learner billed in three categories appears in three rows. Labelled
+            // rather than left looking like a column that fails to add up.
+            {
+              content: `${stats.withBills} distinct`,
+              styles: { fontStyle: 'bold' as const },
+            },
             { content: money(stats.total), styles: { fontStyle: 'bold' as const } },
             { content: money(stats.paid), styles: { fontStyle: 'bold' as const } },
             { content: money(stats.pending), styles: { fontStyle: 'bold' as const } },
@@ -463,9 +476,23 @@ export function generateCoverageBillsPdf(opts: CoverageBillsPdfOptions): jsPDF {
       .filter(Boolean)
       .join('  ·  ');
 
-    // Identity band carries this learner's subtotal in the amount columns, so
-    // it doubles as the subtotal row — one row per learner instead of two,
-    // which matters across a thousand of them.
+    // Subtotal summed from THIS learner's PRINTED rows, not from the RPC's
+    // learner_total. The two agree today, but mixing sources means the bands
+    // only happen to sum to the KPI totals rather than provably doing so — and
+    // "summary and detail agree by construction" is the whole point of deriving
+    // every figure in this document from one dataset.
+    const sub = g.bills.reduce(
+      (acc, b) => ({
+        total: acc.total + (b.total_amount ?? 0),
+        paid: acc.paid + (b.paid_amount ?? 0),
+        pending: acc.pending + (b.pending_amount ?? 0),
+      }),
+      { total: 0, paid: 0, pending: 0 }
+    );
+
+    // Identity band carries the subtotal in the amount columns, so it doubles
+    // as the subtotal row — one row per learner instead of two, which matters
+    // across a thousand of them.
     body.push([
       {
         content: identity,
@@ -473,11 +500,11 @@ export function generateCoverageBillsPdf(opts: CoverageBillsPdfOptions): jsPDF {
         styles: { fillColor: BAND, textColor: INK, fontStyle: 'bold' as const },
       },
       {
-        content: money(l.learner_total),
+        content: money(sub.total),
         styles: { fillColor: BAND, fontStyle: 'bold' as const, halign: 'right' as const },
       },
       {
-        content: money(l.learner_paid),
+        content: money(sub.paid),
         styles: {
           fillColor: BAND,
           textColor: GREEN,
@@ -486,10 +513,10 @@ export function generateCoverageBillsPdf(opts: CoverageBillsPdfOptions): jsPDF {
         },
       },
       {
-        content: money(l.learner_pending),
+        content: money(sub.pending),
         styles: {
           fillColor: BAND,
-          textColor: l.learner_pending > 0 ? RED : GREEN,
+          textColor: sub.pending > 0 ? RED : GREEN,
           fontStyle: 'bold' as const,
           halign: 'right' as const,
         },
