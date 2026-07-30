@@ -338,6 +338,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
       { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
 
+      // Learner 360 standing verdict (learner_360_verdicts).
+      // The admin_note key is DELIBERATELY separate and grants access to a
+      // DIFFERENT table (learner_360_verdicts_admin) holding the comparative
+      // ranking language. RLS is row-level and cannot hide columns, so the two
+      // audiences are split across two tables and two keys — granting
+      // learners.standing.view must never reveal where a learner ranks.
+      { key: 'learners.standing.view', label: 'View Learner Standing Verdicts (band, narrative, next steps)' },
+      { key: 'learners.standing.admin_note.view', label: 'View Learner Standing ADMIN Notes (contribution + relative rank — leadership only)' },
+      { key: 'learners.standing.override', label: 'Override a Learner Standing Verdict (human correction)' },
+
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
       { key: 'learners.my-timetable.view', label: 'View My Timetable (Students)' },

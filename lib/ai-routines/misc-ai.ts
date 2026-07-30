@@ -306,5 +306,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: writes priority_rank / priority_reason / gap_class / ranked_at onto mba_data_gaps rows, and enqueues 'improvement.rank_data_gaps' jobs on the Max lane. No notifications, no external messages.",
     "safeToManualTrigger": true,
     "notes": "Fires via the AI-routine dispatcher (ai_routine_schedules row 'rank-data-gaps' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later: a ?mode=collect tick drains the previous run's jobs. Idempotent: per-institution/day dedupe stops double-enqueue and collect claims each job once. Scheduled AFTER measure-gap-outcomes so the ranking reads today's fresh hit-rate."
+  },
+  {
+    "id": "learner-360-verdict",
+    "maxLane": true,
+    "name": "Learner 360 — Plain-Language Standing Verdict (Max lane)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 06:37 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/learner-360-verdict",
+    "callsClaude": true,
+    "whatItDoes": "The platform already scores every learner twice a night and shows nobody the answer in words. This turns those numbers — risk assessment, contribution score and the 14-day attendance summary — into one plain-English standing note per learner: a band, 2-3 developmental sentences addressed to the learner, and 2-3 concrete next steps. A separate admin-only note (what the learner contributes, and where they sit relative to peers) is written to a DIFFERENT table so it reaches leadership only. Collect-first: it drains the previous run's jobs and records the verdicts, then enqueues the next cohorts on the ₹0 Max lane, highest-risk learners first.",
+    "configKnobs": "LEARNERS_PER_JOB=10 (a cohort, because the admin-only value_rank_note is comparative and a batch of one cannot answer it), MAX_JOBS_PER_RUN=20 (=200 learners/night), COLLECT_CAP=50, TIER_ORDER=critical>high>moderate>low>healthy, job_type='learner.360_verdict' (₹0 Max lane, model_id='sonnet' family alias). Per-cohort/day dedupe key. Cohorts never cross an institution.",
+    "sideEffects": "DB writes only: upserts learner_360_verdicts + learner_360_verdicts_admin via fn_learner_360_record_verdict (service-role), and enqueues 'learner.360_verdict' jobs on the Max lane. No notifications, no external messages, nothing sent to any learner.",
+    "safeToManualTrigger": true,
+    "notes": "🔒 HARD DATA BOUNDARY: reads ONLY learner_risk_assessments, learner_contribution_scores and mv_learner_attendance_summary. It must NEVER read or join session_feedback, event_session_feedback, carre_micro_impressions or scf_learner_notes — those hold feedback the learner GAVE under an explicit anonymity promise (aggregated-and-anonymous UI copy, a fully_anonymous mode stripping author_id, k>=3 suppression), so scoring the author would break it — nor any health_*/medical table. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-360-verdict'), NOT a raw vercel.json cron: vercel.json already carries exactly 100 crons, the plan ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later; a ?mode=collect tick drains the previous run. Idempotent: per-cohort/day dedupe, collect claims each job once, and the record RPC upserts on (learner_id, verdict_date). Recommendation-only — any verdict can be corrected by a human via fn_learner_360_set_override, and the override is what every surface must then display."
   }
 ];
