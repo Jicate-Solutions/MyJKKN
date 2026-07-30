@@ -55,9 +55,11 @@ export interface ManagedImprovementArea {
   /**
    * Team members currently holding a role on this board. fn_improvement_area_delete
    * refuses on this too, so it has to be counted here or the screen offers a delete
-   * the server will reject.
+   * the server will reject. Named to match `AreaDependants.role_holder_count`: one
+   * count, one name, because two names for it in this file is how the omission
+   * happened in the first place.
    */
-  holder_count: number;
+  role_holder_count: number;
   /** Sum of every count above — 0 means the board is safe to delete outright. */
   dependent_count: number;
 }

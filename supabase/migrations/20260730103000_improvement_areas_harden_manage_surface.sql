@@ -86,7 +86,9 @@ EXECUTE FUNCTION public.fn_improvement_areas_guard_immutable_columns();
 -- revoke below is not optional.
 --
 -- Body reproduced from the live pg_get_functiondef output
--- (md5 388aeb8458c169fdd9701580f77a4f9b) with holder_count added.
+-- (md5 388aeb8458c169fdd9701580f77a4f9b) with role_holder_count added. That name
+-- matches fn_improvement_area_dependants in PR #2597 deliberately: two names for
+-- the same count in the same file is the drift this finding is about.
 -- ---------------------------------------------------------------------------
 DROP FUNCTION IF EXISTS public.fn_improvement_areas_manage_list();
 
@@ -98,7 +100,7 @@ RETURNS TABLE(
   idea_count bigint, artifact_count bigint, artifact_version_count bigint,
   data_gap_count bigint, posting_count bigint, analyst_view_count bigint,
   rotation_slot_count bigint, rotation_cycle_dept_count bigint,
-  holder_count bigint, dependent_count bigint
+  role_holder_count bigint, dependent_count bigint
 )
 LANGUAGE plpgsql
 STABLE SECURITY DEFINER
