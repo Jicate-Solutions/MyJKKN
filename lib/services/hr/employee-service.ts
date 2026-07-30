@@ -71,7 +71,12 @@ export class HRPersonService {
     if (designation_id) q = q.eq('hr_staff_details.designation_id', designation_id);
     if (search) {
       const s = `%${search}%`;
-      q = q.or(`first_name.ilike.${s},last_name.ilike.${s},email.ilike.${s},staff_id.ilike.${s}`);
+      // Search spans BOTH email columns: institution_email is what the Email column
+      // displays (so a visible address must be findable), while personal email stays
+      // searchable for anyone who only knows that one.
+      q = q.or(
+        `first_name.ilike.${s},last_name.ilike.${s},email.ilike.${s},institution_email.ilike.${s},staff_id.ilike.${s}`
+      );
     }
 
     q = q.order('first_name', { ascending: true });
