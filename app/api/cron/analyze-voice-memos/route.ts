@@ -347,7 +347,22 @@ async function enqueueSentimentJob(
 //     404 model-retired, 400 bad flip, 413 oversize wave, bucket rename,
 //     network) can charge the backlog — all of them wait out or halt, and
 //     the backlog auto-recovers untouched when the cause is fixed.
-function classifyFailure(err: unknown): 'ratelimit' | 'transient' {
+// 'permanent' (2026-07-30) — a row-specific defect that RE-TRYING CANNOT FIX.
+// Today that means only 413 "Request too large": the recording exceeds the
+// provider's hard upload limit, so the same bytes will be rejected identically
+// on every future run. Before this, a 413 fell into 'transient' and the row
+// re-probed the same wall until the slow TRANSIENT_CHARGE_THRESHOLD backstop
+// finally parked it — 12 such rows in the last 3 days, each burning repeated
+// doomed calls out of a batch that healthy memos are waiting in.
+//
+// NOT compression. The Director asked for shrink-and-retry, and that is the
+// better product answer, but it cannot be done honestly in this runtime: the
+// route is Vercel serverless with no ffmpeg binary, and re-encoding webm/opus
+// in pure JS is not something to smuggle into a reliability fix. So this parks
+// the row immediately with a truthful reason instead of pretending to retry.
+// Shrink-and-retry needs a runtime/dependency decision (an ffmpeg layer, or
+// downsampling in the browser recorder before upload) — tracked separately.
+function classifyFailure(err: unknown): 'ratelimit' | 'transient' | 'permanent' {
   const anyErr = err as { status?: unknown; code?: unknown } | null;
   const msg = err instanceof Error ? err.message : String(err);
   let status = typeof anyErr?.status === 'number' ? (anyErr.status as number) : null;
