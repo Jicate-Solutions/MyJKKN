@@ -2,43 +2,73 @@
 
 // app/(routes)/health/achievements/_actions/upload-certificate.ts
 // ============================================================================
-// Store a certificate scan and hand back a POINTER to it — never a link.
+// Attach a certificate scan to ONE achievement — for a caller who is allowed to
+// attach it to THAT achievement, and for nobody else.
 //
-// WHY THE UPLOAD IS SERVER-SIDE
-//   Probed against production before writing this: a learner session uploading
-//   straight to the cdc-docs bucket from the browser is refused — "new row
-//   violates row-level security policy". So the browser-client upload pattern
-//   the CDC forms use (which staff sessions can do) would have shipped a dead
-//   button for the very people this feature is for. Widening a storage policy is
-//   DDL, and migrations here are Director-gated files that merge never applies —
-//   so the file is streamed through this action and written with the
-//   service-role client instead. Works the day it deploys.
+// WHAT WAS WRONG (round 2 of PR #2650, found by adversarial review)
+//   The previous cut of this action AUTHENTICATED and never AUTHORIZED. Its only
+//   check was `if (!user) return …` — and it then wrote with the service-role
+//   client, deliberately bypassing the storage RLS that refuses learner uploads.
+//   Net effect: any of the 7,225 authenticated profiles on the platform could
+//   write files into the institution's cdc-docs bucket. Size and MIME were
+//   capped; nothing established that the caller had any business uploading at
+//   all. Reaching for the service-role client to get past a policy that was
+//   doing its job is what turned a refused upload into an open one.
 //
-// WHY A PATH AND NOT A SIGNED URL  (fixes two defects found reviewing PR #2650)
-//   The first cut of this action stored a ONE-YEAR signed URL in
-//   certificate_url. That was wrong twice over:
+// THE GATE NOW (established BEFORE any privileged write)
+//   The caller must be one of:
+//     * the LEARNER who owns the achievement (profiles.learner_id = the row's
+//       learner_id), or
+//     * the IQAC / accreditation side — user_has_permission(
+//       'accreditation.certificates.manage'), the same key that verifies a row,
+//       or
+//     * the standard is_super_admin() / is_admin() bypass.
+//   Signed-in alone is NOT authorization. Every decision runs on the cookie-bound
+//   session client, so the identity is auth.uid() and never anything the caller
+//   sent. The only argument the caller supplies is the id of the ROW being
+//   attached to; the row then decides whose rule applies.
 //
-//     * EXPOSURE. A signed URL is a bearer token — whoever holds the string can
-//       open the document, signed in or not. It was written into a row that
-//       health_sports_achievements_public served to EVERY authenticated user the
-//       moment IQAC ticked it (USING (verified = true), no institution or role
-//       predicate). One learner's medical-college certificate was one query away
-//       from anybody on the platform.
-//     * DURABILITY. The link died at +365 days, for a record whose entire
-//       purpose is accreditation evidence — NAAC cycles run five years. The
-//       evidence would have rotted exactly when a reviewer came looking.
+// THE PATH IS DERIVED, NEVER ACCEPTED
+//   sports-achievement-certificates/<row.learner_id>/<achievementId>/<ts>-<name>
+//   Every segment comes from the authorized row, not from the client. The
+//   original filename is the only client-influenced part and is reduced to
+//   [A-Za-z0-9._-], so it cannot introduce a '/' and cannot become a bare '..'
+//   segment (it is always prefixed with a timestamp). upsert:false, so an upload
+//   can never overwrite an existing object — one learner cannot land on, or
+//   clobber, another learner's path.
 //
-//   Storing the storage PATH fixes both. A path is not a credential, so the row
-//   is safe to hold; and it never expires, so the evidence outlives any NAAC
-//   cycle. A short-lived signed URL is minted on demand, per view, by
-//   _actions/certificate-link.ts — and only for a viewer who passes the D7
-//   visibility rule.
+// WHY THE SERVICE-ROLE CLIENT IS STILL HERE — AND HOW IT RETIRES
+//   The right shape is the session client plus a storage policy that lets a
+//   learner write only their own path. That policy is written, in
+//   supabase/migrations/20260808110000_health_sports_certificate_visibility.sql
+//   (cdc_docs_write_sports_certificate + fn_may_attach_learner_certificate) —
+//   but migrations in this repo are Director-gated FILES that merge and deploy
+//   never apply. Measured on production: cdc_docs_write is
+//   WITH CHECK (bucket_id = 'cdc-docs' AND is_cdc_staff()), so a learner session
+//   uploading today is refused outright ("new row violates row-level security
+//   policy"). Session-client-only would therefore ship a dead button for exactly
+//   the people this feature is for.
+//   So this action ATTEMPTS THE SESSION CLIENT FIRST and only falls back to the
+//   service-role client when storage refuses it — after the gate above has
+//   already passed. The day the Director applies the migration, the first attempt
+//   starts succeeding and the privileged path stops being taken at all.
 //
-// GATE
-//   Any signed-in user may upload, and the returned pointer is only ever written
-//   to their own achievement row (RLS self-policy). The path is namespaced by
-//   the uploader's auth id, so every stored object carries its provenance. Size
-//   and MIME are capped here, server-side, not only in the picker.
+// WHY A PATH AND NOT A SIGNED URL
+//   certificate_url holds the storage PATH. The first cut stored a ONE-YEAR
+//   signed URL, which is a bearer token: whoever held the string opened the
+//   document. A path cannot be redeemed on its own, and it does not expire — so
+//   the evidence outlives a five-year NAAC cycle while each viewing does not.
+//   Links are minted per view, for five minutes, by _actions/certificate-link.ts
+//   after re-checking the D7 visibility rule.
+//
+//   HONEST STATUS, NOT A PROMISE: a path is inert only once the row and the
+//   bucket stop handing it out. Both of those doors are closed by the SAME
+//   UNAPPLIED migration. Until a Director applies it, production still carries
+//   health_sports_achievements_public = (verified = true) and cdc_docs_read =
+//   (bucket_id = 'cdc-docs' AND auth.uid() IS NOT NULL) — re-read live on
+//   2026-07-30 — so any signed-in caller can still read a verified row and list
+//   the bucket. Merging this PR does NOT deliver the restricted visibility; it
+//   removes the bearer token and ships the gate, and the migration completes it.
 // ============================================================================
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
@@ -46,6 +76,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 const STORAGE_BUCKET = 'cdc-docs';
 const PATH_PREFIX = 'sports-achievement-certificates';
 const MAX_BYTES = 5 * 1024 * 1024;
+const ATTACH_PERMISSION = 'accreditation.certificates.manage';
 const ALLOWED_MIME = [
   'application/pdf',
   'image/png',
@@ -56,13 +87,38 @@ const ALLOWED_MIME = [
 
 export interface UploadCertificateResult {
   ok: boolean;
-  /**
-   * Storage PATH of the stored scan — deliberately not an openable link. Written
-   * straight into certificate_url; resolved to a short-lived signed URL at read
-   * time by _actions/certificate-link.ts.
-   */
-  path?: string;
   error?: string;
+}
+
+/**
+ * May the current caller attach a certificate to this achievement? Owner, the
+ * IQAC / accreditation side, or the admin bypass — evaluated on the session
+ * client so every answer is about auth.uid().
+ */
+async function mayAttachToAchievement(learnerId: string): Promise<boolean> {
+  const session = await createClient();
+  const {
+    data: { user },
+  } = await session.auth.getUser();
+  if (!user || !learnerId) return false;
+
+  const [{ data: isSuperAdmin }, { data: isAdmin }] = await Promise.all([
+    session.rpc('is_super_admin'),
+    session.rpc('is_admin'),
+  ]);
+  if (Boolean(isSuperAdmin) || Boolean(isAdmin)) return true;
+
+  const { data: profile } = await (session as any)
+    .from('profiles')
+    .select('learner_id')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (profile?.learner_id && profile.learner_id === learnerId) return true;
+
+  const { data: hasPerm } = await session.rpc('user_has_permission', {
+    permission_name: ATTACH_PERMISSION,
+  });
+  return Boolean(hasPerm);
 }
 
 export async function uploadCertificate(
@@ -73,6 +129,33 @@ export async function uploadCertificate(
     data: { user },
   } = await session.auth.getUser();
   if (!user) return { ok: false, error: 'Not signed in.' };
+
+  const achievementId = String(formData.get('achievementId') ?? '').trim();
+  if (!achievementId) {
+    return { ok: false, error: 'An achievement id is required.' };
+  }
+
+  // The row first: it names the learner whose rule applies, and it is what the
+  // path is derived from. Read privileged on purpose — an IQAC officer cannot
+  // see somebody else's unverified row through their own session.
+  const admin = createServiceRoleClient();
+  const { data: row, error: readErr } = await (admin as any)
+    .from('health_sports_achievements')
+    .select('id, learner_id')
+    .eq('id', achievementId)
+    .maybeSingle();
+  if (readErr) {
+    return { ok: false, error: `Could not load the achievement: ${readErr.message}` };
+  }
+  if (!row) return { ok: false, error: 'That achievement no longer exists.' };
+
+  if (!(await mayAttachToAchievement(row.learner_id))) {
+    return {
+      ok: false,
+      error:
+        'You cannot attach a certificate to this achievement. Only the learner it belongs to, or the accreditation / IQAC team, can add evidence to it.',
+    };
+  }
 
   // Duck-typed rather than `instanceof File` so this holds across runtimes.
   const file = formData.get('file') as {
@@ -94,24 +177,46 @@ export async function uploadCertificate(
     return { ok: false, error: 'Upload a PDF, JPG, PNG or WebP file.' };
   }
 
-  const safeName = (file.name ?? 'certificate').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${PATH_PREFIX}/${user.id}/${Date.now()}-${safeName}`;
+  const safeName = (file.name ?? 'certificate')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(-80);
+  const path = `${PATH_PREFIX}/${row.learner_id}/${achievementId}/${Date.now()}-${safeName}`;
   const bytes = Buffer.from(await file.arrayBuffer());
+  const options = {
+    contentType: file.type,
+    cacheControl: '3600',
+    upsert: false,
+  };
 
-  const admin = createServiceRoleClient();
-  const { error: upErr } = await admin.storage
+  // Least privilege first. Once the storage policy in migration
+  // 20260808110000 is applied, this succeeds and the fallback below is dead
+  // code that never runs.
+  const { error: sessionErr } = await session.storage
     .from(STORAGE_BUCKET)
-    .upload(path, bytes, {
-      contentType: file.type,
-      cacheControl: '3600',
-      upsert: false,
-    });
-  if (upErr) {
-    return { ok: false, error: `Upload failed: ${upErr.message}` };
+    .upload(path, bytes, options);
+
+  if (sessionErr) {
+    const { error: adminErr } = await admin.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, bytes, options);
+    if (adminErr) {
+      return { ok: false, error: `Upload failed: ${adminErr.message}` };
+    }
   }
 
-  // The pointer, and only the pointer. No link is minted here, on purpose — see
-  // the header. Nothing that lands in certificate_url can be redeemed by
-  // whoever happens to read the row.
-  return { ok: true, path };
+  // The pointer is written here, not handed back to the browser: the caller has
+  // already been authorized for this exact row, and nothing that lands in
+  // certificate_url should have to travel through a client to get there.
+  const { error: linkErr } = await (admin as any)
+    .from('health_sports_achievements')
+    .update({ certificate_url: path })
+    .eq('id', achievementId);
+  if (linkErr) {
+    return {
+      ok: false,
+      error: `The file was stored but could not be attached: ${linkErr.message}`,
+    };
+  }
+
+  return { ok: true };
 }

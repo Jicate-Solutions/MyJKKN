@@ -44,8 +44,20 @@
 --   exactly the people D7 is meant to admit. A SECURITY DEFINER helper resolves
 --   the institution once, honestly, and returns a plain boolean.
 --
--- Rollback: drop the two objects created here and restore the two policies
--- quoted verbatim in their comments below.
+-- THE WRITE SIDE (added round 3, section 4 below)
+--   The certificate UPLOAD had the mirror-image defect: the server action
+--   authenticated the caller and then wrote with the service-role client,
+--   deliberately bypassing cdc_docs_write — so any of 7,225 authenticated
+--   profiles could put a file in the bucket. The action now authorizes against
+--   the achievement row first (owner learner / accreditation.certificates.manage
+--   / admin). Section 4 puts the SAME rule in storage RLS, so a learner session
+--   can write its OWN path and nothing else, and the action's service-role
+--   fallback stops being taken the day this is applied. Until then the fallback
+--   is what keeps the button alive, behind the gate.
+--
+-- Rollback: drop the three functions/policies created here and restore the two
+-- policies quoted verbatim in their comments below; the storage INSERT policy in
+-- section 4 is new, so rolling it back is a plain DROP POLICY.
 -- ============================================================================
 
 -- ── 1. The D7 rule, as one auditable function ───────────────────────────────
@@ -177,4 +189,87 @@ CREATE POLICY cdc_docs_read ON storage.objects
     bucket_id = 'cdc-docs'
     AND auth.uid() IS NOT NULL
     AND name NOT LIKE 'sports-achievement-certificates/%'
+  );
+
+-- ── 4. The write door ───────────────────────────────────────────────────────
+-- The upload half of the same defect. Production today carries only:
+--   cdc_docs_write ON storage.objects FOR INSERT TO public
+--     WITH CHECK ((bucket_id = 'cdc-docs') AND is_cdc_staff())
+-- which refuses a learner session outright — which is why the server action
+-- reached for the service-role client and, in doing so, let ANY signed-in
+-- account write to the bucket. The action is now gated; this policy removes its
+-- reason to be privileged at all, by letting a learner session write exactly one
+-- place: under its OWN learner id, inside this feature's prefix.
+--
+-- cdc_docs_write is left byte-for-byte untouched. Permissive policies combine
+-- with OR, so this can only widen — and it widens by exactly the prefix that
+-- section 3 just carved out of the blanket read.
+
+CREATE OR REPLACE FUNCTION public.fn_may_attach_learner_certificate(p_learner_id text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid     uuid := auth.uid();
+  v_learner uuid;
+BEGIN
+  IF v_uid IS NULL OR p_learner_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- Takes TEXT, not uuid, and casts defensively: the argument is a path segment
+  -- of an object being written, so a malformed value must DENY, not raise 22P02
+  -- out of a policy expression.
+  BEGIN
+    v_learner := p_learner_id::uuid;
+  EXCEPTION WHEN others THEN
+    RETURN false;
+  END;
+
+  -- Every branch COALESCEd: a SECDEF guard that returns NULL falls through and
+  -- GRANTS.
+  IF COALESCE(public.is_super_admin(), false)
+     OR COALESCE(public.is_admin(), false) THEN
+    RETURN true;
+  END IF;
+
+  -- (a) The learner the certificate belongs to.
+  IF EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = v_uid AND p.learner_id = v_learner
+  ) THEN
+    RETURN true;
+  END IF;
+
+  -- (b) The IQAC / accreditation side — the same key that verifies a row, so an
+  --     officer can file evidence on a learner's behalf. Deliberately NOT the
+  --     read key `.view`: attaching evidence is a write.
+  RETURN COALESCE(public.user_has_permission('accreditation.certificates.manage'), false);
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_may_attach_learner_certificate(text) IS
+  'May the CURRENT caller attach a certificate for this learner? Owner, the accreditation/IQAC side (accreditation.certificates.manage), or the admin bypass. Identity comes from auth.uid() only — the argument is a path segment naming the LEARNER whose folder is being written, never the caller, so there is no caller-supplied identity to forge.';
+
+-- Supabase's default privileges GRANT EXECUTE on every new function to anon
+-- SEPARATELY from PUBLIC, so revoking only one of them is a no-op.
+REVOKE EXECUTE ON FUNCTION public.fn_may_attach_learner_certificate(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_may_attach_learner_certificate(text) TO authenticated;
+
+DROP POLICY IF EXISTS cdc_docs_write_sports_certificate ON storage.objects;
+
+CREATE POLICY cdc_docs_write_sports_certificate ON storage.objects
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'cdc-docs'
+    -- prefix / <learner_id> / <achievement_id> / <file>, exactly as the server
+    -- action derives it. The learner id is read back out of the path and checked
+    -- against the caller, so a hand-rolled upload cannot land in someone else's
+    -- folder.
+    AND name LIKE 'sports-achievement-certificates/%/%/%'
+    AND public.fn_may_attach_learner_certificate(split_part(name, '/', 2))
   );

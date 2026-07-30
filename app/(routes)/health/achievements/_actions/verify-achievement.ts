@@ -26,14 +26,30 @@
 //       permission RPCs resolve against the real caller (auth.uid()).
 //     * service-role client — only the reads/writes already authorized above.
 //
-// RESIDUAL HOLE, STATED NOT PAPERED OVER
-//   The pre-existing learner self-write RLS policy is ALL on own rows, so a
-//   learner could still flip verified on their OWN row by calling PostgREST
-//   directly with the public anon key. That is the risk migration
-//   20260726114500 already records ("health_sports_achievements carries a
-//   learner self-write RLS policy"). Closing it needs a Director-gated RLS
-//   split, which this PR does not attempt; nothing in this UI ever sends
-//   verified = true from a learner path.
+// RESIDUAL HOLE, MEASURED — NOT ASSUMED, AND NOT PAPERED OVER
+//   The pre-existing health_sports_achievements_self policy is FOR ALL on own
+//   rows, so a learner can flip verified on their OWN row by calling PostgREST
+//   directly with the public anon key that ships in every Next.js bundle.
+//
+//   Re-measured on production 2026-07-30 inside BEGIN..ROLLBACK, as DB role
+//   `authenticated` with request.jwt.claims.sub set to the owning learner —
+//   the same execution shape PostgREST uses:
+//     UPDATE health_sports_achievements SET verified = true WHERE id = <own row>
+//       → 1 row updated, and the row read back as verified = true.
+//   The same statement run as a DIFFERENT learner updated 0 rows, and that
+//   learner could see 0 rows at all: the self policy's subquery is bounded by
+//   learners_profiles' own RLS, which returns only the caller's learner record
+//   (measured: 1, not 7,156). So the exposure is self-verification only — NOT
+//   cross-learner tampering, which is refused.
+//
+//   Column grants are not the missing lock either: UPDATE on the `verified`
+//   column is granted to anon, authenticated, postgres and service_role.
+//
+//   Closing this needs a Director-gated RLS split (separate SELECT/INSERT/DELETE
+//   for the learner, UPDATE limited to non-verification columns), which this PR
+//   does not attempt — it is pre-existing and outside the certificate defect
+//   being fixed here. Nothing in this UI ever sends verified = true from a
+//   learner path.
 // ============================================================================
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';

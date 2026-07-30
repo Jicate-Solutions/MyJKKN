@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { CertificateUpload } from './_components/certificate-upload';
 import { VerificationPanel } from './_components/verification-panel';
+import { uploadCertificate } from './_actions/upload-certificate';
 import {
   composeDescription,
   parseDescription,
@@ -365,16 +366,29 @@ function AddAchievementForm({
   const [achievementType, setAchievementType] = useState<AchievementType | ''>('');
   const [isReserve, setIsReserve] = useState(false);
   const [description, setDescription] = useState('');
-  const [certificatePointer, setCertificatePointer] = useState('');
+  const [certificateUrl, setCertificateUrl] = useState('');
+  const [certificateFile, setCertificateFile] = useState<File | null>(null);
+  const [certificateError, setCertificateError] = useState<string | null>(null);
+  // What the picker held before Reserve forced 'participation', so unticking can
+  // put it back instead of leaving a silent, unchosen value behind.
+  const [typeBeforeReserve, setTypeBeforeReserve] = useState<AchievementType | ''>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   // D11: a reserve travelled with the squad and did not play, so the honest
   // record is participation. Forcing the type here (rather than trusting the
   // picker) is what stops a reserve ever being written as a medal winner.
+  // Unticking restores whatever was chosen before — otherwise 'participation'
+  // stays behind as an answer nobody gave.
   function handleReserveChange(next: boolean) {
     setIsReserve(next);
-    if (next) setAchievementType('participation');
+    if (next) {
+      setTypeBeforeReserve(achievementType);
+      setAchievementType('participation');
+    } else {
+      setAchievementType(typeBeforeReserve);
+      setTypeBeforeReserve('');
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -396,7 +410,7 @@ function AddAchievementForm({
     setSaving(true);
     setError('');
     try {
-      await HealthSportsService.addAchievement(learnerId, {
+      const created = await HealthSportsService.addAchievement(learnerId, {
         achievement_date: date,
         event_name: eventName,
         // D11 again, at the write itself: a reserve is stored as participation
@@ -406,9 +420,10 @@ function AddAchievementForm({
           : achievementType) as AchievementType,
         event_level: level as SportLevel,
         description: composeDescription(hostInstitution, description, isReserve),
-        // Either a storage PATH from the upload action or a link the learner
-        // pasted — never a link this page minted. See _actions/upload-certificate.ts.
-        certificate_url: certificatePointer || undefined,
+        // Only a link the learner pasted. An uploaded scan is attached AFTER
+        // this insert, by the server action, which authorizes the caller against
+        // the row it is attaching to — see _actions/upload-certificate.ts.
+        certificate_url: certificateUrl || undefined,
         // Never self-verified: only the accreditation / IQAC team may set this,
         // through the server action in _actions/verify-achievement.ts.
         verified: false,
@@ -422,15 +437,36 @@ function AddAchievementForm({
         // applied (see catch below).
         ...(category === 'sports' ? { sport } : { category, sport: null }),
       });
+
+      // The scan goes up only now that there is a row to attach it to — the
+      // action refuses anyone who is not that row's learner, the IQAC team, or
+      // an admin. A failure here is reported plainly rather than swallowed: the
+      // achievement is already saved, and the learner needs to know the evidence
+      // did not land with it.
+      let attachWarning = '';
+      if (certificateFile) {
+        const body = new FormData();
+        body.append('achievementId', created.id);
+        body.append('file', certificateFile);
+        const res = await uploadCertificate(body);
+        if (!res.ok) {
+          attachWarning = `Achievement saved, but the certificate did not attach: ${res.error ?? 'upload failed'} You can add it again as a link.`;
+        }
+      }
+
       setCategory('sports');
       setSport('');
       setEventName('');
       setHostInstitution('');
       setLevel('');
       setAchievementType('');
+      setTypeBeforeReserve('');
       setIsReserve(false);
       setDescription('');
-      setCertificatePointer('');
+      setCertificateUrl('');
+      setCertificateFile(null);
+      setCertificateError(null);
+      setError(attachWarning);
       onSuccess();
     } catch (err) {
       const msg =
@@ -624,8 +660,12 @@ function AddAchievementForm({
           </div>
 
           <CertificateUpload
-            value={certificatePointer}
-            onChange={setCertificatePointer}
+            url={certificateUrl}
+            file={certificateFile}
+            onUrlChange={setCertificateUrl}
+            onFileChange={setCertificateFile}
+            error={certificateError}
+            onError={setCertificateError}
             disabled={saving}
           />
 

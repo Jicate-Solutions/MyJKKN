@@ -4,84 +4,82 @@
 // ============================================================================
 // Certificate evidence picker for an achievement.
 //
-// The file is handed to the uploadCertificate server action, which stores it in
-// the repo's existing learner-document bucket (cdc-docs) and returns the storage
-// PATH — never an openable link. See that action for why the upload cannot run
-// from the browser (production storage RLS refuses a learner session) and why a
-// stored link would have been both an exposure and a document that expires after
-// a year. The link is minted per view, short-lived, by the certificate-link
-// action, for viewers who pass the D7 visibility rule.
+// The picker STAGES the file; it does not upload it. Nothing is written to
+// storage until the achievement row exists, because the upload action now
+// authorizes the caller against THAT row — owner, IQAC, or admin — and there is
+// no row to authorize against while the form is still being filled in. The page
+// creates the achievement first and then hands the staged file, with the new
+// row's id, to _actions/upload-certificate.ts.
 //
 // The typed-URL input stays available beside it: a certificate that already
 // lives in Drive or in a mail thread is still evidence, and if an upload is ever
 // refused the learner pastes a link instead of losing the record.
 // ============================================================================
 
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Upload, FileCheck2, X } from 'lucide-react';
-import { uploadCertificate } from '../_actions/upload-certificate';
 
 const MAX_BYTES = 5 * 1024 * 1024;
+const ALLOWED_MIME = [
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+];
 
 interface CertificateUploadProps {
-  /**
-   * Current certificate_url value: either a storage PATH written by the upload
-   * action, or a link the learner pasted. Never a link this component minted.
-   */
-  value: string;
-  onChange: (pointer: string) => void;
+  /** A link the learner pasted — stored verbatim on the row. */
+  url: string;
+  /** A file staged for upload after the achievement row is created. */
+  file: File | null;
+  onUrlChange: (url: string) => void;
+  onFileChange: (file: File | null) => void;
+  /** Surfaced by the parent so a rejected file explains itself in one place. */
+  error: string | null;
+  onError: (message: string | null) => void;
   disabled?: boolean;
 }
 
 export function CertificateUpload({
-  value,
-  onChange,
+  url,
+  file,
+  onUrlChange,
+  onFileChange,
+  error,
+  onError,
   disabled,
 }: CertificateUploadProps) {
-  const [uploading, setUploading] = useState(false);
-  const [uploadedName, setUploadedName] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0];
+    // Reset immediately so re-picking the same file fires onChange again.
+    e.target.value = '';
+    if (!picked) return;
+    onError(null);
 
-  async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError(null);
-
-    if (file.size > MAX_BYTES) {
-      setError('Certificate must be 5 MB or smaller.');
-      e.target.value = '';
+    if (picked.size === 0) {
+      onError('That file is empty.');
+      return;
+    }
+    if (picked.size > MAX_BYTES) {
+      onError('Certificate must be 5 MB or smaller.');
+      return;
+    }
+    // The same allowlist the server enforces — this only saves a round trip.
+    if (!ALLOWED_MIME.includes(picked.type)) {
+      onError('Upload a PDF, JPG, PNG or WebP file.');
       return;
     }
 
-    setUploading(true);
-    try {
-      const body = new FormData();
-      body.append('file', file);
-      const res = await uploadCertificate(body);
-      if (!res.ok || !res.path) {
-        setError(res.error ?? 'Upload failed. Paste a link to the certificate instead.');
-        return;
-      }
-      onChange(res.path);
-      setUploadedName(file.name);
-    } catch (err) {
-      setError(
-        `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      setUploading(false);
-      // Reset so re-picking the same file fires onChange again.
-      e.target.value = '';
-    }
+    onFileChange(picked);
+    onUrlChange('');
   }
 
   function clear() {
-    onChange('');
-    setUploadedName(null);
-    setError(null);
+    onFileChange(null);
+    onError(null);
   }
 
   return (
@@ -90,18 +88,18 @@ export function CertificateUpload({
         Certificate (optional — upload the scan, or paste a link)
       </Label>
 
-      {value ? (
+      {file ? (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
           <FileCheck2 className="h-4 w-4 text-emerald-600 shrink-0" />
           <span className="text-xs text-emerald-800 truncate flex-1">
-            {uploadedName ?? value}
+            {file.name}
           </span>
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={clear}
-            disabled={disabled || uploading}
+            disabled={disabled}
             className="h-6 px-1 text-emerald-700 hover:text-emerald-900"
           >
             <X className="h-3.5 w-3.5" />
@@ -111,24 +109,30 @@ export function CertificateUpload({
         <>
           <label className="flex items-center justify-center gap-2 h-9 rounded-md border border-dashed border-amber-300 bg-white text-xs font-medium text-amber-700 cursor-pointer hover:bg-amber-50">
             <Upload className="h-3.5 w-3.5" />
-            {uploading ? 'Uploading…' : 'Upload certificate (PDF or image)'}
+            Upload certificate (PDF or image)
             <input
               type="file"
               accept="image/*,application/pdf"
               className="hidden"
               onChange={handleFilePick}
-              disabled={disabled || uploading}
+              disabled={disabled}
             />
           </label>
           <Input
             type="url"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
+            value={url}
+            onChange={(e) => onUrlChange(e.target.value)}
             placeholder="…or paste a certificate link (https://…)"
             className="h-9 bg-white"
-            disabled={disabled || uploading}
+            disabled={disabled}
           />
         </>
+      )}
+
+      {file && (
+        <p className="text-[11px] text-gray-500">
+          Attached when you save this achievement.
+        </p>
       )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
