@@ -175,6 +175,11 @@ export const PERMISSION_CATEGORIES = [
       // not a note on a playbook — so it is an officer action (CEO / CAO / EAO), held
       // separately from board.manage. Board managers can SEE holders, not change them.
       { key: 'improvement.area_role.assign', label: 'Assign Department Role Holders (CEO / CAO / EAO)' },
+      // A department policy is an official institution document. Board managers may
+      // draft one with AI and read it; only the CEO / CAO / EAO may UPLOAD the real
+      // document or sign a draft off. Registered here so Role Management can grant it
+      // — an unregistered key is ungrantable and silently becomes super-admin-only.
+      { key: 'improvement.area_policy.approve', label: 'Upload / Approve Department Policy (CEO / CAO / EAO)' },
       { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
       { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
     ]

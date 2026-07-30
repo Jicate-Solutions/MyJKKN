@@ -96,6 +96,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/rcltp-review-chase?secret=${CRON_SECRET}",
+      "schedule": "26 20 * * *"
+    },
+    {
       "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
       "schedule": "37 21 * * *"
     },
