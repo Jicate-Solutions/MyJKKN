@@ -163,10 +163,23 @@ BEGIN
      AND v_raw ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
   THEN
     -- Only link to a submission that exists, so the FK can never reject a write
-    -- that succeeds today.
+    -- that succeeds today — AND only to one belonging to the same learner this
+    -- event is about.
+    --
+    -- That second predicate is what keeps definer rights safe. Without it the
+    -- lookup would resolve ANY submission on the platform, which turns the
+    -- trigger into a cross-tenant existence oracle (a caller learns whether a
+    -- guessed uuid is a submission by watching the column populate) and couples
+    -- the cascade across tenants: naming a foreign submission would let that
+    -- tenant's delete cascade away this event. Scoping to NEW.learner_id closes
+    -- both without giving back what INVOKER cost us — the link no longer depends
+    -- on whether the WRITER can see the row, only on whether the event and the
+    -- attempt describe the same learner, which is the only case the FK is
+    -- meaningful for anyway.
     SELECT s.id INTO v_link
       FROM public.pde_submissions s
-     WHERE s.id = v_raw::uuid;
+     WHERE s.id = v_raw::uuid
+       AND s.learner_id = NEW.learner_id;
   END IF;
 
   -- The column is STRICTLY DERIVED: after this trigger it is always exactly
@@ -335,12 +348,22 @@ BEGIN
   -- recomputed result is identical to what is already stored. Correctness is
   -- unchanged (the recompute still runs for every delete, so it can never be
   -- missed); only the pointless write disappears.
+  -- The predicate covers EVERY column the UPDATE below writes, not just the
+  -- headline score: a row that agrees on score/status but carries a stale
+  -- attempt_number, or claims 'demonstrated' with a NULL demonstrated_at, is NOT
+  -- identical and must still be repaired. IS NOT DISTINCT FROM throughout so a
+  -- NULL on either side compares equal instead of collapsing the whole predicate
+  -- to NULL and skipping the guard.
   IF EXISTS (
     SELECT 1 FROM public.pde_learner_capabilities lc
      WHERE lc.id = v_lc_id
-       AND lc.demonstration_score = v_best_score
-       AND lc.status = v_status
-       AND lc.demonstration_evidence ->> 'submission_id' = v_best_id::text
+       AND lc.demonstration_score IS NOT DISTINCT FROM v_best_score
+       AND lc.status IS NOT DISTINCT FROM v_status
+       AND (lc.demonstration_evidence ->> 'submission_id')
+             IS NOT DISTINCT FROM v_best_id::text
+       AND (lc.demonstration_evidence ->> 'attempt_number')
+             IS NOT DISTINCT FROM v_best_attempt::text
+       AND (lc.demonstrated_at IS NOT NULL) = (v_status = 'demonstrated')
   ) THEN
     RETURN OLD;
   END IF;
@@ -351,10 +374,19 @@ BEGIN
          demonstrated_at     = CASE WHEN v_status = 'demonstrated'
                                     THEN COALESCE(lc.demonstrated_at, now())
                                     ELSE NULL END,
-         -- MERGED onto the existing evidence, not built fresh. The scoring route
-         -- may write keys this trigger does not know about (course or context
-         -- fields added later); a wholesale jsonb_build_object would silently
-         -- drop every one of them on the first delete-triggered recompute.
+         -- MERGED onto the existing evidence, not built fresh. A wholesale
+         -- jsonb_build_object would silently drop any key the scoring route
+         -- writes that this trigger does not know about.
+         --
+         -- Merging can only add or overwrite, never remove, so the question is
+         -- whether an attempt-specific key could go stale. It cannot for
+         -- anything written today: the route's evidence object is exactly
+         -- {submission_id, attempt_number, domain_scores, total_score,
+         -- max_score, percentage, scored_at} (see side effect 2 in
+         -- app/api/pde/clinical-reasoning/score/route.ts) and all seven are
+         -- overwritten right here. A key neither the route nor this trigger
+         -- writes cannot be attempt-scoped by construction, so preserving it is
+         -- the safer default than deleting data whose meaning is unknown.
          demonstration_evidence = COALESCE(lc.demonstration_evidence, '{}'::jsonb)
            || jsonb_build_object(
            'submission_id',  v_best_id,
