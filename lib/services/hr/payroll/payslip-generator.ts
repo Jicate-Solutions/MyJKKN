@@ -117,7 +117,7 @@ export class PayslipGenerator {
       .select('staff_id, designation_id, cadre_id')
       .in('staff_id', staffIds);
 
-    if (hrDetailsErr) throw new Error(`Failed to load HR staff details: ${hrDetailsErr.message}`);
+    if (hrDetailsErr) throw new Error(`Failed to load HR team member details: ${hrDetailsErr.message}`);
 
     const hrMappingByStaffId = new Map<string, StaffHrMapping>();
     for (const d of (hrDetails ?? [])) {
