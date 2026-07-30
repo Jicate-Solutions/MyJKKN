@@ -19,14 +19,14 @@
 //   3. Every institution, with schools apart from colleges and the four
 //      non-teaching entities in their own collapsed group.
 //
-//   4. Working slice. Eleven metrics have real substrate and are wired; the
-//      remaining thirty-seven show the structure and say what is missing. Seeing
+//   4. Working slice. The metrics with real substrate are wired; the rest
+//      show the structure and say what is missing. Seeing
 //      the shape of the gap is the point — the CEO's framework had no
 //      representation here at all until now.
 //
 // A metric with no substrate renders as ONE spanning row rather than fourteen
 // identical "not captured yet" cells: the reason belongs to the metric, not to
-// each institution, and repeating it fourteen times buries the eleven rows that
+// each institution, and repeating it fourteen times buries the rows that
 // do carry numbers.
 // ============================================================================
 

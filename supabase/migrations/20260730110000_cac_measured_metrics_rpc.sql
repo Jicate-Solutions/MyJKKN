@@ -2,13 +2,13 @@
 -- Updated: 2026-07-30 — CAC measured metrics: one guarded read for the whole grid.
 --
 -- The Cluster Academic Council page grew a measured metrics section. The CEO's
--- July 2026 framework names 48 metrics; eleven of them have real per-institution
--- substrate today and are computed here. The other thirty-seven have no source,
+-- July 2026 framework names 48 metrics; the ones with real per-institution
+-- substrate today are computed here. The rest have no source,
 -- an empty source, or a cluster-wide-only source, and the page states that
 -- rather than rendering a zero — a zero reads as a measured bad result.
 --
 -- WHY ONE FUNCTION RATHER THAN CLIENT QUERIES
--- Fourteen institutions across eleven metrics is ~150 client round-trips, each
+-- Fourteen institutions across every wired metric is ~150 client round-trips, each
 -- paying RLS on a different table. One read returns the whole grid.
 --
 -- WHY IT TAKES NO ARGUMENTS
@@ -157,7 +157,7 @@ BEGIN
       AND ce.computed ? 'pass_percentage'
     -- The date cast is regex-guarded, and NOT because a bad row exists today
     -- (all 8 are well-formed, 0 nulls, verified 2026-07-30). It is because all
-    -- eleven metrics are one UNION inside one function: a single future row
+    -- wired metrics are one UNION inside one function: a single future row
     -- carrying exam_end_date = '' or 'TBD' would raise 22007 and take down the
     -- ENTIRE grid, not just pass percentage. A malformed date sorts last and
     -- costs one metric instead.
@@ -314,7 +314,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.fn_cac_measured_metrics() IS
-  'Per-institution values for the eleven CAC metrics with real substrate. Takes '
+  'Per-institution values for the CAC metrics with real substrate. Takes '
   'no arguments by design — identity and permission are derived internally, so '
   'there is nothing for a caller to forge. Gated on accreditation.cac.view.';
 

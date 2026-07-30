@@ -3,8 +3,8 @@
 // The measured half of the Cluster Academic Council page.
 //
 // One call to fn_cac_measured_metrics() returns every institution × metric pair
-// that has real substrate — eleven of the CEO's forty-eight. The other
-// thirty-seven are absent from the response ON PURPOSE: the catalog already
+// that has real substrate — a minority of the CEO's forty-eight. The rest
+// are absent from the response ON PURPOSE: the catalog already
 // records why each one has no number, and inventing empty rows here would let
 // the screen show a zero it cannot defend.
 //
@@ -57,9 +57,15 @@ export function indexMeasuredRows(rows: CacMeasuredRow[]): CacMetricIndex {
 /**
  * Which metrics came back with a value for at least one institution.
  *
- * The page prints this rather than a hardcoded "11 of 48": if a nightly job
- * fails and a metric stops returning, the header should drop to 10 by itself
- * instead of continuing to claim a number the grid no longer shows.
+ * The page prints this rather than a hardcoded "N of 48": if a nightly job
+ * fails and a metric stops returning, the header should fall by itself instead
+ * of continuing to claim a number the grid no longer shows.
+ *
+ * The same reasoning is why no comment in this module states how many metrics
+ * are wired. That count changed once already — parent engagement was dropped on
+ * 2026-07-30 once it turned out to be measuring provisioned accounts rather than
+ * engagement — and every comment naming it went stale in the same commit while
+ * the runtime stayed correct, because the runtime derives it and prose cannot.
  */
 export function metricsWithData(rows: CacMeasuredRow[]): Set<string> {
   return new Set(
