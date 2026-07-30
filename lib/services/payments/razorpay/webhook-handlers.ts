@@ -27,8 +27,10 @@ type ServiceClient = ReturnType<typeof createServiceRoleClient>;
  * the registry rather than compared to a hardcoded list — that way a newly
  * registered module routes without touching this function.
  */
-function moduleFromNotes(payment: any, order: any): PaymentModule | undefined {
-  const notesModule = payment?.notes?.module ?? order?.notes?.module;
+function moduleFromNotes(payment: any, order: any, qrCode?: any): PaymentModule | undefined {
+  // On a qr_code.credited payload the notes live on the QR entity — the payment
+  // entity's notes may be empty — so that is a third place to look.
+  const notesModule = payment?.notes?.module ?? order?.notes?.module ?? qrCode?.notes?.module;
   return isPaymentModule(notesModule) ? notesModule : undefined;
 }
 
@@ -66,6 +68,9 @@ export async function dispatchRazorpayWebhook(
     case 'payment.failed':
       await handlePaymentFailed(supabase, payload);
       break;
+    case 'qr_code.credited':
+      await handleQrCodeCredited(supabase, payload);
+      break;
     case 'refund.created':
     case 'refund.processed':
     case 'refund.failed':
@@ -100,10 +105,14 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
   const cfg = WEBHOOK_MODULES[mod];
   const table = cfg.table;
 
+  // Order-less modules (QR collection) have no such column — querying it would be
+  // meaningless. Their credit arrives as qr_code.credited instead.
+  if (!cfg.orderIdColumn) return;
+
   const { data: existing } = await (supabase as any)
     .from(table)
     .select('id, status')
-    .eq('razorpay_order_id', orderId)
+    .eq(cfg.orderIdColumn, orderId)
     .single();
   if (!existing) {
     logger.warn('webhook/razorpay', 'payment.captured: order not found', { table, orderId });
@@ -154,6 +163,119 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
   );
 }
 
+/**
+ * A QR was paid.
+ *
+ * Differs from payment.captured in three ways that matter:
+ *   - the payment entity carries NO order_id, so the row is found by qr_code id;
+ *   - the module note lives on the QR entity, not necessarily on the payment;
+ *   - this handler records the money and stops. It does NOT book the sale.
+ *
+ * That last point is deliberate. Booking a sale runs ims_pos_checkout, which
+ * derives the cashier from auth.uid() — and a webhook has no session. Rather than
+ * weaken that guard with a service-role actor override, the cashier's own polling
+ * request books the sale, because that request DOES carry a session. The webhook's
+ * only job is to make "the money arrived" a fact the poll can act on.
+ */
+async function handleQrCodeCredited(supabase: ServiceClient, payload: any) {
+  const qr = payload?.payload?.qr_code?.entity;
+  const payment = payload?.payload?.payment?.entity;
+  if (!qr || !payment) return;
+
+  const mod = moduleFromNotes(payment, null, qr);
+  if (!mod) {
+    logger.warn('webhook/razorpay', 'qr_code.credited: module note missing — cannot route', { qrId: qr.id });
+    return;
+  }
+
+  const cfg = WEBHOOK_MODULES[mod];
+  if (!cfg.qrCodeIdColumn) {
+    logger.warn('webhook/razorpay', 'qr_code.credited: module does not collect by QR', { mod });
+    return;
+  }
+
+  // Prefer our own id from the notes: it survives the window where Razorpay
+  // accepted the QR but our follow-up write of razorpay_qr_code_id failed.
+  const ownId: string | undefined = qr?.notes?.gateway_payment_id;
+  let query = (supabase as any).from(cfg.table).select('id, status, amount_paise');
+  query = ownId ? query.eq('id', ownId) : query.eq(cfg.qrCodeIdColumn, qr.id);
+
+  const { data: existing } = await query.maybeSingle();
+  if (!existing) {
+    logger.warn('webhook/razorpay', 'qr_code.credited: payment row not found', {
+      table: cfg.table, qrId: qr.id, ownId,
+    });
+    return;
+  }
+
+  // Anti-replay — Razorpay retries, and a second credit must not overwrite a
+  // resolved amount_mismatch.
+  if (cfg.terminalStatuses.includes(existing.status)) {
+    logger.info('webhook/razorpay', 'qr_code.credited: already terminal — skipping', {
+      id: existing.id, status: existing.status,
+    });
+    return;
+  }
+
+  const capturedPaise = Number(payment.amount ?? 0);
+
+  // The amount actually captured must match the bill. On a mismatch we record the
+  // discrepancy and book NOTHING — a human decides, because the alternatives are
+  // charging the customer the wrong amount or handing over goods unpaid for.
+  if (capturedPaise !== Number(existing.amount_paise)) {
+    await (supabase as any).from(cfg.table).update({
+      status: 'amount_mismatch',
+      razorpay_payment_id: payment.id,
+      captured_amount_paise: capturedPaise,
+      gateway_response: payload,
+      updated_at: new Date().toISOString(),
+    }).eq('id', existing.id);
+
+    logger.error('webhook/razorpay', 'qr_code.credited: captured amount does not match the bill', {
+      id: existing.id, expectedPaise: existing.amount_paise, capturedPaise,
+    });
+    await PaymentAuditService.logAmountMismatch(
+      existing.id,
+      'unknown', // no learner on a counter sale
+      'unknown',
+      Number(existing.amount_paise) / 100,
+      capturedPaise / 100,
+      undefined,
+      { source: 'razorpay_webhook', event: 'qr_code.credited', razorpay_payment_id: payment.id },
+    );
+    return;
+  }
+
+  // Honour a late credit. Razorpay's close_by is authoritative over our own expiry:
+  // if the money arrived, we received it, and refusing it would leave a customer who
+  // has paid facing a counter that says otherwise.
+  const isLate = existing.status === 'expired';
+
+  const { error: updErr } = await (supabase as any).from(cfg.table).update({
+    status: 'paid',
+    razorpay_payment_id: payment.id,
+    captured_amount_paise: capturedPaise,
+    paid_at: payment.created_at
+      ? new Date(payment.created_at * 1000).toISOString()
+      : new Date().toISOString(),
+    late_credit: isLate,
+    gateway_response: payload,
+    updated_at: new Date().toISOString(),
+  }).eq('id', existing.id);
+
+  if (updErr) {
+    logger.error('webhook/razorpay', 'qr_code.credited: failed to mark paid', {
+      id: existing.id, error: updErr,
+    });
+    return;
+  }
+
+  await PaymentAuditService.logVerificationSuccess(
+    existing.id, 'unknown', 'unknown', capturedPaise / 100,
+    { source: 'razorpay_webhook', event: 'qr_code.credited', razorpay_payment_id: payment.id },
+  );
+}
+
 async function handlePaymentAuthorized(supabase: ServiceClient, payload: any) {
   const payment = payload?.payload?.payment?.entity;
   const order = payload?.payload?.order?.entity;
@@ -163,7 +285,9 @@ async function handlePaymentAuthorized(supabase: ServiceClient, payload: any) {
 
   const mod = moduleFromNotes(payment, order);
   if (!mod) return;
-  const table = WEBHOOK_MODULES[mod].table;
+  const cfgA = WEBHOOK_MODULES[mod];
+  if (!cfgA.orderIdColumn) return;   // order-less module (QR) — nothing to update
+  const table = cfgA.table;
 
   // Authorized but not yet captured. We auto-capture via payment_capture=1 so this is
   // usually transient — log it but do not finalize status.
@@ -171,7 +295,7 @@ async function handlePaymentAuthorized(supabase: ServiceClient, payload: any) {
     razorpay_payment_id: payment.id,
     status: 'processing',
     gateway_response: payload,
-  }).eq('razorpay_order_id', orderId);
+  }).eq(cfgA.orderIdColumn, orderId);
 }
 
 async function handlePaymentFailed(supabase: ServiceClient, payload: any) {
@@ -184,6 +308,7 @@ async function handlePaymentFailed(supabase: ServiceClient, payload: any) {
   const mod = moduleFromNotes(payment, order);
   if (!mod) return;
   const cfg = WEBHOOK_MODULES[mod];
+  if (!cfg.orderIdColumn) return;   // order-less module (QR) — nothing to update
   const table = cfg.table;
 
   const failedUpdate: Record<string, unknown> = {
@@ -196,7 +321,7 @@ async function handlePaymentFailed(supabase: ServiceClient, payload: any) {
   const { error: failedUpdateError } = await (supabase as any)
     .from(table)
     .update(failedUpdate)
-    .eq('razorpay_order_id', orderId);
+    .eq(cfg.orderIdColumn, orderId);
   if (failedUpdateError) {
     logger.error('webhook/razorpay', 'payment.failed: failed to update transaction row', {
       table,

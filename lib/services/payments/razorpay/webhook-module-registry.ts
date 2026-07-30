@@ -24,8 +24,17 @@ import type { createServiceRoleClient } from '@/lib/supabase/server';
 export type WebhookServiceClient = ReturnType<typeof createServiceRoleClient>;
 
 export interface WebhookModuleConfig {
-  /** Table holding this module's gateway transactions, keyed by razorpay_order_id. */
+  /** Table holding this module's gateway transactions. */
   table: string;
+  /**
+   * Column holding the Razorpay ORDER id, for modules that collect through orders
+   * (hosted checkout). Undefined for order-less flows: a QR-code payment carries no
+   * order_id at all, so the order-keyed handlers must skip such a module rather than
+   * query a column that does not exist.
+   */
+  orderIdColumn?: string;
+  /** Column holding the Razorpay QR-code id, for modules that collect by QR. */
+  qrCodeIdColumn?: string;
   /**
    * Statuses that already represent a finished payment. A webhook arriving for a
    * row in one of these is a replay (Razorpay retries) and must be ignored, or the
@@ -52,6 +61,7 @@ export interface WebhookModuleConfig {
 export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
   billing: {
     table: 'payment_transactions',
+    orderIdColumn: 'razorpay_order_id',
     terminalStatuses: ['success', 'refunded'],
     capturedExtraColumns: (payment, capturedAtIso) => ({
       payment_date: capturedAtIso,
@@ -86,6 +96,7 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
 
   events: {
     table: 'event_payment_transactions',
+    orderIdColumn: 'razorpay_order_id',
     terminalStatuses: ['success', 'refunded'],
     onCaptured: async (supabase, rowId) => {
       // Mark the linked registration paid (mirror the callback success side-effect).
@@ -101,6 +112,21 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
           .eq('id', txn.registration_id);
       }
     },
+  },
+
+  ims: {
+    // Counter sales. Collected by QR, so there is NO order id — the order-keyed
+    // handlers (payment.captured / authorized / failed) skip this module and the
+    // credit arrives as qr_code.credited instead.
+    table: 'ims_gateway_payments',
+    qrCodeIdColumn: 'razorpay_qr_code_id',
+    // 'paid' means Razorpay reported the credit. amount_mismatch is terminal too:
+    // it needs a human, and must never be quietly overwritten by a retry.
+    terminalStatuses: ['paid', 'amount_mismatch', 'cancelled'],
+    // No onCaptured. The sale is booked by the CASHIER'S poll, not here — that
+    // request carries a real session, so ims_pos_checkout's auth.uid() guard holds
+    // and nothing needs a service-role bypass. The webhook's job is only to record
+    // that the money arrived.
   },
 };
 
