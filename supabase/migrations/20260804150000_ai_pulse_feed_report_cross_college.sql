@@ -28,18 +28,31 @@
 --       RAISE EXCEPTION 'cross_institution';
 --     END IF;
 --
--- That guard is correct for the graduated library, which is same-institution
--- scoped. It is WRONG for the feed. fn_ai_pulse_topic_peer_prompts matches the
+-- That guard is WRONG for the feed. fn_ai_pulse_topic_peer_prompts matches the
 -- same subject BY NAME ACROSS ALL JKKN COLLEGES (no institution scope), and every
 -- learner additionally sees the shared 'global' All-JKKN shelf. So on most feed
 -- items the new report button would raise 'cross_institution' — a decorative
 -- control that fails exactly when it is needed.
 --
+-- CORRECTION (2026-07-30, from adversarial review of an earlier draft of this
+-- migration): an earlier version of this header claimed the guard "is correct for
+-- the graduated library, which is same-institution scoped". THAT WAS FALSE and it
+-- was load-bearing, so it is called out rather than quietly edited.
+-- fn_ai_pulse_topic_graduated_prompts has NO institution predicate at all — its own
+-- body comment reads "Match the SAME subject by NAME across ALL colleges (no
+-- institution scope)" (verified live with pg_get_functiondef). The library is just
+-- as cross-college as the feed. Two consequences followed, and both are handled:
+--   (a) the guard was already wrong for the library too — it refused reports on
+--       prompts a learner legitimately saw; and
+--   (b) far more importantly, removing it BLANKET-style reached a LIVE surface, so
+--       the removal is now conditional on graduated_at (see the guard below).
+--
 -- Safeguarding needs the OPPOSITE of that guard. The platform serves school
 -- learners (LKG upward). A school child who sees an inappropriate prompt written
 -- by a college learner is precisely the person who must be able to report it.
 --
--- => This migration removes ONLY the cross-institution refusal.
+-- => This migration removes the cross-institution refusal FOR NON-GRADUATED (feed)
+--    BUILDS ONLY. For a graduated build the original rule stands, byte-for-byte.
 --
 -- WHAT IS DELIBERATELY UNCHANGED (every other guard is carried over byte-for-byte)
 -- -----------------------------------------------------------------------------
@@ -53,20 +66,37 @@
 --
 -- THE TRADEOFF, STATED NOT HIDDEN
 -- -----------------------------------------------------------------------------
--- Dropping the institution check means a learner could in principle report a
--- build id they never saw — the function no longer proves the reporter had
--- visibility of the target. That is accepted here because:
+-- Dropping the institution check for non-graduated builds means a learner could in
+-- principle report a FEED-lane build id they never saw — the function no longer
+-- proves the reporter had visibility of such a target. That residual risk is
+-- accepted because:
 --   1. build ids are UUIDs, so the target set is not enumerable in practice; and
---   2. post-PR2 (20260804120000) a report has NO AUTOMATIC CONSEQUENCE. It does
---      not hide the prompt, does not touch the author's score, and does not
---      notify the author. It only queues a decision for a human champion. The
---      worst case is champion-queue noise, not censorship or harm to an author.
+--   2. on the FEED lane specifically, post-20260804120000 a report has no automatic
+--      consequence: it does not hide the prompt, does not touch the author's score,
+--      and does not notify the author. It only queues a decision for a human
+--      champion. Worst case is champion-queue noise, not censorship.
 --
--- NOTED FOLLOW-UP, NOT BUILT NOW: if the Director later wants this tighter, the
--- next step is to require the target be FEED-ELIGIBLE (safety_status = 'passed',
--- score in the 60-79 band, graduated_at IS NULL, disqualified_at IS NULL) rather
--- than to reinstate the institution check — eligibility preserves cross-college
--- safeguarding while restoring a visibility proxy. Explicitly out of scope here.
+-- ⚠️ THAT SECOND REASON IS TRUE ONLY FOR THE FEED LANE, WHICH IS WHY THE GUARD IS
+-- CONDITIONAL. An earlier draft of this migration stated it unconditionally and was
+-- WRONG: 20260804120000 removed auto-hide from the FEED read only. The graduated
+-- LIBRARY read still hides any build with >= prompt_report_autohide_threshold
+-- (live value 2) distinct uncleared reports, and the library is LIVE
+-- (prompt_graduation_enabled = true) and NOT gated by the dark-feed flag. Under the
+-- blanket removal, two learners from any colleges could silently un-publish another
+-- college's graduated star by id — real censorship, no champion in the loop.
+-- Adversarial review proved it against prod in a rolled-back txn
+-- (visible_before = 1 -> visible_after = 0). The graduated_at condition on the guard
+-- below is what closes it; the library keeps exactly the blast radius it has today.
+--
+-- NOTED FOLLOW-UPS, NOT BUILT NOW:
+--   * Tighter still for the feed lane: require full FEED-ELIGIBILITY
+--     (safety_status = 'passed', score in the 60-79 band, disqualified_at IS NULL)
+--     to restore a visibility proxy. NOTE this must stay lane-conditional too — a
+--     blanket non-graduated requirement would BREAK shared-library-card.tsx, which
+--     reports graduated builds through this same rpc.
+--   * The library's auto-hide is itself an "automatic consequence" that Director
+--     decision #3 rejected for the feed. Whether the library should also move to
+--     champion-decides is a Director call, deliberately NOT made here.
 --
 -- BASE = the LIVE PRODUCTION body, pulled with pg_get_functiondef(p.oid) on
 -- 2026-07-30 from project kvizhngldtiuufknvehv. It is NOT rebuilt from the
@@ -94,6 +124,7 @@ DECLARE
   v_inst          uuid;
   v_build_learner uuid;
   v_build_inst    uuid;
+  v_build_graduated timestamptz;   -- NULL => a FEED candidate; NOT NULL => a LIBRARY star
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'not authenticated' USING ERRCODE = '42501';
@@ -107,7 +138,8 @@ BEGIN
   END IF;
 
   -- Target build: must exist.
-  SELECT b.learner_id, b.institution_id INTO v_build_learner, v_build_inst
+  SELECT b.learner_id, b.institution_id, b.graduated_at
+    INTO v_build_learner, v_build_inst, v_build_graduated
   FROM ai_pulse_prompt_builds b WHERE b.id = p_build_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'build_not_found';
@@ -118,15 +150,38 @@ BEGIN
     RAISE EXCEPTION 'cannot_report_own_build';
   END IF;
 
-  -- NO cross-institution refusal (removed 2026-07-30, Director: "add a report
-  -- button to the feed"). The classmates feed matches subjects BY NAME across ALL
-  -- colleges and every learner also sees the shared 'global' shelf, so the old
-  -- `IF v_build_inst IS DISTINCT FROM v_inst THEN RAISE 'cross_institution'` made
-  -- the feed's report control throw on most items. Safeguarding requires the
-  -- opposite: a school learner MUST be able to report a college learner's prompt.
-  -- v_inst / v_build_inst are still resolved above (left untouched, so this diff
-  -- is exactly the guard removal) and remain available should a future decision
-  -- reintroduce an institution-aware rule.
+  -- Cross-institution reporting is allowed for FEED candidates ONLY (a build that
+  -- has NOT graduated). For a GRADUATED build the original same-institution rule
+  -- still applies, unchanged.
+  --
+  -- WHY THE ASYMMETRY (this is the whole point of this migration, do not "simplify"
+  -- it away). This ONE rpc serves TWO surfaces:
+  --   * the classmates FEED (fn_ai_pulse_topic_peer_prompts, non-graduated builds)
+  --     — DARK, and after 20260804120000 a report there has NO automatic effect:
+  --     it only queues a champion decision. Cross-college reporting is therefore
+  --     safe, and it is REQUIRED, because the feed matches subjects BY NAME across
+  --     ALL colleges and every learner also sees the shared 'global' shelf — so
+  --     without this the new report control would raise 'cross_institution' on most
+  --     items. Safeguarding needs the opposite: a school learner MUST be able to
+  --     report a college learner's prompt.
+  --   * the graduated LIBRARY (fn_ai_pulse_topic_graduated_prompts) — LIVE TODAY
+  --     (prompt_graduation_enabled = true) and it STILL auto-hides any build with
+  --     >= prompt_report_autohide_threshold (live value 2) distinct uncleared
+  --     reports. No migration in this wave changes that.
+  -- So dropping the institution check for GRADUATED builds would convert
+  -- "2 reports from any two colleges" into a cross-college un-publish button on a
+  -- live surface, with no champion in the loop and no kill switch containing it
+  -- (the dark-feed flag does not gate the library). Proven, then closed by the
+  -- clause below. Keeping the rule for graduated builds leaves the library's blast
+  -- radius EXACTLY as it is in production today — this migration widens nothing.
+  --
+  -- Requiring full feed-eligibility instead (graduated_at IS NULL AND score 60-79)
+  -- was rejected: shared-library-card.tsx reports graduated builds through this
+  -- same rpc, so a blanket non-graduated requirement would BREAK the library's
+  -- existing report control — a regression on a live surface.
+  IF v_build_graduated IS NOT NULL AND v_build_inst IS DISTINCT FROM v_inst THEN
+    RAISE EXCEPTION 'cross_institution';
+  END IF;
 
   -- Record the flag; dedup one per learner per build.
   INSERT INTO ai_pulse_prompt_build_reports (build_id, reporter_profile_id, reason)
