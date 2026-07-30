@@ -676,7 +676,14 @@ export class LearnerProfileService {
       .single() as { data: LearnerProfile | null; error: any };
 
     if (error) {
-      console.error('[learner-profile-service] Error creating learner profile:', error);
+      // Bake the Postgrest error's own fields into the LOG STRING itself
+      // (not just a second console.error arg) — the Next.js dev overlay was
+      // rendering the raw error object as an empty "{}", hiding the real
+      // message/code/details/hint from view.
+      console.error(
+        `[learner-profile-service] Error creating learner profile: ${error.message ?? 'unknown'} ` +
+          `(code: ${error.code ?? 'n/a'}, details: ${error.details ?? 'n/a'}, hint: ${error.hint ?? 'n/a'})`,
+      );
       throw error;
     }
 
