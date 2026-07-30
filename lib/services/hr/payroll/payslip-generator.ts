@@ -120,7 +120,6 @@ export class PayslipGenerator {
     const staffIds = (staffList as StaffPayInfo[]).map((s) => s.id);
     const HR_DETAILS_CHUNK = 100;
     const hrMappingByStaffId = new Map<string, StaffHrMapping>();
-    let hrDetailsError: string | null = null;
 
     for (let i = 0; i < staffIds.length; i += HR_DETAILS_CHUNK) {
       const { data: hrDetails, error: hrDetailsErr } = await (supabase as any)
@@ -128,12 +127,13 @@ export class PayslipGenerator {
         .select('staff_id, designation_id, cadre_id')
         .in('staff_id', staffIds.slice(i, i + HR_DETAILS_CHUNK));
 
-      // Degrade the way the staff query above does, rather than throwing. A transient
-      // read failure should still hand HR a reportable skip list instead of killing the
-      // whole run — throwing here would reintroduce the failure mode this fix removes.
+      // Abort the whole run if any chunk fails to read. Carrying on would generate
+      // payslips for the people whose chunk already loaded and skip everyone after —
+      // a PARTIAL payroll run that reports success. A failed run is obvious and
+      // recoverable; a partial one is not obvious until somebody is paid twice on the
+      // rerun. This is the one place where failing loudly beats degrading.
       if (hrDetailsErr) {
-        hrDetailsError = hrDetailsErr.message;
-        break;
+        throw new Error(`Failed to load HR team member details: ${hrDetailsErr.message}`);
       }
 
       // staff_id is the PRIMARY KEY of hr_staff_details, so one row per person: no
@@ -201,12 +201,10 @@ export class PayslipGenerator {
         result.errors.push({
           staff_id: staff.id,
           name,
-          // Backing table for this reason is hr_staff_details. Distinguish "the record is
-          // genuinely absent" from "we could not read the records at all" — the first is
-          // HR's to fix, the second is a retry.
-          reason: hrDetailsError
-            ? `HR records could not be read (${hrDetailsError}) — rerun once resolved`
-            : 'No HR record for this team member — create one and set designation/cadre',
+          // Backing table for this reason is hr_staff_details. Reaching here always means
+          // the record is genuinely absent: a failed read aborts the run above, so this
+          // reason can never stand in for "we could not read the records".
+          reason: 'No HR record for this team member — create one and set designation/cadre',
         });
         continue;
       }
