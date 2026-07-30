@@ -14,6 +14,34 @@ export interface RazorpayOrder {
   created_at: number;            // unix seconds
 }
 
+/**
+ * A Razorpay-hosted UPI QR code (POST /v1/payments/qr_codes).
+ *
+ * Unlike an order, a QR is a standing collection instrument: the customer scans it
+ * with any UPI app and Razorpay credits it, announcing the payment through the
+ * `qr_code.credited` webhook. There is no order_id on the resulting payment, so it
+ * is tracked by `id` (qr_XXXXX) rather than by order.
+ */
+export interface RazorpayQrCode {
+  id: string;                    // qr_XXXXX
+  entity: 'qr_code';
+  created_at: number;            // unix seconds
+  name: string;
+  usage: 'single_use' | 'multiple_use';
+  type: 'upi_qr' | 'bharat_qr';
+  image_url: string;
+  payment_amount: number | null; // paise; null when fixed_amount is false
+  status: 'active' | 'closed';
+  description: string | null;
+  fixed_amount: boolean;
+  payments_amount_received: number;
+  payments_count_received: number;
+  notes: Record<string, string>;
+  close_by: number | null;       // unix seconds
+  closed_at: number | null;
+  close_reason: 'on_demand' | 'paid' | 'completed' | null;
+}
+
 export interface RazorpayPayment {
   id: string;                    // pay_XXXXX
   entity: 'payment';
