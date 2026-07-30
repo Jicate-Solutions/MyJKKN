@@ -362,7 +362,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
             name="quota_id"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Quota</FormLabel>
+                <FormLabel>
+                  Quota <span className="text-red-500">*</span>
+                </FormLabel>
                 <Select onValueChange={field.onChange} value={field.value || ''}>
                   <FormControl>
                     <SelectTrigger>
@@ -1041,13 +1043,15 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
-        {/* Regulation - OPTIONAL */}
+        {/* Regulation */}
         <FormField
           control={form.control}
           name="regulation_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Regulation</FormLabel>
+              <FormLabel>
+                Regulation <span className="text-red-500">*</span>
+              </FormLabel>
               <Select
                 onValueChange={field.onChange}
                 value={field.value || ''}
@@ -1055,7 +1059,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
               >
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select regulation (optional)" />
+                    <SelectValue placeholder="Select regulation" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
@@ -1077,7 +1081,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                The regulation under which the student is admitted (optional)
+                The regulation under which the student is admitted
               </FormDescription>
               <FormMessage />
             </FormItem>
