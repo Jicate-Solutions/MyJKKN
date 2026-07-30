@@ -25,7 +25,12 @@
 //   * fn_ai_pulse_report_prompt_build(p_build_id, p_reason)
 //       the learner "report this prompt" safety valve added in
 //       20260726034212_ai_pulse_prompt_build_reports.sql (learner flags, a
-//       champion later disqualifies). Refuses self-report + cross-institution.
+//       champion later decides). Refuses self-report. It ALSO refused
+//       cross-institution reports until 20260804150000 removed that guard so the
+//       cross-college classmates feed could be reported too — see that migration.
+//       Used by BOTH learner surfaces: the graduated library card and (since
+//       2026-07-30, Director: "add a report button to the feed") the classmates
+//       feed card.
 //
 // Topic sourcing: the graduated read is per-topic, so we first resolve the
 // learner's OWN topics via fn_ai_pulse_my_topics (their subject(s) + programme),
@@ -147,6 +152,11 @@ export function useSharedLibrary(cycleId?: string | null): UseQueryResult<Gradua
 export function reportErrorMessage(e: Error): string {
   const m = e?.message ?? '';
   if (m.includes('cannot_report_own_build')) return 'You can’t report your own prompt.';
+  // RETAINED ON PURPOSE even though 20260804150000 removes the RPC's
+  // cross-institution refusal: that migration is not applied everywhere yet, so
+  // until it is, a cross-college report still raises this and the learner must
+  // see a sentence rather than the generic fallback. Safe to delete once the
+  // migration is live in every environment.
   if (m.includes('cross_institution')) return 'That prompt isn’t from your institution.';
   if (m.includes('not_a_learner')) return 'Reporting is for learners — open it from a learner account.';
   if (m.includes('build_not_found')) return 'That prompt is no longer available.';
