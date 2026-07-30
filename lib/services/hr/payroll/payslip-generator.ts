@@ -146,6 +146,15 @@ export class PayslipGenerator {
       }
     }
 
+    // This runs on the caller's RLS-scoped client, and hr_staff_details is tenant-gated
+    // by `hr_organization_id = auth_hr_organization_id()`, which reads the caller's row
+    // in user_hr_access. An operator without such a row gets ZERO rows and NO error.
+    // So an empty map is ambiguous — it means either "nobody here has a record" or
+    // "you are not allowed to see them" — and the two demand opposite actions. Never
+    // tell HR to create a record in the ambiguous case: if the record already exists,
+    // the create fails on hr_staff_details' primary key and the worklist is a dead end.
+    const hrDetailsUnreadable = hrMappingByStaffId.size === 0 && staffIds.length > 0;
+
     // 4. Load pay scales for the institution (keyed by designation_id)
     const { data: payScales } = await (supabase as any)
       .from('hr_pay_scales')
@@ -201,10 +210,10 @@ export class PayslipGenerator {
         result.errors.push({
           staff_id: staff.id,
           name,
-          // Backing table for this reason is hr_staff_details. Reaching here always means
-          // the record is genuinely absent: a failed read aborts the run above, so this
-          // reason can never stand in for "we could not read the records".
-          reason: 'No HR record for this team member — create one and set designation/cadre',
+          // Backing table for this reason is hr_staff_details.
+          reason: hrDetailsUnreadable
+            ? 'HR records are not visible to this account — grant it HR organisation access, then rerun. Do not create records until then; they may already exist.'
+            : 'No HR record for this team member — create one and set designation/cadre',
         });
         continue;
       }
