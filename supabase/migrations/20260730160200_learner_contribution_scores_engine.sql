@@ -99,6 +99,20 @@ CREATE POLICY lcs_service_all ON public.learner_contribution_scores
 -- to NULL denies here, but the same shape in an IF/NOT guard FALLS THROUGH AND
 -- GRANTS. That exact asymmetry produced the anon write hole fixed on 2026-07-30
 -- in fn_update_recruitment_step_comment. COALESCE makes every term fail closed.
+--
+-- `institution_id IS NOT NULL` is the second half of that same defence, and it is
+-- NOT redundant with the COALESCE. Measured on prod 2026-07-30:
+--   SELECT role_has_institution_access(NULL) -> TRUE
+-- because the helper reads a NULL institution as a system-wide record. So on a
+-- row with NULL institution_id the COALESCE never fires — it is wrapping a
+-- genuine TRUE, not a NULL — and ANY authenticated user in ANY college holding
+-- `learners.contribution.view` could read that row across the tenant boundary.
+-- institution_id is nullable here because the compute RPC copies it straight
+-- from `learners_profiles.institution_id`, which is itself nullable. Today no
+-- active learner has a NULL institution (0 of 4,342), so this is latent rather
+-- than live — which is exactly why it must be closed now, while it costs one
+-- clause instead of an incident. A row with no institution is readable by super
+-- admin / admin only.
 CREATE POLICY lcs_admin_select ON public.learner_contribution_scores
   FOR SELECT TO authenticated
   USING (
@@ -106,6 +120,7 @@ CREATE POLICY lcs_admin_select ON public.learner_contribution_scores
     OR COALESCE(is_admin(), false)
     OR (
       COALESCE(user_has_permission('learners.contribution.view'), false)
+      AND institution_id IS NOT NULL
       AND COALESCE(role_has_institution_access(institution_id), false)
     )
   );
