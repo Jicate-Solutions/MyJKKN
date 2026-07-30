@@ -45,6 +45,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
@@ -67,6 +68,13 @@ const LEARNERS_PER_JOB = 10;
 /** Cohorts enqueued per run — a steady nightly drip, risk-tier first. */
 const MAX_JOBS_PER_RUN = 20;
 const COLLECT_CAP = 50;
+/** Upper bound on the day's risk rows pulled per run (prod carries 4,342). */
+const RISK_FETCH_CAP = 10000;
+/**
+ * Below this many learners a cohort has no meaningful peer group, so the
+ * comparative admin note is suppressed rather than fabricated against 1-2 peers.
+ */
+const MIN_COHORT_FOR_RANK = 4;
 /** Highest-signal learners first: a narrative matters most where risk is real. */
 const TIER_ORDER: Record<string, number> = {
   critical: 0,
@@ -80,6 +88,14 @@ interface VerdictContext {
   institution_id: string;
   /** label ("L1") -> learner uuid. The prompt never carries a learner name. */
   label_map: Record<string, string>;
+  /**
+   * The submit-side date this cohort was computed for, carried through so the
+   * COLLECT leg stamps the same day the done-check used. Without it COLLECT
+   * would fall back to Postgres CURRENT_DATE while SUBMIT used the JS UTC date,
+   * and a tick either side of midnight could file a verdict against a different
+   * day than the one that decided the learner still needed one.
+   */
+  verdict_date?: string;
 }
 
 // ── collect ────────────────────────────────────────────────────────────────
@@ -110,6 +126,12 @@ async function collectVerdicts(
         ? (item.message.content[0] as { text: string }).text
         : null;
 
+    // A cohort too small to have a peer group gets no comparative note, however
+    // confidently the model wrote one — "among the most involved in their
+    // cohort" against one other learner is a fabricated ranking.
+    const cohortSize = Object.keys(ctx.label_map).length;
+    const rankMeaningful = cohortSize >= MIN_COHORT_FOR_RANK;
+
     // parseVerdicts maps each label back to the uuid THIS job submitted, so a
     // hallucinated label simply produces no row.
     for (const v of parseVerdicts(text, ctx.label_map)) {
@@ -120,8 +142,9 @@ async function collectVerdicts(
         p_standing_narrative: v.standing_narrative,
         p_next_actions: v.next_actions,
         p_contribution_summary: v.contribution_summary,
-        p_value_rank_note: v.value_rank_note,
+        p_value_rank_note: rankMeaningful ? v.value_rank_note : null,
         p_model: MODEL_TAG,
+        ...(ctx.verdict_date ? { p_verdict_date: ctx.verdict_date } : {}),
       });
       if (error) {
         console.error(
@@ -176,12 +199,20 @@ export async function GET(request: NextRequest) {
   let candidates = 0;
   let submitError: string | null = null;
 
+  // ORDER + LIMIT are server-side on purpose. Measured on prod 2026-07-30 this
+  // filter returns all 4,342 rows uncapped, so nothing is being truncated today
+  // — but the JS sort below would be ranking whatever subset arrived if a row
+  // cap (PostgREST db-max-rows) were ever configured. Ordering by risk score in
+  // the DB makes that failure mode benign: a cap would drop the HEALTHIEST
+  // learners, never the critical ones this loop exists to reach.
   const { data: riskRows, error: riskErr } = await admin
     .from('learner_risk_assessments')
     .select(
       'learner_id, institution_id, composite_risk_score, risk_tier, confidence, dimension_scores, risk_factors, recommended_actions, trend_direction',
     )
-    .eq('assessment_date', today);
+    .eq('assessment_date', today)
+    .order('composite_risk_score', { ascending: false })
+    .limit(RISK_FETCH_CAP);
 
   if (riskErr) {
     submitError = riskErr.message;
@@ -271,11 +302,25 @@ export async function GET(request: NextRequest) {
             };
           });
 
+          // Dedupe on cohort MEMBERSHIP, never slice position. The done-set
+          // grows as the night's runs land, so run 2's "chunk 0" is a different
+          // set of learners than run 1's — a positional key would mark it
+          // in_flight against run 1's job and those learners would silently
+          // never be enqueued that day.
+          const memberHash = createHash('sha1')
+            .update([...chunk.map((r) => r.learner_id)].sort().join(','))
+            .digest('hex')
+            .slice(0, 16);
+
           const res = await enqueueJobsLane(admin, {
             jobType: JOB_TYPE,
             prompt: buildVerdictPrompt(cohort),
-            context: { institution_id: institutionId, label_map: labelMap },
-            dedupeKey: `l360:${institutionId}:${today}:${start / LEARNERS_PER_JOB}`,
+            context: {
+              institution_id: institutionId,
+              label_map: labelMap,
+              verdict_date: today,
+            },
+            dedupeKey: `l360:${institutionId}:${today}:${memberHash}`,
           });
           if (res.ok) {
             enqueued++;

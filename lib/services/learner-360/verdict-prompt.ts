@@ -189,8 +189,18 @@ function toBand(v: unknown): StandingBand | null {
  * them outside the label field; this is the guard for when the model does it
  * anyway. Observed on the first real cohort run, which produced value_rank_notes
  * like "tied with L5 for the highest contribution" — hence a check, not trust.
+ *
+ * Built from the labels this batch ACTUALLY submitted rather than a generic
+ * /L\d+/ pattern, which was wrong in both directions: it fail-closed a perfectly
+ * good verdict that happened to mention a room like "L2", and being
+ * case-sensitive it let a lowercase "l5" through into learner-facing copy — the
+ * exact leak it was there to stop.
  */
-const LABEL_LEAK = /\bL\d{1,3}\b/;
+function labelLeakDetector(labels: string[]): RegExp | null {
+  const safe = labels.filter((l) => /^[A-Za-z]\d{1,3}$/.test(l));
+  if (!safe.length) return null;
+  return new RegExp(`\\b(?:${safe.join('|')})\\b`, 'i');
+}
 
 /**
  * Parse the model's verdict JSON, mapping each opaque label back to its learner
@@ -222,6 +232,7 @@ export function parseVerdicts(
     const raw = Array.isArray(obj.verdicts) ? obj.verdicts : [];
     const out: ParsedVerdict[] = [];
     const seen = new Set<string>();
+    const leak = labelLeakDetector(Object.keys(labelToLearner));
 
     for (const entry of raw) {
       const row = entry as Record<string, unknown>;
@@ -241,7 +252,7 @@ export function parseVerdicts(
       // A label in learner-facing copy is visible nonsense ("L3, your attendance
       // ..."), so the whole verdict is dropped and the learner re-qualifies on
       // the next run — a missing verdict beats a broken one.
-      if (LABEL_LEAK.test(narrative) || actions.some((a) => LABEL_LEAK.test(a))) continue;
+      if (leak && (leak.test(narrative) || actions.some((a) => leak.test(a)))) continue;
 
       // The admin note is optional, so a leaking one is nulled rather than
       // costing the learner their narrative.
@@ -255,8 +266,8 @@ export function parseVerdicts(
         standing_narrative: narrative,
         next_actions: actions,
         contribution_summary:
-          contribution && LABEL_LEAK.test(contribution) ? null : contribution,
-        value_rank_note: rankNote && LABEL_LEAK.test(rankNote) ? null : rankNote,
+          contribution && leak && leak.test(contribution) ? null : contribution,
+        value_rank_note: rankNote && leak && leak.test(rankNote) ? null : rankNote,
       });
     }
     return out;

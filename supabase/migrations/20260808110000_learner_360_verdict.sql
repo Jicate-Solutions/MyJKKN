@@ -175,15 +175,23 @@ CREATE POLICY l360_verdicts_admin_service_all
   ON public.learner_360_verdicts_admin FOR ALL
   USING (auth.role() = 'service_role');
 
+-- is_admin() is NOT institution-scoped — it is true for any profile whose role
+-- is admin/super_admin/administrator, in ANY tenant (supabase/setup/02_functions
+-- .sql). On the shared table that matches every other migrated table, but this
+-- table holds comparative ranking language about named learners, so the
+-- is_admin() branch is institution-scoped here. Only is_super_admin() — the
+-- platform owner — reads across tenants.
 DROP POLICY IF EXISTS l360_verdicts_admin_select_leadership ON public.learner_360_verdicts_admin;
 CREATE POLICY l360_verdicts_admin_select_leadership
   ON public.learner_360_verdicts_admin FOR SELECT
   TO authenticated
   USING (
     COALESCE(is_super_admin(), false)
-    OR COALESCE(is_admin(), false)
     OR (
-      COALESCE(user_has_permission('learners.standing.admin_note.view'), false)
+      (
+        COALESCE(is_admin(), false)
+        OR COALESCE(user_has_permission('learners.standing.admin_note.view'), false)
+      )
       AND COALESCE(role_has_institution_access(institution_id), false)
     )
   );
@@ -320,24 +328,31 @@ BEGIN
     FROM public.learner_360_verdicts v
    WHERE v.id = p_verdict_id;
 
-  IF v_institution IS NULL THEN
-    RETURN false;  -- unknown verdict — nothing written, nothing leaked
-  END IF;
-
   -- Barrier 2: every term COALESCEd to false and the whole expression COALESCEd
   -- again, so a NULL from any present or future term fails CLOSED.
+  -- v_institution IS NULL (unknown verdict) makes role_has_institution_access
+  -- NULL -> false, so an unknown id lands on the SAME 42501 as a forbidden one.
+  -- That identical outcome is deliberate: returning a distinguishable result for
+  -- "exists but not yours" would hand any authenticated caller a cross-tenant
+  -- existence oracle for verdict ids.
   SELECT COALESCE(
     COALESCE(is_super_admin(), false)
-    OR COALESCE(is_admin(), false)
     OR (
-      COALESCE(user_has_permission('learners.standing.override'), false)
+      (
+        COALESCE(is_admin(), false)
+        OR COALESCE(user_has_permission('learners.standing.override'), false)
+      )
       AND COALESCE(role_has_institution_access(v_institution), false)
     )
   , false) INTO v_may;
 
   IF NOT COALESCE(v_may, false) THEN
-    RAISE EXCEPTION 'fn_learner_360_set_override: not permitted for this learner'
+    RAISE EXCEPTION 'fn_learner_360_set_override: no such verdict, or not permitted'
       USING ERRCODE = '42501';
+  END IF;
+
+  IF v_institution IS NULL THEN
+    RETURN false;  -- super admin, unknown id: nothing written, nothing leaked
   END IF;
 
   v_clean := NULLIF(btrim(COALESCE(p_override, '')), '');
