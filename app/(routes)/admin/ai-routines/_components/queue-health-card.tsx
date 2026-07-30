@@ -33,8 +33,8 @@ import { Activity, AlertTriangle, Layers, RefreshCw, TrendingDown, TrendingUp } 
 
 const STUCK_HINT_MINUTES = 10;
 
-// A job that has sat PENDING (never claimed) this long means no worker is
-// polling its lane — the drain for it is down, not merely slow. Deliberately
+// A lane whose oldest job has sat PENDING (never claimed) this long has no
+// worker polling it — the drain for it is down, not merely slow. Deliberately
 // well past the 1-minute drain cadence + the ~5-minute requeue sweep, so a
 // normal backlog never trips it.
 //
@@ -42,6 +42,10 @@ const STUCK_HINT_MINUTES = 10;
 // by design — voice-memo sentiment stops tagging and nothing visibly breaks, so
 // a dead drain can go unnoticed for days. Depth alone cannot show it (a healthy
 // queue is also deep); AGE of the oldest unclaimed job is the honest signal.
+//
+// The age itself is NOT computed here: fn_ai_queue_health returns lanes[].
+// oldest_mins from the same snapshot as read_at, so the threshold is the only
+// thing this file owns.
 const LANE_STALLED_MINUTES = 15;
 
 // A Mac runner that has not claimed within this window is treated as asleep and
@@ -51,9 +55,9 @@ const LANE_STALLED_MINUTES = 15;
 //
 // Same 15 minutes as LANE_STALLED_MINUTES above, but a DIFFERENT question, so
 // they are deliberately separate constants rather than one shared value:
-// LANE_STALLED asks "has this job waited too long for anyone?", MAC_ALIVE asks
-// "has this specific runner claimed anything recently?". Either threshold can
-// move without the other.
+// LANE_STALLED asks "has this lane's oldest job waited too long for anyone?",
+// MAC_ALIVE asks "has this specific runner claimed anything recently?". Either
+// threshold can move without the other.
 const MAC_ALIVE_MINUTES = 15;
 
 type Queue = {
@@ -72,6 +76,15 @@ type Queue = {
   stuck: { id: string; job_type: string; runner: string | null; mins: number }[];
   error_shapes: { sample: string; n: number; latest: string }[];
 };
+
+// fn_ai_queue_health emits the literal string '(none)' for jobs with a NULL
+// lane, and that is not a cosmetic case worth hiding: fn_ai_claim filters
+// `p_lane IS NULL OR j2.lane = p_lane`, so a NULL-lane job is invisible to
+// every lane-specific worker and only a catch-all drain can ever take it.
+// Name it plainly rather than rendering "(none) lane".
+function laneLabel(lane: string) {
+  return lane === '(none)' ? 'no lane set' : `${lane} lane`;
+}
 
 function Tile({ label, value, tone, sub }: {
   label: string; value: string | number; tone?: 'good' | 'bad' | 'warn'; sub?: string;
@@ -194,13 +207,29 @@ export function QueueHealthCard() {
     timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit',
   });
 
-  // Job types whose OLDEST pending job has aged past the stall threshold —
-  // i.e. nothing has claimed it, so that lane's worker is down.
-  const readAtMs = new Date(q.read_at).getTime();
-  const stalled = (q.by_type ?? [])
-    .map((t) => ({ ...t, mins: Math.round((readAtMs - new Date(t.oldest).getTime()) / 60_000) }))
-    .filter((t) => Number.isFinite(t.mins) && t.mins >= LANE_STALLED_MINUTES)
-    .sort((a, b) => b.mins - a.mins);
+  // Lanes whose OLDEST pending job has aged past the stall threshold — nothing
+  // has claimed it, so that lane's worker is down.
+  //
+  // Keyed on LANE, not job type, because a worker polls a lane: the lane is the
+  // unit that can stop draining. Reporting per type turned one dead worker into
+  // one bullet per type on that lane — up to 12 lines for a single root cause —
+  // and could still MISS a stalled type, because by_type is capped at the 12
+  // deepest types while lanes[] is ungrouped (5 distinct lanes in the last 30
+  // days) and therefore cannot miss one. oldest_mins is computed by
+  // fn_ai_queue_health in the same snapshot as read_at, so there is no client
+  // clock arithmetic here at all.
+  const stalledLanes = (q.lanes ?? [])
+    .filter((l) => Number.isFinite(l.oldest_mins) && l.oldest_mins >= LANE_STALLED_MINUTES)
+    .sort((a, b) => b.oldest_mins - a.oldest_mins);
+
+  // Which job types are sitting on a stalled lane — the detail per-lane would
+  // otherwise lose. BEST-EFFORT ONLY, and never used to decide WHETHER to warn:
+  // by_type[].lane is the lane of that type's first-claimable job, so a type
+  // whose jobs straddle lanes is attributed to just one of them, and by_type is
+  // capped at 12 types. The warning itself, its counts and its age all come
+  // from lanes[] alone.
+  const typesOnLane = (lane: string) =>
+    (q.by_type ?? []).filter((t) => (t.lane ?? '(none)') === lane).map((t) => t.job_type);
 
   return (
     <div className="space-y-3 rounded-lg border bg-card p-4">
@@ -232,7 +261,7 @@ export function QueueHealthCard() {
       {/* Nothing is picking this up — a lane whose worker is down. Silent-failure
           lanes (the ones that wait rather than fall back to a paid provider)
           surface here or nowhere. */}
-      {stalled.length > 0 ? (
+      {stalledLanes.length > 0 ? (
         <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm dark:border-amber-900/60 dark:bg-amber-950/30">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="min-w-0">
@@ -240,15 +269,24 @@ export function QueueHealthCard() {
               Nothing is picking this work up
             </p>
             <ul className="mt-1 space-y-0.5 text-muted-foreground">
-              {stalled.map((t) => (
-                <li key={t.job_type} className="truncate">
-                  <span className="font-medium text-foreground">{t.job_type}</span> — {t.pending} waiting,
-                  oldest {t.mins} min unclaimed
-                </li>
-              ))}
+              {stalledLanes.map((l) => {
+                const types = typesOnLane(l.lane);
+                return (
+                  <li key={l.lane} className="truncate">
+                    <span className="font-medium text-foreground">{laneLabel(l.lane)}</span> — {l.pending} waiting,
+                    oldest {l.oldest_mins} min unclaimed
+                    {types.length > 0 ? (
+                      <span className="text-xs">
+                        {' · '}{types.slice(0, 4).join(', ')}
+                        {types.length > 4 ? ` +${types.length - 4} more` : ''}
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
             <p className="mt-1 text-xs text-muted-foreground">
-              A job waiting this long has never been claimed, so the worker for its lane is most likely
+              A job waiting this long has never been claimed, so the worker for that lane is most likely
               stopped. Work is not lost — it resumes as soon as that worker is back.
             </p>
           </div>
