@@ -10,7 +10,10 @@ import {
   assembleArtifactPrompt,
   type AreaContext,
 } from '@/lib/services/mba-dept-artifacts/draft-prompt';
-import { isArtifactType } from '@/lib/services/mba-dept-artifacts/types';
+import {
+  isArtifactType,
+  POLICY_APPROVE_PERMISSION,
+} from '@/lib/services/mba-dept-artifacts/types';
 
 const JOB_TYPE = 'mba.draft_dept_artifact';
 
@@ -38,11 +41,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Authorize: only a board manager may draft (2026-07-28 interview decision —
-    // associates can view/review, but drafting is manager-driven).
+    // associates can view/review, but drafting is manager-driven). Officers who
+    // own the policy artifact (CEO / CAO / EAO) can draft one too, even if they
+    // are not board managers — otherwise the people who must sign it off could
+    // not produce a starting point.
     const { data: canManage } = await supabase.rpc('user_has_permission', {
       permission_name: 'improvement.board.manage',
     });
-    if (canManage !== true) {
+    let allowed = canManage === true;
+    if (!allowed && artifactType === 'policy') {
+      const { data: canPolicy } = await supabase.rpc('user_has_permission', {
+        permission_name: POLICY_APPROVE_PERMISSION,
+      });
+      allowed = canPolicy === true;
+    }
+    if (!allowed) {
       return NextResponse.json(
         { ok: false, error: 'Only a board manager can draft department playbooks.' },
         { status: 403 },
@@ -63,10 +76,22 @@ export async function POST(request: NextRequest) {
     // Locked: an approved artifact must be reopened before a fresh AI draft.
     const { data: existing } = await admin
       .from('mba_dept_artifacts')
-      .select('status')
+      .select('status, source')
       .eq('area_id', areaId)
       .eq('artifact_type', artifactType)
       .maybeSingle();
+    // Uploaded wins: refuse before spending a lane slot. The writer RPC enforces
+    // the same rule, so a race that slips past this check still cannot overwrite.
+    if (existing?.source === 'upload') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'A document has been uploaded for this department — the uploaded file is the policy. Replace the file instead of drafting.',
+        },
+        { status: 409 },
+      );
+    }
     if (existing?.status === 'approved') {
       return NextResponse.json(
         { ok: false, error: 'This playbook is approved and locked. Reopen it before re-drafting.' },

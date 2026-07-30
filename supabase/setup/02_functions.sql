@@ -24122,12 +24122,14 @@ BEGIN
     RAISE EXCEPTION 'Receipt % not found (already voided or deleted)', p_receipt_id;
   END IF;
 
+  -- NOT is_admin(): that also matches profiles.role IN ('admin','super_admin',
+  -- 'administrator'), which would let a non-super-admin void a receipt outright
+  -- and skip the cancellation approval flow entirely.
   IF NOT (
     is_super_admin()
-    OR is_admin()
     OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(v_inst))
   ) THEN
-    RAISE EXCEPTION 'Not authorized to void receipts for this institution';
+    RAISE EXCEPTION 'Only a super admin can void a receipt directly - raise a cancellation request instead';
   END IF;
 
   RETURN QUERY SELECT * FROM public._fn_exec_receipt_void(p_receipt_id, p_reason, NULL);
@@ -24185,6 +24187,9 @@ DECLARE
   v_id      uuid;
   v_number  text;
   v_role    text;
+  v_name    text;
+  v_email   text;
+  v_super   boolean;
 BEGIN
   IF p_reason IS NULL OR length(trim(p_reason)) < 5 THEN
     RAISE EXCEPTION 'A reason of at least 5 characters is required';
@@ -24195,9 +24200,9 @@ BEGIN
     RAISE EXCEPTION 'Receipt % not found (already cancelled or deleted)', p_receipt_id;
   END IF;
 
+  -- Super admins may raise too (they can also approve, just not their own).
   IF NOT (
     is_super_admin()
-    OR is_admin()
     OR (user_has_permission('billing.receipts.cancel.request')
         AND role_has_institution_access(v_receipt.institution_id))
   ) THEN
@@ -24211,8 +24216,8 @@ BEGIN
     RAISE EXCEPTION 'A cancellation request for this receipt is already awaiting approval';
   END IF;
 
-  -- Run the same guards the approval will run. A request that could never be
-  -- approved should fail here, not after it has sat in the Chief's queue.
+  -- Same guards the approval will run: a request that could never be approved
+  -- should fail here, not after sitting in the super admin's queue.
   IF EXISTS (SELECT 1 FROM public.billing_refunds WHERE receipt_id = p_receipt_id) THEN
     RAISE EXCEPTION 'Cannot cancel: this receipt has refunds recorded against it. Reverse the refund first.';
   END IF;
@@ -24223,8 +24228,7 @@ BEGIN
     SELECT 1 FROM public.payment_transactions t
     WHERE t.status = 'success'
       AND v_receipt.payment_reference_number IN (
-            t.razorpay_payment_id, t.gateway_transaction_id, t.transaction_ref
-          )
+            t.razorpay_payment_id, t.gateway_transaction_id, t.transaction_ref)
   ) THEN
     RAISE EXCEPTION 'Cannot cancel: this receipt settles a captured online payment (%). Issue a refund instead.',
       v_receipt.payment_reference_number;
@@ -24233,29 +24237,31 @@ BEGIN
   v_number := 'RCX-' || EXTRACT(YEAR FROM NOW())::text || '-'
               || LPAD(nextval('billing_receipt_cancel_number_seq')::text, 6, '0');
 
+  SELECT p.full_name, p.email, COALESCE(p.is_super_admin, false)
+    INTO v_name, v_email, v_super
+  FROM public.profiles p WHERE p.id = auth.uid();
+
   SELECT cr.role_name INTO v_role
   FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
   WHERE ur.user_id = auth.uid() LIMIT 1;
 
   INSERT INTO public.billing_receipt_cancel_requests (
     request_number, receipt_id, institution_id, student_id, receipt_snapshot,
-    reason, requested_by
+    reason, requested_by, requested_by_name, requested_by_email, requested_by_role
   ) VALUES (
     v_number, p_receipt_id, v_receipt.institution_id, v_receipt.student_id,
-    jsonb_build_object(
-      'receipt_number', v_receipt.receipt_number,
-      'payment_amount', v_receipt.payment_amount,
-      'payment_mode',   v_receipt.payment_mode,
-      'receipt_date',   v_receipt.receipt_date,
-      'payer_name',     v_receipt.payer_name
-    ),
-    trim(p_reason), auth.uid()
-  )
-  RETURNING id INTO v_id;
+    jsonb_build_object('receipt_number', v_receipt.receipt_number,
+                       'payment_amount', v_receipt.payment_amount,
+                       'payment_mode',   v_receipt.payment_mode,
+                       'receipt_date',   v_receipt.receipt_date,
+                       'payer_name',     v_receipt.payer_name),
+    trim(p_reason), auth.uid(), v_name, v_email, v_role
+  ) RETURNING id INTO v_id;
 
   INSERT INTO public.billing_receipt_cancel_request_actions (
-    request_id, action_type, actor_id, actor_role_name, notes
-  ) VALUES (v_id, 'requested', auth.uid(), v_role, trim(p_reason));
+    request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+    actor_is_super_admin, notes
+  ) VALUES (v_id, 'requested', auth.uid(), v_role, v_name, v_email, v_super, trim(p_reason));
 
   RETURN QUERY SELECT v_id, v_number;
 END;
@@ -24276,9 +24282,12 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_req  public.billing_receipt_cancel_requests%ROWTYPE;
-  v_role text;
-  v_num  text;
+  v_req   public.billing_receipt_cancel_requests%ROWTYPE;
+  v_role  text;
+  v_name  text;
+  v_email text;
+  v_desig text;
+  v_num   text;
 BEGIN
   IF p_action NOT IN ('approve','decline') THEN
     RAISE EXCEPTION 'p_action must be approve or decline';
@@ -24293,20 +24302,24 @@ BEGIN
     RAISE EXCEPTION 'This request is already %', v_req.status;
   END IF;
 
-  IF NOT (
-    is_super_admin()
-    OR is_admin()
-    OR (user_has_permission('billing.receipts.cancel.approve')
-        AND role_has_institution_access(v_req.institution_id))
-  ) THEN
-    RAISE EXCEPTION 'Not authorized to approve receipt cancellations for this institution';
+  -- SUPER ADMIN ONLY. Deliberately NOT is_admin(), which also matches
+  -- profiles.role IN ('admin','super_admin','administrator') and would let
+  -- plain admins decide. Deliberately no permission-key branch either: the key
+  -- is revoked everywhere and removed from the catalog, so a key check here
+  -- would be a silent no-op that looks like a control.
+  IF NOT is_super_admin() THEN
+    RAISE EXCEPTION 'Only a super admin can decide receipt cancellation requests';
   END IF;
 
-  -- Separation of duties: whoever raised it cannot wave it through, even when
-  -- they hold the approver permission too.
+  -- Separation of duties still applies: a super admin who raised the request
+  -- cannot wave their own through.
   IF v_req.requested_by IS NOT NULL AND v_req.requested_by = auth.uid() THEN
-    RAISE EXCEPTION 'You cannot approve your own cancellation request - another approver must act on it';
+    RAISE EXCEPTION 'You cannot approve your own cancellation request - another super admin must act on it';
   END IF;
+
+  SELECT p.full_name, p.email, p.designation
+    INTO v_name, v_email, v_desig
+  FROM public.profiles p WHERE p.id = auth.uid();
 
   SELECT cr.role_name INTO v_role
   FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
@@ -24315,29 +24328,34 @@ BEGIN
   IF p_action = 'decline' THEN
     UPDATE public.billing_receipt_cancel_requests
        SET status='declined', decided_by=auth.uid(), decided_at=now(),
-           decision_notes=p_notes, updated_at=now()
+           decision_notes=p_notes, decided_by_name=v_name, decided_by_email=v_email,
+           decided_by_role=v_role, decided_by_designation=v_desig,
+           decided_by_is_super_admin=true, updated_at=now()
      WHERE id = p_request_id;
     INSERT INTO public.billing_receipt_cancel_request_actions
-      (request_id, action_type, actor_id, actor_role_name, notes)
-      VALUES (p_request_id, 'declined', auth.uid(), v_role, p_notes);
+      (request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+       actor_is_super_admin, notes)
+      VALUES (p_request_id, 'declined', auth.uid(), v_role, v_name, v_email, true, p_notes);
     RETURN QUERY SELECT 'declined'::text,
                         (v_req.receipt_snapshot->>'receipt_number')::text,
                         'Request declined.'::text;
     RETURN;
   END IF;
 
-  -- The receipt vanishing between request and approval is TERMINAL, so close
-  -- the request rather than leaving it stuck pending forever. Guard failures
-  -- (refund/invoice/online) are different: those RAISE out of the exec helper
-  -- and roll back, because they are fixable and the request should survive.
+  -- The receipt vanishing between request and approval is TERMINAL, so close the
+  -- request instead of leaving it stuck pending. Guard failures are different:
+  -- those RAISE out of the helper and roll back, because they are fixable.
   IF NOT EXISTS (SELECT 1 FROM public.billing_receipts WHERE id = v_req.receipt_id) THEN
     UPDATE public.billing_receipt_cancel_requests
        SET status='failed', decided_by=auth.uid(), decided_at=now(),
-           decision_notes='Receipt no longer exists at approval time', updated_at=now()
+           decision_notes='Receipt no longer exists at approval time',
+           decided_by_name=v_name, decided_by_email=v_email, decided_by_role=v_role,
+           decided_by_designation=v_desig, decided_by_is_super_admin=true, updated_at=now()
      WHERE id = p_request_id;
     INSERT INTO public.billing_receipt_cancel_request_actions
-      (request_id, action_type, actor_id, actor_role_name, notes)
-      VALUES (p_request_id, 'failed', auth.uid(), v_role,
+      (request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+       actor_is_super_admin, notes)
+      VALUES (p_request_id, 'failed', auth.uid(), v_role, v_name, v_email, true,
               'Receipt no longer exists at approval time');
     RETURN QUERY SELECT 'failed'::text,
                         (v_req.receipt_snapshot->>'receipt_number')::text,
@@ -24350,11 +24368,14 @@ BEGIN
 
   UPDATE public.billing_receipt_cancel_requests
      SET status='approved', decided_by=auth.uid(), decided_at=now(),
-         decision_notes=p_notes, updated_at=now()
+         decision_notes=p_notes, decided_by_name=v_name, decided_by_email=v_email,
+         decided_by_role=v_role, decided_by_designation=v_desig,
+         decided_by_is_super_admin=true, updated_at=now()
    WHERE id = p_request_id;
   INSERT INTO public.billing_receipt_cancel_request_actions
-    (request_id, action_type, actor_id, actor_role_name, notes)
-    VALUES (p_request_id, 'approved', auth.uid(), v_role, p_notes);
+    (request_id, action_type, actor_id, actor_role_name, actor_name, actor_email,
+     actor_is_super_admin, notes)
+    VALUES (p_request_id, 'approved', auth.uid(), v_role, v_name, v_email, true, p_notes);
 
   RETURN QUERY SELECT 'approved'::text, v_num::text,
                       'Receipt cancelled and the bill reverted.'::text;
@@ -24400,3 +24421,564 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_withdraw_receipt_cancellation(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_withdraw_receipt_cancellation(uuid, text) TO authenticated, service_role;
 
+
+-- Coverage RPCs with the academic-hierarchy filters
+-- (mig 20260729_billing_coverage_hierarchy_filters).
+-- APPENDED, not edited in place: this file already carries several older
+-- copies of both functions and is replayed top-to-bottom, so the LAST
+-- definition is the effective one. The DROPs below also clear the older
+-- 14-arg / 8-arg signatures, which CREATE OR REPLACE would leave behind as
+-- ambiguous overloads.
+DROP FUNCTION IF EXISTS public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text);
+
+CREATE FUNCTION public.get_billing_coverage_learners(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_coverage_state text DEFAULT 'not_generated'::text,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid
+)
+RETURNS TABLE(out_learner_id uuid, out_roll_number text, out_register_number text, out_full_name text, out_lifecycle_status text, out_gender text, out_institution_id uuid, out_institution_name text, out_program_name text, out_semester_section text, out_academic_year_id uuid, out_academic_year_name text, out_accommodation_type text, out_uses_transport boolean, out_bill_count integer, out_total_billed numeric, out_coverage_state text, out_total_count bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+  ),
+  scope AS (
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.program_id,
+           lp.semester_id, lp.section_id, lp.gender,
+           lp.lifecycle_status, lp.first_name, lp.last_name,
+           lp.roll_number, lp.register_number,
+           lp.accommodation_type_id,
+           (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL)
+             AS uses_transport
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_billing_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM billing_inst))
+      AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      -- Academic hierarchy. Each level is independent here rather than nested:
+      -- a learner row already carries every level, so filtering on the deepest
+      -- selected one is sufficient and a mid-level NULL never drops rows.
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  agg AS (
+    SELECT s.id AS learner_id,
+           COUNT(b.id)::integer AS bill_count,
+           COALESCE(SUM(b.final_amount), 0)::numeric AS total_billed
+    FROM scope s
+    LEFT JOIN public.billing_student_bills b
+           ON b.student_id = s.id
+          AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+          AND b.academic_year_id = COALESCE(p_academic_year_id, s.academic_year_id)
+          AND (p_billing_category_id IS NULL
+               OR b.item_category_id = p_billing_category_id)
+    GROUP BY s.id
+  ),
+  final AS (
+    SELECT s.id AS learner_id,
+           s.roll_number::text        AS roll_number,
+           s.register_number::text    AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                      AS full_name,
+           s.lifecycle_status::text   AS lifecycle_status,
+           NULLIF(TRIM(s.gender), '')::text AS gender,
+           s.institution_id           AS institution_id,
+           i.name::text               AS institution_name,
+           p.program_name             AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL
+               THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                        AS semester_section,
+           s.academic_year_id         AS academic_year_id,
+           ay.academic_year_name::text AS academic_year_name,
+           acc.name::text             AS accommodation_type,
+           s.uses_transport           AS uses_transport,
+           a.bill_count               AS bill_count,
+           a.total_billed             AS total_billed,
+           CASE
+             WHEN COALESCE(p_academic_year_id, s.academic_year_id) IS NULL
+               THEN 'cannot_evaluate'
+             WHEN a.bill_count > 0 THEN 'generated'
+             ELSE 'not_generated'
+           END                        AS coverage_state
+    FROM scope s
+    JOIN agg a                           ON a.learner_id = s.id
+    LEFT JOIN public.institutions        i   ON i.id   = s.institution_id
+    LEFT JOIN public.programs            p   ON p.id   = s.program_id
+    LEFT JOIN public.semesters           sem ON sem.id = s.semester_id
+    LEFT JOIN public.sections            sec ON sec.id = s.section_id
+    LEFT JOIN public.academic_years      ay  ON ay.id  = s.academic_year_id
+    LEFT JOIN public.accommodation_types acc ON acc.id = s.accommodation_type_id
+  ),
+  filtered AS (
+    SELECT * FROM final f
+    WHERE p_coverage_state = 'all' OR f.coverage_state = p_coverage_state
+  )
+  SELECT f.learner_id, f.roll_number, f.register_number, f.full_name,
+         f.lifecycle_status, f.gender, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section,
+         f.academic_year_id, f.academic_year_name,
+         f.accommodation_type, f.uses_transport,
+         f.bill_count, f.total_billed, f.coverage_state,
+         COUNT(*) OVER ()::bigint
+  FROM filtered f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'accommodation_type' THEN f.accommodation_type
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'coverage_state'     THEN f.coverage_state
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'accommodation_type' THEN f.accommodation_type
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'coverage_state'     THEN f.coverage_state
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'bill_count'   THEN f.bill_count::numeric
+         WHEN 'total_billed' THEN f.total_billed
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'bill_count'   THEN f.bill_count::numeric
+         WHEN 'total_billed' THEN f.total_billed
+       END
+     END) DESC NULLS LAST,
+    f.institution_name NULLS LAST, f.roll_number NULLS LAST, f.full_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid)
+  TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Summary: the KPI cards must narrow with the table, or the counts contradict
+-- the rows on screen.
+-- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.get_billing_coverage_summary(
+  uuid, uuid[], text[], uuid, boolean, uuid[], text, text);
+
+CREATE FUNCTION public.get_billing_coverage_summary(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_result jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'in_scope', 0, 'generated', 0, 'not_generated', 0, 'cannot_evaluate', 0,
+      'excluded_institutions', 0, 'excluded_learners', 0,
+      'by_institution', '[]'::jsonb);
+  END IF;
+
+  WITH billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id FROM public.billing_student_bills b
+  ),
+  all_scope AS (
+    SELECT lp.id, lp.institution_id, lp.academic_year_id,
+           (lp.institution_id IN (SELECT inst_id FROM billing_inst)) AS is_billing_inst
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  scope AS (
+    SELECT * FROM all_scope
+    WHERE p_include_non_billing_institutions OR is_billing_inst
+  ),
+  agg AS (
+    SELECT s.id, s.institution_id, s.academic_year_id,
+           COUNT(b.id)::integer AS bill_count
+    FROM scope s
+    LEFT JOIN public.billing_student_bills b
+           ON b.student_id = s.id
+          AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+          AND b.academic_year_id = COALESCE(p_academic_year_id, s.academic_year_id)
+          AND (p_billing_category_id IS NULL
+               OR b.item_category_id = p_billing_category_id)
+    GROUP BY s.id, s.institution_id, s.academic_year_id
+  ),
+  stated AS (
+    SELECT a.institution_id,
+           CASE
+             WHEN COALESCE(p_academic_year_id, a.academic_year_id) IS NULL
+               THEN 'cannot_evaluate'
+             WHEN a.bill_count > 0 THEN 'generated'
+             ELSE 'not_generated'
+           END AS coverage_state
+    FROM agg a
+  )
+  SELECT jsonb_build_object(
+    'in_scope',        (SELECT COUNT(*) FROM stated),
+    'generated',       (SELECT COUNT(*) FROM stated WHERE coverage_state = 'generated'),
+    'not_generated',   (SELECT COUNT(*) FROM stated WHERE coverage_state = 'not_generated'),
+    'cannot_evaluate', (SELECT COUNT(*) FROM stated WHERE coverage_state = 'cannot_evaluate'),
+    'excluded_institutions',
+      (SELECT COUNT(DISTINCT institution_id) FROM all_scope WHERE NOT is_billing_inst),
+    'excluded_learners',
+      (SELECT COUNT(*) FROM all_scope WHERE NOT is_billing_inst),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   st.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'in_scope',         COUNT(*),
+                 'generated',        COUNT(*) FILTER (WHERE st.coverage_state = 'generated'),
+                 'not_generated',    COUNT(*) FILTER (WHERE st.coverage_state = 'not_generated')
+               ) AS x
+        FROM stated st
+        LEFT JOIN public.institutions i ON i.id = st.institution_id
+        GROUP BY st.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_summary(
+  uuid, uuid[], text[], uuid, boolean, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_summary(
+  uuid, uuid[], text[], uuid, boolean, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid) TO authenticated, service_role;
+
+-- Per-learner, per-bill detail for the /billing/coverage PDF export
+-- (mig 20260729_billing_coverage_learner_bills). Appended: this file is
+-- replayed top-to-bottom and already carries older copies of neighbouring
+-- functions, so editing in place risks clobbering them.
+DROP FUNCTION IF EXISTS public.get_billing_coverage_learner_bills(
+  uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer);
+
+CREATE FUNCTION public.get_billing_coverage_learner_bills(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_coverage_state text DEFAULT 'all'::text,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL::text,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_max_learners integer DEFAULT 1000
+)
+RETURNS TABLE(
+  out_learner_id uuid,
+  out_roll_number text,
+  out_register_number text,
+  out_full_name text,
+  out_institution_name text,
+  out_program_name text,
+  out_semester_section text,
+  out_lifecycle_status text,
+  out_learner_total numeric,
+  out_learner_paid numeric,
+  out_learner_pending numeric,
+  out_bill_id uuid,
+  out_bill_description text,
+  out_category_name text,
+  out_bill_academic_year text,
+  out_due_date date,
+  out_bill_status text,
+  out_total_amount numeric,
+  out_paid_amount numeric,
+  out_pending_amount numeric,
+  out_learner_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst  uuid[];
+  v_cap   integer := LEAST(GREATEST(COALESCE(p_max_learners, 1000), 1), 5000);
+BEGIN
+  -- Same key as the screen itself: exporting must never widen access.
+  IF NOT public.user_has_permission('billing.coverage.export') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.export' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id FROM public.billing_student_bills b
+  ),
+  scope AS (
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.program_id,
+           lp.semester_id, lp.section_id, lp.lifecycle_status,
+           lp.first_name, lp.last_name, lp.roll_number, lp.register_number
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_billing_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM billing_inst))
+      AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  -- Live bills only. 'cancelled' and 'superseded' are BOTH void states; counting
+  -- either would overstate what the learner actually owes.
+  live_bills AS (
+    SELECT b.*
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_billing_category_id IS NULL OR b.item_category_id = p_billing_category_id)
+      AND (p_academic_year_id IS NULL OR b.academic_year_id = p_academic_year_id)
+  ),
+  learner_state AS (
+    SELECT s.id,
+           COUNT(lb.id)::integer AS bill_count,
+           COALESCE(SUM(lb.final_amount), 0)::numeric   AS total_amount,
+           COALESCE(SUM(lb.final_amount - lb.balance_amount), 0)::numeric AS paid_amount,
+           COALESCE(SUM(lb.balance_amount), 0)::numeric AS pending_amount
+    FROM scope s
+    LEFT JOIN live_bills lb ON lb.student_id = s.id
+    GROUP BY s.id
+  ),
+  eligible AS (
+    SELECT s.*, ls.bill_count, ls.total_amount, ls.paid_amount, ls.pending_amount
+    FROM scope s
+    JOIN learner_state ls ON ls.id = s.id
+    WHERE p_coverage_state = 'all'
+       OR (p_coverage_state = 'generated'     AND ls.bill_count > 0)
+       OR (p_coverage_state = 'not_generated' AND ls.bill_count = 0)
+  ),
+  capped AS (
+    SELECT e.*, i.name::text AS institution_name, p.program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END AS semester_section,
+           COUNT(*) OVER ()::bigint AS learner_count
+    FROM eligible e
+    LEFT JOIN public.institutions i   ON i.id   = e.institution_id
+    LEFT JOIN public.programs     p   ON p.id   = e.program_id
+    LEFT JOIN public.semesters    sem ON sem.id = e.semester_id
+    LEFT JOIN public.sections     sec ON sec.id = e.section_id
+    ORDER BY i.name NULLS LAST, e.roll_number NULLS LAST, e.last_name, e.first_name
+    LIMIT v_cap
+  )
+  SELECT c.id,
+         c.roll_number::text,
+         c.register_number::text,
+         TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')),
+         c.institution_name,
+         c.program_name,
+         c.semester_section,
+         c.lifecycle_status::text,
+         c.total_amount,
+         c.paid_amount,
+         c.pending_amount,
+         lb.id,
+         lb.bill_description::text,
+         cat.category_name::text,
+         -- 62 bills carry no academic year; label rather than drop the row.
+         COALESCE(ay.academic_year_name::text, '—'),
+         lb.due_date,
+         lb.status::text,
+         lb.final_amount,
+         (lb.final_amount - lb.balance_amount),
+         lb.balance_amount,
+         c.learner_count
+  FROM capped c
+  LEFT JOIN live_bills lb              ON lb.student_id = c.id
+  LEFT JOIN public.billing_categories cat ON cat.id = lb.item_category_id
+  LEFT JOIN public.academic_years ay    ON ay.id  = lb.academic_year_id
+  ORDER BY c.institution_name NULLS LAST, c.roll_number NULLS LAST,
+           lb.due_date NULLS LAST, lb.bill_description;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_learner_bills(
+  uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learner_bills(
+  uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer) TO authenticated, service_role;

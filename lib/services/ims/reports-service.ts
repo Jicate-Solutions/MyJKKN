@@ -153,12 +153,23 @@ export class ImsReportsService {
       const thirtyDaysFromNow = new Date();
       thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
-      // Helper to apply store_id/institution_id filter
+      // Helper to apply store_id/institution_id filter.
+      // Correct for stock/transaction tables, which ARE per-store.
       const applyFilter = (query: any) => {
         if (storeId) {
           return query.eq('store_id', storeId);
         }
         if (institutionId) return query.eq('institution_id', institutionId);
+        return query;
+      };
+
+      // The item CATALOG is institution-scoped (ims_items is
+      // UNIQUE(institution_id, code)); store_id is only a creation stamp. Using
+      // applyFilter here would report "0 items" on any store that did not
+      // create the rows — i.e. every operating store fed by the warehouse.
+      const applyCatalogFilter = (query: any) => {
+        if (institutionId) return query.eq('institution_id', institutionId);
+        if (storeId) return query.eq('store_id', storeId);
         return query;
       };
 
@@ -170,7 +181,7 @@ export class ImsReportsService {
         expiringResult,
       ] = await Promise.all([
         // Total items
-        applyFilter(
+        applyCatalogFilter(
           this.supabase
             .from('ims_items')
             .select('id', { count: 'exact', head: true })

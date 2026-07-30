@@ -39,6 +39,17 @@ export interface ReceiptCancelRequest {
   decided_by: string | null;
   decided_at: string | null;
   decision_notes: string | null;
+  // Identity SNAPSHOTS taken at request/decision time. A profile can be
+  // renamed, have its email changed or be deactivated long after the fact, so
+  // the uuid alone cannot answer "who approved this" years later.
+  requested_by_name: string | null;
+  requested_by_email: string | null;
+  requested_by_role: string | null;
+  decided_by_name: string | null;
+  decided_by_email: string | null;
+  decided_by_role: string | null;
+  decided_by_designation: string | null;
+  decided_by_is_super_admin: boolean | null;
 }
 
 export interface ReceiptCancelAction {
@@ -47,6 +58,9 @@ export interface ReceiptCancelAction {
   action_type: 'requested' | 'approved' | 'declined' | 'withdrawn' | 'failed';
   actor_id: string | null;
   actor_role_name: string | null;
+  actor_name: string | null;
+  actor_email: string | null;
+  actor_is_super_admin: boolean | null;
   notes: string | null;
   created_at: string;
 }

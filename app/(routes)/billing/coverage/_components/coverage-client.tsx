@@ -22,6 +22,11 @@ export function CoverageClient() {
     institution_ids: null,
     lifecycle_statuses: [...LEARNER_SCOPE_DEFAULT],
     billing_category_id: null,
+    degree_id: null,
+    department_id: null,
+    program_id: null,
+    semester_id: null,
+    section_id: null,
     accommodation_type_ids: null,
     transport: 'any',
     gender: null,
@@ -40,7 +45,11 @@ export function CoverageClient() {
         summary={summaryQuery.data}
         isLoading={summaryQuery.isLoading}
       />
-      <CoverageFilterBar filters={filters} onChange={handleChange} />
+      <CoverageFilterBar
+        filters={filters}
+        onChange={handleChange}
+        canExport={canExport}
+      />
       <CoverageTable filters={filters} canExport={canExport} />
     </div>
   );

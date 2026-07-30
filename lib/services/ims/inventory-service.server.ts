@@ -4,6 +4,7 @@
 // Import this file ONLY from API routes / Server Actions — never from hooks or
 // client components, otherwise the build will fail with a next/headers error.
 
+import { createHash } from 'crypto';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   buildUnitDisplay,
@@ -15,6 +16,8 @@ import type {
   ParsedImportRow,
   ImsCategoryRow,
   ImsUnitRow,
+  ImsDestinationStoreRow,
+  ImsDistributionRow,
 } from '@/lib/services/ims/inventory-service';
 
 export class ImsInventoryServiceServer {
@@ -25,7 +28,11 @@ export class ImsInventoryServiceServer {
   static async getImportTemplateData(
     institutionId: string | null,
     storeId?: string | null
-  ): Promise<{ categories: ImsCategoryRow[]; units: ImsUnitRow[] }> {
+  ): Promise<{
+    categories: ImsCategoryRow[];
+    units: ImsUnitRow[];
+    destinationStores: ImsDestinationStoreRow[];
+  }> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const supabase = (await createServerSupabaseClient()) as any;
 
@@ -50,9 +57,33 @@ export class ImsInventoryServiceServer {
       throw new Error(`Failed to fetch units: ${unitError.message}`);
     }
 
+    // Stores the warehouse may forward to, for the Distribution sheet's
+    // dropdown. Generated per download from the institution's ACTUAL registered
+    // stores, so a typed-in or renamed store cannot reach the importer. The
+    // warehouse itself is excluded — it cannot send to itself, and
+    // ims_create_push_transfer rejects that anyway.
+    let destinationStores: ImsDestinationStoreRow[] = [];
+    if (institutionId) {
+      const { data: stores, error: storeError } = await supabase
+        .from('ims_stores')
+        .select('id, name, code, is_central_supply_store')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .order('name');
+
+      if (storeError) {
+        throw new Error(`Failed to fetch stores: ${storeError.message}`);
+      }
+
+      destinationStores = ((stores || []) as ImsDestinationStoreRow[]).filter(
+        (s) => !s.is_central_supply_store && s.id !== storeId
+      );
+    }
+
     return {
       categories: (categories || []) as ImsCategoryRow[],
       units: (units || []) as ImsUnitRow[],
+      destinationStores,
     };
   }
 
@@ -453,11 +484,23 @@ export class ImsInventoryServiceServer {
       const batchItems = stockItems.filter((item) => item.batch_number);
       if (batchItems.length > 0) {
         try {
+          // Local date, NOT UTC. entry_date is a sort key for FEFO, and
+          // toISOString() is UTC: for an IST user importing between midnight and
+          // 05:30 the UTC date is still yesterday, so the batch sorts ahead of
+          // stock that genuinely arrived earlier. en-CA renders as YYYY-MM-DD.
+          const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           const batches = batchItems.map((item) => ({
             item_id: insertedCodeMap.get(item.code.toUpperCase()),
             batch_number: item.batch_number,
             expiry_date: item.expiry_date || null,
             quantity: item.opening_stock,
+            // quantity_available and entry_date are NOT NULL with no default
+            // (20260519120000_add_batch_tracking_columns_to_ims_stock_batches.sql).
+            // Omitting them raised 23502 on every import, and because the error was
+            // only console.warn'd the UI still reported "Import Complete" with zero
+            // batch rows. See ImsStockService.addBatch for the reference payload.
+            quantity_available: item.opening_stock,
+            entry_date: todayIso,
             cost_price: item.cost_price,
             total_value: item.opening_stock * item.cost_price,
             grn_id: null,
@@ -470,10 +513,24 @@ export class ImsInventoryServiceServer {
             .from('ims_stock_batches')
             .insert(batches);
           if (batchError) {
-            console.warn('[ImsInventoryServiceServer] bulkImport stock batches insert failed:', batchError.message);
+            // Surface it. A silent batch failure leaves stock totals looking right
+            // while batch/expiry tracking is empty — the worst possible outcome.
+            console.error('[ImsInventoryServiceServer] bulkImport stock batches insert failed:', batchError.message);
+            allErrors.push({
+              row: 0,
+              field: 'batch_number',
+              message: `Items were imported, but batch/expiry rows could not be created: ${batchError.message}`,
+            });
           }
         } catch (e) {
-          console.warn('[ImsInventoryServiceServer] bulkImport stock batches insert threw:', e);
+          console.error('[ImsInventoryServiceServer] bulkImport stock batches insert threw:', e);
+          allErrors.push({
+            row: 0,
+            field: 'batch_number',
+            message: `Items were imported, but batch/expiry rows could not be created: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          });
         }
       }
     }
@@ -488,5 +545,215 @@ export class ImsInventoryServiceServer {
       errors: allErrors,
       duplicateCodes: duplicateCodes.length > 0 ? [...new Set(duplicateCodes)] : undefined,
     };
+  }
+
+  /**
+   * Replay the import file's optional "Distribution" sheet: forward part of what
+   * was just loaded into the warehouse on to the institution's operating stores.
+   *
+   * Runs AFTER bulkImport so a row can distribute stock the same upload just
+   * created via Opening Stock.
+   *
+   * This does NOT re-implement transfers. It resolves the sheet's text into ids
+   * and then calls ims_create_push_transfer — the same RPC the "Send to Store"
+   * button uses — once per destination store. So every file-driven distribution
+   * produces an ordinary approved request + dispatched shipment, with FEFO batch
+   * allocation, an ims_stock_movements audit row, and a receipt confirmation at
+   * the far end. One transfer per store, not one per line, so the destination
+   * confirms a single shipment rather than fifty.
+   */
+  static async distributeFromWarehouse(
+    rows: ImsDistributionRow[],
+    warehouseStoreId: string,
+    institutionId: string | null,
+    userId: string
+  ): Promise<{ errors: ImsImportError[]; dispatched: number; storesServed: number; skipped: number }> {
+    const errors: ImsImportError[] = [];
+    if (rows.length === 0) return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = (await createServerSupabaseClient()) as any;
+
+    // ── Resolve stores ────────────────────────────────────────────────────────
+    const { data: stores, error: storeErr } = await supabase
+      .from('ims_stores')
+      .select('id, name, code, is_central_supply_store')
+      .eq('institution_id', institutionId)
+      .eq('is_active', true);
+
+    if (storeErr) {
+      errors.push({ row: 0, field: 'store', message: `Could not read stores: ${storeErr.message}` });
+      return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
+    }
+
+    // Match on the code inside "Name (CODE)", falling back to a plain name or
+    // code so a hand-typed value still resolves when it is unambiguous.
+    const byCode = new Map<string, ImsDestinationStoreRow>();
+    const byName = new Map<string, ImsDestinationStoreRow>();
+    for (const s of (stores || []) as ImsDestinationStoreRow[]) {
+      byCode.set(s.code.trim().toLowerCase(), s);
+      byName.set(s.name.trim().toLowerCase(), s);
+    }
+
+    const resolveStore = (raw: string): ImsDestinationStoreRow | null => {
+      const text = raw.trim();
+      const bracketed = text.match(/\(([^)]*)\)\s*$/);
+      if (bracketed) {
+        const hit = byCode.get(bracketed[1].trim().toLowerCase());
+        if (hit) return hit;
+      }
+      return byCode.get(text.toLowerCase()) ?? byName.get(text.toLowerCase()) ?? null;
+    };
+
+    // ── Resolve item codes (institution-wide: the catalog is shared) ──────────
+    const { data: items, error: itemErr } = await supabase
+      .from('ims_items')
+      .select('id, code')
+      .eq('institution_id', institutionId);
+
+    if (itemErr) {
+      errors.push({ row: 0, field: 'item_code', message: `Could not read items: ${itemErr.message}` });
+      return { errors, dispatched: 0, storesServed: 0, skipped: 0 };
+    }
+
+    const itemByCode = new Map<string, string>();
+    for (const it of (items || []) as { id: string; code: string }[]) {
+      itemByCode.set(it.code.trim().toLowerCase(), it.id);
+    }
+
+    // ── Validate and group by destination store ──────────────────────────────
+    const grouped = new Map<string, { store: ImsDestinationStoreRow; lines: Map<string, number> }>();
+
+    for (const row of rows) {
+      const store = resolveStore(row.store_label);
+      if (!store) {
+        errors.push({
+          row: row.row_number,
+          field: 'store',
+          message: `Row ${row.row_number}: "${row.store_label}" is not a store in this institution. Pick one from the dropdown.`,
+        });
+        continue;
+      }
+
+      if (store.is_central_supply_store || store.id === warehouseStoreId) {
+        errors.push({
+          row: row.row_number,
+          field: 'store',
+          message: `Row ${row.row_number}: "${store.name}" is the warehouse — it is where stock comes FROM, so it cannot also be the destination.`,
+        });
+        continue;
+      }
+
+      const itemId = itemByCode.get(row.item_code.trim().toLowerCase());
+      if (!itemId) {
+        errors.push({
+          row: row.row_number,
+          field: 'item_code',
+          message: `Row ${row.row_number}: item code "${row.item_code}" is not on the Items sheet and does not already exist.`,
+        });
+        continue;
+      }
+
+      if (!(row.quantity > 0)) {
+        errors.push({
+          row: row.row_number,
+          field: 'quantity',
+          message: `Row ${row.row_number}: quantity must be greater than 0.`,
+        });
+        continue;
+      }
+
+      const bucket = grouped.get(store.id) ?? { store, lines: new Map<string, number>() };
+      // Same item listed twice for one store: add them up rather than sending
+      // two shipments or silently dropping one.
+      bucket.lines.set(itemId, (bucket.lines.get(itemId) ?? 0) + row.quantity);
+      grouped.set(store.id, bucket);
+    }
+
+    // ── Dispatch: one push transfer per destination store ────────────────────
+    //
+    // Re-uploading a file must not send the stock twice. There is no natural
+    // idempotency key, so derive one from the content that defines the transfer
+    // — warehouse, destination and the exact item/quantity set — and stamp it
+    // into the request's purpose. A repeat upload produces the same key and is
+    // skipped. The window is bounded to 24h because distributing the same
+    // quantities to the same store on a LATER day is a legitimate restock, not
+    // a duplicate; within one day it is almost always a double submit or a retry
+    // after one store in the file failed.
+    let dispatched = 0;
+    let storesServed = 0;
+    let skipped = 0;
+
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    for (const [destStoreId, bucket] of grouped) {
+      const lines = [...bucket.lines.entries()].map(([item_id, quantity]) => ({ item_id, quantity }));
+
+      const key = createHash('sha256')
+        .update(
+          [
+            warehouseStoreId,
+            destStoreId,
+            ...lines.map((l) => `${l.item_id}:${l.quantity}`).sort(),
+          ].join('|')
+        )
+        .digest('hex')
+        .slice(0, 12);
+
+      // Columns are INVERTED on ims_indent_requests: source_store_id is the
+      // RECEIVER and destination_store_id is the SUPPLYING warehouse.
+      const { data: priorPush, error: priorErr } = await supabase
+        .from('ims_indent_requests')
+        .select('indent_number')
+        .eq('initiation_mode', 'push')
+        .eq('destination_store_id', warehouseStoreId)
+        .eq('source_store_id', destStoreId)
+        .like('purpose', `%[${key}]%`)
+        .gte('created_at', since)
+        .limit(1);
+
+      // A failed lookup must not silently disable the guard, but it also must
+      // not block a legitimate distribution — dispatch and say what happened.
+      if (priorErr) {
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Could not check whether ${bucket.store.name} was already sent this exact list (${priorErr.message}). Sending anyway — check ${bucket.store.name} for a duplicate transfer.`,
+        });
+      } else if (priorPush && priorPush.length > 0) {
+        skipped += 1;
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Skipped ${bucket.store.name}: this exact list was already sent there in the last 24 hours as ${priorPush[0].indent_number}. Re-uploading does not send it again. If you really want to send more, change the quantities or wait 24 hours.`,
+        });
+        continue;
+      }
+
+      const { error: pushErr } = await supabase.rpc('ims_create_push_transfer', {
+        p_warehouse_store_id: warehouseStoreId,
+        p_dest_store_id: destStoreId,
+        p_actor: userId,
+        p_purpose: `Distributed from inventory upload [${key}]`,
+        p_lines: lines,
+        p_dispatch_now: true,
+      });
+
+      if (pushErr) {
+        // The RPC is transactional per store, so a failure here leaves THAT
+        // store's stock untouched. Other stores already sent are unaffected.
+        errors.push({
+          row: 0,
+          field: 'store',
+          message: `Could not send to ${bucket.store.name}: ${pushErr.message}. The other stores in this file were unaffected; fix and re-upload only the "${bucket.store.code}" rows.`,
+        });
+        continue;
+      }
+
+      dispatched += lines.length;
+      storesServed += 1;
+    }
+
+    return { errors, dispatched, storesServed, skipped };
   }
 }

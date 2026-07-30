@@ -127,7 +127,7 @@ export function IncomingRequestsView({ storeId }: IncomingRequestsViewProps) {
                   <div className="min-w-0">
                     <div className="font-medium text-sm">{s.shipment_no}</div>
                     <div className="text-xs text-muted-foreground">
-                      To: {s.destination_store?.name ?? s.destination_institution?.institution_name ?? '—'}
+                      To: {s.destination_store?.name ?? s.destination_institution?.name ?? '—'}
                     </div>
                   </div>
                   <Link href={`/ims/transfers/${s.request_id}`}>

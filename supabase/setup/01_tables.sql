@@ -6492,3 +6492,22 @@ ALTER TABLE public.billing_receipts_voided
 REVOKE ALL ON TABLE public.billing_receipt_cancel_requests FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.billing_receipt_cancel_request_actions FROM anon, PUBLIC;
 REVOKE ALL ON SEQUENCE public.billing_receipt_cancel_number_seq FROM anon, PUBLIC;
+
+-- Identity SNAPSHOTS for receipt cancellation (mig 20260729_receipt_cancellation_
+-- super_admin_only). decided_by/requested_by are uuids, and a profile can be
+-- renamed, re-emailed or deactivated long after the decision -- so name / email /
+-- role / super-admin flag are captured AT DECISION TIME and never updated.
+ALTER TABLE public.billing_receipt_cancel_requests
+  ADD COLUMN IF NOT EXISTS requested_by_name       text,
+  ADD COLUMN IF NOT EXISTS requested_by_email      text,
+  ADD COLUMN IF NOT EXISTS requested_by_role       text,
+  ADD COLUMN IF NOT EXISTS decided_by_name         text,
+  ADD COLUMN IF NOT EXISTS decided_by_email        text,
+  ADD COLUMN IF NOT EXISTS decided_by_role         text,
+  ADD COLUMN IF NOT EXISTS decided_by_designation  text,
+  ADD COLUMN IF NOT EXISTS decided_by_is_super_admin boolean;
+
+ALTER TABLE public.billing_receipt_cancel_request_actions
+  ADD COLUMN IF NOT EXISTS actor_name           text,
+  ADD COLUMN IF NOT EXISTS actor_email          text,
+  ADD COLUMN IF NOT EXISTS actor_is_super_admin boolean;

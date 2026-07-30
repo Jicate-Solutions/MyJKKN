@@ -15,6 +15,12 @@
  *      delete confirmation lists exactly what is attached, and when anything is
  *      attached the only action offered is "switch off" — which hides the board
  *      everywhere and can be undone.
+ *   3. Switching a board off is safe but not invisible in its effects: the board
+ *      disappears from every picker while everything filed against it stays,
+ *      including the people recorded as CURRENT holders of a role on it. So a
+ *      switch-off now reads what is attached (fresh, at that moment) and names
+ *      it before proceeding. It is a WARNING, not a block — the manager can go
+ *      ahead, nobody's role is ended, and switching back on restores the lot.
  *
  * Gating branches on the loading state FIRST so a manager never sees a
  * denied-looking flash while permissions resolve, and a denied user gets an
@@ -57,6 +63,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   ImprovementAreaService,
   dependentBreakdown,
+  describeDependants,
+  joinWithAnd,
+  type AreaDependants,
   type ManagedImprovementArea
 } from '@/lib/services/improvement/improvement-area-service';
 import { BoardFormDialog } from './board-form-dialog';
@@ -129,6 +138,13 @@ function ManageBoards() {
   const [editing, setEditing] = useState<ManagedImprovementArea | null>(null);
   const [confirmTarget, setConfirmTarget] =
     useState<ManagedImprovementArea | null>(null);
+  /** Set while a switch-off is waiting on the manager to read the warning. */
+  const [switchOffTarget, setSwitchOffTarget] = useState<{
+    area: ManagedImprovementArea;
+    dependants: AreaDependants;
+  } | null>(null);
+  /** The board whose attached work is being read right now. */
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const rows = await ImprovementAreaService.listForManagement();
@@ -180,7 +196,11 @@ function ManageBoards() {
 
   /* --- actions ----------------------------------------------------------- */
 
-  const handleToggleActive = async (
+  /**
+   * Actually flip the switch. Everything that reaches here has either nothing
+   * attached or an explicit confirmation behind it.
+   */
+  const applyToggleActive = async (
     area: ManagedImprovementArea,
     next: boolean
   ) => {
@@ -205,6 +225,44 @@ function ManageBoards() {
       await refresh();
     } finally {
       setBusyId(null);
+    }
+  };
+
+  /**
+   * The switch itself. Turning a board ON needs no warning — nothing is hidden
+   * by it. Turning one OFF reads what is attached FIRST (fresh from the server,
+   * not from the list loaded when the page opened) and, if anything is, names
+   * it and waits for the manager to confirm.
+   *
+   * If that read fails we stop rather than switch off blind: the whole point is
+   * that this never happens silently. The error is surfaced, never swallowed.
+   */
+  const handleToggleActive = async (
+    area: ManagedImprovementArea,
+    next: boolean
+  ) => {
+    if (busyId || checkingId) return;
+    if (next) {
+      await applyToggleActive(area, true);
+      return;
+    }
+
+    setCheckingId(area.id);
+    try {
+      const dependants = await ImprovementAreaService.fetchDependants(area.id);
+      if (dependants.dependent_count === 0) {
+        await applyToggleActive(area, false);
+        return;
+      }
+      setSwitchOffTarget({ area, dependants });
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : 'Failed to check what is attached to this board.'
+      );
+    } finally {
+      setCheckingId(null);
     }
   };
 
@@ -337,7 +395,7 @@ function ManageBoards() {
         <div className="space-y-2">
           {areas.map((area, index) => {
             const attached = dependentBreakdown(area);
-            const busy = busyId === area.id;
+            const busy = busyId === area.id || checkingId === area.id;
             const canDelete = !area.is_system && area.dependent_count === 0;
 
             return (
@@ -493,8 +551,10 @@ function ManageBoards() {
                         {blocked ? (
                           <>
                             <p>
-                              Work is already filed against this board, and
-                              deleting it would destroy that work permanently:
+                              Work is already filed against this board, so it
+                              cannot be deleted — deleting it would destroy that
+                              work, and the server refuses rather than allow
+                              that. What is attached:
                             </p>
                             <ul className="list-inside list-disc space-y-0.5">
                               {attached.map((d) => (
@@ -527,9 +587,15 @@ function ManageBoards() {
                         <AlertDialogAction
                           disabled={busyId === confirmTarget.id}
                           onClick={async () => {
+                            // Straight to the switch — this dialog has just
+                            // listed what is attached and the manager chose
+                            // switching off over deleting. Re-running the
+                            // switch-off warning here would ask the same
+                            // question twice, and stacking a second dialog on
+                            // a closing one is a Radix race.
                             const target = confirmTarget;
                             setConfirmTarget(null);
-                            await handleToggleActive(target, false);
+                            await applyToggleActive(target, false);
                           }}
                         >
                           <EyeOff className="mr-2 h-4 w-4" />
@@ -558,6 +624,84 @@ function ManageBoards() {
                         )}
                       </AlertDialogAction>
                     )}
+                  </AlertDialogFooter>
+                </>
+              );
+            })()}
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        Switch-off warning — a WARNING, not a block. It names what is attached
+        (read fresh a moment ago, role holders first) and says plainly that the
+        work is kept and the switch is reversible. Switching a board back ON
+        never opens this.
+      */}
+      <AlertDialog
+        open={!!switchOffTarget}
+        onOpenChange={(o) => {
+          if (!o) setSwitchOffTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          {switchOffTarget &&
+            (() => {
+              const { area, dependants } = switchOffTarget;
+              const attached = joinWithAnd(describeDependants(dependants));
+              const saving = busyId === area.id;
+              return (
+                <>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Switch &ldquo;{area.label}&rdquo; off?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-3">
+                        <p>
+                          {attached
+                            ? `This board has ${attached} attached to it.`
+                            : 'This board has work attached to it.'}
+                        </p>
+                        <p>
+                          Switching it off hides the board everywhere — it stops
+                          appearing in every picker and on the Improvement Board
+                          itself. Nothing is deleted: all of that work is kept,
+                          and everyone holding a role on this board stays
+                          recorded as its current holder.
+                        </p>
+                        <p>
+                          You can switch it back on at any time and the board
+                          returns exactly as it is now.
+                        </p>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={saving}>
+                      Keep it on
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={saving}
+                      onClick={async (e) => {
+                        // Hold the dialog open until the switch has actually
+                        // been saved, so a slow call can't look like a no-op.
+                        e.preventDefault();
+                        await applyToggleActive(area, false);
+                        setSwitchOffTarget(null);
+                      }}
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Switching off…
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff className="mr-2 h-4 w-4" />
+                          Switch it off
+                        </>
+                      )}
+                    </AlertDialogAction>
                   </AlertDialogFooter>
                 </>
               );

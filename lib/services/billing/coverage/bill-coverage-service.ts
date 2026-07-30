@@ -2,7 +2,8 @@ import { BaseService } from '@/lib/services/base-service';
 import type {
   BillCoverageFilters,
   BillCoverageRow,
-  BillCoverageSummary
+  BillCoverageSummary,
+  CoverageLearnerBillRow
 } from '@/types/billing-coverage';
 import { LEARNER_SCOPE_DEFAULT } from '@/types/billing-coverage';
 
@@ -64,7 +65,73 @@ export class BillCoverageService extends BaseService {
       // Transport is a separate dimension from accommodation — the two compose.
       p_transport: filters.transport ?? 'any',
       // null = any gender. GENDER_UNSET selects learners with a blank gender.
-      p_gender: filters.gender ?? null
+      p_gender: filters.gender ?? null,
+      // Academic hierarchy. Set here in baseParams, which feeds BOTH the summary
+      // and the learners query — putting them only on the learners call would
+      // leave the KPI cards counting a wider population than the table shows.
+      // `??` not `||`: '' would flow through as a real uuid parameter and match
+      // zero rows.
+      p_degree_id: filters.degree_id ?? null,
+      p_department_id: filters.department_id ?? null,
+      p_program_id: filters.program_id ?? null,
+      p_semester_id: filters.semester_id ?? null,
+      p_section_id: filters.section_id ?? null
+    };
+  }
+
+  /**
+   * Per-learner, per-bill detail for the PDF export.
+   *
+   * Deliberately NOT paginated the way the table is: the PDF covers the whole
+   * filtered set, capped server-side (default 1,000 learners, hard max 5,000) so
+   * a broad filter cannot try to render tens of thousands of learners. Callers
+   * should tell the user when the cap bites — `learnerCount` is the true total
+   * BEFORE the cap, so `learnerCount > returned learners` means truncation.
+   */
+  static async getLearnerBills(
+    filters: BillCoverageFilters = {},
+    maxLearners = 1000
+  ): Promise<{ rows: CoverageLearnerBillRow[]; learnerCount: number }> {
+    const raw = await this.executeDashboardRPC<Array<Record<string, any>>>(
+      'get_billing_coverage_learner_bills',
+      {
+        ...this.baseParams(filters),
+        // The detail RPC has no p_sort_by/p_page; it orders by institution →
+        // roll number → due date so the document reads in a stable order.
+        p_coverage_state: filters.coverage_state ?? 'all',
+        p_search: filters.search ?? null,
+        p_max_learners: maxLearners
+      }
+    );
+
+    const list = raw ?? [];
+    const rows: CoverageLearnerBillRow[] = list.map((r) => ({
+      learner_id: r.out_learner_id,
+      roll_number: r.out_roll_number,
+      register_number: r.out_register_number,
+      full_name: r.out_full_name,
+      institution_name: r.out_institution_name,
+      program_name: r.out_program_name,
+      semester_section: r.out_semester_section,
+      lifecycle_status: r.out_lifecycle_status,
+      learner_total: Number(r.out_learner_total ?? 0),
+      learner_paid: Number(r.out_learner_paid ?? 0),
+      learner_pending: Number(r.out_learner_pending ?? 0),
+      bill_id: r.out_bill_id,
+      bill_description: r.out_bill_description,
+      category_name: r.out_category_name,
+      bill_academic_year: r.out_bill_academic_year,
+      due_date: r.out_due_date,
+      bill_status: r.out_bill_status,
+      total_amount: r.out_total_amount == null ? null : Number(r.out_total_amount),
+      paid_amount: r.out_paid_amount == null ? null : Number(r.out_paid_amount),
+      pending_amount:
+        r.out_pending_amount == null ? null : Number(r.out_pending_amount)
+    }));
+
+    return {
+      rows,
+      learnerCount: Number(list[0]?.out_learner_count ?? 0)
     };
   }
 
