@@ -20,7 +20,7 @@
 --     pde_learner_capabilities.demonstration_evidence ->> 'submission_id'
 --   So this migration needs no change to any route. It owns migrations only.
 --
--- TWO DIFFERENT MECHANISMS, because the two children have different cardinality
+-- TWO DIFFERENT MECHANISMS, because the two dependent tables differ in cardinality
 --
 --   1. pde_engagement_events — GENUINE FK + ON DELETE CASCADE (the preference)
 --      One event row per completed attempt: a true child. A real declarative FK
